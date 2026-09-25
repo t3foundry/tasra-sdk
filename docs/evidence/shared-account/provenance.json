@@ -1,0 +1,15 @@
+{
+  "checkedAt": "2026-09-25T10:01:39.282Z",
+  "node": "v24.15.0",
+  "sdk": "0.2.2",
+  "viem": "2.56.8",
+  "tsx": "4.23.13",
+  "sourceCommit": "ea7121a26089b5131ec87387ad34ee143a343c98",
+  "sourceDirty": true,
+  "packageSha256": "fcf72d510a93c910810da36a5c99c130ff7d4be65fbbda539a83b978b494f2b3",
+  "exampleSha256": "3125a231bbb9b01d64b85e3d5467f3253bc6e49b5c713ff3a43ca956bde2bf81",
+  "sourceFiles": {
+    "src/committee/ecdsa.ts": "f924303fd97baefe10d3a20a6e293b420a67364b49dbc54d7b94e211be9fdafe",
+    "test/docs-live.ts": "f3429ffc5ea1c0a070238db162cd1436ef4d6f778d0962f507e36007ecffac49"
+  }
+}

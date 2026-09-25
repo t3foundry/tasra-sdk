@@ -2,6 +2,52 @@
 
 > The chain subpath: reads, writes, slot creation, discovery, and the slot-driven clients.
 
+Start with the [local quickstart](getting-started.md) for a complete file, or the
+[Fuji guide](fuji.md) to load a pinned manifest from `tasra-releases`.
+
+## Create a read client
+
+```ts
+import {createTasraChainClient} from 'tasra-sdk/chain'
+
+// rpcUrl, chainId and addresses come from your deployment configuration.
+const chain = createTasraChainClient({rpcUrl, chainId, addresses})
+const block = await chain.client.getBlockNumber()
+const slot = await chain.readers.keyRegistry.getKeySlot(slotId)
+```
+
+| Parameter | Required? | Source / meaning |
+|---|---|---|
+| `rpcUrl` | Yes | Deployment's JSON-RPC endpoint. |
+| `addresses` | Yes | `addressBookFromManifest(manifest)` for published deployments, or explicit local configuration. Include the contracts your reads use. |
+| `chainId` | Pass explicitly | Deployment chain ID. The constructor does not query the RPC to verify it. |
+| `logWindow` | No | Maximum block range per `getLogs` query; defaults to 2,000. |
+| `multicall3` | No | Auto-detected by default; pass an address or `false` to disable batching. |
+
+**Returns:** a `TasraChainClient`. Use `client` for underlying viem calls and `readers`
+for typed Tasra contract calls. Creating the client performs no network request;
+individual reads can fail if the RPC is unreachable or a contract address is wrong.
+Compare `await chain.client.getChainId()` with your configured ID before use.
+
+## Verify a deployment
+
+After loading `manifest` and `rpcUrl` as in the [Fuji guide](fuji.md):
+
+```ts
+import {observeNetworkManifest} from 'tasra-sdk/chain'
+
+const observation = await observeNetworkManifest(manifest, rpcUrl)
+if (!observation.matches) throw new Error('Deployed contract code differs from the manifest')
+console.log(observation.blockNumber)
+```
+
+This checks chain identity, the manifest's recorded block, contract bytecode, and proxy
+implementations at a finalized block. **Inspect `matches`**: mismatched code is reported
+in the result. RPC errors or a chain mismatch can throw. Passing this check does not
+verify credentials, service versions, access policy, or successful signing/decryption.
+
+## Available chain APIs
+
 A separate subpath export (so the crypto core stays lean and `viem` is only
 loaded when you need it):
 

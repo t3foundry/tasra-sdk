@@ -64,49 +64,42 @@ slot's group key stays empty for roughly 30–40 s after creation where a `bls` 
 
 ## Threshold ECDSA under the production posture
 
-When the keepers refuse the JWT route, the authorization has to be a compound token
-from the verifier agent — exactly as for `sign` and `ibe-extract`
-(`tasra-oid4vp-wallet-and-verifier-agent`). The keeper exposes
-**`POST /v1/committee/sign/eoa-digest`** for it, and **neither the SDK nor
-tasra-cli wraps that route**, so call it with `fetch`:
+Use `committeeSignEoaDigest` from `tasra-sdk/committee` for
+`POST /v1/committee/sign/eoa-digest`. It is an unreleased addition; install the
+packed current SDK checkout, not registry version 0.2.2. The current SDK/service
+version is not deployed on Fuji. Check `docs/compatibility.md`.
 
 ```ts
-import {keccak256, serializeTransaction, hexToBytes} from 'viem'
-import {privateKeyToAccount} from 'viem/accounts'
-import {openVerifierAgentSession, awaitVerifierAgentResult, presentToRequestUri, ed25519HolderKey} from 'tasra-sdk/oid4vp'
+import {keccak256, serializeTransaction, hexToBytes, toHex} from 'viem'
+import {committeeSignEoaDigest} from 'tasra-sdk/committee'
+import {openVerifierAgentSession, awaitVerifierAgentResult, presentToRequestUri} from 'tasra-sdk/oid4vp'
 
-const digest = keccak256(serializeTransaction(tx))     // the ONLY thing the network sees
-
-// 'sign' binds sha256(message), and the handler recomputes sha256(digest) — so the
-// message IS the 32-byte digest. Do not pass the transaction.
+const digest = keccak256(serializeTransaction(tx))
 const session = await openVerifierAgentSession({
-  verifierAgentUrl, chainId, keyRegistry, slotId,
-  action: 'sign',
-  message: hexToBytes(digest),
-  description: 'Spend 0.5 AVAX from the treasury account',
-  signer: privateKeyToAccount(slotCreatorKey),          // the SLOT CREATOR signs the operation
+  verifierAgentUrl, chainId, keyRegistry, slotId, signer: creatorAccount,
+  action: 'sign', message: hexToBytes(digest), description: 'Treasury transaction',
 })
-const resultP = awaitVerifierAgentResult(session, {timeoutMs: 120_000})
-await presentToRequestUri(session.qrPayload, [{sdJwt: credential}], ed25519HolderKey(holderSeed))
-const {token, verifierProofs} = await resultP
-
-const res = await fetch(`${nodeUrl}/v1/committee/sign/eoa-digest`, {
-  method: 'POST', headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({
-    committee_token: token,                             // the CompoundTokenWire object as-is
-    digest,                                             // 0x-hex, 32 bytes
-    verifier_proofs: (verifierProofs ?? []).map(p => ({  // snake_case on the wire
-      verifier_index: p.verifierIndex, operator: p.operator, pubkey: p.pubkey, proof: p.proof,
-    })),
-  }),
+await presentToRequestUri(session.qrPayload, [{sdJwt: credential}], holder)
+const {token, verifierProofs} = await awaitVerifierAgentResult(session)
+const signature = await committeeSignEoaDigest({
+  nodeUrl: coordinatorUrl, committeeToken: token, verifierProofs, digest: hexToBytes(digest),
 })
-// → {group_public_key, mode, signature_r, signature_s, recovery_id}
-const {signature_r: r, signature_s: sHex, recovery_id} = await res.json()
-const signed = serializeTransaction(tx, {r, s: sHex, yParity: recovery_id})
+const signed = serializeTransaction(tx, {
+  r: toHex(signature.r), s: toHex(signature.s), yParity: signature.yParity,
+})
 ```
 
-Try the slot's keepers in turn: one outside the chosen signing set refuses while
-another serves.
+The session's message is the 32-byte transaction digest. Its binding hashes those
+bytes with SHA-256; the ECDSA ceremony signs the original digest. Do not substitute
+a serialized transaction or a second Ethereum hash. The wire response uses
+`signature_v`, not `recovery_id`; the SDK converts it to `yParity` and rejects
+P-256 replies. Verify recovered sender before broadcasting.
+
+Select a keeper in the active signing subset. On the documented local fleet this
+is the k lowest **on-chain operator IDs** among the slot's assigned members; the
+registry draw order is different. `examples/shared-account.ts` demonstrates the
+selection and a real Alice/Bob transaction with verifier-side Mallory refusal.
+Do not treat arbitrary HTTP 400s as permission to retry on another keeper.
 
 **Who may spend is the slot's DCQL rule, and it can admit several people.** Give the
 rule a `values` list and each holder presents their own credential, independently —
@@ -118,8 +111,10 @@ no coordination, no shared key material:
             {"path":["sub"],"values":["did:demo:alice","did:demo:bob"]}]}]}
 ```
 
-A holder outside that list is refused **by their own wallet**, before anything is
-sent: `no held credential answers: signer`.
+A normal wallet filters out nonmatching credentials locally. To prove server-side
+authorization, the negative test in `examples/shared-account.ts` deliberately sends
+Mallory's presentation with the lower-level wallet APIs and checks the verifier's
+explicit policy refusal; it does not count a timeout or wallet filter as that proof.
 
 ⚠ **Dual control and tECDSA do not compose.** `KeyRegistry`'s dual-control policy
 (the CLI's `slot dual-control` / `dual-approve`; the SDK write client exposes

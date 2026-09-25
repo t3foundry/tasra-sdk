@@ -17,6 +17,18 @@ operation; exportable sessions can reconstruct and cache the master key locally.
 A DCQL rule controls credential-based access. Revoking access cannot revoke a
 master key that an exportable session has already obtained.
 
+## First complete application
+
+For a concrete SDK-only example, start with `docs/shared-account.md` and
+`examples/shared-account.ts`: create a fresh tECDSA slot, provision its rule with
+the creator's signature, let Alice and Bob transact, and prove Mallory is refused
+by the verifier. It needs a running compatible local fleet; it creates its own
+application identities and credentials and never invokes the CLI. The new
+committee ECDSA helper requires a packed current checkout. Do not assume it exists
+in published npm 0.2.2. Read `docs/compatibility.md` before choosing a deployment.
+The current SDK/service version is not deployed on Fuji; manifest/contract reads
+there are not evidence of current signing compatibility.
+
 ## Which deployment are you on?
 
 The SDK does not ship or host a network. The canonical deployment records are in

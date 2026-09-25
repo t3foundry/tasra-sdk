@@ -2,6 +2,8 @@
 
 > Installing, the optional viem peer, module format, and runtime support.
 
+New to Tasra? Follow the [TypeScript quickstart](getting-started.md) first.
+
 ```sh
 npm install tasra-sdk
 ```
@@ -85,6 +87,32 @@ const sdk = await import('tasra-sdk')   // works on any Node that supports ESM
   the admin scope among them — and `nodeApi.info()` in `tasra-sdk/chain`
   reports which are on.
 - **Pre-1.0 versioning**: a minor bump may change the API, a patch never does.
+
+The current SDK/service version is not deployed on Fuji. Use a compatible local
+fleet to test current live operations. The [Fuji guide](fuji.md) covers public
+deployment discovery and contract reads only.
+
+## Test an unpublished SDK
+
+From your `tasra-sdk` checkout, install dependencies and create the package:
+
+```sh
+npm ci
+npm pack
+```
+
+`npm ci` runs the package's build through `prepare`. `npm pack` prints the generated
+tarball filename. In your application directory, install that file instead of the
+registry package (replace the path with your checkout's location):
+
+```sh
+npm install /path/to/tasra-sdk/tasra-sdk-0.2.2.tgz viem@2
+npm install --save-dev tsx
+```
+
+This includes the checkout's current examples and docs. The package version alone
+does not distinguish unpublished edits from the published version; record the
+checkout commit and whether it has uncommitted changes with your test results.
 
 ---
 

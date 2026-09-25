@@ -1,4 +1,6 @@
 // compound committee authorization — token crypto + HTTP orchestration.
+export {committeeSignEoaDigest} from './ecdsa.js'
+export type {CommitteeEoaSignOpts} from './ecdsa.js'
 export {
   selectVerifierCommittee,
   compoundTokenCanonicalBytes,

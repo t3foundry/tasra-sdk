@@ -1,5 +1,12 @@
 # Prerequisites
 
+For a first read-only app, use the [quickstart](getting-started.md). This page lists
+the additional configuration needed to create slots and authorize live operations.
+
+**Current development uses a compatible local fleet.** The current SDK/service
+version is not deployed on Fuji. The presence of an active Fuji manifest does not
+establish compatibility with current signing or credential flows.
+
 ## Public testnet status
 
 Canonical deployment records are published in
@@ -13,7 +20,7 @@ and checksum with the application. Network records are updated by commit, separa
 from the CLI binary release assets.
 
 Use `parsePinnedNetworkManifest` and `addressBookFromManifest`; the complete
-bootstrap is in [tasra-chain](../skills/tasra-chain/SKILL.md#public-deployment-manifest).
+bootstrap is in the [Fuji guide](fuji.md).
 Use `NETWORKS.testnet.rpcUrl` for the public RPC or supply your own Fuji RPC.
 The manifest publishes verifier-agent, relayer and explorer URLs in `services[]`;
 keeper and verifier URLs are discovered from chain. Do not invent missing endpoints.
@@ -71,11 +78,15 @@ The first command verifies a threshold encrypt/decrypt round trip. The second ve
 a threshold FROST signature. Missing inputs fail nonzero. Neither creates a network,
 mints credentials, nor substitutes mock authorization.
 
-## Operator setup
+<a id="operator-setup"></a>
+
+## Slot creation and provisioning
 
 `examples/provision-slot.ts` creates a dedicated slot, persists recovery inputs before
 submitting transactions, waits for DKG, and provisions the committed rule on keepers.
-It selects commit/reveal when the registry requires it.
+It selects commit/reveal when the registry requires it. Rule provisioning uses
+`provisionRule` with the creator's own key; no admin JWT is required on compatible
+fleets. For a complete tECDSA app, use the [shared-account tutorial](shared-account.md).
 
 In addition to manifest/RPC configuration, provide:
 
@@ -84,7 +95,6 @@ In addition to manifest/RPC configuration, provide:
 | `KK_CREATOR_KEY_FILE` | Private file containing a funded EVM key as 0x-prefixed hex |
 | `KK_RULE_FILE` | Exact rule to commit and provision |
 | `KK_SLOT_OUTPUT` | New recovery-record path; existing files are never overwritten |
-| `KK_ADMIN_JWT` | Short-lived keeper admin JWT for rule provisioning |
 | `KK_K`, `KK_N` | Threshold and keeper count |
 | `KK_SLOT_MODE` | `bls` for encryption or `frost` for signing |
 | `KK_CUSTODY` | `threshold`, or explicitly `exportable` for a personal BLS vault |

@@ -1,6 +1,40 @@
-# What's exported (main entry)
+# API reference
 
-> The exported surface, grouped by what it is for — including IBE, OpenID4VP and the committee path.
+
+Start with the [shared-account tutorial](shared-account.md) for a complete app.
+The [generated reference](reference/README.md) covers public signatures, option
+fields, return types, and source comments across all six package entry points. This page maps
+imports to tasks; [chain](chain.md), [signing](signing.md), and [errors](errors.md)
+provide operation details. Code fragments below assume their named inputs already exist.
+
+## Choose a client
+
+| Factory | Import | Use it for | Requires |
+|---|---|---|---|
+| `createTasraChainClient` | `tasra-sdk/chain` | Read contracts and discover the network | RPC, chain ID, deployment addresses |
+| `createTasraWriteClient` | `tasra-sdk/chain` | Create slots, fund them, change on-chain state | Deployment configuration and funded transaction signer |
+| `createCommitteeSlotClient` | `tasra-sdk/chain` | Credential-gated threshold encryption/decryption and FROST signing | Chain client, slot, holder, credentials and verifier proofs |
+| `createTasraSlotClient` | `tasra-sdk/chain` | Chain-discovered managed sessions | Chain client, identity and session authentication |
+| `createTasraClient` | `tasra-sdk` | Managed sessions with explicit endpoints | Keeper URLs and session authentication; verifier for credential redemption |
+
+Managed-session local decryption requires an **exportable** BLS slot. Threshold
+custody uses the committee client; it does not export the master key.
+For Ethereum signatures, see [`signEoaDigest`](signing.md), not committee FROST signing.
+
+## Common results
+
+| Call | Returns | Related guide |
+|---|---|---|
+| `parsePinnedNetworkManifest(text, sha256)` | Validated `NetworkManifest`; throws on checksum or schema mismatch | [Fuji configuration](fuji.md) |
+| `createTasraChainClient(config)` | `TasraChainClient` with `client` and typed `readers` | [Chain reference](chain.md#create-a-read-client) |
+| `chain.readers.keyRegistry.getKeySlot(slotId)` | Promise of slot state, including `exists`, `mode`, `publicKey`, `epoch`, `cancelled` | [Address lookup](signing.md#get-the-ethereum-address) |
+| `addressFromEoaPubkey(pubkey)` | EIP-55 checksummed Ethereum address | [Address lookup](signing.md#get-the-ethereum-address) |
+| `committeeSignEoaDigest(options)` | Promise of `{groupPublicKey, r, s, yParity}` using request-bound authorization | [Complete tutorial](shared-account.md) |
+| `signEoaDigest(options)` | Promise of `{groupPublicKey, r, s, yParity}` | [Signing](signing.md) |
+| `client.openSession(slotId, auth)` | Promise of a managed `Session` | [Exportable vault](encryption.md#if-you-want-an-exportable-personal-vault) |
+
+## Main entry exports
+
 
 | Group | Symbols |
 |---|---|

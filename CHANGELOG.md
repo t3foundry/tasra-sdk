@@ -7,6 +7,19 @@ never does.
 
 ## [Unreleased]
 
+### Added
+
+- `committeeSignEoaDigest` in `tasra-sdk/committee` for request-bound threshold
+  Ethereum signing with verifier-agent compound tokens and membership proofs.
+- SDK-only shared-account example that creates and provisions a local tECDSA slot,
+  confirms Alice/Bob transactions, and verifies Mallory's server-side denial.
+- Generated API reference, automatic documentation checks, fresh-install local-fleet
+  acceptance command, and explicit SDK/deployment compatibility records.
+
+### Changed
+
+- The slot-provisioning example uses the creator's signature instead of an admin JWT.
+
 ### Fixed
 
 - Point skills and onboarding docs to the published Fuji deployment pointer,

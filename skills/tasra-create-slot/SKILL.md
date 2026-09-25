@@ -327,36 +327,33 @@ same durability guarantees as the rest of that user's account state.
 
 ## Provision the rule (required before any session)
 
-After DKG and before anything can open a session, the clear rule goes to the
-keepers and the first credential is minted. Both are operator-gated:
+Use creator-signed provisioning on compatible fleets. The SDK already exposes
+`provisionRule`; do not request an operator JWT or issuer signing seed for this step.
+Persist the slot ID, rule salt and clear rule before submitting creation.
 
-- Rule provisioning is `POST {node}/v1/keys/{slotId}/rule` with body
-  `{dcql_rule, dcql_salt}` and `Authorization: Bearer <admin JWT>`, sent to
-  every keeper. **The admin JWT does not decide the rule.** The keeper recomputes the
-  salted commitment over `{dcql_rule, dcql_salt}` and compares it with the `ruleCommitment`
-  your `createSlot` wrote on chain; a mismatch is refused with `dcql_rule does not match
-  the slot's on-chain commitment`. The only rule any keeper accepts is the exact preimage
-  the creator committed, so provisioning is delivery of a rule already fixed at creation,
-  not a second chance to choose one — and an operator cannot substitute a policy of their
-  own. The clear rule stays off-chain on purpose (the commitment is salted so the
-  low-entropy grammar cannot be guessed from it), which is why this step exists at all. The SDK has no helper for it; the nodes cannot evaluate access
-  until it is done. The admin JWT is an EdDSA JWT the operator's signing key
-  produces — the deployment's JWT signing seed (32 bytes; env `KK_JWT_SIGNING_KEY`),
-  header `{"alg":"EdDSA","typ":"JWT"}`, claims `{sub, iss, aud, iat, exp, scope: ["admin"]}`
-  with the `iss`/`aud` the nodes are configured for (demo fleet:
-  `your-verifier-iss` / `your-node-aud`), signature
-  `ed25519.sign(utf8(base64url(header) + "." + base64url(claims)), seed)` from
-  `@noble/curves/ed25519`. `sub` is free-form (`admin` does); keep `exp` short,
-  minutes rather than hours. If `KK_ADMIN_JWT` is already set and unexpired, use
-  it and mint nothing. A 2xx from
-  every keeper means the rule is live; 401/403 means the JWT lacks the admin
-  scope or has the wrong issuer/audience. Send it to every keeper and count the
-  2xxs: `k` keepers that are both keyed and provisioned can serve the slot, but a
-  keeper that never got the rule cannot answer a request routed to it. `{slotId}` in that path is the 0x-hex
-  string `createSlot` returned, exactly as `fetchMpk` uses it. The signing seed
-  in `KK_JWT_SIGNING_KEY` is 32 bytes as hex, with or without the `0x` prefix.
-- The first credential comes from `issueAdminCredential(verifier, adminSecret, {scopes, slotIds})`
-  or from a credential issuer (see `tasra-credentials-and-sessions`).
+```ts
+import {provisionRule} from 'tasra-sdk/chain'
+
+await provisionRule(chain, {
+  slotId, dcqlRule, ruleSalt,
+  signer: creatorAccount, // viem account that created the slot
+})
+```
+
+The helper discovers the assigned keepers, signs the salted rule commitment using
+EIP-712, and calls `/v1/keys/:slot/rule/by-creator`. It throws if any keeper fails;
+keep recovery inputs and diagnose the reported per-keeper results. The keeper accepts
+only a rule matching the on-chain commitment. For local Docker networks, the optional
+`keeperUrls` list can translate the discovered endpoints to reachable host ports.
+
+For the complete local SDK-only flow, use `docs/shared-account.md` and
+`examples/shared-account.ts`. It generates a development issuer and pins that issuer
+in the new slot's rule, then issues separate holder-bound credentials for Alice,
+Bob and Mallory. This needs no pre-existing issuer secret. For an existing slot,
+obtain a credential from an issuer its rule already accepts.
+
+An older fleet without `/rule/by-creator` requires its deployment's documented
+provisioning route or an upgrade. Do not silently fall back to requesting admin keys.
 
 ## Amending a slot's rule
 

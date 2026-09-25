@@ -15,6 +15,15 @@ trying to build something *with* it, start at the [README](README.md) and
 
 ## Getting set up
 
+For documentation changes, follow the [SDK documentation guidelines](docs/documentation.md).
+Keep tutorial code runnable and record the environment and scope of live checks.
+
+`npm run docs:reference` regenerates the public API reference from TypeScript.
+`npm run verify:docs` fails on stale reference output, broken local links/anchors,
+or divergent tutorial code. CI runs it alongside the package checks.
+`npm run test:docs:live` separately installs a packed SDK in a fresh app and executes
+the [shared-account walkthrough](docs/shared-account.md) on a compatible local fleet.
+
 ```sh
 git clone https://github.com/t3-foundry/tasra-sdk.git
 cd tasra-sdk

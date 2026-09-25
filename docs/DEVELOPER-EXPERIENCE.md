@@ -1,5 +1,10 @@
 # Developer experience: a live deployment + the released CLI + this SDK
 
+For an application tutorial, start with the [shared-account tutorial](shared-account.md).
+This page describes deployment responsibilities and acceptance requirements.
+The current SDK/service version is not deployed on Fuji; use a compatible local
+fleet for current live testing.
+
 **Fuji deployment records are published** in
 [tasra-releases](https://github.com/t3-foundry/tasra-releases):
 `networks/testnet/current.json` points to `deployments/tasra-fuji-v1.json` and its
@@ -8,9 +13,10 @@ checksum. Pin both to the same reviewed repository commit; see
 Live acceptance still requires actual credentials, provisioned slots and separate
 baseline/revocation evidence; the manifest alone does not establish those outcomes.
 
-The developer journey uses a live deployment, the separately released `tasra-cli`, and
-the published SDK. No sandbox broker, synthetic network, test issuer or locally
-generated network shares belong in the acceptance path.
+Public-deployment acceptance uses that deployment's services, accepted issuer, and
+compatible CLI/SDK versions. Local development uses a running local fleet and can
+use development credentials. Record which environment was tested; a local result
+does not certify public-deployment compatibility.
 
 ## Who owns what
 
@@ -24,7 +30,7 @@ generated network shares belong in the acceptance path.
 The deployment handoff must link CLI archives for Linux x86_64/aarch64, macOS aarch64 and
 Windows x86_64, each with `SHA256SUMS` and a signature bundle.
 
-## First successful run
+## Public-deployment acceptance procedure
 
 1. Download the pinned CLI binary and verify it against the release checksum.
 2. Install the SDK:
@@ -72,10 +78,9 @@ The SDK and the CLI are self-service; three things are not, and they gate steps 
 - **The first credential.** Issuing one needs issuer access, so the operator either
   issues it to your holder DID or enrolls you as an issuer. Everything after that —
   presenting, renewing, revoking — is yours.
-- **A slot's clear DCQL rule.** Creating a slot is permissionless, but provisioning its
-  rule to the keepers is an operator action. Until it lands, operations on that slot are
-  refused with "rule not provisioned", which reads like a broken keeper rather than
-  incomplete setup.
+- **A slot's clear DCQL rule.** The creator can use `provisionRule` with its own
+  signature on compatible fleets. No operator secret is needed. Keep the rule and salt
+  before creation; until provisioning completes, keepers refuse operations.
 
 One CLI gap worth knowing before you plan an evaluation: the released binary has
 `slot protect`, `keys provision-rule`, `keys verify-cluster`, the `tasra` operations and

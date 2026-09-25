@@ -51,7 +51,7 @@
 
 ---
 
-Next: [which client do I want?](../README.md#which-client-do-i-want) ·
+Next: [choose a client](api.md#choose-a-client) ·
 [the full API surface](api.md) · [prerequisites](prerequisites.md)
 
 ---
