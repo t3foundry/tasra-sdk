@@ -15,7 +15,7 @@ await assert.rejects(()=>authorizeWallet(cfg,slot.slotId,slot.creatorKey,{action
   error=>error instanceof VerifierAgentSessionError && error.kind==='refused')
 s.ok('expired issuer-signed credential rejected by the verifiers',true)
 const grant=await authorizeWallet(cfg,slot.slotId,slot.creatorKey,{action:'sign',message})
-await committeeSign({nodeUrl:slot.committee[0]!,committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,message})
+await committeeSign({nodeUrl:slot.committee[0]!,committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,message})
 s.ok('fresh credential presentation restores the operation',true)
 for (const path of ['renewals','renewals/redeem','renewals/revoke']) {
   const response=await fetch(`${cfg.verifierUrls[0]}/v1/${path}`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})

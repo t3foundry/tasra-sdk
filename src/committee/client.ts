@@ -402,6 +402,9 @@ export interface CommitteeSignOpts {
   clientPubkey?: Uint8Array
   /** Client signature over the slot and compound token binding. */
   clientSignature?: Uint8Array
+  /** ADR-0076: the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
+   *  posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`. */
+  evidenceCt?: string
 }
 
 /**
@@ -412,6 +415,7 @@ export interface CommitteeSignOpts {
 export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignResult> {
   const body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
+    ...(opts.evidenceCt !== undefined ? {evidence_ct: opts.evidenceCt} : {}),
     message_hex: bareHex(opts.message),
   }
   if (opts.signingSet) body.signing_set = opts.signingSet
@@ -478,6 +482,9 @@ export interface CommitteeDecryptOpts {
   clientPubkey?: Uint8Array
   /** Client signature over the slot and compound token binding. */
   clientSignature?: Uint8Array
+  /** ADR-0076: the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
+   *  posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`. */
+  evidenceCt?: string
 }
 
 /**
@@ -488,6 +495,7 @@ export interface CommitteeDecryptOpts {
 export async function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint8Array> {
   const body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
+    ...(opts.evidenceCt !== undefined ? {evidence_ct: opts.evidenceCt} : {}),
     ciphertext: ctToWire(opts.ciphertext),
     identity: new TextDecoder().decode(opts.identity),
     decrypting_set: opts.decryptingSet,
@@ -556,11 +564,15 @@ export interface IbeExtractOpts {
   clientPubkey?: Uint8Array
   /** Client signature over the slot and compound token binding. */
   clientSignature?: Uint8Array
+  /** ADR-0076: the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
+   *  posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`. */
+  evidenceCt?: string
 }
 
 async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<IbeExtractionPartial> {
   const body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
+    ...(opts.evidenceCt !== undefined ? {evidence_ct: opts.evidenceCt} : {}),
     identity: opts.identity,
   }
   if (opts.userSignature) body.user_signature = bareHex(opts.userSignature)

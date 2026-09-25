@@ -20,6 +20,8 @@ export {
   verifyCompoundToken,
   assembleCompoundToken,
   decodeCompoundToken,
+  evidenceBindingMessage,
+  verifyEvidenceBinding,
 } from './token.js'
 export type {
   TokenType,
@@ -30,6 +32,7 @@ export type {
   VerifyCompoundTokenOptions,
   CompoundTokenWire,
   CommitteeSignatureWire,
+  VerifyEvidenceBindingOptions,
 } from './token.js'
 export {
   committeeAuthorize,
@@ -73,5 +76,13 @@ export type {IbeExtractOpts, IbeExtractionPartial} from './client.js'
 export {ibeExtractRequest, ibeDecryptRequest} from './request.js'
 export type {IbeExtractRequestOpts} from './request.js'
 
-// derived OAuth audience + DPoP htu
-export {platformAudience, dpopHtu, normalizeOrigin, OAUTH_RESPONSE_PATH} from './oauth.js'
+// ─── ADR-0073: derived OAuth audience + DPoP htu ────────────────────────────
+export {
+  platformAudience,
+  dpopHtu,
+  normalizeOrigin,
+  isValidSessionId,
+  OAUTH_RESPONSE_PATH_PREFIX,
+  OAUTH_RESPONSE_PATH_SUFFIX,
+  MAX_SESSION_ID_LEN,
+} from './oauth.js'

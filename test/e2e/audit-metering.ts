@@ -73,7 +73,7 @@ const jwt = mintLocalJwt(cfg, {sub: SUBJECT, scope: ['admin', 'audit:read', 'Emp
 const subjects = new Set<string>()
 const sign = async (node: string, messageHex: string) => {
   const grant = await authorizeWallet(cfg,slotId,creatorKey,{action:'sign',message:Buffer.from(messageHex,'hex')})
-  const response = await fetch(`${node}/v1/committee/sign`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({committee_token:grant.compound_token,verifier_proofs:grant.verifier_proofs,message_hex:messageHex}),signal:AbortSignal.timeout(30000)})
+  const response = await fetch(`${node}/v1/committee/sign`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({committee_token:grant.compound_token,verifier_proofs:grant.verifier_proofs,evidence_ct:grant.evidence_ct,message_hex:messageHex}),signal:AbortSignal.timeout(30000)})
   if (response.ok) subjects.add(grant.compound_token.vp_hash)
   return response
 }

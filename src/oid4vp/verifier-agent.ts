@@ -155,6 +155,12 @@ export interface VerifierAgentResult {
    * (`api.require_verifier_proofs`) refuses a committee request without them.
    */
   verifierProofs?: VerifierProof[]
+  /**
+   * ADR-0076: the sealed presentation the token's `evidence_hash` binds, when the committee
+   * sealed one — hand it to every keeper call (`evidenceCt`); a keeper with
+   * `require_committee_evidence` refuses the token without it.
+   */
+  evidenceCt?: string
 }
 
 /**
@@ -212,5 +218,5 @@ export function verifierAgentResult(session: Pick<OpenedVerifierAgentSession, 's
   } catch (e) {
     throw new VerifierAgentSessionError('protocol', session.sessionId, e instanceof Error ? e.message : String(e))
   }
-  return {token, bindingPreimage: r.bindingPreimage, verifierProofs}
+  return {token, bindingPreimage: r.bindingPreimage, verifierProofs, ...(r.evidenceCt !== undefined ? {evidenceCt: r.evidenceCt} : {})}
 }

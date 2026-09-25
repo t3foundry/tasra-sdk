@@ -21,7 +21,7 @@ for (const url of slot.committee) {
   peers.push({id:info.node_identifier,peer_id:info.peer_id})
 }
 const b64=(value:Uint8Array)=>Buffer.from(value).toString('base64')
-const body={committee_token:grant.compound_token,verifier_proofs:grant.verifier_proofs,
+const body={committee_token:grant.compound_token,verifier_proofs:grant.verifier_proofs,evidence_ct:grant.evidence_ct,
   ciphertext:{u:b64(env.ciphertext.u),nonce:b64(env.ciphertext.nonce),aead_ct:b64(env.ciphertext.aeadCt)},identity,
   decrypting_set:peers.map(p=>p.id).sort((a,b)=>a-b),bls_peers:peers}
 const post=(value:unknown)=>fetch(`${slot.committee[0]}/v1/committee/decrypt`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value),signal:AbortSignal.timeout(30000)})

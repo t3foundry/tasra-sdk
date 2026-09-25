@@ -452,6 +452,64 @@ export interface CompoundTokenWire {
   exp: number
   /** Hexadecimal verifier signatures and their registry indices. */
   signatures: CommitteeSignatureWire[]
+  /** ADR-0076: `0x..` keccak256 of the sealed presentation the quorum evaluated (the
+   *  ciphertext travels BESIDE the token as `evidence_ct`, never inside it). Present together
+   *  with `evidence_key_id` and `evidence_signatures`, or not at all. NOT part of the signed
+   *  canonical bytes — each signer's {@link evidenceBindingMessage} signature binds it. */
+  evidence_hash?: string
+  /** ADR-0076: `0x..` keccak256 of the accountant evidence key it is sealed to. */
+  evidence_key_id?: string
+  /** ADR-0076: each signer's ed25519 signature over {@link evidenceBindingMessage}. */
+  evidence_signatures?: CommitteeSignatureWire[]
+}
+
+// ─── ADR-0076: sealed committee evidence binding ──────────────────────────────────────────
+
+const EVIDENCE_BINDING_DOMAIN = new TextEncoder().encode('keykeeper-committee/evidence-binding/v1')
+
+/** `keccak256(DOMAIN ‖ tokenHash ‖ evidenceHash ‖ evidenceKeyId)` — the message each drawn
+ *  verifier signs beside its token signature. Byte-identical to the Rust
+ *  `keykeeper_committee::evidence_binding_message`. */
+export function evidenceBindingMessage(tokenHash: Uint8Array, evidenceHash: Uint8Array, evidenceKeyId: Uint8Array): Uint8Array {
+  for (const [n, v] of [['tokenHash', tokenHash], ['evidenceHash', evidenceHash], ['evidenceKeyId', evidenceKeyId]] as const) {
+    if (v.length !== 32) throw new Error(`${n} must be 32 bytes`)
+  }
+  return keccak_256(concatBytes(EVIDENCE_BINDING_DOMAIN, tokenHash, evidenceHash, evidenceKeyId))
+}
+
+export interface VerifyEvidenceBindingOptions {
+  tokenHash: Uint8Array
+  evidenceHash: Uint8Array
+  evidenceKeyId: Uint8Array
+  signatures: CommitteeSignature[]
+  set: VerifierSet
+  /** The drawn committee (the token's `verifier_indexes`). */
+  drawn: number[]
+  quorum: number
+}
+
+/**
+ * Mirror of the Rust `verify_evidence_binding`: every signature must come from a DRAWN
+ * verifier in `set` and verify over {@link evidenceBindingMessage}; distinct signers are
+ * counted once and must satisfy `quorum` of the drawn committee. Throws on any failure;
+ * returns the verified indexes.
+ */
+export function verifyEvidenceBinding(opts: VerifyEvidenceBindingOptions): number[] {
+  const {tokenHash, evidenceHash, evidenceKeyId, signatures, set, drawn, quorum} = opts
+  if (quorum === 0) throw new Error('evidence binding: quorum must be positive')
+  const msg = evidenceBindingMessage(tokenHash, evidenceHash, evidenceKeyId)
+  const verified: number[] = []
+  for (const {verifierIndex, signature} of signatures) {
+    if (!drawn.includes(verifierIndex)) throw new Error(`evidence binding: index ${verifierIndex} is not in the drawn committee`)
+    const pk = set.pubkeys.get(verifierIndex)
+    if (!pk) throw new Error(`evidence binding: index ${verifierIndex} is not in the verifier set`)
+    if (!ed25519.verify(signature, msg, pk)) throw new Error(`evidence binding: invalid signature from verifier index ${verifierIndex}`)
+    if (!verified.includes(verifierIndex)) verified.push(verifierIndex)
+  }
+  if (!quorumSatisfied(verified, drawn, quorum)) {
+    throw new Error(`evidence binding: quorum not met: ${verified.length} of the drawn committee, need ${quorum}`)
+  }
+  return verified
 }
 
 /** Assemble the wire compound token from a payload + the gathered quorum signatures. */

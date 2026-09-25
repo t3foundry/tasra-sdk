@@ -206,24 +206,51 @@ if (result.status !== 'done') throw new Error(`refused: ${result.error}`)
 | `oidc-client-ts` with `dpop` enabled | `{proof: ({htm, htu, nonce}) => userManager.dpopProof(htu, user, htm, nonce)}` (it computes `ath` from the user's token) |
 | your own token request with a key from `createDpopKey()` | `key.signer` |
 
-**`createDpopKey().signer` mints resource-request proofs only** — it always sets `ath` and
-`nonce` — and the SDK has no token-request proof helper, so it cannot obtain the token from the
-IdP for you. Prefer letting your OIDC library own the key.
+To obtain the token with a `createDpopKey()` key, put `await key.tokenRequestProof({htm: 'POST',
+htu: tokenEndpoint})` in the token request's `DPoP` header (add `nonce` only if the IdP answered
+`use_dpop_nonce`); a token-request proof carries no `ath`, because there is no token yet. Then
+present with `key.signer`.
 
-**Sign over `session.dpopHtu`, not the request URL.** The platform's `htu` is
-`{agentOrigin}/v1/sessions/oauth-response` (no session id), while the request goes to
-`/v1/sessions/{id}/oauth-response`. `submitOauthResponse` passes `dpopHtu` to the signer; a
-generic DPoP fetch helper that derives `htu` from the request URL — including `auth0-spa-js`'s
-`fetchWithAuth` — is refused.
+⚠ **The `htu` is this session's route on the agent's PUBLIC origin:**
+`{agentOrigin}/v1/sessions/{sessionId}/oauth-response`, returned as `session.dpopHtu`. When you
+call the agent at that origin, it is exactly the URL `submitOauthResponse` posts to, so a
+generic DPoP client that derives `htu` from the request URL works too. If you reach the agent
+through a different base URL (an internal hostname, a proxy), sign over `session.dpopHtu` — the
+origin the verifiers approved — not over the URL you called.
 
-**`submitOauthResponse` resolving does not mean authorized.** The agent accepts the delivery
-and runs the committee; a refusal (wrong role, stale token, wrong audience…) surfaces from
-`waitForSession` as `status: 'failed'` with the verifiers' reasons in `error` (it RETURNS a
-failed session rather than throwing — check `status`). `submitOauthResponse` answers the agent's `use_dpop_nonce` challenge once by itself.
+⚠ **A refused delivery throws.** When the committee refuses (wrong role, stale token, wrong
+audience…) the agent answers the POST itself with `{status: "failed", error}` — `403` for a
+refusal, `503` when the drawn quorum could not be reached — and `submitOauthResponse` throws
+`VerifierAgentSessionError` with `kind: 'refused'` and the verifiers' reasons in `message`. The
+session is over; open a new one to retry. On success, `waitForSession` returns the token.
+`submitOauthResponse` answers the agent's `use_dpop_nonce` challenge once by itself.
 
 What the platform proves this way is PRESENCE, not intent — the user never sees the
 operation; pin dual control on slots that need intent. Configuring a tenant identity
 provider is a deployment task, documented by whoever operates the network.
+
+## Sealed committee evidence — `evidence_ct` (ADR-0076)
+
+Each drawn verifier seals the presentation it evaluated to the accountant set's certified
+evidence key, and signs a second message binding that ciphertext to the token it signed. When
+the committee sealed one, the compound token carries three optional fields and the Verifier
+Agent's poll reply carries the ciphertext BESIDE the token:
+
+| Where | Field | What |
+|---|---|---|
+| `compound_token` | `evidence_hash` | `0x..` keccak256 of `bincode(ciphertext)` |
+| `compound_token` | `evidence_key_id` | `0x..` keccak256 of the evidence key it is sealed to |
+| `compound_token` | `evidence_signatures` | `[{verifier_index, signature}]` — each over `evidenceBindingMessage(tokenHash, evidenceHash, evidenceKeyId)` |
+| poll reply | `evidence_ct` | base64url `bincode(ciphertext)` — surfaced as `evidenceCt` |
+
+The three token fields come together or not at all (`assertCompoundTokenWire` refuses anything
+else). They are NOT inside the token's signed canonical bytes, so `committee-token-vectors.json`
+is unchanged. Hand `evidenceCt` to every keeper call (`committeeSign`, `committeeDecrypt`,
+`requestIbeExtractionPartials` take an optional `evidenceCt`, posted as `evidence_ct`): a keeper
+with `require_committee_evidence` refuses a token without it, and retains it so a mis-issuance
+can be challenged. Nothing in the ciphertext is readable without a threshold of accountants.
+`evidenceBindingMessage` / `verifyEvidenceBinding` (on `tasra-sdk/committee`) mirror the
+Rust functions and are pinned to `test/committee-evidence-vectors.json`.
 
 ## `tasra-sdk/committee` — protocol internals
 
@@ -235,9 +262,10 @@ verification, verifier-set Merkle proofs, wire codecs, and the
 import {verifyCompoundToken, selectVerifierCommittee} from 'tasra-sdk/committee'
 ```
 
-It also carries the derivations `platformAudience(origin, chainId)` and
-`dpopHtu(origin)` (+ `normalizeOrigin`, `OAUTH_RESPONSE_PATH`). Use these helpers
-to preserve the deployment protocol's exact audience and URI binding.
+It also carries the ADR-0073 derivations `platformAudience(origin, chainId)` and
+`dpopHtu(origin, sessionId)` (+ `normalizeOrigin`, `isValidSessionId`,
+`OAUTH_RESPONSE_PATH_PREFIX`/`_SUFFIX`), vector-pinned byte for byte
+against `keykeeper-committee`'s `oauth` module (`test/dpop.ts`).
 
 **Most consumers never need it.** Typed slots on `TasraClient` handle these
 operations. Advanced integrations can use `createCommitteeSlotClient` from
