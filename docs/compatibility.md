@@ -10,6 +10,9 @@ Check the **operation and authorization route**, not just the displayed version.
 | Current checkout + Fuji `tasra-fuji-v1` | Manifest download/checksum and public contract reads | Services have not been upgraded for the current SDK walkthrough; signing and credential flows are not certified |
 | Any other local fleet, SDK revision, or deployment | Not established by these results | Rerun the acceptance check |
 
+The latest accepted local run is dated **2026-09-26**, after a fleet redeployment.
+The tutorial contains that deployment's public addresses.
+
 The recorded local keeper version string alone is not a sufficient compatibility
 pin. The proof records deployment addresses, observed service versions, SDK source
 commit/dirty state, example hash, and packed artifact hash. The two chain receipts

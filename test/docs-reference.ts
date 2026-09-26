@@ -51,6 +51,8 @@ for (const [name, file] of Object.entries(entries)) {
       continue
     }
     if (ts.isClassDeclaration(declaration)) {
+      const constructors = checker.getTypeOfSymbolAtLocation(symbol, declaration).getConstructSignatures()
+      if (constructors.length) body += `\`\`\`ts\n${constructors.map(sig => checker.signatureToString(sig, declaration, flags)).join('\n')}\n\`\`\`\n\n`
       const instance = checker.getDeclaredTypeOfSymbol(symbol)
       body += `Import: \`import {${exported.name}} from '${entry}'\`\n\n`
       for (const member of checker.getPropertiesOfType(instance)) {
@@ -61,7 +63,7 @@ for (const [name, file] of Object.entries(entries)) {
       body += '\n'
       continue
     }
-    body += `\`\`\`ts\nimport {${exported.name}} from '${entry}'\n\n${signatures.map(sig => `declare function ${exported.name}${checker.signatureToString(sig, declaration, flags)}`).join('\n')}\n\`\`\`\n\n`
+    body += `Import: \`import {${exported.name}} from '${entry}'\`\n\n\`\`\`ts\n${signatures.map(sig => `declare function ${exported.name}${checker.signatureToString(sig, declaration, flags)}`).join('\n')}\n\`\`\`\n\n`
     for (const signature of signatures) {
       if (signature.parameters.length) {
         body += '| Parameter | Type | Description |\n|---|---|---|\n'
@@ -80,6 +82,16 @@ for (const [name, file] of Object.entries(entries)) {
     }
   }
   if (values.length) body += `## Constants and ABI values\n\n| Export | Definition |\n|---|---|\n${values.join('\n')}\n`
+  const seenAnchors = new Map<string, number>()
+  const links = [...body.matchAll(/^## (.+)$/gm)].map(match => {
+    const title = match[1]!
+    const base = title.toLowerCase().replaceAll(' ', '-')
+    const occurrence = seenAnchors.get(base) ?? 0
+    seenAnchors.set(base, occurrence + 1)
+    return `- [${title}](#${base}${occurrence ? `-${occurrence}` : ''})`
+  })
+  const firstSection = body.indexOf('## ')
+  if (firstSection >= 0) body = body.slice(0, firstSection) + `<details>\n<summary>Find an export</summary>\n\n${links.join('\n')}\n\n</details>\n\n` + body.slice(firstSection)
   counts[entry] = count
   emit(`${name}.md`, body)
 }

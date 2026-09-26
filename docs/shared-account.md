@@ -27,8 +27,8 @@ at the top of the file, so you can see and change every deployment dependency:
 |---|---|
 | Chain | Local Avalanche, `43112` |
 | RPC | `http://127.0.0.1:9650/ext/bc/C/rpc` |
-| KeyRegistry | `0x94c75679D75bfdc310669c0De4dE4398E922232b` |
-| NodeRegistry | `0xEA7A0602b6DB6Aa767C5649b4d5083c426Cb8083` |
+| KeyRegistry | `0x352F406036a061E0432394a88006158a8B588311` |
+| NodeRegistry | `0xeaFe7F6105332aFE53Ac2F7dE0742f47f061a693` |
 | Verifier agent | `https://localhost:19444` |
 | Keeper transport | Docker names `keykeeper-node-1`–`5` mapped to local ports `8091`–`8095` |
 | TLS trust | Public development CA supplied as `examples/local-fleet-ca.pem` |

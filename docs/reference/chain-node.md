@@ -4,15 +4,28 @@ Generated from public TypeScript exports. Run `npm run docs:reference` to update
 
 [Reference index](README.md) · [Task guides](../README.md) · [Errors](../errors.md)
 
+<details>
+<summary>Find an export</summary>
+
+- [createNodeAgentTransport](#createnodeagenttransport)
+- [createNodeAgentWalletFetch](#createnodeagentwalletfetch)
+- [createNodeRelayTransport](#createnoderelaytransport)
+- [createNodeServiceDiscoveryTransport](#createnodeservicediscoverytransport)
+- [createNodeServiceStatusTransport](#createnodeservicestatustransport)
+- [isPublicServiceAddress](#ispublicserviceaddress)
+- [ServiceTransportPolicy](#servicetransportpolicy)
+
+</details>
+
 ## createNodeAgentTransport
 
 Session secrets use this same guarded connection and can only travel to a session GET.
 
 [Source](../../src/chain/node.ts#L54)
 
-```ts
-import {createNodeAgentTransport} from 'tasra-sdk/chain/node'
+Import: `import {createNodeAgentTransport} from 'tasra-sdk/chain/node'`
 
+```ts
 declare function createNodeAgentTransport(policy?: ServiceTransportPolicy): AgentTransport
 ```
 
@@ -28,9 +41,9 @@ Wallet protocol requests restricted to the selected session and approved DID, wi
 
 [Source](../../src/chain/node.ts#L61)
 
-```ts
-import {createNodeAgentWalletFetch} from 'tasra-sdk/chain/node'
+Import: `import {createNodeAgentWalletFetch} from 'tasra-sdk/chain/node'`
 
+```ts
 declare function createNodeAgentWalletFetch(session: Pick<RegisteredAgentSession, "profile" | "requestUri" | "sessionId">, policy?: ServiceTransportPolicy): typeof fetch
 ```
 
@@ -47,9 +60,9 @@ Discovery and relay traffic use the same socket-bound destination and TLS policy
 
 [Source](../../src/chain/node.ts#L47)
 
-```ts
-import {createNodeRelayTransport} from 'tasra-sdk/chain/node'
+Import: `import {createNodeRelayTransport} from 'tasra-sdk/chain/node'`
 
+```ts
 declare function createNodeRelayTransport(policy?: ServiceTransportPolicy): RelayTransport
 ```
 
@@ -65,9 +78,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/chain/node.ts#L37)
 
-```ts
-import {createNodeServiceDiscoveryTransport} from 'tasra-sdk/chain/node'
+Import: `import {createNodeServiceDiscoveryTransport} from 'tasra-sdk/chain/node'`
 
+```ts
 declare function createNodeServiceDiscoveryTransport(policy?: ServiceTransportPolicy): ServiceDiscoveryTransport
 ```
 
@@ -83,9 +96,9 @@ Public readiness and relay-policy observations, with the same socket/TLS policy.
 
 [Source](../../src/chain/node.ts#L42)
 
-```ts
-import {createNodeServiceStatusTransport} from 'tasra-sdk/chain/node'
+Import: `import {createNodeServiceStatusTransport} from 'tasra-sdk/chain/node'`
 
+```ts
 declare function createNodeServiceStatusTransport(policy?: ServiceTransportPolicy): ServiceDiscoveryTransport
 ```
 
@@ -101,9 +114,9 @@ Conservative globally routable destinations; special-purpose exceptions require 
 
 [Source](../../src/chain/node.ts#L24)
 
-```ts
-import {isPublicServiceAddress} from 'tasra-sdk/chain/node'
+Import: `import {isPublicServiceAddress} from 'tasra-sdk/chain/node'`
 
+```ts
 declare function isPublicServiceAddress(address: string): boolean
 ```
 

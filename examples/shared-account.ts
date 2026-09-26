@@ -17,8 +17,8 @@ import {
 const rpcUrl = 'http://127.0.0.1:9650/ext/bc/C/rpc'
 const verifierAgentUrl = 'https://localhost:19444'
 const addresses = {
-  KeyRegistry: '0x94c75679D75bfdc310669c0De4dE4398E922232b',
-  NodeRegistry: '0xEA7A0602b6DB6Aa767C5649b4d5083c426Cb8083',
+  KeyRegistry: '0x352F406036a061E0432394a88006158a8B588311',
+  NodeRegistry: '0xeaFe7F6105332aFE53Ac2F7dE0742f47f061a693',
 } as const
 const network = defineChain({id: 43112, name: 'Local Tasra', nativeCurrency: {name: 'AVAX', symbol: 'AVAX', decimals: 18}, rpcUrls: {default: {http: [rpcUrl]}}})
 const chain = createTasraChainClient({rpcUrl, addresses, chainId: network.id})
@@ -43,6 +43,10 @@ async function main() {
   if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(rpcUrl).hostname) || await client.getChainId() !== 43112) {
     throw new Error('This example may run only on the local development chain 43112')
   }
+  const requiresCommitReveal = await chain.readers.keyRegistry.requiresCommitReveal().catch(() => {
+    throw new Error('Cannot read KeyRegistry. Check the public fleet addresses; redeployment changes them.')
+  })
+  await chain.readers.nodeRegistry.activeCount()
   const health = await fetch(`${verifierAgentUrl}/health`, {signal: AbortSignal.timeout(10_000)})
   if (!health.ok) throw new Error(`Verifier-agent health: HTTP ${health.status}`)
   mkdirSync('.tasra', {recursive: true, mode: 0o700})
@@ -84,7 +88,7 @@ async function main() {
   // 3. Create the slot, wait for its public key, and provision using the creator's key.
   const writer = createTasraWriteClient({rpcUrl, chainId: network.id, addresses, privateKey: creatorKey})
   const args = {slotId, salt, ruleSalt, dcqlRule: rule, k: 2, n: 3, mode: 'tecdsa' as const, authType: 'oid4vp' as const}
-  const creation = await chain.readers.keyRegistry.requiresCommitReveal()
+  const creation = requiresCommitReveal
     ? await writer.createSlotCommitReveal({...args, maxWaitMs: 300_000})
     : await writer.createSlot(args)
   save('creation.json', creation)

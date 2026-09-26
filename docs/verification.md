@@ -1,5 +1,9 @@
 # Documentation verification
 
+The initial read-only checks below are retained for context. The newer
+[shared-account acceptance](evidence/shared-account/README.md) proves fresh slot
+creation, Alice/Bob transactions, and verifier-side denial using the packed SDK.
+
 Checked on **2026-09-25**, using Node.js **24.15.0**, viem **2.56.8**, and SDK
 **0.2.2 from the working tree** on `feature/sdk-documentation-quickstart`.
 These documentation/example changes were unpublished at the time of testing.
@@ -89,9 +93,10 @@ package release before they appear in registry installations.
 
 ## Scope
 
-These checks do not certify slot creation, funding, credential issuance,
-authorization, decryption, Alice/Bob signing, or revocation. Those require separate
-live runs with the prerequisites in the relevant guides. The local fleet was
-already running; this is not evidence that installing the SDK starts a fleet.
+The initial checks on this page cover connectivity, address derivation and offline
+crypto. The [subsequent live acceptance](evidence/shared-account/README.md) separately
+proves slot creation, development credentials, Alice/Bob signing and verifier denial.
+Decryption and revocation are not covered by that shared-account run. The fleet was
+already running; installing the SDK does not start it.
 
 [Documentation index](README.md)

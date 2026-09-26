@@ -69,15 +69,16 @@ UI is not acceptance of network behaviour.
 
 ## What you need from the deployment operator
 
-The SDK and the CLI are self-service; three things are not, and they gate steps 3–6:
+Public-deployment acceptance needs these inputs. A fresh local slot can use the
+self-service setup in the shared-account tutorial:
 
 - **The deployment configuration** — use the published manifest and pointer for
   contract addresses, chain ID, service URLs and SHA-256. The SDK reads it through
   `parsePinnedNetworkManifest`. Select an RPC for that chain and discover the slot's
   keeper/verifier endpoints on-chain; ask the operator for any missing configuration.
 - **The first credential.** Issuing one needs issuer access, so the operator either
-  issues it to your holder DID or enrolls you as an issuer. Everything after that —
-  presenting, renewing, revoking — is yours.
+  issues it to your holder DID or enrolls you as an issuer. For a new development
+  slot, the example generates its own issuer and commits that issuer in the rule.
 - **A slot's clear DCQL rule.** The creator can use `provisionRule` with its own
   signature on compatible fleets. No operator secret is needed. Keep the rule and salt
   before creation; until provisioning completes, keepers refuse operations.

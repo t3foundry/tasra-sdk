@@ -4,6 +4,31 @@ Generated from public TypeScript exports. Run `npm run docs:reference` to update
 
 [Reference index](README.md) · [Task guides](../README.md) · [Errors](../errors.md)
 
+<details>
+<summary>Find an export</summary>
+
+- [assertCompoundTokenWire](#assertcompoundtokenwire)
+- [createOauthSession](#createoauthsession)
+- [CreateOauthSessionResult](#createoauthsessionresult)
+- [createOid4vpSession](#createoid4vpsession)
+- [CreateSessionParams](#createsessionparams)
+- [CreateSessionResult](#createsessionresult)
+- [nextPollDelay](#nextpolldelay)
+- [parseVerifierAgentSessionStatus](#parseverifieragentsessionstatus)
+- [payloadDigest](#payloaddigest)
+- [pollOid4vpSession](#polloid4vpsession)
+- [PresentationDelegation](#presentationdelegation)
+- [PresentationOperation](#presentationoperation)
+- [SessionPhase](#sessionphase)
+- [SessionStatusResult](#sessionstatusresult)
+- [submitOauthResponse](#submitoauthresponse)
+- [VerifierAgentSessionError](#verifieragentsessionerror)
+- [VerifierAgentSessionErrorKind](#verifieragentsessionerrorkind)
+- [waitForSession](#waitforsession)
+- [WaitOpts](#waitopts)
+
+</details>
+
 ## assertCompoundTokenWire
 
 The compound token the verifier-agent hands back must be the wire shape the keepers verify —
@@ -11,9 +36,9 @@ checked field by field before anything is built on it.
 
 [Source](../../src/verifier-agent/index.ts#L140)
 
-```ts
-import {assertCompoundTokenWire} from 'tasra-sdk/verifier-agent'
+Import: `import {assertCompoundTokenWire} from 'tasra-sdk/verifier-agent'`
 
+```ts
 declare function assertCompoundTokenWire(raw: unknown, correlation: string): Record<string, unknown>
 ```
 
@@ -32,9 +57,9 @@ Object, no JWE key: the client presents an access token its own IdP minted.
 
 [Source](../../src/verifier-agent/index.ts#L233)
 
-```ts
-import {createOauthSession} from 'tasra-sdk/verifier-agent'
+Import: `import {createOauthSession} from 'tasra-sdk/verifier-agent'`
 
+```ts
 declare function createOauthSession(verifierAgentUrl: string, params: CreateSessionParams): Promise<CreateOauthSessionResult>
 ```
 
@@ -82,9 +107,9 @@ for the result.
 
 [Source](../../src/verifier-agent/index.ts#L196)
 
-```ts
-import {createOid4vpSession} from 'tasra-sdk/verifier-agent'
+Import: `import {createOid4vpSession} from 'tasra-sdk/verifier-agent'`
 
+```ts
 declare function createOid4vpSession(verifierAgentUrl: string, params: CreateSessionParams): Promise<CreateSessionResult>
 ```
 
@@ -136,9 +161,9 @@ Pure, so the schedule is testable without timers.
 
 [Source](../../src/verifier-agent/index.ts#L404)
 
-```ts
-import {nextPollDelay} from 'tasra-sdk/verifier-agent'
+Import: `import {nextPollDelay} from 'tasra-sdk/verifier-agent'`
 
+```ts
 declare function nextPollDelay(previousMs: number, baseMs: number, maxMs: number, random?: () => number): number
 ```
 
@@ -157,9 +182,9 @@ Shared validation for the explicit-URL and registered-agent transports.
 
 [Source](../../src/verifier-agent/index.ts#L371)
 
-```ts
-import {parseVerifierAgentSessionStatus} from 'tasra-sdk/verifier-agent'
+Import: `import {parseVerifierAgentSessionStatus} from 'tasra-sdk/verifier-agent'`
 
+```ts
 declare function parseVerifierAgentSessionStatus(data: Record<string, unknown>, sessionId: string): SessionStatusResult
 ```
 
@@ -179,9 +204,9 @@ Other actions should supply the digest directly.
 
 [Source](../../src/verifier-agent/index.ts#L176)
 
-```ts
-import {payloadDigest} from 'tasra-sdk/verifier-agent'
+Import: `import {payloadDigest} from 'tasra-sdk/verifier-agent'`
 
+```ts
 declare function payloadDigest(action: string, messageHex: string): string
 ```
 
@@ -205,9 +230,9 @@ Throws `VerifierAgentSessionError`: `unavailable` for 502/503/504 (the session m
 
 [Source](../../src/verifier-agent/index.ts#L344)
 
-```ts
-import {pollOid4vpSession} from 'tasra-sdk/verifier-agent'
+Import: `import {pollOid4vpSession} from 'tasra-sdk/verifier-agent'`
 
+```ts
 declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, pollSecret: string): Promise<SessionStatusResult>
 ```
 
@@ -303,9 +328,9 @@ challenging is broken, and retrying forever would hide that.
 
 [Source](../../src/verifier-agent/index.ts#L288)
 
-```ts
-import {submitOauthResponse} from 'tasra-sdk/verifier-agent'
+Import: `import {submitOauthResponse} from 'tasra-sdk/verifier-agent'`
 
+```ts
 declare function submitOauthResponse(verifierAgentUrl: string, args: { sessionId: string; pollSecret: string; accessToken: string; nonce: string; dpopHtu: string; signer: DpopSigner; }): Promise<void>
 ```
 
@@ -323,6 +348,10 @@ A Verifier Agent session did not produce a compound token. `kind` says why;
 still complete, so poll again. Extends {@link TasraError}.
 
 [Source](../../src/verifier-agent/index.ts#L118)
+
+```ts
+(kind: VerifierAgentSessionErrorKind, correlation: string, message: string, httpStatus?: number): VerifierAgentSessionError
+```
 
 Import: `import {VerifierAgentSessionError} from 'tasra-sdk/verifier-agent'`
 
@@ -367,9 +396,9 @@ decides how to explain it) — see `awaitVerifierAgentResult` for the version th
 
 [Source](../../src/verifier-agent/index.ts#L422)
 
-```ts
-import {waitForSession} from 'tasra-sdk/verifier-agent'
+Import: `import {waitForSession} from 'tasra-sdk/verifier-agent'`
 
+```ts
 declare function waitForSession(verifierAgentUrl: string, sessionId: string, pollSecret: string, intervalMs?: number, timeoutMs?: number, opts?: WaitOpts): Promise<SessionStatusResult>
 ```
 

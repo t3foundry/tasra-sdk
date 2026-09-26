@@ -4,15 +4,170 @@ Generated from public TypeScript exports. Run `npm run docs:reference` to update
 
 [Reference index](README.md) · [Task guides](../README.md) · [Errors](../errors.md)
 
+<details>
+<summary>Find an export</summary>
+
+- [accessTokenHash](#accesstokenhash)
+- [addressFromEoaPubkey](#addressfromeoapubkey)
+- [aggregateFrostSignature](#aggregatefrostsignature)
+- [auth0DpopSigner](#auth0dpopsigner)
+- [AuthDeniedError](#authdeniederror)
+- [BlsPeer](#blspeer)
+- [buildHolderProof](#buildholderproof)
+- [BuildHolderProofOpts](#buildholderproofopts)
+- [buildTasraText](#buildtasratext)
+- [canAccess](#canaccess)
+- [canonicalizeDcql](#canonicalizedcql)
+- [Ciphertext](#ciphertext)
+- [ClaimResult](#claimresult)
+- [combineDecryptShares](#combinedecryptshares)
+- [CommitteeAuthorizeError](#committeeauthorizeerror)
+- [createDpopKey](#createdpopkey)
+- [createHolderProof](#createholderproof)
+- [createOauthSession](#createoauthsession)
+- [CreateOauthSessionResult](#createoauthsessionresult)
+- [createOid4vpSession](#createoid4vpsession)
+- [createRenewal](#createrenewal)
+- [CreateSessionParams](#createsessionparams)
+- [CreateSessionResult](#createsessionresult)
+- [createTasraClient](#createtasraclient)
+- [credentialsCommitment](#credentialscommitment)
+- [CredentialView](#credentialview)
+- [DcqlClaimQuery](#dcqlclaimquery)
+- [DcqlCredentialQuery](#dcqlcredentialquery)
+- [DcqlCredentialSetQuery](#dcqlcredentialsetquery)
+- [DcqlMalformedError](#dcqlmalformederror)
+- [DcqlMeta](#dcqlmeta)
+- [DcqlQuery](#dcqlquery)
+- [DcqlSelection](#dcqlselection)
+- [decodeJwtClaims](#decodejwtclaims)
+- [decryptCustody](#decryptcustody)
+- [DecryptCustodyOpts](#decryptcustodyopts)
+- [DecryptShare](#decryptshare)
+- [decryptWithMasterKey](#decryptwithmasterkey)
+- [decryptWithShardDelivery](#decryptwithsharddelivery)
+- [DpopKey](#dpopkey)
+- [DpopSigner](#dpopsigner)
+- [ed25519DidKey](#ed25519didkey)
+- [encryptEnvelope](#encryptenvelope)
+- [EoaSignature](#eoasignature)
+- [EoaSignOpts](#eoasignopts)
+- [ethSignatureV](#ethsignaturev)
+- [evaluateDcql](#evaluatedcql)
+- [evaluateIdentityScoped](#evaluateidentityscoped)
+- [Faucet](#faucet)
+- [FaucetGrant](#faucetgrant)
+- [fetchAndAssembleKey](#fetchandassemblekey)
+- [fetchHolderNonce](#fetchholdernonce)
+- [fetchMpk](#fetchmpk)
+- [fromBytes](#frombytes)
+- [FrostCommitment](#frostcommitment)
+- [FrostShare](#frostshare)
+- [FrostSignature](#frostsignature)
+- [FrostSignResult](#frostsignresult)
+- [GroupEnvelope](#groupenvelope)
+- [HeldCredential](#heldcredential)
+- [hexToBytes](#hextobytes)
+- [HolderNonce](#holdernonce)
+- [HolderProofAuth](#holderproofauth)
+- [HolderSigner](#holdersigner)
+- [httpFaucet](#httpfaucet)
+- [ibeBlobChunkRange](#ibeblobchunkrange)
+- [ibeBlobDecryptKey](#ibeblobdecryptkey)
+- [ibeBlobDigest](#ibeblobdigest)
+- [IbeBlobHeader](#ibeblobheader)
+- [ibeBlobWrappedKey](#ibeblobwrappedkey)
+- [IbeCiphertext](#ibeciphertext)
+- [ibeCombineDecrypt](#ibecombinedecrypt)
+- [ibeCombineExtract](#ibecombineextract)
+- [ibeDecryptBlobChunk](#ibedecryptblobchunk)
+- [IbeDecryptionShare](#ibedecryptionshare)
+- [ibeDecryptRequest](#ibedecryptrequest)
+- [ibeDecryptWithKey](#ibedecryptwithkey)
+- [ibeEncrypt](#ibeencrypt)
+- [IbeExtractionPartial](#ibeextractionpartial)
+- [IbeExtractOpts](#ibeextractopts)
+- [ibeExtractRequest](#ibeextractrequest)
+- [IbeExtractRequestOpts](#ibeextractrequestopts)
+- [ibeOpenBlob](#ibeopenblob)
+- [ibeSealBlob](#ibesealblob)
+- [ibeUnwrapBlobKey](#ibeunwrapblobkey)
+- [IbeVerifyingShares](#ibeverifyingshares)
+- [ibeVerifyShare](#ibeverifyshare)
+- [isAuthDenied](#isauthdenied)
+- [isHeaderSafeNonce](#isheadersafenonce)
+- [isJwtExpiringSoon](#isjwtexpiringsoon)
+- [isOid4vpRule](#isoid4vprule)
+- [isRetryable](#isretryable)
+- [issueAdminCredential](#issueadmincredential)
+- [IssuedToken](#issuedtoken)
+- [isTasraPost](#istasrapost)
+- [jsonCredential](#jsoncredential)
+- [jwkThumbprint](#jwkthumbprint)
+- [JwtClaims](#jwtclaims)
+- [jwtExpMs](#jwtexpms)
+- [NodeUnreachableError](#nodeunreachableerror)
+- [OpenSessionOpts](#opensessionopts)
+- [parseTasraPost](#parsetasrapost)
+- [payloadDigest](#payloaddigest)
+- [pollOid4vpSession](#polloid4vpsession)
+- [PresentationDelegation](#presentationdelegation)
+- [PresentationOperation](#presentationoperation)
+- [RecipientStore](#recipientstore)
+- [redeemCredential](#redeemcredential)
+- [redeemRenewalToken](#redeemrenewaltoken)
+- [RedemptionGrant](#redemptiongrant)
+- [RenewalGrant](#renewalgrant)
+- [requestIbeExtractionPartials](#requestibeextractionpartials)
+- [revokeRenewal](#revokerenewal)
+- [revokeSlotUser](#revokeslotuser)
+- [scopeCovers](#scopecovers)
+- [ScopeNamespace](#scopenamespace)
+- [SealedBlob](#sealedblob)
+- [selectDcql](#selectdcql)
+- [Session](#session)
+- [SessionAuth](#sessionauth)
+- [SessionStatusResult](#sessionstatusresult)
+- [ShardDecryptOpts](#sharddecryptopts)
+- [ShardSignOpts](#shardsignopts)
+- [signCustody](#signcustody)
+- [SignCustodyOpts](#signcustodyopts)
+- [signEoaDigest](#signeoadigest)
+- [SignOpts](#signopts)
+- [signUserRequest](#signuserrequest)
+- [signWithShardDelivery](#signwithsharddelivery)
+- [SlotRotatedError](#slotrotatederror)
+- [submitOauthResponse](#submitoauthresponse)
+- [TasraClient](#tasraclient)
+- [TasraClientConfig](#tasraclientconfig)
+- [TasraError](#tasraerror)
+- [TasraHttpError](#tasrahttperror)
+- [ThresholdNotMetError](#thresholdnotmeterror)
+- [toBytes](#tobytes)
+- [userSignaturePayload](#usersignaturepayload)
+- [validateDcql](#validatedcql)
+- [validateRecipientRule](#validaterecipientrule)
+- [VerifierAgentSessionError](#verifieragentsessionerror)
+- [VerifierAgentSessionErrorKind](#verifieragentsessionerrorkind)
+- [verifyDecryptShare](#verifydecryptshare)
+- [verifyFrostSignature](#verifyfrostsignature)
+- [verifyPresentation](#verifypresentation)
+- [verifyVpJwt](#verifyvpjwt)
+- [VpJwtAuth](#vpjwtauth)
+- [waitForSession](#waitforsession)
+- [Constants and ABI values](#constants-and-abi-values)
+
+</details>
+
 ## accessTokenHash
 
 RFC 9449 §4.2 `ath`: base64url(sha256(ASCII(access_token))).
 
 [Source](../../src/auth/dpop.ts#L52)
 
-```ts
-import {accessTokenHash} from 'tasra-sdk'
+Import: `import {accessTokenHash} from 'tasra-sdk'`
 
+```ts
 declare function accessTokenHash(accessToken: string): Promise<string>
 ```
 
@@ -32,9 +187,9 @@ This is what an ethers `Signer.getAddress()` returns for a Tasra EOA slot.
 
 [Source](../../src/signing/ecdsa.ts#L98)
 
-```ts
-import {addressFromEoaPubkey} from 'tasra-sdk'
+Import: `import {addressFromEoaPubkey} from 'tasra-sdk'`
 
+```ts
 declare function addressFromEoaPubkey(pubkey: Uint8Array): `0x${string}`
 ```
 
@@ -55,9 +210,9 @@ Mirrors the reference signing implementation::aggregate.
 
 [Source](../../src/crypto/frost.ts#L129)
 
-```ts
-import {aggregateFrostSignature} from 'tasra-sdk'
+Import: `import {aggregateFrostSignature} from 'tasra-sdk'`
 
+```ts
 declare function aggregateFrostSignature(message: Uint8Array, groupPublicKey: Uint8Array, commitments: FrostCommitment[], shares: FrostShare[]): FrostSignature
 ```
 
@@ -83,9 +238,9 @@ const signer = auth0DpopSigner((args) => auth0.generateDpopProof(args))
 
 [Source](../../src/auth/dpop.ts#L147)
 
-```ts
-import {auth0DpopSigner} from 'tasra-sdk'
+Import: `import {auth0DpopSigner} from 'tasra-sdk'`
 
+```ts
 declare function auth0DpopSigner(generate: (args: { url: string; method: string; nonce?: string; accessToken?: string; }) => Promise<string>): DpopSigner
 ```
 
@@ -101,6 +256,10 @@ The credential was rejected: 401 or 403. Never retryable — the same token will
 be refused again. Re-claim (redeem a fresh credential or renewal) instead.
 
 [Source](../../src/errors.ts#L71)
+
+```ts
+(args: { status: number; url: string; body?: string; message?: string; }): AuthDeniedError
+```
 
 Import: `import {AuthDeniedError} from 'tasra-sdk'`
 
@@ -132,9 +291,9 @@ Build a holder-proof compact-JWS (header.payload.signature).
 
 [Source](../../src/auth/holderProof.ts#L119)
 
-```ts
-import {buildHolderProof} from 'tasra-sdk'
+Import: `import {buildHolderProof} from 'tasra-sdk'`
 
+```ts
 declare function buildHolderProof(opts: BuildHolderProofOpts): Promise<string>
 ```
 
@@ -176,9 +335,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/crypto/detect.ts#L31)
 
-```ts
-import {buildTasraText} from 'tasra-sdk'
+Import: `import {buildTasraText} from 'tasra-sdk'`
 
+```ts
 declare function buildTasraText(envelopeBytes: Uint8Array): string
 ```
 
@@ -198,9 +357,9 @@ Unlike {@link RecipientStore.satisfies}, a MALFORMED rule returns `false`
 
 [Source](../../src/recipient/store.ts#L96)
 
-```ts
-import {canAccess} from 'tasra-sdk'
+Import: `import {canAccess} from 'tasra-sdk'`
 
+```ts
 declare function canAccess(rule: string, store: RecipientStore | HeldCredential[]): boolean
 ```
 
@@ -224,9 +383,9 @@ rule is used for its new purpose.
 
 [Source](../../src/auth/oid4vp.ts#L977)
 
-```ts
-import {canonicalizeDcql} from 'tasra-sdk'
+Import: `import {canonicalizeDcql} from 'tasra-sdk'`
 
+```ts
 declare function canonicalizeDcql(rule: string): string
 ```
 
@@ -274,9 +433,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/crypto/kem.ts#L263)
 
-```ts
-import {combineDecryptShares} from 'tasra-sdk'
+Import: `import {combineDecryptShares} from 'tasra-sdk'`
 
+```ts
 declare function combineDecryptShares(shares: DecryptShare[], ct: Ciphertext, identity: Uint8Array, opts?: { verify?: boolean; }): Uint8Array
 ```
 
@@ -301,6 +460,10 @@ verifiers and tolerates individual refusals as long as a quorum co-signs — see
 
 [Source](../../src/committee/client.ts#L69)
 
+```ts
+(status: number, message: string, opts?: { url?: string; body?: string; }): CommitteeAuthorizeError
+```
+
 Import: `import {CommitteeAuthorizeError} from 'tasra-sdk'`
 
 - `status: number` — 
@@ -321,9 +484,9 @@ compromised page along with the token. That is the entire point of sender constr
 
 [Source](../../src/auth/dpop.ts#L72)
 
-```ts
-import {createDpopKey} from 'tasra-sdk'
+Import: `import {createDpopKey} from 'tasra-sdk'`
 
+```ts
 declare function createDpopKey(): Promise<DpopKey>
 ```
 
@@ -337,9 +500,9 @@ compact-JWS to put in the `holder_proof` field of a `verify-vp-jwt` /
 
 [Source](../../src/auth/holderProof.ts#L154)
 
-```ts
-import {createHolderProof} from 'tasra-sdk'
+Import: `import {createHolderProof} from 'tasra-sdk'`
 
+```ts
 declare function createHolderProof(verifierUrl: string, opts: { signer: HolderSigner; audience: string; credentials: string[]; slotId?: string; action?: string; ttlSecs?: number; }): Promise<string>
 ```
 
@@ -358,9 +521,9 @@ Object, no JWE key: the client presents an access token its own IdP minted.
 
 [Source](../../src/verifier-agent/index.ts#L233)
 
-```ts
-import {createOauthSession} from 'tasra-sdk'
+Import: `import {createOauthSession} from 'tasra-sdk'`
 
+```ts
 declare function createOauthSession(verifierAgentUrl: string, params: CreateSessionParams): Promise<CreateOauthSessionResult>
 ```
 
@@ -408,9 +571,9 @@ for the result.
 
 [Source](../../src/verifier-agent/index.ts#L196)
 
-```ts
-import {createOid4vpSession} from 'tasra-sdk'
+Import: `import {createOid4vpSession} from 'tasra-sdk'`
 
+```ts
 declare function createOid4vpSession(verifierAgentUrl: string, params: CreateSessionParams): Promise<CreateSessionResult>
 ```
 
@@ -431,9 +594,9 @@ POST {verifier}/v1/renewals
 
 [Source](../../src/auth/verifier.ts#L50)
 
-```ts
-import {createRenewal} from 'tasra-sdk'
+Import: `import {createRenewal} from 'tasra-sdk'`
 
+```ts
 declare function createRenewal(verifierUrl: string, body: { dcql_rule: string; presentation: unknown; credentials?: string[]; slot_ids?: string[]; }): Promise<RenewalGrant>
 ```
 
@@ -495,9 +658,9 @@ from chain instead of hardcoding them, use {@link createTasraSlotClient }.
 
 [Source](../../src/client/client.ts#L184)
 
-```ts
-import {createTasraClient} from 'tasra-sdk'
+Import: `import {createTasraClient} from 'tasra-sdk'`
 
+```ts
 declare function createTasraClient(config: TasraClientConfig): TasraClient
 ```
 
@@ -538,9 +701,9 @@ compact-JWS credentials being presented.
 
 [Source](../../src/auth/holderProof.ts#L41)
 
-```ts
-import {credentialsCommitment} from 'tasra-sdk'
+Import: `import {credentialsCommitment} from 'tasra-sdk'`
 
+```ts
 declare function credentialsCommitment(credentials: string[]): string
 ```
 
@@ -648,6 +811,10 @@ Never retryable — the same rule fails identically. Extends
 
 [Source](../../src/auth/oid4vp.ts#L20)
 
+```ts
+(message: string): DcqlMalformedError
+```
+
 Import: `import {DcqlMalformedError} from 'tasra-sdk'`
 
 - `retryable: boolean` — `false` when retrying the identical request cannot succeed.
@@ -717,9 +884,9 @@ Decode JWT claims WITHOUT verifying the signature (for expiry/UX only).
 
 [Source](../../src/auth/verifier.ts#L234)
 
-```ts
-import {decodeJwtClaims} from 'tasra-sdk'
+Import: `import {decodeJwtClaims} from 'tasra-sdk'`
 
+```ts
 declare function decodeJwtClaims(jwt: string): JwtClaims | null
 ```
 
@@ -736,9 +903,9 @@ returns the plaintext (one HTTP round-trip).
 
 [Source](../../src/decryption/client.ts#L68)
 
-```ts
-import {decryptCustody} from 'tasra-sdk'
+Import: `import {decryptCustody} from 'tasra-sdk'`
 
+```ts
 declare function decryptCustody(opts: DecryptCustodyOpts): Promise<Uint8Array>
 ```
 
@@ -799,9 +966,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/crypto/kem.ts#L206)
 
-```ts
-import {decryptWithMasterKey} from 'tasra-sdk'
+Import: `import {decryptWithMasterKey} from 'tasra-sdk'`
 
+```ts
 declare function decryptWithMasterKey(mskBytes: Uint8Array, ct: Ciphertext, identity: Uint8Array): Uint8Array
 ```
 
@@ -820,9 +987,9 @@ node and combine the shares locally (the master key is never assembled).
 
 [Source](../../src/decryption/client.ts#L126)
 
-```ts
-import {decryptWithShardDelivery} from 'tasra-sdk'
+Import: `import {decryptWithShardDelivery} from 'tasra-sdk'`
 
+```ts
 declare function decryptWithShardDelivery(opts: ShardDecryptOpts): Promise<Uint8Array>
 ```
 
@@ -874,9 +1041,9 @@ when the holder is identified by a self-certifying did:key.
 
 [Source](../../src/auth/holderProof.ts#L179)
 
-```ts
-import {ed25519DidKey} from 'tasra-sdk'
+Import: `import {ed25519DidKey} from 'tasra-sdk'`
 
+```ts
 declare function ed25519DidKey(publicKey: Uint8Array): string
 ```
 
@@ -897,9 +1064,9 @@ The three byte-string parameters are easy to transpose — they are, in order:
 
 [Source](../../src/crypto/envelope.ts#L249)
 
-```ts
-import {encryptEnvelope} from 'tasra-sdk'
+Import: `import {encryptEnvelope} from 'tasra-sdk'`
 
+```ts
 declare function encryptEnvelope(slotId: Uint8Array, mpkBytes: Uint8Array, identity: Uint8Array, plaintext: Uint8Array, epoch?: bigint | null): GroupEnvelope
 ```
 
@@ -972,9 +1139,9 @@ Map the raw recovery id (0/1) to an Ethereum `v`: legacy 27/28, or EIP-155
 
 [Source](../../src/signing/ecdsa.ts#L77)
 
-```ts
-import {ethSignatureV} from 'tasra-sdk'
+Import: `import {ethSignatureV} from 'tasra-sdk'`
 
+```ts
 declare function ethSignatureV(yParity: number, chainId?: number): number
 ```
 
@@ -996,9 +1163,9 @@ the legacy `required_sub_in` clause has no encoding here.
 
 [Source](../../src/auth/oid4vp.ts#L698)
 
-```ts
-import {evaluateDcql} from 'tasra-sdk'
+Import: `import {evaluateDcql} from 'tasra-sdk'`
 
+```ts
 declare function evaluateDcql(rule: string, credentials: readonly CredentialView[]): boolean
 ```
 
@@ -1027,9 +1194,9 @@ never access.
 
 [Source](../../src/auth/oid4vp.ts#L836)
 
-```ts
-import {evaluateIdentityScoped} from 'tasra-sdk'
+Import: `import {evaluateIdentityScoped} from 'tasra-sdk'`
 
+```ts
 declare function evaluateIdentityScoped(rule: string, credentials: readonly CredentialView[], identity: string): boolean
 ```
 
@@ -1087,9 +1254,9 @@ The sign and threshold-decrypt paths never assemble a key at all.
 
 [Source](../../src/keys/node-client.ts#L62)
 
-```ts
-import {fetchAndAssembleKey} from 'tasra-sdk'
+Import: `import {fetchAndAssembleKey} from 'tasra-sdk'`
 
+```ts
 declare function fetchAndAssembleKey(cfg: NodeConfig, slotHex: string): Promise<Uint8Array>
 ```
 
@@ -1113,9 +1280,9 @@ POST {verifier}/v1/nonce
 
 [Source](../../src/auth/holderProof.ts#L61)
 
-```ts
-import {fetchHolderNonce} from 'tasra-sdk'
+Import: `import {fetchHolderNonce} from 'tasra-sdk'`
 
+```ts
 declare function fetchHolderNonce(verifierUrl: string, opts?: { slotId?: string; action?: string; }): Promise<HolderNonce>
 ```
 
@@ -1132,9 +1299,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/keys/node-client.ts#L19)
 
-```ts
-import {fetchMpk} from 'tasra-sdk'
+Import: `import {fetchMpk} from 'tasra-sdk'`
 
+```ts
 declare function fetchMpk(nodeUrl: string, slotHex: string): Promise<{ mpkBytes: Uint8Array; epoch: number; }>
 ```
 
@@ -1151,9 +1318,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/crypto/envelope.ts#L107)
 
-```ts
-import {fromBytes} from 'tasra-sdk'
+Import: `import {fromBytes} from 'tasra-sdk'`
 
+```ts
 declare function fromBytes(bytes: Uint8Array): GroupEnvelope
 ```
 
@@ -1271,9 +1438,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/crypto/hex.ts#L2)
 
-```ts
-import {hexToBytes} from 'tasra-sdk'
+Import: `import {hexToBytes} from 'tasra-sdk'`
 
+```ts
 declare function hexToBytes(hex: string): Uint8Array
 ```
 
@@ -1349,9 +1516,9 @@ Matches the network faucet service.
 
 [Source](../../src/slots/faucet.ts#L27)
 
-```ts
-import {httpFaucet} from 'tasra-sdk'
+Import: `import {httpFaucet} from 'tasra-sdk'`
 
+```ts
 declare function httpFaucet(faucetUrl: string): Faucet
 ```
 
@@ -1367,9 +1534,9 @@ The byte range of chunk `i` inside the body — for range requests and streaming
 
 [Source](../../src/crypto/ibe-blob.ts#L88)
 
-```ts
-import {ibeBlobChunkRange} from 'tasra-sdk'
+Import: `import {ibeBlobChunkRange} from 'tasra-sdk'`
 
+```ts
 declare function ibeBlobChunkRange(header: IbeBlobHeader, index: number): { start: number; end: number; plainLength: number; }
 ```
 
@@ -1386,9 +1553,9 @@ A WebCrypto key for `dek`, importable once per blob and reused across chunks.
 
 [Source](../../src/crypto/ibe-blob.ts#L152)
 
-```ts
-import {ibeBlobDecryptKey} from 'tasra-sdk'
+Import: `import {ibeBlobDecryptKey} from 'tasra-sdk'`
 
+```ts
 declare function ibeBlobDecryptKey(dek: Uint8Array): Promise<CryptoKey>
 ```
 
@@ -1404,9 +1571,9 @@ Returns: `Promise<CryptoKey>`.
 
 [Source](../../src/crypto/ibe-blob.ts#L191)
 
-```ts
-import {ibeBlobDigest} from 'tasra-sdk'
+Import: `import {ibeBlobDigest} from 'tasra-sdk'`
 
+```ts
 declare function ibeBlobDigest(body: Uint8Array): Uint8Array
 ```
 
@@ -1445,9 +1612,9 @@ The blob's IBE-wrapped data key as an `IbeCiphertext` (what `ibeDecryptWithKey` 
 
 [Source](../../src/crypto/ibe-blob.ts#L136)
 
-```ts
-import {ibeBlobWrappedKey} from 'tasra-sdk'
+Import: `import {ibeBlobWrappedKey} from 'tasra-sdk'`
 
+```ts
 declare function ibeBlobWrappedKey(header: IbeBlobHeader): IbeCiphertext
 ```
 
@@ -1482,9 +1649,9 @@ Combine k extraction partials and AEAD-decrypt `ct` — mirrors
 
 [Source](../../src/crypto/ibe.ts#L282)
 
-```ts
-import {ibeCombineDecrypt} from 'tasra-sdk'
+Import: `import {ibeCombineDecrypt} from 'tasra-sdk'`
 
+```ts
 declare function ibeCombineDecrypt(verifyingShares: IbeVerifyingShares, shares: IbeDecryptionShare[], ct: IbeCiphertext, identity: Uint8Array): Uint8Array
 ```
 
@@ -1509,9 +1676,9 @@ silently fails the AEAD later, unattributed).
 
 [Source](../../src/crypto/ibe.ts#L256)
 
-```ts
-import {ibeCombineExtract} from 'tasra-sdk'
+Import: `import {ibeCombineExtract} from 'tasra-sdk'`
 
+```ts
 declare function ibeCombineExtract(verifyingShares: IbeVerifyingShares, shares: IbeDecryptionShare[], identity: Uint8Array): Uint8Array
 ```
 
@@ -1529,9 +1696,9 @@ Decrypt one chunk (its exact body slice, see {@link ibeBlobChunkRange}).
 
 [Source](../../src/crypto/ibe-blob.ts#L157)
 
-```ts
-import {ibeDecryptBlobChunk} from 'tasra-sdk'
+Import: `import {ibeDecryptBlobChunk} from 'tasra-sdk'`
 
+```ts
 declare function ibeDecryptBlobChunk(key: CryptoKey, header: IbeBlobHeader, index: number, chunk: Uint8Array): Promise<Uint8Array>
 ```
 
@@ -1566,9 +1733,9 @@ One-call identity-scoped decrypt (the read path): token → extraction fan-out
 
 [Source](../../src/committee/request.ts#L473)
 
-```ts
-import {ibeDecryptRequest} from 'tasra-sdk'
+Import: `import {ibeDecryptRequest} from 'tasra-sdk'`
 
+```ts
 declare function ibeDecryptRequest(opts: IbeExtractRequestOpts & { ciphertext: IbeCiphertext; }): Promise<Uint8Array>
 ```
 
@@ -1585,9 +1752,9 @@ custody-opt-in path pairing with {@link ibeCombineExtract}.
 
 [Source](../../src/crypto/ibe.ts#L300)
 
-```ts
-import {ibeDecryptWithKey} from 'tasra-sdk'
+Import: `import {ibeDecryptWithKey} from 'tasra-sdk'`
 
+```ts
 declare function ibeDecryptWithKey(skIdBytes: Uint8Array, ct: IbeCiphertext, identity: Uint8Array): Uint8Array
 ```
 
@@ -1606,9 +1773,9 @@ compressed G2). Offline and permissionless — the identity's key need not exist
 
 [Source](../../src/crypto/ibe.ts#L189)
 
-```ts
-import {ibeEncrypt} from 'tasra-sdk'
+Import: `import {ibeEncrypt} from 'tasra-sdk'`
 
+```ts
 declare function ibeEncrypt(mpkBytes: Uint8Array, identity: Uint8Array, message: Uint8Array): IbeCiphertext
 ```
 
@@ -1678,9 +1845,9 @@ decrypts and drops it. Zeroize the returned bytes when done.
 
 [Source](../../src/committee/request.ts#L459)
 
-```ts
-import {ibeExtractRequest} from 'tasra-sdk'
+Import: `import {ibeExtractRequest} from 'tasra-sdk'`
 
+```ts
 declare function ibeExtractRequest(opts: IbeExtractRequestOpts): Promise<Uint8Array>
 ```
 
@@ -1716,9 +1883,9 @@ plaintext. Streaming consumers use `ibeUnwrapBlobKey` + `ibeDecryptBlobChunk` pe
 
 [Source](../../src/crypto/ibe-blob.ts#L173)
 
-```ts
-import {ibeOpenBlob} from 'tasra-sdk'
+Import: `import {ibeOpenBlob} from 'tasra-sdk'`
 
+```ts
 declare function ibeOpenBlob(skIdBytes: Uint8Array, header: IbeBlobHeader, body: Uint8Array): Promise<Uint8Array>
 ```
 
@@ -1738,9 +1905,9 @@ permissionless, like `ibeEncrypt`.
 
 [Source](../../src/crypto/ibe-blob.ts#L100)
 
-```ts
-import {ibeSealBlob} from 'tasra-sdk'
+Import: `import {ibeSealBlob} from 'tasra-sdk'`
 
+```ts
 declare function ibeSealBlob(mpkBytes: Uint8Array, identity: string, plaintext: Uint8Array, opts?: { contentType?: string; chunkSize?: number; }): Promise<SealedBlob>
 ```
 
@@ -1761,9 +1928,9 @@ as long as it decrypts, then zeroizes it.
 
 [Source](../../src/crypto/ibe-blob.ts#L145)
 
-```ts
-import {ibeUnwrapBlobKey} from 'tasra-sdk'
+Import: `import {ibeUnwrapBlobKey} from 'tasra-sdk'`
 
+```ts
 declare function ibeUnwrapBlobKey(skIdBytes: Uint8Array, header: IbeBlobHeader): Uint8Array
 ```
 
@@ -1792,9 +1959,9 @@ identifiable abort: the caller knows WHICH node served a bad share.
 
 [Source](../../src/crypto/ibe.ts#L230)
 
-```ts
-import {ibeVerifyShare} from 'tasra-sdk'
+Import: `import {ibeVerifyShare} from 'tasra-sdk'`
 
+```ts
 declare function ibeVerifyShare(verifyingShares: IbeVerifyingShares, identity: Uint8Array, share: IbeDecryptionShare): void
 ```
 
@@ -1814,9 +1981,9 @@ subclasses that carry their own name (e.g. `CommitteeAuthorizeError`).
 
 [Source](../../src/errors.ts#L171)
 
-```ts
-import {isAuthDenied} from 'tasra-sdk'
+Import: `import {isAuthDenied} from 'tasra-sdk'`
 
+```ts
 declare function isAuthDenied(e: unknown): e is TasraHttpError
 ```
 
@@ -1832,9 +1999,9 @@ Guard for a nonce that can ride in a header (the agent's challenge carries it ba
 
 [Source](../../src/auth/dpop.ts#L163)
 
-```ts
-import {isHeaderSafeNonce} from 'tasra-sdk'
+Import: `import {isHeaderSafeNonce} from 'tasra-sdk'`
 
+```ts
 declare function isHeaderSafeNonce(nonce: string): boolean
 ```
 
@@ -1850,9 +2017,9 @@ True when the token is expired or within `skewMs` of expiring.
 
 [Source](../../src/auth/verifier.ts#L251)
 
-```ts
-import {isJwtExpiringSoon} from 'tasra-sdk'
+Import: `import {isJwtExpiringSoon} from 'tasra-sdk'`
 
+```ts
 declare function isJwtExpiringSoon(jwt: string, skewMs?: number): boolean
 ```
 
@@ -1872,9 +2039,9 @@ a legacy kk-DCQL rule is not an error here, it is simply "not OID4VP".
 
 [Source](../../src/auth/oid4vp.ts#L1028)
 
-```ts
-import {isOid4vpRule} from 'tasra-sdk'
+Import: `import {isOid4vpRule} from 'tasra-sdk'`
 
+```ts
 declare function isOid4vpRule(rule: string): boolean
 ```
 
@@ -1891,9 +2058,9 @@ errors (a `TypeError` from a bug) report `false`.
 
 [Source](../../src/errors.ts#L179)
 
-```ts
-import {isRetryable} from 'tasra-sdk'
+Import: `import {isRetryable} from 'tasra-sdk'`
 
+```ts
 declare function isRetryable(e: unknown): boolean
 ```
 
@@ -1912,9 +2079,9 @@ POST {verifier}/v1/admin/credentials/issue  (header: X-Admin-Secret)
 
 [Source](../../src/auth/verifier.ts#L123)
 
-```ts
-import {issueAdminCredential} from 'tasra-sdk'
+Import: `import {issueAdminCredential} from 'tasra-sdk'`
 
+```ts
 declare function issueAdminCredential(verifierUrl: string, adminSecret: string, opts: { scopes: string[]; slotIds?: string[]; ttlSecs?: number; }): Promise<RedemptionGrant>
 ```
 
@@ -1949,9 +2116,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/crypto/detect.ts#L6)
 
-```ts
-import {isTasraPost} from 'tasra-sdk'
+Import: `import {isTasraPost} from 'tasra-sdk'`
 
+```ts
 declare function isTasraPost(text: string): boolean
 ```
 
@@ -1971,9 +2138,9 @@ evaluator fail closed.
 
 [Source](../../src/auth/oid4vp.ts#L220)
 
-```ts
-import {jsonCredential} from 'tasra-sdk'
+Import: `import {jsonCredential} from 'tasra-sdk'`
 
+```ts
 declare function jsonCredential(args: { format: string; types: readonly string[]; body: unknown; }): CredentialView
 ```
 
@@ -1993,9 +2160,9 @@ yields a different thumbprint and the token's `cnf.jkt` would never match.
 
 [Source](../../src/auth/dpop.ts#L120)
 
-```ts
-import {jwkThumbprint} from 'tasra-sdk'
+Import: `import {jwkThumbprint} from 'tasra-sdk'`
 
+```ts
 declare function jwkThumbprint(jwk: JsonWebKey): Promise<string>
 ```
 
@@ -2029,9 +2196,9 @@ Expiry as epoch-ms, or null if absent/unparseable.
 
 [Source](../../src/auth/verifier.ts#L245)
 
-```ts
-import {jwtExpMs} from 'tasra-sdk'
+Import: `import {jwtExpMs} from 'tasra-sdk'`
 
+```ts
 declare function jwtExpMs(jwt: string): number | null
 ```
 
@@ -2047,6 +2214,10 @@ The request never got an HTTP answer — DNS failure, connection refused,
 timeout, CORS. Retryable: the service may simply not be up yet.
 
 [Source](../../src/errors.ts#L81)
+
+```ts
+(args: { url: string; message?: string; cause?: unknown; }): NodeUnreachableError
+```
 
 Import: `import {NodeUnreachableError} from 'tasra-sdk'`
 
@@ -2078,9 +2249,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/crypto/detect.ts#L19)
 
-```ts
-import {parseTasraPost} from 'tasra-sdk'
+Import: `import {parseTasraPost} from 'tasra-sdk'`
 
+```ts
 declare function parseTasraPost(text: string): GroupEnvelope | null
 ```
 
@@ -2099,9 +2270,9 @@ Other actions should supply the digest directly.
 
 [Source](../../src/verifier-agent/index.ts#L176)
 
-```ts
-import {payloadDigest} from 'tasra-sdk'
+Import: `import {payloadDigest} from 'tasra-sdk'`
 
+```ts
 declare function payloadDigest(action: string, messageHex: string): string
 ```
 
@@ -2125,9 +2296,9 @@ Throws `VerifierAgentSessionError`: `unavailable` for 502/503/504 (the session m
 
 [Source](../../src/verifier-agent/index.ts#L344)
 
-```ts
-import {pollOid4vpSession} from 'tasra-sdk'
+Import: `import {pollOid4vpSession} from 'tasra-sdk'`
 
+```ts
 declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, pollSecret: string): Promise<SessionStatusResult>
 ```
 
@@ -2192,6 +2363,10 @@ to the platform.
 
 [Source](../../src/recipient/store.ts#L35)
 
+```ts
+(credentials?: (HeldCredential | CredentialView)[]): RecipientStore
+```
+
 Import: `import {RecipientStore} from 'tasra-sdk'`
 
 - `add: (credential: HeldCredential &#124; CredentialView) => RecipientStore` — Add a credential (returns `this` for chaining).
@@ -2205,9 +2380,9 @@ POST {verifier}/v1/credentials/redeem  {redemption_token, recipient_did}
 
 [Source](../../src/auth/verifier.ts#L96)
 
-```ts
-import {redeemCredential} from 'tasra-sdk'
+Import: `import {redeemCredential} from 'tasra-sdk'`
 
+```ts
 declare function redeemCredential(verifierUrl: string, redemptionToken: string, recipientDid: string): Promise<IssuedToken>
 ```
 
@@ -2226,9 +2401,9 @@ POST {verifier}/v1/renewals/redeem  {renewal_token}
 
 [Source](../../src/auth/verifier.ts#L82)
 
-```ts
-import {redeemRenewalToken} from 'tasra-sdk'
+Import: `import {redeemRenewalToken} from 'tasra-sdk'`
 
+```ts
 declare function redeemRenewalToken(verifierUrl: string, renewalToken: string): Promise<IssuedToken>
 ```
 
@@ -2280,9 +2455,9 @@ each partial (identifiable abort names the node via the identifier).
 
 [Source](../../src/committee/client.ts#L552)
 
-```ts
-import {requestIbeExtractionPartials} from 'tasra-sdk'
+Import: `import {requestIbeExtractionPartials} from 'tasra-sdk'`
 
+```ts
 declare function requestIbeExtractionPartials(opts: IbeExtractOpts): Promise<IbeExtractionPartial[]>
 ```
 
@@ -2299,9 +2474,9 @@ rotation webhook. POST {verifier}/v1/renewals/revoke  {renewal_token}
 
 [Source](../../src/auth/verifier.ts#L67)
 
-```ts
-import {revokeRenewal} from 'tasra-sdk'
+Import: `import {revokeRenewal} from 'tasra-sdk'`
 
+```ts
 declare function revokeRenewal(verifierUrl: string, renewalToken: string): Promise<void>
 ```
 
@@ -2324,9 +2499,9 @@ POST {verifier}/v1/admin/slots/revoke-user  (header: X-Admin-Secret)
 
 [Source](../../src/auth/verifier.ts#L152)
 
-```ts
-import {revokeSlotUser} from 'tasra-sdk'
+Import: `import {revokeSlotUser} from 'tasra-sdk'`
 
+```ts
 declare function revokeSlotUser(verifierUrl: string, adminSecret: string, opts: { slotId: string; did: string; rotate?: boolean; reason?: string; }): Promise<void>
 ```
 
@@ -2350,9 +2525,9 @@ segment.
 
 [Source](../../src/auth/identityScope.ts#L44)
 
-```ts
-import {scopeCovers} from 'tasra-sdk'
+Import: `import {scopeCovers} from 'tasra-sdk'`
 
+```ts
 declare function scopeCovers(grant: string, identity: string): boolean
 ```
 
@@ -2410,9 +2585,9 @@ satisfied.
 
 [Source](../../src/auth/oid4vp.ts#L756)
 
-```ts
-import {selectDcql} from 'tasra-sdk'
+Import: `import {selectDcql} from 'tasra-sdk'`
 
+```ts
 declare function selectDcql(rule: string, credentials: readonly CredentialView[], opts?: ValidateOptions): Selection
 ```
 
@@ -2550,9 +2725,9 @@ and returns the final group signature (one HTTP round-trip).
 
 [Source](../../src/signing/frost.ts#L84)
 
-```ts
-import {signCustody} from 'tasra-sdk'
+Import: `import {signCustody} from 'tasra-sdk'`
 
+```ts
 declare function signCustody(opts: SignCustodyOpts): Promise<FrostSignResult>
 ```
 
@@ -2596,9 +2771,9 @@ Ethereum signature components; assemble into a transaction with ethSignatureV().
 
 [Source](../../src/signing/ecdsa.ts#L44)
 
-```ts
-import {signEoaDigest} from 'tasra-sdk'
+Import: `import {signEoaDigest} from 'tasra-sdk'`
 
+```ts
 declare function signEoaDigest(opts: EoaSignOpts): Promise<EoaSignature>
 ```
 
@@ -2634,9 +2809,9 @@ The result goes in SignCustodyOpts.userSignature (also pass the same requestId).
 
 [Source](../../src/signing/frost.ts#L137)
 
-```ts
-import {signUserRequest} from 'tasra-sdk'
+Import: `import {signUserRequest} from 'tasra-sdk'`
 
+```ts
 declare function signUserRequest(secretKey: Uint8Array, slotId: string, message: Uint8Array, requestId: string): Uint8Array
 ```
 
@@ -2657,9 +2832,9 @@ signature. The node URLs must be exactly the k committee members.
 
 [Source](../../src/signing/frost.ts#L222)
 
-```ts
-import {signWithShardDelivery} from 'tasra-sdk'
+Import: `import {signWithShardDelivery} from 'tasra-sdk'`
 
+```ts
 declare function signWithShardDelivery(opts: ShardSignOpts): Promise<FrostSignature>
 ```
 
@@ -2676,6 +2851,10 @@ key cannot read anything encrypted after the rotation. Retryable: re-assemble
 at the new epoch and try again — the managed {@link Session } does this for you.
 
 [Source](../../src/errors.ts#L128)
+
+```ts
+(args: { expected: number; actual: number; slotId?: string; message?: string; }): SlotRotatedError
+```
 
 Import: `import {SlotRotatedError} from 'tasra-sdk'`
 
@@ -2701,9 +2880,9 @@ challenging is broken, and retrying forever would hide that.
 
 [Source](../../src/verifier-agent/index.ts#L288)
 
-```ts
-import {submitOauthResponse} from 'tasra-sdk'
+Import: `import {submitOauthResponse} from 'tasra-sdk'`
 
+```ts
 declare function submitOauthResponse(verifierAgentUrl: string, args: { sessionId: string; pollSecret: string; accessToken: string; nonce: string; dpopHtu: string; signer: DpopSigner; }): Promise<void>
 ```
 
@@ -2765,6 +2944,10 @@ distinguish SDK failures from programming errors (`TypeError`, etc.).
 
 [Source](../../src/errors.ts#L33)
 
+```ts
+(message: string, opts?: { retryable?: boolean; cause?: unknown; }): TasraError
+```
+
 Import: `import {TasraError} from 'tasra-sdk'`
 
 - `retryable: boolean` — `false` when retrying the identical request cannot succeed.
@@ -2782,6 +2965,10 @@ without dumping a page of HTML into a log line.
 5xx and 429 are marked retryable; other 4xx are not.
 
 [Source](../../src/errors.ts#L51)
+
+```ts
+(args: { status: number; url: string; body?: string; message?: string; retryable?: boolean; }): TasraHttpError
+```
 
 Import: `import {TasraHttpError} from 'tasra-sdk'`
 
@@ -2806,6 +2993,10 @@ failure and a cold DKG produced the same opaque message.
 
 [Source](../../src/errors.ts#L99)
 
+```ts
+(args: { got: number; need: number; reasons?: readonly string[]; message?: string; retryable?: boolean; }): ThresholdNotMetError
+```
+
 Import: `import {ThresholdNotMetError} from 'tasra-sdk'`
 
 - `got: number` — How many participants answered successfully.
@@ -2823,9 +3014,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/crypto/envelope.ts#L51)
 
-```ts
-import {toBytes} from 'tasra-sdk'
+Import: `import {toBytes} from 'tasra-sdk'`
 
+```ts
 declare function toBytes(env: GroupEnvelope): Uint8Array
 ```
 
@@ -2843,9 +3034,9 @@ u64_LE(len requestId) ‖ requestId.
 
 [Source](../../src/signing/frost.ts#L117)
 
-```ts
-import {userSignaturePayload} from 'tasra-sdk'
+Import: `import {userSignaturePayload} from 'tasra-sdk'`
 
+```ts
 declare function userSignaturePayload(slotId: string, message: Uint8Array, requestId: string): Uint8Array
 ```
 
@@ -2863,9 +3054,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/auth/oid4vp.ts#L434)
 
-```ts
-import {validateDcql} from 'tasra-sdk'
+Import: `import {validateDcql} from 'tasra-sdk'`
 
+```ts
 declare function validateDcql(rule: string, opts?: ValidateOptions): Query
 ```
 
@@ -2883,9 +3074,9 @@ throws {@link DcqlMalformedError} otherwise.
 
 [Source](../../src/recipient/store.ts#L110)
 
-```ts
-import {validateRecipientRule} from 'tasra-sdk'
+Import: `import {validateRecipientRule} from 'tasra-sdk'`
 
+```ts
 declare function validateRecipientRule(rule: string): void
 ```
 
@@ -2902,6 +3093,10 @@ A Verifier Agent session did not produce a compound token. `kind` says why;
 still complete, so poll again. Extends {@link TasraError}.
 
 [Source](../../src/verifier-agent/index.ts#L118)
+
+```ts
+(kind: VerifierAgentSessionErrorKind, correlation: string, message: string, httpStatus?: number): VerifierAgentSessionError
+```
 
 Import: `import {VerifierAgentSessionError} from 'tasra-sdk'`
 
@@ -2941,9 +3136,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/crypto/kem.ts#L245)
 
-```ts
-import {verifyDecryptShare} from 'tasra-sdk'
+Import: `import {verifyDecryptShare} from 'tasra-sdk'`
 
+```ts
 declare function verifyDecryptShare(share: DecryptShare, u: Uint8Array): boolean
 ```
 
@@ -2961,9 +3156,9 @@ c = H_chal(R, Y, len(msg), msg). Returns false on any malformed input.
 
 [Source](../../src/crypto/frost.ts#L188)
 
-```ts
-import {verifyFrostSignature} from 'tasra-sdk'
+Import: `import {verifyFrostSignature} from 'tasra-sdk'`
 
+```ts
 declare function verifyFrostSignature(groupPublicKey: Uint8Array, message: Uint8Array, sig: FrostSignature): boolean
 ```
 
@@ -2984,9 +3179,9 @@ POST {verifier}/v1/verify
 
 [Source](../../src/auth/verifier.ts#L180)
 
-```ts
-import {verifyPresentation} from 'tasra-sdk'
+Import: `import {verifyPresentation} from 'tasra-sdk'`
 
+```ts
 declare function verifyPresentation(verifierUrl: string, body: { dcql_rule: string; presentation: unknown; credentials?: unknown; }): Promise<IssuedToken>
 ```
 
@@ -3009,9 +3204,9 @@ POST {verifier}/v1/verify-vp-jwt
 
 [Source](../../src/auth/verifier.ts#L201)
 
-```ts
-import {verifyVpJwt} from 'tasra-sdk'
+Import: `import {verifyVpJwt} from 'tasra-sdk'`
 
+```ts
 declare function verifyVpJwt(verifierUrl: string, body: { dcql_rule: string; holder: string; credentials: string[]; holder_proof: string; }): Promise<IssuedToken>
 ```
 
@@ -3047,9 +3242,9 @@ decides how to explain it) — see `awaitVerifierAgentResult` for the version th
 
 [Source](../../src/verifier-agent/index.ts#L422)
 
-```ts
-import {waitForSession} from 'tasra-sdk'
+Import: `import {waitForSession} from 'tasra-sdk'`
 
+```ts
 declare function waitForSession(verifierAgentUrl: string, sessionId: string, pollSecret: string, intervalMs?: number, timeoutMs?: number, opts?: WaitOpts): Promise<SessionStatusResult>
 ```
 

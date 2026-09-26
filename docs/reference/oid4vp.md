@@ -4,6 +4,121 @@ Generated from public TypeScript exports. Run `npm run docs:reference` to update
 
 [Reference index](README.md) · [Task guides](../README.md) · [Errors](../errors.md)
 
+<details>
+<summary>Find an export</summary>
+
+- [assertCompoundTokenWire](#assertcompoundtokenwire)
+- [awaitVerifierAgentResult](#awaitverifieragentresult)
+- [b64url](#b64url)
+- [b64urlDecode](#b64urldecode)
+- [base58Decode](#base58decode)
+- [base58Encode](#base58encode)
+- [buildResponse](#buildresponse)
+- [BuildResponseOpts](#buildresponseopts)
+- [BuiltResponse](#builtresponse)
+- [CommitteeAction](#committeeaction)
+- [concatKdf](#concatkdf)
+- [createOid4vpSession](#createoid4vpsession)
+- [CreateSessionParams](#createsessionparams)
+- [CreateSessionResult](#createsessionresult)
+- [CredentialOffer](#credentialoffer)
+- [decodeJson](#decodejson)
+- [decryptJwe](#decryptjwe)
+- [decryptPayloadDigest](#decryptpayloaddigest)
+- [defaultKeyResolver](#defaultkeyresolver)
+- [derivedNonce](#derivednonce)
+- [DidDocument](#diddocument)
+- [didJwk](#didjwk)
+- [didJwkIssuer](#didjwkissuer)
+- [didWebUrl](#didweburl)
+- [Disclosure](#disclosure)
+- [disclosureDigest](#disclosuredigest)
+- [EcJwk](#ecjwk)
+- [ed25519DidKey](#ed25519didkey)
+- [ed25519FromDidKey](#ed25519fromdidkey)
+- [ed25519HolderKey](#ed25519holderkey)
+- [encryptJwe](#encryptjwe)
+- [fetchRequestObject](#fetchrequestobject)
+- [fromUtf8](#fromutf8)
+- [HeldSdJwt](#heldsdjwt)
+- [holderCnf](#holdercnf)
+- [HolderKey](#holderkey)
+- [holderSigner](#holdersigner)
+- [IssuerMetadata](#issuermetadata)
+- [issueSdJwtVc](#issuesdjwtvc)
+- [IssueSdJwtVcOpts](#issuesdjwtvcopts)
+- [JweEnc](#jweenc)
+- [Jwk](#jwk)
+- [jwkFromDid](#jwkfromdid)
+- [JwsAlg](#jwsalg)
+- [JwsSigner](#jwssigner)
+- [KeyResolver](#keyresolver)
+- [nextPollDelay](#nextpolldelay)
+- [NonceContext](#noncecontext)
+- [OkpJwk](#okpjwk)
+- [OpenedVerifierAgentSession](#openedverifieragentsession)
+- [openVerifierAgentSession](#openverifieragentsession)
+- [OpenVerifierAgentSessionOpts](#openverifieragentsessionopts)
+- [OperationInput](#operationinput)
+- [p256DidKey](#p256didkey)
+- [p256DidKeyIssuer](#p256didkeyissuer)
+- [p256HolderKey](#p256holderkey)
+- [p256PublicJwk](#p256publicjwk)
+- [parseCredentialOfferUri](#parsecredentialofferuri)
+- [ParsedSdJwt](#parsedsdjwt)
+- [parseOpenid4vpUri](#parseopenid4vpuri)
+- [parseSdJwt](#parsesdjwt)
+- [payloadDigest](#payloaddigest)
+- [payloadDigestFor](#payloaddigestfor)
+- [peekSdJwt](#peeksdjwt)
+- [planPresentation](#planpresentation)
+- [pollOid4vpSession](#polloid4vpsession)
+- [PresentationCandidate](#presentationcandidate)
+- [PresentationDelegation](#presentationdelegation)
+- [PresentationOperation](#presentationoperation)
+- [presentationOperationTypedData](#presentationoperationtypeddata)
+- [PresentationPlan](#presentationplan)
+- [PresentOpts](#presentopts)
+- [presentSdJwt](#presentsdjwt)
+- [PresentSdJwtOpts](#presentsdjwtopts)
+- [presentToRequestUri](#presenttorequesturi)
+- [randomHolderKey](#randomholderkey)
+- [receiveCredential](#receivecredential)
+- [ReceiveCredentialOpts](#receivecredentialopts)
+- [ReceivedCredential](#receivedcredential)
+- [requestedClaimNames](#requestedclaimnames)
+- [requestHash](#requesthash)
+- [RequestObjectClaims](#requestobjectclaims)
+- [resolveDidWeb](#resolvedidweb)
+- [ResolveOpts](#resolveopts)
+- [responseEncryptionKey](#responseencryptionkey)
+- [sdHash](#sdhash)
+- [sdJwtClaims](#sdjwtclaims)
+- [sdJwtCredentialView](#sdjwtcredentialview)
+- [SdJwtIssuer](#sdjwtissuer)
+- [SessionPhase](#sessionphase)
+- [SessionStatusResult](#sessionstatusresult)
+- [signCompactJws](#signcompactjws)
+- [submitResponse](#submitresponse)
+- [TypedDataSigner](#typeddatasigner)
+- [utf8](#utf8)
+- [verificationKey](#verificationkey)
+- [VerifiedRequestObject](#verifiedrequestobject)
+- [verifierAgentResult](#verifieragentresult)
+- [VerifierAgentResult](#verifieragentresult-1)
+- [VerifierAgentSessionError](#verifieragentsessionerror)
+- [VerifierAgentSessionErrorKind](#verifieragentsessionerrorkind)
+- [verifierAgentVerifierProofs](#verifieragentverifierproofs)
+- [verifyCompactJws](#verifycompactjws)
+- [verifyKbJwt](#verifykbjwt)
+- [verifyRequestObject](#verifyrequestobject)
+- [VerifyRequestObjectOpts](#verifyrequestobjectopts)
+- [waitForSession](#waitforsession)
+- [WaitOpts](#waitopts)
+- [Constants and ABI values](#constants-and-abi-values)
+
+</details>
+
 ## assertCompoundTokenWire
 
 The compound token the verifier-agent hands back must be the wire shape the keepers verify —
@@ -11,9 +126,9 @@ checked field by field before anything is built on it.
 
 [Source](../../src/verifier-agent/index.ts#L140)
 
-```ts
-import {assertCompoundTokenWire} from 'tasra-sdk/oid4vp'
+Import: `import {assertCompoundTokenWire} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function assertCompoundTokenWire(raw: unknown, correlation: string): Record<string, unknown>
 ```
 
@@ -34,9 +149,9 @@ opened, or one whose proofs are malformed, is a `protocol` refusal: nothing is b
 
 [Source](../../src/oid4vp/verifier-agent.ts#L156)
 
-```ts
-import {awaitVerifierAgentResult} from 'tasra-sdk/oid4vp'
+Import: `import {awaitVerifierAgentResult} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function awaitVerifierAgentResult(session: Pick<OpenedVerifierAgentSession, "verifierAgentUrl" | "sessionId" | "pollSecret" | "requestHash">, opts?: { intervalMs?: number; timeoutMs?: number; } & WaitOpts): Promise<VerifierAgentResult>
 ```
 
@@ -53,9 +168,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/oid4vp/jose.ts#L13)
 
-```ts
-import {b64url} from 'tasra-sdk/oid4vp'
+Import: `import {b64url} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function b64url(bytes: Uint8Array | string): string
 ```
 
@@ -71,9 +186,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/oid4vp/jose.ts#L19)
 
-```ts
-import {b64urlDecode} from 'tasra-sdk/oid4vp'
+Import: `import {b64urlDecode} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function b64urlDecode(s: string): Uint8Array
 ```
 
@@ -89,9 +204,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/oid4vp/jose.ts#L102)
 
-```ts
-import {base58Decode} from 'tasra-sdk/oid4vp'
+Import: `import {base58Decode} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function base58Decode(s: string): Uint8Array
 ```
 
@@ -107,9 +222,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/oid4vp/jose.ts#L88)
 
-```ts
-import {base58Encode} from 'tasra-sdk/oid4vp'
+Import: `import {base58Encode} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function base58Encode(bytes: Uint8Array): string
 ```
 
@@ -125,9 +240,9 @@ Bind the chosen credential to the request (KB-JWT) and wrap it as the verifier-a
 
 [Source](../../src/oid4vp/wallet.ts#L99)
 
-```ts
-import {buildResponse} from 'tasra-sdk/oid4vp'
+Import: `import {buildResponse} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function buildResponse(opts: BuildResponseOpts): BuiltResponse
 ```
 
@@ -190,9 +305,9 @@ Concat KDF (NIST SP 800-56A, single-pass SHA-256) — AlgorithmID = `enc` for EC
 
 [Source](../../src/oid4vp/jwe.ts#L27)
 
-```ts
-import {concatKdf} from 'tasra-sdk/oid4vp'
+Import: `import {concatKdf} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function concatKdf(z: Uint8Array, alg: string, apu: Uint8Array, apv: Uint8Array, keyLen: number): Uint8Array
 ```
 
@@ -216,9 +331,9 @@ for the result.
 
 [Source](../../src/verifier-agent/index.ts#L196)
 
-```ts
-import {createOid4vpSession} from 'tasra-sdk/oid4vp'
+Import: `import {createOid4vpSession} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function createOid4vpSession(verifierAgentUrl: string, params: CreateSessionParams): Promise<CreateSessionResult>
 ```
 
@@ -283,9 +398,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/oid4vp/jose.ts#L23)
 
-```ts
-import {decodeJson} from 'tasra-sdk/oid4vp'
+Import: `import {decodeJson} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function decodeJson<T = unknown>(b64: string): T
 ```
 
@@ -301,9 +416,9 @@ Decrypt a compact JWE produced by {@link encryptJwe} (or a wallet) with the reci
 
 [Source](../../src/oid4vp/jwe.ts#L64)
 
-```ts
-import {decryptJwe} from 'tasra-sdk/oid4vp'
+Import: `import {decryptJwe} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function decryptJwe(compact: string, recipientPrivateKey: Uint8Array): string
 ```
 
@@ -322,9 +437,9 @@ deliberately excluded (it is not authorised content).
 
 [Source](../../src/oid4vp/binding.ts#L124)
 
-```ts
-import {decryptPayloadDigest} from 'tasra-sdk/oid4vp'
+Import: `import {decryptPayloadDigest} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function decryptPayloadDigest(u: Uint8Array, aeadCt: Uint8Array): Uint8Array
 ```
 
@@ -341,9 +456,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/oid4vp/request-object.ts#L57)
 
-```ts
-import {defaultKeyResolver} from 'tasra-sdk/oid4vp'
+Import: `import {defaultKeyResolver} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function defaultKeyResolver(opts?: ResolveOpts): KeyResolver
 ```
 
@@ -361,9 +476,9 @@ nonce a KB-JWT must carry (the reference vp-nonce derivation, domain v2).
 
 [Source](../../src/oid4vp/binding.ts#L70)
 
-```ts
-import {derivedNonce} from 'tasra-sdk/oid4vp'
+Import: `import {derivedNonce} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function derivedNonce(reqHash: Uint8Array, random: Uint8Array, ctx: NonceContext): string
 ```
 
@@ -396,9 +511,9 @@ export interface DidDocument {
 
 [Source](../../src/oid4vp/jose.ts#L67)
 
-```ts
-import {didJwk} from 'tasra-sdk/oid4vp'
+Import: `import {didJwk} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function didJwk(jwk: Jwk): string
 ```
 
@@ -414,9 +529,9 @@ A `did:jwk` issuer (any key the app already holds, e.g. a patient's vault key gr
 
 [Source](../../src/oid4vp/sd-jwt.ts#L163)
 
-```ts
-import {didJwkIssuer} from 'tasra-sdk/oid4vp'
+Import: `import {didJwkIssuer} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function didJwkIssuer(privateKey: Uint8Array, alg?: JwsAlg): SdJwtIssuer
 ```
 
@@ -433,9 +548,9 @@ The HTTPS URL a `did:web` resolves from (W3C did:web method §3.2).
 
 [Source](../../src/oid4vp/did-web.ts#L21)
 
-```ts
-import {didWebUrl} from 'tasra-sdk/oid4vp'
+Import: `import {didWebUrl} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function didWebUrl(did: string): string
 ```
 
@@ -469,9 +584,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/oid4vp/sd-jwt.ts#L38)
 
-```ts
-import {disclosureDigest} from 'tasra-sdk/oid4vp'
+Import: `import {disclosureDigest} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function disclosureDigest(encoded: string): string
 ```
 
@@ -505,9 +620,9 @@ export interface EcJwk {
 
 [Source](../../src/oid4vp/jose.ts#L123)
 
-```ts
-import {ed25519DidKey} from 'tasra-sdk/oid4vp'
+Import: `import {ed25519DidKey} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function ed25519DidKey(publicKey: Uint8Array): string
 ```
 
@@ -523,9 +638,9 @@ The 32-byte Ed25519 key inside a `did:key:z6Mk…`; throws for any other key typ
 
 [Source](../../src/oid4vp/jose.ts#L132)
 
-```ts
-import {ed25519FromDidKey} from 'tasra-sdk/oid4vp'
+Import: `import {ed25519FromDidKey} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function ed25519FromDidKey(did: string): Uint8Array
 ```
 
@@ -541,9 +656,9 @@ An Ed25519 holder key from a 32-byte seed — the shape `tasra-cli vc issue-sd-j
 
 [Source](../../src/oid4vp/jose.ts#L77)
 
-```ts
-import {ed25519HolderKey} from 'tasra-sdk/oid4vp'
+Import: `import {ed25519HolderKey} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function ed25519HolderKey(seed: Uint8Array): HolderKey
 ```
 
@@ -560,9 +675,9 @@ as `header..iv.ciphertext.tag`. A fresh sender key per call; `kid` echoed when t
 
 [Source](../../src/oid4vp/jwe.ts#L47)
 
-```ts
-import {encryptJwe} from 'tasra-sdk/oid4vp'
+Import: `import {encryptJwe} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function encryptJwe(plaintext: string, recipient: EcJwk, enc?: JweEnc, random?: (n: number) => Uint8Array): string
 ```
 
@@ -581,9 +696,9 @@ Fetch a JAR from `request_uri` (`Accept: application/oauth-authz-req+jwt`) and v
 
 [Source](../../src/oid4vp/request-object.ts#L102)
 
-```ts
-import {fetchRequestObject} from 'tasra-sdk/oid4vp'
+Import: `import {fetchRequestObject} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function fetchRequestObject(requestUri: string, opts?: VerifyRequestObjectOpts & { fetchImpl?: typeof fetch; }): Promise<VerifiedRequestObject>
 ```
 
@@ -600,9 +715,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/oid4vp/jose.ts#L11)
 
-```ts
-import {fromUtf8} from 'tasra-sdk/oid4vp'
+Import: `import {fromUtf8} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function fromUtf8(b: Uint8Array): string
 ```
 
@@ -632,9 +747,9 @@ The `cnf` a holder key binds to: `{kid: "<did:jwk>#0"}`, exactly as the Hovi wal
 
 [Source](../../src/oid4vp/sd-jwt.ts#L149)
 
-```ts
-import {holderCnf} from 'tasra-sdk/oid4vp'
+Import: `import {holderCnf} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function holderCnf(holder: Pick<HolderKey, "did">): { kid: string; }
 ```
 
@@ -668,9 +783,9 @@ outside the P-256 profile exist: `tasra-cli vc issue-sd-jwt` binds an Ed25519 ho
 
 [Source](../../src/oid4vp/jose.ts#L58)
 
-```ts
-import {holderSigner} from 'tasra-sdk/oid4vp'
+Import: `import {holderSigner} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function holderSigner(holder: HolderKey): JwsSigner
 ```
 
@@ -702,9 +817,9 @@ Mint a compact SD-JWT VC `issuer~d1~…~` with one disclosure per selectively di
 
 [Source](../../src/oid4vp/sd-jwt.ts#L118)
 
-```ts
-import {issueSdJwtVc} from 'tasra-sdk/oid4vp'
+Import: `import {issueSdJwtVc} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function issueSdJwtVc(opts: IssueSdJwtVcOpts): string
 ```
 
@@ -765,9 +880,9 @@ The public JWK inside a `did:jwk` or a `did:key` (Ed25519 / P-256); a `#fragment
 
 [Source](../../src/oid4vp/jose.ts#L141)
 
-```ts
-import {jwkFromDid} from 'tasra-sdk/oid4vp'
+Import: `import {jwkFromDid} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function jwkFromDid(did: string): Jwk
 ```
 
@@ -817,9 +932,9 @@ Pure, so the schedule is testable without timers.
 
 [Source](../../src/verifier-agent/index.ts#L404)
 
-```ts
-import {nextPollDelay} from 'tasra-sdk/oid4vp'
+Import: `import {nextPollDelay} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function nextPollDelay(previousMs: number, baseMs: number, maxMs: number, random?: () => number): number
 ```
 
@@ -890,9 +1005,9 @@ Sign the operation and open a session; hand `qrPayload` to the wallet.
 
 [Source](../../src/oid4vp/verifier-agent.ts#L114)
 
-```ts
-import {openVerifierAgentSession} from 'tasra-sdk/oid4vp'
+Import: `import {openVerifierAgentSession} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function openVerifierAgentSession(opts: OpenVerifierAgentSessionOpts): Promise<OpenedVerifierAgentSession>
 ```
 
@@ -948,9 +1063,9 @@ export interface OperationInput {
 
 [Source](../../src/oid4vp/jose.ts#L127)
 
-```ts
-import {p256DidKey} from 'tasra-sdk/oid4vp'
+Import: `import {p256DidKey} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function p256DidKey(publicKeyUncompressedOrCompressed: Uint8Array): string
 ```
 
@@ -966,9 +1081,9 @@ A P-256 issuer as `did:key` (Hovi Studio's issuer shape) from a private scalar.
 
 [Source](../../src/oid4vp/sd-jwt.ts#L154)
 
-```ts
-import {p256DidKeyIssuer} from 'tasra-sdk/oid4vp'
+Import: `import {p256DidKeyIssuer} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function p256DidKeyIssuer(privateKey: Uint8Array, opts?: { fragmentKid?: boolean; }): SdJwtIssuer
 ```
 
@@ -985,9 +1100,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/oid4vp/jose.ts#L71)
 
-```ts
-import {p256HolderKey} from 'tasra-sdk/oid4vp'
+Import: `import {p256HolderKey} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function p256HolderKey(privateKey: Uint8Array): HolderKey
 ```
 
@@ -1003,9 +1118,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/oid4vp/jose.ts#L62)
 
-```ts
-import {p256PublicJwk} from 'tasra-sdk/oid4vp'
+Import: `import {p256PublicJwk} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function p256PublicJwk(privateKey: Uint8Array): EcJwk
 ```
 
@@ -1021,9 +1136,9 @@ Parse an `openid-credential-offer://?credential_offer=…` or `…?credential_of
 
 [Source](../../src/oid4vp/oid4vci.ts#L20)
 
-```ts
-import {parseCredentialOfferUri} from 'tasra-sdk/oid4vp'
+Import: `import {parseCredentialOfferUri} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function parseCredentialOfferUri(uri: string): { offer?: CredentialOffer; offerUri?: string; }
 ```
 
@@ -1058,9 +1173,9 @@ export interface ParsedSdJwt {
 
 [Source](../../src/oid4vp/request-object.ts#L46)
 
-```ts
-import {parseOpenid4vpUri} from 'tasra-sdk/oid4vp'
+Import: `import {parseOpenid4vpUri} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function parseOpenid4vpUri(uri: string): { clientId?: string; requestUri: string; }
 ```
 
@@ -1076,9 +1191,9 @@ Split a compact SD-JWT (`issuer~d1~…~[kb]`) into its parts, checking every dis
 
 [Source](../../src/oid4vp/sd-jwt.ts#L50)
 
-```ts
-import {parseSdJwt} from 'tasra-sdk/oid4vp'
+Import: `import {parseSdJwt} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function parseSdJwt(compact: string): ParsedSdJwt
 ```
 
@@ -1097,9 +1212,9 @@ Other actions should supply the digest directly.
 
 [Source](../../src/verifier-agent/index.ts#L176)
 
-```ts
-import {payloadDigest} from 'tasra-sdk/oid4vp'
+Import: `import {payloadDigest} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function payloadDigest(action: string, messageHex: string): string
 ```
 
@@ -1119,9 +1234,9 @@ holds. Pass exactly one of the inputs the action needs.
 
 [Source](../../src/oid4vp/binding.ts#L97)
 
-```ts
-import {payloadDigestFor} from 'tasra-sdk/oid4vp'
+Import: `import {payloadDigestFor} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function payloadDigestFor(action: CommitteeAction, args: { message?: Uint8Array; identity?: string; payloadDigest?: Uint8Array; }): Uint8Array
 ```
 
@@ -1138,9 +1253,9 @@ Decode (no verification) the issuer JWT's payload of a compact SD-JWT — for di
 
 [Source](../../src/oid4vp/sd-jwt.ts#L224)
 
-```ts
-import {peekSdJwt} from 'tasra-sdk/oid4vp'
+Import: `import {peekSdJwt} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function peekSdJwt(compact: string): { iss?: string; vct?: string; exp?: number; sub?: string; }
 ```
 
@@ -1157,9 +1272,9 @@ Advisory: the drawn verifiers decide; a wrong local answer costs a wasted reques
 
 [Source](../../src/oid4vp/wallet.ts#L46)
 
-```ts
-import {planPresentation} from 'tasra-sdk/oid4vp'
+Import: `import {planPresentation} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function planPresentation(ro: Pick<VerifiedRequestObject, "claims">, held: readonly HeldSdJwt[], nowSecs?: number): PresentationPlan
 ```
 
@@ -1184,9 +1299,9 @@ Throws `VerifierAgentSessionError`: `unavailable` for 502/503/504 (the session m
 
 [Source](../../src/verifier-agent/index.ts#L344)
 
-```ts
-import {pollOid4vpSession} from 'tasra-sdk/oid4vp'
+Import: `import {pollOid4vpSession} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, pollSecret: string): Promise<SessionStatusResult>
 ```
 
@@ -1262,9 +1377,9 @@ The typed data a creator (or delegate) signs, plus the wire operation and the ve
 
 [Source](../../src/oid4vp/verifier-agent.ts#L64)
 
-```ts
-import {presentationOperationTypedData} from 'tasra-sdk/oid4vp'
+Import: `import {presentationOperationTypedData} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function presentationOperationTypedData(input: OperationInput): { typedData: Parameters<TypedDataSigner["signTypedData"]>[0]; operation: PresentationOperation; messageHex: string; payloadDigest: Uint8Array; }
 ```
 
@@ -1314,9 +1429,9 @@ Build the presentation `issuer~selected…~kb-jwt`, the KB-JWT signed by the hol
 
 [Source](../../src/oid4vp/sd-jwt.ts#L186)
 
-```ts
-import {presentSdJwt} from 'tasra-sdk/oid4vp'
+Import: `import {presentSdJwt} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function presentSdJwt(opts: PresentSdJwtOpts): string
 ```
 
@@ -1355,9 +1470,9 @@ choose (consent screen), bind, encrypt, POST.
 
 [Source](../../src/oid4vp/wallet.ts#L137)
 
-```ts
-import {presentToRequestUri} from 'tasra-sdk/oid4vp'
+Import: `import {presentToRequestUri} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function presentToRequestUri(requestUriOrOpenid4vp: string, held: readonly HeldSdJwt[], holder: HolderKey, opts?: PresentOpts): Promise<{ ro: VerifiedRequestObject; plan: PresentationPlan; built: BuiltResponse; redirectUri?: string; }>
 ```
 
@@ -1376,9 +1491,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/oid4vp/jose.ts#L82)
 
-```ts
-import {randomHolderKey} from 'tasra-sdk/oid4vp'
+Import: `import {randomHolderKey} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function randomHolderKey(): HolderKey
 ```
 
@@ -1390,9 +1505,9 @@ Run the pre-authorized code flow end to end and return the issued credential.
 
 [Source](../../src/oid4vp/oid4vci.ts#L66)
 
-```ts
-import {receiveCredential} from 'tasra-sdk/oid4vp'
+Import: `import {receiveCredential} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function receiveCredential(opts: ReceiveCredentialOpts): Promise<ReceivedCredential>
 ```
 
@@ -1445,9 +1560,9 @@ The top-level claim names a credential query asks to see.
 
 [Source](../../src/oid4vp/wallet.ts#L72)
 
-```ts
-import {requestedClaimNames} from 'tasra-sdk/oid4vp'
+Import: `import {requestedClaimNames} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function requestedClaimNames(query: Query, queryId: string): string[]
 ```
 
@@ -1466,9 +1581,9 @@ accountant audit and this SDK compute. The wallet's request body is deliberately
 
 [Source](../../src/oid4vp/binding.ts#L42)
 
-```ts
-import {requestHash} from 'tasra-sdk/oid4vp'
+Import: `import {requestHash} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function requestHash(chainId: number | bigint, slotId: Uint8Array, action: CommitteeAction, payloadDigest: Uint8Array): Uint8Array
 ```
 
@@ -1517,9 +1632,9 @@ Fetch and minimally validate a `did:web` document.
 
 [Source](../../src/oid4vp/did-web.ts#L37)
 
-```ts
-import {resolveDidWeb} from 'tasra-sdk/oid4vp'
+Import: `import {resolveDidWeb} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function resolveDidWeb(did: string, opts?: ResolveOpts): Promise<DidDocument>
 ```
 
@@ -1550,9 +1665,9 @@ The ephemeral P-256 key the wallet must encrypt its response to, when the verifi
 
 [Source](../../src/oid4vp/request-object.ts#L96)
 
-```ts
-import {responseEncryptionKey} from 'tasra-sdk/oid4vp'
+Import: `import {responseEncryptionKey} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function responseEncryptionKey(ro: Pick<VerifiedRequestObject, "claims">): EcJwk | undefined
 ```
 
@@ -1568,9 +1683,9 @@ Returns: `EcJwk | undefined`.
 
 [Source](../../src/oid4vp/sd-jwt.ts#L88)
 
-```ts
-import {sdHash} from 'tasra-sdk/oid4vp'
+Import: `import {sdHash} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function sdHash(prefix: string): string
 ```
 
@@ -1586,9 +1701,9 @@ The credential's claims as the verifier sees them: plain payload claims + disclo
 
 [Source](../../src/oid4vp/sd-jwt.ts#L70)
 
-```ts
-import {sdJwtClaims} from 'tasra-sdk/oid4vp'
+Import: `import {sdJwtClaims} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function sdJwtClaims(parsed: ParsedSdJwt): Record<string, unknown>
 ```
 
@@ -1604,9 +1719,9 @@ A {@link CredentialView} for the DCQL evaluator: format `dc+sd-jwt`, `types` = [
 
 [Source](../../src/oid4vp/sd-jwt.ts#L81)
 
-```ts
-import {sdJwtCredentialView} from 'tasra-sdk/oid4vp'
+Import: `import {sdJwtCredentialView} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function sdJwtCredentialView(parsed: ParsedSdJwt): CredentialView
 ```
 
@@ -1665,9 +1780,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/oid4vp/jose.ts#L165)
 
-```ts
-import {signCompactJws} from 'tasra-sdk/oid4vp'
+Import: `import {signCompactJws} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function signCompactJws(header: Record<string, unknown>, payload: Record<string, unknown>, signer: JwsSigner): string
 ```
 
@@ -1685,9 +1800,9 @@ POST the built response to `response_uri`; returns the verifier-agent's `redirec
 
 [Source](../../src/oid4vp/wallet.ts#L115)
 
-```ts
-import {submitResponse} from 'tasra-sdk/oid4vp'
+Import: `import {submitResponse} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function submitResponse(ro: Pick<VerifiedRequestObject, "claims">, built: Pick<BuiltResponse, "form">, fetchImpl?: typeof fetch): Promise<{ redirectUri?: string; }>
 ```
 
@@ -1723,9 +1838,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/oid4vp/jose.ts#L10)
 
-```ts
-import {utf8} from 'tasra-sdk/oid4vp'
+Import: `import {utf8} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function utf8(s: string): Uint8Array
 ```
 
@@ -1741,9 +1856,9 @@ The JWK behind `kid` (a full DID URL or a `#fragment`) in `doc`.
 
 [Source](../../src/oid4vp/did-web.ts#L49)
 
-```ts
-import {verificationKey} from 'tasra-sdk/oid4vp'
+Import: `import {verificationKey} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function verificationKey(doc: DidDocument, kid: string): Jwk
 ```
 
@@ -1777,9 +1892,9 @@ Validate request binding and proof encoding after either URL or registered-sessi
 
 [Source](../../src/oid4vp/verifier-agent.ts#L163)
 
-```ts
-import {verifierAgentResult} from 'tasra-sdk/oid4vp'
+Import: `import {verifierAgentResult} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function verifierAgentResult(session: Pick<OpenedVerifierAgentSession, "sessionId" | "requestHash">, r: SessionStatusResult): VerifierAgentResult
 ```
 
@@ -1816,6 +1931,10 @@ A Verifier Agent session did not produce a compound token. `kind` says why;
 still complete, so poll again. Extends {@link TasraError}.
 
 [Source](../../src/verifier-agent/index.ts#L118)
+
+```ts
+(kind: VerifierAgentSessionErrorKind, correlation: string, message: string, httpStatus?: number): VerifierAgentSessionError
+```
 
 Import: `import {VerifierAgentSessionError} from 'tasra-sdk/oid4vp'`
 
@@ -1855,9 +1974,9 @@ The verifier-agent's `verifier_proofs` DTO (`{verifier_index, operator, pubkey, 
 
 [Source](../../src/oid4vp/verifier-agent.ts#L134)
 
-```ts
-import {verifierAgentVerifierProofs} from 'tasra-sdk/oid4vp'
+Import: `import {verifierAgentVerifierProofs} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function verifierAgentVerifierProofs(raw: unknown): VerifierProof[] | undefined
 ```
 
@@ -1873,9 +1992,9 @@ Verify a compact JWS under `jwk` and return its decoded payload; throws on any f
 
 [Source](../../src/oid4vp/jose.ts#L175)
 
-```ts
-import {verifyCompactJws} from 'tasra-sdk/oid4vp'
+Import: `import {verifyCompactJws} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function verifyCompactJws<T = Record<string, unknown>>(jws: string, jwk: Jwk): { header: Record<string, unknown>; payload: T; }
 ```
 
@@ -1892,9 +2011,9 @@ What the verifier checks of a presentation's KB-JWT, mirrored for tests and wall
 
 [Source](../../src/oid4vp/sd-jwt.ts#L205)
 
-```ts
-import {verifyKbJwt} from 'tasra-sdk/oid4vp'
+Import: `import {verifyKbJwt} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function verifyKbJwt(presentation: string, expected: { nonce: string; aud: string; }): { holderJwk: Jwk; claims: Record<string, unknown>; }
 ```
 
@@ -1911,9 +2030,9 @@ Verify a JAR: signature under the key its `kid` names in the `iss` DID, `typ`, `
 
 [Source](../../src/oid4vp/request-object.ts#L75)
 
-```ts
-import {verifyRequestObject} from 'tasra-sdk/oid4vp'
+Import: `import {verifyRequestObject} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function verifyRequestObject(jwt: string, opts?: VerifyRequestObjectOpts): Promise<VerifiedRequestObject>
 ```
 
@@ -1950,9 +2069,9 @@ decides how to explain it) — see `awaitVerifierAgentResult` for the version th
 
 [Source](../../src/verifier-agent/index.ts#L422)
 
-```ts
-import {waitForSession} from 'tasra-sdk/oid4vp'
+Import: `import {waitForSession} from 'tasra-sdk/oid4vp'`
 
+```ts
 declare function waitForSession(verifierAgentUrl: string, sessionId: string, pollSecret: string, intervalMs?: number, timeoutMs?: number, opts?: WaitOpts): Promise<SessionStatusResult>
 ```
 

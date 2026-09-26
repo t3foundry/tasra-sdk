@@ -4,6 +4,139 @@ Generated from public TypeScript exports. Run `npm run docs:reference` to update
 
 [Reference index](README.md) · [Task guides](../README.md) · [Errors](../errors.md)
 
+<details>
+<summary>Find an export</summary>
+
+- [Address](#address)
+- [AddressBook](#addressbook)
+- [addressBookFromBroadcast](#addressbookfrombroadcast)
+- [addressBookFromEnv](#addressbookfromenv)
+- [addressBookFromManifest](#addressbookfrommanifest)
+- [addressBookFromObject](#addressbookfromobject)
+- [AgentSessionCreationUnknownError](#agentsessioncreationunknownerror)
+- [AgentTransport](#agenttransport)
+- [ApplicationServiceProfiles](#applicationserviceprofiles)
+- [applicationServiceProfilesDocument](#applicationserviceprofilesdocument)
+- [ApprovedAgentProfile](#approvedagentprofile)
+- [ApprovedServiceProfile](#approvedserviceprofile)
+- [assertEurcFaucetAllowed](#asserteurcfaucetallowed)
+- [assertExpiredSlotCommitment](#assertexpiredslotcommitment)
+- [assertRegisteredWalletRequest](#assertregisteredwalletrequest)
+- [authenticateApprovedService](#authenticateapprovedservice)
+- [AuthenticatedService](#authenticatedservice)
+- [awaitRegisteredVerifierAgentResult](#awaitregisteredverifieragentresult)
+- [categoryFor](#categoryfor)
+- [ChainClientConfig](#chainclientconfig)
+- [CommitRevealOptions](#commitrevealoptions)
+- [CommitteeDecryptOptions](#committeedecryptoptions)
+- [CommitteeSignOptions](#committeesignoptions)
+- [CommitteeSlotClient](#committeeslotclient)
+- [CommitteeSlotClientConfig](#committeeslotclientconfig)
+- [ContractName](#contractname)
+- [ContractObservation](#contractobservation)
+- [ContractRecord](#contractrecord)
+- [createCommitteeSlotClient](#createcommitteeslotclient)
+- [createRegisteredAgentClient](#createregisteredagentclient)
+- [createRegisteredRelaySubmitter](#createregisteredrelaysubmitter)
+- [CreateSlotArgs](#createslotargs)
+- [createTasraChainClient](#createtasrachainclient)
+- [createTasraSlotClient](#createtasraslotclient)
+- [createTasraWriteClient](#createtasrawriteclient)
+- [decodeContractLogs](#decodecontractlogs)
+- [DecodedEvent](#decodedevent)
+- [deriveServiceId](#deriveserviceid)
+- [encodeServiceChallenge](#encodeservicechallenge)
+- [encodeServiceManifest](#encodeservicemanifest)
+- [EventCategory](#eventcategory)
+- [eventNamesOf](#eventnamesof)
+- [FetchOpts](#fetchopts)
+- [formatBps](#formatbps)
+- [formatUnits](#formatunits)
+- [formatWad](#formatwad)
+- [generateClientKey](#generateclientkey)
+- [GetLogsWindowedOpts](#getlogswindowedopts)
+- [hashServiceManifest](#hashservicemanifest)
+- [jsonSafe](#jsonsafe)
+- [KeeperProvisionResult](#keeperprovisionresult)
+- [KeyListReply](#keylistreply)
+- [KeySlotSummary](#keyslotsummary)
+- [MeteringReply](#meteringreply)
+- [NetworkManifest](#networkmanifest)
+- [NetworkName](#networkname)
+- [networkNameForChain](#networknameforchain)
+- [NetworkPreset](#networkpreset)
+- [NodeInfo](#nodeinfo)
+- [observeNetworkManifest](#observenetworkmanifest)
+- [openRegisteredVerifierAgentSession](#openregisteredverifieragentsession)
+- [parseApplicationServiceProfiles](#parseapplicationserviceprofiles)
+- [parseNetworkManifest](#parsenetworkmanifest)
+- [parsePinnedNetworkManifest](#parsepinnednetworkmanifest)
+- [parsePrometheus](#parseprometheus)
+- [parseServiceChallenge](#parseservicechallenge)
+- [provisionRule](#provisionrule)
+- [ProvisionRuleArgs](#provisionruleargs)
+- [ProvisionRuleResult](#provisionruleresult)
+- [provisionRuleTypedData](#provisionruletypeddata)
+- [readApprovedServiceRecord](#readapprovedservicerecord)
+- [reconcileRelayAttempt](#reconcilerelayattempt)
+- [RegisteredAgentSession](#registeredagentsession)
+- [RegisteredRelayConfig](#registeredrelayconfig)
+- [RegisteredVerifierAgentSession](#registeredverifieragentsession)
+- [RelayAttempt](#relayattempt)
+- [RelayConfig](#relayconfig)
+- [RelayIntent](#relayintent)
+- [RelayOutcomeUnknownError](#relayoutcomeunknownerror)
+- [RelayReceipt](#relayreceipt)
+- [RelayReconciliation](#relayreconciliation)
+- [RelayTransport](#relaytransport)
+- [requestSlotSeed](#requestslotseed)
+- [requireAddress](#requireaddress)
+- [requireVaultAddress](#requirevaultaddress)
+- [resolveAccountantUrls](#resolveaccountanturls)
+- [ResolvedEndpoints](#resolvedendpoints)
+- [ResolvedNetworkProfile](#resolvednetworkprofile)
+- [resolveNetworkProfile](#resolvenetworkprofile)
+- [resolveSlotGroupKey](#resolveslotgroupkey)
+- [resolveSlotKeeperUrls](#resolveslotkeeperurls)
+- [resolveVerifierDirectory](#resolveverifierdirectory)
+- [ruleCommitment](#rulecommitment)
+- [ServiceApproval](#serviceapproval)
+- [ServiceChallenge](#servicechallenge)
+- [serviceChallengeTypedData](#servicechallengetypeddata)
+- [ServiceDiscoveryTransport](#servicediscoverytransport)
+- [ServiceManifest](#servicemanifest)
+- [ServiceRecord](#servicerecord)
+- [ServiceStatus](#servicestatus)
+- [ServiceType](#servicetype)
+- [SignedHeartbeat](#signedheartbeat)
+- [SlotAuthType](#slotauthtype)
+- [SlotCommitmentExpiredError](#slotcommitmentexpirederror)
+- [SlotCommitteeDecryptOptions](#slotcommitteedecryptoptions)
+- [SlotCommitteeSignOptions](#slotcommitteesignoptions)
+- [SlotGroupKey](#slotgroupkey)
+- [SlotMode](#slotmode)
+- [SlotSeed](#slotseed)
+- [SlotSeedOptions](#slotseedoptions)
+- [TasraChainClient](#tasrachainclient)
+- [TasraSlotClient](#tasraslotclient)
+- [TasraSlotClientConfig](#tasraslotclientconfig)
+- [TasraWriteClient](#tasrawriteclient)
+- [truncateHex](#truncatehex)
+- [validateServiceChallenge](#validateservicechallenge)
+- [validateServiceEndpoint](#validateserviceendpoint)
+- [vaultKey](#vaultkey)
+- [VaultTranche](#vaulttranche)
+- [VerifierInfo](#verifierinfo)
+- [verifyRuleCommitment](#verifyrulecommitment)
+- [verifyServiceIdentity](#verifyserviceidentity)
+- [verifyServiceManifest](#verifyservicemanifest)
+- [WriteClientConfig](#writeclientconfig)
+- [WriteClientKeyConfig](#writeclientkeyconfig)
+- [WriteClientWalletConfig](#writeclientwalletconfig)
+- [Constants and ABI values](#constants-and-abi-values)
+
+</details>
+
 ## Address
 
 See the declaration and linked source for the contract.
@@ -35,9 +168,9 @@ callers must actually talk to.
 
 [Source](../../src/chain/deployments.ts#L157)
 
-```ts
-import {addressBookFromBroadcast} from 'tasra-sdk/chain'
+Import: `import {addressBookFromBroadcast} from 'tasra-sdk/chain'`
 
+```ts
 declare function addressBookFromBroadcast(json: unknown): AddressBook
 ```
 
@@ -61,9 +194,9 @@ Accepts either form:
 
 [Source](../../src/chain/deployments.ts#L281)
 
-```ts
-import {addressBookFromEnv} from 'tasra-sdk/chain'
+Import: `import {addressBookFromEnv} from 'tasra-sdk/chain'`
 
+```ts
 declare function addressBookFromEnv(src: string | Record<string, string | undefined>): AddressBook
 ```
 
@@ -91,9 +224,9 @@ Planned and retired records can be displayed, but cannot configure a live client
 
 [Source](../../src/chain/manifest.ts#L92)
 
-```ts
-import {addressBookFromManifest} from 'tasra-sdk/chain'
+Import: `import {addressBookFromManifest} from 'tasra-sdk/chain'`
 
+```ts
 declare function addressBookFromManifest(manifest: NetworkManifest): AddressBook
 ```
 
@@ -109,9 +242,9 @@ Normalise an explicit object into an AddressBook (validates addresses).
 
 [Source](../../src/chain/deployments.ts#L302)
 
-```ts
-import {addressBookFromObject} from 'tasra-sdk/chain'
+Import: `import {addressBookFromObject} from 'tasra-sdk/chain'`
 
+```ts
 declare function addressBookFromObject(obj: Record<string, string>): AddressBook
 ```
 
@@ -126,6 +259,10 @@ Returns: `AddressBook`.
 See the declaration and linked source for the contract.
 
 [Source](../../src/chain/registeredAgent.ts#L24)
+
+```ts
+(profile: Readonly<ApprovedAgentProfile>): AgentSessionCreationUnknownError
+```
 
 Import: `import {AgentSessionCreationUnknownError} from 'tasra-sdk/chain'`
 
@@ -170,9 +307,9 @@ Publish only public approvals, with no runtime transport or private key material
 
 [Source](../../src/chain/serviceProfiles.ts#L66)
 
-```ts
-import {applicationServiceProfilesDocument} from 'tasra-sdk/chain'
+Import: `import {applicationServiceProfilesDocument} from 'tasra-sdk/chain'`
 
+```ts
 declare function applicationServiceProfilesDocument(profiles: ApplicationServiceProfiles): Record<string, unknown>
 ```
 
@@ -215,9 +352,9 @@ Recheck the actual RPC chain immediately before any faucet transaction.
 
 [Source](../../src/chain/networks.ts#L55)
 
-```ts
-import {assertEurcFaucetAllowed} from 'tasra-sdk/chain'
+Import: `import {assertEurcFaucetAllowed} from 'tasra-sdk/chain'`
 
+```ts
 declare function assertEurcFaucetAllowed(profile: ResolvedNetworkProfile, actualChainId: number, actualEurcAddress: string): void
 ```
 
@@ -235,9 +372,9 @@ Read-only recovery gate. The caller must also reconcile every outstanding signed
 
 [Source](../../src/chain/commitmentRecovery.ts#L16)
 
-```ts
-import {assertExpiredSlotCommitment} from 'tasra-sdk/chain'
+Import: `import {assertExpiredSlotCommitment} from 'tasra-sdk/chain'`
 
+```ts
 declare function assertExpiredSlotCommitment(chain: TasraChainClient, error: SlotCommitmentExpiredError): Promise<void>
 ```
 
@@ -254,9 +391,9 @@ Bind the wallet's signed request to the operation and authenticated session befo
 
 [Source](../../src/chain/registeredOperation.ts#L80)
 
-```ts
-import {assertRegisteredWalletRequest} from 'tasra-sdk/chain'
+Import: `import {assertRegisteredWalletRequest} from 'tasra-sdk/chain'`
 
+```ts
 declare function assertRegisteredWalletRequest(session: RegisteredVerifierAgentSession, ro: VerifiedRequestObject, status: SessionStatusResult): void
 ```
 
@@ -274,9 +411,9 @@ Uncached, bounded discovery only. A result is a short-lived observation, not ver
 
 [Source](../../src/chain/serviceIdentity.ts#L170)
 
-```ts
-import {authenticateApprovedService} from 'tasra-sdk/chain'
+Import: `import {authenticateApprovedService} from 'tasra-sdk/chain'`
 
+```ts
 declare function authenticateApprovedService(chain: TasraChainClient, approved: ServiceApproval, transport: ServiceDiscoveryTransport): Promise<AuthenticatedService>
 ```
 
@@ -310,9 +447,9 @@ Poll the original authenticated session only; no URL reconstruction or provider 
 
 [Source](../../src/chain/registeredOperation.ts#L34)
 
-```ts
-import {awaitRegisteredVerifierAgentResult} from 'tasra-sdk/chain'
+Import: `import {awaitRegisteredVerifierAgentResult} from 'tasra-sdk/chain'`
 
+```ts
 declare function awaitRegisteredVerifierAgentResult(session: RegisteredVerifierAgentSession, opts?: { intervalMs?: number; timeoutMs?: number; } & WaitOpts): Promise<VerifierAgentResult>
 ```
 
@@ -329,9 +466,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/chain/events.ts#L62)
 
-```ts
-import {categoryFor} from 'tasra-sdk/chain'
+Import: `import {categoryFor} from 'tasra-sdk/chain'`
 
+```ts
 declare function categoryFor(contract: ContractName, eventName: string): EventCategory
 ```
 
@@ -569,9 +706,9 @@ chain client alone.
 
 [Source](../../src/chain/committeeClient.ts#L164)
 
-```ts
-import {createCommitteeSlotClient} from 'tasra-sdk/chain'
+Import: `import {createCommitteeSlotClient} from 'tasra-sdk/chain'`
 
+```ts
 declare function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): CommitteeSlotClient
 ```
 
@@ -609,9 +746,9 @@ Selection authenticates public metadata first. Once POSTed, never silently switc
 
 [Source](../../src/chain/registeredAgent.ts#L65)
 
-```ts
-import {createRegisteredAgentClient} from 'tasra-sdk/chain'
+Import: `import {createRegisteredAgentClient} from 'tasra-sdk/chain'`
 
+```ts
 declare function createRegisteredAgentClient(chain: TasraChainClient, config: { profiles: readonly ApprovedAgentProfile[]; transport: AgentTransport; }): { createSession(params: CreateSessionParams, options?: { profileIndex?: number; signal?: AbortSignal; }): Promise<RegisteredAgentSession>; }
 ```
 
@@ -628,9 +765,9 @@ One signer per instance. Serializes nonces and blocks new signatures after an un
 
 [Source](../../src/chain/registeredRelay.ts#L180)
 
-```ts
-import {createRegisteredRelaySubmitter} from 'tasra-sdk/chain'
+Import: `import {createRegisteredRelaySubmitter} from 'tasra-sdk/chain'`
 
+```ts
 declare function createRegisteredRelaySubmitter(chain: TasraChainClient, config: RegisteredRelayConfig, wallet: WalletClient<Transport, Chain, Account>, options?: { persistAttempt?: (attempt: RelayAttempt) => Promise<void>; }): { submit: (to: Address, data: Hex, label?: string) => Promise<RelayReceipt>; pendingAttempt: () => RelayAttempt | undefined; reconcile(): Promise<RelayReconciliation | undefined>; }
 ```
 
@@ -706,9 +843,9 @@ take one of these as their `chain` field. Build it first.
 
 [Source](../../src/chain/client.ts#L269)
 
-```ts
-import {createTasraChainClient} from 'tasra-sdk/chain'
+Import: `import {createTasraChainClient} from 'tasra-sdk/chain'`
 
+```ts
 declare function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
 ```
 
@@ -755,9 +892,9 @@ path instead and never reconstructs the key.
 
 [Source](../../src/chain/slotClient.ts#L106)
 
-```ts
-import {createTasraSlotClient} from 'tasra-sdk/chain'
+Import: `import {createTasraSlotClient} from 'tasra-sdk/chain'`
 
+```ts
 declare function createTasraSlotClient(cfg: TasraSlotClientConfig): TasraSlotClient
 ```
 
@@ -798,9 +935,9 @@ Two signer shapes, same surface (see {@link WriteClientConfig}):
 
 [Source](../../src/chain/write.ts#L358)
 
-```ts
-import {createTasraWriteClient} from 'tasra-sdk/chain'
+Import: `import {createTasraWriteClient} from 'tasra-sdk/chain'`
 
+```ts
 declare function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
 ```
 
@@ -818,9 +955,9 @@ whose indexed topics can't be fully decoded.
 
 [Source](../../src/chain/events.ts#L109)
 
-```ts
-import {decodeContractLogs} from 'tasra-sdk/chain'
+Import: `import {decodeContractLogs} from 'tasra-sdk/chain'`
 
+```ts
 declare function decodeContractLogs(contract: ContractName, address: Address, logs: Log[]): DecodedEvent[]
 ```
 
@@ -860,9 +997,9 @@ Matches serviceIdFor on the proxy. Provider transfer does not change this ID.
 
 [Source](../../src/chain/services.ts#L35)
 
-```ts
-import {deriveServiceId} from 'tasra-sdk/chain'
+Import: `import {deriveServiceId} from 'tasra-sdk/chain'`
 
+```ts
 declare function deriveServiceId(chainId: bigint, registry: Address, creator: Address, salt: Hex): Hex
 ```
 
@@ -881,9 +1018,9 @@ Canonical wire encoding accepted by both responder implementations.
 
 [Source](../../src/chain/serviceIdentity.ts#L115)
 
-```ts
-import {encodeServiceChallenge} from 'tasra-sdk/chain'
+Import: `import {encodeServiceChallenge} from 'tasra-sdk/chain'`
 
+```ts
 declare function encodeServiceChallenge(challenge: ServiceChallenge): Uint8Array
 ```
 
@@ -899,9 +1036,9 @@ Canonical v1 bytes: fixed field order, compact ASCII JSON, one LF. No optional/u
 
 [Source](../../src/chain/serviceIdentity.ts#L59)
 
-```ts
-import {encodeServiceManifest} from 'tasra-sdk/chain'
+Import: `import {encodeServiceManifest} from 'tasra-sdk/chain'`
 
+```ts
 declare function encodeServiceManifest(manifest: ServiceManifest): Uint8Array
 ```
 
@@ -934,9 +1071,9 @@ The set of event names declared by a contract's ABI.
 
 [Source](../../src/chain/events.ts#L73)
 
-```ts
-import {eventNamesOf} from 'tasra-sdk/chain'
+Import: `import {eventNamesOf} from 'tasra-sdk/chain'`
 
+```ts
 declare function eventNamesOf(contract: ContractName): string[]
 ```
 
@@ -967,9 +1104,9 @@ Format a basis-points integer (e.g. 1000) as a percentage string ("10%").
 
 [Source](../../src/chain/format.ts#L36)
 
-```ts
-import {formatBps} from 'tasra-sdk/chain'
+Import: `import {formatBps} from 'tasra-sdk/chain'`
 
+```ts
 declare function formatBps(bps: number | bigint): string
 ```
 
@@ -987,9 +1124,9 @@ Generic over decimals.
 
 [Source](../../src/chain/format.ts#L16)
 
-```ts
-import {formatUnits} from 'tasra-sdk/chain'
+Import: `import {formatUnits} from 'tasra-sdk/chain'`
 
+```ts
 declare function formatUnits(value: bigint, decimals?: number, maxFractionDigits?: number): string
 ```
 
@@ -1007,9 +1144,9 @@ WAD (1e18 fixed-point) value to a decimal string, e.g. a price.
 
 [Source](../../src/chain/format.ts#L42)
 
-```ts
-import {formatWad} from 'tasra-sdk/chain'
+Import: `import {formatWad} from 'tasra-sdk/chain'`
 
+```ts
 declare function formatWad(wad: bigint, maxFractionDigits?: number): string
 ```
 
@@ -1026,9 +1163,9 @@ Fresh 0x-prefixed 32-byte private key for a new sovereign client account.
 
 [Source](../../src/chain/write.ts#L315)
 
-```ts
-import {generateClientKey} from 'tasra-sdk/chain'
+Import: `import {generateClientKey} from 'tasra-sdk/chain'`
 
+```ts
 declare function generateClientKey(): Hex
 ```
 
@@ -1058,9 +1195,9 @@ Hash the exact downloaded/published bytes; never parse and re-serialize before c
 
 [Source](../../src/chain/services.ts#L65)
 
-```ts
-import {hashServiceManifest} from 'tasra-sdk/chain'
+Import: `import {hashServiceManifest} from 'tasra-sdk/chain'`
 
+```ts
 declare function hashServiceManifest(bytes: Uint8Array): Hex
 ```
 
@@ -1077,9 +1214,9 @@ serialized / stored. Leaves everything else intact.
 
 [Source](../../src/chain/events.ts#L144)
 
-```ts
-import {jsonSafe} from 'tasra-sdk/chain'
+Import: `import {jsonSafe} from 'tasra-sdk/chain'`
 
+```ts
 declare function jsonSafe<T>(value: T): unknown
 ```
 
@@ -1197,9 +1334,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/chain/networks.ts#L25)
 
-```ts
-import {networkNameForChain} from 'tasra-sdk/chain'
+Import: `import {networkNameForChain} from 'tasra-sdk/chain'`
 
+```ts
 declare function networkNameForChain(chainId: number): NetworkName
 ```
 
@@ -1252,9 +1389,9 @@ Observe a single finalized block. This verifies code identity, not business wiri
 
 [Source](../../src/chain/manifest.ts#L110)
 
-```ts
-import {observeNetworkManifest} from 'tasra-sdk/chain'
+Import: `import {observeNetworkManifest} from 'tasra-sdk/chain'`
 
+```ts
 declare function observeNetworkManifest(manifest: NetworkManifest, rpcUrl: string): Promise<{ chainId: number; blockNumber: string; blockHash: `0x${string}`; observedAt: string; contracts: ContractObservation[]; matches: boolean; }>
 ```
 
@@ -1271,9 +1408,9 @@ Sign once, authenticate an explicitly approved provider, and retain its pinned p
 
 [Source](../../src/chain/registeredOperation.ts#L17)
 
-```ts
-import {openRegisteredVerifierAgentSession} from 'tasra-sdk/chain'
+Import: `import {openRegisteredVerifierAgentSession} from 'tasra-sdk/chain'`
 
+```ts
 declare function openRegisteredVerifierAgentSession(client: ReturnType<typeof createRegisteredAgentClient>, opts: OperationInput & { signer: TypedDataSigner; delegation?: PresentationDelegation; profileIndex?: number; signal?: AbortSignal; }): Promise<RegisteredVerifierAgentSession>
 ```
 
@@ -1290,9 +1427,9 @@ Parse the public, JSON-safe deployment approval file. Decimal revisions preserve
 
 [Source](../../src/chain/serviceProfiles.ts#L33)
 
-```ts
-import {parseApplicationServiceProfiles} from 'tasra-sdk/chain'
+Import: `import {parseApplicationServiceProfiles} from 'tasra-sdk/chain'`
 
+```ts
 declare function parseApplicationServiceProfiles(value: unknown): ApplicationServiceProfiles
 ```
 
@@ -1308,9 +1445,9 @@ Validate data only. Authenticity requires a trusted digest or signature separate
 
 [Source](../../src/chain/manifest.ts#L44)
 
-```ts
-import {parseNetworkManifest} from 'tasra-sdk/chain'
+Import: `import {parseNetworkManifest} from 'tasra-sdk/chain'`
 
+```ts
 declare function parseNetworkManifest(value: unknown): NetworkManifest
 ```
 
@@ -1326,9 +1463,9 @@ The digest must come from a verified release checksum file or application pin.
 
 [Source](../../src/chain/manifest.ts#L84)
 
-```ts
-import {parsePinnedNetworkManifest} from 'tasra-sdk/chain'
+Import: `import {parsePinnedNetworkManifest} from 'tasra-sdk/chain'`
 
+```ts
 declare function parsePinnedNetworkManifest(text: string, expectedSha256: string): NetworkManifest
 ```
 
@@ -1347,9 +1484,9 @@ HELP/TYPE/comment lines and histograms' bucket internals are left as-is.
 
 [Source](../../src/chain/offchain.ts#L142)
 
-```ts
-import {parsePrometheus} from 'tasra-sdk/chain'
+Import: `import {parsePrometheus} from 'tasra-sdk/chain'`
 
+```ts
 declare function parsePrometheus(text: string): Record<string, number>
 ```
 
@@ -1365,9 +1502,9 @@ Call only after enforcing the same limit while receiving the HTTP body.
 
 [Source](../../src/chain/serviceIdentity.ts#L127)
 
-```ts
-import {parseServiceChallenge} from 'tasra-sdk/chain'
+Import: `import {parseServiceChallenge} from 'tasra-sdk/chain'`
 
+```ts
 declare function parseServiceChallenge(bytes: Uint8Array): ServiceChallenge
 ```
 
@@ -1387,9 +1524,9 @@ caller that wants to tolerate a partial can inspect it.
 
 [Source](../../src/chain/provisionRule.ts#L149)
 
-```ts
-import {provisionRule} from 'tasra-sdk/chain'
+Import: `import {provisionRule} from 'tasra-sdk/chain'`
 
+```ts
 declare function provisionRule(chain: TasraChainClient, args: ProvisionRuleArgs): Promise<ProvisionRuleResult>
 ```
 
@@ -1454,9 +1591,9 @@ commitment X to slot Y" rather than "provision anything for slot Y".
 
 [Source](../../src/chain/provisionRule.ts#L86)
 
-```ts
-import {provisionRuleTypedData} from 'tasra-sdk/chain'
+Import: `import {provisionRuleTypedData} from 'tasra-sdk/chain'`
 
+```ts
 declare function provisionRuleTypedData(input: { chainId: number; keyRegistry: Address; slotId: Hex; commitment: Hex; description: string; exp: number; }): { domain: { name: string; version: string; chainId: number; verifyingContract: `0x${string}`; }; types: { readonly PresentationOperation: readonly [{ readonly name: "chainId"; readonly type: "uint256"; }, { readonly name: "slotId"; readonly type: "bytes32"; }, { readonly name: "action"; readonly type: "string"; }, { readonly name: "payloadDigest"; readonly type: "bytes32"; }, { readonly name: "description"; readonly type: "string"; }, { readonly name: "exp"; readonly type: "uint256"; }]; }; primaryType: "PresentationOperation"; message: { chainId: bigint; slotId: `0x${string}`; action: string; payloadDigest: `0x${string}`; description: string; exp: bigint; }; }
 ```
 
@@ -1474,9 +1611,9 @@ origin. Those checks must precede sending any credentials, session secrets or tr
 
 [Source](../../src/chain/services.ts#L107)
 
-```ts
-import {readApprovedServiceRecord} from 'tasra-sdk/chain'
+Import: `import {readApprovedServiceRecord} from 'tasra-sdk/chain'`
 
+```ts
 declare function readApprovedServiceRecord(chain: ServiceRegistryChainReader, approval: ServiceApproval): Promise<{ record: ServiceRecord; blockNumber: bigint; }>
 ```
 
@@ -1493,9 +1630,9 @@ Recover from a lost HTTP response or process restart using the trusted RPC, with
 
 [Source](../../src/chain/registeredRelay.ts#L173)
 
-```ts
-import {reconcileRelayAttempt} from 'tasra-sdk/chain'
+Import: `import {reconcileRelayAttempt} from 'tasra-sdk/chain'`
 
+```ts
 declare function reconcileRelayAttempt(chain: TasraChainClient, attempt: RelayAttempt, timeoutMs?: number): Promise<RelayReconciliation>
 ```
 
@@ -1615,6 +1752,10 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/chain/registeredRelay.ts#L65)
 
+```ts
+(attempt: RelayAttempt, reason?: string): RelayOutcomeUnknownError
+```
+
 Import: `import {RelayOutcomeUnknownError} from 'tasra-sdk/chain'`
 
 - `attempt: RelayAttempt` — 
@@ -1703,9 +1844,9 @@ wait.
 
 [Source](../../src/chain/slotSeed.ts#L89)
 
-```ts
-import {requestSlotSeed} from 'tasra-sdk/chain'
+Import: `import {requestSlotSeed} from 'tasra-sdk/chain'`
 
+```ts
 declare function requestSlotSeed(chain: TasraChainClient, keyRegistry: `0x${string}`, commitment: Hex, opts?: SlotSeedOptions): Promise<SlotSeed | null>
 ```
 
@@ -1724,9 +1865,9 @@ Resolve a contract address, throwing a clear error if missing.
 
 [Source](../../src/chain/deployments.ts#L343)
 
-```ts
-import {requireAddress} from 'tasra-sdk/chain'
+Import: `import {requireAddress} from 'tasra-sdk/chain'`
 
+```ts
 declare function requireAddress(book: AddressBook, name: ContractName): Address
 ```
 
@@ -1754,9 +1895,9 @@ de-duplicate on the resolved address — summing three identical vaults reports
 
 [Source](../../src/chain/deployments.ts#L327)
 
-```ts
-import {requireVaultAddress} from 'tasra-sdk/chain'
+Import: `import {requireVaultAddress} from 'tasra-sdk/chain'`
 
+```ts
 declare function requireVaultAddress(book: AddressBook, tranche: VaultTranche): Address
 ```
 
@@ -1784,9 +1925,9 @@ this list, so it is free to take the cheap route.
 
 [Source](../../src/chain/discovery.ts#L160)
 
-```ts
-import {resolveAccountantUrls} from 'tasra-sdk/chain'
+Import: `import {resolveAccountantUrls} from 'tasra-sdk/chain'`
 
+```ts
 declare function resolveAccountantUrls(chain: TasraChainClient): Promise<string[]>
 ```
 
@@ -1834,9 +1975,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/chain/networks.ts#L32)
 
-```ts
-import {resolveNetworkProfile} from 'tasra-sdk/chain'
+Import: `import {resolveNetworkProfile} from 'tasra-sdk/chain'`
 
+```ts
 declare function resolveNetworkProfile(environment: NetworkName, options?: { chainId?: number; rpcUrl?: string; eurcAddress?: string; }): ResolvedNetworkProfile
 ```
 
@@ -1855,9 +1996,9 @@ you hold the key).
 
 [Source](../../src/chain/discovery.ts#L128)
 
-```ts
-import {resolveSlotGroupKey} from 'tasra-sdk/chain'
+Import: `import {resolveSlotGroupKey} from 'tasra-sdk/chain'`
 
+```ts
 declare function resolveSlotGroupKey(chain: TasraChainClient, slotId: `0x${string}`): Promise<SlotGroupKey>
 ```
 
@@ -1876,9 +2017,9 @@ follows `assignedNodes`; url-less operators are skipped.
 
 [Source](../../src/chain/discovery.ts#L45)
 
-```ts
-import {resolveSlotKeeperUrls} from 'tasra-sdk/chain'
+Import: `import {resolveSlotKeeperUrls} from 'tasra-sdk/chain'`
 
+```ts
 declare function resolveSlotKeeperUrls(chain: TasraChainClient, slotId: `0x${string}`): Promise<string[]>
 ```
 
@@ -1906,9 +2047,9 @@ configured set.
 
 [Source](../../src/chain/discovery.ts#L75)
 
-```ts
-import {resolveVerifierDirectory} from 'tasra-sdk/chain'
+Import: `import {resolveVerifierDirectory} from 'tasra-sdk/chain'`
 
+```ts
 declare function resolveVerifierDirectory(chain: TasraChainClient): Promise<CommitteeVerifier[]>
 ```
 
@@ -1934,9 +2075,9 @@ rule is provisioned and every verifier runs when it hash-checks a fetched rule:
 
 [Source](../../src/chain/write.ts#L292)
 
-```ts
-import {ruleCommitment} from 'tasra-sdk/chain'
+Import: `import {ruleCommitment} from 'tasra-sdk/chain'`
 
+```ts
 declare function ruleCommitment(ruleSalt: Hex, dcqlRule: string): Hex
 ```
 
@@ -1991,9 +2132,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/chain/serviceIdentity.ts#L92)
 
-```ts
-import {serviceChallengeTypedData} from 'tasra-sdk/chain'
+Import: `import {serviceChallengeTypedData} from 'tasra-sdk/chain'`
 
+```ts
 declare function serviceChallengeTypedData(challenge: ServiceChallenge): { domain: { name: string; version: string; chainId: number; verifyingContract: `0x${string}`; }; primaryType: "ServiceIdentity"; types: { ServiceIdentity: { name: string; type: string; }[]; }; message: { serviceId: `0x${string}`; revision: bigint; endpoint: string; manifestHash: `0x${string}`; nonce: `0x${string}`; expiresAt: bigint; }; }
 ```
 
@@ -2112,6 +2253,10 @@ export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth'
 A creation may keep its slot/rule inputs, but needs a durably saved new commit salt.
 
 [Source](../../src/chain/commitmentRecovery.ts#L7)
+
+```ts
+(chainId: number, keyRegistry: Address, slotId: Hex, commitment: Hex, creator: Address, salt: Hex): SlotCommitmentExpiredError
+```
 
 Import: `import {SlotCommitmentExpiredError} from 'tasra-sdk/chain'`
 
@@ -2407,9 +2552,9 @@ export interface TasraWriteClient {
 
 [Source](../../src/chain/format.ts#L4)
 
-```ts
-import {truncateHex} from 'tasra-sdk/chain'
+Import: `import {truncateHex} from 'tasra-sdk/chain'`
 
+```ts
 declare function truncateHex(hex: string, lead?: number, tail?: number): string
 ```
 
@@ -2427,9 +2572,9 @@ Responder must validate against its own configured profile before asking its ded
 
 [Source](../../src/chain/serviceIdentity.ts#L137)
 
-```ts
-import {validateServiceChallenge} from 'tasra-sdk/chain'
+Import: `import {validateServiceChallenge} from 'tasra-sdk/chain'`
 
+```ts
 declare function validateServiceChallenge(challenge: ServiceChallenge, approval: ServiceApproval, endpoint: string, now: number): void
 ```
 
@@ -2448,9 +2593,9 @@ Reject aliases instead of signing a URL which another implementation normalizes 
 
 [Source](../../src/chain/serviceIdentity.ts#L46)
 
-```ts
-import {validateServiceEndpoint} from 'tasra-sdk/chain'
+Import: `import {validateServiceEndpoint} from 'tasra-sdk/chain'`
 
+```ts
 declare function validateServiceEndpoint(endpoint: string): URL
 ```
 
@@ -2466,9 +2611,9 @@ Address-book key for one vesting tranche, e.g. TasraVestingVault_team.
 
 [Source](../../src/chain/deployments.ts#L75)
 
-```ts
-import {vaultKey} from 'tasra-sdk/chain'
+Import: `import {vaultKey} from 'tasra-sdk/chain'`
 
+```ts
 declare function vaultKey(tranche: VaultTranche): string
 ```
 
@@ -2512,9 +2657,9 @@ matches, `false` otherwise — never throws on a mismatch.
 
 [Source](../../src/chain/write.ts#L302)
 
-```ts
-import {verifyRuleCommitment} from 'tasra-sdk/chain'
+Import: `import {verifyRuleCommitment} from 'tasra-sdk/chain'`
 
+```ts
 declare function verifyRuleCommitment(dcqlRule: string, ruleSalt: Hex, onChainRuleCommitment: Hex): boolean
 ```
 
@@ -2532,9 +2677,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/chain/serviceIdentity.ts#L145)
 
-```ts
-import {verifyServiceIdentity} from 'tasra-sdk/chain'
+Import: `import {verifyServiceIdentity} from 'tasra-sdk/chain'`
 
+```ts
 declare function verifyServiceIdentity(challenge: ServiceChallenge, signature: Hex, authKey: Address, now: number): Promise<void>
 ```
 
@@ -2553,9 +2698,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/chain/serviceIdentity.ts#L78)
 
-```ts
-import {verifyServiceManifest} from 'tasra-sdk/chain'
+Import: `import {verifyServiceManifest} from 'tasra-sdk/chain'`
 
+```ts
 declare function verifyServiceManifest(bytes: Uint8Array, approval: ServiceApproval, record: ServiceRecord): ServiceManifest
 ```
 

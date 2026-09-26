@@ -28,7 +28,7 @@ const chain = createTasraChainClient({
   rpcUrl: 'http://127.0.0.1:9650/ext/bc/C/rpc',
   chainId: 43112,
   addresses: addressBookFromObject({
-    KeyRegistry: '0x94c75679D75bfdc310669c0De4dE4398E922232b',
+    KeyRegistry: '0x352F406036a061E0432394a88006158a8B588311',
   }),
 })
 const slotId = process.argv[2]

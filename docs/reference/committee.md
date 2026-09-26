@@ -4,15 +4,79 @@ Generated from public TypeScript exports. Run `npm run docs:reference` to update
 
 [Reference index](README.md) · [Task guides](../README.md) · [Errors](../errors.md)
 
+<details>
+<summary>Find an export</summary>
+
+- [assembleCompoundToken](#assemblecompoundtoken)
+- [buildVerifierProofs](#buildverifierproofs)
+- [clientBindingHash](#clientbindinghash)
+- [ClientSigner](#clientsigner)
+- [committeeAuthorize](#committeeauthorize)
+- [CommitteeAuthorizeBody](#committeeauthorizebody)
+- [CommitteeAuthorizeError](#committeeauthorizeerror)
+- [CommitteeAuthorizeReply](#committeeauthorizereply)
+- [CommitteeChainReads](#committeechainreads)
+- [committeeChainReadsFromClient](#committeechainreadsfromclient)
+- [committeeDecrypt](#committeedecrypt)
+- [CommitteeDecryptOpts](#committeedecryptopts)
+- [committeeDecryptRequest](#committeedecryptrequest)
+- [CommitteeDecryptRequestOpts](#committeedecryptrequestopts)
+- [CommitteeEoaSignOpts](#committeeeoasignopts)
+- [committeeSign](#committeesign)
+- [CommitteeSignature](#committeesignature)
+- [CommitteeSignatureWire](#committeesignaturewire)
+- [committeeSignEoaDigest](#committeesigneoadigest)
+- [CommitteeSignOpts](#committeesignopts)
+- [committeeSignRequest](#committeesignrequest)
+- [CommitteeSignRequestOpts](#committeesignrequestopts)
+- [CommitteeTokenResult](#committeetokenresult)
+- [CommitteeVerifier](#committeeverifier)
+- [compoundTokenCanonicalBytes](#compoundtokencanonicalbytes)
+- [compoundTokenHash](#compoundtokenhash)
+- [CompoundTokenPayload](#compoundtokenpayload)
+- [CompoundTokenWire](#compoundtokenwire)
+- [decodeCompoundToken](#decodecompoundtoken)
+- [dpopHtu](#dpophtu)
+- [ed25519ClientSigner](#ed25519clientsigner)
+- [gatherCommitteeToken](#gathercommitteetoken)
+- [GatherCommitteeTokenOpts](#gathercommitteetokenopts)
+- [holderProofPerVerifier](#holderproofperverifier)
+- [HolderProofPerVerifier](#holderproofperverifier-1)
+- [ibeDecryptRequest](#ibedecryptrequest)
+- [IbeExtractionPartial](#ibeextractionpartial)
+- [IbeExtractOpts](#ibeextractopts)
+- [ibeExtractRequest](#ibeextractrequest)
+- [IbeExtractRequestOpts](#ibeextractrequestopts)
+- [merkleProof](#merkleproof)
+- [merkleRoot](#merkleroot)
+- [normalizeOrigin](#normalizeorigin)
+- [opAttestationHash](#opattestationhash)
+- [platformAudience](#platformaudience)
+- [requestCommitteeToken](#requestcommitteetoken)
+- [RequestCommitteeTokenOpts](#requestcommitteetokenopts)
+- [requestIbeExtractionPartials](#requestibeextractionpartials)
+- [selectVerifierCommittee](#selectverifiercommittee)
+- [TokenType](#tokentype)
+- [VerifiedToken](#verifiedtoken)
+- [verifierLeaf](#verifierleaf)
+- [VerifierProof](#verifierproof)
+- [VerifierSet](#verifierset)
+- [verifyCompoundToken](#verifycompoundtoken)
+- [VerifyCompoundTokenOptions](#verifycompoundtokenoptions)
+- [verifyMerkleProof](#verifymerkleproof)
+- [Constants and ABI values](#constants-and-abi-values)
+
+</details>
+
 ## assembleCompoundToken
 
 See the declaration and linked source for the contract.
 
 [Source](../../src/committee/token.ts#L455)
 
-```ts
-import {assembleCompoundToken} from 'tasra-sdk/committee'
+Import: `import {assembleCompoundToken} from 'tasra-sdk/committee'`
 
+```ts
 declare function assembleCompoundToken(p: CompoundTokenPayload, signatures: CommitteeSignature[]): CompoundTokenWire
 ```
 
@@ -32,9 +96,9 @@ degrades to the keeper's configured-set path rather than shipping a proof the ke
 
 [Source](../../src/committee/request.ts#L241)
 
-```ts
-import {buildVerifierProofs} from 'tasra-sdk/committee'
+Import: `import {buildVerifierProofs} from 'tasra-sdk/committee'`
 
+```ts
 declare function buildVerifierProofs(verifiers: CommitteeVerifier[], registrySize: number, signerIndexes: number[], snapshotRoot?: Uint8Array): VerifierProof[] | undefined
 ```
 
@@ -56,9 +120,9 @@ the keeper (hot path) and accountant (audit) verify the client signature over th
 
 [Source](../../src/committee/token.ts#L218)
 
-```ts
-import {clientBindingHash} from 'tasra-sdk/committee'
+Import: `import {clientBindingHash} from 'tasra-sdk/committee'`
 
+```ts
 declare function clientBindingHash(slotId: Uint8Array, tokenHash: Uint8Array): Uint8Array
 ```
 
@@ -93,9 +157,9 @@ Ask one verifier to authorize the request. Throws CommitteeAuthorizeError
 
 [Source](../../src/committee/client.ts#L193)
 
-```ts
-import {committeeAuthorize} from 'tasra-sdk/committee'
+Import: `import {committeeAuthorize} from 'tasra-sdk/committee'`
 
+```ts
 declare function committeeAuthorize(verifierUrl: string, body: CommitteeAuthorizeBody): Promise<CommitteeAuthorizeReply>
 ```
 
@@ -162,6 +226,10 @@ verifiers and tolerates individual refusals as long as a quorum co-signs — see
 {@link ThresholdNotMetError} for the failure that means the quorum was missed.
 
 [Source](../../src/committee/client.ts#L69)
+
+```ts
+(status: number, message: string, opts?: { url?: string; body?: string; }): CommitteeAuthorizeError
+```
 
 Import: `import {CommitteeAuthorizeError} from 'tasra-sdk/committee'`
 
@@ -244,9 +312,9 @@ Adapt the SDK chain client's `readers` into {@link CommitteeChainReads}.
 
 [Source](../../src/committee/request.ts#L134)
 
-```ts
-import {committeeChainReadsFromClient} from 'tasra-sdk/committee'
+Import: `import {committeeChainReadsFromClient} from 'tasra-sdk/committee'`
 
+```ts
 declare function committeeChainReadsFromClient(readers: { beacon: { seed(): Promise<unknown>; epoch(): Promise<unknown>; seedAt?(epoch: bigint): Promise<unknown>; }; keyRegistry: { verifierPolicy(id: `0x${string}`): Promise<readonly [number, number]>; }; verifierSet?: { snapshotAt(epoch: bigint): Promise<unknown>; }; }): CommitteeChainReads
 ```
 
@@ -262,9 +330,9 @@ Decrypt via committee authorization. The slot id is taken from the token.
 
 [Source](../../src/committee/client.ts#L448)
 
-```ts
-import {committeeDecrypt} from 'tasra-sdk/committee'
+Import: `import {committeeDecrypt} from 'tasra-sdk/committee'`
 
+```ts
 declare function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint8Array>
 ```
 
@@ -304,9 +372,9 @@ One-call committee-authorized threshold decrypt.
 
 [Source](../../src/committee/request.ts#L417)
 
-```ts
-import {committeeDecryptRequest} from 'tasra-sdk/committee'
+Import: `import {committeeDecryptRequest} from 'tasra-sdk/committee'`
 
+```ts
 declare function committeeDecryptRequest(opts: CommitteeDecryptRequestOpts): Promise<Uint8Array>
 ```
 
@@ -364,9 +432,9 @@ Sign via committee authorization. The slot id is taken from the token.
 
 [Source](../../src/committee/client.ts#L393)
 
-```ts
-import {committeeSign} from 'tasra-sdk/committee'
+Import: `import {committeeSign} from 'tasra-sdk/committee'`
 
+```ts
 declare function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignResult>
 ```
 
@@ -411,9 +479,9 @@ threshold-signs the original digest. This never falls back to JWT authorization.
 
 [Source](../../src/committee/ecdsa.ts#L31)
 
-```ts
-import {committeeSignEoaDigest} from 'tasra-sdk/committee'
+Import: `import {committeeSignEoaDigest} from 'tasra-sdk/committee'`
 
+```ts
 declare function committeeSignEoaDigest(opts: CommitteeEoaSignOpts): Promise<EoaSignature>
 ```
 
@@ -456,9 +524,9 @@ One-call committee-authorized threshold sign: resolve token (+proofs) then POST 
 
 [Source](../../src/committee/request.ts#L388)
 
-```ts
-import {committeeSignRequest} from 'tasra-sdk/committee'
+Import: `import {committeeSignRequest} from 'tasra-sdk/committee'`
 
+```ts
 declare function committeeSignRequest(opts: CommitteeSignRequestOpts): Promise<FrostSignResult>
 ```
 
@@ -544,9 +612,9 @@ Canonical, domain-separated, length-prefixed byte encoding hashed for signing.
 
 [Source](../../src/committee/token.ts#L164)
 
-```ts
-import {compoundTokenCanonicalBytes} from 'tasra-sdk/committee'
+Import: `import {compoundTokenCanonicalBytes} from 'tasra-sdk/committee'`
 
+```ts
 declare function compoundTokenCanonicalBytes(p: CompoundTokenPayload): Uint8Array
 ```
 
@@ -562,9 +630,9 @@ Returns: `Uint8Array<ArrayBufferLike>`.
 
 [Source](../../src/committee/token.ts#L192)
 
-```ts
-import {compoundTokenHash} from 'tasra-sdk/committee'
+Import: `import {compoundTokenHash} from 'tasra-sdk/committee'`
 
+```ts
 declare function compoundTokenHash(p: CompoundTokenPayload): Uint8Array
 ```
 
@@ -669,9 +737,9 @@ Decode a wire compound token into the byte-level payload + signatures for verifi
 
 [Source](../../src/committee/token.ts#L475)
 
-```ts
-import {decodeCompoundToken} from 'tasra-sdk/committee'
+Import: `import {decodeCompoundToken} from 'tasra-sdk/committee'`
 
+```ts
 declare function decodeCompoundToken(w: CompoundTokenWire): CompoundTokenPayload & { signatures: CommitteeSignature[]; }
 ```
 
@@ -693,9 +761,9 @@ session is already bound by the `nonce`.
 
 [Source](../../src/committee/oauth.ts#L59)
 
-```ts
-import {dpopHtu} from 'tasra-sdk/committee'
+Import: `import {dpopHtu} from 'tasra-sdk/committee'`
 
+```ts
 declare function dpopHtu(origin: string): string
 ```
 
@@ -711,9 +779,9 @@ A {@link ClientSigner} from a 32-byte ed25519 secret key (the common `did:key` h
 
 [Source](../../src/committee/request.ts#L90)
 
-```ts
-import {ed25519ClientSigner} from 'tasra-sdk/committee'
+Import: `import {ed25519ClientSigner} from 'tasra-sdk/committee'`
 
+```ts
 declare function ed25519ClientSigner(secretKey: Uint8Array): ClientSigner
 ```
 
@@ -732,9 +800,9 @@ encoding cross-check). Returns the wire token to POST to the keeper.
 
 [Source](../../src/committee/client.ts#L295)
 
-```ts
-import {gatherCommitteeToken} from 'tasra-sdk/committee'
+Import: `import {gatherCommitteeToken} from 'tasra-sdk/committee'`
 
+```ts
 declare function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Promise<CompoundTokenWire>
 ```
 
@@ -792,9 +860,9 @@ helpers built on it).
 
 [Source](../../src/committee/request.ts#L69)
 
-```ts
-import {holderProofPerVerifier} from 'tasra-sdk/committee'
+Import: `import {holderProofPerVerifier} from 'tasra-sdk/committee'`
 
+```ts
 declare function holderProofPerVerifier(opts: { signer: HolderSigner; audience: string; credentials: string[]; slotId?: string; action?: string; ttlSecs?: number; }): HolderProofPerVerifier
 ```
 
@@ -826,9 +894,9 @@ One-call identity-scoped decrypt (the read path): token → extraction fan-out
 
 [Source](../../src/committee/request.ts#L473)
 
-```ts
-import {ibeDecryptRequest} from 'tasra-sdk/committee'
+Import: `import {ibeDecryptRequest} from 'tasra-sdk/committee'`
 
+```ts
 declare function ibeDecryptRequest(opts: IbeExtractRequestOpts & { ciphertext: IbeCiphertext; }): Promise<Uint8Array>
 ```
 
@@ -896,9 +964,9 @@ decrypts and drops it. Zeroize the returned bytes when done.
 
 [Source](../../src/committee/request.ts#L459)
 
-```ts
-import {ibeExtractRequest} from 'tasra-sdk/committee'
+Import: `import {ibeExtractRequest} from 'tasra-sdk/committee'`
 
+```ts
 declare function ibeExtractRequest(opts: IbeExtractRequestOpts): Promise<Uint8Array>
 ```
 
@@ -934,9 +1002,9 @@ is out of range. Mirrors the reference `merkle_proof`; pairs with [`verifyMerkle
 
 [Source](../../src/committee/token.ts#L267)
 
-```ts
-import {merkleProof} from 'tasra-sdk/committee'
+Import: `import {merkleProof} from 'tasra-sdk/committee'`
 
+```ts
 declare function merkleProof(leaves: Uint8Array[], index: number): Uint8Array[] | null
 ```
 
@@ -955,9 +1023,9 @@ built here matches the on-chain `VerifierSetRegistry`/`Settlement` anchored root
 
 [Source](../../src/committee/token.ts#L256)
 
-```ts
-import {merkleRoot} from 'tasra-sdk/committee'
+Import: `import {merkleRoot} from 'tasra-sdk/committee'`
 
+```ts
 declare function merkleRoot(leaves: Uint8Array[]): Uint8Array | null
 ```
 
@@ -978,9 +1046,9 @@ would silently rewrite an agent deployed under `/API`.
 
 [Source](../../src/committee/oauth.ts#L27)
 
-```ts
-import {normalizeOrigin} from 'tasra-sdk/committee'
+Import: `import {normalizeOrigin} from 'tasra-sdk/committee'`
 
+```ts
 declare function normalizeOrigin(url: string): string
 ```
 
@@ -996,9 +1064,9 @@ The hash a keeper signs to attest it served `opId` on `slotId` under the token `
 
 [Source](../../src/committee/token.ts#L199)
 
-```ts
-import {opAttestationHash} from 'tasra-sdk/committee'
+Import: `import {opAttestationHash} from 'tasra-sdk/committee'`
 
+```ts
 declare function opAttestationHash(chainId: number | bigint, opId: Uint8Array, slotId: Uint8Array, tokenHash: Uint8Array): Uint8Array
 ```
 
@@ -1021,9 +1089,9 @@ cannot authorize on mainnet.
 
 [Source](../../src/committee/oauth.ts#L46)
 
-```ts
-import {platformAudience} from 'tasra-sdk/committee'
+Import: `import {platformAudience} from 'tasra-sdk/committee'`
 
+```ts
 declare function platformAudience(origin: string, chainId: number | bigint): string
 ```
 
@@ -1040,9 +1108,9 @@ See the declaration and linked source for the contract.
 
 [Source](../../src/committee/request.ts#L289)
 
-```ts
-import {requestCommitteeToken} from 'tasra-sdk/committee'
+Import: `import {requestCommitteeToken} from 'tasra-sdk/committee'`
 
+```ts
 declare function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Promise<CommitteeTokenResult>
 ```
 
@@ -1119,9 +1187,9 @@ each partial (identifiable abort names the node via the identifier).
 
 [Source](../../src/committee/client.ts#L552)
 
-```ts
-import {requestIbeExtractionPartials} from 'tasra-sdk/committee'
+Import: `import {requestIbeExtractionPartials} from 'tasra-sdk/committee'`
 
+```ts
 declare function requestIbeExtractionPartials(opts: IbeExtractOpts): Promise<IbeExtractionPartial[]>
 ```
 
@@ -1140,9 +1208,9 @@ verifier selects and the keeper reconstructs.
 
 [Source](../../src/committee/token.ts#L85)
 
-```ts
-import {selectVerifierCommittee} from 'tasra-sdk/committee'
+Import: `import {selectVerifierCommittee} from 'tasra-sdk/committee'`
 
+```ts
 declare function selectVerifierCommittee(slotId: Uint8Array, epoch: number | bigint, seed: Uint8Array, registrySize: number, count: number): number[]
 ```
 
@@ -1192,9 +1260,9 @@ export interface VerifiedToken {
 
 [Source](../../src/committee/token.ts#L225)
 
-```ts
-import {verifierLeaf} from 'tasra-sdk/committee'
+Import: `import {verifierLeaf} from 'tasra-sdk/committee'`
 
+```ts
 declare function verifierLeaf(index: number, operator: Uint8Array, pubkey: Uint8Array): Uint8Array
 ```
 
@@ -1251,9 +1319,9 @@ quorum failure, `now`/`leeway` swapped reads as an expired token.
 
 [Source](../../src/committee/token.ts#L369)
 
-```ts
-import {verifyCompoundToken} from 'tasra-sdk/committee'
+Import: `import {verifyCompoundToken} from 'tasra-sdk/committee'`
 
+```ts
 declare function verifyCompoundToken(opts: VerifyCompoundTokenOptions): VerifiedToken
 ```
 
@@ -1318,9 +1386,9 @@ Verify a sorted-pair keccak Merkle inclusion proof (leaf→root).
 
 [Source](../../src/committee/token.ts#L234)
 
-```ts
-import {verifyMerkleProof} from 'tasra-sdk/committee'
+Import: `import {verifyMerkleProof} from 'tasra-sdk/committee'`
 
+```ts
 declare function verifyMerkleProof(leaf: Uint8Array, proof: Uint8Array[], root: Uint8Array): boolean
 ```
 
