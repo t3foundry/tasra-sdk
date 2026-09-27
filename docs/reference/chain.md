@@ -1,6 +1,6 @@
 # tasra-sdk/chain
 
-Generated from public TypeScript exports. Run `npm run docs:reference` to update.
+Generated from public TypeScript exports.
 
 [Reference index](README.md) · [Task guides](../README.md) · [Errors](../errors.md)
 
@@ -141,7 +141,7 @@ Generated from public TypeScript exports. Run `npm run docs:reference` to update
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/deployments.ts#L20)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L20)
 
 ```ts
 export type Address = `0x${string}`
@@ -151,7 +151,7 @@ export type Address = `0x${string}`
 
 Canonical contract name → deployed address (lowercased keys allowed too).
 
-[Source](../../src/chain/deployments.ts#L23)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L23)
 
 ```ts
 export type AddressBook = Partial<Record<ContractName, Address>> & {
@@ -166,7 +166,7 @@ deployment of a given contract name wins (re-deploys later in the run
 override). Proxied contracts resolve to the proxy, which is the address
 callers must actually talk to.
 
-[Source](../../src/chain/deployments.ts#L157)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L157)
 
 Import: `import {addressBookFromBroadcast} from 'tasra-sdk/chain'`
 
@@ -192,7 +192,7 @@ Accepts either form:
   prefixes, and quoted values are all handled
 - an **environment object** such as `process.env` or `import.meta.env`
 
-[Source](../../src/chain/deployments.ts#L281)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L281)
 
 Import: `import {addressBookFromEnv} from 'tasra-sdk/chain'`
 
@@ -222,7 +222,7 @@ const addresses = addressBookFromEnv(await readFile('chain.env', 'utf8'))
 
 Planned and retired records can be displayed, but cannot configure a live client.
 
-[Source](../../src/chain/manifest.ts#L92)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/manifest.ts#L92)
 
 Import: `import {addressBookFromManifest} from 'tasra-sdk/chain'`
 
@@ -240,7 +240,7 @@ Returns: `AddressBook`.
 
 Normalise an explicit object into an AddressBook (validates addresses).
 
-[Source](../../src/chain/deployments.ts#L302)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L302)
 
 Import: `import {addressBookFromObject} from 'tasra-sdk/chain'`
 
@@ -258,7 +258,7 @@ Returns: `AddressBook`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/registeredAgent.ts#L24)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L24)
 
 ```ts
 (profile: Readonly<ApprovedAgentProfile>): AgentSessionCreationUnknownError
@@ -266,17 +266,17 @@ See the declaration and linked source for the contract.
 
 Import: `import {AgentSessionCreationUnknownError} from 'tasra-sdk/chain'`
 
-- `profile: Readonly<ApprovedAgentProfile>` — 
-- `name: string` — 
-- `message: string` — 
-- `stack: string &#124; undefined` — 
-- `cause: unknown` — 
+- `profile: Readonly<ApprovedAgentProfile>`
+- `name: string`
+- `message: string`
+- `stack: string &#124; undefined`
+- `cause: unknown`
 
 ## AgentTransport
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/registeredAgent.ts#L6)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L6)
 
 ```ts
 export interface AgentTransport extends ServiceDiscoveryTransport {
@@ -289,7 +289,7 @@ export interface AgentTransport extends ServiceDiscoveryTransport {
 
 Reviewed application configuration, never a list downloaded from a service registry.
 
-[Source](../../src/chain/serviceProfiles.ts#L12)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceProfiles.ts#L12)
 
 ```ts
 export interface ApplicationServiceProfiles {
@@ -305,7 +305,7 @@ export interface ApplicationServiceProfiles {
 
 Publish only public approvals, with no runtime transport or private key material.
 
-[Source](../../src/chain/serviceProfiles.ts#L66)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceProfiles.ts#L66)
 
 Import: `import {applicationServiceProfilesDocument} from 'tasra-sdk/chain'`
 
@@ -323,7 +323,7 @@ Returns: `Record<string, unknown>`.
 
 Both the application and committee verifiers must independently approve this verifier-agent identity.
 
-[Source](../../src/chain/registeredAgent.ts#L12)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L12)
 
 ```ts
 export interface ApprovedAgentProfile {
@@ -337,7 +337,7 @@ export interface ApprovedAgentProfile {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/serviceProfiles.ts#L6)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceProfiles.ts#L6)
 
 ```ts
 export interface ApprovedServiceProfile {
@@ -350,7 +350,7 @@ export interface ApprovedServiceProfile {
 
 Recheck the actual RPC chain immediately before any faucet transaction.
 
-[Source](../../src/chain/networks.ts#L55)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L55)
 
 Import: `import {assertEurcFaucetAllowed} from 'tasra-sdk/chain'`
 
@@ -370,7 +370,7 @@ Returns: `void`.
 
 Read-only recovery gate. The caller must also reconcile every outstanding signed request.
 
-[Source](../../src/chain/commitmentRecovery.ts#L16)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/commitmentRecovery.ts#L16)
 
 Import: `import {assertExpiredSlotCommitment} from 'tasra-sdk/chain'`
 
@@ -389,7 +389,7 @@ Returns: `Promise<void>`.
 
 Bind the wallet's signed request to the operation and authenticated session before disclosure.
 
-[Source](../../src/chain/registeredOperation.ts#L80)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L80)
 
 Import: `import {assertRegisteredWalletRequest} from 'tasra-sdk/chain'`
 
@@ -409,7 +409,7 @@ Returns: `void`.
 
 Uncached, bounded discovery only. A result is a short-lived observation, not verifier-agent or gas authorization.
 
-[Source](../../src/chain/serviceIdentity.ts#L170)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L170)
 
 Import: `import {authenticateApprovedService} from 'tasra-sdk/chain'`
 
@@ -429,7 +429,7 @@ Returns: `Promise<AuthenticatedService>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/serviceIdentity.ts#L161)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L161)
 
 ```ts
 export interface AuthenticatedService {
@@ -445,7 +445,7 @@ export interface AuthenticatedService {
 
 Poll the original authenticated session only; no URL reconstruction or provider failover.
 
-[Source](../../src/chain/registeredOperation.ts#L34)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L34)
 
 Import: `import {awaitRegisteredVerifierAgentResult} from 'tasra-sdk/chain'`
 
@@ -464,7 +464,7 @@ Returns: `Promise<VerifierAgentResult>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/events.ts#L62)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L62)
 
 Import: `import {categoryFor} from 'tasra-sdk/chain'`
 
@@ -483,7 +483,7 @@ Returns: `EventCategory`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/client.ts#L58)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/client.ts#L58)
 
 ```ts
 export interface ChainClientConfig {
@@ -518,10 +518,21 @@ Options for {@link TasraWriteClient.createSlotCommitReveal}.
 The ADR-0075 fields are all opt-OUT or overrides: the default is to try the accountant set for
 a per-commitment draw seed, and to fall back to the beacon-epoch wait when it cannot be had.
 
-[Source](../../src/chain/write.ts#L169)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L169)
 
 ```ts
 export interface CommitRevealOptions {
+  /** Durable creation flow. Awaited before submission and after receiving each hash.
+   * Enabling recovery disables automatic transaction resubmission and chain-time nudges.
+   * Only supply hashes from the same persisted intent; never reconstruct lost salts.
+   */
+  recovery?: {
+    commitTx?: Hex
+    revealTx?: Hex
+    seeded?: boolean
+    onTransaction: (event: {step: 'commit' | 'reveal'; phase: 'submitting' | 'submitted' | 'confirmed'; hash?: Hex; seeded?: boolean}) => Promise<void>
+  }
+  signal?: AbortSignal
   /** Cap on the beacon-epoch wait, when the ADR-0075 fast path is unavailable. */
   maxWaitMs?: number
   /** Progress during that wait. Not called on the seeded path — there is no wait to report. */
@@ -547,7 +558,7 @@ export interface CommitRevealOptions {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/committeeClient.ts#L102)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L102)
 
 ```ts
 export type CommitteeDecryptOptions = SlotCommitteeDecryptOptions
@@ -557,7 +568,7 @@ export type CommitteeDecryptOptions = SlotCommitteeDecryptOptions
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/committeeClient.ts#L100)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L100)
 
 ```ts
 export type CommitteeSignOptions = SlotCommitteeSignOptions
@@ -567,7 +578,7 @@ export type CommitteeSignOptions = SlotCommitteeSignOptions
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/committeeClient.ts#L104)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L104)
 
 ```ts
 export interface CommitteeSlotClient {
@@ -595,7 +606,7 @@ export interface CommitteeSlotClient {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/committeeClient.ts#L32)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L32)
 
 ```ts
 export interface CommitteeSlotClientConfig {
@@ -640,7 +651,7 @@ export interface CommitteeSlotClientConfig {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/abis/index.ts#L70)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/index.ts#L70)
 
 ```ts
 export type ContractName = keyof typeof CONTRACT_ABIS
@@ -650,7 +661,7 @@ export type ContractName = keyof typeof CONTRACT_ABIS
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/manifest.ts#L99)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/manifest.ts#L99)
 
 ```ts
 export interface ContractObservation {
@@ -668,7 +679,7 @@ export interface ContractObservation {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/manifest.ts#L7)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/manifest.ts#L7)
 
 ```ts
 export interface ContractRecord {
@@ -704,7 +715,7 @@ configured set.
 `sign`/`decrypt` is called, not at construction — so `encrypt` works from a
 chain client alone.
 
-[Source](../../src/chain/committeeClient.ts#L164)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L164)
 
 Import: `import {createCommitteeSlotClient} from 'tasra-sdk/chain'`
 
@@ -744,7 +755,7 @@ const plaintext = await kk.decrypt(slotId, {ciphertext, identity, decryptingSet,
 
 Selection authenticates public metadata first. Once POSTed, never silently switch providers.
 
-[Source](../../src/chain/registeredAgent.ts#L65)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L65)
 
 Import: `import {createRegisteredAgentClient} from 'tasra-sdk/chain'`
 
@@ -763,7 +774,7 @@ Returns: `{ createSession(params: CreateSessionParams, options?: { profileIndex?
 
 One signer per instance. Serializes nonces and blocks new signatures after an uncertain result.
 
-[Source](../../src/chain/registeredRelay.ts#L180)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L180)
 
 Import: `import {createRegisteredRelaySubmitter} from 'tasra-sdk/chain'`
 
@@ -775,7 +786,7 @@ declare function createRegisteredRelaySubmitter(chain: TasraChainClient, config:
 |---|---|---|
 | `chain` | `TasraChainClient` |  |
 | `config` | `RegisteredRelayConfig` |  |
-| `wallet` | `{ account: Account; batch?: { multicall?: boolean &#124; Prettify<MulticallBatchOptions> &#124; undefined; } &#124; undefined; cacheTime: number; ccipRead?: false &#124; { request?: (parameters: CcipRequestParameters) => Promise<CcipRequestReturnType>; } &#124; undefined; chain: Chain; dataSuffix?: DataSuffix &#124; undefined; experimental_blockTag?: BlockTag &#124; undefined; key: string; name: string; pollingInterval: number; request: EIP1193RequestFn<WalletRpcSchema>; tokens: Tokens &#124; undefined; transport: TransportConfig<string, EIP1193RequestFn> & Record<string, any>; type: string; uid: string; addChain: (args: AddChainParameters) => Promise<void>; deployContract: <const abi extends Abi &#124; readonly unknown[], chainOverride extends Chain &#124; undefined>(args: DeployContractParameters<abi, Chain, Account, chainOverride>) => Promise<DeployContractReturnType>; fillTransaction: <chainOverride extends Chain &#124; undefined = undefined, accountOverride extends Account &#124; Address &#124; undefined = undefined>(args: FillTransactionParameters<Chain, Account, chainOverride, accountOverride>) => Promise<FillTransactionReturnType<Chain, chainOverride>>; getAddresses: () => Promise<GetAddressesReturnType>; getCallsStatus: (parameters: GetCallsStatusParameters) => Promise<GetCallsStatusReturnType>; getCapabilities: <chainId extends number &#124; undefined>(parameters?: GetCapabilitiesParameters<chainId>) => Promise<GetCapabilitiesReturnType<chainId>>; getChainId: () => Promise<GetChainIdReturnType>; getPermissions: () => Promise<GetPermissionsReturnType>; prepareAuthorization: (parameters: PrepareAuthorizationParameters<Account>) => Promise<PrepareAuthorizationReturnType>; prepareTransactionRequest: <const request extends PrepareTransactionRequestRequest<Chain, chainOverride>, chainOverride extends Chain &#124; undefined = undefined, accountOverride extends Account &#124; Address &#124; undefined = undefined>(args: PrepareTransactionRequestParameters<Chain, Account, chainOverride, accountOverride, request>) => Promise<{ [K in keyof (UnionRequiredBy<Extract<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> & (DeriveChain<Chain, chainOverride> extends Chain ? { chain: DeriveChain<Chain, chainOverride>; } : { chain?: undefined; }) & (DeriveAccount<Account, accountOverride> extends Account ? { account: Account & DeriveAccount<Account, accountOverride>; from: Address; } : { account?: undefined; from?: undefined; }), IsNever<ExtractFormattedTransactionRequest<DeriveChain<Chain, chainOverride>, { type?: ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined; }, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined>> extends true ? unknown : ExactPartial<ExtractFormattedTransactionRequest<DeriveChain<Chain, chainOverride>, { type?: ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined; }, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined>>> & { chainId?: number &#124; undefined; }, ParameterTypeToParameters<request["parameters"] extends readonly PrepareTransactionRequestParameterType[] ? request["parameters"][number] : "nonce" &#124; "chainId" &#124; "type" &#124; "gas" &#124; "blobVersionedHashes" &#124; "fees">> & (unknown extends request["kzg"] ? {} : Pick<request, "kzg">) & { _capabilities?: { [x: string]: any; } &#124; undefined; })]: (UnionRequiredBy<Extract<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> & (DeriveChain<Chain, chainOverride> extends Chain ? { chain: DeriveChain<Chain, chainOverride>; } : { chain?: undefined; }) & (DeriveAccount<Account, accountOverride> extends Account ? { account: Account & DeriveAccount<Account, accountOverride>; from: Address; } : { account?: undefined; from?: undefined; }), IsNever<ExtractFormattedTransactionRequest<DeriveChain<Chain, chainOverride>, { type?: ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined; }, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined>> extends true ? unknown : ExactPartial<ExtractFormattedTransactionRequest<DeriveChain<Chain, chainOverride>, { type?: ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined; }, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined>>> & { chainId?: number &#124; undefined; }, ParameterTypeToParameters<request["parameters"] extends readonly PrepareTransactionRequestParameterType[] ? request["parameters"][number] : "nonce" &#124; "chainId" &#124; "type" &#124; "gas" &#124; "blobVersionedHashes" &#124; "fees">> & (unknown extends request["kzg"] ? {} : Pick<request, "kzg">) & { _capabilities?: { [x: string]: any; } &#124; undefined; })[K]; }>; requestAddresses: () => Promise<RequestAddressesReturnType>; requestPermissions: (args: RequestPermissionsParameters) => Promise<RequestPermissionsReturnType>; sendCalls: <const calls extends readonly unknown[], chainOverride extends Chain &#124; undefined = undefined>(parameters: SendCallsParameters<Chain, Account, chainOverride, calls>) => Promise<{ capabilities?: { [x: string]: any; } &#124; undefined; id: string; }>; sendCallsSync: <const calls extends readonly unknown[], chainOverride extends Chain &#124; undefined = undefined>(parameters: SendCallsSyncParameters<Chain, Account, chainOverride, calls>) => Promise<{ version: string; id: string; chainId: number; atomic: boolean; capabilities?: { [key: string]: any; } &#124; { [x: string]: any; } &#124; undefined; receipts?: WalletCallReceipt<bigint, "success" &#124; "reverted">[] &#124; undefined; statusCode: number; status: "pending" &#124; "success" &#124; "failure" &#124; undefined; }>; sendRawTransaction: (args: SendRawTransactionParameters) => Promise<SendRawTransactionReturnType>; sendRawTransactionSync: (args: SendRawTransactionSyncParameters) => Promise<TransactionReceipt>; sendTransaction: <const request extends SendTransactionRequest<Chain, chainOverride>, chainOverride extends Chain &#124; undefined = undefined>(args: SendTransactionParameters<Chain, Account, chainOverride, request>) => Promise<SendTransactionReturnType>; sendTransactionSync: <const request extends SendTransactionSyncRequest<Chain, chainOverride>, chainOverride extends Chain &#124; undefined = undefined>(args: SendTransactionSyncParameters<Chain, Account, chainOverride, request>) => Promise<TransactionReceipt>; showCallsStatus: (parameters: ShowCallsStatusParameters) => Promise<ShowCallsStatusReturnType>; signAuthorization: (parameters: SignAuthorizationParameters<Account>) => Promise<SignAuthorizationReturnType>; signMessage: (args: SignMessageParameters<Account>) => Promise<SignMessageReturnType>; signTransaction: <chainOverride extends Chain &#124; undefined, const request extends UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> = UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">>(args: SignTransactionParameters<Chain, Account, chainOverride, request>) => Promise<TransactionSerialized<GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>, (GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "eip1559" ? \`0x02${string}\` : never) &#124; (GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "eip2930" ? \`0x01${string}\` : never) &#124; (GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "eip4844" ? \`0x03${string}\` : never) &#124; (GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "eip7702" ? \`0x04${string}\` : never) &#124; (GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? TransactionSerializedLegacy : never)>>; signTypedData: <const typedData extends { [key: string]: unknown; } &#124; { [x: string]: readonly TypedDataParameter[]; [x: \`string[${string}]\`]: undefined; [x: \`function[${string}]\`]: undefined; [x: \`uint64[${string}]\`]: undefined; [x: \`bytes32[${string}]\`]: undefined; [x: \`uint32[${string}]\`]: undefined; [x: \`bytes[${string}]\`]: undefined; [x: \`address[${string}]\`]: undefined; [x: \`uint256[${string}]\`]: undefined; [x: \`bool[${string}]\`]: undefined; [x: \`uint8[${string}]\`]: undefined; [x: \`uint16[${string}]\`]: undefined; [x: \`bytes1[${string}]\`]: undefined; [x: \`uint24[${string}]\`]: undefined; [x: \`bytes16[${string}]\`]: undefined; [x: \`bytes5[${string}]\`]: undefined; [x: \`bytes2[${string}]\`]: undefined; [x: \`bytes4[${string}]\`]: undefined; [x: \`bytes3[${string}]\`]: undefined; [x: \`bytes7[${string}]\`]: undefined; [x: \`bytes6[${string}]\`]: undefined; [x: \`bytes9[${string}]\`]: undefined; [x: \`bytes8[${string}]\`]: undefined; [x: \`bytes12[${string}]\`]: undefined; [x: \`bytes10[${string}]\`]: undefined; [x: \`bytes28[${string}]\`]: undefined; [x: \`bytes17[${string}]\`]: undefined; [x: \`bytes25[${string}]\`]: undefined; [x: \`bytes29[${string}]\`]: undefined; [x: \`bytes13[${string}]\`]: undefined; [x: \`bytes18[${string}]\`]: undefined; [x: \`bytes11[${string}]\`]: undefined; [x: \`bytes14[${string}]\`]: undefined; [x: \`bytes15[${string}]\`]: undefined; [x: \`bytes19[${string}]\`]: undefined; [x: \`bytes20[${string}]\`]: undefined; [x: \`bytes21[${string}]\`]: undefined; [x: \`bytes22[${string}]\`]: undefined; [x: \`bytes23[${string}]\`]: undefined; [x: \`bytes24[${string}]\`]: undefined; [x: \`bytes26[${string}]\`]: undefined; [x: \`bytes27[${string}]\`]: undefined; [x: \`bytes30[${string}]\`]: undefined; [x: \`bytes31[${string}]\`]: undefined; [x: \`int[${string}]\`]: undefined; [x: \`int16[${string}]\`]: undefined; [x: \`int8[${string}]\`]: undefined; [x: \`int120[${string}]\`]: undefined; [x: \`int24[${string}]\`]: undefined; [x: \`int32[${string}]\`]: undefined; [x: \`int40[${string}]\`]: undefined; [x: \`int48[${string}]\`]: undefined; [x: \`int56[${string}]\`]: undefined; [x: \`int64[${string}]\`]: undefined; [x: \`int72[${string}]\`]: undefined; [x: \`int80[${string}]\`]: undefined; [x: \`int88[${string}]\`]: undefined; [x: \`int96[${string}]\`]: undefined; [x: \`int104[${string}]\`]: undefined; [x: \`int112[${string}]\`]: undefined; [x: \`int128[${string}]\`]: undefined; [x: \`int136[${string}]\`]: undefined; [x: \`int144[${string}]\`]: undefined; [x: \`int152[${string}]\`]: undefined; [x: \`int160[${string}]\`]: undefined; [x: \`int168[${string}]\`]: undefined; [x: \`int176[${string}]\`]: undefined; [x: \`int184[${string}]\`]: undefined; [x: \`int192[${string}]\`]: undefined; [x: \`int200[${string}]\`]: undefined; [x: \`int208[${string}]\`]: undefined; [x: \`int216[${string}]\`]: undefined; [x: \`int224[${string}]\`]: undefined; [x: \`int232[${string}]\`]: undefined; [x: \`int240[${string}]\`]: undefined; [x: \`int248[${string}]\`]: undefined; [x: \`int256[${string}]\`]: undefined; [x: \`uint[${string}]\`]: undefined; [x: \`uint120[${string}]\`]: undefined; [x: \`uint40[${string}]\`]: undefined; [x: \`uint48[${string}]\`]: undefined; [x: \`uint56[${string}]\`]: undefined; [x: \`uint72[${string}]\`]: undefined; [x: \`uint80[${string}]\`]: undefined; [x: \`uint88[${string}]\`]: undefined; [x: \`uint96[${string}]\`]: undefined; [x: \`uint104[${string}]\`]: undefined; [x: \`uint112[${string}]\`]: undefined; [x: \`uint128[${string}]\`]: undefined; [x: \`uint136[${string}]\`]: undefined; [x: \`uint144[${string}]\`]: undefined; [x: \`uint152[${string}]\`]: undefined; [x: \`uint160[${string}]\`]: undefined; [x: \`uint168[${string}]\`]: undefined; [x: \`uint176[${string}]\`]: undefined; [x: \`uint184[${string}]\`]: undefined; [x: \`uint192[${string}]\`]: undefined; [x: \`uint200[${string}]\`]: undefined; [x: \`uint208[${string}]\`]: undefined; [x: \`uint216[${string}]\`]: undefined; [x: \`uint224[${string}]\`]: undefined; [x: \`uint232[${string}]\`]: undefined; [x: \`uint240[${string}]\`]: undefined; [x: \`uint248[${string}]\`]: undefined; string?: undefined; uint64?: undefined; bytes32?: undefined; uint32?: undefined; bytes?: undefined; address?: undefined; uint256?: undefined; bool?: undefined; uint8?: undefined; uint16?: undefined; bytes1?: undefined; uint24?: undefined; bytes16?: undefined; bytes5?: undefined; bytes2?: undefined; bytes4?: undefined; bytes3?: undefined; bytes7?: undefined; bytes6?: undefined; bytes9?: undefined; bytes8?: undefined; bytes12?: undefined; bytes10?: undefined; bytes28?: undefined; bytes17?: undefined; bytes25?: undefined; bytes29?: undefined; bytes13?: undefined; bytes18?: undefined; bytes11?: undefined; bytes14?: undefined; bytes15?: undefined; bytes19?: undefined; bytes20?: undefined; bytes21?: undefined; bytes22?: undefined; bytes23?: undefined; bytes24?: undefined; bytes26?: undefined; bytes27?: undefined; bytes30?: undefined; bytes31?: undefined; int16?: undefined; int8?: undefined; int120?: undefined; int24?: undefined; int32?: undefined; int40?: undefined; int48?: undefined; int56?: undefined; int64?: undefined; int72?: undefined; int80?: undefined; int88?: undefined; int96?: undefined; int104?: undefined; int112?: undefined; int128?: undefined; int136?: undefined; int144?: undefined; int152?: undefined; int160?: undefined; int168?: undefined; int176?: undefined; int184?: undefined; int192?: undefined; int200?: undefined; int208?: undefined; int216?: undefined; int224?: undefined; int232?: undefined; int240?: undefined; int248?: undefined; int256?: undefined; uint120?: undefined; uint40?: undefined; uint48?: undefined; uint56?: undefined; uint72?: undefined; uint80?: undefined; uint88?: undefined; uint96?: undefined; uint104?: undefined; uint112?: undefined; uint128?: undefined; uint136?: undefined; uint144?: undefined; uint152?: undefined; uint160?: undefined; uint168?: undefined; uint176?: undefined; uint184?: undefined; uint192?: undefined; uint200?: undefined; uint208?: undefined; uint216?: undefined; uint224?: undefined; uint232?: undefined; uint240?: undefined; uint248?: undefined; }, primaryType extends string>(args: SignTypedDataParameters<typedData, primaryType, Account>) => Promise<SignTypedDataReturnType>; switchChain: (args: SwitchChainParameters) => Promise<void>; waitForCallsStatus: (parameters: WaitForCallsStatusParameters) => Promise<WaitForCallsStatusReturnType>; watchAsset: (args: WatchAssetParameters) => Promise<WatchAssetReturnType>; writeContract: <const abi extends Abi &#124; readonly unknown[], functionName extends ContractFunctionName<abi, "nonpayable" &#124; "payable">, args extends ContractFunctionArgs<abi, "nonpayable" &#124; "payable", functionName>, chainOverride extends Chain &#124; undefined = undefined>(args: WriteContractParameters<abi, functionName, args, Chain, Account, chainOverride>) => Promise<WriteContractReturnType>; writeContractSync: <const abi extends Abi &#124; readonly unknown[], functionName extends ContractFunctionName<abi, "nonpayable" &#124; "payable">, args extends ContractFunctionArgs<abi, "nonpayable" &#124; "payable", functionName>, chainOverride extends Chain &#124; undefined = undefined>(args: WriteContractSyncParameters<abi, functionName, args, Chain, Account, chainOverride>) => Promise<WriteContractSyncReturnType>; token: { approveSync: (parameters: approveSync.Parameters<Chain, Account, Tokens &#124; undefined>) => Promise<{ owner: \`0x${string}\`; spender: \`0x${string}\`; value: bigint; decimals?: number &#124; undefined &#124; undefined; formatted?: string &#124; undefined &#124; undefined; receipt: TransactionReceipt; }>; approve: ((parameters: approve.Parameters<Chain, Account, Tokens &#124; undefined>) => Promise<approve.ReturnValue>) & { call: (args: approve.Args<Chain, Tokens &#124; undefined>) => ReturnType<typeof approve.call>; estimateGas: (parameters: approve.Parameters<Chain, Account, Tokens &#124; undefined>) => Promise<bigint>; extractEvent: typeof approve.extractEvent; simulate: (parameters: approve.Parameters<Chain, Account, Tokens &#124; undefined>) => ReturnType<typeof approve.simulate>; }; transferSync: (parameters: transferSync.Parameters<Chain, Account, Tokens &#124; undefined>) => Promise<{ from: \`0x${string}\`; to: \`0x${string}\`; value: bigint; decimals?: number &#124; undefined &#124; undefined; formatted?: string &#124; undefined &#124; undefined; receipt: TransactionReceipt; }>; transfer: ((parameters: transfer.Parameters<Chain, Account, Tokens &#124; undefined>) => Promise<transfer.ReturnValue>) & { call: (args: transfer.Args<Chain, Tokens &#124; undefined>) => ReturnType<typeof transfer.call>; estimateGas: (parameters: transfer.Parameters<Chain, Account, Tokens &#124; undefined>) => Promise<bigint>; extractEvent: typeof transfer.extractEvent; simulate: (parameters: transfer.Parameters<Chain, Account, Tokens &#124; undefined>) => ReturnType<typeof transfer.simulate>; }; }; extend: <const client extends { [x: string]: unknown; account?: undefined; batch?: undefined; cacheTime?: undefined; ccipRead?: undefined; chain?: undefined; dataSuffix?: undefined; experimental_blockTag?: undefined; key?: undefined; name?: undefined; pollingInterval?: undefined; request?: undefined; tokens?: undefined; transport?: undefined; type?: undefined; uid?: undefined; } & ExactPartial<ExtendableProtectedActions<Transport, Chain, Account, Tokens &#124; undefined>>>(fn: (client: Client<Transport, Chain, Account, WalletRpcSchema, WalletActions<Chain, Account, Tokens &#124; undefined>, Tokens &#124; undefined>) => client) => Client<Transport, Chain, Account, WalletRpcSchema, { [K in keyof client]: client[K]; } & WalletActions<Chain, Account, Tokens &#124; undefined>, Tokens &#124; undefined>; }` |  |
+| `wallet` | `{ account: Account; batch?: { multicall?: boolean &#124; Prettify<MulticallBatchOptions> &#124; undefined; } &#124; undefined; cacheTime: number; ccipRead?: false &#124; { request?: (parameters: CcipRequestParameters) => Promise<CcipRequestReturnType>; } &#124; undefined; chain: Chain; dataSuffix?: DataSuffix &#124; undefined; experimental_blockTag?: BlockTag &#124; undefined; key: string; name: string; pollingInterval: number; request: EIP1193RequestFn<WalletRpcSchema>; tokens: Tokens &#124; undefined; transport: TransportConfig<string, EIP1193RequestFn> & Record<string, any>; type: string; uid: string; addChain: (args: AddChainParameters) => Promise<void>; deployContract: <const abi extends Abi &#124; readonly unknown[], chainOverride extends Chain &#124; undefined>(args: DeployContractParameters<abi, Chain, Account, chainOverride>) => Promise<DeployContractReturnType>; fillTransaction: <chainOverride extends Chain &#124; undefined = undefined, accountOverride extends Account &#124; Address &#124; undefined = undefined>(args: FillTransactionParameters<Chain, Account, chainOverride, accountOverride>) => Promise<FillTransactionReturnType<Chain, chainOverride>>; getAddresses: () => Promise<GetAddressesReturnType>; getCallsStatus: (parameters: GetCallsStatusParameters) => Promise<GetCallsStatusReturnType>; getCapabilities: <chainId extends number &#124; undefined>(parameters?: GetCapabilitiesParameters<chainId>) => Promise<GetCapabilitiesReturnType<chainId>>; getChainId: () => Promise<GetChainIdReturnType>; getPermissions: () => Promise<GetPermissionsReturnType>; prepareAuthorization: (parameters: PrepareAuthorizationParameters<Account>) => Promise<PrepareAuthorizationReturnType>; prepareTransactionRequest: <const request extends PrepareTransactionRequestRequest<Chain, chainOverride>, chainOverride extends Chain &#124; undefined = undefined, accountOverride extends Account &#124; Address &#124; undefined = undefined>(args: PrepareTransactionRequestParameters<Chain, Account, chainOverride, accountOverride, request>) => Promise<{ [K in keyof (UnionRequiredBy<Extract<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> & (DeriveChain<Chain, chainOverride> extends Chain ? { chain: DeriveChain<Chain, chainOverride>; } : { chain?: undefined; }) & (DeriveAccount<Account, accountOverride> extends Account ? { account: Account & DeriveAccount<Account, accountOverride>; from: Address; } : { account?: undefined; from?: undefined; }), IsNever<ExtractFormattedTransactionRequest<DeriveChain<Chain, chainOverride>, { type?: ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined; }, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined>> extends true ? unknown : ExactPartial<ExtractFormattedTransactionRequest<DeriveChain<Chain, chainOverride>, { type?: ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined; }, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined>>> & { chainId?: number &#124; undefined; }, ParameterTypeToParameters<request["parameters"] extends readonly PrepareTransactionRequestParameterType[] ? request["parameters"][number] : "type" &#124; "chainId" &#124; "gas" &#124; "nonce" &#124; "blobVersionedHashes" &#124; "fees">> & (unknown extends request["kzg"] ? {} : Pick<request, "kzg">) & { _capabilities?: { [x: string]: any; } &#124; undefined; })]: (UnionRequiredBy<Extract<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> & (DeriveChain<Chain, chainOverride> extends Chain ? { chain: DeriveChain<Chain, chainOverride>; } : { chain?: undefined; }) & (DeriveAccount<Account, accountOverride> extends Account ? { account: Account & DeriveAccount<Account, accountOverride>; from: Address; } : { account?: undefined; from?: undefined; }), IsNever<ExtractFormattedTransactionRequest<DeriveChain<Chain, chainOverride>, { type?: ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined; }, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined>> extends true ? unknown : ExactPartial<ExtractFormattedTransactionRequest<DeriveChain<Chain, chainOverride>, { type?: ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined; }, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, ((request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) extends string ? string & (request["type"] extends string ? request["type"] : IsNever<ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>>> extends false ? ExtractCustomFormattedTransactionType<DeriveChain<Chain, chainOverride>, request, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">, UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends object ? request extends ExactPartial<UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">> ? UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> extends { type?: infer type &#124; undefined; } ? Extract<type, string> : never : never : never, NonNullable<"legacy" &#124; "eip1559" &#124; "eip2930" &#124; "eip4844" &#124; "eip7702" &#124; undefined>> : request["type"] extends string &#124; undefined ? request["type"] : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? unknown : GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>) : undefined) &#124; undefined>>> & { chainId?: number &#124; undefined; }, ParameterTypeToParameters<request["parameters"] extends readonly PrepareTransactionRequestParameterType[] ? request["parameters"][number] : "type" &#124; "chainId" &#124; "gas" &#124; "nonce" &#124; "blobVersionedHashes" &#124; "fees">> & (unknown extends request["kzg"] ? {} : Pick<request, "kzg">) & { _capabilities?: { [x: string]: any; } &#124; undefined; })[K]; }>; requestAddresses: () => Promise<RequestAddressesReturnType>; requestPermissions: (args: RequestPermissionsParameters) => Promise<RequestPermissionsReturnType>; sendCalls: <const calls extends readonly unknown[], chainOverride extends Chain &#124; undefined = undefined>(parameters: SendCallsParameters<Chain, Account, chainOverride, calls>) => Promise<{ capabilities?: { [x: string]: any; } &#124; undefined; id: string; }>; sendCallsSync: <const calls extends readonly unknown[], chainOverride extends Chain &#124; undefined = undefined>(parameters: SendCallsSyncParameters<Chain, Account, chainOverride, calls>) => Promise<{ atomic: boolean; capabilities?: { [key: string]: any; } &#124; { [x: string]: any; } &#124; undefined; chainId: number; id: string; receipts?: WalletCallReceipt<bigint, "success" &#124; "reverted">[] &#124; undefined; version: string; statusCode: number; status: "pending" &#124; "success" &#124; "failure" &#124; undefined; }>; sendRawTransaction: (args: SendRawTransactionParameters) => Promise<SendRawTransactionReturnType>; sendRawTransactionSync: (args: SendRawTransactionSyncParameters) => Promise<TransactionReceipt>; sendTransaction: <const request extends SendTransactionRequest<Chain, chainOverride>, chainOverride extends Chain &#124; undefined = undefined>(args: SendTransactionParameters<Chain, Account, chainOverride, request>) => Promise<SendTransactionReturnType>; sendTransactionSync: <const request extends SendTransactionSyncRequest<Chain, chainOverride>, chainOverride extends Chain &#124; undefined = undefined>(args: SendTransactionSyncParameters<Chain, Account, chainOverride, request>) => Promise<TransactionReceipt>; showCallsStatus: (parameters: ShowCallsStatusParameters) => Promise<ShowCallsStatusReturnType>; signAuthorization: (parameters: SignAuthorizationParameters<Account>) => Promise<SignAuthorizationReturnType>; signMessage: (args: SignMessageParameters<Account>) => Promise<SignMessageReturnType>; signTransaction: <chainOverride extends Chain &#124; undefined, const request extends UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from"> = UnionOmit<ExtractChainFormatterParameters<DeriveChain<Chain, chainOverride>, "transactionRequest", TransactionRequest>, "from">>(args: SignTransactionParameters<Chain, Account, chainOverride, request>) => Promise<TransactionSerialized<GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)>, (GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "eip1559" ? \`0x02${string}\` : never) &#124; (GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "eip2930" ? \`0x01${string}\` : never) &#124; (GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "eip4844" ? \`0x03${string}\` : never) &#124; (GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "eip7702" ? \`0x04${string}\` : never) &#124; (GetTransactionType<request, (request extends LegacyProperties ? "legacy" : never) &#124; (request extends EIP1559Properties ? "eip1559" : never) &#124; (request extends EIP2930Properties ? "eip2930" : never) &#124; (request extends EIP4844Properties ? "eip4844" : never) &#124; (request extends EIP7702Properties ? "eip7702" : never) &#124; (request["type"] extends string &#124; undefined ? Extract<request["type"], string> : never)> extends "legacy" ? TransactionSerializedLegacy : never)>>; signTypedData: <const typedData extends { [x: string]: readonly TypedDataParameter[]; [x: \`string[${string}]\`]: undefined; [x: \`function[${string}]\`]: undefined; [x: \`address[${string}]\`]: undefined; [x: \`bool[${string}]\`]: undefined; [x: \`bytes[${string}]\`]: undefined; [x: \`bytes1[${string}]\`]: undefined; [x: \`bytes2[${string}]\`]: undefined; [x: \`bytes3[${string}]\`]: undefined; [x: \`bytes4[${string}]\`]: undefined; [x: \`bytes5[${string}]\`]: undefined; [x: \`bytes6[${string}]\`]: undefined; [x: \`bytes7[${string}]\`]: undefined; [x: \`bytes8[${string}]\`]: undefined; [x: \`bytes9[${string}]\`]: undefined; [x: \`bytes10[${string}]\`]: undefined; [x: \`bytes11[${string}]\`]: undefined; [x: \`bytes12[${string}]\`]: undefined; [x: \`bytes13[${string}]\`]: undefined; [x: \`bytes14[${string}]\`]: undefined; [x: \`bytes15[${string}]\`]: undefined; [x: \`bytes16[${string}]\`]: undefined; [x: \`bytes17[${string}]\`]: undefined; [x: \`bytes18[${string}]\`]: undefined; [x: \`bytes19[${string}]\`]: undefined; [x: \`bytes20[${string}]\`]: undefined; [x: \`bytes21[${string}]\`]: undefined; [x: \`bytes22[${string}]\`]: undefined; [x: \`bytes23[${string}]\`]: undefined; [x: \`bytes24[${string}]\`]: undefined; [x: \`bytes25[${string}]\`]: undefined; [x: \`bytes26[${string}]\`]: undefined; [x: \`bytes27[${string}]\`]: undefined; [x: \`bytes28[${string}]\`]: undefined; [x: \`bytes29[${string}]\`]: undefined; [x: \`bytes30[${string}]\`]: undefined; [x: \`bytes31[${string}]\`]: undefined; [x: \`bytes32[${string}]\`]: undefined; [x: \`int[${string}]\`]: undefined; [x: \`int8[${string}]\`]: undefined; [x: \`int16[${string}]\`]: undefined; [x: \`int24[${string}]\`]: undefined; [x: \`int32[${string}]\`]: undefined; [x: \`int40[${string}]\`]: undefined; [x: \`int48[${string}]\`]: undefined; [x: \`int56[${string}]\`]: undefined; [x: \`int64[${string}]\`]: undefined; [x: \`int72[${string}]\`]: undefined; [x: \`int80[${string}]\`]: undefined; [x: \`int88[${string}]\`]: undefined; [x: \`int96[${string}]\`]: undefined; [x: \`int104[${string}]\`]: undefined; [x: \`int112[${string}]\`]: undefined; [x: \`int120[${string}]\`]: undefined; [x: \`int128[${string}]\`]: undefined; [x: \`int136[${string}]\`]: undefined; [x: \`int144[${string}]\`]: undefined; [x: \`int152[${string}]\`]: undefined; [x: \`int160[${string}]\`]: undefined; [x: \`int168[${string}]\`]: undefined; [x: \`int176[${string}]\`]: undefined; [x: \`int184[${string}]\`]: undefined; [x: \`int192[${string}]\`]: undefined; [x: \`int200[${string}]\`]: undefined; [x: \`int208[${string}]\`]: undefined; [x: \`int216[${string}]\`]: undefined; [x: \`int224[${string}]\`]: undefined; [x: \`int232[${string}]\`]: undefined; [x: \`int240[${string}]\`]: undefined; [x: \`int248[${string}]\`]: undefined; [x: \`int256[${string}]\`]: undefined; [x: \`uint[${string}]\`]: undefined; [x: \`uint8[${string}]\`]: undefined; [x: \`uint16[${string}]\`]: undefined; [x: \`uint24[${string}]\`]: undefined; [x: \`uint32[${string}]\`]: undefined; [x: \`uint40[${string}]\`]: undefined; [x: \`uint48[${string}]\`]: undefined; [x: \`uint56[${string}]\`]: undefined; [x: \`uint64[${string}]\`]: undefined; [x: \`uint72[${string}]\`]: undefined; [x: \`uint80[${string}]\`]: undefined; [x: \`uint88[${string}]\`]: undefined; [x: \`uint96[${string}]\`]: undefined; [x: \`uint104[${string}]\`]: undefined; [x: \`uint112[${string}]\`]: undefined; [x: \`uint120[${string}]\`]: undefined; [x: \`uint128[${string}]\`]: undefined; [x: \`uint136[${string}]\`]: undefined; [x: \`uint144[${string}]\`]: undefined; [x: \`uint152[${string}]\`]: undefined; [x: \`uint160[${string}]\`]: undefined; [x: \`uint168[${string}]\`]: undefined; [x: \`uint176[${string}]\`]: undefined; [x: \`uint184[${string}]\`]: undefined; [x: \`uint192[${string}]\`]: undefined; [x: \`uint200[${string}]\`]: undefined; [x: \`uint208[${string}]\`]: undefined; [x: \`uint216[${string}]\`]: undefined; [x: \`uint224[${string}]\`]: undefined; [x: \`uint232[${string}]\`]: undefined; [x: \`uint240[${string}]\`]: undefined; [x: \`uint248[${string}]\`]: undefined; [x: \`uint256[${string}]\`]: undefined; string?: undefined; address?: undefined; bool?: undefined; bytes?: undefined; bytes1?: undefined; bytes2?: undefined; bytes3?: undefined; bytes4?: undefined; bytes5?: undefined; bytes6?: undefined; bytes7?: undefined; bytes8?: undefined; bytes9?: undefined; bytes10?: undefined; bytes11?: undefined; bytes12?: undefined; bytes13?: undefined; bytes14?: undefined; bytes15?: undefined; bytes16?: undefined; bytes17?: undefined; bytes18?: undefined; bytes19?: undefined; bytes20?: undefined; bytes21?: undefined; bytes22?: undefined; bytes23?: undefined; bytes24?: undefined; bytes25?: undefined; bytes26?: undefined; bytes27?: undefined; bytes28?: undefined; bytes29?: undefined; bytes30?: undefined; bytes31?: undefined; bytes32?: undefined; int8?: undefined; int16?: undefined; int24?: undefined; int32?: undefined; int40?: undefined; int48?: undefined; int56?: undefined; int64?: undefined; int72?: undefined; int80?: undefined; int88?: undefined; int96?: undefined; int104?: undefined; int112?: undefined; int120?: undefined; int128?: undefined; int136?: undefined; int144?: undefined; int152?: undefined; int160?: undefined; int168?: undefined; int176?: undefined; int184?: undefined; int192?: undefined; int200?: undefined; int208?: undefined; int216?: undefined; int224?: undefined; int232?: undefined; int240?: undefined; int248?: undefined; int256?: undefined; uint8?: undefined; uint16?: undefined; uint24?: undefined; uint32?: undefined; uint40?: undefined; uint48?: undefined; uint56?: undefined; uint64?: undefined; uint72?: undefined; uint80?: undefined; uint88?: undefined; uint96?: undefined; uint104?: undefined; uint112?: undefined; uint120?: undefined; uint128?: undefined; uint136?: undefined; uint144?: undefined; uint152?: undefined; uint160?: undefined; uint168?: undefined; uint176?: undefined; uint184?: undefined; uint192?: undefined; uint200?: undefined; uint208?: undefined; uint216?: undefined; uint224?: undefined; uint232?: undefined; uint240?: undefined; uint248?: undefined; uint256?: undefined; } &#124; { [key: string]: unknown; }, primaryType extends string>(args: SignTypedDataParameters<typedData, primaryType, Account>) => Promise<SignTypedDataReturnType>; switchChain: (args: SwitchChainParameters) => Promise<void>; waitForCallsStatus: (parameters: WaitForCallsStatusParameters) => Promise<WaitForCallsStatusReturnType>; watchAsset: (args: WatchAssetParameters) => Promise<WatchAssetReturnType>; writeContract: <const abi extends Abi &#124; readonly unknown[], functionName extends ContractFunctionName<abi, "nonpayable" &#124; "payable">, args extends ContractFunctionArgs<abi, "nonpayable" &#124; "payable", functionName>, chainOverride extends Chain &#124; undefined = undefined>(args: WriteContractParameters<abi, functionName, args, Chain, Account, chainOverride>) => Promise<WriteContractReturnType>; writeContractSync: <const abi extends Abi &#124; readonly unknown[], functionName extends ContractFunctionName<abi, "nonpayable" &#124; "payable">, args extends ContractFunctionArgs<abi, "nonpayable" &#124; "payable", functionName>, chainOverride extends Chain &#124; undefined = undefined>(args: WriteContractSyncParameters<abi, functionName, args, Chain, Account, chainOverride>) => Promise<WriteContractSyncReturnType>; token: { approveSync: (parameters: approveSync.Parameters<Chain, Account, Tokens &#124; undefined>) => Promise<{ owner: \`0x${string}\`; spender: \`0x${string}\`; value: bigint; decimals?: number &#124; undefined &#124; undefined; formatted?: string &#124; undefined &#124; undefined; receipt: TransactionReceipt; }>; approve: ((parameters: approve.Parameters<Chain, Account, Tokens &#124; undefined>) => Promise<approve.ReturnValue>) & { call: (args: approve.Args<Chain, Tokens &#124; undefined>) => ReturnType<typeof approve.call>; estimateGas: (parameters: approve.Parameters<Chain, Account, Tokens &#124; undefined>) => Promise<bigint>; extractEvent: typeof approve.extractEvent; simulate: (parameters: approve.Parameters<Chain, Account, Tokens &#124; undefined>) => ReturnType<typeof approve.simulate>; }; transferSync: (parameters: transferSync.Parameters<Chain, Account, Tokens &#124; undefined>) => Promise<{ from: \`0x${string}\`; to: \`0x${string}\`; value: bigint; decimals?: number &#124; undefined &#124; undefined; formatted?: string &#124; undefined &#124; undefined; receipt: TransactionReceipt; }>; transfer: ((parameters: transfer.Parameters<Chain, Account, Tokens &#124; undefined>) => Promise<transfer.ReturnValue>) & { call: (args: transfer.Args<Chain, Tokens &#124; undefined>) => ReturnType<typeof transfer.call>; estimateGas: (parameters: transfer.Parameters<Chain, Account, Tokens &#124; undefined>) => Promise<bigint>; extractEvent: typeof transfer.extractEvent; simulate: (parameters: transfer.Parameters<Chain, Account, Tokens &#124; undefined>) => ReturnType<typeof transfer.simulate>; }; }; extend: <const client extends { [x: string]: unknown; account?: undefined; batch?: undefined; cacheTime?: undefined; ccipRead?: undefined; chain?: undefined; dataSuffix?: undefined; experimental_blockTag?: undefined; key?: undefined; name?: undefined; pollingInterval?: undefined; request?: undefined; tokens?: undefined; transport?: undefined; type?: undefined; uid?: undefined; } & ExactPartial<ExtendableProtectedActions<Transport, Chain, Account, Tokens &#124; undefined>>>(fn: (client: Client<Transport, Chain, Account, WalletRpcSchema, WalletActions<Chain, Account, Tokens &#124; undefined>, Tokens &#124; undefined>) => client) => Client<Transport, Chain, Account, WalletRpcSchema, { [K in keyof client]: client[K]; } & WalletActions<Chain, Account, Tokens &#124; undefined>, Tokens &#124; undefined>; }` |  |
 | `options` | `{ persistAttempt?: (attempt: RelayAttempt) => Promise<void>; }` |  |
 
 Returns: `{ submit: (to: Address, data: Hex, label?: string) => Promise<RelayReceipt>; pendingAttempt: () => RelayAttempt | undefined; reconcile(): Promise<RelayReconciliation | undefined>; }`.
@@ -784,7 +795,7 @@ Returns: `{ submit: (to: Address, data: Hex, label?: string) => Promise<RelayRec
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/write.ts#L190)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L201)
 
 ```ts
 export interface CreateSlotArgs {
@@ -841,7 +852,7 @@ This is a **dependency of** the slot-driven clients rather than an alternative t
 them: both {@link createTasraSlotClient } and {@link createCommitteeSlotClient }
 take one of these as their `chain` field. Build it first.
 
-[Source](../../src/chain/client.ts#L269)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/client.ts#L269)
 
 Import: `import {createTasraChainClient} from 'tasra-sdk/chain'`
 
@@ -890,7 +901,7 @@ crypto, just endpoint resolution moved from static config to the registry.
 Contrast {@link createCommitteeSlotClient }, which takes the committee
 path instead and never reconstructs the key.
 
-[Source](../../src/chain/slotClient.ts#L106)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/slotClient.ts#L106)
 
 Import: `import {createTasraSlotClient} from 'tasra-sdk/chain'`
 
@@ -933,7 +944,7 @@ Two signer shapes, same surface (see {@link WriteClientConfig}):
     the SDK never touches a private key. This is the browser-wallet path
     (MetaMask/wagmi, Safe App, hardware wallet).
 
-[Source](../../src/chain/write.ts#L358)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L369)
 
 Import: `import {createTasraWriteClient} from 'tasra-sdk/chain'`
 
@@ -953,7 +964,7 @@ Decode raw logs (already filtered to `address`) against `contract`'s ABI.
 Non-matching / anonymous logs are skipped. `strict:false` tolerates logs
 whose indexed topics can't be fully decoded.
 
-[Source](../../src/chain/events.ts#L109)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L109)
 
 Import: `import {decodeContractLogs} from 'tasra-sdk/chain'`
 
@@ -973,7 +984,7 @@ Returns: `DecodedEvent[]`.
 
 A normalized, storage-ready decoded log.
 
-[Source](../../src/chain/events.ts#L80)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L80)
 
 ```ts
 export interface DecodedEvent {
@@ -995,7 +1006,7 @@ export interface DecodedEvent {
 
 Matches serviceIdFor on the proxy. Provider transfer does not change this ID.
 
-[Source](../../src/chain/services.ts#L35)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/services.ts#L35)
 
 Import: `import {deriveServiceId} from 'tasra-sdk/chain'`
 
@@ -1016,7 +1027,7 @@ Returns: ``0x${string}``.
 
 Canonical wire encoding accepted by both responder implementations.
 
-[Source](../../src/chain/serviceIdentity.ts#L115)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L115)
 
 Import: `import {encodeServiceChallenge} from 'tasra-sdk/chain'`
 
@@ -1034,7 +1045,7 @@ Returns: `Uint8Array<ArrayBufferLike>`.
 
 Canonical v1 bytes: fixed field order, compact ASCII JSON, one LF. No optional/unknown fields.
 
-[Source](../../src/chain/serviceIdentity.ts#L59)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L59)
 
 Import: `import {encodeServiceManifest} from 'tasra-sdk/chain'`
 
@@ -1052,7 +1063,7 @@ Returns: `Uint8Array<ArrayBufferLike>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/events.ts#L10)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L10)
 
 ```ts
 export type EventCategory =
@@ -1069,7 +1080,7 @@ export type EventCategory =
 
 The set of event names declared by a contract's ABI.
 
-[Source](../../src/chain/events.ts#L73)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L73)
 
 Import: `import {eventNamesOf} from 'tasra-sdk/chain'`
 
@@ -1087,7 +1098,7 @@ Returns: `string[]`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/offchain.ts#L9)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L9)
 
 ```ts
 export interface FetchOpts {
@@ -1102,7 +1113,7 @@ export interface FetchOpts {
 
 Format a basis-points integer (e.g. 1000) as a percentage string ("10%").
 
-[Source](../../src/chain/format.ts#L36)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/format.ts#L36)
 
 Import: `import {formatBps} from 'tasra-sdk/chain'`
 
@@ -1122,7 +1133,7 @@ Format an 18-decimal token amount (wei) to a human string with up to
 `maxFractionDigits` significant fractional digits, thousands-separated.
 Generic over decimals.
 
-[Source](../../src/chain/format.ts#L16)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/format.ts#L16)
 
 Import: `import {formatUnits} from 'tasra-sdk/chain'`
 
@@ -1142,7 +1153,7 @@ Returns: `string`.
 
 WAD (1e18 fixed-point) value to a decimal string, e.g. a price.
 
-[Source](../../src/chain/format.ts#L42)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/format.ts#L42)
 
 Import: `import {formatWad} from 'tasra-sdk/chain'`
 
@@ -1161,7 +1172,7 @@ Returns: `string`.
 
 Fresh 0x-prefixed 32-byte private key for a new sovereign client account.
 
-[Source](../../src/chain/write.ts#L315)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L326)
 
 Import: `import {generateClientKey} from 'tasra-sdk/chain'`
 
@@ -1175,7 +1186,7 @@ Returns: ``0x${string}``.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/client.ts#L95)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/client.ts#L95)
 
 ```ts
 export interface GetLogsWindowedOpts {
@@ -1193,7 +1204,7 @@ export interface GetLogsWindowedOpts {
 
 Hash the exact downloaded/published bytes; never parse and re-serialize before checking.
 
-[Source](../../src/chain/services.ts#L65)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/services.ts#L65)
 
 Import: `import {hashServiceManifest} from 'tasra-sdk/chain'`
 
@@ -1212,7 +1223,7 @@ Returns: ``0x${string}``.
 Recursively convert bigints to strings so a decoded event can be JSON
 serialized / stored. Leaves everything else intact.
 
-[Source](../../src/chain/events.ts#L144)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L144)
 
 Import: `import {jsonSafe} from 'tasra-sdk/chain'`
 
@@ -1230,7 +1241,7 @@ Returns: `unknown`.
 
 One keeper's answer. `pending` marks a rule stored against a PENDING amendment.
 
-[Source](../../src/chain/provisionRule.ts#L58)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/provisionRule.ts#L58)
 
 ```ts
 export interface KeeperProvisionResult {
@@ -1249,7 +1260,7 @@ export interface KeeperProvisionResult {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/offchain.ts#L71)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L71)
 
 ```ts
 export interface KeyListReply {
@@ -1262,7 +1273,7 @@ export interface KeyListReply {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/offchain.ts#L58)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L58)
 
 ```ts
 export interface KeySlotSummary {
@@ -1283,7 +1294,7 @@ export interface KeySlotSummary {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/offchain.ts#L84)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L84)
 
 ```ts
 export interface MeteringReply {
@@ -1301,7 +1312,7 @@ export interface MeteringReply {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/manifest.ts#L16)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/manifest.ts#L16)
 
 ```ts
 export interface NetworkManifest {
@@ -1322,7 +1333,7 @@ export interface NetworkManifest {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/networks.ts#L4)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L4)
 
 ```ts
 export type NetworkName = 'local' | 'testnet' | 'mainnet'
@@ -1332,7 +1343,7 @@ export type NetworkName = 'local' | 'testnet' | 'mainnet'
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/networks.ts#L25)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L25)
 
 Import: `import {networkNameForChain} from 'tasra-sdk/chain'`
 
@@ -1350,7 +1361,7 @@ Returns: `NetworkName`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/networks.ts#L5)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L5)
 
 ```ts
 export interface NetworkPreset {
@@ -1367,7 +1378,7 @@ export interface NetworkPreset {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/offchain.ts#L46)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L46)
 
 ```ts
 export interface NodeInfo {
@@ -1387,7 +1398,7 @@ export interface NodeInfo {
 
 Observe a single finalized block. This verifies code identity, not business wiring or audit quality.
 
-[Source](../../src/chain/manifest.ts#L110)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/manifest.ts#L110)
 
 Import: `import {observeNetworkManifest} from 'tasra-sdk/chain'`
 
@@ -1406,7 +1417,7 @@ Returns: `Promise<{ chainId: number; blockNumber: string; blockHash: `0x${string
 
 Sign once, authenticate an explicitly approved provider, and retain its pinned poll closure.
 
-[Source](../../src/chain/registeredOperation.ts#L17)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L17)
 
 Import: `import {openRegisteredVerifierAgentSession} from 'tasra-sdk/chain'`
 
@@ -1425,7 +1436,7 @@ Returns: `Promise<RegisteredVerifierAgentSession>`.
 
 Parse the public, JSON-safe deployment approval file. Decimal revisions preserve uint64.
 
-[Source](../../src/chain/serviceProfiles.ts#L33)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceProfiles.ts#L33)
 
 Import: `import {parseApplicationServiceProfiles} from 'tasra-sdk/chain'`
 
@@ -1443,7 +1454,7 @@ Returns: `ApplicationServiceProfiles`.
 
 Validate data only. Authenticity requires a trusted digest or signature separately.
 
-[Source](../../src/chain/manifest.ts#L44)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/manifest.ts#L44)
 
 Import: `import {parseNetworkManifest} from 'tasra-sdk/chain'`
 
@@ -1461,7 +1472,7 @@ Returns: `NetworkManifest`.
 
 The digest must come from a verified release checksum file or application pin.
 
-[Source](../../src/chain/manifest.ts#L84)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/manifest.ts#L84)
 
 Import: `import {parsePinnedNetworkManifest} from 'tasra-sdk/chain'`
 
@@ -1482,7 +1493,7 @@ Parse a Prometheus text exposition into a flat map of `metric{labels}` →
 value. Good enough for the explorer's dashboards (counters/gauges); skips
 HELP/TYPE/comment lines and histograms' bucket internals are left as-is.
 
-[Source](../../src/chain/offchain.ts#L142)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L142)
 
 Import: `import {parsePrometheus} from 'tasra-sdk/chain'`
 
@@ -1500,7 +1511,7 @@ Returns: `Record<string, number>`.
 
 Call only after enforcing the same limit while receiving the HTTP body.
 
-[Source](../../src/chain/serviceIdentity.ts#L127)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L127)
 
 Import: `import {parseServiceChallenge} from 'tasra-sdk/chain'`
 
@@ -1522,7 +1533,7 @@ Throws unless EVERY keeper accepted it — a partial fan-out is reported, not sw
 though it converges (see {@link fanoutError}). The result is attached as `cause.results` so a
 caller that wants to tolerate a partial can inspect it.
 
-[Source](../../src/chain/provisionRule.ts#L149)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/provisionRule.ts#L149)
 
 Import: `import {provisionRule} from 'tasra-sdk/chain'`
 
@@ -1541,7 +1552,7 @@ Returns: `Promise<ProvisionRuleResult>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/provisionRule.ts#L39)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/provisionRule.ts#L39)
 
 ```ts
 export interface ProvisionRuleArgs {
@@ -1567,7 +1578,7 @@ export interface ProvisionRuleArgs {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/provisionRule.ts#L69)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/provisionRule.ts#L69)
 
 ```ts
 export interface ProvisionRuleResult {
@@ -1589,7 +1600,7 @@ be two things to keep in agreement, and the one that drifts is the one nobody is
 `payloadDigest` is the SALTED COMMITMENT, so the signature reads "provision the preimage of
 commitment X to slot Y" rather than "provision anything for slot Y".
 
-[Source](../../src/chain/provisionRule.ts#L86)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/provisionRule.ts#L86)
 
 Import: `import {provisionRuleTypedData} from 'tasra-sdk/chain'`
 
@@ -1609,7 +1620,7 @@ Read metadata only after matching an explicit application approval. Never contac
 This does NOT authenticate its endpoint, verify its manifest or authorize a verifier-agent
 origin. Those checks must precede sending any credentials, session secrets or transactions.
 
-[Source](../../src/chain/services.ts#L107)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/services.ts#L107)
 
 Import: `import {readApprovedServiceRecord} from 'tasra-sdk/chain'`
 
@@ -1628,7 +1639,7 @@ Returns: `Promise<{ record: ServiceRecord; blockNumber: bigint; }>`.
 
 Recover from a lost HTTP response or process restart using the trusted RPC, without broadcasting.
 
-[Source](../../src/chain/registeredRelay.ts#L173)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L173)
 
 Import: `import {reconcileRelayAttempt} from 'tasra-sdk/chain'`
 
@@ -1648,7 +1659,7 @@ Returns: `Promise<RelayReconciliation>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/registeredAgent.ts#L18)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L18)
 
 ```ts
 export interface RegisteredAgentSession extends Readonly<CreateSessionResult> {
@@ -1662,7 +1673,7 @@ export interface RegisteredAgentSession extends Readonly<CreateSessionResult> {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/registeredRelay.ts#L21)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L21)
 
 ```ts
 export interface RegisteredRelayConfig {
@@ -1688,7 +1699,7 @@ export interface RegisteredRelayConfig {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/registeredOperation.ts#L10)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L10)
 
 ```ts
 export interface RegisteredVerifierAgentSession extends RegisteredAgentSession {
@@ -1702,7 +1713,7 @@ export interface RegisteredVerifierAgentSession extends RegisteredAgentSession {
 
 JSON-safe reconciliation handle. Persist before POST to resume safely after a client restart.
 
-[Source](../../src/chain/registeredRelay.ts#L57)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L57)
 
 ```ts
 export interface RelayAttempt {
@@ -1723,7 +1734,7 @@ inner call, pays the gas and submits `forwarder.execute` from its own key — th
 the SIGNER as `_msgSender()`, the relayer authorises nothing. ERC-20 `approve` is not
 2771-aware and always comes from the local key.
 
-[Source](../../src/chain/write.ts#L120)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L120)
 
 ```ts
 export type RelayConfig = RegisteredRelayConfig
@@ -1733,7 +1744,7 @@ export type RelayConfig = RegisteredRelayConfig
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/registeredRelay.ts#L12)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L12)
 
 ```ts
 export interface RelayIntent {
@@ -1750,7 +1761,7 @@ export interface RelayIntent {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/registeredRelay.ts#L65)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L65)
 
 ```ts
 (attempt: RelayAttempt, reason?: string): RelayOutcomeUnknownError
@@ -1758,17 +1769,17 @@ See the declaration and linked source for the contract.
 
 Import: `import {RelayOutcomeUnknownError} from 'tasra-sdk/chain'`
 
-- `attempt: RelayAttempt` — 
-- `name: string` — 
-- `message: string` — 
-- `stack: string &#124; undefined` — 
-- `cause: unknown` — 
+- `attempt: RelayAttempt`
+- `name: string`
+- `message: string`
+- `stack: string &#124; undefined`
+- `cause: unknown`
 
 ## RelayReceipt
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/registeredRelay.ts#L39)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L39)
 
 ```ts
 export interface RelayReceipt {
@@ -1800,7 +1811,7 @@ A caller must not blindly redo the work; it must re-read the state the operation
 changed, or surface the attempt for a human. Conflating it with `expired` would turn one
 uncertain write into a duplicated one.
 
-[Source](../../src/chain/registeredRelay.ts#L138)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L138)
 
 ```ts
 export interface RelayReconciliation {
@@ -1814,7 +1825,7 @@ export interface RelayReconciliation {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/registeredRelay.ts#L7)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L7)
 
 ```ts
 export interface RelayTransport extends ServiceDiscoveryTransport {
@@ -1842,7 +1853,7 @@ wait.
   gas the caller is already spending. What IS checked is everything cheap: shape, length,
   non-infinity, and that the digest is the right one for this commitment.
 
-[Source](../../src/chain/slotSeed.ts#L89)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/slotSeed.ts#L89)
 
 Import: `import {requestSlotSeed} from 'tasra-sdk/chain'`
 
@@ -1863,7 +1874,7 @@ Returns: `Promise<SlotSeed | null>`.
 
 Resolve a contract address, throwing a clear error if missing.
 
-[Source](../../src/chain/deployments.ts#L343)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L343)
 
 Import: `import {requireAddress} from 'tasra-sdk/chain'`
 
@@ -1893,7 +1904,7 @@ de-duplicate on the resolved address — summing three identical vaults reports
 3x the real locked supply. Prefer per-tranche keys
 (`TASRA_VAULT_INVESTOR` / `_TEAM` / `_COMMUNITY`) in any multi-vault env.
 
-[Source](../../src/chain/deployments.ts#L327)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L327)
 
 Import: `import {requireVaultAddress} from 'tasra-sdk/chain'`
 
@@ -1923,7 +1934,7 @@ verifier directory beside this one cannot use it, because its `index` must be th
 the global active list that the anchored snapshot's leaves are built from; nothing indexes into
 this list, so it is free to take the cheap route.
 
-[Source](../../src/chain/discovery.ts#L160)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L160)
 
 Import: `import {resolveAccountantUrls} from 'tasra-sdk/chain'`
 
@@ -1942,7 +1953,7 @@ Returns: `Promise<string[]>`.
 How the session's endpoints were resolved from chain — surfaced so callers can SEE
 which verifier was chosen and which keeper committee the slot is bound to.
 
-[Source](../../src/chain/slotClient.ts#L26)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/slotClient.ts#L26)
 
 ```ts
 export interface ResolvedEndpoints {
@@ -1960,7 +1971,7 @@ export interface ResolvedEndpoints {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/networks.ts#L13)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L13)
 
 ```ts
 export interface ResolvedNetworkProfile extends NetworkPreset {
@@ -1973,7 +1984,7 @@ export interface ResolvedNetworkProfile extends NetworkPreset {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/networks.ts#L32)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L32)
 
 Import: `import {resolveNetworkProfile} from 'tasra-sdk/chain'`
 
@@ -1994,7 +2005,7 @@ Read the slot's group public key + epoch straight from `KeyRegistry.getKeySlot` 
 `encrypt` needs no verifier, no JWT, and no node round-trip (it's local + offline once
 you hold the key).
 
-[Source](../../src/chain/discovery.ts#L128)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L128)
 
 Import: `import {resolveSlotGroupKey} from 'tasra-sdk/chain'`
 
@@ -2015,7 +2026,7 @@ The slot's assigned keeper nodes, resolved to their HTTP base URLs. These are th
 nodes any `/v1/committee/{sign,decrypt}` request for this slot must target. Order
 follows `assignedNodes`; url-less operators are skipped.
 
-[Source](../../src/chain/discovery.ts#L45)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L45)
 
 Import: `import {resolveSlotKeeperUrls} from 'tasra-sdk/chain'`
 
@@ -2045,7 +2056,7 @@ to build every tagged set, so this directory's index/leaf order matches the anch
 derivable, so the keeper validates against on-chain state rather than any statically
 configured set.
 
-[Source](../../src/chain/discovery.ts#L75)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L75)
 
 Import: `import {resolveVerifierDirectory} from 'tasra-sdk/chain'`
 
@@ -2073,7 +2084,7 @@ rule is provisioned and every verifier runs when it hash-checks a fetched rule:
    the keeper, which refused the rule at provisioning as "dcql_rule does not match the
    slot's on-chain commitment" — an error that reads like a typo in a rule that is fine.
 
-[Source](../../src/chain/write.ts#L292)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L303)
 
 Import: `import {ruleCommitment} from 'tasra-sdk/chain'`
 
@@ -2092,7 +2103,7 @@ Returns: ``0x${string}``.
 
 Pin the approved revision so an endpoint, key or provider change requires a new decision.
 
-[Source](../../src/chain/services.ts#L24)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/services.ts#L24)
 
 ```ts
 export interface ServiceApproval {
@@ -2110,7 +2121,7 @@ export interface ServiceApproval {
 
 JSON wire shape. Revision is decimal text to preserve all uint64 values in JavaScript.
 
-[Source](../../src/chain/serviceIdentity.ts#L26)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L26)
 
 ```ts
 export interface ServiceChallenge {
@@ -2130,7 +2141,7 @@ export interface ServiceChallenge {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/serviceIdentity.ts#L92)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L92)
 
 Import: `import {serviceChallengeTypedData} from 'tasra-sdk/chain'`
 
@@ -2150,7 +2161,7 @@ Trusted transport boundary. Implementations must enforce destination policy at c
 verified TLS, no redirects/proxies/credentials, body limits and cancellation. Use chain/node in Node.
 Native browser fetch cannot enforce DNS policy; it is intentionally not a default implementation.
 
-[Source](../../src/chain/serviceIdentity.ts#L158)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L158)
 
 ```ts
 export interface ServiceDiscoveryTransport {
@@ -2162,7 +2173,7 @@ export interface ServiceDiscoveryTransport {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/serviceIdentity.ts#L14)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L14)
 
 ```ts
 export interface ServiceManifest {
@@ -2181,7 +2192,7 @@ export interface ServiceManifest {
 
 Provider claims, not authenticated endpoints or platform endorsements.
 
-[Source](../../src/chain/services.ts#L12)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/services.ts#L12)
 
 ```ts
 export interface ServiceRecord {
@@ -2200,7 +2211,7 @@ export interface ServiceRecord {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/services.ts#L9)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/services.ts#L9)
 
 ```ts
 export type ServiceStatus = (typeof SERVICE_STATUSES)[keyof typeof SERVICE_STATUSES]
@@ -2210,7 +2221,7 @@ export type ServiceStatus = (typeof SERVICE_STATUSES)[keyof typeof SERVICE_STATU
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/services.ts#L8)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/services.ts#L8)
 
 ```ts
 export type ServiceType = (typeof SERVICE_TYPES)[keyof typeof SERVICE_TYPES]
@@ -2220,7 +2231,7 @@ export type ServiceType = (typeof SERVICE_TYPES)[keyof typeof SERVICE_TYPES]
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/offchain.ts#L76)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L76)
 
 ```ts
 export interface SignedHeartbeat {
@@ -2242,7 +2253,7 @@ nothing, which is what every slot created before the field existed reads as.
 may name an auth type the commit never covered — the commitment binds the
 parameters that decide the committee, not this label.
 
-[Source](../../src/chain/write.ts#L97)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L97)
 
 ```ts
 export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth'
@@ -2252,7 +2263,7 @@ export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth'
 
 A creation may keep its slot/rule inputs, but needs a durably saved new commit salt.
 
-[Source](../../src/chain/commitmentRecovery.ts#L7)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/commitmentRecovery.ts#L7)
 
 ```ts
 (chainId: number, keyRegistry: Address, slotId: Hex, commitment: Hex, creator: Address, salt: Hex): SlotCommitmentExpiredError
@@ -2260,22 +2271,22 @@ A creation may keep its slot/rule inputs, but needs a durably saved new commit s
 
 Import: `import {SlotCommitmentExpiredError} from 'tasra-sdk/chain'`
 
-- `chainId: number` — 
-- `keyRegistry: \`0x${string}\`` — 
-- `slotId: \`0x${string}\`` — 
-- `commitment: \`0x${string}\`` — 
-- `creator: \`0x${string}\`` — 
-- `salt: \`0x${string}\`` — 
-- `name: string` — 
-- `message: string` — 
-- `stack: string &#124; undefined` — 
-- `cause: unknown` — 
+- `chainId: number`
+- `keyRegistry: \`0x${string}\``
+- `slotId: \`0x${string}\``
+- `commitment: \`0x${string}\``
+- `creator: \`0x${string}\``
+- `salt: \`0x${string}\``
+- `name: string`
+- `message: string`
+- `stack: string &#124; undefined`
+- `cause: unknown`
 
 ## SlotCommitteeDecryptOptions
 
 Everything a committee-authorized threshold decrypt needs beyond the slot id.
 
-[Source](../../src/chain/committeeClient.ts#L79)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L79)
 
 ```ts
 export interface SlotCommitteeDecryptOptions {
@@ -2296,7 +2307,7 @@ export interface SlotCommitteeDecryptOptions {
 
 Per-call overrides for a committee-authorized FROST signature.
 
-[Source](../../src/chain/committeeClient.ts#L70)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L70)
 
 ```ts
 export interface SlotCommitteeSignOptions {
@@ -2312,7 +2323,7 @@ export interface SlotCommitteeSignOptions {
 
 The slot's on-chain group public key + epoch (and mode), for local envelope encrypt.
 
-[Source](../../src/chain/discovery.ts#L115)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L115)
 
 ```ts
 export interface SlotGroupKey {
@@ -2332,7 +2343,7 @@ The slot's key type, mirroring `KeyRegistry.Mode` on-chain:
 `bls-bn254`, and `tecdsa-p256` (ES256). A deployment need not run keepers for
 every mode; creating a slot the fleet cannot key leaves it without a group key.
 
-[Source](../../src/chain/write.ts#L78)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L78)
 
 ```ts
 export type SlotMode = 'frost' | 'bls' | 'tecdsa' | 'bls-bn254' | 'tecdsa-p256'
@@ -2342,7 +2353,7 @@ export type SlotMode = 'frost' | 'bls' | 'tecdsa' | 'bls-bn254' | 'tecdsa-p256'
 
 What an accountant returns from `POST /v1/slot-seed`.
 
-[Source](../../src/chain/slotSeed.ts#L22)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/slotSeed.ts#L22)
 
 ```ts
 export interface SlotSeed {
@@ -2358,7 +2369,7 @@ export interface SlotSeed {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/slotSeed.ts#L64)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/slotSeed.ts#L64)
 
 ```ts
 export interface SlotSeedOptions {
@@ -2373,7 +2384,7 @@ export interface SlotSeedOptions {
 
 A read client for a deployment: a configured viem client, log helpers and typed readers.
 
-[Source](../../src/chain/client.ts#L202)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/client.ts#L202)
 
 ```ts
 export interface TasraChainClient {
@@ -2421,7 +2432,7 @@ export interface TasraChainClient {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/slotClient.ts#L53)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/slotClient.ts#L53)
 
 ```ts
 export interface TasraSlotClient {
@@ -2442,7 +2453,7 @@ export interface TasraSlotClient {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/slotClient.ts#L36)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/slotClient.ts#L36)
 
 ```ts
 export interface TasraSlotClientConfig {
@@ -2472,7 +2483,7 @@ Written out rather than inferred for the same reason as {@link TasraChainClient 
 — inference expands viem's client types inline, and once expanded they reference
 internal viem module paths a consumer cannot name (TS2742).
 
-[Source](../../src/chain/write.ts#L977)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L1012)
 
 ```ts
 export interface TasraWriteClient {
@@ -2550,7 +2561,7 @@ export interface TasraWriteClient {
 
 "0x1234…cdef" — middle-truncate an address/hash for compact display.
 
-[Source](../../src/chain/format.ts#L4)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/format.ts#L4)
 
 Import: `import {truncateHex} from 'tasra-sdk/chain'`
 
@@ -2570,7 +2581,7 @@ Returns: `string`.
 
 Responder must validate against its own configured profile before asking its dedicated key to sign.
 
-[Source](../../src/chain/serviceIdentity.ts#L137)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L137)
 
 Import: `import {validateServiceChallenge} from 'tasra-sdk/chain'`
 
@@ -2591,7 +2602,7 @@ Returns: `void`.
 
 Reject aliases instead of signing a URL which another implementation normalizes differently.
 
-[Source](../../src/chain/serviceIdentity.ts#L46)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L46)
 
 Import: `import {validateServiceEndpoint} from 'tasra-sdk/chain'`
 
@@ -2609,7 +2620,7 @@ Returns: `URL`.
 
 Address-book key for one vesting tranche, e.g. TasraVestingVault_team.
 
-[Source](../../src/chain/deployments.ts#L75)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L75)
 
 Import: `import {vaultKey} from 'tasra-sdk/chain'`
 
@@ -2627,7 +2638,7 @@ Returns: `string`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/deployments.ts#L72)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L72)
 
 ```ts
 export type VaultTranche = (typeof VAULT_TRANCHES)[number]
@@ -2637,7 +2648,7 @@ export type VaultTranche = (typeof VAULT_TRANCHES)[number]
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/offchain.ts#L120)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L120)
 
 ```ts
 export interface VerifierInfo {
@@ -2655,7 +2666,7 @@ Verify that a disclosed rule matches its on-chain commitment (defence
 against a lying verifier inflating the rule). Returns `true` when the commitment
 matches, `false` otherwise — never throws on a mismatch.
 
-[Source](../../src/chain/write.ts#L302)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L313)
 
 Import: `import {verifyRuleCommitment} from 'tasra-sdk/chain'`
 
@@ -2675,7 +2686,7 @@ Returns: `boolean`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/serviceIdentity.ts#L145)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L145)
 
 Import: `import {verifyServiceIdentity} from 'tasra-sdk/chain'`
 
@@ -2696,7 +2707,7 @@ Returns: `Promise<void>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/serviceIdentity.ts#L78)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L78)
 
 Import: `import {verifyServiceManifest} from 'tasra-sdk/chain'`
 
@@ -2716,7 +2727,7 @@ Returns: `ServiceManifest`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/write.ts#L161)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L161)
 
 ```ts
 export type WriteClientConfig = WriteClientKeyConfig | WriteClientWalletConfig
@@ -2726,7 +2737,7 @@ export type WriteClientConfig = WriteClientKeyConfig | WriteClientWalletConfig
 
 Sovereign-key variant: the SDK owns the account and signs with `privateKey`.
 
-[Source](../../src/chain/write.ts#L137)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L137)
 
 ```ts
 export interface WriteClientKeyConfig extends WriteClientConfigBase {
@@ -2750,7 +2761,7 @@ without passing `chain`/`account`, so an unbound client makes viem throw.
 ⚠ `rpcUrl` is still required: reads and receipt-waiting go through the SDK's
 own PublicClient, never through the wallet's transport.
 
-[Source](../../src/chain/write.ts#L156)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L156)
 
 ```ts
 export interface WriteClientWalletConfig extends WriteClientConfigBase {
@@ -2763,43 +2774,43 @@ export interface WriteClientWalletConfig extends WriteClientConfigBase {
 
 | Export | Definition |
 |---|---|
-| `ACCOUNTANT_TAG` | [Source](../../src/chain/discovery.ts#L144) |
-| `accountantSetRegistryAbi` | [Source](../../src/chain/abis/accountantSetRegistry.ts#L5) |
-| `accountantSlashingAbi` | [Source](../../src/chain/abis/accountantSlashing.ts#L5) |
-| `bondingCurveAbi` | [Source](../../src/chain/abis/bondingCurve.ts#L5) |
-| `CONTRACT_ABIS` | [Source](../../src/chain/abis/index.ts#L47) |
-| `CONTRACT_CATEGORY` | [Source](../../src/chain/events.ts#L20) |
-| `DEFAULT_CHAIN_ID` | [Source](../../src/chain/deployments.ts#L68) |
-| `equivocationSlasherAbi` | [Source](../../src/chain/abis/equivocationSlasher.ts#L5) |
-| `fixedTasraPriceOracleAbi` | [Source](../../src/chain/abis/fixedTasraPriceOracle.ts#L5) |
-| `IMPLEMENTATION_SLOT` | [Source](../../src/chain/manifest.ts#L98) |
-| `keeperShareRegistryAbi` | [Source](../../src/chain/abis/keeperShareRegistry.ts#L5) |
-| `keyRegistryAbi` | [Source](../../src/chain/abis/keyRegistry.ts#L5) |
-| `livenessRegistryAbi` | [Source](../../src/chain/abis/livenessRegistry.ts#L5) |
-| `mockEurcAbi` | [Source](../../src/chain/abis/mockEurc.ts#L5) |
-| `NETWORKS` | [Source](../../src/chain/networks.ts#L19) |
-| `nodeApi` | [Source](../../src/chain/offchain.ts#L94) |
-| `nodeRegistryAbi` | [Source](../../src/chain/abis/nodeRegistry.ts#L5) |
-| `platformExecutorAbi` | [Source](../../src/chain/abis/platformExecutor.ts#L5) |
-| `prevrandaoSaltBeaconAbi` | [Source](../../src/chain/abis/prevrandaoSaltBeacon.ts#L5) |
-| `PROVISION_RULE_ACTION` | [Source](../../src/chain/provisionRule.ts#L37) |
-| `SERVICE_CHALLENGE_LIFETIME_SECONDS` | [Source](../../src/chain/serviceIdentity.ts#L11) |
-| `SERVICE_CHALLENGE_SECONDS` | [Source](../../src/chain/serviceIdentity.ts#L9) |
-| `SERVICE_IDENTITY_MAX_BYTES` | [Source](../../src/chain/serviceIdentity.ts#L8) |
-| `SERVICE_IDENTITY_PATH` | [Source](../../src/chain/serviceIdentity.ts#L6) |
-| `SERVICE_IDENTITY_PROTOCOL` | [Source](../../src/chain/serviceIdentity.ts#L12) |
-| `SERVICE_MANIFEST_MAX_BYTES` | [Source](../../src/chain/serviceIdentity.ts#L7) |
-| `SERVICE_MANIFEST_PATH` | [Source](../../src/chain/serviceIdentity.ts#L5) |
-| `SERVICE_STATUSES` | [Source](../../src/chain/services.ts#L7) |
-| `SERVICE_TYPES` | [Source](../../src/chain/services.ts#L6) |
-| `serviceRegistryAbi` | [Source](../../src/chain/abis/serviceRegistry.ts#L5) |
-| `settlementAbi` | [Source](../../src/chain/abis/settlement.ts#L5) |
-| `tasraSwapRouterAbi` | [Source](../../src/chain/abis/tasraSwapRouter.ts#L5) |
-| `tasraTokenAbi` | [Source](../../src/chain/abis/tasraToken.ts#L5) |
-| `tasraVestingVaultAbi` | [Source](../../src/chain/abis/tasraVestingVault.ts#L5) |
-| `thresholdRandomBeaconAbi` | [Source](../../src/chain/abis/thresholdRandomBeacon.ts#L5) |
-| `treasuryAbi` | [Source](../../src/chain/abis/treasury.ts#L5) |
-| `VAULT_TRANCHES` | [Source](../../src/chain/deployments.ts#L71) |
-| `VERIFIER_TAG` | [Source](../../src/chain/discovery.ts#L28) |
-| `verifierApi` | [Source](../../src/chain/offchain.ts#L128) |
-| `verifierSetRegistryAbi` | [Source](../../src/chain/abis/verifierSetRegistry.ts#L5) |
+| `ACCOUNTANT_TAG` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L144) |
+| `accountantSetRegistryAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/accountantSetRegistry.ts#L5) |
+| `accountantSlashingAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/accountantSlashing.ts#L5) |
+| `bondingCurveAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/bondingCurve.ts#L5) |
+| `CONTRACT_ABIS` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/index.ts#L47) |
+| `CONTRACT_CATEGORY` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L20) |
+| `DEFAULT_CHAIN_ID` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L68) |
+| `equivocationSlasherAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/equivocationSlasher.ts#L5) |
+| `fixedTasraPriceOracleAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/fixedTasraPriceOracle.ts#L5) |
+| `IMPLEMENTATION_SLOT` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/manifest.ts#L98) |
+| `keeperShareRegistryAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/keeperShareRegistry.ts#L5) |
+| `keyRegistryAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/keyRegistry.ts#L5) |
+| `livenessRegistryAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/livenessRegistry.ts#L5) |
+| `mockEurcAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/mockEurc.ts#L5) |
+| `NETWORKS` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L19) |
+| `nodeApi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L94) |
+| `nodeRegistryAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/nodeRegistry.ts#L5) |
+| `platformExecutorAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/platformExecutor.ts#L5) |
+| `prevrandaoSaltBeaconAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/prevrandaoSaltBeacon.ts#L5) |
+| `PROVISION_RULE_ACTION` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/provisionRule.ts#L37) |
+| `SERVICE_CHALLENGE_LIFETIME_SECONDS` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L11) |
+| `SERVICE_CHALLENGE_SECONDS` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L9) |
+| `SERVICE_IDENTITY_MAX_BYTES` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L8) |
+| `SERVICE_IDENTITY_PATH` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L6) |
+| `SERVICE_IDENTITY_PROTOCOL` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L12) |
+| `SERVICE_MANIFEST_MAX_BYTES` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L7) |
+| `SERVICE_MANIFEST_PATH` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L5) |
+| `SERVICE_STATUSES` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/services.ts#L7) |
+| `SERVICE_TYPES` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/services.ts#L6) |
+| `serviceRegistryAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/serviceRegistry.ts#L5) |
+| `settlementAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/settlement.ts#L5) |
+| `tasraSwapRouterAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/tasraSwapRouter.ts#L5) |
+| `tasraTokenAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/tasraToken.ts#L5) |
+| `tasraVestingVaultAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/tasraVestingVault.ts#L5) |
+| `thresholdRandomBeaconAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/thresholdRandomBeacon.ts#L5) |
+| `treasuryAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/treasury.ts#L5) |
+| `VAULT_TRANCHES` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L71) |
+| `VERIFIER_TAG` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L28) |
+| `verifierApi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L128) |
+| `verifierSetRegistryAbi` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/verifierSetRegistry.ts#L5) |

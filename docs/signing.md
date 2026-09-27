@@ -28,7 +28,7 @@ const chain = createTasraChainClient({
   rpcUrl: 'http://127.0.0.1:9650/ext/bc/C/rpc',
   chainId: 43112,
   addresses: addressBookFromObject({
-    KeyRegistry: '0x352F406036a061E0432394a88006158a8B588311',
+    KeyRegistry: '0x94c75679D75bfdc310669c0De4dE4398E922232b',
   }),
 })
 const slotId = process.argv[2]
@@ -44,8 +44,7 @@ console.log(addressFromEoaPubkey(hexToBytes(slot.publicKey)))
 ```
 
 Run `npx tsx address.ts YOUR_SLOT_ID`, replacing `YOUR_SLOT_ID` with your slot's
-0x-prefixed ID. Success prints one checksummed `0x…` Ethereum address. See the
-[local verification record](verification.md) for the slot and result used to test it.
+0x-prefixed ID. Success prints one checksummed `0x…` Ethereum address.
 
 `addressFromEoaPubkey(pubkey)` takes a 33-byte compressed or 65-byte uncompressed
 secp256k1 key and returns an EIP-55 address. It throws for an invalid curve point.
@@ -167,8 +166,8 @@ keeper `k-of-n` alone does not implement two-user approval.
 Verify each user separately: sign, broadcast, check the receipt and recovered sender,
 then attempt the same operation with an unauthorized holder and record the denial.
 [Credential presentation APIs](api.md#tasra-sdkoid4vp--credential-wallets-against-the-verifier-agent)
-provide the wallet flow. The [recorded local run](evidence/shared-account/README.md) verifies both users'
-transactions and the verifier's refusal of Mallory from a fresh SDK installation.
+provide the wallet flow. The [shared-account app](shared-account.md) includes assertions
+for both users' transactions and Mallory's server-side refusal.
 
 ---
 

@@ -70,9 +70,7 @@ loaded when you need it):
   `createTasraClient`, but endpoints come from the registry — the keeper nodes from the
   slot's on-chain committee (`assignedNodes`) and the **verifier chosen from the on-chain
   verifier set** (`keccak256("verifier")`). That chosen verifier mints the session JWT, so
-  the verifier is genuinely in every request (`onResolve` surfaces which one). See
-  `test/e2e/slot-client-verifier.ts` for a live proof (the chosen verifier's request
-  counter increments).
+  the verifier participates in session authorization (`onResolve` surfaces which one).
 - **Slot-driven committee client** — `createCommitteeSlotClient`: the committee path
   from just a **slot id**, with **no static fallback**. It resolves the slot's keeper node
   and the active verifier set **only from chain** (`resolveSlotKeeperUrls`,

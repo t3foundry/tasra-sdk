@@ -9,19 +9,38 @@ never does.
 
 ### Added
 
+- Additive `tasra-sdk/app` entry for typed slot operations, public EVM address lookup,
+  exact-operation authorization, a registered wallet adapter and viem accounts.
+- Durable prepared creation journals with known-transaction recovery and explicit
+  refusal to retry an uncertain submission.
+- Native FROST approval lifecycle, canonical approval payloads, strict IBE extraction,
+  and operation receipt preservation/verification.
+- Complete encrypted-notes, document-signing and native approval TypeScript examples,
+  application guides and migration notes.
+
+These changes are packaged as the unpublished `0.3.0-next.0` candidate. Existing
+imports remain available. See [deployment compatibility](docs/compatibility.md)
+before running network operations.
+
 - `committeeSignEoaDigest` in `tasra-sdk/committee` for request-bound threshold
   Ethereum signing with verifier-agent compound tokens and membership proofs.
 - SDK-only shared-account example that creates and provisions a local tECDSA slot,
   confirms Alice/Bob transactions, and verifies Mallory's server-side denial.
-- Generated API reference, automatic documentation checks, fresh-install local-fleet
-  acceptance command, and explicit SDK/deployment compatibility records.
+- Generated API reference and explicit SDK/deployment compatibility guidance.
 
 ### Changed
 
+- All 11 application-building skills lead with the current task workflow;
+  specialized and compatibility details are available in supporting references.
+- The shared-account tutorial always demonstrates durable prepared creation.
 - The slot-provisioning example uses the creator's signature instead of an admin JWT.
 
 ### Fixed
 
+- Keep recovery salts out of public tutorial evidence; select public creation
+  references explicitly.
+- Align note identity/result guidance with the API and include a complete standalone
+  Node TypeScript configuration.
 - Point skills and onboarding docs to the published Fuji deployment pointer,
   manifest checksum and service URLs in `t3-foundry/tasra-releases`; document
   bootstrap from a pinned repository commit.

@@ -118,4 +118,4 @@ For an existing exportable BLS slot, configure the application inputs plus `KK_D
 and run `examples/personal-vault.ts`. This example uses one-shot VP authentication;
 it does not claim silent renewal.
 
-[Developer journey](DEVELOPER-EXPERIENCE.md) · [Glossary](glossary.md) · [Release acceptance](RELEASING.md#live-acceptance)
+[Deployment responsibilities](DEVELOPER-EXPERIENCE.md) · [Glossary](glossary.md)

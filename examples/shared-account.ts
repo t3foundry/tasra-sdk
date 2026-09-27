@@ -1,12 +1,11 @@
 /** Local-fleet walkthrough: one account, Alice OR Bob, and a real verifier denial. */
-import {mkdirSync, mkdtempSync, writeFileSync} from 'node:fs'
+import {mkdirSync, mkdtempSync, writeFileSync, openSync, fsyncSync, closeSync, renameSync} from 'node:fs'
 import {randomBytes} from 'node:crypto'
 import {resolve} from 'node:path'
-import {createWalletClient, defineChain, http, keccak256, parseEther, recoverAddress, serializeTransaction, toHex, type Hex} from 'viem'
+import {createWalletClient, defineChain, http, keccak256, parseEther, toHex, type Hex} from 'viem'
 import {generatePrivateKey, privateKeyToAccount} from 'viem/accounts'
-import {addressFromEoaPubkey, hexToBytes} from 'tasra-sdk'
+import {createTasra, defineDeployment, prepareSlot, createPreparedSlot, toViemAccount} from 'tasra-sdk/app'
 import {createTasraChainClient, createTasraWriteClient, provisionRule, resolveSlotKeeperUrls, nodeApi} from 'tasra-sdk/chain'
-import {committeeSignEoaDigest} from 'tasra-sdk/committee'
 import {
   ed25519HolderKey, holderSigner, holderCnf, issueSdJwtVc, openVerifierAgentSession,
   presentToRequestUri, awaitVerifierAgentResult, fetchRequestObject, parseOpenid4vpUri,
@@ -17,11 +16,13 @@ import {
 const rpcUrl = 'http://127.0.0.1:9650/ext/bc/C/rpc'
 const verifierAgentUrl = 'https://localhost:19444'
 const addresses = {
-  KeyRegistry: '0x352F406036a061E0432394a88006158a8B588311',
-  NodeRegistry: '0xeaFe7F6105332aFE53Ac2F7dE0742f47f061a693',
+  KeyRegistry: '0x94c75679D75bfdc310669c0De4dE4398E922232b',
+  NodeRegistry: '0xEA7A0602b6DB6Aa767C5649b4d5083c426Cb8083',
 } as const
 const network = defineChain({id: 43112, name: 'Local Tasra', nativeCurrency: {name: 'AVAX', symbol: 'AVAX', decimals: 18}, rpcUrls: {default: {http: [rpcUrl]}}})
 const chain = createTasraChainClient({rpcUrl, addresses, chainId: network.id})
+const deployment = defineDeployment({schemaVersion: 1, name: 'Local Tasra', chainId: network.id, rpcUrl, addresses, coordinator: 'lowest-operator-id'})
+const tasra = createTasra({deployment, chain, keeperUrl: reachable})
 const client = chain.client
 const freshHex = (): Hex => toHex(randomBytes(32))
 const pause = () => new Promise(resolve => setTimeout(resolve, 2000))
@@ -43,7 +44,7 @@ async function main() {
   if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(rpcUrl).hostname) || await client.getChainId() !== 43112) {
     throw new Error('This example may run only on the local development chain 43112')
   }
-  const requiresCommitReveal = await chain.readers.keyRegistry.requiresCommitReveal().catch(() => {
+  await chain.readers.keyRegistry.requiresCommitReveal().catch(() => {
     throw new Error('Cannot read KeyRegistry. Check the public fleet addresses; redeployment changes them.')
   })
   await chain.readers.nodeRegistry.activeCount()
@@ -51,8 +52,16 @@ async function main() {
   if (!health.ok) throw new Error(`Verifier-agent health: HTTP ${health.status}`)
   mkdirSync('.tasra', {recursive: true, mode: 0o700})
   const directory = mkdtempSync(resolve('.tasra/shared-account-'))
-  const save = (file: string, value: unknown) => writeFileSync(`${directory}/${file}`, JSON.stringify(value,
-    (_, v: unknown) => typeof v === 'bigint' ? v.toString() : v, 2) + '\n', {mode: 0o600})
+  const save = (file: string, value: unknown) => {
+    const temporary = `${directory}/${file}.tmp`
+    writeFileSync(temporary, JSON.stringify(value,
+      (_, v: unknown) => typeof v === 'bigint' ? v.toString() : v, 2) + '\n', {mode: 0o600})
+    const fd = openSync(temporary, 'r')
+    try { fsyncSync(fd) } finally { closeSync(fd) }
+    renameSync(temporary, `${directory}/${file}`)
+    const dir = openSync(directory, 'r')
+    try { fsyncSync(dir) } finally { closeSync(dir) }
+  }
   console.log(`Private recovery files: ${directory}`)
 
   // 2. Create fresh application identities and credentials. No operator/issuer secrets.
@@ -88,9 +97,8 @@ async function main() {
   // 3. Create the slot, wait for its public key, and provision using the creator's key.
   const writer = createTasraWriteClient({rpcUrl, chainId: network.id, addresses, privateKey: creatorKey})
   const args = {slotId, salt, ruleSalt, dcqlRule: rule, k: 2, n: 3, mode: 'tecdsa' as const, authType: 'oid4vp' as const}
-  const creation = requiresCommitReveal
-    ? await writer.createSlotCommitReveal({...args, maxWaitMs: 300_000})
-    : await writer.createSlot(args)
+  const creation = await createPreparedSlot(prepareSlot(deployment, creator.address, args), {wallet: writer.wallet,
+    persist: async journal => {save('creation-journal.json', journal)}, options: {maxWaitMs: 300_000}})
   save('creation.json', creation)
   const deadline = Date.now() + 180_000
   let slot = await chain.readers.keyRegistry.getKeySlot(slotId)
@@ -99,13 +107,10 @@ async function main() {
     slot = await chain.readers.keyRegistry.getKeySlot(slotId)
   }
   if (!slot.exists || slot.cancelled || slot.mode !== 2 || slot.publicKey === '0x') throw new Error('Slot not ready; preserve recovery.json')
-  const address = addressFromEoaPubkey(hexToBytes(slot.publicKey))
+  const accountSlot = await tasra.slots.ecdsa(slotId)
+  const address = await accountSlot.getAddress()
   const keepers = (await resolveSlotKeeperUrls(chain, slotId)).map(reachable)
   if (keepers.length !== 3) throw new Error('Expected three assigned keepers')
-  // This fleet signs with the k lowest operator IDs, not the registry's draw order.
-  const members = await chain.readers.keyRegistry.assignedNodes(slotId)
-  const ids = await Promise.all(members.map(member => chain.readers.nodeRegistry.operatorIdOf(member)))
-  const coordinator = keepers[ids.indexOf(ids.reduce((a, b) => a < b ? a : b))]!
   const fleet = await Promise.all(keepers.map(async url => {
     const info = await nodeApi.info(url)
     return {url, version: info.version, buildProfile: info.build_profile}
@@ -125,17 +130,16 @@ async function main() {
     const transaction = {type: 'eip1559' as const, chainId: network.id, to: address, value: 0n, gas: 21_000n,
       nonce: await client.getTransactionCount({address, blockTag: 'pending'}),
       maxPriorityFeePerGas: 1_000_000_000n, maxFeePerGas: (await client.getGasPrice()) * 2n + 1_000_000_000n}
-    const digest = keccak256(serializeTransaction(transaction))
-    const session = await openVerifierAgentSession({verifierAgentUrl, chainId: network.id,
-      keyRegistry: addresses.KeyRegistry, slotId, signer: creator, action: 'sign', message: hexToBytes(digest), description: `${name}: zero-value self-transfer`})
-    await presentToRequestUri(session.qrPayload, [{sdJwt: user.credential}], user.holder)
-    const grant = await awaitVerifierAgentResult(session, {timeoutMs: 60_000})
-    const signature = await committeeSignEoaDigest({nodeUrl: coordinator, committeeToken: grant.token,
-      verifierProofs: grant.verifierProofs, digest: hexToBytes(digest), requestId: `demo-${name}-${Date.now()}`, signal: AbortSignal.timeout(120_000)})
-    const sig = {r: toHex(signature.r), s: toHex(signature.s), yParity: signature.yParity}
-    const from = await recoverAddress({hash: digest, signature: sig})
-    if (from.toLowerCase() !== address.toLowerCase()) throw new Error('Signature does not recover to the slot account')
-    const serializedTransaction = serializeTransaction(transaction, sig)
+    const account = await toViemAccount(accountSlot, {description: `${name}: zero-value self-transfer`,
+      signal: AbortSignal.timeout(120_000), authorize: async operation => {
+        const session = await openVerifierAgentSession({...operation, verifierAgentUrl, signer: creator})
+        await presentToRequestUri(session.qrPayload, [{sdJwt: user.credential}], user.holder)
+        const grant = await awaitVerifierAgentResult(session, {timeoutMs: 60_000, signal: operation.signal})
+        if (!grant.verifierProofs?.length) throw new Error('Missing verifier membership proofs')
+        return {token: grant.token, verifierProofs: grant.verifierProofs}
+      }})
+    const serializedTransaction = await account.signTransaction(transaction)
+    const from = account.address
     const txHash = keccak256(serializedTransaction)
     save(`${name}-submission.json`, {hash: txHash, serializedTransaction, nonce: transaction.nonce})
     await client.sendRawTransaction({serializedTransaction})

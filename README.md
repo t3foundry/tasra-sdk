@@ -8,7 +8,9 @@ keeper network. Use verifiable credentials to control who can decrypt or sign.
 The complete TypeScript example creates a slot, issues development credentials,
 and confirms transactions on a running local fleet. It uses the SDK directly, with
 no CLI or operator secrets. Install the packed checkout: this example uses an
-unreleased addition. [Compatibility](docs/compatibility.md) · [Live proof](docs/evidence/shared-account/README.md).
+unpublished `0.3.0-next.0` candidate. [Compatibility](docs/compatibility.md).
+
+**New candidate API:** [one application client, typed slots, viem signing and safe creation](docs/application-api.md).
 
 ## Install
 
@@ -17,7 +19,7 @@ npm install tasra-sdk viem
 ```
 
 Node.js **22.12+**, ESM, and modern browsers with WebCrypto.
-`viem` is needed for `tasra-sdk/chain`; install just `tasra-sdk` for local crypto.
+`viem` is needed for `tasra-sdk/app` and `tasra-sdk/chain`; install just `tasra-sdk` for local crypto.
 [Installation and compatibility](docs/installation.md).
 
 ## What do you want to build?
@@ -27,6 +29,9 @@ Node.js **22.12+**, ESM, and modern browsers with WebCrypto.
 | Read the registry first (no writes) | [TypeScript quickstart](docs/getting-started.md) |
 | Encrypt data and let credential holders decrypt it | [Live encryption guide](docs/encryption.md) |
 | Create a slot for your app | [Complete application](docs/shared-account.md) |
+| Store encrypted notes for one authorized holder | [Encrypted notes app](docs/encrypted-notes.md) |
+| Collect Alice's and Bob's document signatures | [Document-signing workflow](docs/document-signing.md) |
+| Require multiple approvers for one signature | [Native approval recipes](docs/native-approvals.md) |
 | Get an Ethereum address and sign transactions | [Ethereum signing](docs/signing.md) |
 | Add a credential wallet or OAuth login | [Authentication APIs](docs/api.md#tasra-sdkoid4vp--credential-wallets-against-the-verifier-agent) |
 | Find an API or solve an error | [API reference](docs/reference/README.md) · [Errors](docs/errors.md) |
@@ -87,8 +92,11 @@ The same guides and examples are available to developers without an agent.
 
 ## Project
 
-SDK **0.2.2**. Before 1.0, minor releases may change APIs; patches do not.
+Candidate **0.3.0-next.0**, unpublished. Existing imports remain available.
+See [migration guidance](docs/consumer-migrations.md) and
+[deployment compatibility](docs/compatibility.md) before upgrading.
+Before 1.0, minor releases may change APIs; patches do not.
 The package has [not had an independent cryptographic audit](SECURITY.md#cryptographic-posture).
 
-[Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·
+[Contributing](https://github.com/t3-foundry/tasra-sdk/blob/develop/CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·
 [Security](SECURITY.md) · [Apache-2.0 license](LICENSE)

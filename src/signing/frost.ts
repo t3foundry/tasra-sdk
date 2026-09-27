@@ -21,6 +21,7 @@ import {
   type FrostShare,
 } from '../crypto/frost.js'
 import {httpError} from '../errors.js'
+import type {OperationReceipt} from '../committee/receipts.js'
 
 const strip0x = (s: string): string => (s.startsWith('0x') ? s.slice(2) : s)
 const base = (u: string): string => u.replace(/\/$/, '')
@@ -69,6 +70,8 @@ export interface SignCustodyOpts {
 }
 
 export interface FrostSignResult {
+  /** Optional keeper evidence; verify separately with verifyOperationReceipt. */
+  receipt?: OperationReceipt
   keySlotId: string
   /** 32-byte compressed Edwards group public key. */
   groupPublicKey: Uint8Array

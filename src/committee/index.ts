@@ -1,4 +1,10 @@
 // compound committee authorization — token crypto + HTTP orchestration.
+export {auditOperationId, decodeOperationReceipt, verifyOperationReceipt} from './receipts.js'
+export type {OperationReceipt, ReceiptExpectation} from './receipts.js'
+export {extractIdentityStrict, decryptIdentityStrict} from './extraction.js'
+export type {StrictExtractionOptions, StrictExtractionResult, ExtractionKeeper, ExtractionEvidence} from './extraction.js'
+export {createDualSignClient, dualSignApprovalPayload, OperationOutcomeUnknownError} from './dual-sign.js'
+export type {DualSignConfig, DualSignApprover, DualSignRequest, DualSignStatus} from './dual-sign.js'
 export {committeeSignEoaDigest} from './ecdsa.js'
 export type {CommitteeEoaSignOpts} from './ecdsa.js'
 export {

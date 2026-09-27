@@ -1,7 +1,7 @@
-# Developer experience: a live deployment + the released CLI + this SDK
+# Deployment responsibilities
 
 For an application tutorial, start with the [shared-account tutorial](shared-account.md).
-This page describes deployment responsibilities and acceptance requirements.
+This page describes what your application needs from a compatible deployment.
 The current SDK/service version is not deployed on Fuji; use a compatible local
 fleet for current live testing.
 
@@ -56,16 +56,12 @@ Windows x86_64, each with `SHA256SUMS` and a signature bundle.
 No command silently creates an alternative service or falls back to a local network.
 Missing configuration is a prerequisite failure, and it says which prerequisite.
 
-## What a green build does and does not prove
+## Check network behavior separately
 
-`npm run ci` proves the package is coherent: it compiles, the hermetic suites pass, the
-package declarations and packed-package imports pass validation.
-`npm run verify:consumers` separately installs the tarball and checks the runnable
-offline README example, browser types, Vite, Webpack, Next.js, and browser crypto.
-
-It proves **nothing about a network**. Real acceptance is steps 4–6 above, run against
-actual credentials, with each outcome recorded separately. A green build or a plausible
-UI is not acceptance of network behaviour.
+A successful application build establishes neither deployment compatibility nor
+credential acceptance. Exercise the intended operation with actual development
+credentials, then an expected refusal. Keep outcomes separate: reading a contract
+or displaying a plausible UI is not proof that signing or decryption works.
 
 ## What you need from the deployment operator
 
@@ -98,5 +94,3 @@ refusal, readable code, and a short redacted evidence report.
 ---
 
 [← Back to the README](../README.md) · [Documentation index](README.md)
-
-See [release acceptance](RELEASING.md#live-acceptance) for separate baseline and revocation reports.

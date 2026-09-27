@@ -9,7 +9,7 @@ const config = ts.readConfigFile(resolve(root, 'tsconfig.json'), (path) => ts.sy
 const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root)
 const program = ts.createProgram(parsed.fileNames, parsed.options)
 const checker = program.getTypeChecker()
-const entries = {main: 'src/index.ts', chain: 'src/chain/index.ts', committee: 'src/committee/index.ts',
+const entries = {app: 'src/app/index.ts', main: 'src/index.ts', chain: 'src/chain/index.ts', committee: 'src/committee/index.ts',
   oid4vp: 'src/oid4vp/index.ts', 'verifier-agent': 'src/verifier-agent/index.ts', 'chain-node': 'src/chain/node.ts'}
 const flags = ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope
 const text = (parts: readonly ts.SymbolDisplayPart[] | undefined) => ts.displayPartsToString(parts ? [...parts] : undefined)
@@ -28,7 +28,7 @@ for (const [name, file] of Object.entries(entries)) {
   const module = checker.getSymbolAtLocation(source)!
   const exports = checker.getExportsOfModule(module).sort((a, b) => a.name.localeCompare(b.name, 'en'))
   const entry = name === 'main' ? 'tasra-sdk' : `tasra-sdk/${name === 'chain-node' ? 'chain/node' : name}`
-  let body = `# ${entry}\n\nGenerated from public TypeScript exports. Run \`npm run docs:reference\` to update.\n\n[Reference index](README.md) · [Task guides](../README.md) · [Errors](../errors.md)\n\n`
+  let body = `# ${entry}\n\nGenerated from public TypeScript exports.\n\n[Reference index](README.md) · [Task guides](../README.md) · [Errors](../errors.md)\n\n`
   const values: string[] = []
   let count = 0
   for (const exported of exports) {
@@ -37,7 +37,7 @@ for (const [name, file] of Object.entries(entries)) {
     if (!declaration) continue
     const location = relative(root, declaration.getSourceFile().fileName).replaceAll('\\', '/')
     const line = declaration.getSourceFile().getLineAndCharacterOfPosition(declaration.getStart()).line + 1
-    const sourceLink = `[Source](../../${location}#L${line})`
+    const sourceLink = `[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/${location}#L${line})`
     const signatures = checker.getTypeOfSymbolAtLocation(symbol, declaration).getCallSignatures()
     const typeDeclaration = ts.isInterfaceDeclaration(declaration) || ts.isTypeAliasDeclaration(declaration)
     if (!signatures.length && !typeDeclaration && !ts.isClassDeclaration(declaration)) {
@@ -58,7 +58,8 @@ for (const [name, file] of Object.entries(entries)) {
       for (const member of checker.getPropertiesOfType(instance)) {
         const at = member.valueDeclaration ?? member.declarations?.[0]
         if (!at || (ts.getCombinedModifierFlags(at) & (ts.ModifierFlags.Private | ts.ModifierFlags.Protected))) continue
-        body += `- \`${member.name}: ${cell(checker.typeToString(checker.getTypeOfSymbolAtLocation(member, at), at, flags))}\` — ${text(member.getDocumentationComment(checker))}\n`
+        const description = text(member.getDocumentationComment(checker))
+        body += `- \`${member.name}: ${cell(checker.typeToString(checker.getTypeOfSymbolAtLocation(member, at), at, flags))}\`${description ? ` — ${description}` : ''}\n`
       }
       body += '\n'
       continue

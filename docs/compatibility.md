@@ -3,20 +3,20 @@
 A matching chain ID or an active manifest does not establish service compatibility.
 Check the **operation and authorization route**, not just the displayed version.
 
-| SDK / environment | Verified behavior | Status |
+| SDK / environment | Available scope | Before use |
 |---|---|---|
-| Current checkout (package metadata `0.2.2`, unreleased changes) + documented local fleet | Fresh slot creation, creator rule provisioning, credential presentation, request-bound ECDSA signatures, Alice/Bob receipts, server-side Mallory refusal | [Live proof](evidence/shared-account/README.md); install a packed checkout |
-| Published npm `0.2.2` | Does not include the new `committeeSignEoaDigest` helper or shared-account example | Cannot run the new walkthrough unchanged |
-| Current checkout + Fuji `tasra-fuji-v1` | Manifest download/checksum and public contract reads | Services have not been upgraded for the current SDK walkthrough; signing and credential flows are not certified |
-| Any other local fleet, SDK revision, or deployment | Not established by these results | Rerun the acceptance check |
+| Candidate `0.3.0-next.0` + compatible local fleet | Typed application API; ECDSA, FROST and BLS slots; exact-operation credentials; native static-key and credential-gated approvals; strict IBE extraction and receipt checks | Install a packed checkout and check the capabilities below. The candidate is unpublished. |
+| Published npm `0.2.2` | Existing package APIs; excludes `tasra-sdk/app`, `committeeSignEoaDigest` and the new complete application examples | The current application tutorials cannot run unchanged. |
+| Current checkout + Fuji `tasra-fuji-v1` | Deployment manifest discovery, checksum validation and public contract reads | Services have not been upgraded for the current SDK application tutorials. Do not use Fuji for those signing, credential or decryption flows. |
+| Another deployment or SDK revision | Compatibility depends on its contracts, services and authorization configuration | Confirm the deployment's supported SDK version and exercise the intended operation. |
 
-The latest accepted local run is dated **2026-09-26**, after a fleet redeployment.
-The tutorial contains that deployment's public addresses.
+The tutorials include public example addresses for a local deployment. Update those
+values after a redeployment; local addresses are not portable deployment identifiers.
+A service version string, package build or successful public read does not establish
+that authorization, signing or decryption works. Check the intended operation and an
+expected refusal with your own development credentials before relying on a deployment.
 
-The recorded local keeper version string alone is not a sufficient compatibility
-pin. The proof records deployment addresses, observed service versions, SDK source
-commit/dirty state, example hash, and packed artifact hash. The two chain receipts
-are the evidence for the operations actually executed.
+See [migration guidance](consumer-migrations.md) for changes to application code.
 
 ## Required local-fleet capabilities
 
@@ -35,6 +35,6 @@ charges metering, its slot funding step is also required; gas funding does not c
 The example does not disable verifier policy, holder binding, certificate checks, or authorization.
 
 For public deployment records, use the [Fuji manifest guide](fuji.md). For a newer
-service rollout, refresh the compatibility evidence before describing it as supported.
+service rollout, confirm its supported SDK version and operation routes.
 
 [Documentation index](README.md)

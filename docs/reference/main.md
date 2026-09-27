@@ -1,6 +1,6 @@
 # tasra-sdk
 
-Generated from public TypeScript exports. Run `npm run docs:reference` to update.
+Generated from public TypeScript exports.
 
 [Reference index](README.md) · [Task guides](../README.md) · [Errors](../errors.md)
 
@@ -163,7 +163,7 @@ Generated from public TypeScript exports. Run `npm run docs:reference` to update
 
 RFC 9449 §4.2 `ath`: base64url(sha256(ASCII(access_token))).
 
-[Source](../../src/auth/dpop.ts#L52)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L52)
 
 Import: `import {accessTokenHash} from 'tasra-sdk'`
 
@@ -185,7 +185,7 @@ compressed) or a 65-byte uncompressed key. Pure `@noble` (no ethers/web3): the
 key is decompressed, keccak-256'd over X‖Y, and the low 20 bytes are checksummed.
 This is what an ethers `Signer.getAddress()` returns for a Tasra EOA slot.
 
-[Source](../../src/signing/ecdsa.ts#L98)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/signing/ecdsa.ts#L98)
 
 Import: `import {addressFromEoaPubkey} from 'tasra-sdk'`
 
@@ -208,7 +208,7 @@ identifiable-abort verified; an invalid share throws naming its identifier.
 
 Mirrors the reference signing implementation::aggregate.
 
-[Source](../../src/crypto/frost.ts#L129)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/frost.ts#L129)
 
 Import: `import {aggregateFrostSignature} from 'tasra-sdk'`
 
@@ -236,7 +236,7 @@ The SDK holds the key, so this is the ONLY way an Auth0 app can produce a proof 
 const signer = auth0DpopSigner((args) => auth0.generateDpopProof(args))
 ```
 
-[Source](../../src/auth/dpop.ts#L147)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L147)
 
 Import: `import {auth0DpopSigner} from 'tasra-sdk'`
 
@@ -255,7 +255,7 @@ Returns: `DpopSigner`.
 The credential was rejected: 401 or 403. Never retryable — the same token will
 be refused again. Re-claim (redeem a fresh credential or renewal) instead.
 
-[Source](../../src/errors.ts#L71)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L71)
 
 ```ts
 (args: { status: number; url: string; body?: string; message?: string; }): AuthDeniedError
@@ -263,20 +263,20 @@ be refused again. Re-claim (redeem a fresh credential or renewal) instead.
 
 Import: `import {AuthDeniedError} from 'tasra-sdk'`
 
-- `status: number` — 
-- `url: string` — 
-- `body: string` — 
+- `status: number`
+- `url: string`
+- `body: string`
 - `retryable: boolean` — `false` when retrying the identical request cannot succeed.
-- `name: string` — 
-- `message: string` — 
-- `stack: string &#124; undefined` — 
-- `cause: unknown` — 
+- `name: string`
+- `message: string`
+- `stack: string &#124; undefined`
+- `cause: unknown`
 
 ## BlsPeer
 
 A node's BLS identifier + its libp2p PeerId, for the custody decrypting set.
 
-[Source](../../src/decryption/client.ts#L42)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L42)
 
 ```ts
 export interface BlsPeer {
@@ -289,7 +289,7 @@ export interface BlsPeer {
 
 Build a holder-proof compact-JWS (header.payload.signature).
 
-[Source](../../src/auth/holderProof.ts#L119)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L119)
 
 Import: `import {buildHolderProof} from 'tasra-sdk'`
 
@@ -307,7 +307,7 @@ Returns: `Promise<string>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/auth/holderProof.ts#L100)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L100)
 
 ```ts
 export interface BuildHolderProofOpts {
@@ -333,7 +333,7 @@ export interface BuildHolderProofOpts {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/crypto/detect.ts#L31)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/detect.ts#L31)
 
 Import: `import {buildTasraText} from 'tasra-sdk'`
 
@@ -355,7 +355,7 @@ Accepts a {@link RecipientStore} or a bare {@link HeldCredential} list.
 Unlike {@link RecipientStore.satisfies}, a MALFORMED rule returns `false`
 (fail-closed) rather than throwing.
 
-[Source](../../src/recipient/store.ts#L96)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/recipient/store.ts#L96)
 
 Import: `import {canAccess} from 'tasra-sdk'`
 
@@ -381,7 +381,7 @@ parsed and re-serialised, and any JSON library may reorder keys or restyle
 whitespace. Hashing raw bytes would break the commitment at exactly the point the
 rule is used for its new purpose.
 
-[Source](../../src/auth/oid4vp.ts#L977)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L977)
 
 Import: `import {canonicalizeDcql} from 'tasra-sdk'`
 
@@ -399,7 +399,7 @@ Returns: `string`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/crypto/kem.ts#L127)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L127)
 
 ```ts
 export interface Ciphertext {
@@ -421,7 +421,7 @@ claim whose value is null. Collapsing "absent" and "present-but-null" into
 `undefined` would make `{"path":["x"]}` (presence-only) deny a credential the reference implementation
 side grants — `Value::Null` is `Some`, not `None`.
 
-[Source](../../src/auth/oid4vp.ts#L190)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L190)
 
 ```ts
 export type ClaimResult = {found: true; value: unknown} | {found: false}
@@ -431,7 +431,7 @@ export type ClaimResult = {found: true; value: unknown} | {found: false}
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/crypto/kem.ts#L263)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L263)
 
 Import: `import {combineDecryptShares} from 'tasra-sdk'`
 
@@ -458,7 +458,7 @@ Distinct from a generic HTTP error because the committee flow polls several
 verifiers and tolerates individual refusals as long as a quorum co-signs — see
 {@link ThresholdNotMetError} for the failure that means the quorum was missed.
 
-[Source](../../src/committee/client.ts#L69)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L70)
 
 ```ts
 (status: number, message: string, opts?: { url?: string; body?: string; }): CommitteeAuthorizeError
@@ -466,14 +466,14 @@ verifiers and tolerates individual refusals as long as a quorum co-signs — see
 
 Import: `import {CommitteeAuthorizeError} from 'tasra-sdk'`
 
-- `status: number` — 
-- `url: string` — 
-- `body: string` — 
+- `status: number`
+- `url: string`
+- `body: string`
 - `retryable: boolean` — `false` when retrying the identical request cannot succeed.
-- `name: string` — 
-- `message: string` — 
-- `stack: string &#124; undefined` — 
-- `cause: unknown` — 
+- `name: string`
+- `message: string`
+- `stack: string &#124; undefined`
+- `cause: unknown`
 
 ## createDpopKey
 
@@ -482,7 +482,7 @@ Mint a fresh ES256 DPoP key.
 Non-extractable: the private half never leaves WebCrypto, so it cannot be copied out of a
 compromised page along with the token. That is the entire point of sender constraining.
 
-[Source](../../src/auth/dpop.ts#L72)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L72)
 
 Import: `import {createDpopKey} from 'tasra-sdk'`
 
@@ -498,7 +498,7 @@ Convenience: fetch a nonce and build the holder proof in one step. Returns the
 compact-JWS to put in the `holder_proof` field of a `verify-vp-jwt` /
 `committee-authorize` request.
 
-[Source](../../src/auth/holderProof.ts#L154)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L154)
 
 Import: `import {createHolderProof} from 'tasra-sdk'`
 
@@ -519,7 +519,7 @@ Open an `oauth` session — same creator authorisation, same committee draw, sam
 derived nonce, same poll contract as {@link createOid4vpSession}. No QR, no Request
 Object, no JWE key: the client presents an access token its own IdP minted.
 
-[Source](../../src/verifier-agent/index.ts#L233)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L233)
 
 Import: `import {createOauthSession} from 'tasra-sdk'`
 
@@ -538,7 +538,7 @@ Returns: `Promise<CreateOauthSessionResult>`.
 
 an `oauth` session — the client brings a DPoP-bound access token.
 
-[Source](../../src/verifier-agent/index.ts#L67)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L67)
 
 ```ts
 export interface CreateOauthSessionResult {
@@ -569,7 +569,7 @@ The verifier-agent derives a nonce, generates an ECDH key for JWE, and returns a
 payload the wallet scans. The session ID and poll secret are used to poll
 for the result.
 
-[Source](../../src/verifier-agent/index.ts#L196)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L196)
 
 Import: `import {createOid4vpSession} from 'tasra-sdk'`
 
@@ -592,7 +592,7 @@ replace the presentation's credentials. `slot_ids` (if given) are rotated via
 a webhook when the renewal is revoked.
 POST {verifier}/v1/renewals
 
-[Source](../../src/auth/verifier.ts#L50)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L50)
 
 Import: `import {createRenewal} from 'tasra-sdk'`
 
@@ -611,7 +611,7 @@ Returns: `Promise<RenewalGrant>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/verifier-agent/index.ts#L48)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L48)
 
 ```ts
 export interface CreateSessionParams {
@@ -629,7 +629,7 @@ export interface CreateSessionParams {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/verifier-agent/index.ts#L58)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L58)
 
 ```ts
 export interface CreateSessionResult {
@@ -656,7 +656,7 @@ This is the layer most integrations want. Below it sit the composable primitives
 orchestrates — drop to those when you need finer control. To resolve endpoints
 from chain instead of hardcoding them, use {@link createTasraSlotClient }.
 
-[Source](../../src/client/client.ts#L184)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/client/client.ts#L184)
 
 Import: `import {createTasraClient} from 'tasra-sdk'`
 
@@ -699,7 +699,7 @@ MUST byte-for-byte match the verifier's `credentials_commitment`
 sides agree without JSON canonicalization. Binds a holder proof to the exact set of
 compact-JWS credentials being presented.
 
-[Source](../../src/auth/holderProof.ts#L41)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L41)
 
 Import: `import {credentialsCommitment} from 'tasra-sdk'`
 
@@ -720,7 +720,7 @@ One verified credential, as the evaluator needs to see it.
 One verified credential, as the evaluator needs to see it. A consumer must expose
 the credential's actual shape: its parsed payload, not a flat string set.
 
-[Source](../../src/auth/oid4vp.ts#L200)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L200)
 
 ```ts
 export interface CredentialView {
@@ -741,7 +741,7 @@ export interface CredentialView {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/auth/oid4vp.ts#L110)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L110)
 
 ```ts
 export interface ClaimQuery {
@@ -756,7 +756,7 @@ export interface ClaimQuery {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/auth/oid4vp.ts#L139)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L139)
 
 ```ts
 export interface CredentialQuery {
@@ -783,7 +783,7 @@ export interface CredentialQuery {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/auth/oid4vp.ts#L158)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L158)
 
 ```ts
 export interface CredentialSetQuery {
@@ -809,7 +809,7 @@ The rule is not a well-formed OID4VP-DCQL query (or exceeds `MAX_RULE_LEN`).
 Never retryable — the same rule fails identically. Extends
 {@link TasraError} so one `instanceof` catches every SDK error.
 
-[Source](../../src/auth/oid4vp.ts#L20)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L20)
 
 ```ts
 (message: string): DcqlMalformedError
@@ -818,16 +818,16 @@ Never retryable — the same rule fails identically. Extends
 Import: `import {DcqlMalformedError} from 'tasra-sdk'`
 
 - `retryable: boolean` — `false` when retrying the identical request cannot succeed.
-- `name: string` — 
-- `message: string` — 
-- `stack: string &#124; undefined` — 
-- `cause: unknown` — 
+- `name: string`
+- `message: string`
+- `stack: string &#124; undefined`
+- `cause: unknown`
 
 ## DcqlMeta
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/auth/oid4vp.ts#L78)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L78)
 
 ```ts
 export interface Meta {
@@ -852,7 +852,7 @@ export interface Meta {
 
 A DCQL query. `credential_sets` absent ⇒ EVERY entry in `credentials` is required.
 
-[Source](../../src/auth/oid4vp.ts#L175)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L175)
 
 ```ts
 export interface Query {
@@ -865,7 +865,7 @@ export interface Query {
 
 The result of credential selection against a rule.
 
-[Source](../../src/auth/oid4vp.ts#L739)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L739)
 
 ```ts
 export interface Selection {
@@ -882,7 +882,7 @@ export interface Selection {
 
 Decode JWT claims WITHOUT verifying the signature (for expiry/UX only).
 
-[Source](../../src/auth/verifier.ts#L234)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L234)
 
 Import: `import {decodeJwtClaims} from 'tasra-sdk'`
 
@@ -901,7 +901,7 @@ Returns: `JwtClaims | null`.
 Decrypt via the custody path: the node runs the whole k-of-n ceremony and
 returns the plaintext (one HTTP round-trip).
 
-[Source](../../src/decryption/client.ts#L68)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L68)
 
 Import: `import {decryptCustody} from 'tasra-sdk'`
 
@@ -919,7 +919,7 @@ Returns: `Promise<Uint8Array<ArrayBufferLike>>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/decryption/client.ts#L47)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L47)
 
 ```ts
 export interface DecryptCustodyOpts {
@@ -946,7 +946,7 @@ export interface DecryptCustodyOpts {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/crypto/kem.ts#L232)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L232)
 
 ```ts
 export interface DecryptShare {
@@ -964,7 +964,7 @@ export interface DecryptShare {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/crypto/kem.ts#L206)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L206)
 
 Import: `import {decryptWithMasterKey} from 'tasra-sdk'`
 
@@ -985,7 +985,7 @@ Returns: `Uint8Array<ArrayBufferLike>`.
 Decrypt via the shard-delivery path: fetch a partial decryption from each
 node and combine the shares locally (the master key is never assembled).
 
-[Source](../../src/decryption/client.ts#L126)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L126)
 
 Import: `import {decryptWithShardDelivery} from 'tasra-sdk'`
 
@@ -1003,7 +1003,7 @@ Returns: `Promise<Uint8Array<ArrayBufferLike>>`.
 
 An ES256 key pair for DPoP, plus a {@link DpopSigner} over it.
 
-[Source](../../src/auth/dpop.ts#L58)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L58)
 
 ```ts
 export interface DpopKey {
@@ -1019,7 +1019,7 @@ export interface DpopKey {
 
 Anything that can produce a DPoP proof for a given request.
 
-[Source](../../src/auth/dpop.ts#L28)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L28)
 
 ```ts
 export interface DpopSigner {
@@ -1039,7 +1039,7 @@ export interface DpopSigner {
 A did:key identifier for an Ed25519 public key (multicodec 0xed01, base58btc). Useful
 when the holder is identified by a self-certifying did:key.
 
-[Source](../../src/auth/holderProof.ts#L179)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L179)
 
 Import: `import {ed25519DidKey} from 'tasra-sdk'`
 
@@ -1062,7 +1062,7 @@ so no JWT, no node round-trip, and no assembled secret.
 The three byte-string parameters are easy to transpose — they are, in order:
 *which slot*, *whose key*, *what to bind*.
 
-[Source](../../src/crypto/envelope.ts#L249)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/envelope.ts#L249)
 
 Import: `import {encryptEnvelope} from 'tasra-sdk'`
 
@@ -1098,7 +1098,7 @@ const wire = buildTasraText(toBytes(env))   // hand to ANY transport
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/signing/ecdsa.ts#L29)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/signing/ecdsa.ts#L29)
 
 ```ts
 export interface EoaSignature {
@@ -1117,7 +1117,7 @@ export interface EoaSignature {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/signing/ecdsa.ts#L18)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/signing/ecdsa.ts#L18)
 
 ```ts
 export interface EoaSignOpts {
@@ -1137,7 +1137,7 @@ export interface EoaSignOpts {
 Map the raw recovery id (0/1) to an Ethereum `v`: legacy 27/28, or EIP-155
 (`35 + 2·chainId + yParity`) when a chainId is given.
 
-[Source](../../src/signing/ecdsa.ts#L77)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/signing/ecdsa.ts#L77)
 
 Import: `import {ethSignatureV} from 'tasra-sdk'`
 
@@ -1161,7 +1161,7 @@ the rule itself is broken. ⚠ Takes NO holder identity — DCQL constrains cred
 and holder identity is established by the presentation's holder binding. That is why
 the legacy `required_sub_in` clause has no encoding here.
 
-[Source](../../src/auth/oid4vp.ts#L698)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L698)
 
 Import: `import {evaluateDcql} from 'tasra-sdk'`
 
@@ -1192,7 +1192,7 @@ can never authorize a scoped operation.
 committee runs the authoritative check; a wrong local answer costs a wasted request,
 never access.
 
-[Source](../../src/auth/oid4vp.ts#L836)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L836)
 
 Import: `import {evaluateIdentityScoped} from 'tasra-sdk'`
 
@@ -1212,7 +1212,7 @@ Returns: `boolean`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/slots/faucet.ts#L18)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/slots/faucet.ts#L18)
 
 ```ts
 export interface Faucet {
@@ -1225,7 +1225,7 @@ export interface Faucet {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/slots/faucet.ts#L8)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/slots/faucet.ts#L8)
 
 ```ts
 export interface FaucetGrant {
@@ -1252,7 +1252,7 @@ does this for you, which is why the managed {@link createTasraClient }
 surface is preferable to calling this directly.
 The sign and threshold-decrypt paths never assemble a key at all.
 
-[Source](../../src/keys/node-client.ts#L62)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/keys/node-client.ts#L62)
 
 Import: `import {fetchAndAssembleKey} from 'tasra-sdk'`
 
@@ -1278,7 +1278,7 @@ cold DKG or an unreachable node
 Mint a single-use challenge nonce, optionally bound to a slot id + action (F4).
 POST {verifier}/v1/nonce
 
-[Source](../../src/auth/holderProof.ts#L61)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L61)
 
 Import: `import {fetchHolderNonce} from 'tasra-sdk'`
 
@@ -1297,7 +1297,7 @@ Returns: `Promise<HolderNonce>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/keys/node-client.ts#L19)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/keys/node-client.ts#L19)
 
 Import: `import {fetchMpk} from 'tasra-sdk'`
 
@@ -1316,7 +1316,7 @@ Returns: `Promise<{ mpkBytes: Uint8Array; epoch: number; }>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/crypto/envelope.ts#L107)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/envelope.ts#L107)
 
 Import: `import {fromBytes} from 'tasra-sdk'`
 
@@ -1334,7 +1334,7 @@ Returns: `GroupEnvelope`.
 
 One node's Round-1 commitment (from POST /v1/shards/sign/commit).
 
-[Source](../../src/crypto/frost.ts#L95)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/frost.ts#L95)
 
 ```ts
 export interface FrostCommitment {
@@ -1351,7 +1351,7 @@ export interface FrostCommitment {
 
 One node's Round-2 signature share (from POST /v1/shards/sign/partial).
 
-[Source](../../src/crypto/frost.ts#L105)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/frost.ts#L105)
 
 ```ts
 export interface FrostShare {
@@ -1367,7 +1367,7 @@ export interface FrostShare {
 
 A FROST-Ed25519 group signature: R (32B compressed) + z (32B LE scalar).
 
-[Source](../../src/crypto/frost.ts#L114)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/frost.ts#L114)
 
 ```ts
 export interface FrostSignature {
@@ -1380,10 +1380,12 @@ export interface FrostSignature {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/signing/frost.ts#L71)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/signing/frost.ts#L72)
 
 ```ts
 export interface FrostSignResult {
+  /** Optional keeper evidence; verify separately with verifyOperationReceipt. */
+  receipt?: OperationReceipt
   keySlotId: string
   /** 32-byte compressed Edwards group public key. */
   groupPublicKey: Uint8Array
@@ -1399,7 +1401,7 @@ export interface FrostSignResult {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/crypto/envelope.ts#L35)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/envelope.ts#L35)
 
 ```ts
 export interface GroupEnvelope {
@@ -1419,7 +1421,7 @@ export interface GroupEnvelope {
 One credential the recipient holds, described as a structured credential view.
 Build these from your own store of verifiable credentials / verifier JWTs.
 
-[Source](../../src/recipient/store.ts#L18)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/recipient/store.ts#L18)
 
 ```ts
 export interface HeldCredential {
@@ -1436,7 +1438,7 @@ export interface HeldCredential {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/crypto/hex.ts#L2)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/hex.ts#L2)
 
 Import: `import {hexToBytes} from 'tasra-sdk'`
 
@@ -1454,7 +1456,7 @@ Returns: `Uint8Array<ArrayBufferLike>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/auth/holderProof.ts#L45)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L45)
 
 ```ts
 export interface HolderNonce {
@@ -1476,7 +1478,7 @@ Holder proof-of-possession options (F1/F4). The SDK fetches a `/v1/nonce` and
 signs a holder proof with `signer` (the holder DID's authentication key), bound
 to `audience` (the verifier's token `iss`) and the presented credentials.
 
-[Source](../../src/client/client.ts#L37)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/client/client.ts#L37)
 
 ```ts
 export interface HolderProofAuth {
@@ -1496,7 +1498,7 @@ A signer for the holder DID's `authentication` key. Either the SDK holds the raw
 Ed25519 secret, or the caller supplies a `sign` callback (HSM / wallet / WebCrypto)
 that returns the raw JWS signature bytes for the given signing input.
 
-[Source](../../src/auth/holderProof.ts#L91)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L91)
 
 ```ts
 export type HolderSigner =
@@ -1514,7 +1516,7 @@ export type HolderSigner =
 HTTP faucet client: POST {faucetUrl}/faucet {address} → FaucetGrant.
 Matches the network faucet service.
 
-[Source](../../src/slots/faucet.ts#L27)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/slots/faucet.ts#L27)
 
 Import: `import {httpFaucet} from 'tasra-sdk'`
 
@@ -1532,7 +1534,7 @@ Returns: `Faucet`.
 
 The byte range of chunk `i` inside the body — for range requests and streaming.
 
-[Source](../../src/crypto/ibe-blob.ts#L88)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe-blob.ts#L88)
 
 Import: `import {ibeBlobChunkRange} from 'tasra-sdk'`
 
@@ -1551,7 +1553,7 @@ Returns: `{ start: number; end: number; plainLength: number; }`.
 
 A WebCrypto key for `dek`, importable once per blob and reused across chunks.
 
-[Source](../../src/crypto/ibe-blob.ts#L152)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe-blob.ts#L152)
 
 Import: `import {ibeBlobDecryptKey} from 'tasra-sdk'`
 
@@ -1569,7 +1571,7 @@ Returns: `Promise<CryptoKey>`.
 
 `sha256(body)` — what a producer signs in its manifest so a reader can check provenance.
 
-[Source](../../src/crypto/ibe-blob.ts#L191)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe-blob.ts#L191)
 
 Import: `import {ibeBlobDigest} from 'tasra-sdk'`
 
@@ -1587,7 +1589,7 @@ Returns: `Uint8Array<ArrayBufferLike>`.
 
 The clear header stored beside the ciphertext body. Nothing in it is secret.
 
-[Source](../../src/crypto/ibe-blob.ts#L36)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe-blob.ts#L36)
 
 ```ts
 export interface IbeBlobHeader {
@@ -1610,7 +1612,7 @@ export interface IbeBlobHeader {
 
 The blob's IBE-wrapped data key as an `IbeCiphertext` (what `ibeDecryptWithKey` takes).
 
-[Source](../../src/crypto/ibe-blob.ts#L136)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe-blob.ts#L136)
 
 Import: `import {ibeBlobWrappedKey} from 'tasra-sdk'`
 
@@ -1628,7 +1630,7 @@ Returns: `IbeCiphertext`.
 
 Encrypted message — wire shape of `bls::ibe::Ciphertext`.
 
-[Source](../../src/crypto/ibe.ts#L46)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L46)
 
 ```ts
 export interface IbeCiphertext {
@@ -1647,7 +1649,7 @@ Combine k extraction partials and AEAD-decrypt `ct` — mirrors
 `bls::ibe::combine_decrypt` (verify every share → Lagrange-combine → `T = e(sk_ID,U)`
 → KDF → open). The intermediate `sk_ID` never leaves this function.
 
-[Source](../../src/crypto/ibe.ts#L282)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L282)
 
 Import: `import {ibeCombineDecrypt} from 'tasra-sdk'`
 
@@ -1674,7 +1676,7 @@ this identity — prefer {@link ibeCombineDecrypt}, which uses and drops it. Ver
 every share first (a caller combining unverified shares could be fed garbage that
 silently fails the AEAD later, unattributed).
 
-[Source](../../src/crypto/ibe.ts#L256)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L256)
 
 Import: `import {ibeCombineExtract} from 'tasra-sdk'`
 
@@ -1694,7 +1696,7 @@ Returns: `Uint8Array<ArrayBufferLike>`.
 
 Decrypt one chunk (its exact body slice, see {@link ibeBlobChunkRange}).
 
-[Source](../../src/crypto/ibe-blob.ts#L157)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe-blob.ts#L157)
 
 Import: `import {ibeDecryptBlobChunk} from 'tasra-sdk'`
 
@@ -1715,7 +1717,7 @@ Returns: `Promise<Uint8Array<ArrayBufferLike>>`.
 
 One node's partial `D_i = sk_i · Q_ID` (48-byte compressed G1).
 
-[Source](../../src/crypto/ibe.ts#L56)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L56)
 
 ```ts
 export interface IbeDecryptionShare {
@@ -1731,7 +1733,7 @@ export interface IbeDecryptionShare {
 One-call identity-scoped decrypt (the read path): token → extraction fan-out
 → verify each partial → combine → decrypt. The intermediate `sk_ID` never surfaces.
 
-[Source](../../src/committee/request.ts#L473)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L473)
 
 Import: `import {ibeDecryptRequest} from 'tasra-sdk'`
 
@@ -1750,7 +1752,7 @@ Returns: `Promise<Uint8Array<ArrayBufferLike>>`.
 Decrypt with an already-extracted identity key (48-byte compressed G1) — the
 custody-opt-in path pairing with {@link ibeCombineExtract}.
 
-[Source](../../src/crypto/ibe.ts#L300)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L300)
 
 Import: `import {ibeDecryptWithKey} from 'tasra-sdk'`
 
@@ -1771,7 +1773,7 @@ Returns: `Uint8Array<ArrayBufferLike>`.
 Encrypt `message` to `identity` under the slot's master public key (96-byte
 compressed G2). Offline and permissionless — the identity's key need not exist yet.
 
-[Source](../../src/crypto/ibe.ts#L189)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L189)
 
 Import: `import {ibeEncrypt} from 'tasra-sdk'`
 
@@ -1791,10 +1793,13 @@ Returns: `IbeCiphertext`.
 
 One node's extraction partial, decoded from the wire.
 
-[Source](../../src/committee/client.ts#L479)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L487)
 
 ```ts
 export interface IbeExtractionPartial {
+  /** Echoed slot, when supplied by the server. Required by the strict helper. */
+  keySlotId?: string
+  receipt?: OperationReceipt
   /** The node's BLS group identifier (1..n). */
   identifier: number
   /** 48-byte compressed G1 partial `D_i = sk_i · Q_ID`. */
@@ -1812,10 +1817,12 @@ export interface IbeExtractionPartial {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/committee/client.ts#L492)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L503)
 
 ```ts
 export interface IbeExtractOpts {
+  signal?: AbortSignal
+  fetchImpl?: typeof fetch
   /** Base URLs of ≥ k keeper nodes holding the slot's BLS shards. */
   nodeUrls: string[]
   /** MUST be identity-scoped: the keeper enforces `identity_hash == keccak256(identity)`. */
@@ -1843,7 +1850,7 @@ compressed G1).
 ciphertext to this identity. Prefer {@link ibeDecryptRequest}, which combines,
 decrypts and drops it. Zeroize the returned bytes when done.
 
-[Source](../../src/committee/request.ts#L459)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L459)
 
 Import: `import {ibeExtractRequest} from 'tasra-sdk'`
 
@@ -1861,7 +1868,7 @@ Returns: `Promise<Uint8Array<ArrayBufferLike>>`.
 
 Operation-specific fields for {@link ibeDecryptRequest} / {@link ibeExtractRequest}.
 
-[Source](../../src/committee/request.ts#L439)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L439)
 
 ```ts
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
@@ -1881,7 +1888,7 @@ export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
 Open a whole sealed blob with `sk_ID`: unwrap the key, decrypt every chunk, return the
 plaintext. Streaming consumers use `ibeUnwrapBlobKey` + `ibeDecryptBlobChunk` per range.
 
-[Source](../../src/crypto/ibe-blob.ts#L173)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe-blob.ts#L173)
 
 Import: `import {ibeOpenBlob} from 'tasra-sdk'`
 
@@ -1903,7 +1910,7 @@ Seal `plaintext` to `identity` under the slot's master public key: a fresh data 
 IBE-wrapped, and the body as independently-decryptable AES-256-GCM chunks. Offline and
 permissionless, like `ibeEncrypt`.
 
-[Source](../../src/crypto/ibe-blob.ts#L100)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe-blob.ts#L100)
 
 Import: `import {ibeSealBlob} from 'tasra-sdk'`
 
@@ -1926,7 +1933,7 @@ Unwrap the data key with the identity's extracted key `sk_ID` (48-byte compresse
 `ibeCombineExtract`'s output). One pairing; the caller keeps the returned key in memory only
 as long as it decrypts, then zeroizes it.
 
-[Source](../../src/crypto/ibe-blob.ts#L145)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe-blob.ts#L145)
 
 Import: `import {ibeUnwrapBlobKey} from 'tasra-sdk'`
 
@@ -1945,7 +1952,7 @@ Returns: `Uint8Array<ArrayBufferLike>`.
 
 A node's dual-group verifying share — only the 96-byte G2 half is needed here.
 
-[Source](../../src/crypto/ibe.ts#L64)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L64)
 
 ```ts
 export type IbeVerifyingShares = ReadonlyMap<number, Uint8Array>
@@ -1957,7 +1964,7 @@ Verify one extraction partial against its node's dual-group verifying share (the
 96-byte G2 half): `e(D_i, G2) == e(Q_ID, Y_i)`. Throws naming the identifier —
 identifiable abort: the caller knows WHICH node served a bad share.
 
-[Source](../../src/crypto/ibe.ts#L230)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L230)
 
 Import: `import {ibeVerifyShare} from 'tasra-sdk'`
 
@@ -1979,7 +1986,7 @@ True when `e` is an auth rejection — i.e. retrying is pointless, re-claim
 instead. Keyed on the HTTP status rather than the class, so it also catches
 subclasses that carry their own name (e.g. `CommitteeAuthorizeError`).
 
-[Source](../../src/errors.ts#L171)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L171)
 
 Import: `import {isAuthDenied} from 'tasra-sdk'`
 
@@ -1997,7 +2004,7 @@ Returns: `boolean`.
 
 Guard for a nonce that can ride in a header (the agent's challenge carries it back).
 
-[Source](../../src/auth/dpop.ts#L163)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L163)
 
 Import: `import {isHeaderSafeNonce} from 'tasra-sdk'`
 
@@ -2015,7 +2022,7 @@ Returns: `boolean`.
 
 True when the token is expired or within `skewMs` of expiring.
 
-[Source](../../src/auth/verifier.ts#L251)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L251)
 
 Import: `import {isJwtExpiringSoon} from 'tasra-sdk'`
 
@@ -2037,7 +2044,7 @@ True when `rule` parses as a supported OID4VP-DCQL query.
 This is the grammar dispatch used by the commitment. It must stay a TOTAL function —
 a legacy kk-DCQL rule is not an error here, it is simply "not OID4VP".
 
-[Source](../../src/auth/oid4vp.ts#L1028)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L1028)
 
 Import: `import {isOid4vpRule} from 'tasra-sdk'`
 
@@ -2056,7 +2063,7 @@ Returns: `boolean`.
 True when retrying the identical request could plausibly succeed. Non-SDK
 errors (a `TypeError` from a bug) report `false`.
 
-[Source](../../src/errors.ts#L179)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L179)
 
 Import: `import {isRetryable} from 'tasra-sdk'`
 
@@ -2077,7 +2084,7 @@ Requires the verifier's admin secret. Pair with redeemCredential() to get a
 JWT whose `sub` is the recipient DID you pass there.
 POST {verifier}/v1/admin/credentials/issue  (header: X-Admin-Secret)
 
-[Source](../../src/auth/verifier.ts#L123)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L123)
 
 Import: `import {issueAdminCredential} from 'tasra-sdk'`
 
@@ -2097,7 +2104,7 @@ Returns: `Promise<RedemptionGrant>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/auth/verifier.ts#L11)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L11)
 
 ```ts
 export interface IssuedToken {
@@ -2114,7 +2121,7 @@ export interface IssuedToken {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/crypto/detect.ts#L6)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/detect.ts#L6)
 
 Import: `import {isTasraPost} from 'tasra-sdk'`
 
@@ -2136,7 +2143,7 @@ Path resolution walks object keys, plus `null` for "every element of this array"
 that runs into the wrong shape is ABSENT rather than an error, which is what makes the
 evaluator fail closed.
 
-[Source](../../src/auth/oid4vp.ts#L220)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L220)
 
 Import: `import {jsonCredential} from 'tasra-sdk'`
 
@@ -2158,7 +2165,7 @@ RFC 7638 JWK thumbprint of an EC P-256 public key.
 exactly specified string, so `JSON.stringify` over an object literal in a different order
 yields a different thumbprint and the token's `cnf.jkt` would never match.
 
-[Source](../../src/auth/dpop.ts#L120)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L120)
 
 Import: `import {jwkThumbprint} from 'tasra-sdk'`
 
@@ -2176,7 +2183,7 @@ Returns: `Promise<string>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/auth/verifier.ts#L218)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L218)
 
 ```ts
 export interface JwtClaims {
@@ -2194,7 +2201,7 @@ export interface JwtClaims {
 
 Expiry as epoch-ms, or null if absent/unparseable.
 
-[Source](../../src/auth/verifier.ts#L245)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L245)
 
 Import: `import {jwtExpMs} from 'tasra-sdk'`
 
@@ -2213,7 +2220,7 @@ Returns: `number | null`.
 The request never got an HTTP answer — DNS failure, connection refused,
 timeout, CORS. Retryable: the service may simply not be up yet.
 
-[Source](../../src/errors.ts#L81)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L81)
 
 ```ts
 (args: { url: string; message?: string; cause?: unknown; }): NodeUnreachableError
@@ -2221,18 +2228,18 @@ timeout, CORS. Retryable: the service may simply not be up yet.
 
 Import: `import {NodeUnreachableError} from 'tasra-sdk'`
 
-- `url: string` — 
+- `url: string`
 - `retryable: boolean` — `false` when retrying the identical request cannot succeed.
-- `name: string` — 
-- `message: string` — 
-- `stack: string &#124; undefined` — 
-- `cause: unknown` — 
+- `name: string`
+- `message: string`
+- `stack: string &#124; undefined`
+- `cause: unknown`
 
 ## OpenSessionOpts
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/client/client.ts#L70)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/client/client.ts#L70)
 
 ```ts
 export interface OpenSessionOpts {
@@ -2247,7 +2254,7 @@ export interface OpenSessionOpts {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/crypto/detect.ts#L19)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/detect.ts#L19)
 
 Import: `import {parseTasraPost} from 'tasra-sdk'`
 
@@ -2268,7 +2275,7 @@ Compute the `payload_digest` for a given action and message.
 For `sign` and `ibe-extract`, this is `sha256(message_bytes)` as 0x-hex.
 Other actions should supply the digest directly.
 
-[Source](../../src/verifier-agent/index.ts#L176)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L176)
 
 Import: `import {payloadDigest} from 'tasra-sdk'`
 
@@ -2294,7 +2301,7 @@ travels only in the `Authorization` header and never appears in an error.
 Throws `VerifierAgentSessionError`: `unavailable` for 502/503/504 (the session may still complete —
 `waitForSession` keeps polling), `protocol` for any other non-2xx or a malformed reply.
 
-[Source](../../src/verifier-agent/index.ts#L344)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L344)
 
 Import: `import {pollOid4vpSession} from 'tasra-sdk'`
 
@@ -2314,7 +2321,7 @@ Returns: `Promise<SessionStatusResult>`.
 
 EIP-712 delegation from the slot creator to a delegate address.
 
-[Source](../../src/verifier-agent/index.ts#L36)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L36)
 
 ```ts
 export interface PresentationDelegation {
@@ -2334,7 +2341,7 @@ export interface PresentationDelegation {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/verifier-agent/index.ts#L21)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L21)
 
 ```ts
 export interface PresentationOperation {
@@ -2361,7 +2368,7 @@ matched — no aggregation into a single subject.
 Everything here is in-memory and synchronous: deciding access reveals nothing
 to the platform.
 
-[Source](../../src/recipient/store.ts#L35)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/recipient/store.ts#L35)
 
 ```ts
 (credentials?: (HeldCredential | CredentialView)[]): RecipientStore
@@ -2378,7 +2385,7 @@ Import: `import {RecipientStore} from 'tasra-sdk'`
 Redeem an admin-issued, single-use credential/invite token for a JWT.
 POST {verifier}/v1/credentials/redeem  {redemption_token, recipient_did}
 
-[Source](../../src/auth/verifier.ts#L96)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L96)
 
 Import: `import {redeemCredential} from 'tasra-sdk'`
 
@@ -2399,7 +2406,7 @@ Returns: `Promise<IssuedToken>`.
 Redeem a long-lived renewal token for a fresh JWT.
 POST {verifier}/v1/renewals/redeem  {renewal_token}
 
-[Source](../../src/auth/verifier.ts#L82)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L82)
 
 Import: `import {redeemRenewalToken} from 'tasra-sdk'`
 
@@ -2418,7 +2425,7 @@ Returns: `Promise<IssuedToken>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/auth/verifier.ts#L110)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L110)
 
 ```ts
 export interface RedemptionGrant {
@@ -2433,7 +2440,7 @@ export interface RedemptionGrant {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/auth/verifier.ts#L34)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L34)
 
 ```ts
 export interface RenewalGrant {
@@ -2453,7 +2460,7 @@ down are skipped; throws — naming every node and its reason — only when NONE
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](../../src/committee/client.ts#L552)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L572)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk'`
 
@@ -2472,7 +2479,7 @@ Returns: `Promise<IbeExtractionPartial[]>`.
 Revoke a renewal token — future redeems are denied, and any bound slots get a
 rotation webhook. POST {verifier}/v1/renewals/revoke  {renewal_token}
 
-[Source](../../src/auth/verifier.ts#L67)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L67)
 
 Import: `import {revokeRenewal} from 'tasra-sdk'`
 
@@ -2497,7 +2504,7 @@ Requires the verifier's admin secret. Resolve handle→DID upstream; the
 verifier blocklists strictly by DID.
 POST {verifier}/v1/admin/slots/revoke-user  (header: X-Admin-Secret)
 
-[Source](../../src/auth/verifier.ts#L152)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L152)
 
 Import: `import {revokeSlotUser} from 'tasra-sdk'`
 
@@ -2523,7 +2530,7 @@ compares raw bytes, the length cap is in bytes, and the `/`-boundary check index
 byte position. Operating on `.length`/`charAt` would diverge for any non-ASCII
 segment.
 
-[Source](../../src/auth/identityScope.ts#L44)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/identityScope.ts#L44)
 
 Import: `import {scopeCovers} from 'tasra-sdk'`
 
@@ -2554,7 +2561,7 @@ credential's verified issuer, and applications choose what the segments mean.
  - `"any"`: administrative delegation — the credential may grant over any namespace.
    The validator REFUSES `"any"` combined with an open issuer set.
 
-[Source](../../src/auth/oid4vp.ts#L137)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L137)
 
 ```ts
 export type ScopeNamespace = 'issuer' | 'any'
@@ -2564,7 +2571,7 @@ export type ScopeNamespace = 'issuer' | 'any'
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/crypto/ibe-blob.ts#L51)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe-blob.ts#L51)
 
 ```ts
 export interface SealedBlob {
@@ -2583,7 +2590,7 @@ When `credential_sets` are present, picks the cheapest satisfying option
 (fewest credential queries). When absent, every credential query must be
 satisfied.
 
-[Source](../../src/auth/oid4vp.ts#L756)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L756)
 
 Import: `import {selectDcql} from 'tasra-sdk'`
 
@@ -2603,7 +2610,7 @@ Returns: `Selection`.
 
 A live, managed access session for one key slot.
 
-[Source](../../src/client/session.ts#L35)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/client/session.ts#L35)
 
 ```ts
 export interface Session {
@@ -2651,7 +2658,7 @@ The `?: undefined` members make the modes **mutually exclusive at compile
 time**. Without them `{jwt, renewalToken}` type-checked (it structurally
 satisfies `{jwt: string}`) and the loser was silently ignored at runtime.
 
-[Source](../../src/client/client.ts#L64)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/client/client.ts#L64)
 
 ```ts
 export type SessionAuth =
@@ -2665,7 +2672,7 @@ export type SessionAuth =
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/verifier-agent/index.ts#L90)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L90)
 
 ```ts
 export interface SessionStatusResult {
@@ -2682,7 +2689,7 @@ export interface SessionStatusResult {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/decryption/client.ts#L86)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L86)
 
 ```ts
 export interface ShardDecryptOpts {
@@ -2702,7 +2709,7 @@ export interface ShardDecryptOpts {
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/signing/frost.ts#L148)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/signing/frost.ts#L151)
 
 ```ts
 export interface ShardSignOpts {
@@ -2723,7 +2730,7 @@ export interface ShardSignOpts {
 Sign a message via the custody path: the node runs the whole FROST ceremony
 and returns the final group signature (one HTTP round-trip).
 
-[Source](../../src/signing/frost.ts#L84)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/signing/frost.ts#L87)
 
 Import: `import {signCustody} from 'tasra-sdk'`
 
@@ -2741,7 +2748,7 @@ Returns: `Promise<FrostSignResult>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/signing/frost.ts#L52)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/signing/frost.ts#L53)
 
 ```ts
 export interface SignCustodyOpts {
@@ -2769,7 +2776,7 @@ export interface SignCustodyOpts {
 Threshold-sign a 32-byte digest with a tecdsa slot's key. Returns the raw
 Ethereum signature components; assemble into a transaction with ethSignatureV().
 
-[Source](../../src/signing/ecdsa.ts#L44)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/signing/ecdsa.ts#L44)
 
 Import: `import {signEoaDigest} from 'tasra-sdk'`
 
@@ -2787,7 +2794,7 @@ Returns: `Promise<EoaSignature>`.
 
 Per-call overrides for a FROST custody signature.
 
-[Source](../../src/client/session.ts#L23)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/client/session.ts#L23)
 
 ```ts
 export interface SignOpts {
@@ -2807,7 +2814,7 @@ export interface SignOpts {
 Sign the user-gated payload with the slot owner's 32-byte Ed25519 secret key.
 The result goes in SignCustodyOpts.userSignature (also pass the same requestId).
 
-[Source](../../src/signing/frost.ts#L137)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/signing/frost.ts#L140)
 
 Import: `import {signUserRequest} from 'tasra-sdk'`
 
@@ -2830,7 +2837,7 @@ Sign via the shard-delivery path: the CLIENT fans out to k nodes (Round 1
 commit, Round 2 partial) and aggregates the shares locally into the group
 signature. The node URLs must be exactly the k committee members.
 
-[Source](../../src/signing/frost.ts#L222)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/signing/frost.ts#L225)
 
 Import: `import {signWithShardDelivery} from 'tasra-sdk'`
 
@@ -2850,7 +2857,7 @@ The slot was re-keyed (rotated) since the key in hand was assembled, so that
 key cannot read anything encrypted after the rotation. Retryable: re-assemble
 at the new epoch and try again — the managed {@link Session } does this for you.
 
-[Source](../../src/errors.ts#L128)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L128)
 
 ```ts
 (args: { expected: number; actual: number; slotId?: string; message?: string; }): SlotRotatedError
@@ -2861,10 +2868,10 @@ Import: `import {SlotRotatedError} from 'tasra-sdk'`
 - `expected: number` — The epoch the caller's key/envelope belongs to.
 - `actual: number` — The slot's current on-chain/served epoch.
 - `retryable: boolean` — `false` when retrying the identical request cannot succeed.
-- `name: string` — 
-- `message: string` — 
-- `stack: string &#124; undefined` — 
-- `cause: unknown` — 
+- `name: string`
+- `message: string`
+- `stack: string &#124; undefined`
+- `cause: unknown`
 
 ## submitOauthResponse
 
@@ -2878,7 +2885,7 @@ challenging is broken, and retrying forever would hide that.
 
 `signer` must be the key the token is bound to — see `../auth/dpop.js` for the two shapes.
 
-[Source](../../src/verifier-agent/index.ts#L288)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L288)
 
 Import: `import {submitOauthResponse} from 'tasra-sdk'`
 
@@ -2898,7 +2905,7 @@ Returns: `Promise<void>`.
 A configured client. Holds no key material itself — each {@link Session} it
 opens owns its own JWT and (lazily) assembled master key.
 
-[Source](../../src/client/client.ts#L81)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/client/client.ts#L81)
 
 ```ts
 export interface TasraClient {
@@ -2924,7 +2931,7 @@ every session the client opens.
 `verifier` and `identity` are optional in the type because `{jwt}` auth needs
 neither, but each is enforced at `openSession` time for the modes that do.
 
-[Source](../../src/client/client.ts#L23)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/client/client.ts#L23)
 
 ```ts
 export interface TasraClientConfig {
@@ -2942,7 +2949,7 @@ export interface TasraClientConfig {
 Base class for every error this SDK throws deliberately. Catch this to
 distinguish SDK failures from programming errors (`TypeError`, etc.).
 
-[Source](../../src/errors.ts#L33)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L33)
 
 ```ts
 (message: string, opts?: { retryable?: boolean; cause?: unknown; }): TasraError
@@ -2951,10 +2958,10 @@ distinguish SDK failures from programming errors (`TypeError`, etc.).
 Import: `import {TasraError} from 'tasra-sdk'`
 
 - `retryable: boolean` — `false` when retrying the identical request cannot succeed.
-- `name: string` — 
-- `message: string` — 
-- `stack: string &#124; undefined` — 
-- `cause: unknown` — 
+- `name: string`
+- `message: string`
+- `stack: string &#124; undefined`
+- `cause: unknown`
 
 ## TasraHttpError
 
@@ -2964,7 +2971,7 @@ without dumping a page of HTML into a log line.
 
 5xx and 429 are marked retryable; other 4xx are not.
 
-[Source](../../src/errors.ts#L51)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L51)
 
 ```ts
 (args: { status: number; url: string; body?: string; message?: string; retryable?: boolean; }): TasraHttpError
@@ -2972,14 +2979,14 @@ without dumping a page of HTML into a log line.
 
 Import: `import {TasraHttpError} from 'tasra-sdk'`
 
-- `status: number` — 
-- `url: string` — 
-- `body: string` — 
+- `status: number`
+- `url: string`
+- `body: string`
 - `retryable: boolean` — `false` when retrying the identical request cannot succeed.
-- `name: string` — 
-- `message: string` — 
-- `stack: string &#124; undefined` — 
-- `cause: unknown` — 
+- `name: string`
+- `message: string`
+- `stack: string &#124; undefined`
+- `cause: unknown`
 
 ## ThresholdNotMetError
 
@@ -2991,7 +2998,7 @@ signing set.
 this actionable: previously those were collected and then discarded, so a DNS
 failure and a cold DKG produced the same opaque message.
 
-[Source](../../src/errors.ts#L99)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L99)
 
 ```ts
 (args: { got: number; need: number; reasons?: readonly string[]; message?: string; retryable?: boolean; }): ThresholdNotMetError
@@ -3003,16 +3010,16 @@ Import: `import {ThresholdNotMetError} from 'tasra-sdk'`
 - `need: number` — How many were needed.
 - `reasons: readonly string[]` — Why each failing participant failed, one string per participant.
 - `retryable: boolean` — `false` when retrying the identical request cannot succeed.
-- `name: string` — 
-- `message: string` — 
-- `stack: string &#124; undefined` — 
-- `cause: unknown` — 
+- `name: string`
+- `message: string`
+- `stack: string &#124; undefined`
+- `cause: unknown`
 
 ## toBytes
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/crypto/envelope.ts#L51)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/envelope.ts#L51)
 
 Import: `import {toBytes} from 'tasra-sdk'`
 
@@ -3032,7 +3039,7 @@ The canonical payload the node verifies for a user-gated sign:
 domain ‖ u64_LE(len slot) ‖ slot ‖ u64_LE(32) ‖ SHA256(message) ‖
 u64_LE(len requestId) ‖ requestId.
 
-[Source](../../src/signing/frost.ts#L117)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/signing/frost.ts#L120)
 
 Import: `import {userSignaturePayload} from 'tasra-sdk'`
 
@@ -3052,7 +3059,7 @@ Returns: `Uint8Array<ArrayBufferLike>`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/auth/oid4vp.ts#L434)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L434)
 
 Import: `import {validateDcql} from 'tasra-sdk'`
 
@@ -3072,7 +3079,7 @@ Returns: `Query`.
 Explicitly validate a slot's rule client-side: returns normally if well-formed,
 throws {@link DcqlMalformedError} otherwise.
 
-[Source](../../src/recipient/store.ts#L110)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/recipient/store.ts#L110)
 
 Import: `import {validateRecipientRule} from 'tasra-sdk'`
 
@@ -3092,7 +3099,7 @@ A Verifier Agent session did not produce a compound token. `kind` says why;
 `retryable` is true only for `timeout` and `unavailable` — the session may
 still complete, so poll again. Extends {@link TasraError}.
 
-[Source](../../src/verifier-agent/index.ts#L118)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L118)
 
 ```ts
 (kind: VerifierAgentSessionErrorKind, correlation: string, message: string, httpStatus?: number): VerifierAgentSessionError
@@ -3100,21 +3107,21 @@ still complete, so poll again. Extends {@link TasraError}.
 
 Import: `import {VerifierAgentSessionError} from 'tasra-sdk'`
 
-- `kind: VerifierAgentSessionErrorKind` — 
+- `kind: VerifierAgentSessionErrorKind`
 - `correlation: string` — The session id — safe to show and to log.
 - `httpStatus: number &#124; undefined` — The HTTP status that produced a `protocol`/`unavailable` error, when there was one.
 - `retryable: boolean` — `false` when retrying the identical request cannot succeed.
-- `name: string` — 
-- `message: string` — 
-- `stack: string &#124; undefined` — 
-- `cause: unknown` — 
+- `name: string`
+- `message: string`
+- `stack: string &#124; undefined`
+- `cause: unknown`
 
 ## VerifierAgentSessionErrorKind
 
 Why a session did not yield a token — the class the UI explains, with a NON-SECRET
 correlation reference (the session id; the poll secret is never part of an error).
 
-[Source](../../src/verifier-agent/index.ts#L101)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L101)
 
 ```ts
 export type VerifierAgentSessionErrorKind =
@@ -3134,7 +3141,7 @@ export type VerifierAgentSessionErrorKind =
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/crypto/kem.ts#L245)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L245)
 
 Import: `import {verifyDecryptShare} from 'tasra-sdk'`
 
@@ -3154,7 +3161,7 @@ Returns: `boolean`.
 Verify a FROST-Ed25519 group signature: g^z == R + Y^c, where
 c = H_chal(R, Y, len(msg), msg). Returns false on any malformed input.
 
-[Source](../../src/crypto/frost.ts#L188)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/frost.ts#L188)
 
 Import: `import {verifyFrostSignature} from 'tasra-sdk'`
 
@@ -3177,7 +3184,7 @@ verifier (a DCQL rule + a presentation/credentials); we pass it through
 untouched so this stays agnostic to the credential format.
 POST {verifier}/v1/verify
 
-[Source](../../src/auth/verifier.ts#L180)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L180)
 
 Import: `import {verifyPresentation} from 'tasra-sdk'`
 
@@ -3202,7 +3209,7 @@ evaluates the rule. `credentials` are compact JWS strings (e.g. from
 `tasra-cli vc issue`).
 POST {verifier}/v1/verify-vp-jwt
 
-[Source](../../src/auth/verifier.ts#L201)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L201)
 
 Import: `import {verifyVpJwt} from 'tasra-sdk'`
 
@@ -3221,7 +3228,7 @@ Returns: `Promise<IssuedToken>`.
 
 The `vpJwt` auth mode's payload: signed VCs + a holder-key proof → JWT.
 
-[Source](../../src/client/client.ts#L48)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/client/client.ts#L48)
 
 ```ts
 export interface VpJwtAuth {
@@ -3240,7 +3247,7 @@ deadline; a `protocol` answer stops at once; the deadline is a `timeout` error; 
 caller's `signal` is a `cancelled` error. A terminal `failed` is RETURNED (the caller
 decides how to explain it) — see `awaitVerifierAgentResult` for the version that throws `refused`.
 
-[Source](../../src/verifier-agent/index.ts#L422)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L422)
 
 Import: `import {waitForSession} from 'tasra-sdk'`
 
@@ -3263,8 +3270,8 @@ Returns: `Promise<SessionStatusResult>`.
 
 | Export | Definition |
 |---|---|
-| `DCQL_MAX_RULE_LEN` | [Source](../../src/auth/oid4vp.ts#L66) |
-| `FORMAT_JWT_VC_JSON` | [Source](../../src/auth/oid4vp.ts#L27) |
-| `IBE_BLOB_DEFAULT_CHUNK` | [Source](../../src/crypto/ibe-blob.ts#L32) |
-| `MAX_IDENTITY_LEN` | [Source](../../src/auth/identityScope.ts#L31) |
-| `MAX_PLAINTEXT_LEN` | [Source](../../src/crypto/envelope.ts#L302) |
+| `DCQL_MAX_RULE_LEN` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L66) |
+| `FORMAT_JWT_VC_JSON` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L27) |
+| `IBE_BLOB_DEFAULT_CHUNK` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe-blob.ts#L32) |
+| `MAX_IDENTITY_LEN` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/identityScope.ts#L31) |
+| `MAX_PLAINTEXT_LEN` | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/envelope.ts#L302) |

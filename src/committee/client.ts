@@ -23,6 +23,7 @@ import {base64Encode, base64Decode} from '../crypto/envelope.js'
 import type {Ciphertext} from '../crypto/kem.js'
 import type {FrostSignResult} from '../signing/frost.js'
 import type {BlsPeer} from '../decryption/client.js'
+import {decodeOperationReceipt, type OperationReceipt} from './receipts.js'
 
 const strip0x = (s: string): string => (s.startsWith('0x') ? s.slice(2) : s)
 const base = (u: string): string => u.replace(/\/$/, '')
@@ -376,6 +377,8 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
 // ─── keeper: POST /v1/committee/{sign,decrypt} (token in body, no auth header) ──
 
 export interface CommitteeSignOpts {
+  signal?: AbortSignal
+  fetchImpl?: typeof fetch
   nodeUrl: string
   committeeToken: CompoundTokenWire
   message: Uint8Array
@@ -405,10 +408,11 @@ export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignR
   }
 
   const url = `${base(opts.nodeUrl)}/v1/committee/sign`
-  const res = await fetch(url, {
+  const res = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
+    signal: opts.signal,
   })
   if (!res.ok) throw await httpError(res, url, 'committee/sign')
   const d = (await res.json()) as {
@@ -418,8 +422,12 @@ export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignR
     signature_z: string
     message_sha256: string
     epoch?: number
+    op_id?: unknown
+    token_hash?: unknown
+    op_attestation?: unknown
   }
   return {
+    ...(decodeOperationReceipt(d) ? {receipt: decodeOperationReceipt(d)} : {}),
     keySlotId: d.key_slot_id,
     groupPublicKey: hexToBytes(d.group_public_key),
     signature: {r: hexToBytes(d.signature_r), z: hexToBytes(d.signature_z)},
@@ -477,6 +485,9 @@ export async function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint
 
 /** One node's extraction partial, decoded from the wire. */
 export interface IbeExtractionPartial {
+  /** Echoed slot, when supplied by the server. Required by the strict helper. */
+  keySlotId?: string
+  receipt?: OperationReceipt
   /** The node's BLS group identifier (1..n). */
   identifier: number
   /** 48-byte compressed G1 partial `D_i = sk_i · Q_ID`. */
@@ -490,6 +501,8 @@ export interface IbeExtractionPartial {
 }
 
 export interface IbeExtractOpts {
+  signal?: AbortSignal
+  fetchImpl?: typeof fetch
   /** Base URLs of ≥ k keeper nodes holding the slot's BLS shards. */
   nodeUrls: string[]
   /** MUST be identity-scoped: the keeper enforces `identity_hash == keccak256(identity)`. */
@@ -519,10 +532,11 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
     body.client_signature = bareHex(opts.clientSignature)
   }
   const url = `${base(nodeUrl)}/v1/shards/ibe/extract`
-  const res = await fetch(url, {
+  const res = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
+    signal: opts.signal,
   })
   if (!res.ok) throw await httpError(res, url, 'shards/ibe/extract')
   const d = (await res.json()) as {
@@ -530,9 +544,15 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
     extraction_share: string
     verifying_share: string
     epoch: number
+    key_slot_id?: string
+    op_id?: unknown
+    token_hash?: unknown
+    op_attestation?: unknown
   }
   const vs = base64Decode(d.verifying_share)
   return {
+    ...(d.key_slot_id !== undefined ? {keySlotId: d.key_slot_id} : {}),
+    ...(decodeOperationReceipt(d) ? {receipt: decodeOperationReceipt(d)} : {}),
     identifier: Number(d.identifier),
     value: base64Decode(d.extraction_share),
     // The reply is the 144-byte dual-group encoding (96B G2 ‖ 48B G1); the IBE pairing

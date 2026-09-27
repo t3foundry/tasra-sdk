@@ -5,6 +5,7 @@ import type {CompoundTokenWire} from './token.js'
 import type {VerifierProof} from './client.js'
 
 export interface CommitteeEoaSignOpts {
+  fetchImpl?: typeof fetch
   nodeUrl: string
   /** Authorization from awaitVerifierAgentResult; its slot selects the signing key. */
   committeeToken: CompoundTokenWire
@@ -42,7 +43,7 @@ export async function committeeSignEoaDigest(opts: CommitteeEoaSignOpts): Promis
     user_signature: opts.userSignature && bare(bytesToHex(opts.userSignature)),
   }
   const url = `${opts.nodeUrl.replace(/\/$/, '')}/v1/committee/sign/eoa-digest`
-  const response = await fetch(url, {
+  const response = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST', headers: {'Content-Type': 'application/json', ...(opts.requestId ? {'x-request-id': opts.requestId} : {})},
     body: JSON.stringify(body), signal: opts.signal,
   })

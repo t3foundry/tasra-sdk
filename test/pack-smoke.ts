@@ -15,7 +15,7 @@
 // it would for a real install, so the exports map is genuinely under test.
 
 import {execFileSync} from 'node:child_process'
-import {mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync} from 'node:fs'
+import {cpSync, existsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {dirname, join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
@@ -80,7 +80,19 @@ try {
   const tarball = readdirSync(scratch).find(f => f.endsWith('.tgz'))
   if (!tarball) throw new Error(`npm pack produced no .tgz in ${scratch}`)
   const packedNames = execFileSync('tar', ['-tzf', join(scratch, tarball)], {encoding: 'utf8'}).trim().split('\n')
+  const publication = JSON.parse(readFileSync(join(repoRoot, 'publication.json'), 'utf8')) as {files: string[]}
+  const unexpected = packedNames.filter(name => {
+    const path = name.replace(/^package\//, '')
+    if (path === 'package.json' || publication.files.includes(path)) return false
+    if (!path.startsWith('dist/')) return true
+    const source = path.replace(/^dist\//, 'src/').replace(/(?:\.d\.ts|\.js)$/, '.ts')
+    return !/\.(?:js|d\.ts|json)$/.test(path) || !existsSync(join(repoRoot, source))
+  })
+  ok('tarball contains only allowlisted consumer files and compiled SDK modules', unexpected.length === 0, unexpected.join(', '))
+  ok('every allowlisted consumer file ships', publication.files.every(path => packedNames.includes('package/' + path)))
   ok('tarball contains no private source or source maps', !packedNames.some(p => p.startsWith('package/src/') || p.endsWith('.map')))
+  ok('document app ships source, configuration and sample PDF', ['package.json', 'gitignore.template', 'server.ts', 'setup.ts', 'workflow.test.ts', 'web/app.ts', 'web/preview.ts', 'public/sample.pdf', 'local-fleet-ca.pem'].every(p => packedNames.includes('package/examples/document-signing/' + p)))
+  ok('document app excludes private state and generated assets', !packedNames.some(p => /^package\/examples\/document-signing\/(?:\.tasra|node_modules|\.superdesign|public\/pdf-assets)\//.test(p) || p === 'package/examples/document-signing/public/app.js'))
   ok('tarball contains all 11 agent skills', packedNames.filter(p => p.endsWith('/SKILL.md')).length === 11)
   for (const skill of packedNames.filter(p => p.endsWith('/SKILL.md'))) {
     const content = execFileSync('tar', ['-xOzf', join(scratch, tarball), skill], {encoding: 'utf8'})
@@ -107,10 +119,49 @@ try {
     symlinkSync(target, link, 'dir')
   }
 
+  // Skills are copied independently of the SDK, so supporting links must stay
+  // inside the shipped skill folder. Compile their complete modern examples
+  // against the tarball's declarations, not aliases to repository source.
+  const snippets = join(consumer, 'skill-snippets')
+  mkdirSync(snippets)
+  const copiedSkills = join(consumer, '.agents/skills')
+  mkdirSync(copiedSkills, {recursive: true})
+  for (const folder of readdirSync(join(installed, 'skills')).filter(p => p.startsWith('tasra-'))) {
+    cpSync(join(installed, 'skills', folder), join(copiedSkills, folder), {recursive: true})
+  }
+  let snippetCount = 0
+  const missingReferences: string[] = []
+  for (const skill of packedNames.filter(p => /^package\/skills\/.*\.md$/.test(p))) {
+    const path = skill === 'package/skills/README.md'
+      ? join(installed, 'skills/README.md')
+      : join(copiedSkills, skill.slice('package/skills/'.length))
+    const markdown = readFileSync(path, 'utf8')
+    for (const match of markdown.matchAll(/\]\(([^)]+)\)/g)) {
+      const target = match[1]!
+      if (/^[a-z]+:|^#/i.test(target)) continue
+      if (!existsSync(resolve(dirname(path), target.split('#')[0]!))) missingReferences.push(`${skill}: ${target}`)
+    }
+    if (!skill.endsWith('/SKILL.md')) continue
+    for (const match of markdown.matchAll(/^```ts\n([\s\S]*?)^```/gm)) {
+      writeFileSync(join(snippets, `example-${++snippetCount}.ts`), match[1]!)
+    }
+  }
+  ok('copied skills retain their linked supporting references', missingReferences.length === 0, missingReferences.join('; '))
+  writeFileSync(join(snippets, 'tsconfig.json'), JSON.stringify({compilerOptions: {
+    target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext',
+    strict: true, noUncheckedIndexedAccess: true, skipLibCheck: true, noEmit: true,
+    types: [], lib: ['ES2022', 'DOM'],
+  }, include: ['*.ts']}))
+  let snippetsCompile = snippetCount > 0
+  try {
+    execFileSync(process.execPath, [join(repoRoot, 'node_modules/typescript/bin/tsc'), '-p', join(snippets, 'tsconfig.json')], {stdio: 'inherit'})
+  } catch { snippetsCompile = false }
+  ok(`all ${snippetCount} modern skill examples compile against the installed tarball`, snippetsCompile)
+
   // 3. Resolve through the exports map.
   console.log('resolving…')
 
-  for (const subpath of ['', '/chain', '/chain/node', '/committee', '/oid4vp', '/verifier-agent']) {
+  for (const subpath of ['', '/app', '/chain', '/chain/node', '/committee', '/oid4vp', '/verifier-agent']) {
     const specifier = `${pkg.name}${subpath}`
     ok(`ESM: ${specifier}`, runInConsumer(consumer, 'mjs', `import * as sdk from '${specifier}'; console.log(Object.keys(sdk).length)`) !== null)
     ok(`CJS: ${specifier}`, runInConsumer(consumer, 'cjs', `console.log(Object.keys(require('${specifier}')).length)`) !== null)

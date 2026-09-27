@@ -80,3 +80,24 @@ it('reports an unused expired commitment before attempting another reveal', asyn
   expect(mocks.submit).toHaveBeenCalledTimes(1)
   expect(h.direct).not.toHaveBeenCalled()
 })
+
+it('resumes a known commit without sending it again and stops on ambiguous reveal', async () => {
+  const h = fixture(), onTransaction = vi.fn(async () => {})
+  mocks.read.mockImplementation(async ({functionName}: {functionName: string}) => functionName === 'computeCommitment' ? hash('07') : functionName === 'slotCommits' ? [2n, 5n, h.writer.address, false] : 2n)
+  mocks.submit.mockRejectedValueOnce(new Error('connection lost after send'))
+  await expect(h.writer.createSlotCommitReveal({...h.args, slotSeed: false, recovery: {commitTx: hash('09'), onTransaction}})).rejects.toThrow('connection lost')
+  expect(mocks.submit).toHaveBeenCalledTimes(1)
+  expect(onTransaction.mock.calls).toEqual([[{step: 'commit', phase: 'confirmed', hash: hash('09')}], [{step: 'reveal', phase: 'submitting', seeded: false}]])
+})
+it('reconciles both saved hashes without another transaction', async () => {
+  const h = fixture(), onTransaction = vi.fn(async () => {})
+  mocks.read.mockImplementation(async ({functionName}: {functionName: string}) => functionName === 'computeCommitment' ? hash('07') : [2n, 5n, h.writer.address, true])
+  expect(await h.writer.createSlotCommitReveal({...h.args, recovery: {commitTx: hash('09'), revealTx: hash('10'), seeded: true, onTransaction}})).toMatchObject({commitTx: hash('09'), revealTx: hash('10'), seeded: true})
+  expect(mocks.submit).not.toHaveBeenCalled()
+})
+it.each(['creator', 'used', 'unconsumed'])('refuses inconsistent recovery: %s', async failure => {
+  const h = fixture()
+  mocks.read.mockImplementation(async ({functionName}: {functionName: string}) => functionName === 'computeCommitment' ? hash('07') : [2n, 5n, failure === 'creator' ? address : h.writer.address, failure === 'used'])
+  await expect(h.writer.createSlotCommitReveal({...h.args, recovery: {commitTx: hash('09'), revealTx: failure === 'unconsumed' ? hash('10') : undefined, onTransaction: vi.fn()}})).rejects.toThrow()
+  expect(mocks.submit).not.toHaveBeenCalled()
+})

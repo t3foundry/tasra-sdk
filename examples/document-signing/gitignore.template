@@ -1,0 +1,7 @@
+node_modules/
+.tasra/
+.superdesign/
+public/app.js
+package-lock.json
+*.log
+public/pdf-assets/

@@ -5,8 +5,8 @@ that Mallory cannot get permission. The application uses **TypeScript, tasra-sdk
 and viem**. It does not invoke the CLI or read another project's configuration.
 
 **This example uses an unreleased SDK addition.** Install the packed checkout below;
-the published `0.2.2` package does not include `committeeSignEoaDigest` yet.
-[Compatibility](compatibility.md) · [Actual results](evidence/shared-account/README.md)
+the published `0.2.2` package does not include `tasra-sdk/app`.
+[Compatibility](compatibility.md)
 
 ## 1. Prepare the SDK and local fleet
 
@@ -18,7 +18,7 @@ npm ci
 npm pack
 ```
 
-This creates `tasra-sdk-0.2.2.tgz`. Keep its full path for the next step.
+This creates `tasra-sdk-0.3.0-next.0.tgz`. Keep its full path for the next step.
 
 You need the compatible local fleet running. The app includes these public values
 at the top of the file, so you can see and change every deployment dependency:
@@ -27,8 +27,8 @@ at the top of the file, so you can see and change every deployment dependency:
 |---|---|
 | Chain | Local Avalanche, `43112` |
 | RPC | `http://127.0.0.1:9650/ext/bc/C/rpc` |
-| KeyRegistry | `0x352F406036a061E0432394a88006158a8B588311` |
-| NodeRegistry | `0xeaFe7F6105332aFE53Ac2F7dE0742f47f061a693` |
+| KeyRegistry | `0x94c75679D75bfdc310669c0De4dE4398E922232b` |
+| NodeRegistry | `0xEA7A0602b6DB6Aa767C5649b4d5083c426Cb8083` |
 | Verifier agent | `https://localhost:19444` |
 | Keeper transport | Docker names `keykeeper-node-1`–`5` mapped to local ports `8091`–`8095` |
 | TLS trust | Public development CA supplied as `examples/local-fleet-ca.pem` |
@@ -54,7 +54,7 @@ mkdir my-shared-account
 cd my-shared-account
 npm init -y
 npm pkg set type=module
-npm install /path/to/tasra-sdk/tasra-sdk-0.2.2.tgz viem@2
+npm install /path/to/tasra-sdk/tasra-sdk-0.3.0-next.0.tgz viem@2
 npm install --save-dev tsx
 ```
 
@@ -106,9 +106,9 @@ If a run stops, keep its files and diagnose the error before starting another ru
 | Stage in `app.ts` | SDK calls | What it proves |
 |---|---|---|
 | Create identities | `ed25519HolderKey`, `issueSdJwtVc` | Each user has a separate holder key and a credential signed by the fresh development issuer. |
-| Create an account | `createTasraWriteClient`, `createSlot` / `createSlotCommitReveal`, `addressFromEoaPubkey` | The fleet creates a distributed key; the app derives its Ethereum address from the public key. |
+| Create an account | `createTasraWriteClient`, `prepareSlot` / `createPreparedSlot`; `slots.ecdsa().getAddress()` | The fleet creates a distributed key with a durable creation journal; the typed slot handle verifies and derives its public Ethereum address. |
 | Configure access | `provisionRule`, `setVerifierPolicy` | The creator provisions the exact committed rule with its own signature. No admin JWT is used. |
-| Authorize and transact | `openVerifierAgentSession`, `presentToRequestUri`, `awaitVerifierAgentResult`, `committeeSignEoaDigest` | The wallet presents a credential for the exact transaction digest; the fleet signs it and the chain confirms it. |
+| Authorize and transact | `toViemAccount` with an authorizer using `openVerifierAgentSession`, `presentToRequestUri`, `awaitVerifierAgentResult` | The wallet presents a credential for the exact transaction digest; the adapter verifies the fleet signature and the app confirms the transaction on chain. |
 | Reject Mallory | `buildResponse`, `submitResponse`, `awaitVerifierAgentResult` | A deliberately nonmatching presentation reaches the server and is refused. A local wallet filter is not counted as this proof. |
 
 The rule pins the fresh issuer, credential type, `treasury-signer` role, and subject
@@ -128,8 +128,9 @@ In the printed run directory, open:
 - `alice-receipt.json` and `bob-receipt.json` — actual chain receipts.
 - `recovery.json` — **private** development keys, credentials, rule and creation salts.
 
-Only the first three files are suitable for sharing. The automated test copies
-only those public files into its evidence directory.
+The result and receipt files omit credentials, but still identify the account and
+its activity. Review them before sharing. Never publish `recovery.json` or the
+entire run directory.
 
 ## If it stops
 
@@ -143,26 +144,6 @@ only those public files into its evidence directory.
 | ECDSA route returns 404 | The keeper build lacks the required route; check [compatibility](compatibility.md). |
 | Authorization refused for Alice/Bob | Confirm issuer resolution and verifier policy support. A denial is not a retryable connectivity failure. |
 | Transaction submitted, then RPC failed | Check the hash in the saved submission file before attempting another transaction. |
-
-## Run the same acceptance check automatically
-
-From the SDK checkout:
-
-```sh
-npm run verify:docs
-npm run test:docs:live
-```
-
-`verify:docs` checks links, tutorial/source agreement, and generated API reference.
-`test:docs:live` builds and packs the SDK, installs it in a fresh temporary app,
-copies the same example, and checks both receipts and the server-side denial.
-It requires the compatible running local fleet and creates a new development slot.
-Public evidence is written to `.tasra/docs-evidence/`.
-
-CI runs the static documentation checks on normal builds. After these changes land
-on `develop`, maintainers can select **live_docs** in the CI workflow's manual run
-to execute the same live check on the configured local-fleet runner and upload only
-public evidence. It is opt-in because it creates a slot and spends local test funds.
 
 [Full application source](../examples/shared-account.ts) ·
 [Signing API](signing.md) · [API reference](reference/README.md) · [Documentation index](README.md)

@@ -17,6 +17,7 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["src/**/*", "test/**/*", "examples/**/*", "vitest.config.ts"],
-  "exclude": ["dist", "node_modules"]
+  "include": ["src/**/*", "test/**/*", "examples/**/*", "vitest.config.ts", "vitest.security.config.ts"],
+  // The copied web template is checked from a real package install by verify:document-app.
+  "exclude": ["dist", "node_modules", "examples/document-signing"]
 }

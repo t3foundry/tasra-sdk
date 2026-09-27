@@ -1,8 +1,10 @@
-# Tasra SDK documentation
+# Build with TASRA
 
 **[Start here: build an account Alice and Bob can use](shared-account.md).**
 A complete SDK-only app: create a slot, authorize each user, send real transactions,
 and verify an unauthorized user is refused. [Compatibility](compatibility.md).
+
+[Application API](application-api.md) · [Encrypted notes tutorial](encrypted-notes.md) · [Document-signing tutorial](document-signing.md) · [Native approvals](native-approvals.md)
 
 ## Build an app
 
@@ -30,8 +32,14 @@ and verify an unauthorized user is refused. [Compatibility](compatibility.md).
 [Deployment responsibilities](DEVELOPER-EXPERIENCE.md) explains what the SDK,
 CLI, and deployment supply.
 
-## Contribute or use an agent
+## Build with a coding agent
 
-[Agent skills](../skills/README.md) · [Contributing](../CONTRIBUTING.md) ·
-[Documentation guidelines](documentation.md) · [Releasing](RELEASING.md) ·
-[Changelog](../CHANGELOG.md) · [Security policy](../SECURITY.md)
+[Application-building skills](../skills/README.md) provide task instructions for
+connecting your application, creating slots, authorizing users and handling errors.
+The same guides and examples work without an agent.
+
+## Package information
+
+[Migration guidance](consumer-migrations.md) · [Changelog](../CHANGELOG.md) ·
+[Security policy](../SECURITY.md) ·
+[Contribute to TASRA SDK](https://github.com/t3-foundry/tasra-sdk/blob/develop/CONTRIBUTING.md)

@@ -167,6 +167,17 @@ export type WriteClientConfig = WriteClientKeyConfig | WriteClientWalletConfig
  * a per-commitment draw seed, and to fall back to the beacon-epoch wait when it cannot be had.
  */
 export interface CommitRevealOptions {
+  /** Durable creation flow. Awaited before submission and after receiving each hash.
+   * Enabling recovery disables automatic transaction resubmission and chain-time nudges.
+   * Only supply hashes from the same persisted intent; never reconstruct lost salts.
+   */
+  recovery?: {
+    commitTx?: Hex
+    revealTx?: Hex
+    seeded?: boolean
+    onTransaction: (event: {step: 'commit' | 'reveal'; phase: 'submitting' | 'submitted' | 'confirmed'; hash?: Hex; seeded?: boolean}) => Promise<void>
+  }
+  signal?: AbortSignal
   /** Cap on the beacon-epoch wait, when the ADR-0075 fast path is unavailable. */
   maxWaitMs?: number
   /** Progress during that wait. Not called on the seeded path — there is no wait to report. */
@@ -603,6 +614,7 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     args: CreateSlotArgs & CommitRevealOptions,
   ): Promise<{slotId: Hex; commitTx: Hex; revealTx: Hex; targetEpoch: number; ruleSalt: Hex; seeded: boolean}> {
     const maxWaitMs = args.maxWaitMs ?? 180_000
+    args.signal?.throwIfAborted()
     if (!Number.isSafeInteger(maxWaitMs) || maxWaitMs < 1 || maxWaitMs > 2_147_483_647) throw new Error('Invalid commit-reveal wait')
     if (args.exportable) throw new Error('Commit-reveal does not support raw-export slots')
     const slotId = args.slotId ?? random32()
@@ -635,13 +647,33 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     const beaconEpoch = () => pub.readContract({address: beacon, abi: thresholdRandomBeaconAbi, functionName: 'epoch'}) as Promise<bigint>
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-    const commitTx = await sendCall(keyReg, keyRegistryAbi, 'commitKeySlot', [commitment], 'commitKeySlot')
+    const transact = async (step: 'commit' | 'reveal', name: string, values: readonly unknown[], seeded?: boolean): Promise<Hex> => {
+      args.signal?.throwIfAborted()
+      await args.recovery?.onTransaction({step, phase: 'submitting', seeded})
+      args.signal?.throwIfAborted()
+      const hash = await sendCall(keyReg, keyRegistryAbi, name, values, name)
+      await args.recovery?.onTransaction({step, phase: 'submitted', hash, seeded})
+      return hash
+    }
+    const commitTx = args.recovery?.commitTx ?? await transact('commit', 'commitKeySlot', [commitment])
     await confirmed(pub, commitTx, 'commitKeySlot')
+    await args.recovery?.onTransaction({step: 'commit', phase: 'confirmed', hash: commitTx})
 
     // Read the ACTUAL target epoch the contract pinned (computing it client-side
     // races the ~20s beacon). slotCommits → (targetEpoch, expiryEpoch, creator, used).
     const commit = (await pub.readContract({address: keyReg, abi: keyRegistryAbi, functionName: 'slotCommits', args: [commitment]})) as readonly [bigint, bigint, string, boolean]
     const targetEpoch = Number(commit[0])
+    if (args.recovery) {
+      if (commit[2].toLowerCase() !== account.address.toLowerCase() || commit[0] === 0n) throw new TasraError('Saved creation does not match this creator and commitment')
+      if (args.recovery.revealTx) {
+        await confirmed(pub, args.recovery.revealTx, 'revealKeySlot')
+        const completed = await pub.readContract({address: keyReg, abi: keyRegistryAbi, functionName: 'slotCommits', args: [commitment]})
+        if (!completed[3]) throw new TasraError('Saved reveal did not consume this commitment')
+        await args.recovery.onTransaction({step: 'reveal', phase: 'confirmed', hash: args.recovery.revealTx, seeded: args.recovery.seeded})
+        return {slotId, commitTx, revealTx: args.recovery.revealTx, targetEpoch, ruleSalt, seeded: args.recovery.seeded ?? false}
+      }
+      if (commit[3]) throw new TasraError('Commitment already consumed; reconcile the reveal hash before continuing')
+    }
 
     // ADR-0075 FAST PATH: ask the accountant set to threshold-sign this commitment, and reveal
     // immediately instead of waiting for `targetEpoch`.
@@ -671,9 +703,10 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     if (seed) {
       try {
         const seededTx = policy
-          ? await sendCall(keyReg, keyRegistryAbi, 'revealKeySlotWithSeedAndPolicy', [slotId, ruleCommitmentHash, args.k, args.n, mode, auth, salt, tags, seed.signature, policy], 'revealKeySlotWithSeedAndPolicy')
-          : await sendCall(keyReg, keyRegistryAbi, 'revealKeySlotWithSeed', [slotId, ruleCommitmentHash, args.k, args.n, mode, auth, salt, tags, seed.signature], 'revealKeySlotWithSeed')
+          ? await transact('reveal', 'revealKeySlotWithSeedAndPolicy', [slotId, ruleCommitmentHash, args.k, args.n, mode, auth, salt, tags, seed.signature, policy], true)
+          : await transact('reveal', 'revealKeySlotWithSeed', [slotId, ruleCommitmentHash, args.k, args.n, mode, auth, salt, tags, seed.signature], true)
         await confirmed(pub, seededTx, 'revealKeySlotWithSeed')
+        await args.recovery?.onTransaction({step: 'reveal', phase: 'confirmed', hash: seededTx, seeded: true})
         return {slotId, commitTx, revealTx: seededTx, targetEpoch, ruleSalt, seeded: true}
       } catch (e) {
         // ⚠ Under a relay this MUST rethrow. The relay submitter owns the retries of the one
@@ -681,7 +714,7 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
         //   same forwarder nonce — the defect that wedges every later write by this signer.
         //   Without a relay, a reverted seeded reveal has spent gas and left the commitment
         //   untouched, so the epoch wait below still completes the creation.
-        if (relay) throw e
+        if (relay || args.recovery) throw e
       }
     }
 
@@ -692,6 +725,7 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     let revealTx: Hex | undefined
     let prevEpoch = -1
     while (!revealTx) {
+      args.signal?.throwIfAborted()
       const cur = Number(await beaconEpoch())
       args.onEpoch?.(cur, targetEpoch)
       if (!commit[3] && BigInt(cur) > commit[1]) throw new SlotCommitmentExpiredError(chain.id, keyReg, slotId, commitment, account.address, salt)
@@ -704,7 +738,7 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
         // not moved since the last poll AND the head is stale, nudge chain time
         // with a zero-value self-transfer. On live chains (Fuji, mainnet) blocks
         // flow continuously, the head is never stale, and no nudge is ever sent.
-        if (!relay && cur === prevEpoch) {
+        if (!relay && !args.recovery && cur === prevEpoch) {
           try {
             const head = await pub.getBlock()
             const nowSecs = BigInt(Math.floor(Date.now() / 1000))
@@ -725,14 +759,15 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
         // whole point: as a follow-up call it is unwinnable from a wallet that
         // prompts, because the DKG starts the instant this transaction lands.
         revealTx = policy
-          ? await sendCall(keyReg, keyRegistryAbi, 'revealKeySlotWithPolicy', [slotId, ruleCommitmentHash, args.k, args.n, mode, auth, salt, tags, policy], 'revealKeySlotWithPolicy')
-          : await sendCall(keyReg, keyRegistryAbi, 'revealKeySlot', [slotId, ruleCommitmentHash, args.k, args.n, mode, auth, salt, tags], 'revealKeySlot')
+          ? await transact('reveal', 'revealKeySlotWithPolicy', [slotId, ruleCommitmentHash, args.k, args.n, mode, auth, salt, tags, policy], false)
+          : await transact('reveal', 'revealKeySlot', [slotId, ruleCommitmentHash, args.k, args.n, mode, auth, salt, tags], false)
         await confirmed(pub, revealTx, 'revealKeySlot')
+        await args.recovery?.onTransaction({step: 'reveal', phase: 'confirmed', hash: revealTx, seeded: false})
       } catch (e) {
         revealTx = undefined
         // The relay submitter owns bounded retries of one signed request. Never start a
         // replacement attempt or a direct write from this epoch-wait loop.
-        if (relay) throw e
+        if (relay || args.recovery) throw e
         if (Date.now() > deadline) throw e
         await sleep(3000)
       }

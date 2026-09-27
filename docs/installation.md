@@ -23,20 +23,47 @@ npm audit signatures
 ```
 
 Crypto deps are just `@noble/{curves,ciphers,hashes}`. **`viem` is an optional peer
-dependency** — needed only for the `tasra-sdk/chain` subpath, so a core-only consumer
+dependency** — needed for `tasra-sdk/app` and `tasra-sdk/chain`, so a core-only consumer
 neither installs nor bundles it:
 
 ```sh
-npm install tasra-sdk viem   # only if you import tasra-sdk/chain
+npm install tasra-sdk viem   # for tasra-sdk/app or tasra-sdk/chain
 ```
-
-(`npm run verify:pkg` asserts this both ways: the main entry loads with viem absent
-from the tree, and `/chain` fails without it.)
 
 For network configuration use `parsePinnedNetworkManifest`, `addressBookFromManifest`
 and `observeNetworkManifest` from `tasra-sdk/chain`, and pin the manifest SHA-256 from
 the deployment's published checksum. Planned or retired deployments cannot configure a
 live client. Matching the code is not the same as an audit or a verified round trip.
+
+## Typecheck a standalone Node tutorial
+
+After installing the candidate tarball and copying a complete example, add:
+
+```sh
+npm pkg set type=module
+npm install --save-dev typescript tsx @types/node
+```
+
+Save this as `tsconfig.json` beside the application's TypeScript files:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["*.ts"]
+}
+```
+
+Run `npx tsc --noEmit`, then the lesson's `tsx` command. Explicit Node types make
+imports such as `node:fs` available to the type checker. This configuration is for
+the Node tutorial apps; browser and extension projects retain their own framework configuration.
 
 **Using a coding agent?** The package ships [agent skills](../skills/README.md) — one
 folder per task (getting started, creating a slot, credentials, DCQL rules, errors,
@@ -69,9 +96,6 @@ From CommonJS, both of these work on Node ≥22.12:
 const sdk = require('tasra-sdk')        // Node ≥22.12 can require() an ES module
 const sdk = await import('tasra-sdk')   // works on any Node that supports ESM
 ```
-
-`npm run verify:pkg` checks all of the above against the real packed tarball
-(`publint` + `attw` + a resolution smoke test).
 
 ## Compatibility
 
@@ -106,7 +130,7 @@ tarball filename. In your application directory, install that file instead of th
 registry package (replace the path with your checkout's location):
 
 ```sh
-npm install /path/to/tasra-sdk/tasra-sdk-0.2.2.tgz viem@2
+npm install /path/to/tasra-sdk/tasra-sdk-0.3.0-next.0.tgz viem@2
 npm install --save-dev tsx
 ```
 

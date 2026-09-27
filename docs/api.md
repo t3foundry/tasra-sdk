@@ -94,10 +94,9 @@ ciphertext before decrypting anything.
 
 ## `tasra-sdk/oid4vp` — credential wallets against the Verifier Agent
 
-The wallet contract the platform speaks is the one the Hovi Wallet speaks (OpenID4VP 1.0 with
-DCQL, SD-JWT VC + KB-JWT, JARM `direct_post.jwt`, OpenID4VCI pre-authorized issuance), and this
-subpath is a clone of that behaviour — the Tasra Vault runs on it, and a test can play the wallet
-against the real Verifier Agent . Two roles:
+The wallet protocol uses OpenID4VP 1.0 with DCQL, SD-JWT VC + KB-JWT, JARM
+`direct_post.jwt`, and OpenID4VCI pre-authorized issuance. This subpath supports
+two application roles:
 
 ```ts
 // APP / RELYING PARTY: sign the operation with the slot creator's EVM key (EIP-712
@@ -121,9 +120,8 @@ await presentToRequestUri(qrPayload, [{sdJwt: credential}], holder, {choose: ask
 for a UI that wants a consent screen between them. One credential per presentation: a rule that
 needs two credentials must use `credential_sets` with single-credential options (what the Hovi
 Wallet can satisfy). Issuers use `issueSdJwtVc` (P-256 `did:key` or `did:jwk` issuer); the
-request binding (`requestHash`, `derivedNonce`) lives in `binding` for the verifier-agent side and
-tests — a wallet copies the nonce, it never interprets it. `test/live/verifierAgentWallet.ts` runs the
-whole loop against a fleet.
+request binding (`requestHash`, `derivedNonce`) lives in `binding` for the verifier-agent
+side. A wallet copies the nonce; it never interprets it.
 
 ## Bring your own identity provider — OAuth + DPoP against the Verifier Agent
 
@@ -141,7 +139,7 @@ platform audience, `meta.max_age_secs`, plus whatever roles you require:
 ```
 
 `validateDcql` refuses an `oauth+*` query without the pinned `iss`, the `["aud", null]` entry or
-`meta.max_age_secs` (1–86400), exactly as the reference implementation validator does (shared corpus). The audience
+`meta.max_age_secs` (1–86400). The audience
 is derived, never chosen — `platformAudience(agentOrigin, chainId)` from
 `tasra-sdk/committee`, or read it back from any `createOauthSession` reply.
 
@@ -205,8 +203,8 @@ import {verifyCompoundToken, selectVerifierCommittee} from 'tasra-sdk/committee'
 ```
 
 It also carries the derivations `platformAudience(origin, chainId)` and
-`dpopHtu(origin)` (+ `normalizeOrigin`, `OAUTH_RESPONSE_PATH`), vector-pinned byte for byte
-against the reference OAuth derivations (`test/dpop.ts`).
+`dpopHtu(origin)` (+ `normalizeOrigin`, `OAUTH_RESPONSE_PATH`). Use these helpers
+to preserve the deployment protocol's exact audience and URI binding.
 
 **Most consumers never need it.** `createCommitteeSlotClient` from
 `tasra-sdk/chain` drives the whole flow from a bare slot id; reach for these

@@ -1,6 +1,6 @@
 # tasra-sdk/chain/node
 
-Generated from public TypeScript exports. Run `npm run docs:reference` to update.
+Generated from public TypeScript exports.
 
 [Reference index](README.md) · [Task guides](../README.md) · [Errors](../errors.md)
 
@@ -21,7 +21,7 @@ Generated from public TypeScript exports. Run `npm run docs:reference` to update
 
 Session secrets use this same guarded connection and can only travel to a session GET.
 
-[Source](../../src/chain/node.ts#L54)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L54)
 
 Import: `import {createNodeAgentTransport} from 'tasra-sdk/chain/node'`
 
@@ -39,7 +39,7 @@ Returns: `AgentTransport`.
 
 Wallet protocol requests restricted to the selected session and approved DID, with socket checks.
 
-[Source](../../src/chain/node.ts#L61)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L61)
 
 Import: `import {createNodeAgentWalletFetch} from 'tasra-sdk/chain/node'`
 
@@ -58,7 +58,7 @@ Returns: `{ (input: RequestInfo | URL, init?: RequestInit): Promise<Response>; (
 
 Discovery and relay traffic use the same socket-bound destination and TLS policy.
 
-[Source](../../src/chain/node.ts#L47)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L47)
 
 Import: `import {createNodeRelayTransport} from 'tasra-sdk/chain/node'`
 
@@ -76,7 +76,7 @@ Returns: `RelayTransport`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/node.ts#L37)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L37)
 
 Import: `import {createNodeServiceDiscoveryTransport} from 'tasra-sdk/chain/node'`
 
@@ -94,7 +94,7 @@ Returns: `ServiceDiscoveryTransport`.
 
 Public readiness and relay-policy observations, with the same socket/TLS policy.
 
-[Source](../../src/chain/node.ts#L42)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L42)
 
 Import: `import {createNodeServiceStatusTransport} from 'tasra-sdk/chain/node'`
 
@@ -112,7 +112,7 @@ Returns: `ServiceDiscoveryTransport`.
 
 Conservative globally routable destinations; special-purpose exceptions require explicit policy.
 
-[Source](../../src/chain/node.ts#L24)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L24)
 
 Import: `import {isPublicServiceAddress} from 'tasra-sdk/chain/node'`
 
@@ -130,7 +130,7 @@ Returns: `boolean`.
 
 See the declaration and linked source for the contract.
 
-[Source](../../src/chain/node.ts#L30)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L30)
 
 ```ts
 export interface ServiceTransportPolicy {

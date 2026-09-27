@@ -47,8 +47,8 @@ const chain = createTasraChainClient({
   rpcUrl: 'http://127.0.0.1:9650/ext/bc/C/rpc',
   chainId: 43112,
   addresses: addressBookFromObject({
-    NodeRegistry: '0xeaFe7F6105332aFE53Ac2F7dE0742f47f061a693',
-    KeyRegistry: '0x352F406036a061E0432394a88006158a8B588311',
+    NodeRegistry: '0xEA7A0602b6DB6Aa767C5649b4d5083c426Cb8083',
+    KeyRegistry: '0x94c75679D75bfdc310669c0De4dE4398E922232b',
   }),
 })
 
@@ -83,7 +83,7 @@ Slot creation: direct
 
 The block number increases over time. The operator count and creation mode depend
 on the fleet. This proves connectivity and contract reads; it does not create a
-slot or test authorization. [Recorded verification](verification.md).
+slot or test authorization.
 
 Source: [examples/connect-local.ts](../examples/connect-local.ts). This new example is
 in the current checkout and its packed artifact; do not assume it is already in the

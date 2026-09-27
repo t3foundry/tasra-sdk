@@ -38,13 +38,14 @@ try {
   const tooling = ['typescript', 'tsx', 'viem', 'vite', 'webpack', 'next', 'react', 'react-dom', '@types/react', '@types/react-dom', '@types/node']
   run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...tooling.map(name => `${name}@${version(name)}`)])
   const imports = `import * as core from 'tasra-sdk';
+import * as app from 'tasra-sdk/app';
 import * as chain from 'tasra-sdk/chain';
 import * as committee from 'tasra-sdk/committee';
 import * as oid4vp from 'tasra-sdk/oid4vp';
 import * as agent from 'tasra-sdk/verifier-agent';`
   write('types.ts', `${imports}
 const client: core.TasraClient = core.createTasraClient({nodes: ['https://example.invalid']});
-console.log(client, chain.createTasraChainClient, committee.verifyCompoundToken, oid4vp, agent.createOid4vpSession);`)
+console.log(client, app.createTasra, chain.createTasraChainClient, committee.verifyCompoundToken, oid4vp, agent.createOid4vpSession);`)
   write('tsconfig.json', JSON.stringify({compilerOptions: {target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', lib: ['ES2022', 'DOM'], types: [], strict: true, noEmit: true, skipLibCheck: false}, files: ['types.ts']}))
   run(process.execPath, ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.json'])
 
@@ -55,7 +56,7 @@ async function main() {
   if (typeof globalThis.Buffer !== 'undefined') throw new Error('Unexpected Buffer polyfill');
   if (offlineRoundTrip() !== 'Hello Tasra') throw new Error('Crypto round trip failed');
   document.body.textContent = 'Hello Tasra';
-  console.log(chain.createTasraChainClient, committee.verifyCompoundToken, oid4vp, agent.createOid4vpSession);
+  console.log(app.createTasra, chain.createTasraChainClient, committee.verifyCompoundToken, oid4vp, agent.createOid4vpSession);
 }
 main().catch(e => { document.body.textContent = String(e); throw e; });`)
   write('index.html', '<!doctype html><html><body><script type="module" src="/browser.ts"></script></body></html>')
@@ -63,7 +64,7 @@ main().catch(e => { document.body.textContent = String(e); throw e; });`)
   // No fallback/polyfill configuration: Node imports must fail a web build.
   // This fixture retains EVERY export, so ordinary application size hints do not apply.
   write('webpack-entry.js', `${imports}
-window.sdk = {core, chain, committee, oid4vp, agent};`)
+window.sdk = {core, app, chain, committee, oid4vp, agent};`)
   write('webpack-build.mjs', `import webpack from 'webpack';
 webpack({mode:'production',target:'web',performance:false,entry:process.cwd()+'/webpack-entry.js',output:{path:process.cwd()+'/webpack-dist',filename:'bundle.js'}}, (err, stats) => {
   if (err || stats.hasErrors() || stats.hasWarnings()) { console.error(err || stats.toString()); process.exitCode=1; }
