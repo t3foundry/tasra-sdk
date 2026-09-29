@@ -1,40 +1,36 @@
 # SDK and deployment compatibility
 
-A matching chain ID or an active manifest does not establish service compatibility.
-Check the **operation and authorization route**, not just the displayed version.
+Install the SDK with `npm install tasra-sdk@latest`. Select a network from
+[tasra-releases](https://github.com/t3-foundry/tasra-releases), download its deployment
+manifest and verify the release checksum before configuring the client.
 
-| SDK / environment | Available scope | Before use |
-|---|---|---|
-| Candidate `0.3.0-next.0` + compatible local fleet | Typed application API; ECDSA, FROST and BLS slots; exact-operation credentials; native static-key and credential-gated approvals; strict IBE extraction and receipt checks | Install a packed checkout and check the capabilities below. The candidate is unpublished. |
-| Published npm `0.2.2` | Existing package APIs; excludes `tasra-sdk/app`, `committeeSignEoaDigest` and the new complete application examples | The current application tutorials cannot run unchanged. |
-| Current checkout + Fuji `tasra-fuji-v1` | Deployment manifest discovery, checksum validation and public contract reads | Services have not been upgraded for the current SDK application tutorials. Do not use Fuji for those signing, credential or decryption flows. |
-| Another deployment or SDK revision | Compatibility depends on its contracts, services and authorization configuration | Confirm the deployment's supported SDK version and exercise the intended operation. |
+A manifest identifies contracts and services. An active record, matching chain ID,
+or successful registry read does not establish support for a protected operation.
+Confirm the required routes and authorization formats for the selected deployment.
 
-The tutorials include public example addresses for a local deployment. Update those
-values after a redeployment; local addresses are not portable deployment identifiers.
-A service version string, package build or successful public read does not establish
-that authorization, signing or decryption works. Check the intended operation and an
-expected refusal with your own development credentials before relying on a deployment.
+| Operation | Required deployment support |
+|---|---|
+| Public registry and slot reads | Reachable RPC and the contracts named by the manifest. |
+| Create a slot | Compatible registry, funded creator, requested keeper mode and threshold, distributed key generation, creator-signed rule provisioning and verifier-policy configuration. |
+| Credential authorization | OID4VP verifier agent, accepted issuer and holder formats, verifier membership proofs and operation-bound grants. |
+| OAuth authorization | OAuth verifier sessions, a supported issuer and audience, DPoP-bound tokens and an OAuth slot policy. |
+| Ethereum transactions | tECDSA signing route, ready slot, operation authorization and native gas at the slot account. |
+| Document signing | FROST signing route and the required authorization and receipt support. |
+| Identity-based decryption | BLS identity extraction, scope enforcement and required receipt support. |
+| Native approvals | FROST approval lifecycle and the selected static-key or credential-gated approval policy. |
 
-See [migration guidance](consumer-migrations.md) for changes to application code.
+The runnable examples request 2-of-3 keeper and 2-of-3 verifier thresholds. The
+deployment must have enough eligible members and support the chosen slot mode.
+They create SD-JWT credentials bound to fresh `did:jwk` identities; the verifier
+must accept those issuer and holder formats and the policy's pinned issuer.
 
-## Required local-fleet capabilities
+Creator gas, a slot account's spendable balance, and any usage or lease charges are
+separate. Fund each required balance through the selected network's published
+funding mechanism. A funded account does not authorize signing or decryption.
 
-The shared-account example needs:
-
-- Local chain **43112**, funded public development account, and the specified registries.
-- At least three tECDSA keepers, with 2-of-3 key generation/signing enabled.
-- Creator-signed `POST /v1/keys/:slot/rule/by-creator` provisioning.
-- An OID4VP verifier agent, trusted verifier-set snapshot, and a 3-member/2-signature policy.
-- Ed25519 `did:jwk` issuer/holder resolution and SD-JWT credential presentation.
-- `POST /v1/committee/sign/eoa-digest`, accepting request-bound compound tokens and verifier proofs.
-- Development metering configuration permitting the operations without an additional slot-funding step.
-
-The app funds creator gas and the slot account's transaction gas. If another fleet
-charges metering, its slot funding step is also required; gas funding does not cover it.
-The example does not disable verifier policy, holder binding, certificate checks, or authorization.
-
-For public deployment records, use the [Fuji manifest guide](fuji.md). For a newer
-service rollout, confirm its supported SDK version and operation routes.
+Before using a workflow, execute its intended operation and an expected refusal
+with your application's policy. Record the deployment identity, installed package
+version and observed results. An unavailable route is an unsupported or unavailable
+operation; do not substitute another authorization route or disable checks.
 
 [Documentation index](README.md)

@@ -1,13 +1,5 @@
-// Recipient-side DCQL access gate — the client half of the platform-blindness
-// guarantee. A message RECIPIENT holds their own credentials locally. Given a
-// slot's DCQL rule, the recipient can decide LOCALLY whether they satisfy it —
-// before, and WITHOUT, contacting the platform. This module is therefore PURE —
-// no HTTP, no chain, no I/O.
-//
-// It reuses the SAME evaluator the nodes and verifier run (src/auth/oid4vp.ts,
-// pinned to the reference implementation by the conformance vectors in
-// test/oid4vp-vectors.json), so a recipient local verdict is identical to the
-// verdict the keepers would reach.
+// In-memory credential matching for advisory access checks. No network requests
+// are made; network authorization still depends on credential verification.
 
 import {evaluate, validate, DcqlMalformedError, jsonCredential, type CredentialView} from '../auth/oid4vp.js'
 
@@ -26,13 +18,14 @@ export interface HeldCredential {
 
 /**
  * A recipient's local credential store. Holds structured credentials and
- * evaluates them against OID4VP-DCQL rules. Each credential is individually
- * matched — no aggregation into a single subject.
+ * evaluates them against DCQL rules for advisory matching. It does not verify
+ * credential signatures or establish issuer trust.
  *
  * Everything here is in-memory and synchronous: deciding access reveals nothing
  * to the platform.
  */
 export class RecipientStore {
+  /** Held credential views used for local policy evaluation. */
   private readonly credentials: CredentialView[]
 
   constructor(credentials: (HeldCredential | CredentialView)[] = []) {
@@ -59,11 +52,11 @@ export class RecipientStore {
   }
 
   /**
-   * Does this recipient satisfy `rule`? Pure, local, platform-blind.
+   * Check whether held credential views match the DCQL rule without network access.
    *
-   * @returns `true` to grant, `false` to deny.
+   * @returns Whether the supplied credential views satisfy the rule; this is not network authorization.
    * @throws {DcqlMalformedError} if the rule itself is broken (a slot-author
-   *   bug — the same class the node returns as 400, not a 403 deny). Callers
+   *   bug - the same class the node returns as 400, not a 403 deny). Callers
    *   who want a never-throwing check should use {@link canAccess}.
    */
   satisfies(rule: string): boolean {
@@ -87,11 +80,14 @@ export class RecipientStore {
 }
 
 /**
- * Convenience: can this recipient access a slot with `rule`? Platform-blind.
+ * Check whether held credential views match a DCQL rule without network access.
  *
  * Accepts a {@link RecipientStore} or a bare {@link HeldCredential} list.
- * Unlike {@link RecipientStore.satisfies}, a MALFORMED rule returns `false`
+ * Unlike {@link RecipientStore.satisfies}, a malformed rule returns `false`
  * (fail-closed) rather than throwing.
+ *
+ * @param rule - DCQL policy encoded as JSON text.
+ * @param store - Held credential views used for the local access decision.
  */
 export function canAccess(rule: string, store: RecipientStore | HeldCredential[]): boolean {
   const s = Array.isArray(store) ? new RecipientStore(store) : store
@@ -106,6 +102,8 @@ export function canAccess(rule: string, store: RecipientStore | HeldCredential[]
 /**
  * Explicitly validate a slot's rule client-side: returns normally if well-formed,
  * throws {@link DcqlMalformedError} otherwise.
+ *
+ * @param rule - DCQL policy encoded as JSON text.
  */
 export function validateRule(rule: string): void {
   validate(rule)

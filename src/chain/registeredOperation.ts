@@ -7,13 +7,29 @@ import {derivedNonce, requestHash} from '../oid4vp/binding.js'
 import {VerifierAgentSessionError, nextPollDelay, type PresentationDelegation, type PresentationOperation, type WaitOpts} from '../verifier-agent/index.js'
 import {type RegisteredAgentSession, type createRegisteredAgentClient} from './registeredAgent.js'
 
+/**
+ * Authenticated provider session bound to one signed operation and request hash.
+ */
 export interface RegisteredVerifierAgentSession extends RegisteredAgentSession {
+  /**
+   * Creator-signed operation associated with this session.
+   */
   readonly operation: PresentationOperation
+  /**
+   * Defensive copy of the operation request hash.
+   */
   readonly requestHash: Uint8Array
+  /**
+   * Authenticated provider endpoint retained for this session.
+   */
   readonly verifierAgentUrl: string
 }
 
-/** Sign once, authenticate an explicitly approved provider, and retain its pinned poll closure. */
+/**
+ * Sign once, authenticate an explicitly approved provider, and retain its pinned poll closure.
+ * @param client Registered agent client with independently approved providers.
+ * @param opts Exact operation, authorizing signer and optional delegation or cancellation.
+ */
 export async function openRegisteredVerifierAgentSession(
   client: ReturnType<typeof createRegisteredAgentClient>,
   opts: OperationInput & {signer: TypedDataSigner; delegation?: PresentationDelegation; profileIndex?: number; signal?: AbortSignal},
@@ -30,7 +46,11 @@ export async function openRegisteredVerifierAgentSession(
   })
 }
 
-/** Poll the original authenticated session only; no URL reconstruction or provider failover. */
+/**
+ * Poll the original authenticated session only; no URL reconstruction or provider failover.
+ * @param session Previously opened authenticated session.
+ * @param opts Polling cadence, deadline, cancellation and phase notifications.
+ */
 export async function awaitRegisteredVerifierAgentResult(
   session: RegisteredVerifierAgentSession,
   opts: {intervalMs?: number; timeoutMs?: number} & WaitOpts = {},
@@ -76,7 +96,12 @@ export async function awaitRegisteredVerifierAgentResult(
   }
 }
 
-/** Bind the wallet's signed request to the operation and authenticated session before disclosure. */
+/**
+ * Bind the wallet's signed request to the operation and authenticated session before disclosure.
+ * @param session Authenticated session bound to the creator-authorized operation.
+ * @param ro Verified wallet request object whose claims will be presented.
+ * @param status Session status carrying the operation binding preimage.
+ */
 export function assertRegisteredWalletRequest(session: RegisteredVerifierAgentSession, ro: VerifiedRequestObject, status: SessionStatusResult): void {
   const claims = ro.claims, op = session.operation, binding = status.bindingPreimage
   if (status.status === 'failed') throw new VerifierAgentSessionError('refused', session.sessionId, status.error ?? 'Session failed')
@@ -98,20 +123,20 @@ export function assertRegisteredWalletRequest(session: RegisteredVerifierAgentSe
     registrySize: integer('registry_size'), committee: integer('committee_count'), quorum: integer('quorum'), operationExp: op.exp})
   if (claims.nonce !== expected || binding.nonce !== expected) throw new Error('Wallet nonce does not bind the opened operation')
   if (!Number.isSafeInteger(claims.exp) || Number(claims.exp) > op.exp || Number(claims.exp) < Math.floor(Date.now() / 1000)) throw new Error('Wallet request expiry exceeds its authorization')
-  // ⚠⚠ VERIFY WHEN PRESENT — DO NOT REQUIRE. Requiring it made this wallet the only one that
+  // VERIFY WHEN PRESENT - DO not REQUIRE. Requiring it made this wallet the only one that
   //    could complete a presentation: a JAR carrying `transaction_data` is silently dropped by
   //    Hovi (it fetches the Request Object, shows it, and never POSTs a response), so a
-  //    deployment had to choose ONE wallet. The verifier already takes this position —
-  //    `[committee] require_transaction_data` defaults to false and is deliberately NOT forced
-  //    by production posture — and the certified fleet configuration composes JARs without it.
+  //    deployment had to choose one wallet. The verifier already takes this position -
+  //    `[committee] require_transaction_data` defaults to false and is deliberately not forced
+  //    by production posture - and the network configuration composes JARs without it.
   //
   //    What the operation is still bound by when the entry is absent: `request_hash` is
-  //    keccak256(domain ‖ chain_id ‖ slot_id ‖ action ‖ payload_digest), and the nonce check
+  //    keccak256(domain || chain_id || slot_id || action || payload_digest), and the nonce check
   //    above proves this JAR was composed for exactly that request hash and `op.exp`. So four
-  //    of the five fields compared below are already bound, twice over — the equality check
+  //    of the five fields compared below are already bound, twice over - the equality check
   //    against `binding.operation` near the top of this function is the other.
   //
-  //    ⚠ What is NOT bound without it: `description`, the human-readable string the holder is
+  //    What is not bound without it: `description`, the human-readable string the holder is
   //      shown. Nothing else. A deployment that needs the holder's displayed text to be
   //      cryptographically tied to the creator's authorization must set
   //      `[committee] transaction_data = true` AND accept that only wallets which understand

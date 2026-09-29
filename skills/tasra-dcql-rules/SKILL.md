@@ -12,25 +12,17 @@ metadata:
 
 # Write the slot's credential rule
 
-Define the policy before `prepareSlot`. The slot stores a salted commitment, not
+Build the policy with `tasra.credentials.policy()` before `tasra.slots.create()`. The slot stores a salted commitment, not
 the rule itself; preserve the exact rule and salts in the creation journal and
 provision it with the creator's signature. Existing slots cannot generally be
 changed without their configured amendment policy.
 
 ```ts
-import {validateDcql, canonicalizeDcql} from 'tasra-sdk'
+import {credentialPolicy} from 'tasra-sdk/app'
 
-export function sharedSignerRule(issuerDid: string) {
-  const rule = JSON.stringify({credentials: [{
-    id: 'signer', format: 'dc+sd-jwt', meta: {vct_values: ['TreasurySigner']},
-    claims: [
-      {path: ['iss'], values: [issuerDid]},
-      {path: ['sub'], values: ['did:demo:alice', 'did:demo:bob']},
-      {path: ['role'], values: ['treasury-signer']},
-    ],
-  }]})
-  validateDcql(rule)
-  return canonicalizeDcql(rule)
+export function sharedSignerRule(issuerDid: string, aliceDid: string, bobDid: string) {
+  return credentialPolicy({issuer: issuerDid, type: 'TreasurySigner',
+    subjects: [aliceDid, bobDid], claims: {role: ['treasury-signer']}})
 }
 ```
 
@@ -39,8 +31,9 @@ two people to approve. Use signer-specific rules on two slots for two detached
 document signatures, or a native FROST approval policy for one quorum-approved
 signature. `tasra-sign-and-decrypt` and `tasra-committee-path` explain that choice.
 
-For IBE, add `kk_identity_scope_claim` and `kk_scope_namespace`, and require that
-scope claim in the query. `examples/encrypted-notes.ts` shows the complete
+For IBE, pass `identityScope: {claim: 'documents', namespace: 'issuer'}` to
+`tasra.credentials.policy()` and issue credentials with a `documents` claim
+containing the allowed identities. The SDK writes the required scope declarations. `examples/encrypted-notes.ts` shows the complete
 issuer-rooted scope and credential. Exact `p` does not grant `p/x`; use `p/*` only
 when a whole subtree is intended. Evaluate identity scopes with
 `evaluateIdentityScoped`, not plain `evaluateDcql`.
@@ -56,4 +49,4 @@ limit; check the installed `DCQL_MAX_RULE_LEN` rather than character count.
 
 For detailed matching semantics, JWT-VC or OAuth/DPoP rules and commitment helpers,
 read [advanced policy formats](references/advanced.md). Cross-language conformance
-for the candidate is a separate release gate, not implied by local validation.
+requires separate evidence; it is not implied by local validation.

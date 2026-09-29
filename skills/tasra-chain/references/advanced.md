@@ -11,7 +11,8 @@ native approval POSTs or signing requests with an uncertain outcome.
 # `tasra-sdk/chain`
 
 Everything on-chain, behind its own subpath so the crypto core stays free of
-`viem`. Install `viem` alongside the SDK to use it.
+`viem` imports. The SDK installs viem automatically; declare it in your own
+application dependencies only when your code imports viem directly.
 
 ## Public deployment manifest
 
@@ -32,7 +33,7 @@ changes its digest. A trusted local checkout of the same revision works too.
 The pointer's checksum protects the record only when you trust its source; hashing
 an arbitrary download yourself does not establish authenticity.
 
-Complete Node bootstrap (`npm install tasra-sdk viem`):
+Complete Node bootstrap (`npm install tasra-sdk@latest`):
 
 ```ts
 import {
@@ -96,8 +97,8 @@ point: a file that does not hash to it throws
   and verifiers on-chain. Other records may have no services: report the missing
   endpoint rather than inventing one. Service URLs do not themselves establish a
   ServiceRegistry approval (see `tasra-create-slot/references/advanced.md`, "Gas: who pays").
-  Keys and tokens are never in the manifest. A dev deployment's mock EURC is usually absent too, so `mintMockEurc`
-  needs its address from elsewhere while `BondingCurve` reads fine from the book.
+  Keys and tokens are never in the manifest. Missing contract entries must be
+  supplied by a reviewed release record before the corresponding operation is used.
 - Regenerate it whenever the deployment changes: the addresses move and the old digest
   stops verifying, which is the behaviour you want.
 
@@ -107,14 +108,11 @@ no private source checkout is needed.
 ## Address book and read client
 
 ```ts
-import {createTasraChainClient, addressBookFromEnv, addressBookFromObject, requireAddress, NETWORKS} from 'tasra-sdk/chain'
+import {createTasraChainClient, addressBookFromManifest, addressBookFromObject, requireAddress, NETWORKS} from 'tasra-sdk/chain'
 
-// env keys: KEY_REGISTRY, NODE_REGISTRY, SETTLEMENT, TASRA_TOKEN, BONDING_CURVE, TREASURY,
-// TASRA_VESTING_VAULT, THRESHOLD_BEACON, VERIFIER_SET_REGISTRY, … — the book keeps BOTH the env
-// alias and the PascalCase contract name, so `requireAddress` "Known:" lists show each twice
-const addresses = addressBookFromEnv(process.env)
-// or addressBookFromObject({KeyRegistry: '0x…', NodeRegistry: '0x…'})  — keys are the PascalCase
-// contract names as-is (no translation); or addressBookFromBroadcast(foundryRunJson)
+// manifest is downloaded from tasra-releases and verified against its trusted checksum.
+const addresses = addressBookFromManifest(manifest)
+const chainId = manifest.chainId
 const chain = createTasraChainClient({rpcUrl, addresses, chainId, logWindow: 1_000})   // at or under the RPC's getLogs cap
 ```
 
@@ -122,11 +120,9 @@ Slot ids everywhere in this subpath are the bytes32 id as a `0x…` hex string
 (viem `Hex`), never a number or bigint.
 
 `requireAddress(book, 'KeyRegistry')` throws with the known keys when one is
-missing. `NETWORKS` holds named presets (`chainId` + `rpcUrl`); `local`, `testnet` and `mainnet`
-provide chain policy; deployed contract addresses come from a pinned manifest. `chainId` defaults
-to the local dev chain (1337) and the RPC is never consulted for it; pass it explicitly for any
-other deployment. `logWindow` must
-stay under your RPC's `getLogs` range cap (public RPCs: about 2k blocks).
+missing. `NETWORKS` holds RPC and chain presets. Use the downloaded manifest's
+chain ID explicitly; the constructor does not query the RPC to confirm it.
+Keep `logWindow` within the selected RPC's `getLogs` limit.
 Construction is offline — it only configures viem; the first read is the first
 RPC call, and a missing address throws there rather than at construction.
 
@@ -191,7 +187,7 @@ const {publicKey, epoch, mode} = await resolveSlotGroupKey(chain, slotId)   // m
 `KeyRegistry`; `createTasraSlotClient` uses the first two. The committee path
 also reads `ThresholdRandomBeacon` and `VerifierSetRegistry` (`tasra-committee-path`).
 
-Live-fleet HTTP readers (`import {nodeApi, verifierApi, parsePrometheus} from 'tasra-sdk/chain'`)
+Network-service HTTP readers (`import {nodeApi, verifierApi, parsePrometheus} from 'tasra-sdk/chain'`)
 are plain objects of functions taking the base URL:
 `nodeApi.info(nodeUrl)` (`version`, `peer_id`, `node_identifier` — the node's BLS
 identifier — and feature gates such as `admin_scope_enabled`; fields are
@@ -226,15 +222,15 @@ modes are described in the compatibility reference for
 
 ## Common mistakes
 
-- ❌ Importing `tasra-sdk/chain` without `viem` installed. It is an
-  optional peer; install it.
-- ❌ Assuming on-chain node URLs are reachable from your network. They are
+- Forgetting to declare viem when your own app imports it directly. The SDK
+  installs viem for its own adapters; SDK-only consumers need no separate declaration.
+- Assuming on-chain node URLs are reachable from your network. They are
   often in-cluster names; use `rewriteUrl` for the slot client, and the same
   mapping by hand for `nodeApi`/`verifierApi` calls.
-- ❌ Huge `getLogs` ranges on a public RPC. Set `logWindow` under the cap.
-- ❌ Serialising reader results with `JSON.stringify`. Values are `bigint`;
+- Huge `getLogs` ranges on a public RPC. Set `logWindow` under the cap.
+- Serialising reader results with `JSON.stringify`. Values are `bigint`;
   use `JSON.stringify(jsonSafe(value))`.
-- ❌ Passing `number` block ranges to `getLogsWindowed`. Use `bigint`.
+- Passing `number` block ranges to `getLogsWindowed`. Use `bigint`.
 
 ## Where to read more
 

@@ -1,4 +1,4 @@
-import {equalBytes} from '@noble/curves/abstract/utils'
+import {equalBytes} from '@noble/curves/utils.js'
 import {sha256} from '@noble/hashes/sha256'
 import {keccak_256} from '@noble/hashes/sha3'
 import {utf8ToBytes} from '@noble/hashes/utils'
@@ -18,35 +18,96 @@ import {payloadDigestFor, requestHash} from '../oid4vp/binding.js'
 import type {OperationInput} from '../oid4vp/verifier-agent.js'
 import {defineDeployment, type TasraDeployment} from './deployment.js'
 
+/**
+ * Failure categories for deployment, slot, authorization and result validation.
+ */
 export type ApplicationErrorCode = 'CHAIN_MISMATCH' | 'SLOT_NOT_FOUND' | 'SLOT_CANCELLED' | 'WRONG_SLOT_MODE' | 'KEY_NOT_READY' | 'SLOT_CHANGED' | 'INVALID_AUTHORIZATION' | 'INVALID_RESULT'
+/**
+ * An application operation rejected because its deployment, slot, authorization or result failed validation.
+ */
 export class TasraApplicationError extends TasraError {
-  constructor(readonly code: ApplicationErrorCode, message: string) { super(message) }
+  constructor(/** Stable application error category used to choose recovery behavior. */ readonly code: ApplicationErrorCode, message: string) { super(message) }
 }
 
-export interface OperationGrant {token: CompoundTokenWire; verifierProofs: VerifierProof[]}
-export type AuthorizationRequest = Readonly<OperationInput & {signal?: AbortSignal}>
+/**
+ * Holder-bound committee token and verifier membership proofs for one operation.
+ */
+export interface OperationGrant {
+  /** Fresh compound verifier token bound to the holder and exact operation. */
+  token: CompoundTokenWire
+  /** Membership proofs for the verifiers that authorized the operation. */
+  verifierProofs: VerifierProof[]
+}
+/**
+ * Immutable operation details presented to the application authorizer.
+ */
+export type AuthorizationRequest = Readonly<OperationInput & {
+  /** Cancellation signal propagated to the authorization provider. */
+  signal?: AbortSignal
+}>
 /** Called once for the exact operation. Applications display the wallet request here. */
 export type OperationAuthorizer = (request: AuthorizationRequest) => Promise<OperationGrant>
+/**
+ * Authorization callback, consent description and cancellation controls for a protected operation.
+ */
 export interface AuthorizedOperationOptions {
+  /**
+   * Obtain a fresh holder-bound grant for this exact operation.
+   */
   authorize: OperationAuthorizer
+  /**
+   * Human-readable consent text attached to the authorization request.
+   */
   description?: string
+  /**
+   * Cancel pending authorization or network work.
+   */
   signal?: AbortSignal
+  /**
+   * Optional holder signature forwarded to the keeper operation.
+   */
   userSignature?: Uint8Array
 }
+/**
+ * Deployment, chain reader and transport choices used by the application client.
+ */
 export interface TasraApplicationConfig {
+  /** Application-approved chain, registry and coordinator configuration. */
   deployment: TasraDeployment
   /** Reuse the read client in an existing app. Its actual chain is checked before use. */
   chain?: TasraChainClient
   /** Caller-approved routing, e.g. local Docker hostnames to published loopback ports. */
   keeperUrl?: (registeredUrl: string) => string
+  /** HTTP implementation used for keeper operation requests. */
   fetchImpl?: typeof fetch
 }
+/**
+ * Current slot mode, key epoch, threshold and anchored public key.
+ */
 export interface SlotMetadata {
+  /**
+   * 32-byte identifier of the slot on this deployment.
+   */
   slotId: Hex
+  /**
+   * Registry key-mode ordinal: 0 for FROST, 1 for BLS or 2 for threshold ECDSA.
+   */
   mode: number
+  /**
+   * Current key epoch recorded by the registry.
+   */
   epoch: number
+  /**
+   * Minimum participating shares k and total assigned shares n.
+   */
   threshold: {k: number; n: number}
+  /**
+   * Anchored group public key as hexadecimal bytes.
+   */
   publicKey: Hex
+  /**
+   * Whether the registry contains a nonempty group public key.
+   */
   ready: boolean
 }
 
@@ -54,6 +115,8 @@ export interface SlotMetadata {
  * Configure one application client. Construction does no I/O and holds no wallet credentials.
  * Start with `await tasra.slots.ecdsa(slotId)` and `await account.getAddress()`;
  * provide an authorizer only when signing or decrypting.
+ * @param config Validated deployment settings and optional transport adapters.
+ * @returns A client with read-only checks and authorized slot operations.
  */
 export function createTasra(config: TasraApplicationConfig) {
   const deployment = defineDeployment(config.deployment)
@@ -65,6 +128,10 @@ export function createTasra(config: TasraApplicationConfig) {
   async function assertChain() {
     if (await chain.client.getChainId() !== deployment.chainId) throw new TasraApplicationError('CHAIN_MISMATCH', 'RPC chain does not match the application deployment')
   }
+  /**
+   * Read slot metadata after checking the deployment chain and slot status.
+   * @param slotId Identifier of the slot on this deployment.
+   */
   async function get(slotId: Hex): Promise<SlotMetadata> {
     protocolHex(slotId, 32, 'slot id')
     await assertChain()
@@ -115,7 +182,10 @@ export function createTasra(config: TasraApplicationConfig) {
     return grant
   }
   return {
-    deployment, chain,
+    /** Validated configuration for the selected deployment. */
+    deployment,
+    /** Read-only chain client bound to the selected deployment. */
+    chain,
     /** Read-only chain and registry probe. Does not claim keeper/issuer compatibility. */
     async check() {
       await assertChain()
@@ -124,12 +194,26 @@ export function createTasra(config: TasraApplicationConfig) {
       return {chainId: deployment.chainId, registries: entries, ready: entries.every(e => e.deployed),
         authorization: 'unknown' as const, nativeMultiApproverIbe: 'unsupported' as const, taskContextEnforcement: 'unsupported' as const}
     },
+    /** Slot metadata reads and capability-specific signing or encryption adapters. */
     slots: {
       get,
+      /**
+       * Open a ready threshold ECDSA slot for verified Ethereum signatures.
+       * @param slotId Identifier of the ECDSA slot.
+       */
       async ecdsa(slotId: Hex) {
         await ready(slotId, 2)
         const getAddress = async () => addressFromEoaPubkey(protocolHex((await ready(slotId, 2)).publicKey, 33, 'secp256k1 public key')) as Hex
-        return {slotId, getAddress,
+        return {
+          /** Identifier of the threshold ECDSA slot. */
+          slotId,
+          /** Recheck slot readiness and derive its Ethereum address from the current public key. */
+          getAddress,
+          /**
+           * Authorize and sign an exact 32-byte Ethereum digest, then verify the recovered account.
+           * @param input Exactly 32 digest bytes.
+           * @param options Fresh operation authorization and cancellation controls.
+           */
           async signDigest(input: Uint8Array, options: AuthorizedOperationOptions): Promise<EoaSignature> {
             if (input.length !== 32) throw new TasraError('Ethereum digest must be exactly 32 bytes')
             const digest = input.slice(), s = await ready(slotId, 2)
@@ -144,9 +228,20 @@ export function createTasra(config: TasraApplicationConfig) {
           },
         }
       },
+      /**
+       * Open a ready FROST slot for verified Ed25519 signatures and native approvals.
+       * @param slotId Identifier of the FROST slot.
+       */
       async frost(slotId: Hex) {
         await ready(slotId, 0)
-        return {slotId,
+        return {
+          /** Identifier of the FROST signing slot. */
+          slotId,
+          /**
+           * Authorize the exact message and verify the returned signature, epoch and optional receipt.
+           * @param input Message bytes to sign.
+           * @param options Fresh authorization and optional verified-receipt requirement.
+           */
           async sign(input: Uint8Array, options: AuthorizedOperationOptions & {requireReceipt?: boolean}) {
             const message = input.slice(), s = await ready(slotId, 0)
             const grant = await authorize(s, 'sign', {message}, options), node = (await keepers(slotId))[0]!
@@ -171,6 +266,10 @@ export function createTasra(config: TasraApplicationConfig) {
           },
         }
       },
+      /**
+       * Open a ready BLS slot for identity encryption and authorized extraction.
+       * @param slotId Identifier of the BLS slot.
+       */
       async bls(slotId: Hex) {
         await ready(slotId, 1)
         const groupKey = (s: SlotMetadata) => {
@@ -184,9 +283,17 @@ export function createTasra(config: TasraApplicationConfig) {
             verifierProofs: grant.verifierProofs, identity, userSignature: options.userSignature, signal: options.signal, fetchImpl, requireReceipts: options.requireReceipts}
           return opts
         }
-        return {slotId,
+        return {
+          /** Identifier of the BLS identity-encryption slot. */
+          slotId,
           /** Public-key encryption; no credential or network authorization is requested. */
           async encrypt(identity: string, plaintext: Uint8Array) { return ibeEncrypt(groupKey(await ready(slotId, 1)), utf8ToBytes(identity), plaintext) },
+          /**
+           * Authorize identity-key extraction and decrypt the ciphertext after verifying threshold shares.
+           * @param identity Exact encryption identity string.
+           * @param ciphertext Encrypted payload bound to that identity.
+           * @param options Fresh authorization and optional verified-receipt requirement.
+           */
           async decrypt(identity: string, ciphertext: IbeCiphertext, options: AuthorizedOperationOptions & {requireReceipts?: boolean}) {
             return decryptIdentityStrict({...await extraction(identity, options), ciphertext})
           },
@@ -200,7 +307,19 @@ export function createTasra(config: TasraApplicationConfig) {
   }
 }
 
+/**
+ * Application client exposing checked slot operations and deployment readiness probes.
+ */
 export type TasraApplication = ReturnType<typeof createTasra>
+/**
+ * Threshold Ethereum account handle that verifies each signature against the anchored public key.
+ */
 export type EcdsaSlot = Awaited<ReturnType<TasraApplication['slots']['ecdsa']>>
+/**
+ * Threshold Ed25519 signing handle with optional receipt checks and native approval sessions.
+ */
 export type FrostSlot = Awaited<ReturnType<TasraApplication['slots']['frost']>>
+/**
+ * Identity-based encryption handle with authorized decryption and explicit identity-key extraction.
+ */
 export type BlsSlot = Awaited<ReturnType<TasraApplication['slots']['bls']>>

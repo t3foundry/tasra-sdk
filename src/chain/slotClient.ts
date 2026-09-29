@@ -1,14 +1,14 @@
 // Slot-driven managed JWT client. Same ergonomics as `createTasraClient`, but you
 // bring a slot id + a chain client instead of hardcoding `{nodes, verifier}`:
 //
-//   • the keeper NODES come from the slot's on-chain committee (assignedNodes → nodeOf().url)
-//   • the VERIFIER is CHOSEN from the on-chain verifier set (NodeRegistry operators tagged
-//     keccak256("verifier")) at random — that verifier validates your VP and issues the JWT
-//   • the JWT then authorizes the operation at a keeper node
+//   - the keeper NODES come from the slot's on-chain committee (assignedNodes to nodeOf().url)
+//   - the VERIFIER is CHOSEN from the on-chain verifier set (NodeRegistry operators tagged
+//     keccak256("verifier")) at random - that verifier validates your VP and issues the JWT
+//   - the JWT then authorizes the operation at a keeper node
 //
-// So the verifier is genuinely part of every session: `openSession` picks one from chain,
+// So the verifier is part of every session: `openSession` picks one from chain,
 // and the returned session's JWT was minted by it. This composes the existing verifier-auth
-// + session machinery (src/client) with chain discovery (src/chain/discovery) — no new
+// + session machinery (src/client) with chain discovery (src/chain/discovery) - no new
 // crypto, just endpoint resolution moved from static config to the registry.
 
 import type {TasraChainClient} from './client.js'
@@ -21,27 +21,29 @@ import {
 } from '../client/index.js'
 import type {CommitteeVerifier} from '../committee/request.js'
 
-/** How the session's endpoints were resolved from chain — surfaced so callers can SEE
+/** How the session's endpoints were resolved from chain - surfaced so callers can see
  *  which verifier was chosen and which keeper committee the slot is bound to. */
 export interface ResolvedEndpoints {
+  /** Slot identifier used to resolve the assigned service endpoints. */
   slotId: string
   /** The slot's on-chain assigned keeper node URLs. */
   nodes: string[]
-  /** The verifier chosen (at random) from the on-chain set — it issued the JWT. */
+  /** The verifier chosen (at random) from the on-chain set - it issued the JWT. */
   verifier: string
   /** Size of the on-chain verifier set the choice was drawn from. */
   verifierCount: number
 }
 
+/**
+ * Chain discovery and authorization options for a managed JWT slot session.
+ */
 export interface TasraSlotClientConfig {
   /** Read client for the deployment (RPC + address book). */
   chain: TasraChainClient
   /** This holder's DID (recipient_did / holder for the JWT). */
   identity?: string
   /**
-   * Map an on-chain (in-cluster) node/verifier URL to a reachable one — e.g. rewrite the
-   * demo fleet's `tasra-node-7:8080` to a host port. Default: identity (URLs used as-is,
-   * correct when the caller shares the nodes' network).
+   * Explicit routing from registered service URLs to reachable URLs. Omission uses registry URLs unchanged.
    */
   rewriteUrl?: (url: string) => string
   /** Observe the per-session resolution (chosen verifier + discovered nodes). */
@@ -50,6 +52,9 @@ export interface TasraSlotClientConfig {
   skewMs?: number
 }
 
+/**
+ * Managed slot-session factory that resolves keeper and verifier endpoints from the registry.
+ */
 export interface TasraSlotClient {
   /** Discover the slot's nodes + choose a verifier from chain, mint the JWT via that
    *  verifier, and return a managed session (encrypt / decrypt / sign). */
@@ -59,49 +64,16 @@ export interface TasraSlotClient {
   resolveEndpoints(slotId: string): Promise<ResolvedEndpoints>
   /** The discovered active verifier directory (cached). */
   verifierDirectory(): Promise<CommitteeVerifier[]>
+  /** Return currently open managed sessions. */
   sessions(): readonly Session[]
+  /** Close all managed sessions and clear their reconstructed key material. */
   closeAll(): Promise<void>
 }
 
 /**
- * Slot-driven managed JWT client — the same ergonomics as
- * {@link createTasraClient}, but you bring a slot id + a chain client instead of
- * hardcoding `{nodes, verifier}`:
- *
- * - the keeper **nodes** come from the slot's on-chain committee
- *   (`assignedNodes` → `nodeOf().url`)
- * - the **verifier** is chosen at random from the on-chain verifier set
- *   (`NodeRegistry` operators tagged `keccak256("verifier")`) — that verifier
- *   validates your VP and issues the JWT
- * - the JWT then authorizes the operation at a keeper node
- *
- * So the verifier is genuinely part of every session: `openSession` picks one from
- * chain, and the returned session's JWT was minted by it. Pass `onResolve` to see
- * which one. This is the production access path.
- *
- * Composes the verifier-auth + session machinery with chain discovery — no new
- * crypto, just endpoint resolution moved from static config to the registry.
- * Contrast {@link createCommitteeSlotClient}, which takes the committee
- * path instead and never reconstructs the key.
- *
- * @param cfg a {@link TasraChainClient} plus this holder's DID. Use `rewriteUrl`
- *   when on-chain URLs are not reachable as-is (e.g. mapping a demo fleet's
- *   in-cluster `tasra-node-7:8080` to a host port).
- * @returns a client that opens managed sessions from a bare slot id
- *
- * @example
- * ```ts
- * const chain = createTasraChainClient({rpcUrl, addresses: addressBookFromEnv(process.env)})
- * const kk = createTasraSlotClient({
- *   chain,
- *   identity: 'did:example:alice',
- *   onResolve: r => console.log('verifier chosen:', r.verifier, 'of', r.verifierCount),
- * })
- *
- * const s = await kk.openSession(slotId, {vpJwt: {dcqlRule, credentials, holderProof}})
- * const sig = await s.sign(messageBytes)
- * await s.close()
- * ```
+ * Create managed JWT sessions using keeper endpoints and a randomly selected verifier discovered from the chain. The verifier authenticates the holder and issues the session token. Session key operations may reconstruct private key material in the client; use threshold committee operations when that custody model is unsuitable.
+ * @param cfg Chain reader, holder identity and optional endpoint routing or discovery callback.
+ * @returns Client that opens and tracks managed slot sessions.
  */
 export function createTasraSlotClient(cfg: TasraSlotClientConfig): TasraSlotClient {
   const rewrite = cfg.rewriteUrl ?? ((u: string) => u)
@@ -120,7 +92,7 @@ export function createTasraSlotClient(cfg: TasraSlotClientConfig): TasraSlotClie
     if (nodes.length === 0) throw new Error(`slot ${slotId.slice(0, 10)}… has no on-chain assigned keeper node with a URL`)
     const verifiers = dir.map(v => rewrite(v.url)).filter(Boolean)
     if (verifiers.length === 0) throw new Error('no verifiers discovered on chain (NodeRegistry has no active keccak256("verifier")-tagged node with a URL)')
-    // Choose the verifier at random — the SDK "queries the chain and picks the verifier".
+    // Choose the verifier at random - the SDK "queries the chain and picks the verifier".
     const verifier = verifiers[Math.floor(Math.random() * verifiers.length)]!
     return {slotId, nodes, verifier, verifierCount: verifiers.length}
   }
@@ -133,7 +105,7 @@ export function createTasraSlotClient(cfg: TasraSlotClientConfig): TasraSlotClie
       const resolved = await resolveEndpoints(slotId)
       cfg.onResolve?.(resolved)
       // Compose the existing managed JWT client with the chain-resolved endpoints. The
-      // chosen verifier mints the JWT (openSession → resolveAuth → verify against it).
+      // chosen verifier mints the JWT (openSession to resolveAuth to verify against it).
       const inner = createTasraClient({nodes: resolved.nodes, verifier: resolved.verifier, identity: cfg.identity})
       const session = await inner.openSession(slotId, auth, {skewMs: cfg.skewMs, ...opts})
       open.add(session)

@@ -5,7 +5,7 @@
   "scripts": {
     "sync": "node sync.mjs",
     "dev": "npm run sync && astro dev --host 127.0.0.1",
-    "build": "npm run sync && astro build && node check-links.mjs",
+    "build": "npm run sync && astro build && node check-links.mjs && node --test check-reference.mjs",
     "preview": "astro preview --host 127.0.0.1"
   },
   "dependencies": {

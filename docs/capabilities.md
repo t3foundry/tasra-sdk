@@ -2,7 +2,33 @@
 
 > The capability catalogue: every major thing this SDK does, with the functions that
 > do it. Skim it once to learn the shape of the surface, then use
-> [the API reference](api.md) for detail.
+> [Advanced clients and OAuth](api.md) for detail.
+
+## Application API
+
+Start with [TasraClient](application-api.md) and the deployment's public manifest.
+The SDK includes wallet and credential adapters; apps do not need a separate
+Ethereum or cryptography library for this path.
+
+| Goal | SDK operation |
+|---|---|
+| Connect and inspect a deployment | `new TasraClient({manifest})`, `TasraClient.fromManifest`, `check` |
+| Create a ready slot with an access commitment | `slots.create` and a durable store |
+| Create DIDs, credentials and presentations | `identities.create`, `credentials.issue`, `verify`, `policy`, `present`, `authorize` |
+| Share an Ethereum account | `wallets.fromSlot` and named `transfer` |
+| Encrypt documents for authorized holders | `slots.bls`, `encrypt`, `decrypt` |
+| Sign a document independently | `slots.frost`, `sign` |
+| Require distinct people to approve one signature | `setApprovalPolicy`, `identityApprover`, `approveWithCredential`, `slot.approvals` |
+| Keep private state in Node | `createFileStore` from `tasra-sdk/app/node` |
+
+[Complete runnable applications](README.md#build-an-app) demonstrate these operations.
+The keeper threshold and the number of human approvals are separate policies.
+
+## Advanced and compatibility APIs
+
+The following capabilities remain available for integrations needing explicit
+protocol control or older deployment interfaces. Check deployment compatibility
+before choosing a managed-session or direct committee route.
 
 - **Open a managed session** — `createTasraClient({nodes, verifier, identity})`
   then `client.openSession(slot, auth)` returns a `Session` that holds the JWT +
@@ -45,9 +71,10 @@
   verifier-set Merkle proofs. `selectVerifierCommittee`, `compoundTokenHash`,
   `assembleCompoundToken`, `verifyCompoundToken`, …
 - **Create on-chain Key Slots** — sovereign, self-signed (see [`tasra-sdk/chain`](chain.md):
-  `createTasraWriteClient().createSlot`; permissionless + fee-less). Fund a fresh
-  client account with gas + TASRA via the faucet — `httpFaucet`.
-- **Read & write on-chain + live-fleet state** — the [`tasra-sdk/chain`](chain.md) subpath.
+  `createTasraWriteClient().createSlot`). Confirm the selected network’s creation
+  and usage charges. `httpFaucet` calls a compatible faucet supplied by the network;
+  it does not discover a faucet or fund an account automatically.
+- **Read & write on-chain + network-service state** — the [`tasra-sdk/chain`](chain.md) subpath.
 
 ---
 
@@ -56,4 +83,4 @@ Next: [choose a client](api.md#choose-a-client) ·
 
 ---
 
-[← Back to the README](../README.md) · [Documentation index](README.md)
+[Back to the README](../README.md) · [Documentation index](README.md)

@@ -1,4 +1,4 @@
-import {equalBytes} from '@noble/curves/abstract/utils'
+import {equalBytes} from '@noble/curves/utils.js'
 import {ed25519} from '@noble/curves/ed25519'
 import {sha256} from '@noble/hashes/sha256'
 import {bytesToHex, concatBytes, utf8ToBytes} from '@noble/hashes/utils'
@@ -10,8 +10,13 @@ import type {VerifierProof} from './client.js'
 import {decodeOperationReceipt, protocolHex} from './receipts.js'
 import {requestHash} from '../oid4vp/binding.js'
 
+/** A signing request may have been accepted despite a transport or response failure. Reconcile before resubmitting. */
 export class OperationOutcomeUnknownError extends TasraError {
-  constructor(readonly operation: 'dual-create' | 'dual-approve', readonly requestId?: string, cause?: unknown) {
+  constructor(
+    /** Request phase whose submission outcome must be reconciled. */
+    readonly operation: 'dual-create' | 'dual-approve',
+    /** Existing native signing request identifier, when known. */
+    readonly requestId?: string, cause?: unknown) {
     super(`${operation}: outcome unknown; reconcile before submitting again`, {cause})
   }
 }
@@ -20,7 +25,13 @@ function requestIdentifier(id: string): void {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new TasraError('Invalid dual-sign request ID')
 }
 
-/** Exact existing Rust canonical_dual_sig_payload, including little-endian lengths. */
+/**
+ * Exact existing Rust canonical_dual_sig_payload, including little-endian lengths.
+ *
+ * @param slotId - 32-byte slot identifier as hexadecimal text.
+ * @param message - Original message bytes to authorize.
+ * @param requestId - Existing native signing request identifier.
+ */
 export function dualSignApprovalPayload(slotId: string, message: Uint8Array, requestId: string): Uint8Array {
   requestIdentifier(requestId)
   const fields = [protocolHex(slotId, 32, 'slot id'), sha256(message), utf8ToBytes(requestId)]
@@ -31,40 +42,73 @@ export function dualSignApprovalPayload(slotId: string, message: Uint8Array, req
   }))
 }
 
+/** Trusted slot key, keeper endpoint and approver policy for a native signing request. */
 export interface DualSignConfig {
+  /** EVM chain identifier. */
   chainId: number
+  /** Keeper HTTP base URL. */
   nodeUrl: string
+  /** 32-byte slot identifier. */
   slotId: string
+  /** Expected 32-byte FROST group public key. */
   groupPublicKey: Uint8Array
   /** Expected approver quorum, read from the slot policy. Not the keeper threshold. */
   quorum: number
+  /** Whether every approval requires a request-bound credential authorization. */
   credentialGated: boolean
+  /** HTTP transport override; defaults to the global fetch implementation. */
   fetchImpl?: typeof fetch
+  /** Timeout for an individual HTTP request in milliseconds. */
   timeoutMs?: number
 }
 
+/** Native signing request progress, verified completed signature or terminal failure. */
 export type DualSignStatus =
-  | {status: 'pending' | 'signing'; have: number; need: number}
-  | {status: 'signed'; result: FrostSignResult}
-  | {status: 'failed'}
+  | {
+      /** Lifecycle state: pending or signing until the request is signed or fails. */
+      status: 'pending' | 'signing'
+      /** Number of accepted approvals collected for the request. */
+      have: number
+      /** Approval quorum required before signing can finish. */
+      need: number
+    }
+  | {
+      /** Lifecycle state: pending or signing until the request is signed or fails. */
+      status: 'signed'
+      /** Verified signature and its slot-key context. */
+      result: FrostSignResult
+    }
+  | {
+      /** Lifecycle state: pending or signing until the request is signed or fails. */
+      status: 'failed'
+    }
 
+/** Ed25519 approver public key and callback that signs canonical approval bytes. */
 export interface DualSignApprover {
+  /** 32-byte Ed25519 approver public key. */
   publicKey: Uint8Array
   /** Sign the exact supplied canonical bytes; the SDK verifies the result locally. */
   sign: (payload: Uint8Array) => Promise<Uint8Array>
 }
 
+/** Handle for checking, approving and waiting for one native multi-approver signing request. */
 export interface DualSignRequest {
+  /** Request identifier used to correlate or resume the operation. */
   readonly requestId: string
+  /** 32-byte slot identifier. */
   readonly slotId: string
+  /** Keeper HTTP base URL. */
   readonly nodeUrl: string
+  /** Fetch and validate the current request state. */
   status(options?: {signal?: AbortSignal}): Promise<DualSignStatus>
+  /** Sign and submit one approval, with credential authorization when required. */
   approve(options: {
     signer: DualSignApprover
     /** Each credentialed approval needs its own request-bound wallet presentation. */
     authorization?: {token: CompoundTokenWire; verifierProofs: VerifierProof[]}
     signal?: AbortSignal
   }): Promise<DualSignStatus>
+  /** Poll until a verified signature is available or the request fails or times out. */
   wait(options?: {signal?: AbortSignal; timeoutMs?: number; intervalMs?: number; onStatus?: (status: DualSignStatus) => void}): Promise<FrostSignResult>
 }
 
@@ -72,6 +116,8 @@ export interface DualSignRequest {
  * Native multi-approver FROST lifecycle. Never falls back to a JWT route or creates
  * a new request after an ambiguous POST. All approval and result checks use the
  * original expected message, slot, public key and quorum, not server-selected values.
+ *
+ * @param input - Trusted slot key, keeper endpoint and required approver policy.
  */
 export function createDualSignClient(input: DualSignConfig): {
   create(message: Uint8Array, options?: {signal?: AbortSignal}): Promise<DualSignRequest>

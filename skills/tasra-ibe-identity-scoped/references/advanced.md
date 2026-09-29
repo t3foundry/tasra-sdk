@@ -91,18 +91,14 @@ runs.** All three fail only here, at the first extraction, with a clear 403 each
 ```ts
 import {ibeDecryptRequest, ibeExtractRequest, ibeDecryptWithKey} from 'tasra-sdk'
 import {committeeChainReadsFromClient} from 'tasra-sdk/committee'
-// tasra-sdk/chain needs the optional peer `viem`; `await import()` it on the consumer path
-// if the same process also runs a producer without viem installed.
-import {createTasraChainClient, addressBookFromEnv, resolveVerifierDirectory, resolveSlotKeeperUrls} from 'tasra-sdk/chain'
+// The SDK installs viem for its chain adapter; no separate app dependency is needed here.
+import {createTasraChainClient, addressBookFromManifest, resolveVerifierDirectory, resolveSlotKeeperUrls} from 'tasra-sdk/chain'
 
-// inputs from env, by the names the other skills use: KK_RPC_URL, KK_CHAIN_ID (defaults to the local
-// dev chain, 1337; pass it for any other deployment), KK_SLOT_ID, KK_HOLDER (the credentials' subject
-// DID), KK_CREDENTIALS (comma-separated compact JWS), KK_HOLDER_PROOF. The IBE identity is a value of
-// your own — KK_IDENTITY is the holder DID in the other skills, not the string encrypted to.
-// Address book: extraction reads KEY_REGISTRY (slot record + verifier policy), NODE_REGISTRY (keeper
-// and verifier URLs) and THRESHOLD_BEACON (the committee draw); VERIFIER_SET_REGISTRY anchors the
-// snapshot the trustless verifier proofs are checked against.
-const chainClient = createTasraChainClient({rpcUrl, addresses: addressBookFromEnv(process.env), chainId})
+// Download and verify manifest from tasra-releases, then use its chain and contracts.
+const chainId = manifest.chainId
+// Supply the slot ID, holder identity, credentials and verifier-bound holder proofs
+// from the application's private store. The encryption identity is a separate value.
+const chainClient = createTasraChainClient({rpcUrl, addresses: addressBookFromManifest(manifest), chainId})
 const extractOpts = {
   chain: committeeChainReadsFromClient(chainClient.readers),   // a CommitteeChainReads adapter — NOT the chain client itself
   verifiers: await resolveVerifierDirectory(chainClient),     // the on-chain verifier set
@@ -191,22 +187,22 @@ for (let i = 0; i < header.chunkCount; i++) {
 
 ## Common mistakes
 
-- ❌ Reusing one identity forever. Extraction yields a permanent capability for
+- Reusing one identity forever. Extraction yields a permanent capability for
   it; scope identities narrowly and by period.
-- ❌ Using `ibeEncrypt` for large payloads. Use `ibeSealBlob`.
-- ❌ Skipping `ibeVerifyShare` when combining partials by hand. A bad partial
+- Using `ibeEncrypt` for large payloads. Use `ibeSealBlob`.
+- Skipping `ibeVerifyShare` when combining partials by hand. A bad partial
   yields garbage silently; the one-shot helpers verify for you.
-- ❌ Decrypting a blob before checking the producer's digest. Verify
+- Decrypting a blob before checking the producer's digest. Verify
   `ibeBlobDigest(body)` against the signed value first.
-- ❌ Presenting one holder proof for two extractions. Its nonce is single-use:
+- Presenting one holder proof for two extractions. Its nonce is single-use:
   mint a fresh proof per request, or pass `holderProofPerVerifier`.
-- ❌ Evaluating an identity-scoped rule with plain `evaluateDcql` (see
+- Evaluating an identity-scoped rule with plain `evaluateDcql` (see
   `tasra-dcql-rules`).
-- ❌ Reaching for `ibeExtractRequest` before checking the deployment's posture. Under
+- Reaching for `ibeExtractRequest` before checking the deployment's posture. Under
   `api.require_request_binding` it can never succeed; the verifier-agent flow can.
-- ❌ Passing `message` instead of `identity` to an `ibe-extract` session. The binding
+- Passing `message` instead of `identity` to an `ibe-extract` session. The binding
   hash is over `sha256(identity)`, so the keeper's recomputation will not match.
-- ❌ Creating the slot and only then discovering it needs an identity-scoped rule or a
+- Creating the slot and only then discovering it needs an identity-scoped rule or a
   verifier policy. Decide both before `createSlot`. Without an amendment policy
   configured at creation, the rule is immutable; replacing that slot also changes
   the key needed to open existing ciphertexts.

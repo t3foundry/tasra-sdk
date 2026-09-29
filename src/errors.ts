@@ -4,31 +4,32 @@
 // to tell "the JWT was denied" from "the node is unreachable" from "not enough
 // nodes answered" was to regex `err.message`. The SDK was doing that to itself in
 // node-client.ts. Message-matching breaks on any wording change, and it cannot
-// carry structure — a caller that wants the HTTP status, or the per-node reasons
+// carry structure - a caller that wants the HTTP status, or the per-node reasons
 // behind a failed assembly, had nowhere to read them from.
 //
 // Every class here extends `Error`, so existing `catch (e) { e.message }` code is
 // unaffected; the messages keep their previous shape too. What's new is that you
 // can branch on the type and read fields off it:
 //
-//   try {
-//     await session.decrypt(envelope)
-//   } catch (e) {
-//     if (e instanceof AuthDeniedError) return reclaimCredential()   // never retry
-//     if (e instanceof ThresholdNotMetError) {
-//       console.warn(`only ${e.got}/${e.need} nodes answered:`, e.reasons)
-//       return retryLater()                                          // transient
-//     }
-//     throw e
-//   }
+// try {
+// await session.decrypt(envelope)
+// } catch (e) {
+// if (e instanceof AuthDeniedError) return reclaimCredential() // never retry
+// if (e instanceof ThresholdNotMetError) {
+// console.warn(`only ${e.got}/${e.need} nodes answered:`, e.reasons)
+// return retryLater() // transient
+// }
+// throw e
+// }
 //
 // `retryable` is the coarse signal for callers that don't want to enumerate
 // types: false means the request will fail identically on retry (a denied or
 // expired credential, a malformed rule), true means it might not.
 
 /**
- * Base class for every error this SDK throws deliberately. Catch this to
- * distinguish SDK failures from programming errors (`TypeError`, etc.).
+ * Base class for typed SDK failures with a retryability hint.
+ * Some SDK errors extend plain Error, including relay and agent-session
+ * reconciliation errors. A retryable failure does not make a write safe to repeat.
  */
 export class TasraError extends Error {
   /** `false` when retrying the identical request cannot succeed. */
@@ -43,14 +44,17 @@ export class TasraError extends Error {
 
 /**
  * A node or verifier answered with a non-2xx status. `body` is the response body,
- * truncated to 200 characters — enough to carry the service's own error text
+ * truncated to 200 characters - enough to carry the service's own error text
  * without dumping a page of HTML into a log line.
  *
  * 5xx and 429 are marked retryable; other 4xx are not.
  */
 export class TasraHttpError extends TasraError {
+  /** HTTP status code returned by the service. */
   readonly status: number
+  /** Service URL that failed. */
   readonly url: string
+  /** Response body retained as diagnostic information. */
   readonly body: string
 
   constructor(args: {status: number; url: string; body?: string; message?: string; retryable?: boolean}) {
@@ -65,7 +69,7 @@ export class TasraHttpError extends TasraError {
 }
 
 /**
- * The credential was rejected: 401 or 403. Never retryable — the same token will
+ * The credential was rejected: 401 or 403. Never retryable - the same token will
  * be refused again. Re-claim (redeem a fresh credential or renewal) instead.
  */
 export class AuthDeniedError extends TasraHttpError {
@@ -75,10 +79,11 @@ export class AuthDeniedError extends TasraHttpError {
 }
 
 /**
- * The request never got an HTTP answer — DNS failure, connection refused,
+ * The request never got an HTTP answer - DNS failure, connection refused,
  * timeout, CORS. Retryable: the service may simply not be up yet.
  */
 export class NodeUnreachableError extends TasraError {
+  /** Endpoint that could not be reached. */
   readonly url: string
 
   constructor(args: {url: string; message?: string; cause?: unknown}) {
@@ -88,7 +93,7 @@ export class NodeUnreachableError extends TasraError {
 }
 
 /**
- * Fewer than the required number of participants answered — too few shards to
+ * Fewer than the required number of participants answered - too few shards to
  * assemble a key, too few verifier signatures for a quorum, too few nodes for a
  * signing set.
  *
@@ -123,7 +128,7 @@ export class ThresholdNotMetError extends TasraError {
 /**
  * The slot was re-keyed (rotated) since the key in hand was assembled, so that
  * key cannot read anything encrypted after the rotation. Retryable: re-assemble
- * at the new epoch and try again — the managed {@link Session} does this for you.
+ * at the new epoch and try again - the managed {@link Session} does this for you.
  */
 export class SlotRotatedError extends TasraError {
   /** The epoch the caller's key/envelope belongs to. */
@@ -148,7 +153,7 @@ export class SlotRotatedError extends TasraError {
  * 401/403, otherwise {@link TasraHttpError}. Reads and truncates the body.
  *
  * `label` prefixes the message so it names the operation rather than just the
- * URL (`'committee/sign'` → `committee/sign → HTTP 403: …`).
+ * URL (`'committee/sign'` to `committee/sign to HTTP 403: ...`).
  */
 export async function httpError(
   res: Response,
@@ -164,17 +169,21 @@ export async function httpError(
 }
 
 /**
- * True when `e` is an auth rejection — i.e. retrying is pointless, re-claim
+ * True when `e` is an auth rejection - i.e. retrying is pointless, re-claim
  * instead. Keyed on the HTTP status rather than the class, so it also catches
  * subclasses that carry their own name (e.g. `CommitteeAuthorizeError`).
+ *
+ * @param e - Caught value to classify as an authorization rejection.
  */
 export function isAuthDenied(e: unknown): e is TasraHttpError {
   return e instanceof TasraHttpError && (e.status === 401 || e.status === 403)
 }
 
 /**
- * True when retrying the identical request could plausibly succeed. Non-SDK
- * errors (a `TypeError` from a bug) report `false`.
+ * True when a typed failure may be transient. Errors outside the TasraError
+ * hierarchy return false. This hint does not make a write safe to repeat.
+ *
+ * @param e - Caught value to inspect for a retryable Tasra error.
  */
 export function isRetryable(e: unknown): boolean {
   return e instanceof TasraError && e.retryable

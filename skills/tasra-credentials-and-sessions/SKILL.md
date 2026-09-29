@@ -11,21 +11,44 @@ metadata:
 
 # Credentials and application authorization
 
-New candidate applications pass an `OperationAuthorizer` to signing or decryption.
+New applications pass an `OperationAuthorizer` to signing or decryption.
 The client does not hold a reusable logged-in session. Each callback receives the
 exact chain, registry, slot, action, payload, description and optional abort signal,
 and returns `{token, verifierProofs}` for that operation.
 
-Use `registeredWalletAuthorization` from `tasra-sdk/app` when using an independently
-approved registered verifier agent. Supply its selected client, the operation
-signer and `present(session, signal)` to display a wallet request or run a credential
-wallet. See `tasra-oid4vp-wallet-and-verifier-agent` for the typed integration.
+Create identities with `tasra.identities.create()`, issue holder-bound development
+credentials with `tasra.credentials.issue()`, and verify pins with
+`tasra.credentials.verify()`. Build the ordinary per-operation callback with:
 
-For the explicitly configured local development agent, the complete sources in
-`examples/shared-account.ts` and `examples/encrypted-notes.ts` show an
-`OperationAuthorizer` using `openVerifierAgentSession`, `presentToRequestUri` and
-`awaitVerifierAgentResult`. Forward the actual operation; do not manufacture a new
-message or identity inside the callback. Require membership proofs in the result.
+```ts
+import type {TasraClient, TasraIdentity, TasraWallet} from 'tasra-sdk/app'
+
+export function authorizeHolder(tasra: TasraClient, creator: TasraWallet,
+  identity: TasraIdentity, credential: string) {
+  if (!tasra.verifierAgentUrl) throw new Error('Manifest lacks a verifier endpoint')
+  return tasra.credentials.authorize({
+    verifierAgentUrl: tasra.verifierAgentUrl, signer: creator.signer,
+    identity, credentials: [credential],
+  })
+}
+```
+
+The SDK opens the operation-bound session, presents the credential and requires
+verifier membership proofs. Supply `approve` or presentation selection callbacks
+when the application needs a consent screen. Keep holder keys in the wallet context.
+The manifest's endpoint is configuration, not proof of production provider approval.
+
+Each invocation opens a new operation-bound session and presents the credential.
+The API does not promise that every token field changes between repeated operations:
+`vp_hash` is not a session identifier or a uniqueness check. When testing fresh
+wallet interactions, observe the session creation and presentation, alongside the
+SDK's checks of operation binding and expiry; do not require unequal `vp_hash` values.
+
+Use `registeredWalletAuthorization` when integrating an independently approved
+registered verifier agent or external wallet. It accepts the selected client,
+operation signer and `present(session, signal)` callback. Low-level OID4VP session
+helpers remain available for specialized integrations; do not rebuild their flow
+for an ordinary SDK application. Read `tasra-oid4vp-wallet-and-verifier-agent`.
 
 ## Keep the identities separate
 
@@ -53,7 +76,7 @@ revocation cannot erase that capability.
 If maintaining `createTasraClient(...).openSession(...)`, read
 [JWT sessions, renewals and holder proofs](references/advanced.md). Those capabilities
 remain available for deployments that support them. They are not the default
-current-fleet route and are never a fallback after a request-bound refusal.
+deployment route and are never a fallback after a request-bound refusal.
 
 OAuth/DPoP is a separate verifier-agent integration, not a `SessionAuth` variant;
 read the wallet skill's advanced reference when that is the requested flow.

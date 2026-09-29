@@ -1,26 +1,6 @@
-// DPoP (RFC 9449) proofs for the Tasra OAuth authorization flow.
-//
-// TWO CALL SHAPES, and which one you need is decided by WHERE YOUR TOKEN'S KEY LIVES.
-// A DPoP proof is only worth anything if its key is the key the access token is bound to
-// (`cnf.jkt`), so the proof must be signed by whatever holds that key:
-//
-//   1. **Your app obtained the token with a key this helper owns** — a plain OAuth client,
-//      `oidc-client-ts`, or the fleet test client. Use `createDpopKey()` to mint the
-//      non-extractable key, pass its `signer` to the token request, and hand the same
-//      `signer` to `submitOauthResponse`.
-//
-//   2. **An SDK holds the key internally** — `auth0-spa-js` with `useDpop`. It will not
-//      hand you the key, but it WILL mint a proof for a URL and nonce you choose
-//      (`auth0.generateDpopProof({url, method, nonce, accessToken})`). Wrap that call as a
-//      {@link DpopSigner} and pass it through; this file never sees the key.
-//
-// ⚠ `keycloak-js` has NO released DPoP API (`dpopConfig` exists only in an unreleased PR).
-// A Keycloak tenant therefore uses shape 1: obtain the token with a key from
-// `createDpopKey()` and reuse it here.
-//
-// ⚠ The key MUST be non-extractable where the platform allows it. `createDpopKey` asks
-// WebCrypto for `extractable: false`, which is what makes a stolen token inert: an attacker
-// who exfiltrates the token cannot exfiltrate the key that spends it.
+// DPoP proof generation for OAuth authorization. Use the same key that the
+// access token is bound to, either through an SDK-owned Web Crypto key or
+// through a proof callback supplied by the identity provider client.
 
 import {TasraError} from '../errors.js'
 
@@ -48,7 +28,11 @@ function b64urlJson(value: unknown): string {
   return b64url(new TextEncoder().encode(JSON.stringify(value)))
 }
 
-/** RFC 9449 §4.2 `ath`: base64url(sha256(ASCII(access_token))). */
+/**
+ * Compute the base64url SHA-256 access-token hash for the DPoP ath claim.
+ *
+ * @param accessToken - Exact access token string to bind into the DPoP proof.
+ */
 export async function accessTokenHash(accessToken: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(accessToken))
   return b64url(new Uint8Array(digest))
@@ -58,16 +42,15 @@ export async function accessTokenHash(accessToken: string): Promise<string> {
 export interface DpopKey {
   /** The public half, as the JWK that rides in every proof header. */
   publicJwk: JsonWebKey
-  /** RFC 7638 thumbprint — the value the IdP puts in the token's `cnf.jkt`. */
+  /** RFC 7638 thumbprint - the value the IdP puts in the token's `cnf.jkt`. */
   thumbprint(): Promise<string>
+  /** DPoP proof signer bound to this key. */
   signer: DpopSigner
 }
 
 /**
- * Mint a fresh ES256 DPoP key.
- *
- * Non-extractable: the private half never leaves WebCrypto, so it cannot be copied out of a
- * compromised page along with the token. That is the entire point of sender constraining.
+ * Generate an ES256 DPoP key pair with a non-extractable private key.
+ * The returned signer can create proofs without exposing the private key bytes.
  */
 export async function createDpopKey(): Promise<DpopKey> {
   const pair = await crypto.subtle.generateKey({name: 'ECDSA', namedCurve: 'P-256'}, false, [
@@ -113,9 +96,11 @@ export async function createDpopKey(): Promise<DpopKey> {
 /**
  * RFC 7638 JWK thumbprint of an EC P-256 public key.
  *
- * ⚠ The member order is LEXICOGRAPHIC and the JSON has no whitespace — the RFC hashes an
+ *  The member order is LEXICOGRAPHIC and the JSON has no whitespace - the RFC hashes an
  * exactly specified string, so `JSON.stringify` over an object literal in a different order
  * yields a different thumbprint and the token's `cnf.jkt` would never match.
+ *
+ * @param jwk - Public JSON Web Key whose required members form the thumbprint.
  */
 export async function jwkThumbprint(jwk: JsonWebKey): Promise<string> {
   if (jwk.kty !== 'EC' || !jwk.crv || !jwk.x || !jwk.y) {
@@ -143,6 +128,8 @@ function randomJti(): string {
  * ```ts
  * const signer = auth0DpopSigner((args) => auth0.generateDpopProof(args))
  * ```
+ *
+ * @param generate - Callback that creates a DPoP proof using the identity provider client's bound key.
  */
 export function auth0DpopSigner(
   generate: (args: {
@@ -159,7 +146,11 @@ export function auth0DpopSigner(
   }
 }
 
-/** Guard for a nonce that can ride in a header (the agent's challenge carries it back). */
+/**
+ * Guard for a nonce that can ride in a header (the agent's challenge carries it back).
+ *
+ * @param nonce - Nonce text to check before using it as an HTTP header value.
+ */
 export function isHeaderSafeNonce(nonce: string): boolean {
   return nonce.length > 0 && B64URL_ALPHABET_SAFE.test(nonce)
 }

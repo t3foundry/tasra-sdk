@@ -3,8 +3,7 @@
 // opens a session, hands the `openid4vp://` payload to a wallet as a QR or deep link, and later
 // collects the compound token. Nothing about the presentation ever comes back here.
 //
-// Volod's thin session client (`../verifier-agent`) is re-exported; this module adds the typed-data signing
-// and the per-action payload plumbing (`ibe-extract` carries the identity as the message).
+// Adds EIP-712 operation signing and action-specific payload binding to the session client.
 
 import {bytesToHex, hexToBytes} from '../crypto/hex.js'
 import type {CompoundTokenWire} from '../committee/token.js'
@@ -17,10 +16,12 @@ export {createOid4vpSession, pollOid4vpSession, waitForSession, payloadDigest, n
 export type {SessionPhase, VerifierAgentSessionErrorKind, WaitOpts} from '../verifier-agent/index.js'
 export type {CreateSessionParams, CreateSessionResult, PresentationDelegation, PresentationOperation, SessionStatusResult} from '../verifier-agent/index.js'
 
+/** EIP-712 domain name for creator-signed presentation operations. */
 export const PRESENTATION_EIP712_NAME = 'Keykeeper Presentation'
+/** EIP-712 domain version for creator-signed presentation operations. */
 export const PRESENTATION_EIP712_VERSION = '1'
 
-/** The EIP-712 types mirrored from the reference presentation-auth types — do not reorder. */
+/** The EIP-712 types mirrored from the reference presentation-auth types - do not reorder. */
 export const PRESENTATION_OPERATION_TYPES = {
   PresentationOperation: [
     {name: 'chainId', type: 'uint256'},
@@ -32,9 +33,11 @@ export const PRESENTATION_OPERATION_TYPES = {
   ],
 } as const
 
-/** Anything that signs EIP-712 typed data for an address — a viem `LocalAccount` or `WalletClient`-bound account fits. */
+/** Anything that signs EIP-712 typed data for an address - a viem `LocalAccount` or `WalletClient`-bound account fits. */
 export interface TypedDataSigner {
+  /** EVM address of the creator or delegated signing wallet. */
   address: `0x${string}`
+  /** Sign the operation EIP-712 payload using the wallet's key. */
   signTypedData(args: {
     domain: {name: string; version: string; chainId: number; verifyingContract: `0x${string}`}
     types: typeof PRESENTATION_OPERATION_TYPES
@@ -43,24 +46,35 @@ export interface TypedDataSigner {
   }): Promise<`0x${string}`>
 }
 
+/** Slot operation, payload context and authorization lifetime used to construct EIP-712 typed data. */
 export interface OperationInput {
+  /** EVM chain identifier. */
   chainId: number
-  /** The KeyRegistry address — the EIP-712 `verifyingContract`. */
+  /** The KeyRegistry address - the EIP-712 `verifyingContract`. */
   keyRegistry: `0x${string}`
+  /** 32-byte slot identifier. */
   slotId: `0x${string}` | Uint8Array
+  /** Operation whose payload and permission are being authorized. */
   action: CommitteeAction
   /** `sign`: the message; `ibe-extract`: use `identity`; `decrypt`/`dual-approve`: use `payloadDigest`. */
   message?: Uint8Array
+  /** Exact identity string for an IBE extraction operation. */
   identity?: string
+  /** Precomputed 32-byte digest for decrypt or dual-approve. */
   payloadDigest?: Uint8Array
   /** Shown by the wallet as the operation's purpose. */
   description: string
   /** Seconds the authorization stays valid (default 600, the verifier-agent caps at 3600). */
   ttlSecs?: number
+  /** Current time override in Unix seconds. */
   nowSecs?: number
 }
 
-/** The typed data a creator (or delegate) signs, plus the wire operation and the verifier-agent's `message_hex`. */
+/**
+ * The typed data a creator (or delegate) signs, plus the wire operation and the verifier-agent's `message_hex`.
+ *
+ * @param input - Network, slot, operation payload, description and authorization lifetime.
+ */
 export function presentationOperationTypedData(input: OperationInput): {
   typedData: Parameters<TypedDataSigner['signTypedData']>[0]
   operation: PresentationOperation
@@ -96,21 +110,31 @@ export function presentationOperationTypedData(input: OperationInput): {
   }
 }
 
+/** Operation, signing wallet and verifier-agent endpoint for opening a presentation session. */
 export interface OpenVerifierAgentSessionOpts extends OperationInput {
+  /** Verifier-agent HTTP base URL for the selected network. */
   verifierAgentUrl: string
   /** The slot creator's key, or a delegate's (with `delegation`). */
   signer: TypedDataSigner
+  /** Optional creator-signed delegation authorizing the signing wallet. */
   delegation?: PresentationDelegation
 }
 
+/** Opened wallet session with its signed operation and expected request-binding hash. */
 export interface OpenedVerifierAgentSession extends CreateSessionResult {
+  /** Signed operation details presented for authorization. */
   operation: PresentationOperation
-  /** The binding hash the token will carry — compare with the token's `request_hash`. */
+  /** The binding hash the token will carry - compare with the token's `request_hash`. */
   requestHash: Uint8Array
+  /** Verifier-agent HTTP base URL for the selected network. */
   verifierAgentUrl: string
 }
 
-/** Sign the operation and open a session; hand `qrPayload` to the wallet. */
+/**
+ * Sign the operation and open a session; hand `qrPayload` to the wallet.
+ *
+ * @param opts - Operation details, signing wallet and verifier-agent endpoint.
+ */
 export async function openVerifierAgentSession(opts: OpenVerifierAgentSessionOpts): Promise<OpenedVerifierAgentSession> {
   const {typedData, operation, messageHex, payloadDigest} = presentationOperationTypedData(opts)
   const operationSig = await opts.signer.signTypedData(typedData)
@@ -119,18 +143,25 @@ export async function openVerifierAgentSession(opts: OpenVerifierAgentSessionOpt
   return {...session, operation, requestHash: requestHash(opts.chainId, slot, opts.action, payloadDigest), verifierAgentUrl: opts.verifierAgentUrl}
 }
 
+/** Compound committee token with optional request preimage and verifier membership proofs. */
 export interface VerifierAgentResult {
+  /** Compound committee authorization token. */
   token: CompoundTokenWire
+  /** Operation context used to derive the request-binding hash. */
   bindingPreimage?: Record<string, unknown>
   /**
-   * The drawn verifiers' snapshot membership proofs the verifier-agent built at session creation —
+   * The drawn verifiers' snapshot membership proofs the verifier-agent built at session creation -
    * hand them to every keeper call (`verifierProofs`): a keeper in snapshot-required mode
    * (`api.require_verifier_proofs`) refuses a committee request without them.
    */
   verifierProofs?: VerifierProof[]
 }
 
-/** The verifier-agent's `verifier_proofs` DTO (`{verifier_index, operator, pubkey, proof}`) → the SDK shape. */
+/**
+ * The verifier-agent's `verifier_proofs` DTO (`{verifier_index, operator, pubkey, proof}`) to the SDK shape.
+ *
+ * @param raw - Verifier-agent verifier_proofs response value.
+ */
 export function verifierAgentVerifierProofs(raw: unknown): VerifierProof[] | undefined {
   if (!Array.isArray(raw)) return undefined
   const out: VerifierProof[] = []
@@ -148,10 +179,13 @@ export function verifierAgentVerifierProofs(raw: unknown): VerifierProof[] | und
 
 /**
  * Poll until the wallet has presented and the committee answered. Rejects with an
- * `VerifierAgentSessionError` whose `kind` the UI explains — `refused` (the verifier-agent's `error` names the
- * refusing side), `timeout`, `unavailable`, `protocol`, `cancelled` — and whose
+ * `VerifierAgentSessionError` whose `kind` the UI explains - `refused` (the verifier-agent's `error` names the
+ * refusing side), `timeout`, `unavailable`, `protocol`, `cancelled` - and whose
  * `correlation` is the session id. A token that binds another request than this session
  * opened, or one whose proofs are malformed, is a `protocol` refusal: nothing is built on it.
+ *
+ * @param session - Opened session credentials and expected request-binding hash.
+ * @param opts - Polling intervals, timeout, cancellation and progress callback.
  */
 export async function awaitVerifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'verifierAgentUrl' | 'sessionId' | 'pollSecret' | 'requestHash'>, opts: {intervalMs?: number; timeoutMs?: number} & WaitOpts = {}): Promise<VerifierAgentResult> {
   const {intervalMs, timeoutMs, ...wait} = opts
@@ -159,7 +193,12 @@ export async function awaitVerifierAgentResult(session: Pick<OpenedVerifierAgent
   return verifierAgentResult(session, r)
 }
 
-/** Validate request binding and proof encoding after either URL or registered-session polling. */
+/**
+ * Validate request binding and proof encoding after either URL or registered-session polling.
+ *
+ * @param session - Session identifier and expected request-binding hash.
+ * @param r - Completed session status to validate and decode.
+ */
 export function verifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'sessionId' | 'requestHash'>, r: SessionStatusResult): VerifierAgentResult {
   if (r.status !== 'done' || !r.compoundToken) throw new VerifierAgentSessionError('refused', session.sessionId, `presentation ${r.status}: ${r.error ?? 'no token'}`)
   const token = r.compoundToken as unknown as CompoundTokenWire

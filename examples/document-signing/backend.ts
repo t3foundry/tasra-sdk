@@ -1,8 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { privateKeyToAccount } from 'viem/accounts'
-import { toHex, hexToBytes, type Hex } from 'viem'
-import { verifyFrostSignature } from 'tasra-sdk'
+import { verifyFrostSignature, hexToBytes } from 'tasra-sdk'
 import {
   openVerifierAgentSession,
   awaitVerifierAgentResult,
@@ -10,21 +8,24 @@ import {
   type OpenedVerifierAgentSession,
   type Jwk,
 } from 'tasra-sdk/oid4vp'
-import { chain, deployment, tasra, verifierAgentUrl } from './config.js'
+import { chain, deployment, tasra, verifierAgentUrl, assertSameNetwork, type NetworkIdentity } from './config.js'
 import { stateDirectory } from './store.js'
-import { statement, type Person, type Proof, type Manifest } from './model.js'
+import { statement, toHex, type Hex, type Person, type Proof, type Manifest } from './model.js'
 import type { SigningBackend, SessionRecord } from './workflow.js'
 
 export type ServiceConfig = {
+  network: NetworkIdentity
   creatorKey: Hex
   slots: Record<Person, Hex>
   holderKeys: Record<Person, Jwk>
   senderToken: string
 }
 export function loadService(): ServiceConfig {
-  return JSON.parse(
+  const service = JSON.parse(
     readFileSync(join(stateDirectory, 'service.json'), 'utf8'),
   ) as ServiceConfig
+  assertSameNetwork(service.network)
+  return service
 }
 export function restoreSession(
   saved: SessionRecord,
@@ -48,7 +49,8 @@ export async function readKey(id: Hex) {
   }
 }
 export function liveBackend(config: ServiceConfig): SigningBackend {
-  const creator = privateKeyToAccount(config.creatorKey)
+  assertSameNetwork(config.network)
+  const creator = tasra.wallets.create({ privateKey: config.creatorKey })
   const verify = async (manifest: Manifest, proof: Proof) => {
     const expected = manifest.signers.find((s) => s.name === proof.name)
     if (!expected || expected.slotId !== proof.slotId)
@@ -76,7 +78,7 @@ export function liveBackend(config: ServiceConfig): SigningBackend {
         message: statement(manifest),
         description: `${person}: sign ${manifest.title}, version ${manifest.version}`,
         verifierAgentUrl,
-        signer: creator,
+        signer: creator.signer,
       })
       return {
         sessionId: session.sessionId,

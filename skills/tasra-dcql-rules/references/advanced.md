@@ -13,7 +13,7 @@ native approval POSTs or signing requests with an uncertain outcome.
 A slot's access policy is a DCQL query (the OpenID Foundation's Digital
 Credentials Query Language, as used by OpenID4VP). The rule *is* the wallet
 request: what the policy asks for is exactly what a wallet is asked to present.
-The SDK's evaluator mirrors the network's reference implementation and has local tests. Cross-language conformance for the candidate remains a release gate; do not infer it from local tests.
+The SDK's evaluator mirrors the network's reference implementation and has local tests. Cross-language conformance requires separate evidence; do not infer it from local tests.
 
 ## Shape of a rule
 
@@ -79,7 +79,7 @@ ordinary DCQL over the token's own claims — the format is the only thing that 
 }]}
 ```
 
-⚠ **Four extra constraints are MANDATORY here, and each throws `DcqlMalformedError`.**
+**Four extra constraints are MANDATORY here, and each throws `DcqlMalformedError`.**
 An access token is a bearer-shaped artifact from a tenant's own IdP with none of a
 credential's trust scaffolding — no issuer registry, no status list, and an audience the
 IdP chooses — so the rule is the only place any of it can be pinned:
@@ -194,29 +194,37 @@ recipient's own store against a rule client-side.
 
 The chain never stores the rule, only `ruleCommitment(salt, rule)` from
 `tasra-sdk/chain`, a salted hash over the canonical bytes. `createSlot`
-mints the salt and returns it; `verifyRuleCommitment(dcqlRule, ruleSalt, onChainRuleCommitment)`
+mints the salt and returns it; `verifyRuleCommitment(rule, ruleSalt, onChainRuleCommitment)`
 checks a candidate rule against a slot. The clear rule is provisioned to the
-keepers separately (see `tasra-create-slot`).
+keepers separately (see `tasra-create-slot`). This includes OAuth DCQL: adding
+BYOIDP does not change its canonicalization or replace the policy with a hash.
+Use `rule` in creation/provisioning SDK arguments. `dcqlRule` is rejected,
+even alongside an identical `rule`. The current keeper transport fields remain
+`dcql_rule` and `dcql_salt`; the SDK does not expose them as argument aliases.
+
+In `TasraClient.slots.create`, supply this JSON string as `policy` and select
+`authType: 'oauth'` for OAuth rules; the default is `'oid4vp'` for credential rules.
+Creation validates that every query belongs to the selected authorization family.
 
 ## Common mistakes
 
-- ❌ Passing the rule as an object. Every function wants the JSON string.
-- ❌ Omitting the `["iss"]` entry. The rule is rejected as malformed.
-- ❌ Writing `["issuer"]` or a nested issuer path. Only exactly `["iss"]` counts.
-- ❌ Expecting `"3"` to match `3`, or whitespace/key order to change the
+- Passing the rule as an object. Every function wants the JSON string.
+- Omitting the `["iss"]` entry. The rule is rejected as malformed.
+- Writing `["issuer"]` or a nested issuer path. Only exactly `["iss"]` counts.
+- Expecting `"3"` to match `3`, or whitespace/key order to change the
   commitment. Values compare as JSON; canonicalisation removes formatting.
-- ❌ Listing two entries under `credentials` without `credential_sets`: that
+- Listing two entries under `credentials` without `credential_sets`: that
   requires both in one presentation, and wallets present one credential at a
   time. Declare `credential_sets` with single-credential options instead.
-- ❌ Evaluating an identity-scoped rule with plain `evaluateDcql`. It refuses;
+- Evaluating an identity-scoped rule with plain `evaluateDcql`. It refuses;
   use `evaluateIdentityScoped`.
-- ❌ Naming a claim in `kk_identity_scope_claim` that is not also in `claims`.
+- Naming a claim in `kk_identity_scope_claim` that is not also in `claims`.
   `DcqlMalformedError`: the grant has to be part of the match.
-- ❌ Expecting a scope grant to be a prefix match. `p` does not cover `p/x`; write
+- Expecting a scope grant to be a prefix match. `p` does not cover `p/x`; write
   `p/*`. And `p/*` never reaches a longer sibling segment.
-- ❌ Writing an identity that does not start with the granting issuer's DID under
+- Writing an identity that does not start with the granting issuer's DID under
   `kk_scope_namespace: "issuer"`. The committee authorizes nothing.
-- ❌ Writing an `oauth+access-token+dpop` query the way you would a credential one —
+- Writing an `oauth+access-token+dpop` query the way you would a credential one —
   leaving `["iss"]` open, omitting `["aud", null]`, forgetting `meta.max_age_secs`, or
   carrying `type_values`. All four are malformed for this format specifically; the
   relaxations that are safe for a credential are not safe for a bearer token.

@@ -12,27 +12,22 @@ native approval POSTs or signing requests with an uncertain outcome.
 
 
 A slot is one threshold keypair plus the access policy governing it. Creating
-one is a permissionless, fee-less transaction signed by the creator's own EVM
-account; gas is the only cost. Everything below lives in `tasra-sdk/chain`
+one is a transaction signed by the creator’s EVM account. Confirm the selected
+network’s creation and usage charges before submitting. Everything below lives in `tasra-sdk/chain`
 and needs `viem` installed.
+
+Generate and privately save the creator key, then fund its public address through
+the selected network's faucet or a wallet controlled by the user. Never embed a
+shared funding key or assume an account is funded because it was created.
 
 ## Inputs you need
 
 - `rpcUrl` and the chain id of the deployment.
-- An address book of the deployed contracts. For Fuji, obtain the pointer and
-  `tasra-fuji-v1.json` from [tasra-releases](https://github.com/t3-foundry/tasra-releases)
-  and use `parsePinnedNetworkManifest` → `addressBookFromManifest` from
-  `tasra-chain`; pass `manifest.chainId` (43113). For operator-provided configuration,
-  use `addressBookFromEnv(process.env)` — env keys `KEY_REGISTRY`, `NODE_REGISTRY`,
-  `SETTLEMENT`, `TASRA_TOKEN`, `THRESHOLD_BEACON`, plus `BONDING_CURVE` and
-  `EURC` for the funding steps below and `VERIFIER_SET_REGISTRY` for the
-  committee path — or `addressBookFromObject({KeyRegistry: '0x…',
-  NodeRegistry: '0x…', Settlement: '0x…', TasraToken: '0x…',
-  ThresholdRandomBeacon: '0x…'})`, whose keys are the **PascalCase contract
-  names** exactly as `requireAddress(book, 'KeyRegistry')` looks them up (the
-  object form does not translate keys), or `addressBookFromBroadcast(foundryJson)`.
-  Which entries a call needs depends on the call; a missing one throws from
-  `requireAddress` naming the key.
+- Download the selected manifest from
+  [tasra-releases](https://github.com/t3-foundry/tasra-releases), verify the trusted
+  pointer checksum with `parsePinnedNetworkManifest`, and derive the address book
+  with `addressBookFromManifest`. Pass `manifest.chainId` explicitly. Include the
+  contracts required by the operation; `requireAddress` reports missing entries.
 - A funded creator key, or a chain-bound viem `WalletClient` (browser wallet).
 - A DCQL rule string (see `tasra-dcql-rules`). **Decide its shape now**: the rule
   is committed at creation and cannot be amended without a `rulePolicy`, so a slot
@@ -43,21 +38,21 @@ and needs `viem` installed.
 
 ## Steps
 
-The whole order for a brand-new account, once: **(1)** gas + test EURC and
-**(2)** buy TASRA — both in "Funding" below — then **(3)** `createSlot`,
+For a new creator, first fund native gas and obtain any required usage asset,
+then **(3)** `createSlot`,
 **(4)** resolve the keepers, **(5)** wait for DKG, **(6)** provision the rule
 (see "Provision the rule"), **(7)** `fundSlot`, and **(8)** `setVerifierPolicy`
 when the slot will be used over the committee path. The block below is steps 3 to 8.
 
 ```ts
 import {
-  createTasraChainClient, createTasraWriteClient, addressBookFromEnv,
+  createTasraChainClient, createTasraWriteClient, addressBookFromManifest,
   resolveSlotKeeperUrls, resolveVerifierDirectory,
 } from 'tasra-sdk/chain'
 import {fetchMpk} from 'tasra-sdk'
 import {keccak256, toHex} from 'viem'
 
-const addresses = addressBookFromEnv(process.env)
+const addresses = addressBookFromManifest(manifest)
 const chain  = createTasraChainClient({rpcUrl, addresses, chainId})
 const writer = createTasraWriteClient({rpcUrl, addresses, chainId, privateKey})
 // browser: createTasraWriteClient({rpcUrl, addresses, wallet})  // wallet bound to account + chain
@@ -81,32 +76,27 @@ if (eligible.length < n) throw new Error(`${eligible.length} eligible keepers; n
 //    two-phase call. One read tells you which, and costs nothing:
 const oneShot = !(await chain.readers.keyRegistry.requiresCommitReveal())
 const created = oneShot
-  ? await writer.createSlot({dcqlRule, k, n, mode: 'bls'})
+  ? await writer.createSlot({rule, k, n, mode: 'bls'})
   // Commits the parameters, then asks the accountants for a seed to reveal immediately.
   // Falls back to the beacon-epoch wait when no usable seed is available; onEpoch reports
   // that wait with NUMBERS, not bigints. Returns commitTx, revealTx, and seeded instead of txHash.
-  : await writer.createSlotCommitReveal({dcqlRule, k, n, mode: 'bls', onEpoch: (cur, target) => console.log(`epoch ${cur}/${target}`)})
+  : await writer.createSlotCommitReveal({rule, k, n, mode: 'bls', onEpoch: (cur, target) => console.log(`epoch ${cur}/${target}`)})
 const {slotId, ruleSalt} = created
 const txHash = 'txHash' in created ? created.txHash : created.revealTx
 // slotId and ruleSalt are 0x-hex strings.
 
-// ⚠⚠ 3b. PERSIST {slotId, ruleSalt} DURABLY, NOW — before the DKG poll, before anything.
+// 3b. PERSIST {slotId, ruleSalt} DURABLY, NOW — before the DKG poll, before anything.
 // This is the only time you are handed the salt. The chain holds only the salted
 // commitment, the salt is random and cannot be re-derived, and the SDK stores nothing.
 // Lose it and the slot is permanently unusable: see "Persist the salt" below.
-await yourStore.putSlot({slotId, ruleSalt, dcqlRule})   // your storage, not the SDK's
+await yourStore.putSlot({slotId, ruleSalt, rule})   // your storage, not the SDK's
 
-// 4. the keeper committee was drawn on-chain; read its URLs, do not configure them.
-//    On-chain URLs are often in-cluster names (http://tasra-node-7:8080); map them to
-//    addresses reachable from where you run — otherwise the DKG poll below just times out.
-const basePort = Number(process.env.KEEPER_LOCAL_BASE_PORT ?? 8090)   // .env.example carries this
-const rewriteUrl = (u: string) => u.replace(/^http:\/\/tasra-node-(\d+):8080$/, (_, i) => `http://localhost:${basePort + Number(i)}`)  // YOUR mapping; not an SDK export
-const nodes = (await resolveSlotKeeperUrls(chain, slotId)).map(rewriteUrl)
+// 4. Resolve the assigned committee's published URLs from the selected network.
+const nodes = await resolveSlotKeeperUrls(chain, slotId)
 
 // 5. wait for distributed key generation: poll for a NON-EMPTY group key.
-//    HOW LONG depends on the mode: 'bls' and 'frost' key in a few seconds, 'tecdsa' runs an
-//    extra AuxInfo phase and takes ~30-40s. A single read right after createSlot returns an
-//    empty key for a tecdsa slot that is keying perfectly well — poll, do not conclude.
+//    Completion time depends on mode, committee and deployment. tECDSA includes
+//    an AuxInfo phase. Poll with a deadline and preserve the intent if it times out.
 //    Ask EVERY keeper, not nodes[0]: one keeper can be down or lagging while the rest key the slot,
 //    and k keyed keepers are enough to serve it.
 const deadline = Date.now() + 120_000
@@ -143,78 +133,24 @@ await writer.setVerifierPolicy(slotId, Math.min(3, verifierCount), 2)
 Every write method returns only after its transaction is mined and its receipt says `success`
 (a reverted transaction throws), so calls can be written one after another as they are here.
 
-## Funding: gas → EURC → TASRA → the slot
+## Funding gas and slot usage
 
-Creating a slot is fee-less (only gas), but every metered operation on it is
-paid from the slot's TASRA balance in the Settlement contract. On a test
-deployment the whole chain of funding is self-serve:
+Creator gas, the Ethereum slot account's balance and metered slot usage are
+different balances. Read them before funding. Obtain native tokens and any
+required asset through the selected network's published faucet or a wallet the
+user controls. A missing funding service is a missing integration input.
 
-```ts
-import {parseUnits, formatEther} from 'viem'
-import {httpFaucet} from 'tasra-sdk'   // only for route (b)
+`writer.ethBalance(address)`, `writer.eurcBalance(address)`,
+`writer.tsraBalance(address)` and `writer.settlementBalance(slotId)` read the
+relevant balances. `httpFaucet(url).fund(address)` supports a compatible faucet
+whose URL the deployment publishes; it does not discover or authenticate one.
 
-// How much TASRA the slot should start with; everything here is about having that much in hand.
-const tsraNeeded = parseUnits('10', 18)
-
-// 1. gas + test EURC. FIRST ASK WHETHER YOU NEED ANY OF THIS: an account an operator provisioned
-//    already holds both, and then the whole funding section is skipped. Read, do not assume — a
-//    deployment that hands out funded accounts has no faucet to fall back on.
-const hasGas = (await writer.ethBalance(writer.address)) > parseUnits('0.05', 18)
-const hasTsra = (await writer.tsraBalance(writer.address)) >= tsraNeeded
-//    Otherwise: THREE ALTERNATIVES — exactly one exists on a given deployment, so pick the one whose
-//    variable is set and skip the others. None of these names is in .env.example: ask the operator
-//    which route the deployment serves and under which URL.
-const onrampUrl = process.env.KK_ONRAMP_URL   // (a) application on-ramp
-const faucetUrl = process.env.KK_FAUCET_URL   // (b) standalone faucet service
-const funderKey = process.env.KK_FUNDER_KEY   // (c) dev chain: a funded key that drips gas
-let tsraFromFaucet: bigint | undefined
-if (hasGas && hasTsra) {
-  // nothing to do: the account is already funded
-} else if (onrampUrl) {
-  // POST {onramp}/v1/onramp with {address, eurCents}: mints mock EURC and drips native gas; replies
-  // {eurcBalance}. The NETWORK's relayer (KK_RELAYER_URL) does NOT serve this route — an application
-  // relayer such as the Tasra Vault's does. Testnets and local fleets only: real EURC has no open mint.
-  await fetch(`${onrampUrl}/v1/onramp`, {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({address: writer.address, eurCents: 2000})})
-} else if (faucetUrl) {
-  // httpFaucet(faucetUrl).fund(address) from 'tasra-sdk' posts to {faucetUrl}/faucet →
-  // {address, ethWei?, tsra?, txHashes?} — DECIMAL STRINGS, both optional. When `tsra` comes back the
-  // faucet has funded TASRA directly: skip step 2 and use BigInt(tsra) as tsraAmount.
-  const drip = await httpFaucet(faucetUrl).fund(writer.address)
-  if (drip.tsra) tsraFromFaucet = BigInt(drip.tsra)
-} else {
-  // A dev chain with the mock token: gas from a second write client on a funded key. The EURC is
-  // minted in step 2, once the amount the slot actually needs is known.
-  // `process.env.X` is `string`, `privateKey` is viem's `Hex` — every key, address and slot id
-  // read from the environment needs the cast, here and everywhere below.
-  if (funderKey) await createTasraWriteClient({rpcUrl, addresses, chainId, privateKey: funderKey as `0x${string}`})
-    .sendEth(writer.address, parseUnits('0.2', 18))
-}
-
-// 2. quote and buy TASRA on the bonding curve. EURC has 6 decimals, TASRA 18.
-//    Skip it when the account already holds enough, or the faucet handed you TASRA.
-//    BUY FROM THE AMOUNT YOU NEED, never from a guessed EUR figure: the curve price decides how
-//    much a given EUR amount buys, so "spend 20 EUR, then fund 10 TASRA" reverts the moment the
-//    price makes 20 EUR worth less than 10. `eurCentsForTsra` is the inverse of `tsraForEurCents`.
-if (!hasTsra && !tsraFromFaucet) {
-  const short = tsraNeeded - (await writer.tsraBalance(writer.address))
-  const cents = ((await chain.read('BondingCurve', 'eurCentsForTsra', [short])) as bigint) * 115n / 100n  // headroom: the price rises as you buy
-  const eurcUnits = cents * 10_000n                                                                  // cents -> EURC's 6 decimals
-  const quote = (await chain.read('BondingCurve', 'tsraForEurCents', [cents])) as bigint             // read() returns unknown; TASRA, 18 decimals
-  if (!onrampUrl && !faucetUrl) await writer.mintMockEurc(writer.address, eurcUnits)                 // dev chain's mock token only
-  await writer.approveEurcForCurve(eurcUnits)                                                        // ERC-20 approve to the curve
-  await writer.buyTsra(eurcUnits, (quote * 97n) / 100n)                                              // minTsraOut: 3 % slippage floor
-}
-console.log('TASRA balance', formatEther(await writer.tsraBalance(writer.address)))
-
-// tsraAmount is what step 7 of the main block funds the slot with — the funding block stops here.
-const tsraAmount = tsraFromFaucet ?? tsraNeeded
-```
-
-`writer.eurcBalance(address)`, `writer.tsraBalance(address)`, `writer.ethBalance(address)`
-and `writer.settlementBalance(slotId)` read the four balances involved;
-`writer.spotPrice()` and `writer.priceAt(sold)` read the curve; `redeemTsra(amount, minEurcOut)`
-sells back. In production EURC is the real Circle token bought off-chain.
+Where the deployed contracts offer a bonding curve, quote the amount needed with
+`eurCentsForTsra`, approve EURC with `approveEurcForCurve`, then call `buyTsra`
+with an explicit minimum output. EURC uses six decimals and TASRA uses eighteen.
+Check the resulting balance before calling `fundSlot`. Do not assume an open mint
+or substitute a guessed amount for the current quote. Each purchase and funding
+transaction needs authorization for its amount and destination.
 
 ## Gas: who pays
 
@@ -248,9 +184,8 @@ for (const serviceId of ids) {
 }
 await readApprovedServiceRecord(chain, approval!)   // re-reads through the approval; throws if the pin no longer matches
 
-// 2. A relayer on a private host behind a deployment CA needs both stated explicitly;
-//    hostname and certificate verification stay mandatory either way.
-const transport = createNodeRelayTransport({allowedPrivateHosts: ['localhost'], ca: readFileSync(caFile)})
+// 2. Use the verified service record and normal HTTPS trust.
+const transport = createNodeRelayTransport()
 
 const writer = createTasraWriteClient({
   rpcUrl, addresses, chainId, privateKey,
@@ -261,16 +196,15 @@ const writer = createTasraWriteClient({
     // persistAttempt / resumeAttempt make a sponsored write durable across a restart
   } satisfies RegisteredRelayConfig,
 })
-const {slotId, ruleSalt, relay} = await writer.createSlot({dcqlRule, k, n, mode: 'bls'})
-await yourStore.putSlot({slotId, ruleSalt, dcqlRule})   // still required on the sponsored path
+const {slotId, ruleSalt, relay} = await writer.createSlot({rule, k, n, mode: 'bls'})
+await yourStore.putSlot({slotId, ruleSalt, rule})   // still required on the sponsored path
 relay?.txHash
 relay?.costWei          // gas the RELAYER paid, a DECIMAL STRING: BigInt(costWei) before formatEther. Also writer.lastRelay()
 ```
 
-Verified against a demo fleet: an account holding **0 AVAX** created a slot this way, the
-relayer paid `0.08286025 AVAX`, the account's balance was still 0 afterwards, and
-`getKeySlot(slotId).creator` was that account — the forwarder preserves `_msgSender()`, so
-the relayer pays but authorises nothing.
+When the deployment accepts a sponsored call, the relayer pays gas and the
+forwarder preserves the creator identity. Verify the transaction receipt and
+on-chain creator; sponsorship does not grant permission to use the slot.
 
 `createRegisteredRelaySubmitter(chain, config, wallet)` drives it directly, and
 `reconcileRelayAttempt` resolves an attempt whose outcome you did not see —
@@ -279,12 +213,9 @@ landed even when the response did not.
 
 **What a deployment sponsors is its relayer's allowlist, not a fixed SDK list.** Read it
 rather than assuming — `tasra-cli relay policy` prints `(target, selector, class,
-max_gas)`, where class `public` means any account and `operator` means a registered one. A
-demo fleet sponsors, as `public`: `createKeySlot` and every filtered/exportable/with-policy
-variant, `commitKeySlot` + `revealKeySlot`, `setVerifierPolicy`, `setRulePolicy`,
-`setDualControlPolicy`, `Settlement.fund`, bonding-curve `buy`/`redeem`, `cancelSlot`,
-`renew`, and the whole rule-amendment path (`proposeRuleUpdate`, `endorseRuleUpdate`,
-`activateRuleUpdate`, `vetoRuleUpdate`).
+max_gas)`, where class `public` permits ordinary accounts and `operator` requires
+an eligible registered operator. Confirm each intended method is sponsored before
+depending on relay gas; registry membership alone does not grant sponsorship.
 
 One invariant holds everywhere: **ERC-20 `approve` is never sponsorable** — it is not
 2771-aware, so it always comes from your key. `fundSlot` and `buyTsra` each need one. So
@@ -294,8 +225,10 @@ the relay; without `relay` in the config nothing is sponsored and every call nee
 
 ## Persist the salt
 
-**The SDK persists nothing** — no storage, no filesystem, no directory of slots. Both
-creation calls hand you `ruleSalt` exactly once and it is then your responsibility.
+**The low-level writer does not persist creation state.** Its creation calls return
+`ruleSalt`; custom workflows must preserve that salt and the exact policy. Prefer
+`prepareSlot` with durable persistence before submission, or `slots.create` with
+an application store, when implementing recoverable creation.
 
 At minimum, store durably and atomically with the creation:
 
@@ -303,9 +236,9 @@ At minimum, store durably and atomically with the creation:
 |---|---|
 | `slotId` | everything else is keyed by it |
 | `ruleSalt` | random, **not derivable**, and the chain holds only `keccak256(DOMAIN ‖ ruleSalt ‖ rule)` |
-| the clear `dcqlRule` | provisioning sends the rule and the salt together; the chain never stores the rule |
+| the clear `rule` | provisioning sends the rule and the salt together; the chain never stores the rule |
 
-⚠ **Losing the salt makes the slot permanently unusable.** A keeper recomputes the
+**Losing the salt makes the slot permanently unusable.** A keeper recomputes the
 commitment before accepting a clear rule, so provisioning fails with `dcql_rule does not
 match the slot's on-chain commitment`. That message reads like a typo in a rule that is
 perfectly fine, which is what makes this expensive to diagnose. There is no recovery
@@ -335,10 +268,17 @@ Persist the slot ID, rule salt and clear rule before submitting creation.
 import {provisionRule} from 'tasra-sdk/chain'
 
 await provisionRule(chain, {
-  slotId, dcqlRule, ruleSalt,
+  slotId, rule, ruleSalt,
   signer: creatorAccount, // viem account that created the slot
 })
 ```
+
+`rule` is the required SDK property. `dcqlRule` is rejected before sending
+requests, including when an identical `rule` is also present. Provisioning still
+needs the clear rule and salt, not just `ruleCommitment`; the HTTP body keeps
+`dcql_rule` and `dcql_salt` as the deployed transport schema.
+An OAuth/BYOIDP rule with `oauth+access-token+dpop` queries remains DCQL, with the
+same canonicalization and commitment domain as credential DCQL.
 
 The helper discovers the assigned keepers, signs the salted rule commitment using
 EIP-712, and calls `/v1/keys/:slot/rule/by-creator`. It throws if any keeper fails;
@@ -366,7 +306,7 @@ already set, and a **fresh** slot (`epoch == 0 && publicKey.length == 0 && ruleV
 fresh because it happens in the same transaction.
 
 ```ts
-await writer.createSlot({dcqlRule, k, n, mode: 'bls', rulePolicy: {
+await writer.createSlot({rule, k, n, mode: 'bls', rulePolicy: {
   admin: appOwner,        // the only address that may propose an amendment
   guardian: securityTeam, // may veto, or endorse to skip the delay. MUST differ from admin
   timelockSecs: 86_400,   // with NO guardian, at least MIN_RULE_TIMELOCK (1 hour)
@@ -416,13 +356,11 @@ amends their own policy without gas.
 
 ## `chainId` rule
 
-`createTasraWriteClient` throws unless `chainId` is given or the wallet is
-chain-bound, except when `rpcUrl` is a loopback address (then the local
-default, `DEFAULT_CHAIN_ID` = 1337, applies). The throw is a `TasraError`
-(from `tasra-sdk`) at construction time, before any network call; failures
-of the writes themselves surface as viem `ContractFunctionExecutionError`s. The chain id goes into every
-EIP-155 signature; a wrong one means the RPC node (not the keeper) rejects every
-write, with no useful message. Always pass it.
+Pass the downloaded manifest's `chainId` to `createTasraWriteClient` and use a
+wallet bound to that chain. Compare it with the RPC before any submission. Chain
+identity is part of each EIP-155 signature; addresses alone do not select a network.
+Construction errors are `TasraError`; transaction execution failures can surface
+as viem `ContractFunctionExecutionError`.
 
 ## Other write-client methods
 
@@ -461,26 +399,26 @@ credential paths (`tasra-committee-path`, `vpJwt` sessions).
 
 ## Common mistakes
 
-- ❌ Omitting `chainId` against a remote RPC. The client refuses; pass the
+- Omitting `chainId` against a remote RPC. The client refuses; pass the
   deployment's chain id.
-- ❌ Polling `/public` for HTTP 200. It answers 200 as soon as the slot is known
+- Polling `/public` for HTTP 200. It answers 200 as soon as the slot is known
   from chain, before the key exists. Poll for a non-empty `mpkBytes`.
-- ❌ Hardcoding keeper URLs after creation. They are a chain read
+- Hardcoding keeper URLs after creation. They are a chain read
   (`resolveSlotKeeperUrls`).
-- ❌ Losing `ruleSalt`. Not a verification inconvenience — the slot becomes
+- Losing `ruleSalt`. Not a verification inconvenience — the slot becomes
   **permanently unusable**. See "Persist the salt" below.
-- ❌ Destructuring only `{slotId}` from a creation call and dropping the rest. That is
+- Destructuring only `{slotId}` from a creation call and dropping the rest. That is
   how the salt gets lost.
-- ❌ Calling `setRulePolicy` after creation from a human-approved wallet. Use
+- Calling `setRulePolicy` after creation from a human-approved wallet. Use
   `rulePolicy` in `createSlot`.
-- ❌ Taking `k: 3, n: 5` as a default. `n` must fit the tagged pool;
+- Taking `k: 3, n: 5` as a default. `n` must fit the tagged pool;
   `InsufficientFilteredPool(have, need)` names both numbers when it does not.
-- ❌ Reaching `chain.keyRegistry` / `chain.nodeRegistry` directly. The typed readers
+- Reaching `chain.keyRegistry` / `chain.nodeRegistry` directly. The typed readers
   are under `chain.readers.*`; the bare form does not exist and fails at `tsc`.
-- ❌ Creating a slot for IBE with a rule that is not identity-scoped, or leaving the
+- Creating a slot for IBE with a rule that is not identity-scoped, or leaving the
   verifier policy unset. Both fail only later, at the first extraction. A rule is immutable unless
   its amendment policy was configured at creation.
-- ❌ Reading a `fundSlot` revert as a slot problem. Short TASRA surfaces as the token's
+- Reading a `fundSlot` revert as a slot problem. Short TASRA surfaces as the token's
   own error bubbling out of `Settlement.fund`, which viem cannot name against the
   Settlement ABI — it arrives as the bare selector `0xe450d38c`
   (`ERC20InsufficientBalance`). Check `writer.tsraBalance(writer.address)` first.

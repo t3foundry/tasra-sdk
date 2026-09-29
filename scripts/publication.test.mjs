@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, symlinkSync} from 'node:fs'
+import {mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {publicationFindings, loadPublication, runtimePatterns} from './publication.mjs'
@@ -35,4 +35,17 @@ void test('broad npm folders and symlinked inputs are rejected', t => {
   assert.match(publicationFindings(root).join(), /must match/)
   rmSync(join(root, 'docs/README.md')); symlinkSync('../internal/plan.md', join(root, 'docs/README.md'))
   assert.throws(() => loadPublication(root), /linked/)
+})
+
+void test('reference pages use category navigation while guides retain their default headings', t => {
+  const root = fixture(t)
+  mkdirSync(join(root, 'docs/reference'))
+  writeFileSync(join(root, 'docs/reference/app.md'), '# Application client\n\n## Functions\n\n### connect\n')
+  writeFileSync(join(root, 'publication.json'), JSON.stringify({schemaVersion: 1, files: ['docs/README.md', 'docs/reference/app.md']}))
+  sync(root, join(root, 'output/content'), join(root, 'output/public'))
+  const reference = readFileSync(join(root, 'output/content/reference/app.md'), 'utf8')
+  const guide = readFileSync(join(root, 'output/content/index.md'), 'utf8')
+  assert.match(reference, /tableOfContents:\n {2}minHeadingLevel: 2\n {2}maxHeadingLevel: 2/)
+  assert.doesNotMatch(guide, /tableOfContents/)
+  assert.match(reference, /### connect/)
 })

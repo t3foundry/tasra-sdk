@@ -14,24 +14,29 @@ metadata:
 
 Use `tasra-sdk/app` for new credential-controlled applications. Keep existing
 advanced clients when their capabilities are required; there is no client-count
-limit or forced migration. This API is in the unpublished `0.3.0-next.0` candidate.
+limit or forced migration.
 
 ## Install and establish the environment
 
-1. Inspect `node_modules/tasra-sdk/package.json` and probe the required exports.
-   The candidate must be installed from a packed checkout; plain npm installation
-   of an older release is not equivalent. Use Node 22.12+, ESM and `viem`.
-2. Read `node_modules/tasra-sdk/docs/compatibility.md`. Current protected operations
-   are tested on the local fleet, not Fuji. Missing fleet services are a blocked
-   live check; do not manufacture an endpoint or downgrade authorization.
-3. Public deployment records belong to https://github.com/t3-foundry/tasra-releases.
-   `networks/testnet/current.json` points to `deployments/tasra-fuji-v1.json`, relative
-   to `networks/testnet/`. Use both at one reviewed commit and verify the checksum
-   with the procedure in `docs/fuji.md`. Public Fuji reads do not prove compatibility
-   with this candidate's signing/credential services.
-4. For the running local fleet, use the public configuration and CA in the installed
-   example. Verify them before writes. Redeployment changes addresses and CA trust.
-   Keep TLS verification enabled. No operator secret or sibling demo script is needed.
+1. Install with `npm install tasra-sdk@latest`. Inspect
+   `node_modules/tasra-sdk/package.json`, record its resolved version and probe the
+   required exports. Keep the lockfile for reproducibility. Use Node 24 and ESM.
+   The application runtime needs only `tasra-sdk`; TypeScript, tsx and Node types
+   are development tooling.
+2. Download the selected network pointer and manifest from
+   https://github.com/t3-foundry/tasra-releases. For testnet, read
+   `networks/testnet/current.json` and resolve its `manifest` path relative to
+   `networks/testnet/`. Fetch both at one reviewed commit and verify the original
+   manifest bytes against the pointer's trusted SHA-256.
+3. Load that release manifest with `TasraClient.fromManifest(url, {sha256, coordinator})`
+   or pass the verified object to the constructor with an explicit coordinator
+   convention. The convention must match the deployment; the release schema does
+   not record it. Do not invent missing service URLs or copy private configuration.
+4. Check the required modes, thresholds, issuer formats and operation routes.
+   `check()` only checks chain and registries. Keep TLS verification enabled.
+   Generate and save the application's creator key, then fund its public address
+   through the network's faucet or a wallet controlled by the user. Network writes
+   require authorization for their actual effects and funding source.
 
 Paths beginning `docs/`, `examples/` or `dist/` in these skills are relative to the
 **installed SDK package**, even after the skill folder is copied into `.agents/skills`.
@@ -40,11 +45,10 @@ Relative Markdown links to `references/` stay inside the copied skill folder.
 ## Write the application
 
 ```ts
-import {createTasra, type TasraDeployment} from 'tasra-sdk/app'
-import type {Hex} from 'viem'
+import {TasraClient, type ApplicationManifest} from 'tasra-sdk/app'
 
-export async function readAccount(deployment: TasraDeployment, slotId: Hex) {
-  const tasra = createTasra({deployment})
+export async function readAccount(manifest: ApplicationManifest, slotId: `0x${string}`) {
+  const tasra = new TasraClient({manifest, coordinator: 'lowest-operator-id'})
   const health = await tasra.check()
   if (!health.ready) throw new Error('Configured registries are unavailable')
   const account = await tasra.slots.ecdsa(slotId)
@@ -54,7 +58,10 @@ export async function readAccount(deployment: TasraDeployment, slotId: Hex) {
 
 `check()` probes chain ID and registry code presence, not issuer or keeper readiness.
 Slot handles check mode/readiness. Address lookup and public-key encryption need no
-credentials. Signing and decryption take an `OperationAuthorizer` per operation.
+credentials. Create identities, issue credentials and build policy with
+`tasra.identities.create`, `tasra.credentials.issue` and `tasra.credentials.policy`.
+Create ready slots with `tasra.slots.create`; obtain per-operation authorization with
+`tasra.credentials.authorize`. Use `tasra.wallets.fromSlot` for Ethereum transfers.
 
 | Developer task | Skill | Complete installed source / lesson |
 |---|---|---|

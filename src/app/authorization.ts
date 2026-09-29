@@ -8,6 +8,7 @@ import type {OperationAuthorizer} from './client.js'
  * Request-bound authorization through an independently approved registered agent.
  * `present` displays a QR/deep link or runs the application's credential wallet.
  * It never changes the selected provider or transfers a presentation to a fallback.
+ * @param config Approved agent client, operation signer, wallet presentation callback and polling controls.
  */
 export function registeredWalletAuthorization(config: {
   client: ReturnType<typeof createRegisteredAgentClient>

@@ -1,8 +1,8 @@
-// FROST-Ed25519 signing — HTTP clients for the two node paths:
-//   • custody  (POST /v1/sign)                — node coordinates, one round-trip
-//   • shard-delivery (POST /v1/shards/sign/{commit,partial})
-//                                              — CLIENT coordinates k nodes and
-//                                                aggregates locally (frost-crypto)
+// FROST-Ed25519 signing - HTTP clients for the two node paths:
+// - custody  (POST /v1/sign)                - node coordinates, one round-trip
+// - shard-delivery (POST /v1/shards/sign/{commit,partial})
+// - CLIENT coordinates k nodes and
+// aggregates locally (frost-crypto)
 //
 // Bodies use BARE hex (no 0x): some node handlers hex-decode directly. Slot ids
 // are sent 0x-stripped; the node tolerates either, the shard message_hex path
@@ -48,19 +48,22 @@ async function nodePost<T>(
   return res.json() as Promise<T>
 }
 
-// ─── custody sign (POST /v1/sign) ──────────────────────────────────────────────
+// custody sign (POST /v1/sign)
 
+/** JWT-authorized FROST signing coordinated by one keeper, with optional owner approval. */
 export interface SignCustodyOpts {
+  /** Keeper HTTP base URL. */
   nodeUrl: string
+  /** Compact bearer JWT authorizing the request. */
   jwt: string
   /** 0x-prefixed (or bare) bytes32 slot id. */
   slotId: string
   /** Raw message bytes to sign. */
   message: Uint8Array
-  /** Explicit signer set (u16 ids). Omit → node uses 1..k. Passing MORE than k
+  /** Explicit signer set (u16 ids). Omit to node uses 1..k. Passing MORE than k
    *  ids makes the node use the robust ROAST coordinator. */
   signingSet?: number[]
-  /** 64-byte Ed25519 user signature — required iff the slot has a registered
+  /** 64-byte Ed25519 user signature - required iff the slot has a registered
    *  owner pubkey. Build with signUserRequest(). */
   userSignature?: Uint8Array
   /** 20-byte operator address to pin (anti-Sybil). */
@@ -69,9 +72,11 @@ export interface SignCustodyOpts {
   requestId?: string
 }
 
+/** FROST group signature with slot, key epoch, message digest and optional keeper receipt. */
 export interface FrostSignResult {
   /** Optional keeper evidence; verify separately with verifyOperationReceipt. */
   receipt?: OperationReceipt
+  /** Identifier of the slot that produced the result. */
   keySlotId: string
   /** 32-byte compressed Edwards group public key. */
   groupPublicKey: Uint8Array
@@ -79,11 +84,16 @@ export interface FrostSignResult {
   signature: FrostSignature
   /** SHA-256 of the signed message, as returned by the node. */
   messageSha256: Uint8Array
+  /** Slot key epoch reported with the signature. */
   epoch: number
 }
 
-/** Sign a message via the custody path: the node runs the whole FROST ceremony
- *  and returns the final group signature (one HTTP round-trip). */
+/**
+ * Sign a message via the custody path: the node runs the whole FROST ceremony
+ *  and returns the final group signature (one HTTP round-trip).
+ *
+ * @param opts - Keeper endpoint, JWT, message and optional participant or owner-approval settings.
+ */
 export async function signCustody(opts: SignCustodyOpts): Promise<FrostSignResult> {
   const body: Record<string, unknown> = {
     key_slot_id: strip0x(opts.slotId),
@@ -110,13 +120,19 @@ export async function signCustody(opts: SignCustodyOpts): Promise<FrostSignResul
   }
 }
 
-// ─── user-gated signature helper ───────────────────────────────────────────────
+// user-gated signature helper
 
 const USER_SIG_DOMAIN = 'keykeeper:user-sig:v1'
 
-/** The canonical payload the node verifies for a user-gated sign:
- *  domain ‖ u64_LE(len slot) ‖ slot ‖ u64_LE(32) ‖ SHA256(message) ‖
- *  u64_LE(len requestId) ‖ requestId. */
+/**
+ * The canonical payload the node verifies for a user-gated sign:
+ *  domain || u64_LE(len slot) || slot || u64_LE(32) || SHA256(message) ||
+ *  u64_LE(len requestId) || requestId.
+ *
+ * @param slotId - 32-byte slot identifier as hexadecimal text.
+ * @param message - Raw message bytes to authorize.
+ * @param requestId - Request identifier to bind into the owner approval.
+ */
 export function userSignaturePayload(
   slotId: string,
   message: Uint8Array,
@@ -135,8 +151,15 @@ export function userSignaturePayload(
   )
 }
 
-/** Sign the user-gated payload with the slot owner's 32-byte Ed25519 secret key.
- *  The result goes in SignCustodyOpts.userSignature (also pass the same requestId). */
+/**
+ * Sign the user-gated payload with the slot owner's 32-byte Ed25519 secret key.
+ *  The result goes in SignCustodyOpts.userSignature (also pass the same requestId).
+ *
+ * @param secretKey - 32-byte Ed25519 owner secret key.
+ * @param slotId - 32-byte slot identifier as hexadecimal text.
+ * @param message - Raw message bytes to authorize.
+ * @param requestId - Request identifier to bind into the owner approval.
+ */
 export function signUserRequest(
   secretKey: Uint8Array,
   slotId: string,
@@ -146,13 +169,17 @@ export function signUserRequest(
   return ed25519.sign(userSignaturePayload(slotId, message, requestId), secretKey)
 }
 
-// ─── shard-delivery sign (client-coordinated 2-round) ──────────────────────────
+// shard-delivery sign (client-coordinated 2-round)
 
+/** JWT-authorized FROST signing coordinated by the caller across selected keepers. */
 export interface ShardSignOpts {
   /** Base URLs of exactly the k chosen committee nodes. */
   nodeUrls: string[]
+  /** Compact bearer JWT authorizing the request. */
   jwt: string
+  /** 32-byte slot identifier. */
   slotId: string
+  /** Raw message bytes to sign. */
   message: Uint8Array
   /** The slot's 32-byte group public key. Fetched from nodeUrls[0] if omitted. */
   groupPublicKey?: Uint8Array
@@ -221,6 +248,8 @@ async function partialRound(
  * Sign via the shard-delivery path: the CLIENT fans out to k nodes (Round 1
  * commit, Round 2 partial) and aggregates the shares locally into the group
  * signature. The node URLs must be exactly the k committee members.
+ *
+ * @param opts - Selected keepers, JWT, message and local signature verification settings.
  */
 export async function signWithShardDelivery(opts: ShardSignOpts): Promise<FrostSignature> {
   if (opts.nodeUrls.length === 0) throw new Error('signWithShardDelivery: no node URLs')
@@ -233,7 +262,7 @@ export async function signWithShardDelivery(opts: ShardSignOpts): Promise<FrostS
     opts.nodeUrls.map(u => commitRound(u, opts.jwt, opts.slotId, opts.message)),
   )
 
-  // Canonical commitment order — sent to every node AND used to aggregate.
+  // Canonical commitment order - sent to every node AND used to aggregate.
   const commitmentList: FrostCommitment[] = [...commits]
     .sort((a, b) => a.identifier - b.identifier)
     .map(c => ({identifier: c.identifier, hiding: c.hiding, binding: c.binding}))

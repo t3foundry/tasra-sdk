@@ -54,17 +54,17 @@ this deployment; 504, the ceremony timed out — `retryable` is true, so retry i
 bounded number of times, on the next holder or after a backoff, rather than
 failing on the first one. See `tasra-handle-errors`.
 
-**tECDSA DKG is slower than the others.** It runs an extra AuxInfo phase, so the
-slot's group key stays empty for roughly 30–40 s after creation where a `bls` or
-`frost` slot is ready in a few. Poll for it (`resolveSlotGroupKey`, or the node's
-`keys get`) instead of reading once and concluding the mode is unsupported.
+**Wait for key generation.** tECDSA includes an AuxInfo phase; completion time
+depends on the deployment and committee. Poll with a deadline rather than treating
+one empty-key response as an unsupported mode. Preserve the original slot intent
+if readiness does not complete.
 
 ## Threshold ECDSA under the production posture
 
 Use `committeeSignEoaDigest` from `tasra-sdk/committee` for
-`POST /v1/committee/sign/eoa-digest`. It is an unreleased addition; install the
-packed current SDK checkout, not registry version 0.2.2. The current SDK/service
-version is not deployed on Fuji. Check `docs/compatibility.md`.
+`POST /v1/committee/sign/eoa-digest`. Install with `npm install tasra-sdk@latest`.
+Load a verified network manifest from tasra-releases and confirm that its services
+support operation-bound ECDSA authorization and signing.
 
 ```ts
 import {keccak256, serializeTransaction, hexToBytes, toHex} from 'viem'
@@ -92,10 +92,10 @@ a serialized transaction or a second Ethereum hash. The wire response uses
 `signature_v`, not `recovery_id`; the SDK converts it to `yParity` and rejects
 P-256 replies. Verify recovered sender before broadcasting.
 
-Select a keeper in the active signing subset. On the documented local fleet this
-is the k lowest **on-chain operator IDs** among the slot's assigned members; the
-registry draw order is different. `examples/shared-account.ts` demonstrates the
-selection and a real Alice/Bob transaction with verifier-side Mallory refusal.
+Select a keeper according to the deployment’s coordinator convention. The
+`lowest-operator-id` convention orders assigned keepers by their on-chain operator
+IDs; registry draw order is different. The application API applies the configured
+convention. Verify receipts and recovered sender before recording success.
 Do not treat arbitrary HTTP 400s as permission to retry on another keeper.
 
 **Who may spend is the slot's DCQL rule, and it can admit several people.** Give the
@@ -113,7 +113,7 @@ authorization, the negative test in `examples/shared-account.ts` deliberately se
 Mallory's presentation with the lower-level wallet APIs and checks the verifier's
 explicit policy refusal; it does not count a timeout or wallet filter as that proof.
 
-⚠ **Dual control and tECDSA do not compose.** `KeyRegistry`'s dual-control policy
+**Dual control and tECDSA do not compose.** `KeyRegistry`'s dual-control policy
 (the CLI's `slot dual-control` / `dual-approve`; the SDK write client exposes
 neither) makes the committee EOA handler refuse the slot before it does anything
 else — `slot requires dual-control approval` — and the approval route
@@ -267,15 +267,15 @@ takes the original message bytes, not `sig.messageSha256`.
 
 ## Common mistakes
 
-- ❌ Using a `bls` slot for signing, a `frost` slot for encryption, or either
+- Using a `bls` slot for signing, a `frost` slot for encryption, or either
   for `signEoaDigest`. The slot's mode decides which ceremonies it supports.
-- ❌ Assembling the key just to decrypt once. Prefer `decryptCustody` or the
+- Assembling the key just to decrypt once. Prefer `decryptCustody` or the
   session's lazy assembly with `close()`.
-- ❌ Forgetting `chainId` in `ethSignatureV` for **legacy** transactions (typed
+- Forgetting `chainId` in `ethSignatureV` for **legacy** transactions (typed
   transactions and messages want 27/28 or the bare `yParity`).
-- ❌ Treating `r`/`s` as bigints or hex strings. The SDK returns 32-byte arrays; convert
+- Treating `r`/`s` as bigints or hex strings. The SDK returns 32-byte arrays; convert
   with `bytesToHex` only where a library wants hex.
-- ❌ Passing `chainId` to `ethSignatureV` for a message or typed-data signature.
+- Passing `chainId` to `ethSignatureV` for a message or typed-data signature.
   Those want 27/28; only legacy transactions want the EIP-155 form. Typed
   transactions are serialised from `yParity`; a `v` you also pass is ignored.
 

@@ -7,6 +7,9 @@ import {parseEventLogs, type Log} from 'viem'
 import {CONTRACT_ABIS, type ContractName} from './abis/index.js'
 import type {Address} from './deployments.js'
 
+/**
+ * Display category assigned to decoded contract events.
+ */
 export type EventCategory =
   | 'node'
   | 'slot'
@@ -38,7 +41,7 @@ export const CONTRACT_CATEGORY: Record<ContractName, EventCategory> = {
   TasraSwapRouter: 'tasra',
   // Per-request verifier-committee set anchoring.
   VerifierSetRegistry: 'governance',
-  // Per-(slot,epoch) keeper verifying-share root anchor — feeds
+  // Per-(slot,epoch) keeper verifying-share root anchor - feeds
   // participant-weighted settlement (pay proven signers).
   KeeperShareRegistry: 'settlement',
   // Per-epoch snapshot of the accountant set. Structurally a twin of
@@ -48,7 +51,7 @@ export const CONTRACT_CATEGORY: Record<ContractName, EventCategory> = {
   AccountantSetRegistry: 'settlement',
 }
 
-// A few events live on a "node" contract but are conceptually slashing — the
+// A few events live on a "node" contract but are conceptually slashing - the
 // Slashing Center surfaces them alongside the dedicated oracle verdicts.
 const EVENT_CATEGORY_OVERRIDES: Record<string, EventCategory> = {
   'NodeRegistry.Slashed': 'slashing',
@@ -59,6 +62,11 @@ const EVENT_CATEGORY_OVERRIDES: Record<string, EventCategory> = {
   'NodeRegistry.Compensated': 'slashing',
 }
 
+/**
+ * Choose the event category, including event-specific overrides for a contract.
+ * @param contract Contract that emitted the event.
+ * @param eventName Decoded event name used for category overrides.
+ */
 export function categoryFor(
   contract: ContractName,
   eventName: string,
@@ -69,7 +77,10 @@ export function categoryFor(
   )
 }
 
-/** The set of event names declared by a contract's ABI. */
+/**
+ * The set of event names declared by a contract's ABI.
+ * @param contract Contract whose vendored ABI supplies the event definitions.
+ */
 export function eventNamesOf(contract: ContractName): string[] {
   return (CONTRACT_ABIS[contract] as readonly {type: string; name?: string}[])
     .filter(i => i.type === 'event' && i.name)
@@ -78,16 +89,25 @@ export function eventNamesOf(contract: ContractName): string[] {
 
 /** A normalized, storage-ready decoded log. */
 export interface DecodedEvent {
+  /** Display category derived from the contract and event name. */
   category: EventCategory
+  /** Contract ABI used to decode this event. */
   contract: ContractName
+  /** Contract address that emitted the log. */
   address: Address
+  /** Decoded event name from the contract ABI. */
   eventName: string
   /** Decoded args (bigints preserved; use `jsonSafe` before persisting). */
   args: Record<string, unknown>
+  /** Block containing the log. */
   blockNumber: bigint
+  /** Block hash reported by the RPC, or null when unavailable. */
   blockHash: string | null
+  /** Hash of the transaction that emitted the log. */
   txHash: string
+  /** Transaction position within the block, or null when unavailable. */
   txIndex: number | null
+  /** Log position within the block. */
   logIndex: number
 }
 
@@ -105,6 +125,9 @@ function argsToRecord(args: unknown): Record<string, unknown> {
  * Decode raw logs (already filtered to `address`) against `contract`'s ABI.
  * Non-matching / anonymous logs are skipped. `strict:false` tolerates logs
  * whose indexed topics can't be fully decoded.
+ * @param contract Contract ABI used to decode each log.
+ * @param address Deployed emitting contract address.
+ * @param logs Raw logs carrying topics, data and optional block metadata.
  */
 export function decodeContractLogs(
   contract: ContractName,
@@ -140,6 +163,7 @@ export function decodeContractLogs(
 /**
  * Recursively convert bigints to strings so a decoded event can be JSON
  * serialized / stored. Leaves everything else intact.
+ * @param value Value to convert recursively, including bigint and byte arrays.
  */
 export function jsonSafe<T>(value: T): unknown {
   if (typeof value === 'bigint') return value.toString()

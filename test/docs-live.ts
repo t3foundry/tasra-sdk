@@ -5,11 +5,13 @@ import {cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync
 import {tmpdir} from 'node:os'
 import {join, resolve} from 'node:path'
 
+if (process.env.TASRA_ALLOW_NETWORK_TRANSACTIONS !== '1') throw new Error('Set TASRA_ALLOW_NETWORK_TRANSACTIONS=1 only after authorizing transactions and creator funding on the selected network')
+
 const root = resolve(import.meta.dirname, '..')
 const scratch = mkdtempSync(join(tmpdir(), 'tasra-shared-account-'))
 const output = resolve(root, process.env.TASRA_DOCS_EVIDENCE ?? '.tasra/docs-evidence')
 const run = (command: string, args: string[], cwd = scratch, extraEnv = {}) =>
-  execFileSync(command, args, {cwd, env: {...process.env, ...extraEnv}, stdio: 'inherit', timeout: 600_000})
+  execFileSync(command, args, {cwd, env: {...process.env, ...extraEnv}, stdio: 'inherit', timeout: 1_200_000})
 const version = (name: string) => (JSON.parse(readFileSync(join(root, 'node_modules', name, 'package.json'), 'utf8')) as {version: string}).version
 const hash = (file: string) => createHash('sha256').update(readFileSync(file)).digest('hex')
 
@@ -17,10 +19,12 @@ console.log(`Fresh application: ${scratch}`)
 run('npm', ['pack', '--ignore-scripts', '--pack-destination', scratch, '--loglevel', 'error'], root)
 const artifact = readdirSync(scratch).find(name => name.endsWith('.tgz'))!
 writeFileSync(join(scratch, 'package.json'), JSON.stringify({name: 'tasra-docs-live', private: true, type: 'module'}))
-run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', join(scratch, artifact), `viem@${version('viem')}`, `tsx@${version('tsx')}`])
+run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', join(scratch, artifact)])
+run('npm', ['install', '--save-dev', '--ignore-scripts', '--no-audit', '--no-fund', `tsx@${version('tsx')}`])
+for (const file of ['tutorial-support.ts', 'tutorial-negative.ts', 'network.ts']) cpSync(join(scratch, 'node_modules/tasra-sdk/examples', file), join(scratch, file))
 cpSync(join(scratch, 'node_modules/tasra-sdk/examples/shared-account.ts'), join(scratch, 'app.ts'))
-cpSync(join(scratch, 'node_modules/tasra-sdk/examples/local-fleet-ca.pem'), join(scratch, 'local-fleet-ca.pem'))
-run(process.execPath, ['--import', 'tsx', 'app.ts'], scratch, {NODE_EXTRA_CA_CERTS: join(scratch, 'local-fleet-ca.pem')})
+run(process.execPath, ['--import', 'tsx', 'network.ts'], scratch)
+run(process.execPath, ['--import', 'tsx', 'app.ts'], scratch)
 
 // Copy only public evidence, never recovery files, keys, credentials or authorizations.
 const runs = readdirSync(join(scratch, '.tasra')).filter(name => name.startsWith('shared-account-'))
@@ -41,7 +45,7 @@ for (const name of ['evidence.json', 'alice-receipt.json', 'bob-receipt.json']) 
 writeFileSync(join(output, 'provenance.json'), JSON.stringify({
   checkedAt: new Date().toISOString(), node: process.version,
   sdk: (JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {version: string}).version,
-  viem: version('viem'), tsx: version('tsx'),
+  tsx: version('tsx'),
   sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim(),
   sourceDirty: !!execFileSync('git', ['status', '--porcelain'], {cwd: root, encoding: 'utf8'}).trim(),
   packageSha256: hash(join(scratch, artifact)), exampleSha256: hash(join(scratch, 'app.ts')),

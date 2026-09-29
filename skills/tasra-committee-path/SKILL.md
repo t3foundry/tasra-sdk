@@ -23,32 +23,41 @@ Read `docs/native-approvals.md`. `examples/native-approvals.ts` uses registered
 static approver keys; `examples/credential-approvals.ts` uses separate holder-bound
 credential presentations. Both set the real slot policy before requesting approvals.
 
-```ts
-import type {TasraApplication} from 'tasra-sdk/app'
-import type {Hex} from 'viem'
+Use `setApprovalPolicy` to install the explicit policy with the creator wallet and
+durable store. For static keys, adapt SDK Ed25519 identities with `identityApprover`:
 
-export async function startApproval(
-  tasra: TasraApplication, slotId: Hex, message: Uint8Array,
-  policy: {quorum: number; credentialGated: boolean},
-) {
+```ts
+import {setApprovalPolicy, identityApprover, type TasraClient,
+  type TasraIdentity, type TasraWallet, type ApplicationStore} from 'tasra-sdk/app'
+
+export async function startApproval(tasra: TasraClient, slotId: `0x${string}`,
+  alice: TasraIdentity, bob: TasraIdentity, creator: TasraWallet,
+  store: ApplicationStore, message: Uint8Array) {
+  const signers = [identityApprover(alice), identityApprover(bob)]
+  await setApprovalPolicy(tasra, slotId, {
+    quorum: 2, approvers: signers.map(signer => signer.publicKey),
+  }, {wallet: creator, store})
   const slot = await tasra.slots.frost(slotId)
-  const approvals = await slot.approvals(policy)
-  return approvals.create(message)
+  const approvals = await slot.approvals({quorum: 2, credentialGated: false})
+  const request = await approvals.create(message)
+  await store.save(`approval-${request.requestId}`, {requestId: request.requestId,
+    coordinator: request.nodeUrl, slotId, message, quorum: 2, credentialGated: false})
+  await request.approve({signer: signers[0]!})
+  await request.approve({signer: signers[1]!})
+  return request.wait({timeoutMs: 120_000})
 }
 ```
 
-Supply quorum and mode from the application's independently pinned slot policy;
-do not trust a status response to choose them. Save the request ID, coordinator,
-slot, exact message and expected policy. Each signer implements `{publicKey,
-sign(bytes)}` and signs the SDK-supplied canonical bytes with its authorized Ed25519
-key. Keep private keys out of model-authored arguments and public evidence.
+For credential mode, install `{quorum: 2, credentialPolicy: rule}` instead, open
+`slot.approvals({quorum: 2, credentialGated: true})`, and use
+`approveWithCredential(tasra, request, message, {identity, authorize})` for each
+holder. Obtain `authorize` with `tasra.credentials.authorize()` and that holder's
+credential. The SDK computes the canonical payload digest and binds the approval
+to this exact request. No application signing library or manual session glue is needed.
 
-For credential mode, each `request.approve` also needs that holder's own
-`authorization: {token, verifierProofs}`. Use action `dual-approve`; its
-`payloadDigest` is SHA-256 of `dualSignApprovalPayload(slotId, message, requestId)`
-from `tasra-sdk/committee`. Do not hash the message twice or duplicate the canonical
-encoding in app code. The approval key must match the credential-bound holder.
-The recipe shows the complete wallet flow and duplicate-holder refusal.
+Keep the quorum and mode pinned independently of status responses. A credential
+policy admitting Alice OR Bob does not itself require two approvals; the separate
+native policy does. Keep private keys out of model-authored arguments and evidence.
 
 Call `request.status()` or bounded `request.wait({timeoutMs, signal})` to observe
 completion. The SDK verifies the final signature against the expected group key

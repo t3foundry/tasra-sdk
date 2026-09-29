@@ -1,17 +1,21 @@
-// The request-binding derivations — `request_hash`, `vp_nonce` and the decrypt payload
-// digest — shared with the keepers and the Verifier Agent. These must stay
-// byte-identical, or the wallet signs a nonce every verifier refuses. test/dpop.ts and
-// the committee conformance suite pin them against known-answer vectors.
+// The request-binding derivations - `request_hash`, `vp_nonce` and the decrypt payload
+// digest - shared with the keepers and the Verifier Agent. These must stay
+// byte-identical so every participant checks the same authorization context.
 
 import {keccak_256} from '@noble/hashes/sha3'
 import {sha256} from '@noble/hashes/sha256'
 import {b64url, utf8} from './jose.js'
 
+/** Domain separator for binding chain, slot, action and payload digest. */
 export const REQUEST_BINDING_DOMAIN = 'keykeeper-committee/request-binding/v1'
+/** Domain separator for deriving a wallet presentation nonce from the operation context. */
 export const VP_NONCE_DOMAIN = 'keykeeper/vp-nonce/v1'
+/** Domain separator for the ciphertext digest used in decryption authorization. */
 export const DECRYPT_DIGEST_DOMAIN = 'keykeeper/decrypt-audit-ciphertext/v1'
 
+/** Operation names accepted by the committee request-binding protocol. */
 export type CommitteeAction = 'sign' | 'decrypt' | 'ibe-extract' | 'dual-approve'
+/** Supported operation names accepted by request-binding validation. */
 export const COMMITTEE_ACTIONS: readonly CommitteeAction[] = ['sign', 'decrypt', 'ibe-extract', 'dual-approve']
 
 function concat(...parts: Uint8Array[]): Uint8Array {
@@ -35,9 +39,14 @@ function be64(n: number | bigint): Uint8Array {
 }
 
 /**
- * `keccak256(DOMAIN ‖ chain_id u64 BE ‖ slot_id ‖ len(action) u32 BE ‖ action ‖ payload_digest)` —
+ * `keccak256(DOMAIN || chain_id u64 BE || slot_id || len(action) u32 BE || action || payload_digest)` -
  * the ONE binding hash the verifier-agent, the JAR signer, every drawn verifier, the keeper, the
  * accountant audit and this SDK compute. The wallet's request body is deliberately NOT in it.
+ *
+ * @param chainId - EVM chain identifier.
+ * @param slotId - 32-byte slot identifier.
+ * @param action - Operation name bound into the request.
+ * @param payloadDigest - 32-byte action-specific payload digest.
  */
 export function requestHash(chainId: number | bigint, slotId: Uint8Array, action: CommitteeAction, payloadDigest: Uint8Array): Uint8Array {
   if (slotId.length !== 32) throw new Error('requestHash: slotId must be 32 bytes')
@@ -54,18 +63,28 @@ export function requestHash(chainId: number | bigint, slotId: Uint8Array, action
  * verifier-set registry is configured (dev).
  */
 export interface NonceContext {
+  /** Beacon epoch used for the verifier committee draw. */
   epoch: number | bigint
+  /** 32-byte anchored verifier snapshot root. */
   snapshotRoot: Uint8Array
+  /** Number of entries in the verifier registry. */
   registrySize: number
+  /** Number of verifiers selected for the committee. */
   committee: number
+  /** Minimum required verifier signatures. */
   quorum: number
+  /** Creator-signed operation expiry in Unix seconds. */
   operationExp: number | bigint
 }
 
 /**
- * `base64url(keccak256(NONCE_DOMAIN ‖ request_hash ‖ random ‖ epoch u64 BE ‖ snapshot_root ‖
- * registry_size u32 BE ‖ committee u32 BE ‖ quorum u32 BE ‖ operation_exp i64 BE))` — the
+ * `base64url(keccak256(NONCE_DOMAIN || request_hash || random || epoch u64 BE || snapshot_root ||
+ * registry_size u32 BE || committee u32 BE || quorum u32 BE || operation_exp i64 BE))` - the
  * nonce a KB-JWT must carry (the reference vp-nonce derivation, domain v2).
+ *
+ * @param reqHash - 32-byte request-binding hash.
+ * @param random - 32 fresh random bytes.
+ * @param ctx - Beacon epoch, verifier snapshot, committee policy and operation expiry to bind.
  */
 export function derivedNonce(reqHash: Uint8Array, random: Uint8Array, ctx: NonceContext): string {
   if (reqHash.length !== 32) throw new Error('derivedNonce: reqHash must be 32 bytes')
@@ -93,6 +112,9 @@ export function derivedNonce(reqHash: Uint8Array, random: Uint8Array, ctx: Nonce
  * `sign` = sha256(message), `ibe-extract` = sha256(identity), `decrypt` = the ciphertext
  * digest ({@link decryptPayloadDigest}), `dual-approve` = the digest the caller already
  * holds. Pass exactly one of the inputs the action needs.
+ *
+ * @param action - Operation whose payload will be bound.
+ * @param args - Message, identity or precomputed digest required by that operation.
  */
 export function payloadDigestFor(
   action: CommitteeAction,
@@ -118,8 +140,11 @@ export function payloadDigestFor(
 
 /**
  * The `decrypt` action's digest, mirroring the reference decrypt digest:
- * `sha256(DOMAIN ‖ len(u) u64 LE ‖ u ‖ len(aead_ct) u64 LE ‖ aead_ct)` — the AEAD nonce is
+ * `sha256(DOMAIN || len(u) u64 LE || u || len(aead_ct) u64 LE || aead_ct)` - the AEAD nonce is
  * deliberately excluded (it is not authorised content).
+ *
+ * @param u - Ephemeral public key bytes from the group ciphertext.
+ * @param aeadCt - Authenticated ciphertext bytes, including the tag.
  */
 export function decryptPayloadDigest(u: Uint8Array, aeadCt: Uint8Array): Uint8Array {
   const le64 = (n: number) => {

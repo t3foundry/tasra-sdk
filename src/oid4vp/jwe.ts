@@ -1,13 +1,11 @@
-// JWE compact serialisation for OID4VP `direct_post.jwt`: ECDH-ES direct key agreement on P-256 +
-// A256GCM / A128GCM, Concat KDF per RFC 7518 §4.6.2. Byte-compatible with the Verifier Agent's
-// the reference implementation (both directions round-trip in the reference tests and the live fleet).
-// Pure noble: `p256` for ECDH, `@noble/ciphers` for AES-GCM.
+// Compact JWE using P-256 ECDH-ES and AES-GCM for encrypted wallet responses.
 
 import {gcm} from '@noble/ciphers/aes'
 import {p256} from '@noble/curves/p256'
 import {sha256} from '@noble/hashes/sha256'
 import {b64url, b64urlDecode, decodeJson, utf8, type EcJwk} from './jose.js'
 
+/** Supported AES-GCM content encryption algorithms for compact JWE. */
 export type JweEnc = 'A256GCM' | 'A128GCM'
 
 function be32(n: number): Uint8Array {
@@ -23,7 +21,15 @@ function cat(...parts: Uint8Array[]): Uint8Array {
   return out
 }
 
-/** Concat KDF (NIST SP 800-56A, single-pass SHA-256) — AlgorithmID = `enc` for ECDH-ES direct. */
+/**
+ * Concat KDF (NIST SP 800-56A, single-pass SHA-256) - AlgorithmID = `enc` for ECDH-ES direct.
+ *
+ * @param z - ECDH shared secret bytes.
+ * @param alg - Algorithm identifier included in the KDF context.
+ * @param apu - Producer party information.
+ * @param apv - Recipient party information.
+ * @param keyLen - Derived key length in bytes.
+ */
 export function concatKdf(z: Uint8Array, alg: string, apu: Uint8Array, apv: Uint8Array, keyLen: number): Uint8Array {
   const reps = Math.ceil(keyLen / 32)
   const out: Uint8Array[] = []
@@ -43,6 +49,11 @@ function ecdhZ(privateKey: Uint8Array, peer: EcJwk): Uint8Array {
 /**
  * Encrypt `plaintext` to the recipient's ephemeral P-256 JWK (the JAR's `client_metadata.jwks.keys[0]`)
  * as `header..iv.ciphertext.tag`. A fresh sender key per call; `kid` echoed when the recipient key has one.
+ *
+ * @param plaintext - UTF-8 plaintext to encrypt.
+ * @param recipient - Recipient public P-256 key.
+ * @param enc - AES-GCM content encryption algorithm.
+ * @param random - Cryptographically secure random byte generator; defaults to Web Crypto.
  */
 export function encryptJwe(plaintext: string, recipient: EcJwk, enc: JweEnc = 'A256GCM', random: (n: number) => Uint8Array = n => crypto.getRandomValues(new Uint8Array(n))): string {
   if (recipient.kty !== 'EC' || recipient.crv !== 'P-256') throw new Error('JWE recipient must be an EC P-256 key')
@@ -60,7 +71,12 @@ export function encryptJwe(plaintext: string, recipient: EcJwk, enc: JweEnc = 'A
   return `${headerB64}..${b64url(iv)}.${b64url(ct)}.${b64url(tag)}`
 }
 
-/** Decrypt a compact JWE produced by {@link encryptJwe} (or a wallet) with the recipient's private scalar. */
+/**
+ * Decrypt a compact JWE produced by {@link encryptJwe} (or a wallet) with the recipient's private scalar.
+ *
+ * @param compact - Compact JWE using ECDH-ES and a supported AES-GCM algorithm.
+ * @param recipientPrivateKey - Recipient 32-byte P-256 private scalar.
+ */
 export function decryptJwe(compact: string, recipientPrivateKey: Uint8Array): string {
   const parts = compact.split('.')
   if (parts.length !== 5) throw new Error(`JWE must have 5 parts, got ${parts.length}`)

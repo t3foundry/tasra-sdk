@@ -347,6 +347,7 @@ const fill = (n: number, v: number): Uint8Array => new Uint8Array(n).fill(v)
     return parseSdJwt(`${jwt!}~${b64url(JSON.stringify(['only-two', 'parts']))}~`)
   })
   throwsWith('didJwkIssuer refuses a non-ES256 alg', /only P-256 \/ ES256 is supported/, () =>
+    // @ts-expect-error Exercise the runtime guard for untyped JavaScript callers.
     didJwkIssuer(issuerKey.privateKey, 'EdDSA'),
   )
 

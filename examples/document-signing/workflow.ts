@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { Hex } from 'viem'
+import type { Hex } from './model.js'
 import type { OpenedVerifierAgentSession } from 'tasra-sdk/oid4vp'
 import { Store } from './store.js'
 import {

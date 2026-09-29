@@ -20,7 +20,7 @@ test('threshold creation follows registry requirement; export never weakens it',
   const direct = vi.fn().mockResolvedValue({slotId: 'created'})
   const commit = vi.fn().mockResolvedValue({slotId: 'committed'})
   const writer = {createSlot: direct, createSlotCommitReveal: commit} as unknown as TasraWriteClient
-  const args: CreateSlotArgs = {dcqlRule: 'rule', k: 2, n: 3, mode: 'bls', exportable: false}
+  const args: CreateSlotArgs = {rule: 'rule', k: 2, n: 3, mode: 'bls', exportable: false}
   await createExampleSlot(writer, false, args)
   expect(direct).toHaveBeenCalledWith(args)
   await createExampleSlot(writer, true, args)

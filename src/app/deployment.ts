@@ -3,10 +3,25 @@ import {TasraError} from '../errors.js'
 
 /** Public, versioned application configuration. Never contains credentials or private keys. */
 export interface TasraDeployment {
+  /**
+   * Deployment descriptor schema version.
+   */
   schemaVersion: 1
+  /**
+   * Human-readable deployment identifier.
+   */
   name: string
+  /**
+   * EVM chain ID used to bind transactions and authorization.
+   */
   chainId: number
+  /**
+   * HTTP or HTTPS JSON-RPC endpoint from the approved network configuration.
+   */
   rpcUrl: string
+  /**
+   * Contract addresses resolved from the network manifest.
+   */
   addresses: AddressBook
   /** Explicit coordinator convention of the tested network build. */
   coordinator: 'lowest-operator-id' | 'assigned-first'
@@ -14,7 +29,10 @@ export interface TasraDeployment {
   provenance?: {networkRevision: string; manifestSha256?: string}
 }
 
-/** Validate a caller-approved descriptor. This does not establish its authenticity. */
+/**
+ * Validate a caller-approved descriptor. This does not establish its authenticity.
+ * @param value Caller-approved public deployment descriptor.
+ */
 export function defineDeployment(value: TasraDeployment): Readonly<TasraDeployment> {
   if (value.schemaVersion !== 1 || !value.name || !Number.isSafeInteger(value.chainId) || value.chainId <= 0 ||
     !['lowest-operator-id', 'assigned-first'].includes(value.coordinator)) throw new TasraError('Invalid deployment schema, chain or coordinator policy')

@@ -12,39 +12,37 @@ metadata:
 
 # Connect the application to a credential wallet
 
-For new candidate applications, return an `OperationAuthorizer` and let typed slots
+For new applications, return an `OperationAuthorizer` and let typed slots
 supply the exact operation. Select and approve the verifier-agent provider before
 sending it a presentation. An arbitrary URL or a service listed in a manifest is
 not, on its own, proof of registry approval.
 
-```ts
-import {registeredWalletAuthorization} from 'tasra-sdk/app'
+For an application holding a development credential, use
+`tasra.credentials.authorize({verifierAgentUrl, signer, identity, credentials})`.
+The SDK handles the bound session, presentation and proof collection. For a browser
+wallet presenting to an existing request, use
+`tasra.credentials.present(requestUri, identity, credentials, {choose})` and obtain
+user consent in `choose` before disclosing the selected credential.
 
-export function connectWallet(config: Parameters<typeof registeredWalletAuthorization>[0]) {
-  return registeredWalletAuthorization(config)
-}
-```
-
-The configuration contains an independently approved registered agent `client`,
-a `signer` for the operation request, and `present(session, signal)`. That callback
-displays the selected request QR/deep link, or runs the application's credential
-wallet. Preserve the session's authenticated provider and request binding; do not
-redirect a presentation to a fallback provider after timeout or refusal.
-The adapter waits for a result and requires verifier membership proofs.
+For an independently approved registered provider or separate wallet application,
+`registeredWalletAuthorization({client, signer, present})` remains available. The
+`present(session, signal)` callback displays the selected QR/deep link or runs the
+wallet. Preserve authenticated provider and operation binding; a timeout or refusal
+must not redirect a presentation to a fallback provider.
 
 ## Local development without an issuer account
 
-Read `examples/encrypted-notes.ts` or `examples/shared-account.ts`. They generate
-separate issuer/holder keys with `ed25519HolderKey`, issue `issueSdJwtVc` credentials
-bound with `holderCnf`, and supply an authorizer using the explicitly configured
-local verifier-agent endpoint. This local endpoint example does not establish a
-production registered-provider approval.
+Read `examples/encrypted-notes.ts`, `examples/shared-account.ts` and their visible
+`tutorial-support.ts` helper. `tasra.identities.create()` creates fresh issuer and
+holder identities; `tasra.credentials.issue({issuer, holder, type, claims})` binds
+each credential to its holder. `tasra.credentials.authorize()` uses the configured
+local verifier. This endpoint example does not establish production provider approval.
 
-Forward the actual operation to `openVerifierAgentSession`, present with
-`presentToRequestUri`, and obtain `{token, verifierProofs}` with
-`awaitVerifierAgentResult`. Do not omit membership proofs. Tokens are compound
-objects, not bearer JWT strings. A credential must be presented by its bound holder;
-generating a different key at presentation time will fail.
+Tokens are compound objects, not bearer JWT strings. A credential must be presented
+by its bound holder; generating a different key at presentation time will fail.
+The high-level authorizer preserves exact operation inputs and membership proofs.
+For native approvals, use `approveWithCredential` to compute and bind the canonical
+payload; manual digest/session construction is only an advanced integration choice.
 
 | Action | Exact operation input |
 |---|---|

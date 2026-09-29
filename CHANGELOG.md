@@ -18,13 +18,12 @@ never does.
 - Complete encrypted-notes, document-signing and native approval TypeScript examples,
   application guides and migration notes.
 
-These changes are packaged as the unpublished `0.3.0-next.0` candidate. Existing
-imports remain available. See [deployment compatibility](docs/compatibility.md)
-before running network operations.
+Install `tasra-sdk@latest` from npm. Network operations require compatible contracts
+and services selected through a verified tasra-releases manifest.
 
 - `committeeSignEoaDigest` in `tasra-sdk/committee` for request-bound threshold
   Ethereum signing with verifier-agent compound tokens and membership proofs.
-- SDK-only shared-account example that creates and provisions a local tECDSA slot,
+- SDK-only shared-account example that creates and provisions a tECDSA slot,
   confirms Alice/Bob transactions, and verifies Mallory's server-side denial.
 - Generated API reference and explicit SDK/deployment compatibility guidance.
 

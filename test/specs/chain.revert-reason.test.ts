@@ -60,6 +60,6 @@ it('createSlot says which call to use when the deployment requires commit-reveal
   const writer = createTasraWriteClient({
     rpcUrl: 'http://localhost:1', wallet, chainId: 31337, addresses: {KeyRegistry: address},
   })
-  await expect(writer.createSlot({dcqlRule: 'verify:demo', k: 2, n: 3, mode: 'bls'}))
+  await expect(writer.createSlot({rule: 'verify:demo', k: 2, n: 3, mode: 'bls'}))
     .rejects.toThrow('createSlotCommitReveal')
 })

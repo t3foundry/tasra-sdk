@@ -1,36 +1,34 @@
-import { createTasra, defineDeployment } from 'tasra-sdk/app'
-import { createTasraChainClient } from 'tasra-sdk/chain'
-import { defineChain } from 'viem'
+import { TasraClient } from 'tasra-sdk/app'
+import { loadNetwork } from './network.js'
 
-// Public configuration only. Replace from a reviewed deployment after fleet redeployment.
-export const deployment = defineDeployment({
-  schemaVersion: 1,
-  name: 'Local Tasra',
-  chainId: 43112,
-  rpcUrl: 'http://127.0.0.1:9650/ext/bc/C/rpc',
-  coordinator: 'lowest-operator-id',
-  addresses: {
-    KeyRegistry: '0x94c75679D75bfdc310669c0De4dE4398E922232b',
-    NodeRegistry: '0xEA7A0602b6DB6Aa767C5649b4d5083c426Cb8083',
-  },
+// Use the downloaded manifest after verifying its saved SHA-256 pin.
+const network = loadNetwork()
+if (!network.verifierAgentUrl) throw new Error('Manifest must name a verifier agent')
+export const verifierAgentUrl = network.verifierAgentUrl
+export const tasra = new TasraClient({manifest: network.deployment, verifierAgentUrl})
+export const { deployment, chain } = tasra
+
+const manifestSha256 = deployment.provenance?.manifestSha256
+if (!manifestSha256) throw new Error('Downloaded manifest lacks its checksum pin')
+export const networkIdentity = Object.freeze({
+  chainId: deployment.chainId,
+  keyRegistry: deployment.addresses.KeyRegistry!.toLowerCase(),
+  manifestSha256,
+  coordinator: deployment.coordinator,
+  verifierAgentUrl,
 })
-export const verifierAgentUrl = 'https://localhost:19444'
-export const evm = defineChain({
-  id: deployment.chainId,
-  name: deployment.name,
-  nativeCurrency: { name: 'AVAX', symbol: 'AVAX', decimals: 18 },
-  rpcUrls: { default: { http: [deployment.rpcUrl] } },
-})
-export const chain = createTasraChainClient(deployment)
-export function reachable(url: string) {
-  const u = new URL(url),
-    match = /^keykeeper-node-([1-5])$/.exec(u.hostname)
-  if (match && u.port === '8080') {
-    u.hostname = '127.0.0.1'
-    u.port = String(8090 + Number(match[1]))
+export type NetworkIdentity = typeof networkIdentity
+
+/** Reject changed routing before reusing saved credentials or session secrets. */
+export function assertSameNetwork(value: unknown): asserts value is NetworkIdentity {
+  const saved = value as Partial<NetworkIdentity> | undefined
+  if (!saved || typeof saved !== 'object' ||
+      saved.chainId !== networkIdentity.chainId ||
+      typeof saved.keyRegistry !== 'string' ||
+      saved.keyRegistry.toLowerCase() !== networkIdentity.keyRegistry ||
+      saved.manifestSha256 !== networkIdentity.manifestSha256 ||
+      saved.coordinator !== networkIdentity.coordinator ||
+      saved.verifierAgentUrl !== networkIdentity.verifierAgentUrl) {
+    throw new Error('Saved network configuration differs. Restore the original manifest and pin; preserve private state for reconciliation.')
   }
-  if (!['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname))
-    throw new Error('This tutorial requires local keepers')
-  return u.toString().replace(/\/$/, '')
 }
-export const tasra = createTasra({ deployment, chain, keeperUrl: reachable })

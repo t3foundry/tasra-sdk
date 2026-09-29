@@ -9,7 +9,7 @@ const hex = (v: string) => `0x${v.repeat(32)}` as Hex
 const wallet = createWalletClient({account: privateKeyToAccount(hex('01')), transport: http('http://localhost:1'), chain: defineChain({id: 43112, name: 'test', nativeCurrency: {name: 'AVAX', symbol: 'AVAX', decimals: 18}, rpcUrls: {default: {http: ['http://localhost:1']}}})})
 const deployment = {schemaVersion: 1 as const, name: 'local', rpcUrl: 'http://localhost:1', chainId: 43112, coordinator: 'lowest-operator-id' as const,
   addresses: {KeyRegistry: `0x${'11'.repeat(20)}` as Hex, NodeRegistry: `0x${'22'.repeat(20)}` as Hex}}
-const prepare = () => prepareSlot(deployment, wallet.account.address, {dcqlRule: 'verify:demo', mode: 'frost', k: 2, n: 3})
+const prepare = () => prepareSlot(deployment, wallet.account.address, {rule: 'verify:demo', mode: 'frost', k: 2, n: 3})
 beforeEach(() => {vi.clearAllMocks(); mock.chain.mockResolvedValue(43112)})
 
 describe('durable slot creation', () => {
@@ -61,7 +61,33 @@ describe('durable slot creation', () => {
     await expect(createPreparedSlot(journal, {wallet, persist: vi.fn(), options: {signal: field === 'abort' ? AbortSignal.abort() : undefined}})).rejects.toThrow()
     expect(mock.create).not.toHaveBeenCalled()
   })
-  it.each([{k: 0, n: 3}, {k: 4, n: 3}, {k: 1, n: 65536}, {k: 1, n: 2, exportable: true}, {k: 1, n: 2, dcqlRule: ''}])('rejects invalid intent %j', args => {
-    expect(() => prepareSlot(deployment, wallet.account.address, {mode: 'frost', dcqlRule: 'verify:demo', ...args})).toThrow()
+  it.each([{k: 0, n: 3}, {k: 4, n: 3}, {k: 1, n: 65536}, {k: 1, n: 2, exportable: true}, {k: 1, n: 2, rule: ''}])('rejects invalid intent %j', args => {
+    expect(() => prepareSlot(deployment, wallet.account.address, {mode: 'frost', rule: 'verify:demo', ...args})).toThrow()
   })
+})
+
+
+it('prepares a journal with the required rule', () => {
+  const journal = prepareSlot(deployment, wallet.account.address, {mode: 'frost', k: 2, n: 3, rule: 'verify:demo'})
+  expect(journal.intent.rule).toBe('verify:demo')
+  expect(journal.intent).not.toHaveProperty('dcqlRule')
+})
+
+const invalidRules = [{}, {rule: ''}, {dcqlRule: 'verify:demo'}, {rule: 'verify:demo', dcqlRule: 'verify:demo'}, {rule: 'a', dcqlRule: 'b'}, {rule: 'verify:demo', dcqlRule: undefined}]
+it.each(invalidRules)('rejects unsupported creation input %j', fields => {
+  expect(() => prepareSlot(deployment, wallet.account.address, {mode: 'frost', k: 2, n: 3, ...fields} as never)).toThrow(/rule/i)
+})
+
+it.each(invalidRules)('rejects unsupported saved rule %j without rewriting or performing I/O', async fields => {
+  const journal = prepare(), persist = vi.fn()
+  const {rule: _rule, ...intent} = journal.intent
+  journal.intent = {...intent, ...fields} as never
+  journal.commit = {phase: 'confirmed', hash: hex('03')}
+  journal.reveal = {phase: 'submitted', hash: hex('04'), seeded: true}
+  const before = structuredClone(journal)
+  await expect(createPreparedSlot(journal, {wallet, persist})).rejects.toThrow(/rule/i)
+  expect(journal).toEqual(before)
+  expect(persist).not.toHaveBeenCalled()
+  expect(mock.chain).not.toHaveBeenCalled()
+  expect(mock.create).not.toHaveBeenCalled()
 })

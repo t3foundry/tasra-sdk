@@ -1,22 +1,30 @@
-# API reference
+# Advanced clients and OAuth
 
 
 Start with the [shared-account tutorial](shared-account.md) for a complete app.
 The [generated reference](reference/README.md) covers public signatures, option
-fields, return types, and source comments across all six package entry points. This page maps
+fields, return types, and source comments across all eight library entry points. This page maps
 imports to tasks; [chain](chain.md), [signing](signing.md), and [errors](errors.md)
 provide operation details. Code fragments below assume their named inputs already exist.
 
 ## Choose a client
 
-| Factory | Import | Use it for | Requires |
+Start new applications with `TasraClient` from `tasra-sdk/app`. The runtime class
+is separate from the root module's existing `TasraClient` session-client type.
+Install the latest SDK with `npm install tasra-sdk@latest`; see
+[installation](installation.md) for runtime and TypeScript setup.
+
+| Entry point | Import | Use it for | Requires |
 |---|---|---|---|
+| `new TasraClient({manifest})` / `TasraClient.fromManifest(url)` | `tasra-sdk/app` | Create slots, use wallets and credentials, encrypt and sign | Public deployment manifest; wallet and durable store for slot creation |
+| `createFileStore` | `tasra-sdk/app/node` | Private durable state for a Node application | A private local directory |
 | `createTasraChainClient` | `tasra-sdk/chain` | Read contracts and discover the network | RPC, chain ID, deployment addresses |
 | `createTasraWriteClient` | `tasra-sdk/chain` | Create slots, fund them, change on-chain state | Deployment configuration and funded transaction signer |
 | `createCommitteeSlotClient` | `tasra-sdk/chain` | Credential-gated threshold encryption/decryption and FROST signing | Chain client, slot, holder, credentials and verifier proofs |
 | `createTasraSlotClient` | `tasra-sdk/chain` | Chain-discovered managed sessions | Chain client, identity and session authentication |
 | `createTasraClient` | `tasra-sdk` | Managed sessions with explicit endpoints | Keeper URLs and session authentication; verifier for credential redemption |
 
+The remaining factories support advanced integrations and existing applications.
 Managed-session local decryption requires an **exportable** BLS slot. Threshold
 custody uses the committee client; it does not export the master key.
 For Ethereum signatures, see [`signEoaDigest`](signing.md), not committee FROST signing.
@@ -25,6 +33,12 @@ For Ethereum signatures, see [`signEoaDigest`](signing.md), not committee FROST 
 
 | Call | Returns | Related guide |
 |---|---|---|
+| `tasra.check()` | Chain and registry availability; authorization compatibility remains unknown | [Quickstart](getting-started.md) |
+| `tasra.slots.create(request)` | Ready typed slot with its committed access policy provisioned | [Application API](application-api.md#create-a-wallet-identity-and-slot) |
+| `tasra.wallets.create()` / `tasra.wallets.connect(provider)` | Local wallet / promise of an external-wallet adapter | [Application API](application-api.md) |
+| `tasra.wallets.fromSlot(slotId, {authorize})` | Promise of a threshold Ethereum wallet with named durable transfers | [Shared account](shared-account.md) |
+| `tasra.identities.create()` | Fresh holder identity with a DID and explicit private-key export | [Credentials](application-api.md#issue-credentials-and-authorize-a-user) |
+| `tasra.credentials.issue(input)` / `authorize(input)` | SD-JWT credential / operation authorizer | [Credentials](application-api.md#issue-credentials-and-authorize-a-user) |
 | `parsePinnedNetworkManifest(text, sha256)` | Validated `NetworkManifest`; throws on checksum or schema mismatch | [Fuji configuration](fuji.md) |
 | `createTasraChainClient(config)` | `TasraChainClient` with `client` and typed `readers` | [Chain reference](chain.md#create-a-read-client) |
 | `chain.readers.keyRegistry.getKeySlot(slotId)` | Promise of slot state, including `exists`, `mode`, `publicKey`, `epoch`, `cancelled` | [Address lookup](signing.md#get-the-ethereum-address) |
@@ -32,6 +46,14 @@ For Ethereum signatures, see [`signEoaDigest`](signing.md), not committee FROST 
 | `committeeSignEoaDigest(options)` | Promise of `{groupPublicKey, r, s, yParity}` using request-bound authorization | [Complete tutorial](shared-account.md) |
 | `signEoaDigest(options)` | Promise of `{groupPublicKey, r, s, yParity}` | [Signing](signing.md) |
 | `client.openSession(slotId, auth)` | Promise of a managed `Session` | [Exportable vault](encryption.md#if-you-want-an-exportable-personal-vault) |
+
+## Application entry exports
+
+`tasra-sdk/app` provides `TasraClient`, the manifest loader, wallet and identity
+adapters, credential helpers, slot creation and native approval helpers.
+`tasra-sdk/app/node` provides `createFileStore`; keep this Node-only import out of
+browser bundles. See the [application guide](application-api.md) for the normal
+workflow and [generated application reference](reference/app.md) for complete signatures.
 
 ## Main entry exports
 
@@ -53,7 +75,9 @@ For Ethereum signatures, see [`signEoaDigest`](signing.md), not committee FROST 
 | Slot funding | `httpFaucet` (sovereign slot creation lives in `tasra-sdk/chain`) |
 | Utils | `hexToBytes` |
 
-Use `createCommitteeSlotClient` for credential-gated threshold custody. Managed
+For new apps, use `tasra.slots.bls(...)` and `tasra.slots.frost(...)` for
+credential-gated threshold custody. `createCommitteeSlotClient` remains available
+for advanced committee integrations. Managed
 `Session.decrypt` requires an exportable personal-vault slot; the session primitives,
 verifier-auth helpers, and crypto are what it composes (use them directly when you
 need finer control). To resolve endpoints from chain instead of hardcoding them, use the
@@ -78,19 +102,28 @@ const {header, body} = await ibeSealBlob(mpk, 'did:key:zPatient/imaging/2026-09'
 // store `body` as a blob and `header` beside it (header.wrappedKey is the IBE ciphertext of the data key)
 
 // consumer, after an identity-scoped extraction gave it sk_ID for that identity
-const png = await ibeOpenBlob(skId, header, body)                    // whole object in memory, or …
-const dek = ibeUnwrapBlobKey(skId, header)                           // … stream it:
+const png = await ibeOpenBlob(skId, header, body) // whole object in memory, or …
+const dek = ibeUnwrapBlobKey(skId, header) // … stream it:
 const key = await ibeBlobDecryptKey(dek)
 for (let i = 0; i < header.chunkCount; i++) {
-  const {start, end} = ibeBlobChunkRange(header, i)                  // byte range of chunk i in `body`
+  const {start, end} = ibeBlobChunkRange(header, i) // byte range of chunk i in `body`
   const plain = await ibeDecryptBlobChunk(key, header, i, await fetchRange(start, end))
 }
 ```
 
 `sk_ID` is a per-identity capability, so one extraction opens every object sealed to that
-identity; time-box identities (`…/2026-09`) rather than expecting to revoke one. Pair the body
-with a producer-signed digest (`ibeBlobDigest(body)`) so the consumer can reject a substituted
-ciphertext before decrypting anything.
+identity; time-box identities (`…/2026-09`) rather than expecting to revoke one. Use a producer-authenticated manifest containing both the header and the body
+digest (`ibeBlobDigest(body)`) so the consumer can reject substituted metadata or
+ciphertext before decrypting. A signed body digest alone does not protect the header.
+
+Chunk size must be an integer of at least 1024 bytes. Empty input still has one
+chunk: zero plaintext bytes and a 16-byte authentication tag. Exact chunk-size
+multiples add no extra chunk; the last partial chunk contains the remaining bytes.
+`ibeBlobChunkRange` returns an exclusive `end`; an HTTP Range request ends at
+`end - 1`. Validate safe-integer indices in `[0, header.chunkCount)` and use a trusted
+header. The SDK rejects negative and past-end indices; it does not validate every
+malformed header or fractional index. Authenticate the header alongside the body
+digest before trusting metadata such as `contentType`.
 
 ## `tasra-sdk/oid4vp` — credential wallets against the Verifier Agent
 
@@ -105,13 +138,13 @@ two application roles:
 import {openVerifierAgentSession, awaitVerifierAgentResult} from 'tasra-sdk/oid4vp'
 const session = await openVerifierAgentSession({verifierAgentUrl, chainId, keyRegistry, slotId, action: 'sign', message, description, signer: creatorAccount})
 showQr(session.qrPayload)
-const {token} = await awaitVerifierAgentResult(session)      // checks token.request_hash against the session
+const {token} = await awaitVerifierAgentResult(session) // checks token.request_hash against the session
 
 // WALLET: receive a credential from any OpenID4VCI issuer, then answer a request: fetch + verify
 // the JAR (did:web → the verifier-agent's set document), plan against its dcql_query, let the user pick ONE
 // credential, disclose only the claims asked for, bind with a KB-JWT, encrypt, POST.
 import {randomHolderKey, receiveCredential, presentToRequestUri} from 'tasra-sdk/oid4vp'
-const holder = randomHolderKey()                  // P-256 did:jwk, cnf.kid = did#0
+const holder = randomHolderKey() // P-256 did:jwk, cnf.kid = did#0
 const {credential} = await receiveCredential({offerUri, holder})
 await presentToRequestUri(qrPayload, [{sdJwt: credential}], holder, {choose: askUser})
 ```
@@ -158,7 +191,7 @@ const session = await createOauthSession(verifierAgentUrl, {operation, operation
 await submitOauthResponse(verifierAgentUrl, {
   sessionId: session.sessionId, pollSecret: session.pollSecret,
   accessToken, nonce: session.nonce, dpopHtu: session.dpopHtu,
-  signer,                                   // MUST sign with the key the token is bound to
+  signer, // MUST sign with the key the token is bound to
 })
 const result = await waitForSession(verifierAgentUrl, session.sessionId, session.pollSecret)
 if (result.status !== 'done') throw new Error(`refused: ${result.error}`)
@@ -173,17 +206,17 @@ if (result.status !== 'done') throw new Error(`refused: ${result.error}`)
 | `oidc-client-ts` with `dpop` enabled | `{proof: ({htm, htu, nonce}) => userManager.dpopProof(htu, user, htm, nonce)}` (it computes `ath` from the user's token) |
 | your own token request with a key from `createDpopKey()` | `key.signer` |
 
-⚠ **`createDpopKey().signer` mints resource-request proofs only** — it always sets `ath` and
+**`createDpopKey().signer` mints resource-request proofs only** — it always sets `ath` and
 `nonce` — and the SDK has no token-request proof helper, so it cannot obtain the token from the
 IdP for you. Prefer letting your OIDC library own the key.
 
-⚠ **Sign over `session.dpopHtu`, not the request URL.** The platform's `htu` is
+**Sign over `session.dpopHtu`, not the request URL.** The platform's `htu` is
 `{agentOrigin}/v1/sessions/oauth-response` (no session id), while the request goes to
 `/v1/sessions/{id}/oauth-response`. `submitOauthResponse` passes `dpopHtu` to the signer; a
 generic DPoP fetch helper that derives `htu` from the request URL — including `auth0-spa-js`'s
 `fetchWithAuth` — is refused.
 
-⚠ **`submitOauthResponse` resolving does not mean authorized.** The agent accepts the delivery
+**`submitOauthResponse` resolving does not mean authorized.** The agent accepts the delivery
 and runs the committee; a refusal (wrong role, stale token, wrong audience…) surfaces from
 `waitForSession` as `status: 'failed'` with the verifiers' reasons in `error` (it RETURNS a
 failed session rather than throwing — check `status`). `submitOauthResponse` answers the agent's `use_dpop_nonce` challenge once by itself.
@@ -206,9 +239,10 @@ It also carries the derivations `platformAudience(origin, chainId)` and
 `dpopHtu(origin)` (+ `normalizeOrigin`, `OAUTH_RESPONSE_PATH`). Use these helpers
 to preserve the deployment protocol's exact audience and URI binding.
 
-**Most consumers never need it.** `createCommitteeSlotClient` from
-`tasra-sdk/chain` drives the whole flow from a bare slot id; reach for these
-only when you are re-implementing or auditing the protocol itself.
+**Most consumers never need it.** Typed slots on `TasraClient` handle these
+operations. Advanced integrations can use `createCommitteeSlotClient` from
+`tasra-sdk/chain`; reach for protocol primitives when implementing or auditing the
+protocol itself.
 
 These ~35 symbols are deep protocol internals — canonical hashing, Merkle proofs,
 the committee draw, wire codecs — and they are **not** on the main entry, so
@@ -217,4 +251,4 @@ than to `compoundTokenCanonicalBytes`.
 
 ---
 
-[← Back to the README](../README.md) · [Documentation index](README.md)
+[Back to the README](../README.md) · [Documentation index](README.md)

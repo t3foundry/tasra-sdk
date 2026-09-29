@@ -1,3 +1,5 @@
+import { createIdentity, issueCredential } from 'tasra-sdk/app'
+import { importWallet } from './web/wallet.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -11,7 +13,7 @@ import {
   type SessionRecord,
 } from './workflow.js'
 import { Store, lockDirectory } from './store.js'
-import { type Proof, digest } from './model.js'
+import { type Proof, digest, toHex } from './model.js'
 const pdf = new TextEncoder().encode('%PDF-1.4\ntest')
 const alice = `0x${'11'.repeat(32)}` as const,
   bob = `0x${'22'.repeat(32)}` as const
@@ -196,5 +198,31 @@ void test('cancel and decline close unsigned work permanently', async (t) => {
       ),
       /closed/,
     )
+  }
+})
+
+test('generated credential wallet imports with its identity and rejects swapped keys or subjects', () => {
+  const issuer = createIdentity(), aliceIdentity = createIdentity(), otherIdentity = createIdentity()
+  const credential = issueCredential({
+    issuer, holder: aliceIdentity, type: 'DocumentSigner',
+    subject: 'did:demo:alice', claims: { role: 'document-signer' },
+  })
+  const walletFile = {
+    schema: 'tasra-demo-wallet/v1', name: 'alice',
+    seed: toHex(aliceIdentity.exportPrivateKey()), credential,
+  }
+  try {
+    const wallet = importWallet(JSON.stringify(walletFile))
+    assert.equal(wallet.identity.did, aliceIdentity.did)
+    assert.equal(wallet.credential, credential)
+    wallet.identity.destroy()
+    assert.throws(() => importWallet(JSON.stringify({
+      ...walletFile, seed: toHex(otherIdentity.exportPrivateKey()),
+    })), /holder mismatch/)
+    assert.throws(() => importWallet(JSON.stringify({
+      ...walletFile, name: 'bob',
+    })), /subject mismatch/)
+  } finally {
+    issuer.destroy(); aliceIdentity.destroy(); otherIdentity.destroy()
   }
 })

@@ -4,8 +4,11 @@ import type {EoaSignature} from '../signing/ecdsa.js'
 import type {CompoundTokenWire} from './token.js'
 import type {VerifierProof} from './client.js'
 
+/** Compound authorization, keeper endpoint and digest for threshold ECDSA signing. */
 export interface CommitteeEoaSignOpts {
+  /** HTTP transport override; defaults to the global fetch implementation. */
   fetchImpl?: typeof fetch
+  /** Keeper HTTP base URL. */
   nodeUrl: string
   /** Authorization from awaitVerifierAgentResult; its slot selects the signing key. */
   committeeToken: CompoundTokenWire
@@ -13,10 +16,13 @@ export interface CommitteeEoaSignOpts {
   digest: Uint8Array
   /** Membership proofs returned with the authorization. */
   verifierProofs?: VerifierProof[]
+  /** Request identifier used to correlate or resume the operation. */
   requestId?: string
   /** Required only by slots configured with an additional owner-signature gate. */
   userSignature?: Uint8Array
+  /** Optional 20-byte operator address to pin the intended keeper. */
   targetKeykeeper?: string
+  /** Optional signal that cancels the request. */
   signal?: AbortSignal
 }
 
@@ -28,6 +34,8 @@ export interface CommitteeEoaSignOpts {
  * @returns Ethereum signature components and the secp256k1 group public key.
  * @throws On malformed input/response, network failure, or keeper rejection.
  * HTTP 401/403 is an authorization denial; do not retry it as a network failure.
+ *
+ * @param opts - Compound authorization, keeper endpoint and 32-byte ECDSA digest.
  */
 export async function committeeSignEoaDigest(opts: CommitteeEoaSignOpts): Promise<EoaSignature> {
   if (opts.digest.length !== 32) throw new Error('committeeSignEoaDigest: digest must be 32 bytes')

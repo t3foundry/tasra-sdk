@@ -1,4 +1,4 @@
-// TasraClient — configure connection params once (nodes + verifier +
+// TasraClient - configure connection params once (nodes + verifier +
 // identity), then open managed Sessions per slot. The few-lines integration
 // surface; product-agnostic (no transport/roster/messaging).
 
@@ -22,10 +22,10 @@ import {newSession, type Session} from './session.js'
  */
 export interface TasraClientConfig {
   /** k-of-n keykeeper-node base URLs. */
-  nodes: string[]
-  /** Verifier base URL — required for renewalToken / redemptionToken / vpJwt auth. */
+  nodes: readonly string[]
+  /** Verifier base URL - required for renewalToken / redemptionToken / vpJwt auth. */
   verifier?: string
-  /** This holder's DID — recipient_did / holder for credential & vp-jwt auth. */
+  /** This holder's DID - recipient_did / holder for credential & vp-jwt auth. */
   identity?: string
 }
 
@@ -35,38 +35,72 @@ export interface TasraClientConfig {
  * to `audience` (the verifier's token `iss`) and the presented credentials.
  */
 export interface HolderProofAuth {
+  /** Holder DID authentication key or signing callback. */
   signer: HolderSigner
   /** The verifier's expected audience (its token `iss`). */
   audience: string
   /** Optionally scope the proof to a slot / action (must match the slot being opened). */
   slotId?: string
+  /** Optional action bound into the nonce and holder proof. */
   action?: string
+  /** Holder-proof lifetime in seconds. */
   ttlSecs?: number
 }
 
-/** The `vpJwt` auth mode's payload: signed VCs + a holder-key proof → JWT. */
+/** The `vpJwt` auth mode's payload: signed VCs + a holder-key proof to JWT. */
 export interface VpJwtAuth {
+  /** DCQL policy JSON to evaluate. */
   dcqlRule: string
+  /** Compact signed credentials presented to the verifier. */
   credentials: string[]
+  /** Holder-key possession proof settings. */
   holderProof: HolderProofAuth
 }
 
-/**
- * How to obtain the slot JWT — exactly one of four modes.
- *
- * `renewalToken` is the ONLY mode that silently auto-renews; the other three
- * resolve once and then fail loud on expiry, prompting a fresh `openSession`.
- *
- * The `?: undefined` members make the modes **mutually exclusive at compile
- * time**. Without them `{jwt, renewalToken}` type-checked (it structurally
- * satisfies `{jwt: string}`) and the loser was silently ignored at runtime.
- */
+/** Choose exactly one JWT authorization mode. Renewal tokens support automatic refresh; other modes require a new session after expiry. */
 export type SessionAuth =
-  | {jwt: string; renewalToken?: undefined; redemptionToken?: undefined; vpJwt?: undefined}
-  | {renewalToken: string; jwt?: undefined; redemptionToken?: undefined; vpJwt?: undefined}
-  | {redemptionToken: string; jwt?: undefined; renewalToken?: undefined; vpJwt?: undefined}
-  | {vpJwt: VpJwtAuth; jwt?: undefined; renewalToken?: undefined; redemptionToken?: undefined}
+  | {
+      /** Caller-supplied bearer JWT; omit when another authorization mode is selected. */
+      jwt: string
+      /** Renewal token for obtaining and refreshing bearer JWTs; omit when another mode is selected. */
+      renewalToken?: undefined
+      /** Single-use token exchanged for a bearer JWT; omit when another mode is selected. */
+      redemptionToken?: undefined
+      /** Credential presentation and holder proof for obtaining a bearer JWT; omit when another mode is selected. */
+      vpJwt?: undefined
+    }
+  | {
+      /** Renewal token for obtaining and refreshing bearer JWTs; omit when another mode is selected. */
+      renewalToken: string
+      /** Caller-supplied bearer JWT; omit when another authorization mode is selected. */
+      jwt?: undefined
+      /** Single-use token exchanged for a bearer JWT; omit when another mode is selected. */
+      redemptionToken?: undefined
+      /** Credential presentation and holder proof for obtaining a bearer JWT; omit when another mode is selected. */
+      vpJwt?: undefined
+    }
+  | {
+      /** Single-use token exchanged for a bearer JWT; omit when another mode is selected. */
+      redemptionToken: string
+      /** Caller-supplied bearer JWT; omit when another authorization mode is selected. */
+      jwt?: undefined
+      /** Renewal token for obtaining and refreshing bearer JWTs; omit when another mode is selected. */
+      renewalToken?: undefined
+      /** Credential presentation and holder proof for obtaining a bearer JWT; omit when another mode is selected. */
+      vpJwt?: undefined
+    }
+  | {
+      /** Credential presentation and holder proof for obtaining a bearer JWT; omit when another mode is selected. */
+      vpJwt: VpJwtAuth
+      /** Caller-supplied bearer JWT; omit when another authorization mode is selected. */
+      jwt?: undefined
+      /** Renewal token for obtaining and refreshing bearer JWTs; omit when another mode is selected. */
+      renewalToken?: undefined
+      /** Single-use token exchanged for a bearer JWT; omit when another mode is selected. */
+      redemptionToken?: undefined
+    }
 
+/** Associated data and token refresh skew for a managed slot session. */
 export interface OpenSessionOpts {
   /** AAD for envelopes this session encrypts. Default = the 32-byte slot id. */
   identity?: Uint8Array
@@ -75,10 +109,11 @@ export interface OpenSessionOpts {
 }
 
 /**
- * A configured client. Holds no key material itself — each {@link Session} it
+ * A configured client. Holds no key material itself - each {@link Session} it
  * opens owns its own JWT and (lazily) assembled master key.
  */
 export interface TasraClient {
+  /** Read-only snapshot of connection settings supplied when the client was created. */
   readonly config: Readonly<TasraClientConfig>
   /** Obtain a JWT (per `auth`), assemble the slot key, and return a managed Session. */
   openSession(
@@ -144,42 +179,13 @@ async function resolveAuth(
 }
 
 /**
- * The high-level integration surface: configure connection parameters once, then
- * open a managed {@link Session} per slot.
+ * Create a client for JWT-authorized slot sessions. Configure endpoints from a network manifest downloaded from the tasra-releases repository.
  *
- * The session obtains a DCQL-gated JWT, keeps it fresh, and Lagrange-assembles the
- * slot's master key from the fleet **lazily — on the first `decrypt`** (so
- * `encrypt`/`sign` never pay a shard fetch, and a sign-only slot never reconstructs
- * a key at all), re-assembling when the slot rotates. `Session.close()` zeroizes it.
+ * Sessions assemble the master key lazily on first decryption and clear it on close. Only renewal-token authorization renews automatically; other modes require a new session after expiry.
  *
- * This is the layer most integrations want. Below it sit the composable primitives
- * (`redeemCredential`, `fetchAndAssembleKey`, `encryptEnvelope`, …) that it
- * orchestrates — drop to those when you need finer control. To resolve endpoints
- * from chain instead of hardcoding them, use {@link createTasraSlotClient}.
- *
- * @param config `nodes` is always required. `verifier` is required for every auth
- *   mode except `{jwt}`; `identity` is required for `{redemptionToken}` and
- *   `{vpJwt}`. Both are validated when `openSession` runs.
- * @returns a client whose sessions you open per slot
- * @throws {Error} if `nodes` is empty
- *
- * @example
- * ```ts
- * const kk = createTasraClient({
- *   nodes: ['https://node-1', 'https://node-2', 'https://node-3'],
- *   verifier: 'https://verifier',
- *   identity: 'did:example:alice',
- * })
- *
- * const s = await kk.openSession(slotId, {renewalToken})
- * const env = s.encrypt(new TextEncoder().encode('only slot members can read this'))
- * const msg = await s.decrypt(env)      // assembles the key on first use
- * const sig = await s.sign(messageBytes)
- * await s.close()                       // zeroizes the assembled key
- * ```
- *
- * @see {@link SessionAuth} for the four ways to authorize a session — only
- *   `{renewalToken}` silently auto-renews; the others fail loud on expiry.
+ * @param config - Keeper URLs and the verifier or holder identity required by the selected authorization mode.
+ * @returns A client that opens and tracks managed slot sessions.
+ * @throws If no keeper URL is supplied.
  */
 export function createTasraClient(
   config: TasraClientConfig,
@@ -188,7 +194,15 @@ export function createTasraClient(
     throw new Error('createTasraClient: at least one node URL is required')
   }
   const open = new Set<Session>()
-  const frozen = Object.freeze({...config})
+  // A shallow freeze leaves the caller's array mutable and can redirect JWT requests.
+  const nodes = [...config.nodes]
+  for (const node of nodes) {
+    if (typeof node !== 'string') throw new Error('createTasraClient: invalid node URL')
+    const url = new URL(node)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('createTasraClient: invalid node URL')
+  }
+  Object.freeze(nodes)
+  const frozen = Object.freeze({...config, nodes})
 
   return {
     config: frozen,
@@ -205,7 +219,7 @@ export function createTasraClient(
         holder: resolved.holder,
         renewalToken: resolved.renewalToken,
         mpkBytes,
-        // Assembled lazily on the first decrypt — sign/encrypt need no shard fetch.
+        // Assembled lazily on the first decrypt - sign/encrypt need no shard fetch.
         msk: null,
         epoch,
         identity: opts?.identity ?? slotIdBytes,

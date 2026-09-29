@@ -39,13 +39,13 @@ import {
 import {decodeContractLogs, type DecodedEvent} from './events.js'
 
 /**
- * Calldata BYTES per Multicall3 aggregate — viem's unit here is bytes, not items, and
+ * Calldata BYTES per Multicall3 aggregate - viem's unit here is bytes, not items, and
  * it chunks the list for us at this size.
  *
  * A cap, not a target. The point is to stop a 10k-operator registry becoming 10k round
  * trips, but one unbounded aggregate is a payload an RPC rejects and an `eth_call` gas
  * budget a node refuses. At ~68 bytes for a one-address view call this is ~480 items per
- * request, so 10k reads become ~21 requests — the win is already three orders of
+ * request, so 10k reads become ~21 requests - the win is already three orders of
  * magnitude, and raising it further buys little for real risk.
  *
  * viem's own default is 1024 bytes (~15 items), which is too small to matter here.
@@ -55,6 +55,9 @@ const MULTICALL_BATCH_BYTES = 32_768
 /** Multicall3's canonical, deterministic-deployment address. */
 export const MULTICALL3_ADDRESS: Address = '0xcA11bde05977b3631167028862bE2a173976CA11'
 
+/**
+ * RPC and contract configuration for read-only network access.
+ */
 export interface ChainClientConfig {
   /** JSON-RPC HTTP endpoint of the chain. */
   rpcUrl: string
@@ -62,57 +65,60 @@ export interface ChainClientConfig {
   addresses: AddressBook
   /** Chain id; defaults to DEFAULT_CHAIN_ID (the RPC is never consulted). */
   chainId?: number
-  /** getLogs block-window size; keep ≤ the RPC's range cap (anvil/besu: large; public: ~2k). */
+  /** getLogs block-window size; keep <= the RPC's range cap (anvil/besu: large; public: ~2k). */
   logWindow?: number
   /**
-   * Where Multicall3 lives, for batching the per-item reads in {@link
-   * TasraChainClient.readMany} (and therefore the registry enumerations built on it).
-   *
-   * - omitted — **auto**: probe {@link MULTICALL3_ADDRESS} once with `eth_getCode` and
-   *   batch if something is deployed there. A chain without it costs one extra call,
-   *   once, and then reads individually forever.
-   * - an address — use that deployment instead of the canonical one. Still probed, so a
-   *   wrong address degrades to individual reads rather than failing every read.
-   * - `false` — never batch. For an RPC that rejects large `eth_call` payloads, or to
-   *   keep one read per item for debugging.
+   * Multicall3 address for batching. Omit to probe the canonical address, supply an explicit address to probe that deployment, or set false to disable batching. Unavailable batching falls back to individual reads.
    */
   multicall3?: Address | false
 }
 
+/**
+ * Controls whether a failed contract read rejects the batch or leaves a null result.
+ */
 export interface ReadManyOpts {
   /**
    * What a failing item does.
    *
-   * - `true` (default) — the item is `null` in place. One unreadable operator must not
+   * - `true` (default) - the item is `null` in place. One unreadable operator must not
    *   blank the whole set.
-   * - `false` — ANY failing item rejects the call. Required whenever position carries
+   * - `false` - any failing item rejects the call. Required whenever position carries
    *   meaning: dropping one operator from an ordered set shifts every index after it,
    *   which silently changes what the caller is looking at.
    */
   allowFailure?: boolean
 }
 
+/**
+ * Inclusive block range, contract filter and progress callback for event scanning.
+ */
 export interface GetLogsWindowedOpts {
+  /** First block to scan, inclusive. */
   fromBlock: bigint
+  /** Last block to scan, inclusive. */
   toBlock: bigint
   /** Restrict to these contracts (default: all present in the AddressBook). */
   contracts?: ContractName[]
+  /** Number of blocks per query; defaults to the client logWindow setting. */
   windowSize?: number
   /** Called after each window with the last block scanned (progress). */
   onWindow?: (toBlock: bigint, events: DecodedEvent[]) => void
 }
 
-// ── Explicit public types ────────────────────────────────────────────────────
+//  Explicit public types
 //
 // These are written out rather than inferred (`ReturnType<typeof factory>`).
 // Inference forces TypeScript to expand viem's `PublicClient` inline when it emits
-// declarations — every action, including ones whose types live at internal module
+// declarations - every action, including ones whose types live at internal module
 // paths viem does not export. A consumer's compiler cannot name those, so declaration
 // emit fails with TS2742 the moment viem adds an action (2.54 added token/ and siwe/).
 // Naming `PublicClient` here, and each result through viem's public
 // `ReadContractReturnType`, keeps the emitted types portable AND gives this package a
 // stable public API surface that no longer moves when viem adds actions.
 
+/**
+ * Typed reads of registered operators, their roles, activity and stake requirements.
+ */
 export interface NodeRegistryReaders {
   nodeOf(op: Address): Promise<ReadContractReturnType<typeof nodeRegistryAbi, 'nodeOf'>>
   isActive(op: Address): Promise<ReadContractReturnType<typeof nodeRegistryAbi, 'isActive'>>
@@ -127,6 +133,9 @@ export interface NodeRegistryReaders {
   activeOperators(): Promise<ReadContractReturnType<typeof nodeRegistryAbi, 'activeOperators'>>
 }
 
+/**
+ * Typed reads of slots, assigned keepers and creation or verifier policies.
+ */
 export interface KeyRegistryReaders {
   getKeySlot(id: `0x${string}`): Promise<ReadContractReturnType<typeof keyRegistryAbi, 'getKeySlot'>>
   assignedNodes(id: `0x${string}`): Promise<ReadContractReturnType<typeof keyRegistryAbi, 'assignedNodes'>>
@@ -134,6 +143,9 @@ export interface KeyRegistryReaders {
   verifierPolicy(id: `0x${string}`): Promise<ReadContractReturnType<typeof keyRegistryAbi, 'verifierPolicy'>>
 }
 
+/**
+ * Typed reads of prepaid slot balances, settlement nonces and revenue allocation.
+ */
 export interface SettlementReaders {
   balanceOf(slot: `0x${string}`): Promise<ReadContractReturnType<typeof settlementAbi, 'balanceOf'>>
   lastNonce(slot: `0x${string}`): Promise<ReadContractReturnType<typeof settlementAbi, 'lastNonce'>>
@@ -141,6 +153,9 @@ export interface SettlementReaders {
   totalHeld(): Promise<ReadContractReturnType<typeof settlementAbi, 'totalHeld'>>
 }
 
+/**
+ * Typed reads of TSRA supply, account balances and token metadata.
+ */
 export interface TokenReaders {
   totalSupply(): Promise<ReadContractReturnType<typeof tasraTokenAbi, 'totalSupply'>>
   balanceOf(a: Address): Promise<ReadContractReturnType<typeof tasraTokenAbi, 'balanceOf'>>
@@ -148,6 +163,9 @@ export interface TokenReaders {
   decimals(): Promise<ReadContractReturnType<typeof tasraTokenAbi, 'decimals'>>
 }
 
+/**
+ * Typed reads of token-sale prices, sold supply and EURC reserves.
+ */
 export interface BondingCurveReaders {
   spotPrice(): Promise<ReadContractReturnType<typeof bondingCurveAbi, 'spotPrice'>>
   weightedAvgPrice365d(): Promise<ReadContractReturnType<typeof bondingCurveAbi, 'weightedAvgPrice365d'>>
@@ -155,10 +173,16 @@ export interface BondingCurveReaders {
   reserve(): Promise<ReadContractReturnType<typeof bondingCurveAbi, 'reserve'>>
 }
 
+/**
+ * Typed reads of the treasury balance.
+ */
 export interface TreasuryReaders {
   balance(): Promise<ReadContractReturnType<typeof treasuryAbi, 'balance'>>
 }
 
+/**
+ * Typed reads of randomness epochs, seeds and the threshold public key.
+ */
 export interface BeaconReaders {
   seed(): Promise<ReadContractReturnType<typeof thresholdRandomBeaconAbi, 'seed'>>
   epoch(): Promise<ReadContractReturnType<typeof thresholdRandomBeaconAbi, 'epoch'>>
@@ -167,6 +191,9 @@ export interface BeaconReaders {
   mpk(): Promise<ReadContractReturnType<typeof thresholdRandomBeaconAbi, 'mpk'>>
 }
 
+/**
+ * Typed reads of anchored verifier-set snapshots by epoch.
+ */
 export interface VerifierSetReaders {
   snapshotAt(epoch: bigint): Promise<ReadContractReturnType<typeof verifierSetRegistryAbi, 'snapshotAt'>>
 }
@@ -203,14 +230,16 @@ export interface TasraChainClient {
   /**
    * The configured viem public client. No wallet, no signing.
    *
-   * ⚠ NOT multicall-batched: batching is applied explicitly in {@link readMany}, so a
+   * not multicall-batched: batching is applied explicitly in {@link readMany}, so a
    * chain without Multicall3 keeps working. Firing many reads concurrently through this
-   * client costs one request each — go through `readMany` for a per-item fan-out.
+   * client costs one request each - go through `readMany` for a per-item fan-out.
    */
   client: PublicClient
   /** The deployment's resolved contract addresses. */
   addresses: AddressBook
+  /** Return known contract names with configured addresses; this does not probe their deployed code. */
   deployedContracts(): ContractName[]
+  /** Return distinct configured event-source addresses and their ABIs, including vesting tranches. */
   logSources(contracts?: ContractName[]): Array<{address: Address; contract: ContractName}>
   /** Read one view function across many argument lists. Batched via Multicall3 when
    *  available; a failing item is `null` unless `allowFailure: false`. */
@@ -229,42 +258,25 @@ export interface TasraChainClient {
   /**
    * The Multicall3 address `readMany` will batch through, or `null` when it will read
    * items individually. Resolved once per client and cached; exposed so a caller can
-   * SEE which mode it is in rather than inferring it from request counts.
+   * see which mode it is in rather than inferring it from request counts.
    */
   multicallAddress(): Promise<Address | null>
+  /** Read the current chain block number from the configured RPC. */
   getBlockNumber(): Promise<bigint>
+  /** Scan an inclusive block range in windows and return decoded events. */
   getLogsWindowed(opts: GetLogsWindowedOpts): Promise<DecodedEvent[]>
+  /** Read Unix timestamps in seconds, keyed by decimal block-number strings. */
   getBlockTimestamps(blockNumbers: Iterable<bigint>): Promise<Map<string, number>>
+  /** Call a named read function through the configured address and known contract ABI. */
   read<C extends ContractName>(contract: C, functionName: string, args?: readonly unknown[]): Promise<unknown>
+  /** Contract-specific read methods bound to the configured deployment. */
   readers: TasraChainReaders
 }
 
 /**
- * viem-based **read** client for a Tasra Network deployment: a configured
- * `PublicClient`, windowed log fetching + decoding, block-timestamp lookups, and
- * typed view-function readers for the registry entities.
- *
- * Read-only by construction — no wallet, no signing. For on-chain writes (slot
- * creation, registration) use `createTasraWriteClient`.
- *
- * This is a **dependency of** the slot-driven clients rather than an alternative to
- * them: both {@link createTasraSlotClient} and {@link createCommitteeSlotClient}
- * take one of these as their `chain` field. Build it first.
- *
- * @param cfg `rpcUrl` + a resolved {@link AddressBook}. `chainId` defaults to
- *   `DEFAULT_CHAIN_ID` and the RPC is never consulted for it, so set it explicitly
- *   for any deployment that is not the local dev chain.
- * @returns a read client exposing `publicClient`, `readers`, log helpers, and the
- *   deployment's address book
- *
- * @example
- * ```ts
- * const chain = createTasraChainClient({
- *   rpcUrl: 'http://127.0.0.1:8545',
- *   addresses: addressBookFromEnv(process.env),
- * })
- * const kk = createTasraSlotClient({chain, identity: 'did:example:alice'})
- * ```
+ * Create a read-only chain client with typed contract readers and windowed event queries. Configure addresses and the chain ID from a network manifest downloaded from tasra-releases.
+ * @param cfg RPC endpoint, deployed addresses, chain ID and optional batching limits.
+ * @returns Client exposing the viem public client, readers, event queries and address book.
  */
 export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient {
   const chain = defineChain({
@@ -273,11 +285,11 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
     nativeCurrency: {name: 'Ether', symbol: 'ETH', decimals: 18},
     rpcUrls: {default: {http: [cfg.rpcUrl]}},
   })
-  // ⚠ No `batch: {multicall}` here, deliberately. viem's client-level batching is
+  // No `batch: {multicall}` here, deliberately. viem's client-level batching is
   // driven by the CHAIN definition naming a multicall3 address, and it does not
   // degrade: where Multicall3 is absent the aggregate call returns empty data and
   // EVERY read in the batch fails to decode, which a bare local chain would hit on
-  // its first read. Worse, once it is on there is no way back — an individual-read
+  // its first read. Worse, once it is on there is no way back - an individual-read
   // fallback goes through the same broken batch.
   //
   // So batching is applied explicitly in `readMany`, gated on a one-off `eth_getCode`
@@ -301,10 +313,10 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
    * Set once a batch has returned at least one SUCCESSFUL item, i.e. the thing at the
    * batch address has demonstrably behaved like Multicall3.
    *
-   * ⚠ Needed because `eth_getCode` cannot tell Multicall3 from any other contract at that
-   * address, and viem does NOT throw when the aggregate is answered by something else —
+   * Needed because `eth_getCode` cannot tell Multicall3 from any other contract at that
+   * address, and viem does not throw when the aggregate is answered by something else -
    * it reports every item as failed. All-failed is therefore ambiguous: either the batch
-   * mechanism is broken, or the items genuinely are unreadable. Until one success has been
+   * mechanism is broken, or the items are unreadable. Until one success has been
    * seen, that case is resolved by reading the items individually and comparing, rather
    * than by guessing (guessing wrong means silently returning nulls for readable state).
    */
@@ -340,11 +352,11 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
    * Every address whose logs this deployment can decode, paired with the ABI to
    * decode them against.
    *
-   * NOT the same as {@link deployedContracts}: that maps one canonical contract
+   * not the same as {@link deployedContracts}: that maps one canonical contract
    * NAME to one address, but the vesting vaults are one ABI over up to three
    * TRANCHE addresses (`TasraVestingVault_investor`, `_team`, `_community`),
    * which are deliberately not contract names. Scanning by name alone therefore
-   * misses every vault log — the tranche keys are invisible to it — so an
+   * misses every vault log - the tranche keys are invisible to it - so an
    * indexer must enumerate log sources through here instead.
    *
    * Addresses are de-duplicated: a single-vault deployment that only sets the
@@ -458,7 +470,7 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
     })
   }
 
-  // ── Typed domain readers (precise return types via specific ABIs) ────────
+  //  Typed domain readers (precise return types via specific ABIs)
   const nodeRegistry = {
     nodeOf: (op: Address) =>
       client.readContract({
@@ -556,7 +568,7 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
       }),
     /**
      * Does this deployment refuse one-shot slot creation? A registry with `requireCommitReveal` set
-     * — every production genesis has it — reverts `createKeySlotFiltered*` with
+     * - every production genesis has it - reverts `createKeySlotFiltered*` with
      * `CommitRevealRequired()` and accepts only the commit-then-reveal pair. Ask before creating: the
      * answer decides between `createSlot` and `createSlotCommitReveal`, and costs one read.
      */
@@ -566,8 +578,8 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
         abi: keyRegistryAbi,
         functionName: 'requireCommitReveal',
       }) as Promise<boolean>,
-    // The slot's per-request verifier-committee policy → `[committee, quorum]`
-    // (both `uint16`). `committee == 0` ⇒ the slot has no policy (committee path not wired);
+    // The slot's per-request verifier-committee policy to `[committee, quorum]`
+    // (both `uint16`). `committee == 0` to the slot has no policy (committee path not wired);
     // fall back to the legacy JWT path. Needed by the committee-authorization flow.
     verifierPolicy: (id: `0x${string}`) =>
       client.readContract({
@@ -674,12 +686,12 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
   // The deploy creates one vesting vault per tranche, so the tranche is
   // explicit: there is no "the vault" to default to.
   //
-  // ⚠ Two tranches can resolve to the SAME address when the book only carries
+  // Two tranches can resolve to the same address when the book only carries
   // the bare `TasraVestingVault` key (see `requireVaultAddress`). Anything that
   // AGGREGATES across tranches must therefore de-duplicate on `address()` first,
   // or it reports a multiple of the real locked supply.
   /**
-   * Read one view function across many argument lists — the registry fan-out, and the
+   * Read one view function across many argument lists - the registry fan-out, and the
    * only place in this client where the number of round trips is worth engineering.
    *
    * Where Multicall3 is deployed the whole list is one `eth_call` per chunk; where it is
@@ -690,7 +702,7 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
    * Why it matters: a 10k-operator registry is ~40,000 view calls, which as sequential
    * round trips is tens of minutes on any real RPC.
    *
-   * A failing item is `null` in place — one unreadable operator must not blank the whole
+   * A failing item is `null` in place - one unreadable operator must not blank the whole
    * set. Pass `allowFailure: false` where POSITION carries meaning (an ordered operator
    * set, whose indexes shift if one item is dropped); that rejects instead.
    */
@@ -702,7 +714,7 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
   ): Promise<Array<T | null>> {
     if (argsList.length === 0) return []
     const allowFailure = opts?.allowFailure ?? true
-    // Resolved up front, and NOT swallowed: a missing address is a deployment mistake,
+    // Resolved up front, and not swallowed: a missing address is a deployment mistake,
     // not an unreadable item, and it must not come back as a list of nulls.
     const address = requireAddress(addresses, contract)
     const abi = CONTRACT_ABIS[contract] as Abi
@@ -729,9 +741,9 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
     // per-item revert must come back as a result we can inspect rather than as a thrown
     // batch. Our own `allowFailure` then decides what that means.
     //
-    // ⚠ There is no try/catch here on purpose. Under `allowFailure: true` viem does not
-    // throw when the aggregate call itself is rejected — out of gas, payload refused,
-    // nothing at the address — it reports every ITEM as failed. So a catch block would be
+    // There is no try/catch here on purpose. Under `allowFailure: true` viem does not
+    // throw when the aggregate call itself is rejected - out of gas, payload refused,
+    // nothing at the address - it reports every ITEM as failed. So a catch block would be
     // a guard that never fires, and the all-failed branch below is the one real recovery
     // path. That behaviour is pinned by test/chain.read-client.ts, which is what would
     // fail loudly if a viem upgrade ever changed it.
@@ -746,8 +758,8 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
       batchProven = true
     } else if (!batchProven) {
       // Everything failed on the first batch this client ever sent, which is ambiguous:
-      // either the batch mechanism is broken, or the items genuinely are unreadable.
-      // Settle it by reading them individually — once per client, only in this case. If
+      // either the batch mechanism is broken, or the items are unreadable.
+      // Settle it by reading them individually - once per client, only in this case. If
       // they read fine the batch is at fault and must be abandoned; if they fail too, the
       // batch was telling the truth and batching stays on.
       const direct = await individually()
@@ -779,7 +791,7 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
     const getU64 = (functionName: 'startTime' | 'cliffDuration' | 'linearDuration') => () =>
       client.readContract({address: at(), abi: tasraVestingVaultAbi, functionName})
     return {
-      /** Which address this tranche resolves to — the de-duplication key. */
+      /** Which address this tranche resolves to - the de-duplication key. */
       address: at,
       released: get('released'),
       remaining: get('remaining'),
@@ -817,7 +829,7 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
         abi: thresholdRandomBeaconAbi,
         functionName: 'epoch',
       }),
-    /** The seed of a PAST epoch — what a committee draw pinned to `latest - 1` needs. */
+    /** The seed of a past epoch - what a committee draw pinned to `latest - 1` needs. */
     seedAt: (epoch: bigint) =>
       client.readContract({
         address: requireAddress(addresses, 'ThresholdRandomBeacon'),
@@ -839,7 +851,7 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
       }),
   }
 
-  // W1 verifier-set snapshot — `size` is the committee draw's
+  // W1 verifier-set snapshot - `size` is the committee draw's
   // registrySize, `root` the Merkle root for trustless verifier proofs.
   const verifierSet = {
     snapshotAt: (epoch: bigint) =>

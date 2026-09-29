@@ -16,6 +16,12 @@ export interface MpkResponse {
   epoch: number
 }
 
+/**
+ * Fetch a slot's group public key and epoch from a keeper. Reject a reply without a ready key.
+ *
+ * @param nodeUrl - Keeper HTTP base URL from the downloaded network manifest or authenticated registry.
+ * @param slotHex - 32-byte slot identifier, with or without the 0x prefix.
+ */
 export async function fetchMpk(
   nodeUrl: string,
   slotHex: string,
@@ -29,7 +35,7 @@ export async function fetchMpk(
   }
   const body = (await res.json()) as MpkResponse
   if (!body.group_public_key) {
-    // A known-but-unkeyed slot answers 200 with an empty key — DKG has not
+    // A known-but-unkeyed slot answers 200 with an empty key - DKG has not
     // finished yet. Transient, unlike a 404.
     throw new TasraError(
       `fetchMpk: ${nodeUrl} served slot ${clean.slice(0, 10)}… with no group_public_key ` +
@@ -41,23 +47,12 @@ export async function fetchMpk(
 }
 
 /**
- * Fetch BLS shards from the configured nodes and Lagrange-interpolate the slot's
- * **master secret key** in this process. Requests every URL in `cfg.urls`
- * concurrently and assembles from whichever k respond.
+ * Fetch key shards concurrently and interpolate the slot's master secret key in this process. The caller must obtain a sufficient threshold from one epoch and clear the returned key after use.
  *
- * ⚠ This is the one operation that reconstructs whole key material client-side.
- * No node ever sees the assembled key, but your process now holds it: keep it for
- * as long as you need decrypts and then wipe it (`msk.fill(0)`) — `Session.close()`
- * does this for you, which is why the managed {@link createTasraClient}
- * surface is preferable to calling this directly.
- * The sign and threshold-decrypt paths never assemble a key at all.
- *
- * @param cfg node base URLs plus a DCQL-gated JWT authorizing shard release
- * @param slotHex the 32-byte slot id, with or without the `0x` prefix
- * @returns the assembled master secret key
- * @throws {Error} if no node released a shard — the message distinguishes an auth
- *   rejection (401/403: re-claim, do not retry) from transient failures such as a
- *   cold DKG or an unreachable node
+ * @param cfg - Keeper URLs and a JWT authorizing shard release.
+ * @param slotHex - 32-byte slot identifier, with or without the 0x prefix.
+ * @returns The reconstructed master secret key as a 32-byte little-endian scalar.
+ * @throws If no shards are returned or interpolation fails.
  */
 export async function fetchAndAssembleKey(
   cfg: NodeConfig,
@@ -95,7 +90,7 @@ export async function fetchAndAssembleKey(
   }
   if (shards.length === 0) {
     // Surface an AUTH failure as such: when every node rejected with 401/403
-    // (expired/denied/revoked JWT), the caller must re-claim — retrying the same
+    // (expired/denied/revoked JWT), the caller must re-claim - retrying the same
     // token is futile, and a generic message reads as transient and gets
     // retry-looped. Only when the failures are NOT auth (cold DKG, network) is
     // it transient.
@@ -122,8 +117,8 @@ function b64ToBytes(b64: string): Uint8Array {
 }
 
 // There is no `triggerDkg` here, and no keeper endpoint that creates a slot: a
-// slot created over HTTP would have no on-chain record — no creator, no
-// contract-drawn committee, no `KeySlotCreated` — and a DCQL rule nothing could
+// slot created over HTTP would have no on-chain record - no creator, no
+// contract-drawn committee, no `KeySlotCreated` - and a DCQL rule nothing could
 // commitment-check.
 //
 // Create the slot ON CHAIN

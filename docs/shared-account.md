@@ -1,149 +1,169 @@
 # Build an Ethereum account Alice and Bob can use
 
-Create one tECDSA account, let Alice and Bob each send a transaction, and prove
-that Mallory cannot get permission. The application uses **TypeScript, tasra-sdk,
-and viem**. It does not invoke the CLI or read another project's configuration.
+Create one shared Ethereum account, let Alice and Bob each send a transaction,
+and verify that Mallory is refused. The app uses **tasra-sdk as its only runtime
+dependency**. It creates its own wallets, credentials and slot; no learner account,
+private key, slot ID or CLI setup is copied from another project.
 
-**This example uses an unreleased SDK addition.** Install the packed checkout below;
-the published `0.2.2` package does not include `tasra-sdk/app`.
-[Compatibility](compatibility.md)
+Install the latest SDK from npm in step 2. Check [deployment compatibility](compatibility.md)
+before running the app.
 
-## 1. Prepare the SDK and local fleet
+## 1. Prepare the network connection
 
-Install Node.js **22.12+** (24 recommended). Use a checkout containing this example.
-From the SDK directory:
+Install Node.js **22.12+** (24 recommended). The example downloads the testnet
+pointer and manifest from [tasra-releases](https://github.com/t3-foundry/tasra-releases)
+and checks the manifest checksum. It resolves the RPC, contracts and verifier from
+that configuration, with an explicit `lowest-operator-id` coordinator convention.
 
-```sh
-npm ci
-npm pack
-```
+The selected deployment must support tECDSA key generation, creator-signed rule
+provisioning, OID4VP authorization and transaction signing. This example requests
+2-of-3 keepers and a 2-of-3 verifier policy, using SD-JWT credentials bound to
+fresh `did:jwk` identities. A manifest or registry check does not establish support
+for those operations. Any deployment-specific usage credits must also be available.
 
-This creates `tasra-sdk-0.3.0-next.0.tgz`. Keep its full path for the next step.
-
-You need the compatible local fleet running. The app includes these public values
-at the top of the file, so you can see and change every deployment dependency:
-
-| Configuration | Tested value |
-|---|---|
-| Chain | Local Avalanche, `43112` |
-| RPC | `http://127.0.0.1:9650/ext/bc/C/rpc` |
-| KeyRegistry | `0x94c75679D75bfdc310669c0De4dE4398E922232b` |
-| NodeRegistry | `0xEA7A0602b6DB6Aa767C5649b4d5083c426Cb8083` |
-| Verifier agent | `https://localhost:19444` |
-| Keeper transport | Docker names `keykeeper-node-1`–`5` mapped to local ports `8091`–`8095` |
-| TLS trust | Public development CA supplied as `examples/local-fleet-ca.pem` |
-| Funding | Avalanche's public local-development funder, embedded in the app |
-
-The app checks the local chain and verifier service before funding anything.
-The CA contains no private key. It is for this fleet only; replace it with your
-fleet's public CA if needed. TLS verification stays enabled.
-
-**If you have only a clean IDE:** install Node.js, obtain this SDK checkout, and
-get access to a compatible development fleet with the configuration above.
-Neither the SDK nor `tasra-releases` currently provides a complete local-fleet
-launcher. That deployment prerequisite remains; the app creates all its own
-wallets, credentials, slot, rule, and account funding once the fleet is available.
-Do not substitute Fuji: its services have not been upgraded for this walkthrough.
+The application generates its own creator wallet and prints its public address.
+Fund it with AVAX using the [official Fuji C-Chain faucet](https://core.app/tools/testnet-faucet/?subnet=c&token=c) or a wallet you control. No shared private
+key or precreated learner account is required.
 
 ## 2. Create your application
 
-In a new terminal, replacing `/path/to/tasra-sdk` with your checkout's actual path:
+In a new terminal, create the project and install the latest SDK from npm:
 
 ```sh
 mkdir my-shared-account
 cd my-shared-account
 npm init -y
 npm pkg set type=module
-npm install /path/to/tasra-sdk/tasra-sdk-0.3.0-next.0.tgz viem@2
-npm install --save-dev tsx
+npm install tasra-sdk@latest
+npm install --save-dev typescript tsx @types/node
+cp node_modules/tasra-sdk/examples/shared-account.ts app.ts
+cp node_modules/tasra-sdk/examples/tutorial-support.ts tutorial-support.ts
+cp node_modules/tasra-sdk/examples/tutorial-negative.ts tutorial-negative.ts
+cp node_modules/tasra-sdk/examples/network.ts network.ts
+cp node_modules/tasra-sdk/examples/fund-slot.ts .
 ```
 
-Copy these **two files** from the installed package into your app folder using
-your IDE file explorer:
+These copy commands use a macOS/Linux shell or WSL. You can copy
+the same files with your IDE. Open `app.ts`: it contains the slot, credential and
+wallet operations. `tutorial-support.ts` supplies shared network and identity setup and
+public evidence output; `tutorial-negative.ts` exercises verifier rejection.
+The SDK implements slot orchestration, credential creation and wallet signing.
 
-| Copy from | Save as |
-|---|---|
-| `node_modules/tasra-sdk/examples/shared-account.ts` | `app.ts` |
-| `node_modules/tasra-sdk/examples/local-fleet-ca.pem` | `local-fleet-ca.pem` |
+Save **`.gitignore`** with this line:
 
-Open `app.ts`. It is the entire application, not a wrapper around an existing demo.
-Save a `.gitignore` containing `.tasra/` before committing your app: that directory
-will hold the example's private development keys and credentials.
+```text
+.tasra/
+```
 
-## 3. Run the app
+Save **`tsconfig.json`**:
 
-macOS / Linux:
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "resolveJsonModule": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["*.ts"]
+}
+```
+
+## 3. Check and execute
+
+Before protected operations, the terminal example pauses for **TSRA usage credit**.
+In a second terminal in the same project, run its printed `fund-slot.ts ... status`
+command. Follow [Fund a slot](funding.md) to obtain EURC, buy TSRA from BondingCurve,
+and deposit TSRA into the printed slot. Replace `.tasra/first-slot` in those commands
+with this app's printed directory. Fund every new slot; creator AVAX pays gas and
+does not provide usage credits. The app waits up to 15 minutes per slot.
+
+First typecheck the app (the same command on macOS, Linux and Windows):
 
 ```sh
-NODE_EXTRA_CA_CERTS=local-fleet-ca.pem npx tsx app.ts
+npx tsc --noEmit
 ```
 
-PowerShell:
+Run the application:
 
-```powershell
-$env:NODE_EXTRA_CA_CERTS = "$PWD/local-fleet-ca.pem"
+```sh
+npx tsx network.ts
 npx tsx app.ts
 ```
 
-Key generation and threshold signing take time. The app prints each completed stage:
+The app prints its creator address and chain, then waits up to 15 minutes for
+at least one native token. In a separate window, use the network’s faucet or transfer
+native tokens
+from a wallet you control. Fund the printed address on the printed chain. The
+creator pays setup transactions and funds the shared account's transaction gas.
 
-```text
-1. Fresh creator funded; Alice, Bob and Mallory have separate credentials.
-2. Created and provisioned slot 0x…
-   Ethereum account: 0x…
-3. alice: confirmed 0x… (nonce 0)
-3. bob: confirmed 0x… (nonce 1)
-4. Mallory: refused by verifier; nonce unchanged (2).
-Evidence: …/evidence.json
-```
+Key generation and threshold signing can take time. The app records the shared
+account address, Alice's and Bob's confirmed transactions, and Mallory's refusal.
+It prints the evidence location at the end.
 
-Every run creates a **new** slot using local test funds. Recovery records are saved
-before slot creation, and transaction hashes are saved before broadcasting.
-If a run stops, keep its files and diagnose the error before starting another run.
+Each invocation starts a fresh demonstration with a **new slot** and isolated
+private store. An interrupted invocation is not resumed by starting the tutorial
+again. Preserve its store and reconcile any pending transactions first. The SDK's
+named operations support resuming the same intent when your application reopens
+the same store; see [recovery boundaries](application-api.md#recovery-boundaries).
 
-## 4. Understand the five stages
+## 4. Read the application
 
-| Stage in `app.ts` | SDK calls | What it proves |
+| Step | Application API | Result |
 |---|---|---|
-| Create identities | `ed25519HolderKey`, `issueSdJwtVc` | Each user has a separate holder key and a credential signed by the fresh development issuer. |
-| Create an account | `createTasraWriteClient`, `prepareSlot` / `createPreparedSlot`; `slots.ecdsa().getAddress()` | The fleet creates a distributed key with a durable creation journal; the typed slot handle verifies and derives its public Ethereum address. |
-| Configure access | `provisionRule`, `setVerifierPolicy` | The creator provisions the exact committed rule with its own signature. No admin JWT is used. |
-| Authorize and transact | `toViemAccount` with an authorizer using `openVerifierAgentSession`, `presentToRequestUri`, `awaitVerifierAgentResult` | The wallet presents a credential for the exact transaction digest; the adapter verifies the fleet signature and the app confirms the transaction on chain. |
-| Reject Mallory | `buildResponse`, `submitResponse`, `awaitVerifierAgentResult` | A deliberately nonmatching presentation reaches the server and is refused. A local wallet filter is not counted as this proof. |
+| Connect | `new TasraClient({manifest, store})` | Public deployment configuration and private durable state. |
+| Create users | `tasra.identities.create`, `tasra.credentials.issue` | A fresh issuer and separate holder-bound credentials. |
+| Define access | `tasra.credentials.policy` | Only the intended credential holders can request signing. |
+| Create the account | `tasra.slots.create` with `mode: 'ecdsa'` | Commitment, creation, key generation and rule provisioning handled by the SDK. |
+| Send transactions | `tasra.credentials.authorize`, `tasra.wallets.fromSlot`, `transfer` | Each exact transaction is authorized, signed and confirmed. |
+| Check refusal | The separate negative-test helper submits a nonmatching presentation | The verifier refuses Mallory and the account nonce does not change. |
 
-The rule pins the fresh issuer, credential type, `treasury-signer` role, and subject
-**Alice or Bob**. Mallory has a correctly signed credential and its own holder key,
-but its subject is excluded. Two of three **keepers** sign; either authorized
-**user** can initiate a transaction. This is not a two-user approval workflow.
+Two of three **keepers** cooperate to sign. Either authorized **user**, Alice or
+Bob, may initiate a transaction; this is not a two-user approval workflow.
+The app submits zero-value self-transfers with nonces `0` and `1` from the same
+account. It checks the receipts and verifies that Mallory's request leaves the
+nonce at `2`. The refusal must come from the verifier; local credential filtering
+is not counted as server-side evidence.
 
-The transaction is a zero-value self-transfer. Both receipts must have the same
-sender, with nonces 0 and 1. The example verifies signature recovery before sending.
-It does not retry signing after a denial or silently switch authorization modes.
+For two people approving one signature, use [native approvals](native-approvals.md).
+For two independent document signatures, use [document signing](document-signing.md).
 
-## 5. Inspect the evidence
+## 5. Check the results
 
-In the printed run directory, open:
+Open the printed run directory:
 
-- `evidence.json` — slot, account, fleet versions, both transaction hashes and denial result.
-- `alice-receipt.json` and `bob-receipt.json` — actual chain receipts.
-- `recovery.json` — **private** development keys, credentials, rule and creation salts.
+- `evidence.json`: the slot/account, confirmed transactions and verifier-refusal result.
+- `alice-receipt.json` and `bob-receipt.json`: the actual chain receipts.
 
-The result and receipt files omit credentials, but still identify the account and
-its activity. Review them before sharing. Never publish `recovery.json` or the
-entire run directory.
+The evidence records public account activity. The rest of `.tasra/` contains
+private identities, credentials and recovery state. Share only reviewed evidence
+files, never the entire directory.
+
+
+
 
 ## If it stops
 
-| Error or symptom | Next action |
+| Symptom | Next action |
 |---|---|
-| Missing `committeeSignEoaDigest` export | Install the packed current checkout; the registry version predates this addition. |
-| Connection refused / health check failure | Restore the local fleet and check the public URLs at the top of `app.ts`. |
-| Certificate verification failure | Point `NODE_EXTRA_CA_CERTS` to the correct public CA before starting Node. |
-| Slot not ready | Inspect the saved slot ID and fleet DKG status; do not discard the recovery file. |
-| No keeper accepted the rule | Confirm the fleet supports `/rule/by-creator` and the addresses match the deployment. |
-| ECDSA route returns 404 | The keeper build lacks the required route; check [compatibility](compatibility.md). |
-| Authorization refused for Alice/Bob | Confirm issuer resolution and verifier policy support. A denial is not a retryable connectivity failure. |
-| Transaction submitted, then RPC failed | Check the hash in the saved submission file before attempting another transaction. |
+| Cannot import `tasra-sdk/app` | Run `npm install tasra-sdk@latest` inside your app directory. |
+| Missing configuration or helper file | Copy every file listed in step 2 and run from the app folder. |
+| Connection refused | Check RPC access and the downloaded release manifest. |
+| Certificate verification failure | Check the service certificate and system trust; keep TLS verification enabled. |
+| Slot is not ready | Inspect its DKG status and preserve the private store. |
+| No keeper accepted the rule | Confirm creator-signed provisioning support and the selected deployment identity. |
+| Authorization refused for Alice/Bob | Check issuer and verifier compatibility; a denial is not a connectivity retry. |
+| Submission outcome is uncertain | Reconcile the recorded hash before retrying; do not discard the journal. |
 
-[Full application source](../examples/shared-account.ts) ·
-[Signing API](signing.md) · [API reference](reference/README.md) · [Documentation index](README.md)
+[Application source](../examples/shared-account.ts) ·
+[Application API](application-api.md) · [Documentation index](README.md)
+
+`npx tsx network.ts` saves the verified manifest and its checksum pin. Keep both
+files with the application so restarts use the same deployment. The examples use
+`lowest-operator-id` as the explicit coordinator convention; confirm it matches
+the selected service. Fund each newly printed creator address with at least one
+native token on the selected chain before continuing.

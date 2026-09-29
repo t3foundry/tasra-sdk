@@ -12,18 +12,19 @@ metadata:
 
 # Encrypt data for an identity
 
-Use the candidate `tasra-sdk/app` BLS handle. An identity is an exact application
+Use the `tasra-sdk/app` BLS handle. An identity is an exact application
 scope such as `<issuer-did>/notes/<record-id>/version/1`; choose it before issuing
 the credential. With the issuer namespace, the first segment must be the granting
-issuer DID. The committed DCQL rule must declare `kk_identity_scope_claim` and
-`kk_scope_namespace` and include the scope claim in its required claims.
+issuer DID. Build the rule with `tasra.credentials.policy({issuer, type: 'DocumentReader',
+subjects: [alice.did], identityScope: {claim: 'documents'}})`. Issue Alice's
+credential with `claims: {documents: [identity]}` using `tasra.credentials.issue()`.
+The SDK adds the required scope declarations to the policy.
 
 ```ts
-import type {TasraApplication, OperationAuthorizer} from 'tasra-sdk/app'
-import type {Hex} from 'viem'
+import type {TasraClient, OperationAuthorizer} from 'tasra-sdk/app'
 
 export async function notesRoundTrip(
-  tasra: TasraApplication, slotId: Hex, identity: string,
+  tasra: TasraClient, slotId: `0x${string}`, identity: string,
   plaintext: Uint8Array, authorize: OperationAuthorizer,
 ) {
   const slot = await tasra.slots.bls(slotId)

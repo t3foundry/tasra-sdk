@@ -1,7 +1,7 @@
-// Vendored ABI. Do not edit by hand — refresh the whole file from the contract
-// artifacts (a manual step; see CONTRIBUTING.md).
+// Contract ABI data is refreshed from the contract build artifacts.
 // Source: contracts/out/BondingCurve.sol/BondingCurve.json (`abi` field).
 
+/** BondingCurve contract interface for TSRA purchases, redemptions and pricing. */
 export const bondingCurveAbi = [
   {
     "type": "constructor",

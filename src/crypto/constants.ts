@@ -1,12 +1,12 @@
 // Pinned wire-format constants. These values are baked into every encrypted
 // message in production. A change to any of them makes existing ciphertexts
-// undecryptable — treat them as cryptographic invariants, not refactor targets.
+// undecryptable - treat them as cryptographic invariants, not refactor targets.
 // Each assertion below mirrors the pin tests in the reference envelope implementation
 // and the reference KEM implementation.
 
 // Domain-separation tag for the BLS KEM key-derivation and nonce-derivation
 // functions. Hashed into the AEAD key for EVERY group-encryption envelope.
-// NEVER change after a production rollout — a version bump silently turns
+// NEVER change after a production rollout - a version bump silently turns
 // every encrypted chat message on disk into garbage.
 // Mirrors: the reference KEM implementation KEM_DOMAIN = b"BLS12381-ElGamalG2-KEM-v1"
 export const KEM_DOMAIN = new TextEncoder().encode('BLS12381-ElGamalG2-KEM-v1')
@@ -32,11 +32,11 @@ export const NONCE_LEN = 12 as const
 // On-chain slot-id width (bytes32). Fixed by the Ethereum contract.
 export const SLOT_ID_LEN = 32 as const
 
-// ─── [KK] envelope-in-text detection (was kk-constants.ts) ───────────────
+// [KK] envelope-in-text detection (was kk-constants.ts)
 // Tasra envelope prefix embedded in a transport's message text.
 // Clients without the key see the raw prefix + base64; a Tasra-aware
 // client replaces it with the decrypted message inline.
 export const KK_PREFIX = '[KK]'
 
-// Minimum length of a base64 GroupEnvelope v0x01 (147 bytes overhead → ~196 b64 chars).
+// Minimum length of a base64 GroupEnvelope v0x01 (147 bytes overhead to ~196 b64 chars).
 export const KK_MIN_B64_LEN = 196

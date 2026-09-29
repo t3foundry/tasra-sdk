@@ -92,7 +92,7 @@ s.ok('account now holds TSRA', (await client.tsraBalance()) > 0n, `${formatEther
 // ── 4. self-create a slot on-chain (production commit→reveal)
 const tCreate = Date.now()
 const createPath = 'commit-reveal'
-const created = await client.createSlotCommitReveal({dcqlRule:SLOT_DCQL_RULE,k:2,n:3,mode:'bls',tags:['keykeeper'],maxWaitMs:180000,onEpoch:(cur,t)=>s.info(`beacon epoch ${cur}/${t}…`)})
+const created = await client.createSlotCommitReveal({rule:SLOT_DCQL_RULE,k:2,n:3,mode:'bls',tags:['keykeeper'],maxWaitMs:180000,onEpoch:(cur,t)=>s.info(`beacon epoch ${cur}/${t}…`)})
 const {slotId,ruleSalt} = created
 const createMs = Date.now() - tCreate
 s.ok('account self-created a TSRA-funded slot on-chain', /^0x[0-9a-f]{64}$/.test(slotId), `${createPath}, ${(createMs / 1000).toFixed(1)}s`)

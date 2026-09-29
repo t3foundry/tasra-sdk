@@ -11,7 +11,8 @@ export function sourceFindings(file, source) {
   const findings = [], ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
   const isBuiltin = name => name.startsWith('node:') || builtinModules.includes(name)
   const checkImport = name => {
-    if (file.startsWith('src/') && file !== 'src/chain/node.ts' && isBuiltin(name)) findings.push('Node built-in outside the explicit tasra-sdk/chain/node entry')
+    if (name === '@noble/curves/abstract/utils' || name === '@noble/curves/abstract/utils.js') findings.push('Deprecated Noble curves utility import')
+    if (file.startsWith('src/') && !['src/chain/node.ts', 'src/app/node.ts'].includes(file) && isBuiltin(name)) findings.push('Node built-in outside an explicit Node-only entry')
   }
   function visit(node) {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) checkImport(node.moduleSpecifier.text)

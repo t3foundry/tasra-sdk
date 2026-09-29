@@ -41,4 +41,4 @@ Every domain term this README uses, defined once.
 
 ---
 
-[← Back to the README](../README.md) · [Documentation index](README.md)
+[Back to the README](../README.md) · [Documentation index](README.md)

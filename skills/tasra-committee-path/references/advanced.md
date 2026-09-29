@@ -40,13 +40,12 @@ set once, by the slot creator, with `writer.setVerifierPolicy(slotId, committee,
 ```ts
 import {createHolderProof, fromBytes, type HolderSigner} from 'tasra-sdk'
 import {holderProofPerVerifier} from 'tasra-sdk/committee'
-import {createTasraChainClient, createCommitteeSlotClient, addressBookFromEnv, VERIFIER_TAG} from 'tasra-sdk/chain'
+import {createTasraChainClient, createCommitteeSlotClient, addressBookFromManifest, VERIFIER_TAG} from 'tasra-sdk/chain'
 import {ed25519ClientSigner} from 'tasra-sdk/committee'
 
-// addressBookFromEnv reads KEY_REGISTRY, NODE_REGISTRY, VERIFIER_SET_REGISTRY, … and skips
-// non-address values, so passing all of process.env is safe. chainId defaults to the local dev
-// chain (1337); pass it for any other deployment.
-const chain = createTasraChainClient({rpcUrl, addresses: addressBookFromEnv(process.env), chainId})   // chainId: number, e.g. 43112
+// manifest is the checksum-verified download from tasra-releases.
+const chainId = manifest.chainId
+const chain = createTasraChainClient({rpcUrl, addresses: addressBookFromManifest(manifest), chainId})
 // The committee path needs KEY_REGISTRY (slot record + verifier policy), NODE_REGISTRY (keeper and
 // verifier URLs), THRESHOLD_BEACON (the per-request draw) and VERIFIER_SET_REGISTRY (the anchored
 // snapshot) in the book; a missing one throws on the read that needs it, not at construction.
@@ -137,17 +136,17 @@ re-implementing the protocol, or to `verifyCompoundToken` offline.
 
 ## Common mistakes
 
-- ❌ Passing `dcqlRule` in the config. It is unused: the verifier fetches the
+- Passing `dcqlRule` in the config. It is unused: the verifier fetches the
   slot's rule from a keeper and hash-checks it. Remove it.
-- ❌ Passing node or verifier URLs. There is no way to; they come from chain.
-- ❌ Running against a deployment without an anchored `VerifierSetRegistry`
+- Passing node or verifier URLs. There is no way to; they come from chain.
+- Running against a deployment without an anchored `VerifierSetRegistry`
   snapshot. The client throws rather than degrade; ask the operator.
-- ❌ One holder proof for several verifiers under `require_holder_binding`, or
+- One holder proof for several verifiers under `require_holder_binding`, or
   for a second request. Its nonce is single-use: mint a fresh proof, or use the
   lower-level flow with `holderProofPerVerifier`.
-- ❌ Passing the envelope bytes to `decrypt`. Split them with `fromBytes` first.
-- ❌ Passing a key string as `signer`. It is a `HolderSigner` object.
-- ❌ Choosing this path for convenience. Choose it when the key must never be
+- Passing the envelope bytes to `decrypt`. Split them with `fromBytes` first.
+- Passing a key string as `signer`. It is a `HolderSigner` object.
+- Choosing this path for convenience. Choose it when the key must never be
   reconstructed; otherwise the JWT path is simpler.
 
 ## Where to read more

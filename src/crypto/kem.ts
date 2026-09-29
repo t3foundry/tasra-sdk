@@ -1,23 +1,23 @@
-// BLS12-381 threshold KEM — mirrors the reference KEM implementation.
+// BLS12-381 threshold KEM - mirrors the reference KEM implementation.
 //
 // Protocol: ElGamal in G2 with a ChaCha20-Poly1305 envelope.
 //
-//   Encrypt(mpk, identity, message):
-//     r  ← Fr  (random)
-//     U  = r · G2                              (ephemeral public key)
-//     S  = r · mpk                             (shared secret)
-//     k  = SHA256(KEM_DOMAIN || "key" || len(identity) || identity || compress(S))
-//     n  = SHA256(KEM_DOMAIN || "nonce" || compress(U))[0..12]
-//     ct = ChaCha20Poly1305(k, n, aad=identity).encrypt(message)
-//     return { U, n, ct }
+// Encrypt(mpk, identity, message):
+// r  ← Fr  (random)
+// U  = r * G2                              (ephemeral public key)
+// S  = r * mpk                             (shared secret)
+// k  = SHA256(KEM_DOMAIN || "key" || len(identity) || identity || compress(S))
+// n  = SHA256(KEM_DOMAIN || "nonce" || compress(U))[0..12]
+// ct = ChaCha20Poly1305(k, n, aad=identity).encrypt(message)
+// return { U, n, ct }
 //
-//   Decrypt(msk, {U, n, ct}, identity):
-//     S  = msk · U
-//     k  = SHA256(KEM_DOMAIN || "key" || len(identity) || identity || compress(S))
-//     return ChaCha20Poly1305(k, n, aad=identity).decrypt(ct)
+// Decrypt(msk, {U, n, ct}, identity):
+// S  = msk * U
+// k  = SHA256(KEM_DOMAIN || "key" || len(identity) || identity || compress(S))
+// return ChaCha20Poly1305(k, n, aad=identity).decrypt(ct)
 //
-//   AssembleKey([(id₁,sk₁), …, (idₖ,skₖ)]):
-//     msk = Σ λᵢ · skᵢ   (Lagrange interpolation at 0 over Fr)
+// AssembleKey([(id₁,sk₁), ..., (idₖ,skₖ)]):
+// msk = Σ λᵢ * skᵢ   (Lagrange interpolation at 0 over Fr)
 
 import {chacha20poly1305} from '@noble/ciphers/chacha'
 import {bls12_381} from '@noble/curves/bls12-381'
@@ -31,7 +31,7 @@ const G1 = bls12_381.G1
 const G2 = bls12_381.G2
 const Fp12 = bls12_381.fields.Fp12
 
-// ─── Fr scalar helpers ────────────────────────────────────────────────────────
+// Fr scalar helpers
 
 // Convert 32-byte little-endian encoding (the reference scalar encoding)
 // to bigint. Throws if the value is >= Fr.ORDER (non-canonical).
@@ -63,7 +63,7 @@ export function scalarToLe(n: bigint): Uint8Array {
 
 // Sample a uniformly random non-zero Fr scalar.
 function randomScalar(): bigint {
-  // Sample 64 bytes (2× field width) for uniformity, then reduce mod ORDER.
+  // Sample 64 bytes (2times field width) for uniformity, then reduce mod ORDER.
   // Retry on the astronomically unlikely event of getting zero.
   while (true) {
     const bytes = randomBytes(64)
@@ -74,11 +74,11 @@ function randomScalar(): bigint {
   }
 }
 
-// ─── KDF ─────────────────────────────────────────────────────────────────────
+// KDF
 
 // Derive 32-byte ChaCha20-Poly1305 key from identity and shared G2 point.
 // Mirrors the reference derive_key exactly:
-//   SHA256(KEM_DOMAIN || "key" || u64_le(identity.len) || identity || compress(shared))
+// SHA256(KEM_DOMAIN || "key" || u64_le(identity.len) || identity || compress(shared))
 function deriveKey(
   identity: Uint8Array,
   sharedCompressed: Uint8Array,
@@ -97,7 +97,7 @@ function deriveKey(
 
 // Derive 12-byte AEAD nonce from the ephemeral G2 point U.
 // Mirrors the reference derive_nonce exactly:
-//   SHA256(KEM_DOMAIN || "nonce" || u_bytes)[0..12]
+// SHA256(KEM_DOMAIN || "nonce" || u_bytes)[0..12]
 function deriveNonce(uBytes: Uint8Array): Uint8Array {
   const h = sha256.create()
   h.update(KEM_DOMAIN)
@@ -106,7 +106,7 @@ function deriveNonce(uBytes: Uint8Array): Uint8Array {
   return h.digest().slice(0, 12)
 }
 
-// ─── Lagrange ────────────────────────────────────────────────────────────────
+// Lagrange
 
 // Lagrange basis polynomial evaluated at 0 for participant `id`
 // over index set `xs`. Mirrors the reference lagrange_at_zero exactly.
@@ -122,10 +122,11 @@ function lagrangeAtZero(id: bigint, xs: bigint[]): bigint {
   return Fr.mul(num, Fr.inv(den))
 }
 
-// ─── Public types ─────────────────────────────────────────────────────────────
+// Public types
 
+/** BLS group encryption ciphertext containing an ephemeral key, nonce and authenticated payload. */
 export interface Ciphertext {
-  /** 96-byte compressed G2 ephemeral public key U = r·G2. */
+  /** 96-byte compressed G2 ephemeral public key U = r*G2. */
   u: Uint8Array
   /** 12-byte ChaCha20-Poly1305 nonce, derived from U. */
   nonce: Uint8Array
@@ -140,7 +141,7 @@ export interface Shard {
   bytes: Uint8Array
 }
 
-// ─── Core operations ─────────────────────────────────────────────────────────
+// Core operations
 
 // Assemble master secret key from k raw shard scalars via Lagrange interpolation.
 // Mirrors the reference assemble_key. Returns 32-byte LE-encoded msk.
@@ -175,8 +176,8 @@ export function assembleKey(shards: Shard[]): Uint8Array {
 // Encrypt plaintext to a group's master public key.
 //
 // mpkBytes: 96-byte compressed G2 point (from GET /v1/keys/{slot}/public)
-// identity: AEAD additional authenticated data — typically the room/slot
-//           identifier the receiver must replay on decryption
+// identity: AEAD additional authenticated data - typically the room/slot
+// identifier the receiver must replay on decryption
 export function encrypt(
   mpkBytes: Uint8Array,
   identity: Uint8Array,
@@ -203,6 +204,13 @@ export function encrypt(
 // Decrypt ciphertext using the assembled master secret key.
 // mskBytes: 32-byte LE scalar (output of assembleKey).
 // Throws on authentication failure or malformed input.
+/**
+ * Decrypt with a reconstructed BLS master secret key and the original associated data. Reject malformed keys or failed authentication.
+ *
+ * @param mskBytes - 32-byte little-endian master secret scalar.
+ * @param ct - Group ciphertext to decrypt.
+ * @param identity - Original associated data supplied during encryption.
+ */
 export function decryptWithMasterKey(
   mskBytes: Uint8Array,
   ct: Ciphertext,
@@ -223,25 +231,32 @@ export function decryptWithMasterKey(
   }
 }
 
-// ─── Threshold partial-decrypt (share path) ─────────────────────────────────────
+// Threshold partial-decrypt (share path)
 // Mirrors the reference verify_share, combine_decrypt. The client fetches a partial
-// decryption D_i = sk_i·U from each of k nodes and combines them WITHOUT ever
-// assembling the master key: D = Σ λ_i·D_i = (Σ λ_i·sk_i)·U = msk·U = S, the same
-// shared secret decryptWithMasterKey derives — so the KEM-DEM step is identical.
+// decryption D_i = sk_i*U from each of k nodes and combines them WITHOUT ever
+// assembling the master key: D = Σ λ_i*D_i = (Σ λ_i*sk_i)*U = msk*U = S, the same
+// shared secret decryptWithMasterKey derives - so the KEM-DEM step is identical.
 
+/** One participant's partial BLS decryption and optional public verification material. */
 export interface DecryptShare {
   /** 1-indexed BLS participant identifier (u16). */
   id: number
-  /** 96-byte compressed G2 partial decryption D_i = sk_i·U. */
+  /** 96-byte compressed G2 partial decryption D_i = sk_i*U. */
   decryptionShare: Uint8Array
-  /** 144-byte verifying share: 96B compressed G2 (sk_i·g2) ‖ 48B compressed G1
-   *  (sk_i·g1). Required only for verifyDecryptShare. */
+  /** 144-byte verifying share: 96B compressed G2 (sk_i*g2) || 48B compressed G1
+   *  (sk_i*g1). Required only for verifyDecryptShare. */
   verifyingShare?: Uint8Array
 }
 
 // Verify a partial decryption share via the pairing equation
-//   e(Y_i^{G1}, U) == e(g1, D_i),   where Y_i^{G1} = sk_i·g1.
+// e(Y_i^{G1}, U) == e(g1, D_i),   where Y_i^{G1} = sk_i*g1.
 // Mirrors the reference verify_share. Returns false on malformed input.
+/**
+ * Check a partial decryption against its supplied verifying share using a pairing. Return false for missing or malformed material.
+ *
+ * @param share - Partial decryption and its public verifying share.
+ * @param u - 96-byte compressed ephemeral G2 key from the ciphertext.
+ */
 export function verifyDecryptShare(share: DecryptShare, u: Uint8Array): boolean {
   try {
     if (!share.verifyingShare || share.verifyingShare.length !== 144) return false
@@ -260,6 +275,14 @@ export function verifyDecryptShare(share: DecryptShare, u: Uint8Array): boolean 
 // Combine k partial decryption shares into the plaintext. With `verify`, each
 // share is pairing-checked first (identifiable abort) and a bad share throws
 // naming its id. Mirrors the reference combine_decrypt.
+/**
+ * Interpolate distinct partial decryptions and authenticate the plaintext. Enable verify to check each share before combining; the caller supplies a sufficient threshold.
+ *
+ * @param shares - Distinct participant shares sufficient for the slot threshold.
+ * @param ct - Ciphertext associated with the partial decryptions.
+ * @param identity - Original encryption associated data.
+ * @param opts - Whether to verify each partial decryption before combining.
+ */
 export function combineDecryptShares(
   shares: DecryptShare[],
   ct: Ciphertext,

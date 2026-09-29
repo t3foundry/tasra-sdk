@@ -26,7 +26,7 @@ verifier after checking credentials against the slot's DCQL rule. The managed
 Only `{renewalToken}` re-mints silently. The others resolve once; on expiry
 `encrypt`/`decrypt`/`sign` fail loud and you open a new session.
 
-⚠ **There is no `{oauth}` mode, and adding one would be wrong.** A slot can be authorized
+**There is no `{oauth}` mode, and adding one would be wrong.** A slot can be authorized
 by an access token from your own identity provider, DPoP-bound — but that is not a
 `SessionAuth`. It runs through the **verifier agent** as an `oauth` *session kind*
 (`createOauthSession` / `submitOauthResponse`), which yields a compound token for the
@@ -173,10 +173,10 @@ cannot be fanned out to several verifiers; for the committee path use
 
 ## Common mistakes
 
-- ❌ Reusing a redemption token. It is single-use; keep the JWT or use a renewal.
-- ❌ Treating `decodeJwtClaims` as verification. Signatures are checked by the
+- Reusing a redemption token. It is single-use; keep the JWT or use a renewal.
+- Treating `decodeJwtClaims` as verification. Signatures are checked by the
   nodes and the verifier, never client-side.
-- ❌ Expecting first-credential issuance to be self-serve. `issueAdminCredential`
+- Expecting first-credential issuance to be self-serve. `issueAdminCredential`
   and `revokeSlotUser` are the only two calls here that take an admin secret, and
   both send it as `X-Admin-Secret`. A production deployment often publishes no
   admin secret at all, and then neither call is open to you: the holder gets
@@ -184,10 +184,10 @@ cannot be fanned out to several verifiers; for the committee path use
   `tasra-oid4vp-wallet-and-verifier-agent`) and opens the session with
   `{vpJwt}`, or turns the same VCs into a renewal grant with `createRenewal`.
   A renewal token is not self-serve either — it needs those credentials first.
-- ❌ Sending one holder proof to several verifiers. Each verifier needs its own.
-- ❌ Inventing a holder DID (`did:example:…`, `did:demo:…`) or choosing one independently
+- Sending one holder proof to several verifiers. Each verifier needs its own.
+- Inventing a holder DID (`did:example:…`, `did:demo:…`) or choosing one independently
   of the holder key. See "Which holder DID".
-- ❌ Ignoring `AuthDeniedError` and retrying. A 401/403 will repeat; re-claim
+- Ignoring `AuthDeniedError` and retrying. A 401/403 will repeat; re-claim
   a credential instead (see `tasra-handle-errors`).
 
 ## Where to read more

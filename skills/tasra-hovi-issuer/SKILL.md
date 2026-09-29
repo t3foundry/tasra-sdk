@@ -12,7 +12,7 @@ metadata:
 # Optional Hovi issuer integration
 
 Use this skill when Hovi is the chosen external issuer or wallet. It is not a
-prerequisite for the modern SDK path. For local development, use `issueSdJwtVc`
+prerequisite for the modern SDK path. For local development, use `tasra.identities.create()` and `tasra.credentials.issue()`
 with a generated issuer and separate bound holders, as shown in
 `examples/encrypted-notes.ts` and `tasra-oid4vp-wallet-and-verifier-agent`.
 That path needs no cloud trial, external account, private operator script or

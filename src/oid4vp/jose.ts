@@ -1,5 +1,5 @@
 // Minimal JOSE plumbing shared by the wallet modules: base64url, compact JWS over ES256 (P-256)
-// and EdDSA (Ed25519), JWK ⇄ DID helpers (`did:jwk`, `did:key` for both curves), and the
+// and EdDSA (Ed25519), JWK and DID helpers (`did:jwk`, `did:key` for both curves), and the
 // holder key shape the Hovi profile uses (a P-256 `did:jwk`, `#0` fragment). Pure noble; runs in
 // a browser extension, a PWA and Node alike.
 
@@ -7,84 +7,150 @@ import {ed25519} from '@noble/curves/ed25519'
 import {p256} from '@noble/curves/p256'
 import {sha256} from '@noble/hashes/sha256'
 
+/**
+ * Encode text as UTF-8 bytes.
+ *
+ * @param s - Text to encode.
+ */
 export const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s)
+/**
+ * Decode UTF-8 bytes into text using replacement characters for invalid sequences.
+ *
+ * @param b - UTF-8 bytes to decode.
+ */
 export const fromUtf8 = (b: Uint8Array): string => new TextDecoder().decode(b)
 
+/**
+ * Encode bytes or UTF-8 text as unpadded base64url.
+ *
+ * @param bytes - Raw bytes, or text encoded as UTF-8 before conversion.
+ */
 export function b64url(bytes: Uint8Array | string): string {
   const b = typeof bytes === 'string' ? utf8(bytes) : bytes
   let bin = ''
   for (const x of b) bin += String.fromCharCode(x)
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
+/**
+ * Decode base64url text into bytes.
+ *
+ * @param s - Base64url-encoded text, with optional padding.
+ */
 export function b64urlDecode(s: string): Uint8Array {
   const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4))
   return Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + pad), c => c.charCodeAt(0))
 }
+/**
+ * Decode a base64url JSON value. The generic type is a caller assertion, not runtime validation.
+ *
+ * @param b64 - Base64url-encoded JSON text.
+ */
 export const decodeJson = <T = unknown>(b64: string): T => JSON.parse(fromUtf8(b64urlDecode(b64))) as T
 
-// ─── JWKs + DIDs ────────────────────────────────────────────────────────────────────────
+// JWKs + DIDs
 
+/** Public P-256 JSON Web Key with base64url coordinates and optional JOSE metadata. */
 export interface EcJwk {
+  /** EC key type discriminator. */
   kty: 'EC'
+  /** P-256 curve identifier. */
   crv: 'P-256'
+  /** Base64url-encoded public x coordinate. */
   x: string
+  /** Base64url-encoded public y coordinate. */
   y: string
+  /** Optional signing key identifier. */
   kid?: string
+  /** JOSE signing algorithm identifier. */
   alg?: string
+  /** Optional JOSE key-use hint. */
   use?: string
 }
+/** Public Ed25519 JSON Web Key with a base64url public key and optional key identifier. */
 export interface OkpJwk {
+  /** OKP key type discriminator. */
   kty: 'OKP'
+  /** Ed25519 curve identifier. */
   crv: 'Ed25519'
+  /** Base64url-encoded Ed25519 public key. */
   x: string
+  /** Optional signing key identifier. */
   kid?: string
 }
+/** Supported public JSON Web Key: P-256 or Ed25519. */
 export type Jwk = EcJwk | OkpJwk
 
-/** A holder key in the shape the Hovi profile presents: `cnf.kid = did:jwk:…#0`. */
+/** A holder key in the shape the Hovi profile presents: `cnf.kid = did:jwk:...#0`. */
 export interface HolderKey {
   /** 32 bytes: a P-256 private scalar, or an Ed25519 seed. */
   privateKey: Uint8Array
+  /** Public JSON Web Key for this holder. */
   publicJwk: Jwk
   /** `did:jwk:<base64url(JSON(publicJwk))>` */
   did: string
 }
 
 /**
- * How to sign for this holder. P-256 keys sign ES256, Ed25519 keys EdDSA — a credential is bound to
+ * How to sign for this holder. P-256 keys sign ES256, Ed25519 keys EdDSA - a credential is bound to
  * one key, and the KB-JWT it is presented with has to be signed by that key's own algorithm. Issuers
  * outside the P-256 profile exist: `tasra-cli vc issue-sd-jwt` binds an Ed25519 holder key.
+ *
+ * @param holder - Holder private key and public JWK identifying its signing algorithm.
  */
 export function holderSigner(holder: HolderKey): JwsSigner {
   return {alg: holder.publicJwk.kty === 'OKP' ? 'EdDSA' : 'ES256', privateKey: holder.privateKey}
 }
 
+/**
+ * Derive a public P-256 JSON Web Key from a private scalar.
+ *
+ * @param privateKey - 32-byte P-256 private scalar.
+ */
 export function p256PublicJwk(privateKey: Uint8Array): EcJwk {
   const pub = p256.getPublicKey(privateKey, false)
   return {kty: 'EC', crv: 'P-256', x: b64url(pub.slice(1, 33)), y: b64url(pub.slice(33, 65))}
 }
-/** `did:jwk` of a JWK — the JSON is serialised in `kty, crv, x, y` order, the vault's convention. */
+/**
+ * `did:jwk` of a JWK - the JSON is serialised in `kty, crv, x, y` order, the vault's convention.
+ *
+ * @param jwk - Public P-256 or Ed25519 JSON Web Key.
+ */
 export function didJwk(jwk: Jwk): string {
   const canon = jwk.kty === 'EC' ? {kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y} : {kty: jwk.kty, crv: jwk.crv, x: jwk.x}
   return `did:jwk:${b64url(JSON.stringify(canon))}`
 }
+/**
+ * Construct a holder identity from a 32-byte P-256 private scalar.
+ *
+ * @param privateKey - 32-byte P-256 private scalar.
+ */
 export function p256HolderKey(privateKey: Uint8Array): HolderKey {
   if (privateKey.length !== 32) throw new Error('P-256 private key must be 32 bytes')
   const publicJwk = p256PublicJwk(privateKey)
   return {privateKey, publicJwk, did: didJwk(publicJwk)}
 }
-/** An Ed25519 holder key from a 32-byte seed — the shape `tasra-cli vc issue-sd-jwt` binds. */
+/**
+ * An Ed25519 holder key from a 32-byte seed - the shape `tasra-cli vc issue-sd-jwt` binds.
+ *
+ * @param seed - 32-byte Ed25519 secret seed.
+ */
 export function ed25519HolderKey(seed: Uint8Array): HolderKey {
   const publicJwk: OkpJwk = {kty: 'OKP', crv: 'Ed25519', x: b64url(ed25519.getPublicKey(seed))}
   return {privateKey: seed, publicJwk, did: didJwk(publicJwk)}
 }
 
+/** Generate a random P-256 holder key and its did:jwk identifier. */
 export function randomHolderKey(): HolderKey {
   return p256HolderKey(p256.utils.randomPrivateKey())
 }
 
 // base58btc (did:key)
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+/**
+ * Encode bytes as base58btc, preserving leading zero bytes.
+ *
+ * @param bytes - Bytes to encode, including any leading zeros.
+ */
 export function base58Encode(bytes: Uint8Array): string {
   let n = 0n
   for (const b of bytes) n = (n << 8n) | BigInt(b)
@@ -99,6 +165,11 @@ export function base58Encode(bytes: Uint8Array): string {
   }
   return out
 }
+/**
+ * Decode base58btc text, preserving leading zero bytes and rejecting invalid characters.
+ *
+ * @param s - Base58btc text to decode.
+ */
 export function base58Decode(s: string): Uint8Array {
   let n = 0n
   for (const c of s) {
@@ -119,16 +190,28 @@ export function base58Decode(s: string): Uint8Array {
   return new Uint8Array([...new Array<number>(zeros).fill(0), ...bytes])
 }
 
-/** `did:key` of an Ed25519 public key (multicodec 0xed01). */
+/**
+ * `did:key` of an Ed25519 public key (multicodec 0xed01).
+ *
+ * @param publicKey - 32-byte Ed25519 public key.
+ */
 export function ed25519DidKey(publicKey: Uint8Array): string {
   return `did:key:z${base58Encode(new Uint8Array([0xed, 0x01, ...publicKey]))}`
 }
-/** `did:key` of a P-256 public key (multicodec 0x1200 → varint `80 24`, compressed point) — Hovi's issuer shape. */
+/**
+ * `did:key` of a P-256 public key (multicodec 0x1200 to varint `80 24`, compressed point) - Hovi's issuer shape.
+ *
+ * @param publicKeyUncompressedOrCompressed - SEC1-encoded P-256 public key in compressed or uncompressed form.
+ */
 export function p256DidKey(publicKeyUncompressedOrCompressed: Uint8Array): string {
   const compressed = p256.ProjectivePoint.fromHex(publicKeyUncompressedOrCompressed).toRawBytes(true)
   return `did:key:z${base58Encode(new Uint8Array([0x80, 0x24, ...compressed]))}`
 }
-/** The 32-byte Ed25519 key inside a `did:key:z6Mk…`; throws for any other key type. */
+/**
+ * The 32-byte Ed25519 key inside a `did:key:z6Mk...`; throws for any other key type.
+ *
+ * @param did - Ed25519 did:key identifier.
+ */
 export function ed25519FromDidKey(did: string): Uint8Array {
   const m = /^did:key:z([1-9A-HJ-NP-Za-km-z]+)$/.exec(did)
   if (!m) throw new Error('not a base58btc did:key')
@@ -137,7 +220,11 @@ export function ed25519FromDidKey(did: string): Uint8Array {
   return raw.slice(2)
 }
 
-/** The public JWK inside a `did:jwk` or a `did:key` (Ed25519 / P-256); a `#fragment` is ignored. */
+/**
+ * The public JWK inside a `did:jwk` or a `did:key` (Ed25519 / P-256); a `#fragment` is ignored.
+ *
+ * @param did - P-256 or Ed25519 did:key or did:jwk identifier; an optional fragment is ignored.
+ */
 export function jwkFromDid(did: string): Jwk {
   const bare = did.split('#')[0]!
   if (bare.startsWith('did:jwk:')) return decodeJson<Jwk>(bare.slice('did:jwk:'.length))
@@ -153,15 +240,25 @@ export function jwkFromDid(did: string): Jwk {
   throw new Error(`cannot derive a key offline from ${bare.split(':').slice(0, 2).join(':')}`)
 }
 
-// ─── compact JWS ────────────────────────────────────────────────────────────────────────
+// compact JWS
 
+/** Supported compact JWS algorithms: ES256 for P-256 or EdDSA for Ed25519. */
 export type JwsAlg = 'ES256' | 'EdDSA'
 /** A signer for a compact JWS: a raw private key of the named curve. */
 export interface JwsSigner {
+  /** JOSE signing algorithm identifier. */
   alg: JwsAlg
+  /** 32-byte P-256 private scalar or Ed25519 secret seed, matching alg. */
   privateKey: Uint8Array
 }
 
+/**
+ * Sign a JSON payload as compact JWS. Set the header algorithm from the supplied signer.
+ *
+ * @param header - JOSE header fields; the signer determines alg.
+ * @param payload - JSON claims to sign.
+ * @param signer - Private key and supported JWS algorithm.
+ */
 export function signCompactJws(header: Record<string, unknown>, payload: Record<string, unknown>, signer: JwsSigner): string {
   const h = {...header, alg: signer.alg}
   const input = `${b64url(JSON.stringify(h))}.${b64url(JSON.stringify(payload))}`
@@ -171,7 +268,12 @@ export function signCompactJws(header: Record<string, unknown>, payload: Record<
   return `${input}.${b64url(sig)}`
 }
 
-/** Verify a compact JWS under `jwk` and return its decoded payload; throws on any failure. */
+/**
+ * Verify a compact JWS under `jwk` and return its decoded payload; throws on any failure.
+ *
+ * @param jws - Compact JWS to verify.
+ * @param jwk - Public JSON Web Key trusted by the caller for this signature.
+ */
 export function verifyCompactJws<T = Record<string, unknown>>(jws: string, jwk: Jwk): {header: Record<string, unknown>; payload: T} {
   const [h, p, s] = jws.split('.')
   if (!h || !p || !s) throw new Error('not a compact JWS')

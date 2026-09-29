@@ -1,12 +1,16 @@
 # Install
 
-> Installing, the optional viem peer, module format, and runtime support.
+> Installing, bundled adapters, module format, and runtime support.
 
 New to Tasra? Follow the [TypeScript quickstart](getting-started.md) first.
 
+Install the latest SDK from npm:
+
 ```sh
-npm install tasra-sdk
+npm install tasra-sdk@latest
 ```
+
+Keep `package-lock.json` with your app to make subsequent installs reproducible.
 
 The package ships JavaScript, type declarations, runnable examples and all eleven agent
 skills; library implementation TypeScript and source maps are excluded (example TypeScript is included), so the shipped
@@ -22,22 +26,25 @@ attestations with:
 npm audit signatures
 ```
 
-Crypto deps are just `@noble/{curves,ciphers,hashes}`. **`viem` is an optional peer
-dependency** — needed for `tasra-sdk/app` and `tasra-sdk/chain`, so a core-only consumer
-neither installs nor bundles it:
+The SDK installs its crypto dependencies and viem wallet adapter automatically.
+Apps using `tasra-sdk/app` or `tasra-sdk/chain` need only the SDK as a runtime dependency;
+you do not need a separate crypto or Ethereum library to use the application API.
+See the [manifest-first application guide](application-api.md).
 
-```sh
-npm install tasra-sdk viem   # for tasra-sdk/app or tasra-sdk/chain
-```
+For new applications, download a manifest from
+[tasra-releases](https://github.com/t3-foundry/tasra-releases) and load it with
+`TasraClient.fromManifest(url, {sha256, coordinator})`. Remote manifest URLs require HTTPS unless an independently trusted SHA-256 pin is provided; loopback HTTP is allowed for development. Obtain the SHA-256 from a
+trusted release pointer. Pass the deployment's coordinator convention explicitly;
+the release schema does not specify it. Planned and retired manifests cannot
+configure a live client. `check()` verifies the chain and registry availability,
+not support for every service operation.
 
-For network configuration use `parsePinnedNetworkManifest`, `addressBookFromManifest`
-and `observeNetworkManifest` from `tasra-sdk/chain`, and pin the manifest SHA-256 from
-the deployment's published checksum. Planned or retired deployments cannot configure a
-live client. Matching the code is not the same as an audit or a verified round trip.
+Advanced chain-only integrations can use `parsePinnedNetworkManifest`,
+`addressBookFromManifest` and `observeNetworkManifest` from `tasra-sdk/chain`.
 
 ## Typecheck a standalone Node tutorial
 
-After installing the candidate tarball and copying a complete example, add:
+After installing the SDK and copying a complete example, add:
 
 ```sh
 npm pkg set type=module
@@ -52,6 +59,7 @@ Save this as `tsconfig.json` beside the application's TypeScript files:
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "resolveJsonModule": true,
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
@@ -72,9 +80,10 @@ from a Hovi issuer). Installing the package does not register them; see the
 [installation instructions](../skills/README.md) and refresh copied skills after every
 SDK upgrade.
 
-Runs in the browser (Vite, Webpack, Next.js) and Node **≥22.12**. The SDK
-persists nothing — no localStorage, no sessionStorage, no directory of slots —
-so your product holds slot ids and credentials wherever it holds its own state.
+Runs in the browser (Vite, Webpack, Next.js) and Node **≥22.12**. The SDK writes no state unless you supply a store. Node applications can use
+`createFileStore` from `tasra-sdk/app/node` for private, durable recovery state.
+Browser and database applications provide their own `ApplicationStore` adapter.
+Your product chooses where to keep credentials and exported identity keys.
 
 ## Module format
 
@@ -87,14 +96,15 @@ You do not need a bundler or a transpile step. Modern Node and every current
 bundler consume it directly:
 
 ```ts
-import {createTasraClient} from 'tasra-sdk'   // ESM — the normal path
+import {TasraClient} from 'tasra-sdk/app' // ESM — application API
 ```
 
 From CommonJS, both of these work on Node ≥22.12:
 
 ```js
-const sdk = require('tasra-sdk')        // Node ≥22.12 can require() an ES module
-const sdk = await import('tasra-sdk')   // works on any Node that supports ESM
+const sdk = require('tasra-sdk/app') // Node ≥22.12 can require() an ES module
+// Alternatively, load it asynchronously:
+import('tasra-sdk/app').then(sdk => { /* use sdk.TasraClient here */ })
 ```
 
 ## Compatibility
@@ -110,34 +120,12 @@ const sdk = await import('tasra-sdk')   // works on any Node that supports ESM
   per-deployment feature gates — threshold ECDSA (`/v1/sign/eoa-digest`) and
   the admin scope among them — and `nodeApi.info()` in `tasra-sdk/chain`
   reports which are on.
-- **Pre-1.0 versioning**: a minor bump may change the API, a patch never does.
 
-The current SDK/service version is not deployed on Fuji. Use a compatible local
-fleet to test current live operations. The [Fuji guide](fuji.md) covers public
-deployment discovery and contract reads only.
+Confirm operation support on the selected network before using protected routes.
+A manifest or successful public read does not prove signing, authorization or
+decryption compatibility.
 
-## Test an unpublished SDK
-
-From your `tasra-sdk` checkout, install dependencies and create the package:
-
-```sh
-npm ci
-npm pack
-```
-
-`npm ci` runs the package's build through `prepare`. `npm pack` prints the generated
-tarball filename. In your application directory, install that file instead of the
-registry package (replace the path with your checkout's location):
-
-```sh
-npm install /path/to/tasra-sdk/tasra-sdk-0.3.0-next.0.tgz viem@2
-npm install --save-dev tsx
-```
-
-This includes the checkout's current examples and docs. The package version alone
-does not distinguish unpublished edits from the published version; record the
-checkout commit and whether it has uncommitted changes with your test results.
 
 ---
 
-[← Back to the README](../README.md) · [Documentation index](README.md)
+[Back to the README](../README.md) · [Documentation index](README.md)

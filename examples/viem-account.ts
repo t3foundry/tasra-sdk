@@ -18,12 +18,12 @@
 //   import {createWalletClient, http} from 'viem'
 //   import {redeemRenewalToken} from 'tasra-sdk'
 //   const account = await createTasraAccount({
-//     nodes, slotId,                                  // a tECDSA signing slot
+//     nodes, slotId, // a tECDSA signing slot
 //     getJwt: async () => (await redeemRenewalToken(verifier, renewalToken)).token,
 //   })
 //   const wallet = createWalletClient({account, chain, transport: http(rpcUrl)})
-//   await wallet.sendTransaction({to, value})         // signed by the fleet
-//   // wagmi: pass `account` to a custom connector. ERC-4337: use it as the owner.
+//   await wallet.sendTransaction({to, value}) // signed by the fleet
+// // wagmi: pass `account` to a custom connector. ERC-4337: use it as the owner.
 
 import {
   hashMessage,

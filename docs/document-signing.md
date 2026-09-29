@@ -10,49 +10,62 @@ committee; that threshold is separate from the two-person application workflow.
 
 ## 1. Start from an empty application directory
 
-Install Node.js **24** and obtain the candidate SDK checkout. This example requires
-unpublished `0.3.0-next.0`; the public `0.2.2` package does not contain its APIs.
-In the SDK directory:
+Install Node.js **24**. The commands below install the latest SDK from npm.
 
-```sh
-npm ci
-npm pack
-```
+The application downloads the testnet manifest from
+[tasra-releases](https://github.com/t3-foundry/tasra-releases) and verifies its
+checksum. The selected deployment must support FROST slot creation, creator-signed
+provisioning, OID4VP, SD-JWT credentials bound to `did:jwk` holders and required
+keeper receipts. It needs sufficient members for 2-of-3 keeper and verifier
+policies and any applicable usage credits. A successful registry read does not
+prove that these protected operations are supported.
 
-You also need the [compatible local fleet](shared-account.md#1-prepare-the-sdk-and-local-fleet).
-Its public addresses, RPC, verifier and keeper mapping are visible in
-[config.ts](../examples/document-signing/config.ts). The supplied CA belongs to the
-example fleet. Replace the public descriptor and CA if your fleet differs.
-**Do not use Fuji for this candidate.** SDK/releases do not yet provide a complete
-clean-machine fleet launcher; access to a running compatible fleet is a prerequisite.
-
-Create an app, substituting your checkout's path:
+Create an app:
 
 ```sh
 mkdir my-document-signing
 cd my-document-signing
 npm init -y
-npm install /path/to/tasra-sdk/tasra-sdk-0.3.0-next.0.tgz
+npm install tasra-sdk@latest
 ```
 
 Using your IDE file explorer, copy the **contents** of
 `node_modules/tasra-sdk/examples/document-signing/` into your app directory,
 Accept replacement of the initial `package.json`. Rename `gitignore.template`
 to `.gitignore` in your IDE; npm omits dot-ignore files from package archives.
-Then install the candidate again so npm resolves the unreleased dependency locally:
+Then install the latest SDK and the copied application's dependencies:
 
 ```sh
-npm install /path/to/tasra-sdk/tasra-sdk-0.3.0-next.0.tgz
+npm install tasra-sdk@latest
+cp node_modules/tasra-sdk/examples/fund-slot.ts .
 npm run build
-NODE_EXTRA_CA_CERTS=local-fleet-ca.pem npm run setup
-NODE_EXTRA_CA_CERTS=local-fleet-ca.pem npm start
 ```
 
-On PowerShell, set `$env:NODE_EXTRA_CA_CERTS="local-fleet-ca.pem"` before setup/start.
-No CLI or another demo project's configuration is required. `setup.ts` creates a
-funded local creator, a demo credential issuer, Alice/Bob/Mallory wallet files, two
-fresh FROST slots, their rules and verifier policies. The funding key is Avalanche's
-public **local-development** key. It is restricted to the local deployment here.
+Create the application identities and creator wallet:
+
+```sh
+npx tsx network.ts
+npm run setup
+```
+
+If the creator is unfunded, setup prints its address and stops. Fund that address
+on the printed network through its faucet or a wallet you control, then run setup
+again. Use AVAX from the [official Fuji C-Chain faucet](https://core.app/tools/testnet-faucet/?subnet=c&token=c).
+The saved creator key is reused. Setup creates the issuer, separate
+Alice/Bob/Mallory wallet files, two FROST slots and their access policies.
+
+Before `npm start`, follow [Fund a slot](funding.md) using `.tasra/sdk` instead of
+`.tasra/first-slot`. Setup prints complete status commands for both slot IDs.
+Keep each `--slot` argument when buying TSRA with EURC and depositing TSRA. Buy
+enough TSRA, then fund **both** slots; the web app's slots do not share usage credit.
+For a custom `TASRA_SIGN_DATA` directory, use the directory printed by setup.
+
+```sh
+npm start
+```
+
+Use macOS, Linux or WSL for this file-store example. TLS verification
+remains enabled, and the application does not use a shared funding key.
 
 The server prints a **private sender-console link**. Open that link to create
 requests. Keep its token private. The server binds to `127.0.0.1:4177`; this tutorial
@@ -84,8 +97,8 @@ Read the app in this order. Each file has one concrete job:
 
 | File | What you learn |
 |---|---|
-| [config.ts](../examples/document-signing/config.ts) | Connect `createTasra` to an explicit public deployment. |
-| [setup.ts](../examples/document-signing/setup.ts) | Prepare and persist slot creation; provision a signer-specific DCQL rule. |
+| [config.ts](../examples/document-signing/config.ts) | Load the public manifest with `TasraClient`. |
+| [setup.ts](../examples/document-signing/setup.ts) | Create fresh SDK identities and wallets; call `tasra.slots.create()` with each signer’s policy. |
 | [model.ts](../examples/document-signing/model.ts) | Define the exact signed statement and verify detached proofs. |
 | [backend.ts](../examples/document-signing/backend.ts) | Open a creator-bound verifier session; sign with a typed FROST handle. |
 | [web/wallet.ts](../examples/document-signing/web/wallet.ts) | Bind the wallet approval to the reviewed document and submit the holder-bound presentation. |
@@ -119,10 +132,10 @@ PDFs. The sample does not edit form fields or embed signature appearances in PDF
 ## 4. Verify without trusting the download
 
 Open **Verify**, select the original PDF, your previously saved `request.json`,
-and `signatures.json`. Or run:
+and `signatures.json`. Or run in a macOS/Linux shell (bash or zsh):
 
 ```sh
-NODE_EXTRA_CA_CERTS=local-fleet-ca.pem npm run verify -- document.pdf request.json signatures.json
+npm run verify -- document.pdf request.json signatures.json
 ```
 
 Verification checks the exact request, the PDF digest, two distinct assigned
@@ -169,7 +182,62 @@ a request with Alice and Bob, reload it, verify the downloaded bundle and confir
 that a modified PDF fails verification. Unit tests and a build do not establish
 that your deployment can authorize or sign.
 
-For the cryptographic workflow in one terminal file, use
-[document-signing.ts](../examples/document-signing.ts).
+## Run the same cryptographic workflow in a terminal
+
+Before protected operations, the terminal example pauses for **TSRA usage credit**.
+In a second terminal in the same project, run its printed `fund-slot.ts ... status`
+command. Follow [Fund a slot](funding.md) to obtain EURC, buy TSRA from BondingCurve,
+and deposit TSRA into the printed slot. Replace `.tasra/first-slot` in those commands
+with this app's printed directory. Fund every new slot; creator AVAX pays gas and
+does not provide usage credits. Keep the app running while funding. After its
+15-minute wait expires, a new run creates fresh accounts and slots; funding
+the old slot does not resume the exited run.
+
+
+If you want to learn the SDK before running the web app, use
+[document-signing.ts](../examples/document-signing.ts). It creates two fresh signer
+slots through `tasra.slots.create()`, signs one exact PDF/request with both people,
+and independently checks both signatures against their on-chain keys.
+
+Create a separate application using a macOS/Linux shell or WSL.
+
+```sh
+mkdir my-document-signatures
+cd my-document-signatures
+npm init -y
+npm pkg set type=module
+npm install tasra-sdk@latest
+npm install --save-dev tsx typescript @types/node
+cp node_modules/tasra-sdk/examples/document-signing.ts app.ts
+cp node_modules/tasra-sdk/examples/tutorial-support.ts .
+cp node_modules/tasra-sdk/examples/tutorial-negative.ts .
+cp node_modules/tasra-sdk/examples/network.ts .
+cp node_modules/tasra-sdk/examples/fund-slot.ts .
+printf '.tasra/\nnode_modules/\n' > .gitignore
+npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --resolveJsonModule app.ts
+npx tsx network.ts
+npx tsx app.ts
+```
+
+The only application dependency is `tasra-sdk`. The shared tutorial helper loads
+the downloaded release manifest with `TasraClient` and creates fresh identities,
+credentials and a creator wallet. It prints the creator address and waits up to
+15 minutes for funding through the network faucet or your own wallet. The application itself creates both slots,
+freezes the PDF/request, signs and checks the evidence. No learner slots or accounts
+are precreated; each full run creates a new private `.tasra/document-signing-*` folder.
+
+Expect a final `PASS: Alice AND Bob signed; document tampering, replay and duplicate
+signer rejected.` Inspect `document.pdf`, `request.json`, `signature-bundle.json`
+and `evidence.json` in the printed directory. The checks also prove Bob's credential
+is refused by the real verifier when submitted for Alice's slot. Private keys and
+credentials share that directory; never publish the entire folder.
+
+
 For **one signature requiring a native approval quorum**, follow
 [native approvals](native-approvals.md); it has different semantics.
+
+`npx tsx network.ts` saves the verified manifest and its checksum pin. Keep both
+files with the application so restarts use the same deployment. The examples use
+`lowest-operator-id` as the explicit coordinator convention; confirm it matches
+the selected service. Fund each newly printed creator address with at least one
+native token on the selected chain before continuing.

@@ -1,4 +1,4 @@
-// OID4VP-DCQL — the OpenID Foundation's Digital Credentials Query Language.
+// OID4VP-DCQL - the OpenID Foundation's Digital Credentials Query Language.
 //
 // The rule IS the wallet query. A third-party credential wallet can only be asked for
 // a presentation via a standard request, so making the policy language BE the standard
@@ -14,7 +14,7 @@ import {MAX_IDENTITY_LEN, scopeCovers} from './identityScope.js'
 
 /**
  * The rule is not a well-formed OID4VP-DCQL query (or exceeds `MAX_RULE_LEN`).
- * Never retryable — the same rule fails identically. Extends
+ * Never retryable - the same rule fails identically. Extends
  * {@link TasraError} so one `instanceof` catches every SDK error.
  */
 export class DcqlMalformedError extends TasraError {
@@ -25,12 +25,12 @@ export class DcqlMalformedError extends TasraError {
 
 /** W3C JWT-VC JSON credential format. */
 export const FORMAT_JWT_VC_JSON = 'jwt_vc_json'
-/** IETF SD-JWT VC credential format (selective disclosure) — the Hovi / EUDI wallet format. */
+/** IETF SD-JWT VC credential format (selective disclosure) - the Hovi / EUDI wallet format. */
 export const FORMAT_DC_SD_JWT = 'dc+sd-jwt'
 /**
  * An OAuth 2.0 access token from the slot owner's own IdP, sender-constrained
- * with DPoP (RFC 9449). Not a credential format in the OID4VP sense — a wallet never
- * presents one — but it reaches the evaluator as one claim set, so it is one `format`.
+ * with DPoP (RFC 9449). Not a credential format in the OID4VP sense - a wallet never
+ * presents one - but it reaches the evaluator as one claim set, so it is one `format`.
  */
 export const FORMAT_OAUTH_AT_DPOP = 'oauth+access-token+dpop'
 /**
@@ -58,59 +58,41 @@ export const MAX_AGE_SECS_MAX = 86_400
 /**
  * Cap on a rule, in BYTES, before parsing.
  *
- * ⚠ Deliberately the same 4096 as the legacy grammar for now, and it is not yet a
+ *  Deliberately the same 4096 as the legacy grammar for now, and it is not yet a
  * justified number: 4096 was chosen against a terse five-clause language and an
  * OID4VP-DCQL query expressing the same policy is several times larger. The keeper
  * re-parses the rule on every request, so this bounds real per-request work.
  */
 export const MAX_RULE_LEN = 4096
 
-// ─── the query, as an ALLOW-LIST ─────────────────────────────────────────────
+// the query, as an ALLOW-LIST
 //
-// ⚠ Every object below is validated against a closed key set, mirroring the reference implementation
+// Every object below is validated against a closed key set, mirroring the reference implementation
 // crate's `#[serde(deny_unknown_fields)]`. That is the fail-closed property and it
 // does NOT come free in TypeScript: `JSON.parse` happily accepts extra keys and an
 // interface is erased at runtime, so a rule carrying `trusted_authorities` or
-// `require_cryptographic_holder_binding: false` would be silently IGNORED — i.e. a
+// `require_cryptographic_holder_binding: false` would be silently IGNORED - i.e. a
 // constraint the author wrote, and believes is enforced, would not be. Every
 // unsupported construct must be REFUSED, never dropped.
 
+/** Format-specific credential type filters and OAuth authentication freshness requirements. */
 export interface Meta {
   /** `jwt_vc_json`: outer array = alternatives; inner array = types that must ALL be present. */
   type_values?: string[][]
-  /** `dc+sd-jwt`: acceptable Verifiable Credential Type (`vct`) values — a flat list of alternatives. */
+  /** `dc+sd-jwt`: acceptable Verifiable Credential Type (`vct`) values - a flat list of alternatives. */
   vct_values?: string[]
-  /**
-   * `oauth+*` ONLY (and REQUIRED there): how old the token's authentication may
-   * be, in seconds.
-   *
-   * An OAuth access token carries no status list, so freshness IS the revocation signal: a
-   * leaver's session stops minting tokens, and this bounds how long an already-minted one
-   * stays usable. `exp` cannot serve — the IdP picks it, and a tenant issuing 24-hour tokens
-   * would silently widen every slot's revocation window.
-   */
+  /** Maximum age of OAuth authentication in seconds. Required for OAuth formats and evaluated separately from token expiration. */
   max_age_secs?: number
 }
 
-/**
- * A segment in a DCQL Claims Path Pointer (OID4VP §7.1.1).
- *
- * `null` selects EVERY element of an array, which is what makes a group/role claim
- * expressible: `["permissions", null]` against an array claim asks "does ANY element
- * match", which whole-value equality never could. An integer index is REFUSED by
- * {@link validate} — it addresses a position in a list whose order no format we admit
- * guarantees.
- *
- * ⚠ The TypeScript validator has to refuse the integer form BY HAND: `JSON.parse` admits
- * `["roles", 0]` silently, and an interface is erased at runtime, so a path the author
- * believes is constrained would resolve to nothing and read as "the claim is absent".
- */
+/** Object key or null array wildcard in a DCQL claim path. Integer indices are unsupported. */
 export type ClaimPathSegment = string | null
 
+/** A claim path with optional allowed values; omitting values requires the claim to exist. */
 export interface ClaimQuery {
   /** Path components into the credential: object keys, and `null` for every array element. */
   path: ClaimPathSegment[]
-  /** Allowed values. Absent ⇒ the claim need only be PRESENT. */
+  /** Allowed values. Absent means the claim need only be PRESENT. */
   values?: unknown[]
 }
 
@@ -119,84 +101,62 @@ function selectsMany(path: readonly ClaimPathSegment[]): boolean {
   return path.some((s) => s === null)
 }
 
-/**
- * How a `kk_identity_scope_claim` grant is bound to a grantor.
- *
- * The binding is deliberately application-agnostic — no namespace vocabulary. An
- * identity is an opaque `/`-segmented string; the mechanism only relates a grant to the
- * credential's verified issuer, and applications choose what the segments mean.
- *
- *  - `"issuer"` (the only self-service-safe form): a grant reaches only the granting
- *    credential's VERIFIED issuer's namespace — the requested identity's first
- *    `/`-segment must byte-equal the issuer DID, so each namespace is rooted at its
- *    grantor's own DID (`<issuer>/…`). A human label belongs in the slot (policy
- *    class) or a deeper segment, never in this binding position.
- *  - `"any"`: administrative delegation — the credential may grant over any namespace.
- *    The validator REFUSES `"any"` combined with an open issuer set.
- */
+/** Identity-scope authority. The issuer mode restricts grants to the verified issuer DID namespace. The any mode permits other namespaces and requires an explicit issuer allowlist. */
 export type ScopeNamespace = 'issuer' | 'any'
 
+/** A named credential requirement with format, claims and optional identity-scope constraints. */
 export interface CredentialQuery {
   /** Unique within the query; referenced by `credential_sets.options`. */
   id: string
+  /** Credential format identifier. */
   format: string
+  /** Credential-format constraints. */
   meta?: Meta
+  /** Required claim paths and optional allowed values. */
   claims?: ClaimQuery[]
-  /**
-   * The claim path holding this credential's identity-scope grant (a scope
-   * string or array of scope strings, matched by {@link scopeCovers}). Present ⇒ a
-   * satisfied match of this query authorizes an identity-scoped operation ONLY for
-   * identities the grant covers. The named path must also appear as a `claims` entry;
-   * `kk_scope_namespace` is a required companion.
-   */
+  /** Claim path containing a scope string or array of scope strings. It must also be requested in claims and accompanied by kk_scope_namespace. */
   kk_identity_scope_claim?: string[]
   /** whose grant power the scope claim carries. Required whenever
    *  `kk_identity_scope_claim` is present; refused without it. */
   kk_scope_namespace?: ScopeNamespace
 }
 
+/** Alternative groups of credential query identifiers, with optional display purpose. */
 export interface CredentialSetQuery {
   /** Each option is a list of credential-query ids that must ALL match. */
   options: string[][]
   /** Default `true`. */
   required?: boolean
-  /**
-   * Display-only, passed through to the wallet's consent screen.
-   *
-   * ⚠ Deliberately allowed where every other unsupported field is refused: it cannot
-   * affect the decision, and it is what explains the request to the user. It sits
-   * inside the committed bytes, so an owner cannot change what the user is told
-   * without changing the slot's `ruleCommitment`.
-   */
+  /** Display-only wallet consent text. It does not affect credential matching, but remains part of the committed rule bytes. */
   purpose?: unknown
 }
 
-/** A DCQL query. `credential_sets` absent ⇒ EVERY entry in `credentials` is required. */
+/** A DCQL query. `credential_sets` absent means EVERY entry in `credentials` is required. */
 export interface Query {
+  /** Named credential requirements. */
   credentials: CredentialQuery[]
+  /** Optional alternative groups of credential requirements. */
   credential_sets?: CredentialSetQuery[]
 }
 
-// ─── what a consumer must expose ─────────────────────────────────────────────
+// what a consumer must expose
 
-/**
- * The result of a claim lookup.
- *
- * ⚠ NOT `unknown | undefined`, and that is load-bearing: JSON `null` is a PRESENT
- * claim whose value is null. Collapsing "absent" and "present-but-null" into
- * `undefined` would make `{"path":["x"]}` (presence-only) deny a credential the reference implementation
- * side grants — `Value::Null` is `Some`, not `None`.
- */
-export type ClaimResult = {found: true; value: unknown} | {found: false}
+/** Claim lookup result that distinguishes an absent claim from a present value, including JSON null. */
+export type ClaimResult =
+  | {
+      /** Whether the claim path resolves; a present JSON null value counts as found. */
+      found: true
+      /** Value found at the requested claim path. */
+      value: unknown
+    }
+  | {
+      /** Whether the claim path resolves; a present JSON null value counts as found. */
+      found: false
+    }
 
 const ABSENT: ClaimResult = {found: false}
 
-/**
- * One verified credential, as the evaluator needs to see it.
- *
- * One verified credential, as the evaluator needs to see it. A consumer must expose
- * the credential's actual shape: its parsed payload, not a flat string set.
- */
+/** Credential format, types and claim accessor used by the DCQL evaluator. Authenticate the credential before using an evaluation to authorize access. */
 export interface CredentialView {
   /** The credential's format identifier, e.g. `"jwt_vc_json"`. */
   readonly format: string
@@ -216,6 +176,8 @@ export interface CredentialView {
  * Path resolution walks object keys, plus `null` for "every element of this array". A path
  * that runs into the wrong shape is ABSENT rather than an error, which is what makes the
  * evaluator fail closed.
+ *
+ * @param args - Format, credential types and parsed JSON body exposed to the evaluator.
  */
 export function jsonCredential(args: {
   format: string
@@ -232,13 +194,7 @@ export function jsonCredential(args: {
   }
 }
 
-/**
- * Walk a JSON value by DCQL path segments. Mirrors the reference `resolve_path` EXACTLY,
- * including its one-result collapse: when a `null` segment is followed by more segments and
- * exactly one element resolves, the element's value is returned rather than a one-element
- * array. A port that "tidied" that up would disagree with the keeper about whether a rule
- * matches.
- */
+/** Resolve object keys and null array wildcards in a JSON value. Return absent for incompatible shapes; collapse a single result after a wildcard to that value. */
 export function resolvePath(value: unknown, path: readonly ClaimPathSegment[]): ClaimResult {
   const segment = path[0]
   if (segment === undefined) return {found: true, value}
@@ -259,11 +215,11 @@ export function resolvePath(value: unknown, path: readonly ClaimPathSegment[]): 
   return resolvePath(value[segment], rest)
 }
 
-// ─── parse / validate ────────────────────────────────────────────────────────
+// parse / validate
 
 const encoder = new TextEncoder()
 
-/** UTF-8 byte length — the cap is defined in bytes, and JS `.length` counts UTF-16
+/** UTF-8 byte length - the cap is defined in bytes, and JS `.length` counts UTF-16
  *  code units, which diverges for any non-ASCII rule. */
 function byteLen(s: string): number {
   return encoder.encode(s).length
@@ -318,7 +274,7 @@ function asClaimPath(what: string, v: unknown): ClaimPathSegment[] {
   })
 }
 
-/** Exactly the top-level `iss` claim — a nested path does not count. */
+/** Exactly the top-level `iss` claim - a nested path does not count. */
 function isIssuerPath(q: ClaimQuery): boolean {
   return q.path.length === 1 && q.path[0] === 'iss'
 }
@@ -337,8 +293,8 @@ function validateOauthQuery(
   meta: Meta | undefined,
 ): void {
   // 1. The issuer set must be PINNED. the "explicitly open" form is sound for
-  //    credentials; for OAuth it would mean "any IdP on the internet that will mint a token
-  //    naming our audience".
+  // credentials; for OAuth it would mean "any IdP on the internet that will mint a token
+  // naming our audience".
   const issuerEntry = (claims ?? []).find(isIssuerPath)
   const issuerValues = issuerEntry?.values
   if (issuerValues === undefined) {
@@ -369,7 +325,7 @@ function validateOauthQuery(
   }
 
   // 2. The audience must be constrained. Without it a token minted for ANOTHER relying
-  //    party of the same IdP authorizes here — the classic confused deputy.
+  // party of the same IdP authorizes here - the classic confused deputy.
   const audEntry = (claims ?? []).find(
     (q) => q.path.length === 2 && q.path[0] === 'aud' && q.path[1] === null,
   )
@@ -414,23 +370,22 @@ function validateOauthQuery(
 /**
  * Parse and structurally validate a rule. Looks at no credential.
  *
- * Throws {@link DcqlMalformedError} — which is a 400 (the rule is broken), never a
+ * Throws {@link DcqlMalformedError} - which is a 400 (the rule is broken), never a
  * 403 (the request is denied). Conflating them sends an operator to debug the wrong
  * thing entirely.
  */
 /** Validation options. */
 export interface ValidateOptions {
-  /**
-   * When true (the default), an `["iss"]` claims entry is MANDATORY on every credential
-   * query — issuer acceptance is slot policy, so a rule the platform commits must pin it.
-   *
-   * A WALLET planning a presentation must still be able to read an older rule that carries
-   * no issuer entry, so it passes `false`. That never widens anything: the drawn verifiers
-   * decide, not the wallet.
-   */
+  /** Require an issuer claim constraint on every query; defaults to true. A wallet may disable this for advisory matching, while network verifiers still enforce their policy. */
   requireIssuer?: boolean
 }
 
+/**
+ * Parse and validate the supported DCQL rule grammar. Reject unknown fields, unsupported constraints and rules that exceed the byte limit.
+ *
+ * @param rule - DCQL policy encoded as JSON text.
+ * @param opts - Whether each credential query must explicitly constrain its issuer.
+ */
 export function validate(rule: string, opts: ValidateOptions = {}): Query {
   const n = byteLen(rule)
   if (n > MAX_RULE_LEN) {
@@ -519,7 +474,7 @@ export function validate(rule: string, opts: ValidateOptions = {}): Query {
         }
         // An integer index addresses a POSITION in a list. No format we admit fixes the
         // order of an array claim, so a rule that matched at issuance could silently stop
-        // matching on the next one — fail at provisioning instead. ⚠ Enforced by hand:
+        // matching on the next one - fail at provisioning instead.  Enforced by hand:
         // `JSON.parse` admits the number and nothing else would notice.
         if ((q['path'] as unknown[]).some((seg) => typeof seg === 'number')) {
           throw malformed(
@@ -537,7 +492,7 @@ export function validate(rule: string, opts: ValidateOptions = {}): Query {
         let values: unknown[] | undefined
         if (q['values'] !== undefined) {
           values = asArray(`credentials[${i}].claims[${j}].values`, q['values'])
-          // An explicit empty `values` can never match — almost certainly a mistake
+          // An explicit empty `values` can never match - almost certainly a mistake
           // rather than an intentional deny-all, and far better refused at
           // provisioning than at 3am.
           if (values.length === 0) {
@@ -551,8 +506,8 @@ export function validate(rule: string, opts: ValidateOptions = {}): Query {
       })
     }
 
-    // Issuer acceptance is slot policy, so the constraint is MANDATORY —
-    // `{"path":["iss"],"values":[…]}` pins the accepted issuers; the same entry
+    // Issuer acceptance is slot policy, so the constraint is MANDATORY -
+    // `{"path":["iss"],"values":[...]}` pins the accepted issuers; the same entry
     // without `values` is the explicitly-open form (any verifiable issuer, stated in
     // the committed rule rather than implied by silence).
     const hasIssuerEntry = (claims ?? []).some(isIssuerPath)
@@ -564,7 +519,7 @@ export function validate(rule: string, opts: ValidateOptions = {}): Query {
       )
     }
 
-    // ── the oauth+* family carries its own mandatory constraints ──
+    // the oauth+* family carries its own mandatory constraints
     if (isOauthFormat(format)) {
       validateOauthQuery(id, claims, meta)
     } else if (meta?.max_age_secs !== undefined) {
@@ -574,7 +529,7 @@ export function validate(rule: string, opts: ValidateOptions = {}): Query {
       )
     }
 
-    // ── identity-scope binding validation (mirrors the reference order) ──
+    // identity-scope binding validation (mirrors the reference order)
     // The namespace governs a scope claim, so it is meaningless alone.
     if (c['kk_scope_namespace'] !== undefined && c['kk_identity_scope_claim'] === undefined) {
       throw malformed(
@@ -605,7 +560,7 @@ export function validate(rule: string, opts: ValidateOptions = {}): Query {
             `${JSON.stringify(scopeClaim)} but has no matching claims entry for that path`,
         )
       }
-      // The namespace is a required companion — it says whose grant power the claim
+      // The namespace is a required companion - it says whose grant power the claim
       // carries. (The reference implementation refuses a value outside the enum at parse time; the verdict class
       // is the same malformed either way.)
       const ns = c['kk_scope_namespace']
@@ -685,21 +640,24 @@ export function validate(rule: string, opts: ValidateOptions = {}): Query {
   return credential_sets === undefined ? {credentials} : {credentials, credential_sets}
 }
 
-// ─── evaluate ────────────────────────────────────────────────────────────────
+// evaluate
 
 /**
  * Does `credentials` satisfy `rule`?
  *
  * Returns `true` to grant and `false` to deny; throws {@link DcqlMalformedError} when
- * the rule itself is broken. ⚠ Takes NO holder identity — DCQL constrains credentials,
+ * the rule itself is broken.  Takes NO holder identity - DCQL constrains credentials,
  * and holder identity is established by the presentation's holder binding. That is why
  * the legacy `required_sub_in` clause has no encoding here.
+ *
+ * @param rule - DCQL policy encoded as JSON text.
+ * @param credentials - Credential views whose signatures and trust were already validated.
  */
 export function evaluate(rule: string, credentials: readonly CredentialView[]): boolean {
   const q = validate(rule)
 
-  // ⚠ an identity-scoped rule constrains WHICH identity may be operated on,
-  // so authorizing it here — with no identity to check — would silently ignore that
+  // an identity-scoped rule constrains WHICH identity may be operated on,
+  // so authorizing it here - with no identity to check - would silently ignore that
   // constraint. Denied, mirroring the reference implementation; use evaluateIdentityScoped.
   if (q.credentials.some(c => c.kk_identity_scope_claim !== undefined)) return false
 
@@ -720,12 +678,12 @@ function evaluateWho(q: Query, credentials: readonly CredentialView[]): Set<stri
   }
 
   if (q.credential_sets === undefined) {
-    // Absent ⇒ every credential query is required.
+    // Absent means every credential query is required.
     return q.credentials.every(c => satisfied.has(c.id)) ? satisfied : null
   }
 
-  // ⚠ Present ⇒ ONLY the sets decide. A credential query not named by any satisfied
-  // option is not independently required — that is what makes `options` alternatives
+  // Present means ONLY the sets decide. A credential query not named by any satisfied
+  // option is not independently required - that is what makes `options` alternatives
   // rather than extra conditions.
   for (const set of q.credential_sets) {
     if (set.required === false) continue
@@ -746,12 +704,16 @@ export interface Selection {
 }
 
 /**
- * Select the minimal set of credentials that satisfy `rule` — the inverse of
+ * Select the minimal set of credentials that satisfy `rule` - the inverse of
  * {@link evaluate}. Given a rule and held credentials, returns which to present.
  *
  * When `credential_sets` are present, picks the cheapest satisfying option
  * (fewest credential queries). When absent, every credential query must be
  * satisfied.
+ *
+ * @param rule - DCQL policy encoded as JSON text.
+ * @param credentials - Credential views available for local matching.
+ * @param opts - Issuer-constraint validation options.
  */
 export function select(rule: string, credentials: readonly CredentialView[], opts: ValidateOptions = {}): Selection {
   const q = validate(rule, opts)
@@ -772,7 +734,7 @@ export function select(rule: string, credentials: readonly CredentialView[], opt
   let neededIds: string[]
 
   if (q.credential_sets === undefined) {
-    // No sets ⇒ every credential query is required.
+    // No sets means every credential query is required.
     neededIds = q.credentials.map(c => c.id)
   } else {
     // Pick the cheapest satisfying option per required set.
@@ -823,15 +785,19 @@ export function select(rule: string, credentials: readonly CredentialView[], opt
  *
  * The {@link evaluate} WHO gate PLUS the WHICH gate: a satisfied credential query
  * carrying `kk_identity_scope_claim` must have a matching credential whose scope grant
- * (a string or array at that path) covers `identity` ({@link scopeCovers}) and — under
- * `kk_scope_namespace: "issuer"` — whose verified issuer owns the identity's namespace
+ * (a string or array at that path) covers `identity` ({@link scopeCovers}) and - under
+ * `kk_scope_namespace: "issuer"` - whose verified issuer owns the identity's namespace
  * (its first `/`-segment must byte-equal the issuer DID, the self-grant-over-others
  * gate). A rule with no scope binding on any satisfied query denies: an unscoped rule
  * can never authorize a scoped operation.
  *
- * ⚠ Local evaluation is ADVISORY here as everywhere in this SDK — the verifier
+ *  Local evaluation is ADVISORY here as everywhere in this SDK - the verifier
  * committee runs the authoritative check; a wrong local answer costs a wasted request,
  * never access.
+ *
+ * @param rule - DCQL policy containing identity-scope constraints.
+ * @param credentials - Authenticated credential views to evaluate.
+ * @param identity - Requested identity string whose scope must be authorized.
  */
 export function evaluateIdentityScoped(
   rule: string,
@@ -839,7 +805,7 @@ export function evaluateIdentityScoped(
   identity: string,
 ): boolean {
   // Mirrors the reference order: the identity's own shape is checked BEFORE the rule parses
-  // — an oversize or NUL-bearing identity is a DENY, not a malformed rule.
+  // - an oversize or NUL-bearing identity is a DENY, not a malformed rule.
   if (byteLen(identity) > MAX_IDENTITY_LEN || identity.includes('\0')) return false
 
   const q = validate(rule)
@@ -861,7 +827,7 @@ export function evaluateIdentityScoped(
     }
   }
   // "No scope binding on any satisfied query" and "no covering grant" are both
-  // denials — the reference implementation distinguishes them only in the Reject message.
+  // denials - the reference implementation distinguishes them only in the Reject message.
   return false
 }
 
@@ -893,7 +859,7 @@ function credentialGrantCovers(
 }
 
 /** One credential query against one credential. */
-/** One credential query against one credential — exported for the wallet's per-query planning. */
+/** One credential query against one credential - exported for the wallet's per-query planning. */
 export function credentialMatches(q: CredentialQuery, c: CredentialView): boolean {
   return matches(q, c)
 }
@@ -924,7 +890,7 @@ function matches(q: CredentialQuery, c: CredentialView): boolean {
  *
  * Without a `null` segment this is whole-value equality, unchanged. WITH one, the resolved
  * value is the SELECTION, so the question becomes "does ANY selected element match ANY
- * listed value" — the only reading under which a rule can say "this role is among the
+ * listed value" - the only reading under which a rule can say "this role is among the
  * holder's roles".
  */
 function claimValueMatches(
@@ -950,29 +916,31 @@ function claimValueMatches(
  * Reusing JCS rather than hand-rolling a deep-equal keeps ONE notion of "the same JSON
  * value" shared with the commitment, and it is key-order insensitive by construction.
  *
- * ⚠ A KNOWN, UNFIXABLE CROSS-LANGUAGE EDGE: the reference JSON parser distinguishes the
+ *  A KNOWN, UNFIXABLE CROSS-LANGUAGE EDGE: the reference JSON parser distinguishes the
  * integer `3` from the float `3.0`, so a rule allowing `3.0` does not match a
- * credential carrying `3`. JavaScript has ONE number type — `JSON.parse('3')` and
- * `JSON.parse('3.0')` are indistinguishable — so this file cannot reproduce that
+ * credential carrying `3`. JavaScript has ONE number type - `JSON.parse('3')` and
+ * `JSON.parse('3.0')` are indistinguishable - so this file cannot reproduce that
  * distinction, and would grant where the reference implementation denies. Do not write a rule whose
- * correctness depends on it. (`"3"` vs `3` — string vs number — IS distinguished on
+ * correctness depends on it. (`"3"` vs `3` - string vs number - IS distinguished on
  * both sides, and the corpus pins it.)
  */
 function jsonEqual(a: unknown, b: unknown): boolean {
   return jcs(a) === jcs(b)
 }
 
-// ─── canonicalisation + commitment ───────────────────────────────────────────
+// canonicalisation + commitment
 
 /**
  * RFC 8785 (JCS) canonical form: sorted keys, no insignificant whitespace, ECMAScript
  * number formatting, UTF-8.
  *
- * ⚠ Why the commitment needs this at all: the rule stops being an opaque string the
+ *  Why the commitment needs this at all: the rule stops being an opaque string the
  * moment it becomes the `dcql_query` inside a signed OID4VP request object. It must be
  * parsed and re-serialised, and any JSON library may reorder keys or restyle
  * whitespace. Hashing raw bytes would break the commitment at exactly the point the
  * rule is used for its new purpose.
+ *
+ * @param rule - DCQL policy encoded as JSON text.
  */
 export function canonicalize(rule: string): string {
   let v: unknown
@@ -990,13 +958,13 @@ export function canonicalize(rule: string): string {
  * Three details do the work, and each is a place a hand-rolled canonicaliser goes
  * wrong:
  *  - **Key order** is by UTF-16 code unit. JS's default `Array.prototype.sort()` on
- *    strings compares exactly that, so a bare `.sort()` is correct — but only because
+ *    strings compares exactly that, so a bare `.sort()` is correct - but only because
  *    it is the default comparator; a locale-aware one would NOT be.
  *  - **Numbers** use ECMAScript `Number::toString`, which is what `JSON.stringify`
  *    emits for a number. RFC 8785 chose that algorithm precisely so JS needs no
  *    special casing.
  *  - **Strings** use JSON escaping with the shortest form, and lone surrogates escaped
- *    as `\uXXXX` — which is well-formed `JSON.stringify` (ES2019) exactly.
+ *    as `\uXXXX` - which is well-formed `JSON.stringify` (ES2019) exactly.
  */
 function jcs(v: unknown): string {
   if (v === null) return 'null'
@@ -1022,8 +990,10 @@ function jcs(v: unknown): string {
 /**
  * True when `rule` parses as a supported OID4VP-DCQL query.
  *
- * This is the grammar dispatch used by the commitment. It must stay a TOTAL function —
+ * This is the grammar dispatch used by the commitment. It must stay a TOTAL function -
  * a legacy kk-DCQL rule is not an error here, it is simply "not OID4VP".
+ *
+ * @param rule - Policy text to check for a supported DCQL shape.
  */
 export function isOid4vpRule(rule: string): boolean {
   try {

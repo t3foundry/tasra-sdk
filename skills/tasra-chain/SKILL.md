@@ -17,31 +17,31 @@ For Fuji, fetch `networks/testnet/current.json` and the manifest it names,
 `deployments/tasra-fuji-v1.json`, relative to that directory. Pin both to the same
 reviewed repository commit. Verify the original manifest bytes using the trusted
 pointer checksum with `parsePinnedNetworkManifest`, then call `addressBookFromManifest`.
-The complete bootstrap is in installed `docs/fuji.md` and `examples/connect-fuji.ts`.
-
+The pointer and manifest must agree on network, chain and active status.
 A checksum from an untrusted source does not establish authenticity.
-`observeNetworkManifest` compares deployed code with the pinned record; it does not
-certify keeper/credential service readiness. The current candidate's protected
-operations are tested on the local fleet, **not Fuji**.
+`observeNetworkManifest` compares deployed code with the pinned record; it does
+not certify keeper, issuer or authorization readiness. Confirm support for the
+specific protected operation before using it.
 
-For the local fleet, use the example's public chain/RPC/addresses and development
-CA, checking current deployment identity before writes. There is no shipped public
-fleet launcher yet. A missing environment is a blocked check, not permission to
-read an unrelated private demo config or invent service routes.
+Use the release manifest for all network configuration. Report missing services
+explicitly and keep TLS verification enabled. Obtain creator funds from the
+selected network's faucet or a wallet controlled by the user.
 
 ## Application reads
 
 ```ts
-import {createTasra, type TasraDeployment} from 'tasra-sdk/app'
-import type {Hex} from 'viem'
+import {TasraClient, type ApplicationManifest} from 'tasra-sdk/app'
 
-export async function inspectSlot(deployment: TasraDeployment, slotId: Hex) {
-  const tasra = createTasra({deployment})
+export async function inspectSlot(manifest: ApplicationManifest, slotId: `0x${string}`) {
+  const tasra = new TasraClient({manifest, coordinator: 'lowest-operator-id'})
   return tasra.slots.get(slotId)
 }
 ```
 
-`defineDeployment` validates descriptor shape; it does not authenticate its source.
+`new TasraClient({manifest})` validates manifest configuration; it does not authenticate
+its source. `TasraClient.fromManifest(url, {sha256, coordinator})` downloads a release manifest
+and checks an independently trusted digest. Supply the deployment’s coordinator
+convention explicitly; it is not recorded in the release schema.
 `tasra.check()` checks chain and registry code. `slots.get` returns metadata;
 `(await tasra.slots.ecdsa(slotId)).getAddress()` reads an Ethereum address without
 credentials. Pass `keeperUrl` only for an explicitly approved routing map.
@@ -59,6 +59,7 @@ for these integrations. The SDK retains advanced writers, governance and meterin
 APIs; choose them by capability, not a fixed number of clients. `chainId` must be
 explicit for the chosen deployment, and slot IDs are 32-byte hex strings.
 
-Install `viem` for `/chain` and `/app`. Only `/chain/node` imports Node TLS helpers;
+The SDK includes its wallet/chain runtime dependencies. Add `viem` directly only
+when your application intentionally imports its advanced APIs. Only `/chain/node` imports Node TLS helpers;
 keep it out of browser/extension bundles. Missing services in a manifest should
 be reported explicitly; the manifest does not contain keys or bearer tokens.

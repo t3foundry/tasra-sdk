@@ -25,11 +25,17 @@ export function sync(root, content, publicDir) {
     })
     const slug = route(name).replace(/^\//, '').replace(/\/$/, '') || 'index'
     const target = join(content, slug + '.md'); mkdirSync(dirname(target), {recursive: true})
-    writeFileSync(target, '---\ntitle: ' + JSON.stringify(title) + '\n---\n' + body)
+    const toc = name.startsWith('docs/reference/') ? '\ntableOfContents:\n  minHeadingLevel: 2\n  maxHeadingLevel: 2' : ''
+    writeFileSync(target, '---\ntitle: ' + JSON.stringify(title) + toc + '\n---\n' + body)
   }
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   sync(resolve(import.meta.dirname, '..'), join(import.meta.dirname, 'src/content/docs'), join(import.meta.dirname, 'public'))
-  cpSync(join(import.meta.dirname, 'assets/favicon.svg'), join(import.meta.dirname, 'public/favicon.svg'))
+  cpSync(join(import.meta.dirname, 'assets/favicon.png'), join(import.meta.dirname, 'public/favicon.png'))
+  const fontNotices = join(import.meta.dirname, 'public/fonts')
+  mkdirSync(fontNotices, {recursive: true})
+  for (const name of ['inter-LICENSE.txt', 'geist-mono-LICENSE.txt', 'README.md']) {
+    cpSync(join(import.meta.dirname, 'assets/fonts', name), join(fontNotices, name))
+  }
   console.log('Synchronized allowlisted public documentation and examples.')
 }

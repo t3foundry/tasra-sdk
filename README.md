@@ -3,38 +3,53 @@
 Build TypeScript apps that encrypt data and sign transactions through a distributed
 keeper network. Use verifiable credentials to control who can decrypt or sign.
 
-**[Start here: build an account Alice and Bob can use →](docs/shared-account.md)**
+**[Start here: learn TASRA step by step](docs/README.md)**
 
-The complete TypeScript example creates a slot, issues development credentials,
-and confirms transactions on a running local fleet. It uses the SDK directly, with
-no CLI or operator secrets. Install the packed checkout: this example uses an
-unpublished `0.3.0-next.0` candidate. [Compatibility](docs/compatibility.md).
-
-**New candidate API:** [one application client, typed slots, viem signing and safe creation](docs/application-api.md).
+Connect to a network, create your first slot, read and manage it, then add user
+access and sign a message. Continue to complete applications when those basics
+are familiar. Install the latest SDK from npm.
 
 ## Install
 
+Install the latest SDK from npm:
+
 ```sh
-npm install tasra-sdk viem
+npm install tasra-sdk@latest
 ```
 
 Node.js **22.12+**, ESM, and modern browsers with WebCrypto.
-`viem` is needed for `tasra-sdk/app` and `tasra-sdk/chain`; install just `tasra-sdk` for local crypto.
+Wallet and credential adapters are included; no separate application dependency is required.
 [Installation and compatibility](docs/installation.md).
+
+```ts
+import {TasraClient} from 'tasra-sdk/app'
+
+// Use the manifest URL and trusted checksum from the selected tasra-releases pointer.
+const tasra = await TasraClient.fromManifest(manifestUrl, {
+  sha256, coordinator: 'lowest-operator-id',
+})
+console.log(await tasra.check())
+```
+
+The [quickstart](docs/getting-started.md) gives the complete folder, installation,
+configuration, typecheck and run commands. The [application guide](docs/application-api.md) adds a creator wallet and durable
+store, then creates slots with `tasra.slots.create(...)`. It also covers credentials,
+shared accounts, encryption and document signing.
 
 ## What do you want to build?
 
 | Your goal | Start here |
 |---|---|
 | Read the registry first (no writes) | [TypeScript quickstart](docs/getting-started.md) |
-| Encrypt data and let credential holders decrypt it | [Live encryption guide](docs/encryption.md) |
-| Create a slot for your app | [Complete application](docs/shared-account.md) |
+| Encrypt data and let credential holders decrypt it | [Encrypted notes app](docs/encrypted-notes.md) |
+| Create a slot for your app | [Create your first slot](docs/create-slot.md) |
+| Pay for slot usage | [Buy TASRA and fund your slot](docs/funding.md) |
 | Store encrypted notes for one authorized holder | [Encrypted notes app](docs/encrypted-notes.md) |
 | Collect Alice's and Bob's document signatures | [Document-signing workflow](docs/document-signing.md) |
 | Require multiple approvers for one signature | [Native approval recipes](docs/native-approvals.md) |
-| Get an Ethereum address and sign transactions | [Ethereum signing](docs/signing.md) |
+| Get an Ethereum address and sign transactions | [Shared account app](docs/shared-account.md) |
 | Add a credential wallet or OAuth login | [Authentication APIs](docs/api.md#tasra-sdkoid4vp--credential-wallets-against-the-verifier-agent) |
-| Find an API or solve an error | [API reference](docs/reference/README.md) · [Errors](docs/errors.md) |
+| Find an API or solve an error | [SDK reference](docs/reference/README.md) · [Errors](docs/errors.md) |
 
 <a id="which-client-do-i-want"></a>
 
@@ -47,8 +62,8 @@ FROST slots for FROST signatures, and tECDSA slots for Ethereum accounts.
 Deployment addresses and service URLs come from
 [**tasra-releases**](https://github.com/t3-foundry/tasra-releases).
 The [Fuji configuration guide](docs/fuji.md) loads `networks/testnet/current.json`
-and its manifest from one pinned commit, then verifies the checksum. The current
-SDK/service version is not deployed on Fuji; current live development uses a compatible local fleet.
+and its manifest from one pinned commit, then verifies the checksum. Confirm service support for the intended signing, authorization or decryption
+operation before executing it. A release record does not establish that support.
 
 ## Try local encryption without a network
 
@@ -58,7 +73,7 @@ SDK/service version is not deployed on Fuji; current live development uses a com
 Install `tasra-sdk` and `tsx`, save this as `demo.ts`, and run `npx tsx demo.ts`.
 It prints `Hello Tasra`. These are public demo keys; never use them for real data.
 This checks local encryption only. For live authorization, use the
-[live encryption guide](docs/encryption.md).
+[encrypted notes app](docs/encrypted-notes.md).
 
 <!-- offline-example -->
 ```ts
@@ -92,10 +107,8 @@ The same guides and examples are available to developers without an agent.
 
 ## Project
 
-Candidate **0.3.0-next.0**, unpublished. Existing imports remain available.
 See [migration guidance](docs/consumer-migrations.md) and
 [deployment compatibility](docs/compatibility.md) before upgrading.
-Before 1.0, minor releases may change APIs; patches do not.
 The package has [not had an independent cryptographic audit](SECURITY.md#cryptographic-posture).
 
 [Contributing](https://github.com/t3-foundry/tasra-sdk/blob/develop/CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·

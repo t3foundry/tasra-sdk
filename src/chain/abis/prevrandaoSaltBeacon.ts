@@ -1,7 +1,7 @@
-// Vendored ABI. Do not edit by hand — refresh the whole file from the contract
-// artifacts (a manual step; see CONTRIBUTING.md).
+// Contract ABI data is refreshed from the contract build artifacts.
 // Source: contracts/out/PrevrandaoSaltBeacon.sol/PrevrandaoSaltBeacon.json (`abi` field).
 
+/** PrevrandaoSaltBeacon contract interface for chain-randomness-derived committee seeds. */
 export const prevrandaoSaltBeaconAbi = [
   {
     "type": "function",

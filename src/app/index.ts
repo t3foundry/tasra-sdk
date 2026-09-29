@@ -1,4 +1,4 @@
-/** Application API. Requires the optional viem peer; safe to import in browsers. */
+/** Application API. safe to import in browsers. */
 export {createTasra, TasraApplicationError} from './client.js'
 export type {TasraApplication, TasraApplicationConfig, ApplicationErrorCode, SlotMetadata, OperationGrant,
   AuthorizationRequest, OperationAuthorizer, AuthorizedOperationOptions, EcdsaSlot, FrostSlot, BlsSlot} from './client.js'
@@ -8,3 +8,17 @@ export {toViemAccount} from './viem.js'
 export {registeredWalletAuthorization} from './authorization.js'
 export {prepareSlot, createPreparedSlot, CreationReconciliationRequiredError} from './creation.js'
 export type {SlotCreationJournal} from './creation.js'
+
+export {TasraClient} from './tasra-client.js'
+export type {TasraClientOptions, CreateSlotOptions} from './tasra-client.js'
+export {resolveApplicationManifest, loadApplicationManifest} from './manifest.js'
+export type {ApplicationManifest, ResolveApplicationManifestOptions, LoadApplicationManifestOptions} from './manifest.js'
+export {createApplicationSlot, ApplicationSlotRecoveryError} from './ready-slot.js'
+export type {ApplicationStore, CreateApplicationSlot, CreateApplicationSlotOptions, ReadySlotJournal, ApplicationSlotRecoveryCode, SlotCreationProgress} from './ready-slot.js'
+export {createLocalWallet, connectWallet, createSlotWallet} from './wallet.js'
+export {createIdentity, issueCredential, verifyCredential, credentialPolicy, credentialAuthorization, presentCredentials} from './identity.js'
+export type {TasraWallet, WalletTransactionInput, WalletTransactionJournal} from './wallet.js'
+export type {TasraIdentity, IssueCredentialOptions, VerifyCredentialOptions, CredentialPolicyOptions, PresentCredentialsOptions, CredentialAuthorizationOptions} from './identity.js'
+export type {ApplicationDeployment, ResolvedApplicationManifest} from './manifest.js'
+export {setApprovalPolicy, identityApprover, approveWithCredential} from './approvals.js'
+export type {ApprovalPolicy} from './approvals.js'

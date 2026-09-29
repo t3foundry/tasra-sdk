@@ -1,11 +1,14 @@
 import {httpError} from '../errors.js'
-// Off-chain read clients for the live fleet (keykeeper-node + verifier).
+// Off-chain read clients for the live network (keykeeper-node + verifier).
 //
 // Unlike the browser-oriented nodeClient.ts (which routes through a CORS proxy),
 // these are direct server-to-server reads for the explorer's aggregator: a node
 // or verifier base URL in, a typed status object out, with a built-in timeout.
 // All endpoints here are the public, unauthenticated read surface.
 
+/**
+ * Timeout and optional bearer authorization for direct service reads.
+ */
 export interface FetchOpts {
   /** Per-request timeout in ms (default 4000). */
   timeoutMs?: number
@@ -41,56 +44,102 @@ async function fetchText(url: string, opts: FetchOpts = {}): Promise<string> {
 
 const trim = (u: string) => u.replace(/\/$/, '')
 
-// ── keykeeper-node ────────────────────────────────────────────────────────
+//  keykeeper-node
 
+/**
+ * Keeper-reported runtime and connectivity metadata; fields depend on the server response.
+ */
 export interface NodeInfo {
+  /** Keeper-reported network peer identifier. */
   peer_id?: string
+  /** Keeper-reported node identifier. */
   node_identifier?: number
+  /** Keeper software version reported by the service. */
   version?: string
+  /** Build profile reported by the keeper. */
   build_profile?: string
+  /** Keeper process uptime in seconds, as reported by the service. */
   uptime_secs?: number
+  /** Reported connected-peer count, or null when unavailable. */
   connected_peers?: number | null
+  /** Whether the keeper reports rate limiting as enabled. */
   rate_limit_enabled?: boolean
+  /** Whether the keeper reports administrative scope checks as enabled. */
   admin_scope_enabled?: boolean
   [k: string]: unknown
 }
 
+/**
+ * Keeper-reported slot threshold, key epoch and optional rule or activity metadata.
+ */
 export interface KeySlotSummary {
+  /** Slot identifier returned by the keeper. */
   key_slot_id: string
+  /** Required threshold shares reported for the slot. */
   threshold_k: number
+  /** Total assigned participants reported for the slot. */
   threshold_n: number
+  /** Slot key epoch reported by the keeper. */
   epoch: number
+  /** Encoded group public key, or null when the service has no ready key. */
   group_public_key?: string | null
+  /** Disclosed authorization rule text, when included by the service. */
   dcql_rule?: string | null
+  /** Slot key mode reported by the keeper. */
   mode?: string
+  /** Creation timestamp string reported by the service. */
   created_at?: string
+  /** Most recent signing timestamp reported by the service, or null when absent. */
   last_signed_at?: string | null
   [k: string]: unknown
 }
 
+/**
+ * Slot summaries returned by a keeper key-list endpoint.
+ */
 export interface KeyListReply {
+  /** Slot summaries included in the keeper response. */
   slots: KeySlotSummary[]
   [k: string]: unknown
 }
 
+/**
+ * Operator heartbeat carrying an epoch, public key and signature; reading it does not verify it.
+ */
 export interface SignedHeartbeat {
+  /** Operator address claimed by the heartbeat. */
   operator: string
+  /** Heartbeat epoch reported by the operator; not a slot key epoch. */
   epoch: number
+  /** Encoded public key included with the heartbeat. */
   pubkey: string
+  /** Encoded heartbeat signature; callers must verify it before trusting the heartbeat. */
   signature: string
   [k: string]: unknown
 }
 
+/**
+ * Keeper-reported operation counts for a slot and optional subject breakdown.
+ */
 export interface MeteringReply {
+  /** Slot identifier whose operation counts were requested. */
   key_slot_id: string
+  /** Start of the reporting interval, when supplied by the service. */
   since?: string
+  /** End of the reporting interval, when supplied by the service. */
   until?: string
+  /** Total operations counted by the service. */
   total: number
+  /** Optional operation counts grouped by subject. */
   by_subject?: Array<{subject: string; count: number}>
+  /** Optional service-provided attestation; this read helper does not verify it. */
   attestation?: unknown
   [k: string]: unknown
 }
 
+/**
+ * Direct keeper HTTP reads for status, keys, public keys, heartbeats and metering.
+ */
 export const nodeApi = {
   info: (base: string, o?: FetchOpts) =>
     fetchJson<NodeInfo>(`${trim(base)}/v1/info`, o),
@@ -115,16 +164,26 @@ export const nodeApi = {
     fetchText(`${trim(base)}/metrics`, o),
 }
 
-// ── verifier ──────────────────────────────────────────────────────
+//  verifier
 
+/**
+ * Verifier-reported runtime settings and token lifetime.
+ */
 export interface VerifierInfo {
+  /** Verifier software version reported by the service. */
   version?: string
+  /** Verifier process uptime in seconds. */
   uptime_secs?: number
+  /** Reported bearer-token lifetime in seconds. */
   jwt_ttl_secs?: number
+  /** Whether the verifier reports rate limiting as enabled. */
   rate_limit_enabled?: boolean
   [k: string]: unknown
 }
 
+/**
+ * Direct verifier HTTP reads for status and Prometheus metrics.
+ */
 export const verifierApi = {
   info: (base: string, o?: FetchOpts) =>
     fetchJson<VerifierInfo>(`${trim(base)}/v1/info`, o),
@@ -135,9 +194,8 @@ export const verifierApi = {
 }
 
 /**
- * Parse a Prometheus text exposition into a flat map of `metric{labels}` →
- * value. Good enough for the explorer's dashboards (counters/gauges); skips
- * HELP/TYPE/comment lines and histograms' bucket internals are left as-is.
+ * Parse finite numeric Prometheus samples into a map keyed by metric name and labels. Ignore comment lines and nonnumeric values; histogram buckets remain separate samples.
+ * @param text Prometheus text exposition returned by a metrics endpoint.
  */
 export function parsePrometheus(text: string): Record<string, number> {
   const out: Record<string, number> = {}

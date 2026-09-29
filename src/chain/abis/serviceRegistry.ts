@@ -1,7 +1,7 @@
-// Vendored ABI. Do not edit by hand — refresh the whole file from the contract
-// artifacts (a manual step; see CONTRIBUTING.md).
+// Contract ABI data is refreshed from the contract build artifacts.
 // Source: contracts/out/ServiceRegistry.sol/ServiceRegistry.json (`abi` field).
 
+/** ServiceRegistry contract interface for provider-owned service records and lifecycle updates. */
 export const serviceRegistryAbi = [
   {
     "type": "constructor",

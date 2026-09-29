@@ -52,8 +52,12 @@ void test('architecture and focused-test checks parse code, not quoted fixtures'
   const {sourceFindings} = await import('./verify-repository.mjs')
   assert.equal(sourceFindings('src/crypto/example.ts', "import fs from 'node:fs'").length, 1)
   assert.deepEqual(sourceFindings('src/chain/node.ts', "import fs from 'node:fs'"), [])
+  assert.deepEqual(sourceFindings('src/app/node.ts', "import fs from 'node:fs'"), [])
+  assert.ok(sourceFindings('src/app/client.ts', "import fs from 'node:fs'").length > 0)
   assert.equal(sourceFindings('test/specs/example.test.ts', "test['only']('case',()=>{})").length, 1)
   assert.deepEqual(sourceFindings('test/specs/example.test.ts', 'const fixture="test.only()"'), [])
+  assert.deepEqual(sourceFindings('src/app/client.ts', "import {equalBytes} from '@noble/curves/abstract/utils'"), ['Deprecated Noble curves utility import'])
+  assert.deepEqual(sourceFindings('src/app/client.ts', "import {equalBytes} from '@noble/curves/utils.js'"), [])
 })
 void test('workflow checks reject bad YAML, duplicate keys, missing commands and swallowed failures', async () => {
   const {workflowFindings} = await import('./verify-repository.mjs')

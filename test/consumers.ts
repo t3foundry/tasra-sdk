@@ -24,8 +24,16 @@ try {
   const tarball = readdirSync(scratch).find(name => name.endsWith('.tgz'))!
   write('package.json', JSON.stringify({name: 'tasra-consumer', private: true, type: 'module'}))
   run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', join(scratch, tarball)])
-  // Verify an ordinary core-only installation does not acquire the optional peer.
-  if (existsSync(join(scratch, 'node_modules/viem/package.json'))) throw new Error('Core install acquired viem')
+  // One SDK install must supply its wallet runtime; the app declares no extra library.
+  if (!existsSync(join(scratch, 'node_modules/viem/package.json'))) throw new Error('SDK install is missing its wallet dependency')
+  write('application.mjs', `import {TasraClient, createIdentity, issueCredential, verifyCredential} from 'tasra-sdk/app';
+import {createFileStore} from 'tasra-sdk/app/node';
+const issuer=createIdentity(), holder=createIdentity();
+const credential=issueCredential({issuer,holder,type:'Member',claims:{role:'editor'}});
+if(verifyCredential(credential,{issuer,holder,type:'Member'}).role!=='editor')throw new Error('Credential round trip failed');
+const store=createFileStore('./application-state');await store.save('key',holder.exportPrivateKey());
+if(!(await store.load('key') instanceof Uint8Array)||typeof TasraClient!=='function')throw new Error('Application API missing');`)
+  run(process.execPath, ['application.mjs'])
   cpSync(join(scratch, 'node_modules/tasra-sdk/examples'), join(scratch, 'examples'), {recursive: true})
   run(process.execPath, ['--import', join(root, 'node_modules/tsx/dist/loader.mjs'), 'examples/minimal.ts'])
   // Execute exactly the complete offline snippet advertised in the README.
@@ -35,7 +43,7 @@ try {
   write('readme.ts', snippet[1]!)
   run(process.execPath, ['--import', join(root, 'node_modules/tsx/dist/loader.mjs'), 'readme.ts'])
 
-  const tooling = ['typescript', 'tsx', 'viem', 'vite', 'webpack', 'next', 'react', 'react-dom', '@types/react', '@types/react-dom', '@types/node']
+  const tooling = ['typescript', 'tsx', 'vite', 'webpack', 'next', 'react', 'react-dom', '@types/react', '@types/react-dom', '@types/node']
   run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...tooling.map(name => `${name}@${version(name)}`)])
   const imports = `import * as core from 'tasra-sdk';
 import * as app from 'tasra-sdk/app';
@@ -53,6 +61,10 @@ console.log(client, app.createTasra, chain.createTasraChainClient, committee.ver
 import {offlineRoundTrip} from './examples/offline.ts';
 async function main() {
   await core.createDpopKey();
+  const issuer=app.createIdentity(), holder=app.createIdentity();
+  const credential=app.issueCredential({issuer,holder,type:'BrowserMember',claims:{role:'reader'}});
+  if(app.verifyCredential(credential,{issuer,holder}).role!=='reader')throw new Error('Browser credential round trip failed');
+  if(typeof app.TasraClient!=='function')throw new Error('Manifest client missing');
   if (typeof globalThis.Buffer !== 'undefined') throw new Error('Unexpected Buffer polyfill');
   if (offlineRoundTrip() !== 'Hello Tasra') throw new Error('Crypto round trip failed');
   document.body.textContent = 'Hello Tasra';
@@ -119,8 +131,10 @@ export default function Client() {
 import {createTasraClient} from 'tasra-sdk';
 import {createTasraChainClient} from 'tasra-sdk/chain';
 import {createNodeServiceDiscoveryTransport} from 'tasra-sdk/chain/node';
+import {createFileStore} from 'tasra-sdk/app/node';
+import {TasraClient} from 'tasra-sdk/app';
 export default function Page() {
-  if ([createTasraClient, createTasraChainClient, createNodeServiceDiscoveryTransport].some(v => typeof v !== 'function')) throw new Error('Missing server exports');
+  if ([createTasraClient, createTasraChainClient, createNodeServiceDiscoveryTransport, createFileStore, TasraClient].some(v => typeof v !== 'function')) throw new Error('Missing server exports');
   return <main>Server imports passed<Client /></main>;
 }`)
   write('next-app/next.config.mjs', 'export default {experimental: {cpus: 2}}')

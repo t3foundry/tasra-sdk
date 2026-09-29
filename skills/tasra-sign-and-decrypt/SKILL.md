@@ -12,31 +12,32 @@ metadata:
 
 # Sign with a typed slot
 
-Use the candidate `tasra-sdk/app` interface for new applications. The installed
+Use the `tasra-sdk/app` interface for new applications. The installed
 `docs/application-api.md` describes configuration and authorizers; complete sources
-are under `examples/`. Do not lead a current local-fleet app through bearer-JWT
+are under `examples/`. Do not lead an operation-bound application through bearer-JWT
 session signing. Existing JWT/ethers and custody APIs are advanced compatibility paths.
 
-## Ethereum address and viem account
+## Ethereum wallet and durable transfers
 
 ```ts
-import {toViemAccount, type TasraApplication, type OperationAuthorizer} from 'tasra-sdk/app'
-import type {Hex} from 'viem'
+import type {TasraClient, OperationAuthorizer, ApplicationStore} from 'tasra-sdk/app'
 
-export async function ethereumAccount(
-  tasra: TasraApplication, slotId: Hex, authorize: OperationAuthorizer,
-) {
-  const slot = await tasra.slots.ecdsa(slotId)
-  const address = await slot.getAddress() // public: no wallet presentation
-  const account = await toViemAccount(slot, {authorize})
-  return {address, account}
+export async function sendPayment(tasra: TasraClient, slotId: `0x${string}`,
+  to: `0x${string}`, authorize: OperationAuthorizer, store: ApplicationStore) {
+  const wallet = await tasra.wallets.fromSlot(slotId, {authorize})
+  return wallet.transfer('invoice-42', {to, value: 1n}, store)
 }
 ```
 
-The returned viem account supports message, typed-data and transaction signing.
-Each call obtains fresh exact-operation authorization and verifies the recovered
-address. Signing alone does not broadcast. Save signed transaction bytes and hash
-before sending; inspect a known transaction before retrying submission.
+The wallet adapter handles transaction preparation, exact-operation authorization,
+verified signing, durable storage and submission. Reusing the same operation name
+and request reconciles recorded state; do not change the request or generate a new
+name to bypass an uncertain outcome. Fund the slot account's gas before sending.
+Read its public address with `(await tasra.slots.ecdsa(slotId)).getAddress()`.
+
+For applications already using viem, `toViemAccount` remains an explicit adapter
+choice and supports message, typed-data and transaction signing. That advanced
+path leaves broadcast and transaction persistence with the application.
 
 `examples/shared-account.ts` creates one slot where **Alice OR Bob** may sign a
 zero-value self-transfer, confirms both transactions and sends Mallory's deliberately
@@ -46,11 +47,10 @@ DCQL `values: [alice, bob]` list.
 ## Document signatures
 
 ```ts
-import type {TasraApplication, OperationAuthorizer} from 'tasra-sdk/app'
-import type {Hex} from 'viem'
+import type {TasraClient, OperationAuthorizer} from 'tasra-sdk/app'
 
 export async function signDocumentStatement(
-  tasra: TasraApplication, slotId: Hex, statement: Uint8Array, authorize: OperationAuthorizer,
+  tasra: TasraClient, slotId: `0x${string}`, statement: Uint8Array, authorize: OperationAuthorizer,
 ) {
   const slot = await tasra.slots.frost(slotId)
   return slot.sign(statement, {authorize, requireReceipt: true})

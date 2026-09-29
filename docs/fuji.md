@@ -1,8 +1,8 @@
 # Read the public Fuji deployment
 
-**Compatibility:** the current SDK/service version is not deployed on Fuji.
-This guide verifies public contract reads only. Use the [local quickstart](getting-started.md)
-for current development; signing, authorization, and decryption need a compatible fleet.
+This example downloads a release manifest and reads public contracts. It does
+not establish support for signing, authorization or decryption. Check those service
+requirements separately before using protected operations.
 
 Build a small app that connects to Tasra's Fuji deployment and reads how new slots
 are created. You will see the chain ID, deployment, current block, and registry address.
@@ -21,7 +21,7 @@ mkdir my-tasra-app
 cd my-tasra-app
 npm init -y
 npm pkg set type=module
-npm install tasra-sdk@0.2.2 viem@2
+npm install tasra-sdk@latest
 npm install --save-dev tsx
 ```
 
@@ -104,15 +104,15 @@ You have loaded a checksum-verified manifest and read the live KeyRegistry contr
 using `tasra-sdk`. This does not create a slot, authorize a user, or test signing.
 For a check of every deployed contract's code, see [deployment verification](chain.md#verify-a-deployment).
 
-Source: [examples/connect-fuji.ts](../examples/connect-fuji.ts), included in this
-checkout and its packed artifact. The inline file can be copied directly.
+Source: [examples/connect-fuji.ts](../examples/connect-fuji.ts), included in the
+installed SDK package. The inline file can be copied directly.
 
 ## If it fails
 
 | What you see | What to do |
 |---|---|
 | `node` or `npm` is not found | Install Node.js and reopen the IDE terminal. |
-| Cannot find `tasra-sdk` or `viem` | Run the install commands inside `my-tasra-app`. |
+| Cannot find `tasra-sdk` | Run the install commands inside `my-tasra-app`. |
 | Download error, timeout, or `fetch failed` | Check access to GitHub and the Fuji RPC; retry after connectivity is restored. |
 | Manifest checksum mismatch | Re-fetch both files at the same revision. Preserve the original manifest bytes; do not bypass the check. |
 | RPC chain mismatch | Use `NETWORKS.testnet.rpcUrl` or your own Fuji RPC (chain 43113). |

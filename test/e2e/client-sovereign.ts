@@ -67,7 +67,7 @@ s.ok('client has gas', (await client.ethBalance()) > 0n)
 s.ok('client has TSRA', (await client.tsraBalance()) > 0n)
 
 // 3. client SELF-SIGNS slot creation (no relayer)
-const {slotId, txHash, ruleSalt} = await client.createSlot({dcqlRule: SLOT_DCQL_RULE, k: 2, n: 3, mode: 'bls', tags: ['keykeeper']})
+const {slotId, txHash, ruleSalt} = await client.createSlot({rule: SLOT_DCQL_RULE, k: 2, n: 3, mode: 'bls', tags: ['keykeeper']})
 s.ok('client self-created a slot on-chain', /^0x[0-9a-f]{64}$/.test(slotId), `tx ${txHash.slice(0, 12)}…`)
 
 // 4. the drawn committee auto-DKGs — wait for the anchored key

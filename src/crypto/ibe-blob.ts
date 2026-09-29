@@ -2,14 +2,14 @@
 //
 // `ibeEncrypt` is a single-shot AEAD over the whole message: right for a record of a few
 // kilobytes, wrong for a 500 MB CT series (whole-message in memory, no random access, and a
-// JavaScript ChaCha20). This module keeps the identity binding where it is — a BF-IBE
-// ciphertext — but applies it to a 32-byte DATA KEY, and encrypts the body with that key as
-// AES-256-GCM CHUNKS through WebCrypto (hardware-speed in every browser and in Node ≥ 20):
+// JavaScript ChaCha20). This module keeps the identity binding where it is - a BF-IBE
+// ciphertext - but applies it to a 32-byte DATA KEY, and encrypts the body with that key as
+// AES-256-GCM CHUNKS through WebCrypto (hardware-speed in every browser and in Node at least 20):
 //
-//   header = { v, blobId, identity, contentType, size, chunkSize, chunkCount, wrappedKey }
-//   body   = chunk_0 ‖ chunk_1 ‖ … each = AES-256-GCM(dek, nonce_i, aad_i, plain_i) ‖ tag(16)
-//   nonce_i = blobId[0..8] ‖ be32(i)          (the data key is per object, so this is unique)
-//   aad_i   = "keykeeper/ibe-blob/v1" ‖ blobId ‖ be32(i) ‖ last(1) ‖ identity
+// header = { v, blobId, identity, contentType, size, chunkSize, chunkCount, wrappedKey }
+// body   = chunk_0 || chunk_1 || ... each = AES-256-GCM(dek, nonce_i, aad_i, plain_i) || tag(16)
+// nonce_i = blobId[0..8] || be32(i)          (the data key is per object, so this is unique)
+// aad_i   = "keykeeper/ibe-blob/v1" || blobId || be32(i) || last(1) || identity
 //
 // Each chunk is independently decryptable (range requests, streaming), and the associated
 // data binds every chunk to its position, to "is this the last one" (truncation fails), and to
@@ -17,9 +17,9 @@
 // wrapped key ever needs an identity key: unwrapping is one pairing regardless of size, and
 // one extracted `sk_ID` opens every object written to that identity.
 //
-// ⚠ Confidentiality only. Encrypting to an identity is permissionless (anyone holding the
+// Confidentiality only. Encrypting to an identity is permissionless (anyone holding the
 // class public key can do it), so WHO produced a blob needs a separate signature by the
-// producer over `sha256(body)` + the header — an application manifest, not this layer.
+// producer over `sha256(body)` + the header - an application manifest, not this layer.
 
 import {randomBytes} from '@noble/hashes/utils'
 import {sha256} from '@noble/hashes/sha256'
@@ -34,21 +34,27 @@ const TAG = 16
 
 /** The clear header stored beside the ciphertext body. Nothing in it is secret. */
 export interface IbeBlobHeader {
+  /** Encrypted blob format version. */
   v: 1
-  /** 16 random bytes, base64 — the object's identity for the chunk binding. */
+  /** 16 random bytes, base64 - the object's identity for the chunk binding. */
   blobId: string
   /** The IBE identity the data key is wrapped to. */
   identity: string
+  /** Media type of the original plaintext object. */
   contentType: string
   /** Plaintext size in bytes. */
   size: number
+  /** Maximum plaintext bytes in each chunk. */
   chunkSize: number
+  /** Number of encrypted chunks in the body. */
   chunkCount: number
-  /** `ibeEncrypt(mpk, identity, dek)` — the wire shape of `bls::ibe::Ciphertext`. */
+  /** `ibeEncrypt(mpk, identity, dek)` - the wire shape of `bls::ibe::Ciphertext`. */
   wrappedKey: {u: string; nonce: string; aead_ct: string}
 }
 
+/** Encrypted blob header and ordered authenticated ciphertext chunks. */
 export interface SealedBlob {
+  /** Metadata and wrapped data key required to open the blob. */
   header: IbeBlobHeader
   /** The concatenated encrypted chunks. */
   body: Uint8Array
@@ -67,7 +73,7 @@ function concat(parts: readonly Uint8Array[]): Uint8Array {
   }
   return out
 }
-/** A copy backed by a plain ArrayBuffer — WebCrypto's `BufferSource` refuses views over
+/** A copy backed by a plain ArrayBuffer - WebCrypto's `BufferSource` refuses views over
  *  `ArrayBufferLike` (a possibly-shared buffer) at the type level. */
 function buf(u8: Uint8Array): Uint8Array<ArrayBuffer> {
   return new Uint8Array(u8)
@@ -84,7 +90,17 @@ function aadFor(blobId: Uint8Array, index: number, last: boolean, identity: stri
   return concat([utf8(IBE_BLOB_AAD_DOMAIN), blobId, be32(index), new Uint8Array([last ? 1 : 0]), utf8(identity)])
 }
 
-/** The byte range of chunk `i` inside the body — for range requests and streaming. */
+/**
+ * Return a chunk's encrypted byte range as [start, end), including its 16-byte tag.
+ * The final chunk has header.size - index * header.chunkSize plaintext bytes.
+ * An empty object has one chunk: start 0, end 16, plainLength 0.
+ * Use a trusted header and validate that index is a safe integer before calling.
+ * Negative indices and indices at or beyond header.chunkCount throw RangeError.
+ * For an HTTP Range header, use end - 1 as the inclusive last byte.
+ *
+ * @param header - Blob header describing plaintext length and chunk size.
+ * @param index - Zero-based integer chunk index below header.chunkCount.
+ */
 export function ibeBlobChunkRange(header: IbeBlobHeader, index: number): {start: number; end: number; plainLength: number} {
   if (index < 0 || index >= header.chunkCount) throw new RangeError(`chunk ${index} out of ${header.chunkCount}`)
   const start = index * (header.chunkSize + TAG)
@@ -96,6 +112,15 @@ export function ibeBlobChunkRange(header: IbeBlobHeader, index: number): {start:
  * Seal `plaintext` to `identity` under the slot's master public key: a fresh data key,
  * IBE-wrapped, and the body as independently-decryptable AES-256-GCM chunks. Offline and
  * permissionless, like `ibeEncrypt`.
+ * Empty plaintext produces one authenticated chunk with no plaintext and a 16-byte tag.
+ * An exact multiple of chunkSize has no extra chunk; otherwise the last chunk is shorter.
+ * Retain a trusted header, or authenticate a manifest containing both the header
+ * and body digest. A signed body digest alone does not authenticate the media type.
+ *
+ * @param mpkBytes - 96-byte compressed BLS master public key.
+ * @param identity - Identity string used to wrap the object data key.
+ * @param plaintext - Complete plaintext object bytes.
+ * @param opts - Optional media type and integer plaintext chunk size of at least 1024 bytes; default chunk size is 1 MiB.
  */
 export async function ibeSealBlob(
   mpkBytes: Uint8Array,
@@ -132,15 +157,22 @@ export async function ibeSealBlob(
   }
 }
 
-/** The blob's IBE-wrapped data key as an `IbeCiphertext` (what `ibeDecryptWithKey` takes). */
+/**
+ * The blob's IBE-wrapped data key as an `IbeCiphertext` (what `ibeDecryptWithKey` takes).
+ *
+ * @param header - Blob header containing the wrapped data key.
+ */
 export function ibeBlobWrappedKey(header: IbeBlobHeader): IbeCiphertext {
   return {u: base64Decode(header.wrappedKey.u), nonce: base64Decode(header.wrappedKey.nonce), aeadCt: base64Decode(header.wrappedKey.aead_ct)}
 }
 
 /**
- * Unwrap the data key with the identity's extracted key `sk_ID` (48-byte compressed G1 —
+ * Unwrap the data key with the identity's extracted key `sk_ID` (48-byte compressed G1 -
  * `ibeCombineExtract`'s output). One pairing; the caller keeps the returned key in memory only
  * as long as it decrypts, then zeroizes it.
+ *
+ * @param skIdBytes - 48-byte compressed extracted identity key.
+ * @param header - Header containing the wrapped data key and identity.
  */
 export function ibeUnwrapBlobKey(skIdBytes: Uint8Array, header: IbeBlobHeader): Uint8Array {
   const dek = ibeDecryptWithKey(skIdBytes, ibeBlobWrappedKey(header), utf8(header.identity))
@@ -148,12 +180,23 @@ export function ibeUnwrapBlobKey(skIdBytes: Uint8Array, header: IbeBlobHeader): 
   return dek
 }
 
-/** A WebCrypto key for `dek`, importable once per blob and reused across chunks. */
+/**
+ * A WebCrypto key for `dek`, importable once per blob and reused across chunks.
+ *
+ * @param dek - 32-byte unwrapped AES data key to import for decryption.
+ */
 export async function ibeBlobDecryptKey(dek: Uint8Array): Promise<CryptoKey> {
   return subtle().importKey('raw', buf(dek), {name: 'AES-GCM'}, false, ['decrypt'])
 }
 
-/** Decrypt one chunk (its exact body slice, see {@link ibeBlobChunkRange}). */
+/**
+ * Decrypt one chunk (its exact body slice, see {@link ibeBlobChunkRange}).
+ *
+ * @param key - AES-GCM decryption key imported from the unwrapped data key.
+ * @param header - Header providing chunk identity and authentication context.
+ * @param index - Zero-based integer chunk index below header.chunkCount.
+ * @param chunk - Complete encrypted chunk including its authentication tag.
+ */
 export async function ibeDecryptBlobChunk(key: CryptoKey, header: IbeBlobHeader, index: number, chunk: Uint8Array): Promise<Uint8Array> {
   const blobId = base64Decode(header.blobId)
   const {plainLength} = ibeBlobChunkRange(header, index)
@@ -169,6 +212,10 @@ export async function ibeDecryptBlobChunk(key: CryptoKey, header: IbeBlobHeader,
 /**
  * Open a whole sealed blob with `sk_ID`: unwrap the key, decrypt every chunk, return the
  * plaintext. Streaming consumers use `ibeUnwrapBlobKey` + `ibeDecryptBlobChunk` per range.
+ *
+ * @param skIdBytes - 48-byte compressed extracted identity key.
+ * @param header - Header returned when the blob was sealed.
+ * @param body - Concatenated encrypted chunks in their original order.
  */
 export async function ibeOpenBlob(skIdBytes: Uint8Array, header: IbeBlobHeader, body: Uint8Array): Promise<Uint8Array> {
   const expected = header.size + header.chunkCount * TAG
@@ -187,7 +234,11 @@ export async function ibeOpenBlob(skIdBytes: Uint8Array, header: IbeBlobHeader, 
   }
 }
 
-/** `sha256(body)` — what a producer signs in its manifest so a reader can check provenance. */
+/**
+ * `sha256(body)` - what a producer signs in its manifest so a reader can check provenance.
+ *
+ * @param body - Complete encrypted blob body to hash.
+ */
 export function ibeBlobDigest(body: Uint8Array): Uint8Array {
   return sha256(body)
 }

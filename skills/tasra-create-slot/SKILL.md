@@ -12,66 +12,86 @@ metadata:
 
 # Create and recover a slot
 
-For the candidate application path, use `prepareSlot` and `createPreparedSlot` from
-`tasra-sdk/app`. Configure the actual deployment first using `tasra-getting-started`.
-Decide the credential issuer, subject policy and any IBE scope before creating the
-slot. A keeper threshold is not a number of human approvals.
+Use `TasraClient` from a checksum-verified manifest downloaded from
+https://github.com/t3-foundry/tasra-releases, SDK wallets and `slots.create` for new
+applications. Install only `tasra-sdk` as the runtime dependency. Before writing,
+confirm deployment compatibility and obtain authorization for the live effects.
 
 ```ts
-import {prepareSlot, createPreparedSlot, type TasraDeployment,
-  type SlotCreationJournal} from 'tasra-sdk/app'
-import type {CreateSlotArgs, WriteClientWalletConfig} from 'tasra-sdk/chain'
+import {TasraClient, type ApplicationManifest, type TasraWallet} from 'tasra-sdk/app'
+import {createFileStore} from 'tasra-sdk/app/node'
 
-export async function createKey(
-  deployment: TasraDeployment,
-  wallet: WriteClientWalletConfig['wallet'],
-  rule: string,
-  mode: CreateSlotArgs['mode'],
-  persist: (journal: SlotCreationJournal) => Promise<void>,
-) {
-  const journal = prepareSlot(deployment, wallet.account.address, {
-    dcqlRule: rule, mode, authType: 'oid4vp', k: 2, n: 3,
-  })
-  return createPreparedSlot(journal, {wallet, persist})
+export async function createKey(manifest: ApplicationManifest, wallet: TasraWallet,
+  policy: string, directory: string) {
+  const store = createFileStore(directory)
+  const tasra = new TasraClient({manifest, coordinator: 'lowest-operator-id', wallet, store})
+  return tasra.slots.create({name: 'private-notes', mode: 'bls', policy,
+    threshold: {k: 2, n: 3}, verifiers: {committee: 3, quorum: 2}})
 }
 ```
 
-`persist` must atomically save each private snapshot before resolving. Serialize
-writers for an intent, retain all salts and transaction hashes, and keep this data
-out of public evidence. `examples/encrypted-notes.ts` includes the complete Node
-store with fsync and atomic rename; browser storage needs equivalent durability
-and concurrency control.
+Choose `ecdsa` for an Ethereum account, `frost` for document signatures or `bls`
+for encryption. Build the policy first with `tasra.credentials.policy()`, pinning
+the issuer, subjects and any identity scope. A keeper threshold counts shares,
+not human approvals. The application slot name identifies a durable creation intent.
 
-Creation uses commit/reveal and returns after on-chain creation. It does **not**
-complete DKG, provision the rule or enroll a credential holder. Continue with:
+`authType` defaults to `'oid4vp'`. For an OAuth/BYOIDP policy, set
+`authType: 'oauth'` explicitly and use DCQL queries with
+`format: 'oauth+access-token+dpop'`; pin issuer, audience and maximum token age.
+The SDK rejects a policy whose query family disagrees with the selected type.
+OAuth DCQL is canonicalized for the commitment just like credential DCQL.
+`credentials.authorize` is an OID4VP helper; OAuth operations use
+`createOauthSession`, `submitOauthResponse` and `waitForSession` from
+`tasra-sdk/verifier-agent` with the IdP token and its bound DPoP signer.
 
-1. Await the anchored group key with a bounded timeout and verify the requested mode.
-2. Resolve assigned keeper URLs from chain; apply only the app's approved local route map.
-3. Call `provisionRule` from `tasra-sdk/chain` with the creator signature and the exact
-   saved rule/salt. No operator/admin JWT is needed.
-4. Configure the verifier policy for protected operations. Check available verifier
-   count before choosing committee/quorum. Configure native approvers separately
-   if required; `tasra-committee-path` describes that workflow.
-5. Fund gas and, on metered deployments, slot usage. Gas funding is not usage funding.
-   Current local examples explicitly rely on the development fleet's metering setup.
-6. Obtain a typed slot handle and perform a real authorized operation.
+`slots.create` persists that intent before submission, commits/reveals, waits for
+the on-chain key, provisions the exact policy to assigned keepers and sets the
+requested verifier policy. It returns a ready typed slot. Do not copy those steps
+into the application or manually construct a journal. `createFileStore` is the
+Node adapter; browser stores need equivalent atomic persistence and exclusive locks.
 
-The complete implementation is in `examples/encrypted-notes.ts` and
-`examples/document-signing.ts`. For an Ethereum account select creation mode
-`tecdsa`; the application's corresponding handle is `slots.ecdsa`.
+Create a fresh wallet with `tasra.wallets.create()` or connect the user's provider
+with `tasra.wallets.connect(provider)`. Persist a local wallet's exported private
+key securely before funding it. A wallet is not funded merely because it exists.
+Fund the creator through the selected network’s faucet or a wallet controlled by
+the user. Native gas, slot-account balance and usage credits are separate. Check
+each required balance; do not assume the deployment supplies credits. Configure
+native approval policy separately when the application needs human approvals.
+
+Read `docs/application-api.md` and run `examples/encrypted-notes.ts` or
+`examples/document-signing.ts` using their exact tutorial commands. They create
+fresh identities, credentials and slots using only public deployment configuration.
+The tutorials create a fresh run directory each time; this demonstrates independent
+runs, not automatic recovery of an interrupted earlier run.
 
 ## Resume the same intent
 
-Load the last persisted journal and pass it to `createPreparedSlot` with the same
-wallet/deployment and durable store. Known commit/reveal hashes are reconciled,
-not resubmitted. `CreationReconciliationRequiredError` means a submission may have
-happened without a recorded hash: inspect the wallet/chain, recover that transaction,
-and reconcile the journal. Do not delete the journal or generate a replacement slot.
-Aborting local work cannot cancel an already submitted transaction.
+Restore the same wallet, store, manifest and exact named request, then call
+`slots.create` again. Known transaction hashes are reconciled. Preserve private
+journals, salts and policy bytes; never publish them as evidence. An unknown
+submission without a recorded hash requires wallet/chain reconciliation before
+resuming. Do not delete state or generate another slot to hide uncertainty.
+
+Automatic recovery of an expired named commitment or abandoned file-store lock is
+not provided. Stop, preserve state and reconcile with the deployment operator; do not steal a lock automatically. Aborting local work cannot cancel a
+transaction already submitted to the chain.
 
 ## Advanced operations
 
-For relay/sponsorship, funding curves, rotation, cancellation or deployments that
-need low-level one-shot creation, read [advanced lifecycle and compatibility details](references/advanced.md).
-Those primitives remain available; their older return-value persistence examples
-are not a substitute for the new journal's crash-recovery contract.
+Low-level creation and `provisionRule` take `rule`, the clear policy string,
+plus its `ruleSalt`; the chain stores only `ruleCommitment`. `dcqlRule` is
+rejected, even when supplied alongside an identical `rule`. Keeper HTTP fields
+remain `dcql_rule` and `dcql_salt`; those are transport fields, not SDK aliases.
+Older creation journals also require explicit migration: privately back up the
+journal, rename only `intent.dcqlRule` to `intent.rule`, and preserve every value,
+including rule bytes, salts, slot ID, creator, authorization type and transaction
+history. Resolve ambiguous or conflicting fields before resuming. Keep surrounding
+application-store state intact; do not delete a journal or create a new slot to
+bypass rejection.
+
+`prepareSlot` and `createPreparedSlot` remain available when implementing custom
+creation lifecycle control. Those primitives end at on-chain creation; their caller
+must handle key readiness, provisioning and verifier policy. They are not needed
+for the default application path. For relay/sponsorship, funding curves, rotation,
+cancellation or lower-level creation, read
+[advanced lifecycle and compatibility details](references/advanced.md).

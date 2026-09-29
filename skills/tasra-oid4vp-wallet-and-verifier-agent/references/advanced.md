@@ -19,7 +19,7 @@ session client under the verifier-agent side.
 
 ```ts
 import {openVerifierAgentSession, awaitVerifierAgentResult} from 'tasra-sdk/oid4vp'
-import {privateKeyToAccount} from 'viem/accounts'   // viem is an optional peer: install it for this
+import {privateKeyToAccount} from 'viem/accounts'   // this advanced example directly imports viem
 
 const creatorKey = process.env.KK_CREATOR_KEY as `0x${string}`   // the slot creator's EVM private key, 0x-hex
 const session = await openVerifierAgentSession({
@@ -149,9 +149,7 @@ const {ro, plan, built, redirectUri} = await presentToRequestUri(qrPayload, [{sd
   choose: plan => plan.chosen,   // the default when `choose` is absent: the evaluator's pick, set only when
                                  // the request is satisfied. `candidates[0]` is no fallback — a candidate
                                  // answers some query, which is not the same as satisfying the request.
-  resolveKey: defaultKeyResolver({allowInsecureLoopback: true}),   // ONLY for a loopback agent serving
-                                 // did:web over PLAIN HTTP: downgrades localhost / 127.0.0.1, no other
-                                 // host. Omit it when the agent serves HTTPS — see below.
+  resolveKey: defaultKeyResolver(), // Verify the provider's did:web document over HTTPS.
 })   // → {ro, plan, built, redirectUri?}
 // `ro` is the VERIFICATION result — {jwt, header, claims, signerDid, signerKey} — not the request object itself:
 // the OID4VP fields live on `ro.claims` (`ro.claims.dcql_query`, `ro.claims.nonce`).
@@ -170,17 +168,9 @@ wallet, or the call fails with `UNABLE_TO_VERIFY_LEAF_SIGNATURE` before it plans
 anything. A client of your own goes in `fetchImpl` (the JAR and the POST) and in
 `defaultKeyResolver({fetchImpl})` (the `did:web` document).
 
-**`allowInsecureLoopback` and `NODE_EXTRA_CA_CERTS` are alternatives, not a pair —
-and a local fleet usually wants the CA.** A fleet on loopback that terminates TLS
-(the common case: its `did:web` is `did:web:localhost%3A19444`) is broken by the
-downgrade, which retries the document over plain `http` against a TLS-only port:
-
-```
-Error: did:web resolution http://localhost:19444/.well-known/did.json → HTTP 400
-```
-
-Trust the CA and drop `allowInsecureLoopback`. Reach for the downgrade only when the
-loopback agent genuinely serves plain HTTP.
+Keep HTTPS certificate and hostname verification enabled. A private CA, when
+explicitly required by the chosen service, must be trusted by the process.
+Do not enable an insecure transport option to work around a certificate failure.
 
 A holder key is P-256 (`randomHolderKey`, `p256HolderKey`) or Ed25519 (`ed25519HolderKey`), and the
 KB-JWT is signed with that key's own algorithm — ES256 or EdDSA. Which one you need is not a choice:
@@ -220,21 +210,20 @@ before it presents.
 
 ## Common mistakes
 
-- ❌ Expecting credentials back at the verifier-agent. Only the compound token returns.
-- ❌ Asking for two credentials in one presentation. One per presentation; a
+- Expecting credentials back at the verifier-agent. Only the compound token returns.
+- Asking for two credentials in one presentation. One per presentation; a
   rule needing two uses `credential_sets` with single-credential options.
-- ❌ Interpreting the nonce in the wallet. It is copied into the KB-JWT verbatim.
-- ❌ Fetching `did:web` over plain HTTP. Only loopback may downgrade, and only
+- Interpreting the nonce in the wallet. It is copied into the KB-JWT verbatim.
+- Fetching `did:web` over plain HTTP. Only loopback may downgrade, and only
   with an explicit `allowInsecureLoopback` opt-in — a `ResolveOpts` field in
   `did-web.ts`, not an option of `presentToRequestUri`: it reaches the wallet as
   `resolveKey: defaultKeyResolver({allowInsecureLoopback: true})`.
-- ❌ Polling the verifier-agent in a tight loop. Use `awaitVerifierAgentResult` or `waitForSession`.
-- ❌ Awaiting the result only after the wallet has presented. Start
+- Polling the verifier-agent in a tight loop. Use `awaitVerifierAgentResult` or `waitForSession`.
+- Awaiting the result only after the wallet has presented. Start
   `awaitVerifierAgentResult` first and `await` it after — the result exists only once a
   wallet has answered, and in a single process the two must overlap.
-- ❌ Setting `allowInsecureLoopback` on a loopback fleet that serves HTTPS. It
-  downgrades the `did:web` fetch to a port that does not speak HTTP; trust its CA instead.
-- ❌ Reading `no held credential answers: <id>` as a bug. It is the wallet refusing to
+- Disabling certificate checks after a TLS failure. Verify the endpoint and trust configuration.
+- Reading `no held credential answers: <id>` as a bug. It is the wallet refusing to
   present, and it is a plain `Error`, not a `TasraError` (`tasra-handle-errors`).
 
 ## Where to read more

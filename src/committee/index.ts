@@ -1,4 +1,4 @@
-// compound committee authorization — token crypto + HTTP orchestration.
+// compound committee authorization - token crypto + HTTP orchestration.
 export {auditOperationId, decodeOperationReceipt, verifyOperationReceipt} from './receipts.js'
 export type {OperationReceipt, ReceiptExpectation} from './receipts.js'
 export {extractIdentityStrict, decryptIdentityStrict} from './extraction.js'
@@ -67,11 +67,11 @@ export type {
 } from './request.js'
 
 
-// ─── identity-key extraction ────────────────────────────────────────
+// identity-key extraction
 export {requestIbeExtractionPartials} from './client.js'
 export type {IbeExtractOpts, IbeExtractionPartial} from './client.js'
 export {ibeExtractRequest, ibeDecryptRequest} from './request.js'
 export type {IbeExtractRequestOpts} from './request.js'
 
-// ─── derived OAuth audience + DPoP htu ────────────────────────────
+// derived OAuth audience + DPoP htu
 export {platformAudience, dpopHtu, normalizeOrigin, OAUTH_RESPONSE_PATH} from './oauth.js'

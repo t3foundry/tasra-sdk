@@ -1,4 +1,4 @@
-import {equalBytes} from '@noble/curves/abstract/utils'
+import {equalBytes} from '@noble/curves/utils.js'
 import {utf8ToBytes} from '@noble/hashes/utils'
 import {sha256} from '@noble/hashes/sha256'
 import {ibeCombineExtract, ibeDecryptWithKey, ibeVerifyShare, type IbeCiphertext} from '../crypto/ibe.js'
@@ -7,9 +7,11 @@ import {requestIbeExtractionPartials, type IbeExtractOpts} from './client.js'
 import {compoundTokenHash, decodeCompoundToken} from './token.js'
 import {auditOperationId, protocolHex, verifyOperationReceipt, type OperationReceipt} from './receipts.js'
 
+/** Assigned keeper endpoint with independently established operator, key and optional share metadata. */
 export interface ExtractionKeeper {
   /** On-chain assigned operator address. Two URLs cannot count as two operators. */
   operator: string
+  /** Keeper HTTP base URL. */
   nodeUrl: string
   /** Group share identifier from trusted deployment/slot metadata, when known. */
   identifier?: number
@@ -19,13 +21,19 @@ export interface ExtractionKeeper {
   verifyingShareG2?: Uint8Array
 }
 
+/** Expected slot epoch, threshold, chain key and keeper trust requirements for identity-key extraction. */
 export interface StrictExtractionOptions extends Omit<IbeExtractOpts, 'nodeUrls' | 'ciphertextEpoch'> {
+  /** EVM chain identifier. */
   chainId: number | bigint
+  /** 32-byte slot identifier. */
   slotId: string
+  /** Minimum number of distinct assigned keeper shares. */
   threshold: number
+  /** Slot key epoch used to match the extraction shares. */
   epoch: number
   /** Group key pinned to this slot/epoch on chain (96-byte G2). */
   groupPublicKey: Uint8Array
+  /** Assigned keepers with independently established identity and key metadata. */
   keepers: readonly ExtractionKeeper[]
   /**
    * pinned-shares requires an independently authenticated verifying share and identifier
@@ -37,19 +45,29 @@ export interface StrictExtractionOptions extends Omit<IbeExtractOpts, 'nodeUrls'
   requireReceipts?: boolean
 }
 
+/** Keeper identity, share identifier and receipt verification status for an accepted extraction share. */
 export interface ExtractionEvidence {
+  /** Keeper operator address. */
   operator: string
+  /** Nonzero threshold participant identifier. */
   identifier: number
+  /** Keeper HTTP base URL. */
   nodeUrl: string
+  /** Optional keeper attestation; presence alone does not establish validity. */
   receipt?: OperationReceipt
+  /** Whether the receipt is absent, present but unchecked, or verified. */
   receiptStatus: 'absent' | 'unverified' | 'verified'
 }
 
+/** Extracted identity key and provenance evidence. The caller must clear the returned key when finished. */
 export interface StrictExtractionResult {
   /** Durable identity capability. Caller owns and must clear this buffer when finished. */
   key: Uint8Array
+  /** Slot key epoch used to match the extraction shares. */
   epoch: number
+  /** Trust model used for validating the returned shares. */
   shareTrust: StrictExtractionOptions['shareTrust']
+  /** Provenance and receipt status for every accepted share. */
   evidence: ExtractionEvidence[]
 }
 
@@ -58,6 +76,8 @@ export interface StrictExtractionResult {
  * Read slot metadata before calling; this helper deliberately cannot authenticate caller
  * configuration. Never populate pinned shares from the extraction response itself.
  * All temporary partials are cleared even on rejection. No master key is reconstructed.
+ *
+ * @param input - Expected slot key, epoch, quorum, keepers and authorized identity.
  */
 export async function extractIdentityStrict(input: StrictExtractionOptions): Promise<StrictExtractionResult> {
   input = {...input, committeeToken: structuredClone(input.committeeToken), verifierProofs: input.verifierProofs && structuredClone(input.verifierProofs), userSignature: input.userSignature?.slice()}
@@ -116,7 +136,11 @@ export async function extractIdentityStrict(input: StrictExtractionOptions): Pro
   } finally { for (const p of partials) p.value.fill(0) }
 }
 
-/** Decrypt an IBE ciphertext and clear the intermediate identity key on every exit. */
+/**
+ * Decrypt an IBE ciphertext and clear the intermediate identity key on every exit.
+ *
+ * @param opts - Strict extraction requirements plus the IBE ciphertext to decrypt.
+ */
 export async function decryptIdentityStrict(opts: StrictExtractionOptions & {ciphertext: IbeCiphertext}): Promise<Omit<StrictExtractionResult, 'key'> & {plaintext: Uint8Array}> {
   const {key, ...evidence} = await extractIdentityStrict(opts)
   try { return {...evidence, plaintext: ibeDecryptWithKey(key, opts.ciphertext, utf8ToBytes(opts.identity))} }

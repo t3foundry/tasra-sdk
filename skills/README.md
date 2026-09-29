@@ -32,7 +32,7 @@ credentials. Skills do not configure a network or grant access to anything.
 
 | Skill | Use it when |
 |---|---|
-| [tasra-getting-started](tasra-getting-started/SKILL.md) | candidate installation, deployment configuration and choosing a complete app |
+| [tasra-getting-started](tasra-getting-started/SKILL.md) | npm installation, deployment configuration and choosing a complete app |
 | [tasra-create-slot](tasra-create-slot/SKILL.md) | durable creation, provisioning and uncertain-transaction recovery |
 | [tasra-credentials-and-sessions](tasra-credentials-and-sessions/SKILL.md) | operation authorizers, holder binding and credential lifetime; existing JWT sessions when needed |
 | [tasra-dcql-rules](tasra-dcql-rules/SKILL.md) | writing, validating and evaluating a slot's access rule |
@@ -51,7 +51,7 @@ from `node_modules/tasra-sdk/dist/**/*.d.ts`.
 ## First verified application
 
 Start with `tasra-getting-started`, then load only the skill for the requested task.
-The unpublished `0.3.0-next.0` candidate's default application interface is
+Install with `npm install tasra-sdk@latest`. The application interface is
 `tasra-sdk/app`. See the [application guide](../docs/application-api.md),
 [shared account](../docs/shared-account.md), [encrypted notes](../docs/encrypted-notes.md),
 [document signatures](../docs/document-signing.md), and [native approvals](../docs/native-approvals.md).
@@ -63,12 +63,12 @@ Copy the whole folder so these references remain available.
 
 `docs/`, `examples/` and `dist/` paths in skill text refer to the installed SDK root,
 not the directory where the skill was copied. The skills contain no private setup
-knowledge. Complete sources are shipped in the package. A compatible running fleet
-is still required; a public clean-machine fleet launcher is not provided yet.
+knowledge. Complete sources are shipped in the package. The selected network
+must support the application’s requested key modes and authorization routes.
 
 Deployment records live in [tasra-releases](https://github.com/t3-foundry/tasra-releases),
 not the npm package. Fuji's `networks/testnet/current.json` points to
 `deployments/tasra-fuji-v1.json` and supplies its checksum. Use `tasra-chain` to
 bootstrap from one reviewed repository revision, then discover the slot's keepers.
-The current SDK/service version is not deployed on Fuji. Use the compatible local
-fleet for current protected-operation acceptance, and report public reads separately.
+A verified manifest and successful registry read establish configuration and
+connectivity. Test protected operations separately before claiming compatibility.

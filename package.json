@@ -1,7 +1,7 @@
 {
   "name": "tasra-sdk",
   "version": "0.3.0-next.0",
-  "description": "Product-agnostic TypeScript access gate to a Tasra Network: a managed client (sessions with auto-renewing JWTs + encrypt/decrypt/sign) over composable threshold-crypto primitives \u2014 shard fetch + MSK assembly, DCQL-gated JWTs, FROST/ECDSA signing, BLS encrypt/decrypt, committee tokens, and on-chain reads/writes.",
+  "description": "TypeScript SDK for Tasra network slots, credential-based access, distributed encryption and signing, and on-chain operations.",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -26,6 +26,9 @@
       ],
       "app": [
         "./dist/app/index.d.ts"
+      ],
+      "app/node": [
+        "./dist/app/node.d.ts"
       ]
     }
   },
@@ -65,6 +68,11 @@
       "types": "./dist/app/index.d.ts",
       "import": "./dist/app/index.js",
       "default": "./dist/app/index.js"
+    },
+    "./app/node": {
+      "types": "./dist/app/node.d.ts",
+      "import": "./dist/app/node.js",
+      "default": "./dist/app/node.js"
     }
   },
   "sideEffects": false,
@@ -72,30 +80,39 @@
     "dist/**/*.js",
     "dist/**/*.d.ts",
     "dist/**/*.json",
-    "README.md",
     "CHANGELOG.md",
     "LICENSE",
+    "README.md",
     "SECURITY.md",
     "docs/DEVELOPER-EXPERIENCE.md",
     "docs/README.md",
+    "docs/access-control.md",
+    "docs/ai-development.md",
     "docs/api.md",
     "docs/application-api.md",
     "docs/architecture.md",
+    "docs/basics.md",
     "docs/capabilities.md",
     "docs/chain.md",
     "docs/compatibility.md",
     "docs/consumer-migrations.md",
+    "docs/create-slot.md",
     "docs/document-signing.md",
     "docs/encrypted-notes.md",
     "docs/encryption.md",
     "docs/errors.md",
+    "docs/flows.md",
     "docs/fuji.md",
+    "docs/funding.md",
     "docs/getting-started.md",
     "docs/glossary.md",
     "docs/installation.md",
+    "docs/manage-slot.md",
     "docs/native-approvals.md",
     "docs/prerequisites.md",
+    "docs/read-slot.md",
     "docs/reference/README.md",
+    "docs/reference/app-node.md",
     "docs/reference/app.md",
     "docs/reference/chain-node.md",
     "docs/reference/chain.md",
@@ -104,10 +121,11 @@
     "docs/reference/oid4vp.md",
     "docs/reference/verifier-agent.md",
     "docs/shared-account.md",
+    "docs/signing-and-encryption.md",
     "docs/signing.md",
     "examples/committee-slot.ts",
     "examples/connect-fuji.ts",
-    "examples/connect-local.ts",
+    "examples/connect-network.ts",
     "examples/credential-approvals.ts",
     "examples/document-signing.ts",
     "examples/document-signing/README.md",
@@ -115,8 +133,8 @@
     "examples/document-signing/build.mjs",
     "examples/document-signing/config.ts",
     "examples/document-signing/gitignore.template",
-    "examples/document-signing/local-fleet-ca.pem",
     "examples/document-signing/model.ts",
+    "examples/document-signing/network.ts",
     "examples/document-signing/package.json",
     "examples/document-signing/public/index.html",
     "examples/document-signing/public/sample.pdf",
@@ -133,17 +151,27 @@
     "examples/document-signing/workflow.ts",
     "examples/encrypted-notes.ts",
     "examples/ethers-signer.ts",
+    "examples/fund-slot.ts",
     "examples/getting-started.ts",
+    "examples/learning-authorize.ts",
+    "examples/learning-cancel-slot.ts",
+    "examples/learning-context.ts",
+    "examples/learning-create-slot.ts",
+    "examples/learning-read-slot.ts",
+    "examples/learning-renew-slot.ts",
+    "examples/learning-sign.ts",
     "examples/live-config.ts",
-    "examples/local-fleet-ca.pem",
     "examples/minimal.ts",
     "examples/native-approvals.ts",
+    "examples/network.ts",
     "examples/offline.ts",
     "examples/personal-vault.ts",
     "examples/provision-slot.ts",
     "examples/shared-account.ts",
     "examples/slot-address.ts",
     "examples/slot-creation.ts",
+    "examples/tutorial-negative.ts",
+    "examples/tutorial-support.ts",
     "examples/viem-account.ts",
     "skills/README.md",
     "skills/tasra-chain/SKILL.md",
@@ -213,7 +241,7 @@
     "docs:build": "npm run build --prefix site",
     "verify:document-app": "node test/document-app-check.mjs",
     "verify": "node scripts/verify.mjs",
-    "verify:infrastructure": "node --test scripts/verify-infrastructure.test.mjs scripts/git-hooks.test.mjs scripts/api-surface.test.mjs scripts/api-changes.test.mjs scripts/quality.test.mjs scripts/performance.test.mjs scripts/publication.test.mjs",
+    "verify:infrastructure": "node --test scripts/verify-infrastructure.test.mjs scripts/git-hooks.test.mjs scripts/api-surface.test.mjs scripts/api-changes.test.mjs scripts/quality.test.mjs scripts/performance.test.mjs scripts/publication.test.mjs scripts/release-tag.test.mjs",
     "verify:repository": "node scripts/verify-repository.mjs && npm run api:changes",
     "verify:security": "npm audit --include=dev --include=optional --include=peer --audit-level=high && npm audit --prefix site --include=dev --include=optional --audit-level=high && npm audit signatures",
     "verify:site": "npm ci --prefix site && npm run docs:build",
@@ -239,15 +267,8 @@
   "dependencies": {
     "@noble/ciphers": "^1.0.0",
     "@noble/curves": "^1.6.0",
-    "@noble/hashes": "^1.5.0"
-  },
-  "peerDependencies": {
-    "viem": "^2.54.2"
-  },
-  "peerDependenciesMeta": {
-    "viem": {
-      "optional": true
-    }
+    "@noble/hashes": "^1.5.0",
+    "viem": "^2.56.8"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.2",
@@ -269,7 +290,6 @@
     "tsx": "^4.23.13",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.70.0",
-    "viem": "^2.56.8",
     "vite": "^8.3.0",
     "vitest": "^4.1.11",
     "webpack": "^5.111.1",

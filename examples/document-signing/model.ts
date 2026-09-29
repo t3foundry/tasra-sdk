@@ -1,5 +1,7 @@
 import { verifyFrostSignature, hexToBytes } from 'tasra-sdk'
-import type { Hex } from 'viem'
+export type Hex = `0x${string}`
+export const toHex = (bytes: Uint8Array): Hex =>
+  `0x${Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')}`
 
 export const people = ['alice', 'bob'] as const
 export type Person = (typeof people)[number]

@@ -3,6 +3,9 @@ import type {TasraChainClient} from './client.js'
 import type {ServiceApproval, ServiceRecord} from './services.js'
 import {parseVerifierAgentSessionStatus, type CreateSessionParams, type CreateSessionResult, type SessionStatusResult} from '../verifier-agent/index.js'
 
+/**
+ * Guarded HTTPS transport for service discovery and verifier-agent sessions.
+ */
 export interface AgentTransport extends ServiceDiscoveryTransport {
   /** Same socket/TLS policy as discovery; bearer is allowed only on a session GET. */
   agentRequest(url: string, options: {body?: Uint8Array; bearer?: string; maxBytes: number; signal: AbortSignal}): Promise<Uint8Array>
@@ -10,19 +13,37 @@ export interface AgentTransport extends ServiceDiscoveryTransport {
 
 /** Both the application and committee verifiers must independently approve this verifier-agent identity. */
 export interface ApprovedAgentProfile {
+  /**
+   * Independently approved service registry identity and revision.
+   */
   approval: ServiceApproval
+  /**
+   * Expected canonical verifier-agent endpoint.
+   */
   endpoint: string
+  /**
+   * Approved OID4VP client identifier derived from the agent DID.
+   */
   clientId: string
 }
 
+/**
+ * Session pinned to its authenticated provider, with a closure for polling that provider.
+ */
 export interface RegisteredAgentSession extends Readonly<CreateSessionResult> {
+  /**
+   * Provider identity and endpoint pinned when the session was opened.
+   */
   readonly profile: Readonly<ApprovedAgentProfile>
   /** Poll only the original endpoint/profile. A provider change requires a fresh wallet session. */
   poll(signal?: AbortSignal): Promise<SessionStatusResult>
 }
 
+/**
+ * Session creation may have reached the provider, so automatic retry is unsafe.
+ */
 export class AgentSessionCreationUnknownError extends Error {
-  constructor(readonly profile: Readonly<ApprovedAgentProfile>) {
+  constructor(/** Approved verifier-agent profile whose session creation outcome is unknown. */ readonly profile: Readonly<ApprovedAgentProfile>) {
     super('Agent session creation has an uncertain result; explicitly open a fresh wallet session to retry. No session secret or presentation is transferred.')
     this.name = 'AgentSessionCreationUnknownError'
   }
@@ -61,7 +82,11 @@ function equalPin(actual: unknown, expected: ReturnType<typeof pin>): boolean {
   return Object.entries(expected).every(([key, value]) => (actual as Record<string, unknown>)[key] === value)
 }
 
-/** Selection authenticates public metadata first. Once POSTed, never silently switch providers. */
+/**
+ * Selection authenticates public metadata first. Once POSTed, never silently switch providers.
+ * @param chain Reader for the approved service registry.
+ * @param config Independently approved provider profiles and guarded HTTP transport.
+ */
 export function createRegisteredAgentClient(chain: TasraChainClient, config: {profiles: readonly ApprovedAgentProfile[]; transport: AgentTransport}) {
   if (!Array.isArray(config.profiles) || !config.profiles.length || config.profiles.length > 16 || typeof config.transport?.agentRequest !== 'function' || typeof config.transport.request !== 'function') throw new Error('Approved agent profiles and a guarded transport are required')
   const profiles = config.profiles.map(p => {
@@ -102,7 +127,7 @@ export function createRegisteredAgentClient(chain: TasraChainClient, config: {pr
           const qr = new URL(data.qr_payload)
           if (qr.searchParams.get('client_id') !== profile.clientId || qr.searchParams.get('request_uri') !== requestUri || [...qr.searchParams.keys()].length !== 2) throw new Error('Agent wallet audience or request URI mismatch')
           // Closure-owned routing and secret prevent a caller's mutable session object from
-          // redirecting a bearer. Replicas sit behind this ONE approved base endpoint.
+          // redirecting a bearer. Replicas sit behind this one approved base endpoint.
           return Object.freeze({sessionId, pollSecret, requestUri, qrPayload: data.qr_payload, profile,
             poll: (pollSignal?: AbortSignal) => bounded(pollSignal, async activeSignal => {
               const a = profile.approval

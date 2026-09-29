@@ -7,6 +7,9 @@ import {TasraApplicationError} from './client.js'
 /**
  * Use a Tasra slot as a viem account. Every signing call gets fresh authorization;
  * this adapter never broadcasts a transaction. Pass it to viem's createWalletClient.
+ * @param slot Ready threshold ECDSA slot.
+ * @param options Fresh authorization callback and operation controls.
+ * @returns Viem account that verifies signatures before returning them.
  */
 export async function toViemAccount(slot: EcdsaSlot, options: AuthorizedOperationOptions): Promise<LocalAccount> {
   const address = await slot.getAddress()

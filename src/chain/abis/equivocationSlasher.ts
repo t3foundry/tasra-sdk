@@ -1,7 +1,7 @@
-// Vendored ABI. Do not edit by hand — refresh the whole file from the contract
-// artifacts (a manual step; see CONTRIBUTING.md).
+// Contract ABI data is refreshed from the contract build artifacts.
 // Source: contracts/out/EquivocationSlasher.sol/EquivocationSlasher.json (`abi` field).
 
+/** EquivocationSlasher contract interface for submitting conflicting-signature evidence. */
 export const equivocationSlasherAbi = [
   {
     "type": "constructor",

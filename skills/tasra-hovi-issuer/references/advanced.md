@@ -243,18 +243,18 @@ async function hovi<T>(baseUrl: string, key: string, path: string, org?: string,
 
 ## Common mistakes
 
-- ❌ Using a key from another ecosystem. Only the OpenID key (`openId-…`)
+- Using a key from another ecosystem. Only the OpenID key (`openId-…`)
   serves this API.
-- ❌ Omitting `x-organization-id` on template and credential calls.
-- ❌ Treating the offer response as the credential. The wallet, or
+- Omitting `x-organization-id` on template and credential calls.
+- Treating the offer response as the credential. The wallet, or
   `receiveCredential`, redeems the offer URI.
-- ❌ Expecting revocation on a trial account. It answers 403; plan the
+- Expecting revocation on a trial account. It answers 403; plan the
   revocation test for a paid plan, or use time-boxed `exp` values meanwhile.
-- ❌ Putting the API key in a browser bundle. Issue from a server.
-- ❌ `exp` in milliseconds. It is Unix seconds, kept verbatim in the credential.
-- ❌ Pinning the wrong DID. The issuer DID is the organization's DID from
+- Putting the API key in a browser bundle. Issue from a server.
+- `exp` in milliseconds. It is Unix seconds, kept verbatim in the credential.
+- Pinning the wrong DID. The issuer DID is the organization's DID from
   `GET /organization/`, not the holder's, not the tenant id.
-- ❌ Creating a third organization or a second template per organization on
+- Creating a third organization or a second template per organization on
   the trial. It fails with "limit exceeded".
 
 ## Where to read more

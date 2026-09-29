@@ -1,45 +1,33 @@
-# Build with TASRA
+# Build your first TASRA app
 
-**[Start here: build an account Alice and Bob can use](shared-account.md).**
-A complete SDK-only app: create a slot, authorize each user, send real transactions,
-and verify an unauthorized user is refused. [Compatibility](compatibility.md).
+TASRA lets your application use a shared signing or encryption key without keeping
+the whole key on one server. Your app decides who may use it.
 
-[Application API](application-api.md) · [Encrypted notes tutorial](encrypted-notes.md) · [Document-signing tutorial](document-signing.md) · [Native approvals](native-approvals.md)
+Start with a small TypeScript project. Connect to a network, create one slot,
+and learn how to read and manage it. Then add users and use the slot in an application.
 
-## Build an app
+## Learn in order
 
-| I want to… | Guide |
+| Step | What you will do |
 |---|---|
-| Find Fuji addresses and the deployment manifest | [tasra-releases configuration](fuji.md) |
-| Start with public registry reads | [Read-only quickstart](getting-started.md) |
-| Install the SDK or check runtime support | [Installation](installation.md) |
-| Encrypt data and authorize decryption | [Live encryption](encryption.md) |
-| Create and provision a slot | [Slot setup](prerequisites.md#operator-setup) |
-| Get an Ethereum address and sign transactions | [Ethereum signing](signing.md) |
-| Use credential presentation or OAuth | [Authentication APIs](api.md#tasra-sdkoid4vp--credential-wallets-against-the-verifier-agent) |
-| Encrypt identity-scoped messages or files | [IBE APIs](api.md#large-objects-under-ibe--ibesealblob--ibeopenblob) |
-| Read contracts, discover keepers, or fund slots | [Chain APIs](chain.md) |
-| Diagnose a failed request | [Errors and retries](errors.md) |
+| 1. [Understand the basics](basics.md) | Learn what a slot is and who controls it. |
+| 2. [Connect to TASRA](getting-started.md) | Install the SDK and load a public network manifest. |
+| 3. [Create your first slot](create-slot.md) | Create a signing slot with your own account. |
+| 4. [Fund your slot](funding.md) | Buy TSRA and deposit usage credit before protected operations. |
+| 5. [Read your slot](read-slot.md) | Check its key and status. |
+| 6. [Control access](access-control.md) | Understand identities, credentials and permissions. |
+| 7. [Sign or encrypt](signing-and-encryption.md) | Use the slot with a credential. |
+| 8. [Manage your slot](manage-slot.md) | Renew its lease; cancel it when you are finished. |
 
-## Look something up
+**[Begin with the basics →](basics.md)**
 
-[API overview](api.md) · [Generated reference](reference/README.md) · [Capability catalogue](capabilities.md) ·
-[Live configuration](prerequisites.md) · [Glossary](glossary.md)
+<a id="build-an-app"></a>
 
-## Understand the system
+## After your first slot
 
-[Architecture](architecture.md) explains clients, sessions, and the network.
-[Deployment responsibilities](DEVELOPER-EXPERIENCE.md) explains what the SDK,
-CLI, and deployment supply.
+Build a [shared Ethereum account](shared-account.md),
+[private notes](encrypted-notes.md) or a [document-signing app](document-signing.md).
+Each tutorial explains its additional requirements.
 
-## Build with a coding agent
-
-[Application-building skills](../skills/README.md) provide task instructions for
-connecting your application, creating slots, authorizing users and handling errors.
-The same guides and examples work without an agent.
-
-## Package information
-
-[Migration guidance](consumer-migrations.md) · [Changelog](../CHANGELOG.md) ·
-[Security policy](../SECURITY.md) ·
-[Contribute to TASRA SDK](https://github.com/t3-foundry/tasra-sdk/blob/develop/CONTRIBUTING.md)
+For AI-assisted development, use [skills and example prompts](ai-development.md).
+When you need a method's exact signature, open the [SDK reference](reference/README.md).

@@ -13,6 +13,7 @@ try{
  run('tar',['-xzf',archive,'-C',unpacked],scratch)
  const app=join(scratch,'app');cpSync(join(unpacked,'package/examples/document-signing'),app,{recursive:true})
  cpSync(join(app,'gitignore.template'),join(app,'.gitignore'))
+ cpSync(join(unpacked,'package/examples/fund-slot.ts'),join(app,'fund-slot.ts'))
  const packageFile=join(app,'package.json'),pkg=JSON.parse(readFileSync(packageFile))
  pkg.dependencies['tasra-sdk']='file:'+archive;writeFileSync(packageFile,JSON.stringify(pkg,null,2))
  console.log(run('npm',['install','--no-audit','--no-fund'],app))

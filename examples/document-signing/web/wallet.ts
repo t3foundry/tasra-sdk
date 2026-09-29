@@ -1,5 +1,4 @@
 import {
-  ed25519HolderKey,
   fetchRequestObject,
   defaultKeyResolver,
   derivedNonce,
@@ -7,14 +6,13 @@ import {
   planPresentation,
   buildResponse,
   submitResponse,
-  holderSigner,
   signCompactJws,
-  type HolderKey,
 } from 'tasra-sdk/oid4vp'
-import { hexToBytes, toHex } from 'viem'
-import { digest, statement, type Manifest, type Person } from '../model.js'
+import { hexToBytes } from 'tasra-sdk'
+import { createIdentity, verifyCredential, type TasraIdentity } from 'tasra-sdk/app'
+import { digest, statement, toHex, type Manifest, type Person } from '../model.js'
 
-export type DemoWallet = { name: string; holder: HolderKey; credential: string }
+export type DemoWallet = { name: string; identity: TasraIdentity; credential: string }
 export function importWallet(text: string): DemoWallet {
   const value = JSON.parse(text) as {
     schema: string
@@ -29,10 +27,13 @@ export function importWallet(text: string): DemoWallet {
     typeof value.credential !== 'string'
   )
     throw new Error('Expected a generated demo wallet file')
-  return {
-    name: value.name,
-    holder: ed25519HolderKey(hexToBytes(value.seed as `0x${string}`)),
-    credential: value.credential,
+  const identity = createIdentity({ seed: hexToBytes(value.seed) })
+  try {
+    verifyCredential(value.credential, { holder: identity, type: 'DocumentSigner', subject: 'did:demo:' + value.name })
+    return { name: value.name, identity, credential: value.credential }
+  } catch (error) {
+    identity.destroy()
+    throw error
   }
 }
 export type PublicSession = {
@@ -122,7 +123,7 @@ export async function present(
     throw new Error('This wallet does not satisfy the signer rule')
   await submitResponse(
     ro,
-    buildResponse({ ro, candidate: plan.chosen, holder: wallet.holder }),
+    buildResponse({ ro, candidate: plan.chosen, holder: wallet.identity.holder }),
     transport,
   )
 }
@@ -140,6 +141,6 @@ export function declineProof(
       person,
       exp: Math.floor(Date.now() / 1000) + 120,
     },
-    holderSigner(wallet.holder),
+    wallet.identity.issuer.signer,
   )
 }
