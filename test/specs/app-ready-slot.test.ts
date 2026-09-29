@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {createWalletClient, defineChain, http, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {ApplicationSlotRecoveryError, createApplicationSlot, type ApplicationStore, type CreateApplicationSlot, type ReadySlotJournal} from '../../src/app/ready-slot.js'
+import {ApplicationSlotRecoveryError, createApplicationSlot, type ApplicationStore, type CreateApplicationSlot, type ReadySlotJournal, type SlotCreationProgress} from '../../src/app/ready-slot.js'
 import {ruleCommitment} from '../../src/chain/write.js'
 import {createTasra} from '../../src/app/client.js'
 import type {TasraChainClient} from '../../src/chain/client.js'
@@ -263,7 +263,12 @@ describe('ready application slot', () => {
   it('honors cancellation while waiting for key generation without provisioning', async () => {
     const f = fixture()
     f.metadata.publicKey = '0x'
-    await expect(createApplicationSlot(f.app, request, {...f.options, timeoutMs: 50})).rejects.toThrow()
+    const controller = new AbortController()
+    const onProgress = vi.fn((event: SlotCreationProgress) => {
+      if (event.step === 'key_generation' && event.phase === 'waiting') queueMicrotask(() => controller.abort())
+    })
+    await expect(createApplicationSlot(f.app, request, {...f.options, signal: controller.signal, onProgress})).rejects.toMatchObject({name: 'AbortError'})
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({step: 'key_generation', phase: 'waiting'}))
     expect(mocks.provision).not.toHaveBeenCalled()
   })
 })
