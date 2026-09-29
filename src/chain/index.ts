@@ -1,10 +1,10 @@
-// tasra-sdk/chain — on-chain + live-fleet READ capability for building
+// tasra-sdk/chain - on-chain + network READ capability for building
 // observability tooling (e.g. an explorer) on top of a Tasra Network.
 //
 // This is a separate subpath export (`tasra-sdk/chain`) so the crypto core
 // entry stays lean and viem is only pulled in when chain features are imported.
 
-// Contract ABIs (generated from the Foundry artifacts) + name→abi map.
+// Contract ABIs (generated from the Foundry artifacts) + nametoabi map.
 export * from './abis/index.js'
 export {SlotCommitmentExpiredError, assertExpiredSlotCommitment} from './commitmentRecovery.js'
 
@@ -43,7 +43,7 @@ export type {
   TasraChainClient,
 } from './client.js'
 
-// Off-chain live-fleet read clients.
+// Off-chain network read clients.
 export {nodeApi, verifierApi, parsePrometheus} from './offchain.js'
 export type {
   FetchOpts,
@@ -61,15 +61,16 @@ export {truncateHex, formatUnits, formatBps, formatWad} from './format.js'
 // Client-side on-chain WRITE path: a sovereign client signs its own slot
 // creation + settlement funding (no relayer). Pairs with the read client above.
 // `ruleCommitment` is exported because a consumer that displays or verifies a
-// slot's policy needs it: the commitment is the ONLY link between an
+// slot's policy needs it: the commitment is the only link between an
 // on-chain `KeySlot.ruleCommitment` and a candidate rule, and the plaintext must
-// never leave the client. Without it here the package `exports` map makes it unreachable.
+// never go on chain. Without it here the package `exports` map makes it unreachable.
 export {createTasraWriteClient, generateClientKey, ruleCommitment, verifyRuleCommitment} from './write.js'
 // Creator-authorised rule provisioning: the step that makes a created slot USABLE.
 // Without it a caller can create a slot and never deliver its rule, which needs an
 // operator secret on the keeper's admin route.
 export {provisionRule, provisionRuleTypedData, PROVISION_RULE_ACTION} from './provisionRule.js'
 export type {ProvisionRuleArgs, ProvisionRuleResult, KeeperProvisionResult} from './provisionRule.js'
+export type {RuleInput} from './ruleInput.js'
 export type {
   CreateSlotArgs,
   CommitRevealOptions,
@@ -95,7 +96,7 @@ export {
 } from './discovery.js'
 export type {SlotGroupKey} from './discovery.js'
 
-// ADR-0075: the per-commitment draw seed. `createSlotCommitReveal` uses this internally; it is
+// accountant-seeded creation: the per-commitment draw seed. `createSlotCommitReveal` uses this internally; it is
 // exported for a caller that drives commit and reveal itself (the CLI does) or wants to inspect
 // what the accountant set answered before spending gas.
 export {requestSlotSeed} from './slotSeed.js'
@@ -115,7 +116,7 @@ export type {
 } from './committeeClient.js'
 
 // Slot-driven managed JWT client: discovers the slot's keeper nodes and CHOOSES a verifier
-// from chain (that verifier mints the JWT), then opens a managed session — same surface as
+// from chain (that verifier mints the JWT), then opens a managed session - same surface as
 // createTasraClient but endpoints come from the registry, not static config.
 export {createTasraSlotClient} from './slotClient.js'
 export type {

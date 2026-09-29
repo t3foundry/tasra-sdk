@@ -1,11 +1,13 @@
-// Faucet client — funds a fresh sovereign client account with gas (ETH) + TSRA
+// Faucet client - funds a fresh sovereign client account with gas (ETH) + TSRA
 // so it can create and operate a slot. The faucet is an HTTP service on the
 // network (dev/testnet); the client just asks it to top up an address.
 //
 // Interface-driven: products inject a Faucet implementation; a test or another
 // environment can supply a different funding source behind the same shape.
 
+/** Account funding result with optional amounts and transaction hashes reported by the faucet. */
 export interface FaucetGrant {
+  /** Account that received or was requested to receive funding. */
   address: string
   /** Native gas funded, wei (decimal string). */
   ethWei?: string
@@ -15,14 +17,17 @@ export interface FaucetGrant {
   txHashes?: string[]
 }
 
+/** Funding adapter that requests native gas and TSRA for an account. */
 export interface Faucet {
   /** Top up `address` with gas + TSRA. */
   fund(address: string): Promise<FaucetGrant>
 }
 
 /**
- * HTTP faucet client: POST {faucetUrl}/faucet {address} → FaucetGrant.
+ * HTTP faucet client: POST {faucetUrl}/faucet {address} to FaucetGrant.
  * Matches the network faucet service.
+ *
+ * @param faucetUrl - Faucet HTTP base URL advertised for the selected network.
  */
 export function httpFaucet(faucetUrl: string): Faucet {
   const base = faucetUrl.replace(/\/$/, '')

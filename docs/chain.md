@@ -1,6 +1,53 @@
-# `tasra-sdk/chain` — on-chain + live-fleet
+# `tasra-sdk/chain` — on-chain + network-service
 
 > The chain subpath: reads, writes, slot creation, discovery, and the slot-driven clients.
+
+Download the selected manifest from
+[tasra-releases](https://github.com/t3-foundry/tasra-releases), verify its trusted
+checksum, and derive the address book with `addressBookFromManifest`.
+
+## Create a read client
+
+```ts
+import {createTasraChainClient} from 'tasra-sdk/chain'
+
+// rpcUrl, chainId and addresses come from your deployment configuration.
+const chain = createTasraChainClient({rpcUrl, chainId, addresses})
+const block = await chain.client.getBlockNumber()
+const slot = await chain.readers.keyRegistry.getKeySlot(slotId)
+```
+
+| Parameter | Required? | Source / meaning |
+|---|---|---|
+| `rpcUrl` | Yes | Deployment's JSON-RPC endpoint. |
+| `addresses` | Yes | `addressBookFromManifest(manifest)` for the downloaded release manifest. Include the contracts your reads use. |
+| `chainId` | Pass explicitly | Deployment chain ID. The constructor does not query the RPC to verify it. |
+| `logWindow` | No | Maximum block range per `getLogs` query; defaults to 2,000. |
+| `multicall3` | No | Auto-detected by default; pass an address or `false` to disable batching. |
+
+**Returns:** a `TasraChainClient`. Use `client` for underlying viem calls and `readers`
+for typed Tasra contract calls. Creating the client performs no network request;
+individual reads can fail if the RPC is unreachable or a contract address is wrong.
+Compare `await chain.client.getChainId()` with your configured ID before use.
+
+## Verify a deployment
+
+After loading `manifest` and `rpcUrl` as in the [Fuji guide](fuji.md):
+
+```ts
+import {observeNetworkManifest} from 'tasra-sdk/chain'
+
+const observation = await observeNetworkManifest(manifest, rpcUrl)
+if (!observation.matches) throw new Error('Deployed contract code differs from the manifest')
+console.log(observation.blockNumber)
+```
+
+This checks chain identity, the manifest's recorded block, contract bytecode, and proxy
+implementations at a finalized block. **Inspect `matches`**: mismatched code is reported
+in the result. RPC errors or a chain mismatch can throw. Passing this check does not
+verify credentials, service versions, access policy, or successful signing/decryption.
+
+## Available chain APIs
 
 A separate subpath export (so the crypto core stays lean and `viem` is only
 loaded when you need it):
@@ -15,7 +62,7 @@ loaded when you need it):
 - **viem read client** — `createTasraChainClient`: a `PublicClient` with windowed
   `getLogs` and typed readers across NodeRegistry, KeyRegistry, Settlement,
   TasraToken, BondingCurve, Treasury, TasraVestingVault (per tranche), and the beacon.
-- **Live-fleet read clients** — `nodeApi`, `verifierApi`, and a Prometheus parser
+- **Network-service read clients** — `nodeApi`, `verifierApi`, and a Prometheus parser
   for node/verifier info, key slots, heartbeats, and metering.
 - **Sovereign write client** — `createTasraWriteClient` / `generateClientKey`:
   a client signs its own slot creation (incl. commit-reveal) + settlement funding,
@@ -24,9 +71,7 @@ loaded when you need it):
   `createTasraClient`, but endpoints come from the registry — the keeper nodes from the
   slot's on-chain committee (`assignedNodes`) and the **verifier chosen from the on-chain
   verifier set** (`keccak256("verifier")`). That chosen verifier mints the session JWT, so
-  the verifier is genuinely in every request (`onResolve` surfaces which one). See
-  `test/e2e/slot-client-verifier.ts` for a live proof (the chosen verifier's request
-  counter increments).
+  the verifier participates in session authorization (`onResolve` surfaces which one).
 - **Slot-driven committee client** — `createCommitteeSlotClient`: the committee path
   from just a **slot id**, with **no static fallback**. It resolves the slot's keeper node
   and the active verifier set **only from chain** (`resolveSlotKeeperUrls`,
@@ -38,6 +83,13 @@ loaded when you need it):
   and it **requires** trustless `VerifierSetRegistry` inclusion proofs (throws rather than
   let the keeper validate against a statically-configured set).
 - **Format helpers** — `truncateHex`, `formatUnits`, `formatBps`, `formatWad`.
+
+## Fund creation and usage
+
+The creator needs AVAX for gas on Avalanche. Buy TASRA with EURC through
+`approveEurcForCurve` and `buyTsra`, then deposit it into each slot with `fundSlot`.
+[The funding guide](funding.md) includes the official Fuji faucet, runnable
+commands and separate wallet/slot balance checks.
 
 ## Commit/reveal slot creation
 
@@ -67,21 +119,22 @@ verifiers are discovered network-wide by their `keccak256("verifier")` tag. "Ran
 selection" is the beacon-seeded, verifiable on-chain committee draw, not a client
 coin-flip. And unlike the JWT-path `Session` — whose `decrypt` reconstructs the master key
 client-side — committee `sign`/`decrypt` are **node-coordinated: the key is never
-reassembled**, and every operation is authorized, metered, and audited at the node. The flow
+reassembled**. Keepers enforce authorization; metering and audit behavior depend
+on deployment configuration. The flow
 refuses to proceed unless the trustless on-chain verifier-set proofs are derivable, so it
 never degrades to a keeper's statically-configured set.
 
 ```ts
 import {createHolderProof} from 'tasra-sdk'
-import {createTasraChainClient, createCommitteeSlotClient, addressBookFromEnv} from 'tasra-sdk/chain'
+import {createTasraChainClient, createCommitteeSlotClient, addressBookFromManifest} from 'tasra-sdk/chain'
 
-const chain = createTasraChainClient({rpcUrl, addresses: addressBookFromEnv(process.env)})
+const chain = createTasraChainClient({rpcUrl, addresses: addressBookFromManifest(manifest)})
 const audience = 'your-verifier-iss'
 const holderProof = await createHolderProof(verifierUrl, {signer: holderSigner, audience, credentials, slotId})
 const kk = createCommitteeSlotClient({chain, holder, credentials, holderProof, dcqlRule})
 
-const sig  = await kk.sign(slotId, message)              // keeper + verifiers resolved from chain
-const env  = await kk.encrypt(slotId, plaintext)         // local; group key read from KeyRegistry
+const sig = await kk.sign(slotId, message) // keeper + verifiers resolved from chain
+const env = await kk.encrypt(slotId, plaintext) // local; group key read from KeyRegistry
 const text = await kk.decrypt(slotId, {ciphertext, identity, decryptingSet, blsPeers})
 ```
 
@@ -97,4 +150,4 @@ and each drawn verifier is asked for its own nonce.
 
 ---
 
-[← Back to the README](../README.md) · [Documentation index](README.md)
+[Back to the README](../README.md) · [Documentation index](README.md)

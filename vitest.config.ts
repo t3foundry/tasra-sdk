@@ -13,6 +13,8 @@ import {defineConfig} from 'vitest/config'
 export default defineConfig({
   test: {
     include: ['test/specs/**/*.test.ts'],
+    allowOnly: false, // A focused test must never make the merge gate green.
+    passWithNoTests: false,
     // One worker per spec file, so each suite gets its own module registry —
     // several patch globalThis.fetch or depend on module-level state.
     isolate: true,

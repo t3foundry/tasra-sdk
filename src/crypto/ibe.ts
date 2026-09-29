@@ -1,29 +1,29 @@
-// BF-IBE (Boneh-Franklin BasicIdent) over BLS12-381 — mirrors the reference IBE implementation.
+// BF-IBE (Boneh-Franklin BasicIdent) over BLS12-381 - mirrors the reference IBE implementation.
 //
-// ⚠⚠ THIS FILE MUST AGREE WITH THE RUST CRATE BYTE-FOR-BYTE. Real IBE, not the ElGamal
+// THIS FILE MUST AGREE WITH THE RUST CRATE BYTE-FOR-BYTE. Real IBE, not the ElGamal
 // KEM in ./kem.ts: the ciphertext is bound to the IDENTITY at the pairing level, and
-// only sk_ID = msk·Q_ID (extracted by k threshold nodes for THAT identity via
+// only sk_ID = msk*Q_ID (extracted by k threshold nodes for THAT identity via
 // POST /v1/shards/ibe/extract) decrypts. The guard against drift is the
-// shared corpus test/ibe-vectors.json — a byte-identical copy of the reference implementation's
+// shared corpus test/ibe-vectors.json - a byte-identical copy of the reference implementation's
 // vector file, run through THESE shipped functions by test/ibe.conformance.ts.
 //
-//   Encrypt(mpk, identity, message):
-//     Q_ID = HashToCurveG1(identity, IBE_HASH_DST)          (RFC 9380, SHA-256 XMD)
-//     r    ← Fr
-//     U    = r · G2
-//     T    = e(Q_ID, r · mpk) ∈ Gt                          (bilinearity: e(Q_ID,mpk)^r)
-//     k    = SHA256(IBE_DOMAIN || "key" || u64le(|identity|) || identity
-//                    || u64le(576) || gtBytes(T))
-//     n    = SHA256(IBE_DOMAIN || "nonce" || compress(U))[0..12]
-//     ct   = ChaCha20Poly1305(k, n, aad=identity).encrypt(message)
+// Encrypt(mpk, identity, message):
+// Q_ID = HashToCurveG1(identity, IBE_HASH_DST)          (RFC 9380, SHA-256 XMD)
+// r    ← Fr
+// U    = r * G2
+// T    = e(Q_ID, r * mpk) in Gt                          (bilinearity: e(Q_ID,mpk)^r)
+// k    = SHA256(IBE_DOMAIN || "key" || u64le(|identity|) || identity
+// || u64le(576) || gtBytes(T))
+// n    = SHA256(IBE_DOMAIN || "nonce" || compress(U))[0..12]
+// ct   = ChaCha20Poly1305(k, n, aad=identity).encrypt(message)
 //
-//   CombineDecrypt(verifyingShares, [(id, D_i)], {U,n,ct}, identity):
-//     verify each: e(D_i, G2) == e(Q_ID, Y_i_g2)            (identifiable abort)
-//     sk_ID = Σ λ_i · D_i                                   (Lagrange at 0 over Fr)
-//     T     = e(sk_ID, U); k as above; AEAD open.
+// CombineDecrypt(verifyingShares, [(id, D_i)], {U,n,ct}, identity):
+// verify each: e(D_i, G2) == e(Q_ID, Y_i_g2)            (identifiable abort)
+// sk_ID = Σ λ_i * D_i                                   (Lagrange at 0 over Fr)
+// T     = e(sk_ID, U); k as above; AEAD open.
 //
-// ⚠ gtBytes: `bls12_381_plus::Gt::to_bytes()` has NO standard encoding — it is the 12
-// Fp tower components in order c0.c0.c0, c0.c0.c1, c0.c1.c0, … c1.c2.c1, each 48-byte
+// gtBytes: `bls12_381_plus::Gt::to_bytes()` has NO standard encoding - it is the 12
+// Fp tower components in order c0.c0.c0, c0.c0.c1, c0.c1.c0, ... c1.c2.c1, each 48-byte
 // BIG-endian. Determined EMPIRICALLY against the reference vectors (fwd-be matched; three
 // other candidate layouts did not) and pinned by the `gt_shared` vector field, so a
 // noble upgrade that reshapes the tower fails loudly there.
@@ -42,9 +42,9 @@ export const IBE_DOMAIN = new TextEncoder().encode('keykeeper/BLS12381-BF-IBE-v1
 /** RFC 9380 DST for identity hashing (mirrors `IBE_HASH_DST`). */
 export const IBE_HASH_DST = 'keykeeper/BLS12381-BF-IBE-HashToG1-v1'
 
-/** Encrypted message — wire shape of `bls::ibe::Ciphertext`. */
+/** Encrypted message - wire shape of `bls::ibe::Ciphertext`. */
 export interface IbeCiphertext {
-  /** 96-byte compressed G2 ephemeral public key U = r·G2. */
+  /** 96-byte compressed G2 ephemeral public key U = r*G2. */
   u: Uint8Array
   /** 12-byte ChaCha20-Poly1305 nonce, derived deterministically from U. */
   nonce: Uint8Array
@@ -52,7 +52,7 @@ export interface IbeCiphertext {
   aeadCt: Uint8Array
 }
 
-/** One node's partial `D_i = sk_i · Q_ID` (48-byte compressed G1). */
+/** One node's partial `D_i = sk_i * Q_ID` (48-byte compressed G1). */
 export interface IbeDecryptionShare {
   /** 1-indexed BLS group identifier (the extract reply's `identifier`). */
   identifier: number
@@ -60,10 +60,10 @@ export interface IbeDecryptionShare {
   value: Uint8Array
 }
 
-/** A node's dual-group verifying share — only the 96-byte G2 half is needed here. */
+/** A node's dual-group verifying share - only the 96-byte G2 half is needed here. */
 export type IbeVerifyingShares = ReadonlyMap<number, Uint8Array>
 
-// ─── internals ───────────────────────────────────────────────────────────────
+// internals
 
 type G1Point = InstanceType<typeof G1.ProjectivePoint>
 type G2Point = InstanceType<typeof G2.ProjectivePoint>
@@ -76,7 +76,7 @@ function hashToG1(identity: Uint8Array): G1Point {
 function decodeG1(bytes: Uint8Array, what: string): G1Point {
   if (bytes.length !== 48) throw new Error(`${what}: expected 48 bytes, got ${bytes.length}`)
   const p = G1.ProjectivePoint.fromHex(bytes)
-  // Reject the identity, mirroring the reference decode_g1 — an infinity D_i defeats
+  // Reject the identity, mirroring the reference decode_g1 - an infinity D_i defeats
   // identifiable abort (it "verifies" against an infinity verifying share).
   if (p.equals(G1.ProjectivePoint.ZERO)) throw new Error(`${what}: point at infinity`)
   return p
@@ -85,14 +85,14 @@ function decodeG1(bytes: Uint8Array, what: string): G1Point {
 function decodeG2(bytes: Uint8Array, what: string): G2Point {
   if (bytes.length !== 96) throw new Error(`${what}: expected 96 bytes, got ${bytes.length}`)
   const p = G2.ProjectivePoint.fromHex(bytes)
-  // Reject the identity, mirroring the reference decode_g2 — a U = O ciphertext "decrypts"
+  // Reject the identity, mirroring the reference decode_g2 - a U = O ciphertext "decrypts"
   // under every key.
   if (p.equals(G2.ProjectivePoint.ZERO)) throw new Error(`${what}: point at infinity`)
   return p
 }
 
 /**
- * `bls12_381_plus::Gt::to_bytes()` — 576 bytes: the 12 Fp tower components in order,
+ * `bls12_381_plus::Gt::to_bytes()` - 576 bytes: the 12 Fp tower components in order,
  * each 48-byte big-endian. See the module header for how this layout was established.
  */
 function gtToBytes(gt: ReturnType<typeof bls12_381.pairing>): Uint8Array {
@@ -162,15 +162,15 @@ function randomScalar(): bigint {
   }
 }
 
-// ─── conformance seams (mirror the reference helpers) ──────────────
+// conformance seams (mirror the reference helpers)
 
-/** `Q_ID` as 48 compressed bytes — pins the hash-to-curve suite + DST cross-language. */
+/** `Q_ID` as 48 compressed bytes - pins the hash-to-curve suite + DST cross-language. */
 export function ibeHashIdentityToG1(identity: Uint8Array): Uint8Array {
   return hashToG1(identity).toRawBytes(true)
 }
 
 /**
- * `gtBytes(e(Q_ID, r·mpk))` through the shipped internals — pins the Fp12 byte layout
+ * `gtBytes(e(Q_ID, r*mpk))` through the shipped internals - pins the Fp12 byte layout
  * (the `gt_shared` vector field) so a serializer drift is diagnosed at the intermediate
  * rather than as an opaque final-ciphertext mismatch.
  */
@@ -180,11 +180,15 @@ export function ibeSharedGtBytes(mpkBytes: Uint8Array, identity: Uint8Array, r: 
   return gtToBytes(bls12_381.pairing(qId, mpk.multiply(r)))
 }
 
-// ─── encrypt ─────────────────────────────────────────────────────────────────
+// encrypt
 
 /**
  * Encrypt `message` to `identity` under the slot's master public key (96-byte
- * compressed G2). Offline and permissionless — the identity's key need not exist yet.
+ * compressed G2). Offline and permissionless - the identity's key need not exist yet.
+ *
+ * @param mpkBytes - 96-byte compressed BLS master public key.
+ * @param identity - Exact identity bytes that decryption must use.
+ * @param message - Plaintext bytes to encrypt.
  */
 export function ibeEncrypt(
   mpkBytes: Uint8Array,
@@ -195,9 +199,8 @@ export function ibeEncrypt(
 }
 
 /**
- * {@link ibeEncrypt} with the ephemeral scalar supplied — the CONFORMANCE SEAM,
- * mirroring the reference `encrypt_with_scalar`: `ibeEncrypt` delegates here, so the
- * deterministic vector leg pins the shipped code path. Never reuse an `r`.
+ * Encrypt to an identity with a caller-supplied ephemeral scalar for deterministic
+ * interoperability checks. Never reuse the scalar across encryptions.
  */
 export function ibeEncryptWithScalar(
   mpkBytes: Uint8Array,
@@ -211,7 +214,7 @@ export function ibeEncryptWithScalar(
   const uPoint = G2.ProjectivePoint.BASE.multiply(r)
   const uBytes = uPoint.toRawBytes(true)
 
-  // Bilinearity: e(Q_ID, mpk)^r = e(Q_ID, r·mpk).
+  // Bilinearity: e(Q_ID, mpk)^r = e(Q_ID, r*mpk).
   const shared = bls12_381.pairing(qId, mpk.multiply(r))
   const aeadKey = deriveKey(identity, gtToBytes(shared))
   const nonce = deriveNonce(uBytes)
@@ -220,12 +223,16 @@ export function ibeEncryptWithScalar(
   return {u: uBytes, nonce, aeadCt}
 }
 
-// ─── verify + combine ────────────────────────────────────────────────────────
+// verify + combine
 
 /**
  * Verify one extraction partial against its node's dual-group verifying share (the
- * 96-byte G2 half): `e(D_i, G2) == e(Q_ID, Y_i)`. Throws naming the identifier —
+ * 96-byte G2 half): `e(D_i, G2) == e(Q_ID, Y_i)`. Throws naming the identifier -
  * identifiable abort: the caller knows WHICH node served a bad share.
+ *
+ * @param verifyingShares - Independently established participant identifiers and G2 verifying shares.
+ * @param identity - Exact bytes of the requested identity.
+ * @param share - Identity-key share to verify.
  */
 export function ibeVerifyShare(
   verifyingShares: IbeVerifyingShares,
@@ -245,13 +252,17 @@ export function ibeVerifyShare(
 }
 
 /**
- * Lagrange-combine k verified partials into the identity key `sk_ID = msk · Q_ID`
+ * Lagrange-combine k verified partials into the identity key `sk_ID = msk * Q_ID`
  * (48-byte compressed G1).
  *
- * ⚠ Holding `sk_ID` is a DURABLE capability over every past and future ciphertext to
- * this identity — prefer {@link ibeCombineDecrypt}, which uses and drops it. Verifies
+ *  Holding `sk_ID` is a DURABLE capability over every past and future ciphertext to
+ * this identity - prefer {@link ibeCombineDecrypt}, which uses and drops it. Verifies
  * every share first (a caller combining unverified shares could be fed garbage that
  * silently fails the AEAD later, unattributed).
+ *
+ * @param verifyingShares - Participant identifiers and authenticated G2 verifying shares.
+ * @param shares - Distinct identity-key shares sufficient for the slot threshold.
+ * @param identity - Exact bytes of the requested identity.
  */
 export function ibeCombineExtract(
   verifyingShares: IbeVerifyingShares,
@@ -275,9 +286,14 @@ export function ibeCombineExtract(
 }
 
 /**
- * Combine k extraction partials and AEAD-decrypt `ct` — mirrors
- * `bls::ibe::combine_decrypt` (verify every share → Lagrange-combine → `T = e(sk_ID,U)`
- * → KDF → open). The intermediate `sk_ID` never leaves this function.
+ * Combine k extraction partials and AEAD-decrypt `ct` - mirrors
+ * `bls::ibe::combine_decrypt` (verify every share to Lagrange-combine to `T = e(sk_ID,U)`
+ * to KDF to open). The intermediate `sk_ID` never leaves this function.
+ *
+ * @param verifyingShares - Participant identifiers and authenticated G2 verifying shares.
+ * @param shares - Distinct identity-key shares sufficient for the slot threshold.
+ * @param ct - IBE ciphertext to decrypt.
+ * @param identity - Identity bytes used during encryption.
  */
 export function ibeCombineDecrypt(
   verifyingShares: IbeVerifyingShares,
@@ -294,8 +310,12 @@ export function ibeCombineDecrypt(
 }
 
 /**
- * Decrypt with an already-extracted identity key (48-byte compressed G1) — the
+ * Decrypt with an already-extracted identity key (48-byte compressed G1) - the
  * custody-opt-in path pairing with {@link ibeCombineExtract}.
+ *
+ * @param skIdBytes - 48-byte compressed extracted identity key.
+ * @param ct - IBE ciphertext to decrypt.
+ * @param identity - Identity bytes used during encryption.
  */
 export function ibeDecryptWithKey(
   skIdBytes: Uint8Array,

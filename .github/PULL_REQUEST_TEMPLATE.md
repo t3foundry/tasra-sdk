@@ -1,23 +1,40 @@
-## What and why
+## What changed and why
 
-<!-- The diff shows what changed. Explain why it should. -->
+<!-- Explain the problem, resulting behavior and compatibility/API impact. -->
 
-## Checklist
+## Requirements and regression surface
 
-- [ ] `npm run ci` is green locally
-- [ ] `CHANGELOG.md` updated under `## [Unreleased]` (behaviour changes only)
-- [ ] Public API change: `skills/` and `docs/` updated to match
-- [ ] Tests added or updated — hermetic where possible (`test/specs/`)
-- [ ] No secrets, keys or live endpoints in the diff
+<!-- List acceptance criteria and affected callers/packages. Link original requirements.
+For substantial changes, include Requirement → implementation → test/evidence → status.
+Statuses: VERIFIED / PARTIALLY VERIFIED / UNVERIFIED / NOT IMPLEMENTED. -->
 
-## API impact
+## Tests and deterministic verification
 
-<!-- Delete if none. Pre-1.0: a minor may change API, a patch never does. -->
+<!-- New behavior, failing-then-passing regression tests, relevant existing tests.
+N/A needs a short reason. Do not remove failing tests or weaken the gate. -->
 
-- Added:
-- Changed:
-- Removed / deprecated:
+Command(s):
+Result, runtime, source revision/fingerprint, and evidence link:
+Pre-existing or environment failures (if any):
 
-## How this was verified
+<!-- Normally npm run verify. Report quick/SDK-only scopes as partial.
+Include browser/live acceptance when the changed boundary requires it. -->
 
-<!-- Hermetic suites only, or was it run against a live fleet? Which one? -->
+## Review
+
+Potential counterexamples investigated and disposition:
+Test gaps and mock/integration limitations:
+Security implications and scanner findings:
+Specification gaps or changed acceptance criteria:
+
+<!-- Include concrete findings and how they were resolved. -->
+
+## Evidence and remaining risks
+
+- **VERIFIED** — executed/observed:
+- **REASONED** — inspection only:
+- **UNVERIFIED** — not tested:
+- Remaining risks / required follow-up:
+
+<!-- Behavior changes need CHANGELOG.md. Public API changes need matching docs/skills.
+Resolve conflicting evidence before merge. -->

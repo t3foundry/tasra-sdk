@@ -1,4 +1,4 @@
-// Managed Client + Session — the high-level, few-lines integration surface.
+// Managed Client + Session - the high-level, few-lines integration surface.
 export {createTasraClient} from './client.js'
 export type {
   TasraClient,

@@ -16,16 +16,16 @@
 //   import {redeemRenewalToken} from 'tasra-sdk'
 //   const signer = new TasraSigner({
 //     nodes: ['https://node-1', 'https://node-2', 'https://node-3'],
-//     slotId: '0x…',                                  // a tECDSA signing slot
+//     slotId: '0x…', // a tECDSA signing slot
 //     getJwt: async () => (await redeemRenewalToken(verifier, renewalToken)).token,
 //   }).connect(provider)
 //   await signer.getAddress()
-//   await signer.sendTransaction({to, value})         // signs + broadcasts via provider
+//   await signer.sendTransaction({to, value}) // signs + broadcasts via provider
 //
 // ── Usage (Hardhat) ───────────────────────────────────────────────────────────
 //   const signer = new TasraSigner({nodes, slotId, getJwt}).connect(ethers.provider)
-//   const erc20  = await ethers.getContractAt('IERC20', tokenAddr, signer)
-//   await erc20.transfer(to, amount)                  // signed by the threshold fleet
+//   const erc20 = await ethers.getContractAt('IERC20', tokenAddr, signer)
+//   await erc20.transfer(to, amount) // signed by the threshold fleet
 
 import {
   AbstractSigner,

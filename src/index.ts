@@ -1,22 +1,22 @@
-// tasra-sdk — a TypeScript access gate that exposes the full functionality
+// tasra-sdk - a TypeScript access gate that exposes the full functionality
 // of a Tasra Network (keykeeper-node + verifier + contracts) to developers.
 //
 // Two layers, both product-agnostic:
-//   • A high-level managed client — `createTasraClient(...).openSession(slot, auth)`
-//     returns a Session that holds the JWT + assembled key, auto-renews on
-//     expiry, re-assembles on rotation, and exposes encrypt/decrypt/sign/close.
-//   • The underlying composable primitives — fetch BLS shards from k-of-n
-//     keykeeper-nodes and Lagrange-assemble the master secret key in-process
-//     (the nodes never reveal it), redeem/refresh DCQL-gated JWTs, assemble
-//     compound committee authorization tokens, encrypt/decrypt message envelopes
-//     (ChaCha20-Poly1305 over BLS-G2 ElGamal), create slots (sovereign or
-//     relayer), and read/write on-chain state (see the `tasra-sdk/chain`
-//     subpath export).
+// - A high-level managed client - `createTasraClient(...).openSession(slot, auth)`
+// returns a Session that holds the JWT + assembled key, auto-renews on
+// expiry, re-assembles on rotation, and exposes encrypt/decrypt/sign/close.
+// - The underlying composable primitives - fetch BLS shards from k-of-n
+// keykeeper-nodes and Lagrange-assemble the master secret key in-process
+// (the nodes never reveal it), redeem/refresh DCQL-gated JWTs, assemble
+// compound committee authorization tokens, encrypt/decrypt message envelopes
+// (ChaCha20-Poly1305 over BLS-G2 ElGamal), create slots (sovereign or
+// relayer), and read/write on-chain state (see the `tasra-sdk/chain`
+// subpath export).
 //
 // What this SDK is NOT: a product. It has no knowledge of any specific
-// transport, messaging shape, or application — a developer composes these on top.
+// transport, messaging shape, or application - a developer composes these on top.
 
-// ─── Managed Client + Session (the few-lines integration surface) ───────
+// Managed Client + Session (the few-lines integration surface)
 export {createTasraClient} from './client/index.js'
 export type {
   TasraClient,
@@ -29,17 +29,17 @@ export type {
   SignOpts,
 } from './client/index.js'
 
-// ─── Crypto primitives ─────────────────────────────────────────────────
+// Crypto primitives
 export {encryptEnvelope, toBytes, fromBytes} from './crypto/index.js'
 export {decryptWithMasterKey} from './crypto/index.js'
 
-// ─── Envelope detection in transport payloads ──────────────────────────
+// Envelope detection in transport payloads
 export {buildTasraText, parseTasraPost, isTasraPost, MAX_PLAINTEXT_LEN} from './crypto/index.js'
 
-// ─── Node client ────────────────────────────────────────────────────────
+// Node client
 export {fetchAndAssembleKey, fetchMpk} from './keys/index.js'
 
-// ─── Signing ──────────────────────────────────────────────────────────────
+// Signing
 // FROST-Ed25519 (custody one-shot + client-coordinated shard-delivery, with
 // local aggregation/verification) and threshold ECDSA for EVM EOAs.
 export {
@@ -57,7 +57,7 @@ export type {FrostSignature, FrostCommitment, FrostShare} from './crypto/index.j
 export {signEoaDigest, ethSignatureV, addressFromEoaPubkey} from './signing/index.js'
 export type {EoaSignOpts, EoaSignature} from './signing/index.js'
 
-// ─── Decryption (BLS threshold) ─────────────────────────────────────────────
+// Decryption (BLS threshold)
 // Custody (node-coordinated) and shard-delivery (client combines partial G2
 // decryption shares without ever assembling the master key).
 export {decryptCustody, decryptWithShardDelivery} from './decryption/index.js'
@@ -65,20 +65,20 @@ export type {DecryptCustodyOpts, ShardDecryptOpts, BlsPeer} from './decryption/i
 export {combineDecryptShares, verifyDecryptShare} from './crypto/index.js'
 export type {DecryptShare, Ciphertext} from './crypto/index.js'
 
-// ─── Slots: faucet — fund a sovereign account so it can self-create a slot ────
+// Slots: faucet - fund a sovereign account so it can self-create a slot
 export {httpFaucet} from './slots/index.js'
 export type {Faucet, FaucetGrant} from './slots/index.js'
 
-// ─── Errors ───────────────────────────────────────────────────────────
-// Branch on the type instead of regexing `err.message`. Every error the SDK
-// throws deliberately extends TasraError; `retryable` is the coarse signal
-// for callers that don't want to enumerate types.
+// Errors
+// Branch on the type instead of matching `err.message`. Typed failures in this
+// module extend TasraError; some other SDK and argument errors extend Error.
+// `retryable` describes transience, never whether a write is safe to repeat.
 //
-//   catch (e) {
-//     if (isAuthDenied(e)) return reclaim()          // 401/403 — never retry
-//     if (e instanceof ThresholdNotMetError) …       // e.got / e.need / e.reasons
-//     if (isRetryable(e)) return backoffAndRetry()
-//   }
+// catch (e) {
+// if (isAuthDenied(e)) return reclaim() // 401/403 - never retry
+// if (e instanceof ThresholdNotMetError) ... // e.got / e.need / e.reasons
+// if (isRetryable(e)) return backoffAndRetry()
+// }
 export {
   TasraError,
   TasraHttpError,
@@ -93,12 +93,12 @@ export {
 // by consumers of the managed clients, so it is reachable from the main entry.
 export {CommitteeAuthorizeError} from './committee/index.js'
 
-// ─── Utils ────────────────────────────────────────────────────────────
+// Utils
 export {hexToBytes} from './crypto/index.js'
 
-// ─── DCQL policy grammar (OID4VP-DCQL) ───────────────────────
+// DCQL policy grammar (OID4VP-DCQL)
 // The OpenID Foundation's Digital Credentials Query Language. The rule IS the
-// wallet request — no compiler between the policy of record and what the user
+// wallet request - no compiler between the policy of record and what the user
 // is shown. Validate a rule before paying for a slot, or evaluate whether
 // credentials satisfy a rule client-side.
 export {
@@ -123,7 +123,7 @@ export type {
   Selection as DcqlSelection,
 } from './auth/index.js'
 
-// ─── identity-scoped rules (WHO + WHICH) ───────────────────────
+// identity-scoped rules (WHO + WHICH)
 export {
   evaluateIdentityScoped,
   scopeCovers,
@@ -131,9 +131,9 @@ export {
   type ScopeNamespace,
 } from './auth/index.js'
 
-// ─── Recipient-side DCQL access gate (platform-blind) ───────────────────
+// Recipient-side DCQL access gate (platform-blind)
 // A recipient decides LOCALLY whether their held credentials satisfy a slot's
-// rule — no query reaches the platform. Pure; reuses the shared evaluator.
+// rule - no query reaches the platform. Pure; reuses the shared evaluator.
 export {
   RecipientStore,
   canAccess,
@@ -141,7 +141,7 @@ export {
   type HeldCredential,
 } from './recipient/store.js'
 
-// ─── Verifier auth + JWT helpers (agnostic) ─────────────────────────────
+// Verifier auth + JWT helpers (agnostic)
 // Obtain/refresh a DCQL-gated JWT and inspect it client-side. Pure HTTP/JSON;
 // no product or transport assumptions.
 export {
@@ -169,11 +169,11 @@ export {
 } from './auth/index.js'
 export type {HolderSigner, HolderNonce, BuildHolderProofOpts} from './auth/index.js'
 
-// ─── identity-scoped encryption + extraction ───────────────────
-// Encrypt offline to an identity under a slot's MPK (`ibeEncrypt` — permissionless, the
-// key need not exist yet); read back via `ibeDecryptRequest` (token → k extraction
-// partials → verify each → combine → decrypt; `sk_ID` never surfaces) or opt into
-// custody with `ibeExtractRequest` (returns `sk_ID` — durable for that identity;
+// identity-scoped encryption + extraction
+// Encrypt offline to an identity under a slot's MPK (`ibeEncrypt` - permissionless, the
+// key need not exist yet); read back via `ibeDecryptRequest` (token to k extraction
+// partials to verify each to combine to decrypt; `sk_ID` never surfaces) or opt into
+// custody with `ibeExtractRequest` (returns `sk_ID` - durable for that identity;
 // zeroize when done).
 export {
   ibeExtractRequest,
@@ -206,7 +206,7 @@ export {
 } from './crypto/index.js'
 export type {IbeBlobHeader, SealedBlob} from './crypto/index.js'
 
-// ─── Verifier Agent (OID4VP relay) ─────────────────────────────────
+// Verifier Agent (OID4VP relay)
 export {
   createOid4vpSession,
   pollOid4vpSession,
@@ -227,7 +227,7 @@ export type {
   SessionStatusResult,
 } from './verifier-agent/index.js'
 
-// ─── DPoP (RFC 9449) ──────────────────────────
+// DPoP (RFC 9449)
 export {
   createDpopKey,
   auth0DpopSigner,
@@ -237,5 +237,5 @@ export {
 } from './auth/dpop.js'
 export type {DpopSigner, DpopKey} from './auth/dpop.js'
 
-// ─── Types ──────────────────────────────────────────────────────────────
+// Types
 export type {GroupEnvelope} from './crypto/index.js'

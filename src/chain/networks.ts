@@ -1,27 +1,51 @@
 import document from './network-profiles.json' with {type: 'json'}
 import type {Address} from './deployments.js'
 
+/**
+ * Supported network profile identifier.
+ */
 export type NetworkName = 'local' | 'testnet' | 'mainnet'
+/**
+ * Default network currency, RPC, governance and token configuration.
+ */
 export interface NetworkPreset {
+  /** Default EVM chain identifier for this network profile. */
   readonly chainId: number
+  /** Default JSON-RPC endpoint; deployed configuration may supply an explicit override. */
   readonly rpcUrl: string
+  /** Native gas-token name, symbol and decimal precision. */
   readonly nativeCurrency: Readonly<{name: string; symbol: string; decimals: number}>
+  /** EURC token policy, metadata and faucet eligibility; address may require deployment resolution. */
   readonly eurc: Readonly<{kind: 'mock' | 'circle'; address: string | null; name: string; symbol: string; decimals: number; faucet: boolean}>
+  /** Configured governance delay and minimum delay, both in seconds. */
   readonly governance: Readonly<{delaySecs: number; floorSecs: number}>
+  /** Deployment-policy flag carried by the profile; the SDK does not use it to establish network readiness. */
   readonly productionPosture: boolean
 }
+/**
+ * Validated network profile with a concrete EURC contract address.
+ */
 export interface ResolvedNetworkProfile extends NetworkPreset {
+  /** Network profile selected when validating the chain and token address. */
   readonly environment: NetworkName
+  /** Validated EURC policy with a concrete nonzero token contract address. */
   readonly eurc: NetworkPreset['eurc'] & {readonly address: Address}
 }
 
 // Vendored deployment policy; refresh manually from the network configuration.
+/**
+ * Built-in network defaults; use a tasra-releases manifest for deployed contract addresses.
+ */
 export const NETWORKS: Readonly<Record<NetworkName, NetworkPreset>> = Object.freeze(
   Object.fromEntries(Object.entries(document.profiles).map(([name, p]) => [name, Object.freeze({
     ...p, eurc: Object.freeze(p.eurc), nativeCurrency: Object.freeze(p.nativeCurrency), governance: Object.freeze(p.governance),
   })])) as Record<NetworkName, NetworkPreset>,
 )
 
+/**
+ * Map a supported EVM chain ID to its network profile; reject unknown chains.
+ * @param chainId EVM chain ID to resolve to a supported profile.
+ */
 export function networkNameForChain(chainId: number): NetworkName {
   if ([43112, 1337, 31337].includes(chainId)) return 'local'
   if (chainId === 43113) return 'testnet'
@@ -29,6 +53,11 @@ export function networkNameForChain(chainId: number): NetworkName {
   throw new Error(`Unsupported network chain ID: ${chainId}`)
 }
 
+/**
+ * Validate network overrides and resolve the required EURC token address.
+ * @param environment Supported network profile identifier.
+ * @param options Explicit chain, RPC and EURC address overrides from approved configuration.
+ */
 export function resolveNetworkProfile(environment: NetworkName, options: {
   chainId?: number; rpcUrl?: string; eurcAddress?: string
 } = {}): ResolvedNetworkProfile {
@@ -51,7 +80,12 @@ export function resolveNetworkProfile(environment: NetworkName, options: {
   return Object.freeze({...preset, environment, chainId, rpcUrl, eurc: Object.freeze({...preset.eurc, address: address as Address})})
 }
 
-/** Recheck the actual RPC chain immediately before any faucet transaction. */
+/**
+ * Recheck the actual RPC chain immediately before any faucet transaction.
+ * @param profile Approved network profile and its mock-token faucet policy.
+ * @param actualChainId Chain ID read from the RPC immediately before the transaction.
+ * @param actualEurcAddress EURC contract address targeted by the mint transaction.
+ */
 export function assertEurcFaucetAllowed(profile: ResolvedNetworkProfile, actualChainId: number, actualEurcAddress: string): void {
   const validated = resolveNetworkProfile(profile.environment, {chainId: actualChainId, eurcAddress: actualEurcAddress})
   if (!validated.eurc.faucet || !profile.eurc.faucet || profile.eurc.kind !== 'mock' ||

@@ -77,7 +77,7 @@ function fixture() {
   // collides with 'oauth' 2 the same way. Verified by mutation: with the colliding
   // fixture a mode/auth swap failed only 3 of 6 affected cases, with these values it
   // fails all of them.
-  const args = {slotId: hash('04'), salt: hash('05'), ruleSalt: hash('06'), dcqlRule: 'verify:demo', k: 5, n: 7, mode: 'tecdsa-p256' as const}
+  const args = {slotId: hash('04'), salt: hash('05'), ruleSalt: hash('06'), rule: 'verify:demo', k: 5, n: 7, mode: 'tecdsa-p256' as const}
   return {writer, args}
 }
 
@@ -104,11 +104,11 @@ const relayed = () => mocks.submit.mock.calls.map(([, data]) => decodeFunctionDa
  *   0 slotId · 1 ruleCommitment · 2 k · 3 n · 4 mode · 5 auth · 6 salt · 7 requiredTags
  * `mode` is the `KeyRegistry.Mode` ordinal ('tecdsa-p256' = 4); `auth` the `AuthType` ordinal.
  */
-function expectCreationPrefix(callArgs: readonly unknown[], expected: {salt: Hex; slotId: Hex; ruleSalt: Hex; dcqlRule: string; k: number; n: number; auth: number}) {
+function expectCreationPrefix(callArgs: readonly unknown[], expected: {salt: Hex; slotId: Hex; ruleSalt: Hex; rule: string; k: number; n: number; auth: number}) {
   expect(callArgs[0]).toBe(expected.slotId)
   // The SALTED commitment goes on chain, never the raw rule hash.
-  expect(callArgs[1]).toBe(ruleCommitment(expected.ruleSalt, expected.dcqlRule))
-  expect(callArgs[1]).not.toBe(keccak256(toHex(expected.dcqlRule)))
+  expect(callArgs[1]).toBe(ruleCommitment(expected.ruleSalt, expected.rule))
+  expect(callArgs[1]).not.toBe(keccak256(toHex(expected.rule)))
   expect(callArgs[2]).toBe(expected.k)
   expect(callArgs[3]).toBe(expected.n)
   expect(callArgs[4]).toBe(4) // mode: 'tecdsa-p256'
@@ -171,5 +171,22 @@ it('computeCommitment takes 8 args and does NOT carry auth — index 5 is the sa
 it('refuses an unknown authType before anything is signed', async () => {
   const h = fixture()
   await expect(h.writer.createSlot({...h.args, authType: 'saml' as never})).rejects.toThrow('unknown authType')
+  expect(mocks.submit).not.toHaveBeenCalled()
+})
+
+
+it.each(['createSlot', 'createSlotCommitReveal'] as const)('%s accepts a rule with unchanged on-chain commitment', async method => {
+  const h = fixture()
+  await h.writer[method]({...h.args, authType: 'oauth'})
+  expectCreationPrefix(relayed().at(-1)!.args!, {...h.args, auth: 2})
+})
+
+it.each(['createSlot', 'createSlotCommitReveal'] as const)('%s rejects missing, invalid or old rule input before any RPC or transaction', async method => {
+  const h = fixture()
+  const {rule: _rule, ...args} = h.args
+  for (const fields of [{}, {rule: ''}, {rule: 123}, {dcqlRule: 'verify:demo'}, {rule: 'verify:demo', dcqlRule: 'verify:demo'}, {rule: 'a', dcqlRule: 'b'}, {rule: 'verify:demo', dcqlRule: undefined}]) {
+    await expect(h.writer[method]({...args, ...fields} as never)).rejects.toThrow(/rule/i)
+  }
+  expect(mocks.read).not.toHaveBeenCalled()
   expect(mocks.submit).not.toHaveBeenCalled()
 })

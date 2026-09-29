@@ -63,7 +63,7 @@ export async function createWalletSlot(cfg: FleetConfig, mode: 'frost'|'bls' = '
   const writer = createTasraWriteClient({rpcUrl:cfg.rpcUrl,addresses:cfg.book,privateKey:creatorKey,chainId:cfg.chainId})
   const funder = createTasraWriteClient({rpcUrl:cfg.rpcUrl,addresses:cfg.book,privateKey:cfg.deployPk as Hex,chainId:cfg.chainId})
   await funder.sendEth(writer.address,parseEther('1'))
-  const {slotId,ruleSalt} = await writer.createSlotCommitReveal({dcqlRule:rule,k,n,mode,tags:['keykeeper'],maxWaitMs:180000})
+  const {slotId,ruleSalt} = await writer.createSlotCommitReveal({rule:rule,k,n,mode,tags:['keykeeper'],maxWaitMs:180000})
   const deadline = Date.now()+240000
   for (;;) {
     const committee = await discoverCommittee(cfg,slotId)

@@ -1,18 +1,19 @@
-// Deliver a slot's CLEAR DCQL rule to the keepers that hold its shares, authorised by the
+import {requireRule, type RuleInput} from './ruleInput.js'
+// Deliver a slot's clear authorization rule to the keepers that hold its shares, authorised by the
 // slot's ON-CHAIN CREATOR.
 //
 // The chain carries only the salted commitment, so every keeper fails closed until it holds
 // the rule itself. Until now this SDK could create a slot and never make it usable: delivering
 // the rule meant the keeper's admin-JWT route, which needs the deployment's `[issuer]` signing
-// key — an OPERATOR secret a third-party creator does not have.
+// key - an OPERATOR secret a third-party creator does not have.
 //
 // `POST /v1/keys/:id/rule/by-creator` authenticates the creator instead, so whoever created a
 // slot can provision it with their own key.
 //
-// ⚠ SAFE WITHOUT AN OPERATOR SECRET ONLY BECAUSE THE WRITE IS COMMITMENT-BOUND. The keeper
+// SAFE WITHOUT AN OPERATOR SECRET only BECAUSE THE WRITE IS COMMITMENT-BOUND. The keeper
 // refuses any rule whose salted commitment differs from the one `KeySlotCreated` recorded (and,
-// during an amendment, from the one `RuleUpdateProposed` recorded). So no caller — authorised
-// or not — can make a keeper enforce a rule the chain did not already commit to. The
+// during an amendment, from the one `RuleUpdateProposed` recorded). So no caller - authorised
+// or not - can make a keeper enforce a rule the chain did not already commit to. The
 // authorisation buys attribution and a rate-limit identity, not rule integrity.
 
 import type {Address, Hex} from 'viem'
@@ -27,61 +28,96 @@ import {
 } from '../oid4vp/verifier-agent.js'
 
 /**
- * The action string the keeper accepts on this route, and nothing else.
- *
- * ⚠ DELIBERATELY NOT ADDED TO `CommitteeAction`. That union is the OID4VP committee actions a
- * verifier-agent session may carry; provisioning is a KEEPER ADMIN action and belongs to
- * neither. Widening the union would let this value flow into paths that validate "is a
- * committee action" and mean something entirely different there.
+ * Action identifier accepted by the creator-authorized rule provisioning endpoint.
  */
 export const PROVISION_RULE_ACTION = 'provision-rule'
 
-export interface ProvisionRuleArgs {
+/**
+ * Creator-signed rule delivery request with the private salt used at slot creation.
+ */
+export interface ProvisionRuleArgs extends RuleInput {
+  /**
+   * 32-byte identifier of the slot to provision.
+   */
   slotId: Hex
-  /** The clear DCQL rule, exactly as committed at creation. */
-  dcqlRule: string
   /** The 32-byte rule salt `createSlot` returned. It exists NOWHERE else. */
   ruleSalt: Hex
   /** The slot's creator key (or a key it delegated to). */
   signer: TypedDataSigner
   /** Seconds the authorisation stays valid (default 600; the keeper caps at 3600). */
   ttlSecs?: number
+  /**
+   * Authorization issue time in Unix seconds; defaults to the current clock.
+   */
   nowSecs?: number
+  /**
+   * Consent description included in the creator signature.
+   */
   description?: string
+  /**
+   * Cancel pending keeper HTTP requests.
+   */
   signal?: AbortSignal
   /** Overrides the on-chain committee; for tests and for a topology chain cannot see. */
   keeperUrls?: string[]
+  /**
+   * HTTP implementation used for rule delivery.
+   */
   fetchImpl?: typeof fetch
 }
 
 /** One keeper's answer. `pending` marks a rule stored against a PENDING amendment. */
 export interface KeeperProvisionResult {
+  /**
+   * Keeper endpoint contacted by this attempt.
+   */
   url: string
+  /**
+   * Whether the keeper accepted the HTTP request.
+   */
   ok: boolean
   /** The active rule was filled in by THIS call (false when it was already present). */
   provisioned?: boolean
+  /**
+   * Whether the keeper stored the rule for a pending amendment.
+   */
   pending?: boolean
+  /**
+   * Pending amendment version reported by the keeper.
+   */
   pendingVersion?: number
+  /**
+   * HTTP status when a response was received.
+   */
   status?: number
+  /**
+   * Bounded response text or transport error for a failed delivery.
+   */
   error?: string
 }
 
+/**
+ * Committed rule hash and per-keeper delivery outcomes.
+ */
 export interface ProvisionRuleResult {
+  /**
+   * Slot whose authorization rule was delivered.
+   */
   slotId: Hex
+  /**
+   * Salted commitment computed from the submitted rule and saved salt.
+   */
   ruleCommitment: Hex
+  /**
+   * Delivery result for each selected keeper.
+   */
   results: KeeperProvisionResult[]
 }
 
 /**
- * The EIP-712 operation a keeper checks against the slot's on-chain creator.
- *
- * Reuses the `Keykeeper Presentation` domain and `PresentationOperation` struct so there is ONE
- * creator-authorisation encoding across the platform — the Rust side verifies this with the
- * same `keykeeper_eth::presentation_auth` it uses for ADR-0069 D5. A second dialect here would
- * be two things to keep in agreement, and the one that drifts is the one nobody is watching.
- *
- * `payloadDigest` is the SALTED COMMITMENT, so the signature reads "provision the preimage of
- * commitment X to slot Y" rather than "provision anything for slot Y".
+ * Build the EIP-712 authorization a keeper verifies against the slot creator. The payload digest is the salted rule commitment.
+ * @param input Chain, registry, slot, commitment, consent description and expiry in Unix seconds.
+ * @returns Typed data ready for the creator wallet to sign.
  */
 export function provisionRuleTypedData(input: {
   chainId: number
@@ -112,15 +148,7 @@ export function provisionRuleTypedData(input: {
 }
 
 /**
- * How to read a fan-out that did not reach every keeper.
- *
- * ⚠ A PARTIAL FAN-OUT IS NOT A LOST SLOT, and saying so would be wrong. Every keeper runs a
- * rule-heal worker: it finds slots it holds a share for whose rule is missing, fetches the
- * clear rule from an assigned PEER keeper, and accepts it only if it matches the on-chain
- * commitment. So the keepers that missed it converge on their own, without operator action.
- *
- * ZERO is the different case: peer-to-peer healing needs at least one keeper that already has
- * the rule, so nothing can heal from nothing. That one has to be retried.
+ * Report individual keeper delivery failures. Peer recovery requires at least one keeper to hold the committed rule; callers still receive partial failures explicitly.
  */
 function fanoutError(slotId: Hex, ok: number, total: number, results: KeeperProvisionResult[]): Error {
   const failures = results.filter(r => !r.ok).map(r => `${r.url}: ${r.error ?? `HTTP ${r.status}`}`)
@@ -140,11 +168,10 @@ function fanoutError(slotId: Hex, ok: number, total: number, results: KeeperProv
 }
 
 /**
- * Provision a slot's clear rule to every keeper drawn for it.
- *
- * Throws unless EVERY keeper accepted it — a partial fan-out is reported, not swallowed, even
- * though it converges (see {@link fanoutError}). The result is attached as `cause.results` so a
- * caller that wants to tolerate a partial can inspect it.
+ * Deliver the clear rule and its salt to every assigned keeper using creator authorization. Throws if any delivery fails; inspect cause.results for individual outcomes.
+ * @param chain Reader for the deployment that owns the slot.
+ * @param args Rule, saved salt, creator signer and optional transport controls.
+ * @returns Commitment and successful delivery results for every selected keeper.
  */
 export async function provisionRule(
   chain: TasraChainClient,
@@ -153,16 +180,16 @@ export async function provisionRule(
   args.signal?.throwIfAborted()
   if (!/^0x[0-9a-fA-F]{64}$/.test(args.slotId)) throw new Error('provisionRule: slotId must be 32 bytes')
   if (!/^0x[0-9a-fA-F]{64}$/.test(args.ruleSalt)) throw new Error('provisionRule: ruleSalt must be 32 bytes')
-  if (args.dcqlRule.length === 0) throw new Error('provisionRule: dcqlRule is empty')
+  const rule = requireRule(args)
 
-  const commitment = ruleCommitment(args.ruleSalt, args.dcqlRule)
+  const commitment = ruleCommitment(args.ruleSalt, rule)
   // The configured id when present, else asked of the node: the EIP-712 domain must name the
   // chain the KEEPER resolved, or the signature verifies against a domain nobody signed.
   const chainId = chain.client.chain?.id ?? (await chain.client.getChainId())
   const keyRegistry = chain.addresses.KeyRegistry
   if (!keyRegistry) throw new Error('provisionRule: the address book has no KeyRegistry')
   const exp = (args.nowSecs ?? Math.floor(Date.now() / 1000)) + (args.ttlSecs ?? 600)
-  const description = args.description ?? `Provision the DCQL rule for slot ${args.slotId}`
+  const description = args.description ?? `Provision the authorization rule for slot ${args.slotId}`
 
   const typedData = provisionRuleTypedData({chainId, keyRegistry, slotId: args.slotId, commitment, description, exp})
   const operationSig = await args.signer.signTypedData(typedData)
@@ -172,7 +199,8 @@ export async function provisionRule(
   if (urls.length === 0) throw new Error(`provisionRule: slot ${args.slotId} has no assigned keepers on chain`)
 
   const body = JSON.stringify({
-    dcql_rule: args.dcqlRule,
+    // Current keeper wire names; these carry the clear policy and salt, not a hash.
+    dcql_rule: rule,
     dcql_salt: args.ruleSalt,
     authorization: {
       chain_id: chainId,
@@ -220,6 +248,7 @@ export async function provisionRule(
   const ok = results.filter(r => r.ok).length
   if (ok < results.length) {
     const err = fanoutError(args.slotId, ok, results.length, results)
+    err.cause = {results}
     ;(err as Error & {results?: KeeperProvisionResult[]}).results = results
     throw err
   }

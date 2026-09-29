@@ -1,13 +1,13 @@
-// GroupEnvelope — self-describing wire format for threshold-encrypted chat messages.
+// GroupEnvelope - self-describing wire format for threshold-encrypted chat messages.
 // Wire-compatible with the reference envelope implementation.
 //
 // v0x01 layout (no epoch):
-//   [version:1][slot_id:32][identity_len:2 LE][identity:L]
-//   [u:96][nonce:12][aead_ct_len:4 LE][aead_ct:M]
+// [version:1][slot_id:32][identity_len:2 LE][identity:L]
+// [u:96][nonce:12][aead_ct_len:4 LE][aead_ct:M]
 //
 // v0x02 layout (embedded epoch):
-//   [version:1][slot_id:32][epoch:8 LE][identity_len:2 LE][identity:L]
-//   [u:96][nonce:12][aead_ct_len:4 LE][aead_ct:M]
+// [version:1][slot_id:32][epoch:8 LE][identity_len:2 LE][identity:L]
+// [u:96][nonce:12][aead_ct_len:4 LE][aead_ct:M]
 
 import {bls12_381} from '@noble/curves/bls12-381'
 
@@ -30,12 +30,13 @@ import {
 
 export type {Ciphertext, Shard}
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// Types
 
+/** Serialized group ciphertext context: slot, associated data and optional key epoch. */
 export interface GroupEnvelope {
   /** On-chain key-slot identifier (bytes32). */
   slotId: Uint8Array
-  /** AEAD additional authenticated data — must match at decrypt time. */
+  /** AEAD additional authenticated data - must match at decrypt time. */
   identity: Uint8Array
   /** KEM ciphertext (U, nonce, AEAD output). */
   ciphertext: Ciphertext
@@ -43,11 +44,16 @@ export interface GroupEnvelope {
   epoch: bigint | null
 }
 
-// ─── Serialize ───────────────────────────────────────────────────────────────
+// Serialize
 
 /** Largest epoch a v0x02 envelope can carry: the field is a signed 64-bit integer. */
 const MAX_EPOCH = (1n << 63n) - 1n
 
+/**
+ * Serialize an envelope using the version selected by its epoch. Reject invalid epoch and oversized fields.
+ *
+ * @param env - Envelope to serialize, including its slot, ciphertext and optional epoch.
+ */
 export function toBytes(env: GroupEnvelope): Uint8Array {
   const {slotId, identity, ciphertext, epoch} = env
   const idLen = identity.length
@@ -102,8 +108,13 @@ export function toBytes(env: GroupEnvelope): Uint8Array {
   return out
 }
 
-// ─── Parse ───────────────────────────────────────────────────────────────────
+// Parse
 
+/**
+ * Parse a supported binary envelope and validate its version, field lengths and boundaries.
+ *
+ * @param bytes - Complete binary envelope to parse.
+ */
 export function fromBytes(bytes: Uint8Array): GroupEnvelope {
   if (bytes.length === 0) {
     throw new Error('fromBytes: empty input')
@@ -216,15 +227,12 @@ function fromBytesV2(bytes: Uint8Array): GroupEnvelope {
   return {slotId, identity, ciphertext: {u, nonce, aeadCt}, epoch}
 }
 
-// ─── High-level helpers ───────────────────────────────────────────────────────
+// High-level helpers
 
 /**
- * Encrypt `plaintext` to a slot's group key — ChaCha20-Poly1305 under a BLS12-381
+ * Encrypt `plaintext` to a slot's group key - ChaCha20-Poly1305 under a BLS12-381
  * G2 ElGamal KEM. Local and synchronous: it needs only the slot's **public** key,
  * so no JWT, no node round-trip, and no assembled secret.
- *
- * The three byte-string parameters are easy to transpose — they are, in order:
- * *which slot*, *whose key*, *what to bind*.
  *
  * @param slotId the 32-byte slot id (raw bytes, not hex)
  * @param mpkBytes the slot's 96-byte compressed G2 group public key, as served by
@@ -234,7 +242,7 @@ function fromBytesV2(bytes: Uint8Array): GroupEnvelope {
  * @param plaintext the bytes to encrypt
  * @param epoch the current slot epoch, producing a v0x02 envelope; `null` produces
  *   a legacy v0x01 envelope with no epoch binding
- * @returns the envelope — pass through `toBytes()` then `buildTasraText()` for
+ * @returns the envelope - pass through `toBytes()` then `buildTasraText()` for
  *   the opaque `[KK]<base64>` wire form
  * @throws {Error} if `slotId` is not 32 bytes, `identity` exceeds its cap, `plaintext`
  *   exceeds {@link MAX_PLAINTEXT_LEN}, or `epoch` is negative or above 2^63 - 1
@@ -242,8 +250,8 @@ function fromBytesV2(bytes: Uint8Array): GroupEnvelope {
  * @example
  * ```ts
  * const {mpkBytes, epoch} = await fetchMpk(nodeUrl, slotHex)
- * const env  = encryptEnvelope(hexToBytes(slotHex), mpkBytes, hexToBytes(slotHex), bytes, BigInt(epoch))
- * const wire = buildTasraText(toBytes(env))   // hand to ANY transport
+ * const env = encryptEnvelope(hexToBytes(slotHex), mpkBytes, hexToBytes(slotHex), bytes, BigInt(epoch))
+ * const wire = buildTasraText(toBytes(env)) // hand to ANY transport
  * ```
  */
 export function encryptEnvelope(
@@ -291,7 +299,7 @@ export function decryptEnvelopeBase64(
   return decryptEnvelope(env, mskBytes)
 }
 
-// ─── Base64 helpers ───────────────────────────────────────────────────────────
+// Base64 helpers
 
 // Bytes per `String.fromCharCode` call. Passing every byte as a separate argument
 // (`fromCharCode(...bytes)`) overflows the call stack once the input passes ~124 KiB on
@@ -313,7 +321,7 @@ export function base64Decode(b64: string): Uint8Array {
   return Uint8Array.from(atob(b64), c => c.charCodeAt(0))
 }
 
-// ─── Re-export low-level ops for callers that need them ───────────────────────
+// Re-export low-level ops for callers that need them
 
 export {assembleKey, decryptWithMasterKey, kemEncrypt}
 

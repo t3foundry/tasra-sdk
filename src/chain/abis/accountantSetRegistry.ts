@@ -1,7 +1,7 @@
-// Vendored ABI. Do not edit by hand — refresh the whole file from the contract
-// artifacts (a manual step; see CONTRIBUTING.md).
+// Contract ABI data is refreshed from the contract build artifacts.
 // Source: contracts/out/AccountantSetRegistry.sol/AccountantSetRegistry.json (`abi` field).
 
+/** AccountantSetRegistry contract interface for accountant-set snapshots and membership evidence. */
 export const accountantSetRegistryAbi = [
   {
     "type": "constructor",

@@ -1,7 +1,7 @@
-// Vendored ABI. Do not edit by hand — refresh the whole file from the contract
-// artifacts (a manual step; see CONTRIBUTING.md).
+// Contract ABI data is refreshed from the contract build artifacts.
 // Source: contracts/out/TasraSwapRouter.sol/TasraSwapRouter.json (`abi` field).
 
+/** TasraSwapRouter contract interface for routed token exchanges. */
 export const tasraSwapRouterAbi = [
   {
     "type": "constructor",

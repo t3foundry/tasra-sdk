@@ -1,15 +1,15 @@
-// Operator-only setup, separate from the application quick start.
+// Creator-authorized setup; no operator/admin credential is needed.
 import {randomBytes} from 'node:crypto'
 import {readFileSync, writeFileSync} from 'node:fs'
 import {fetchMpk} from 'tasra-sdk'
-import {createTasraWriteClient, resolveSlotKeeperUrls, type CreateSlotArgs} from 'tasra-sdk/chain'
+import {createTasraWriteClient, provisionRule, resolveSlotKeeperUrls, type CreateSlotArgs} from 'tasra-sdk/chain'
+import {privateKeyToAccount} from 'viem/accounts'
 import {loadNetwork, required} from './live-config.ts'
 import {createExampleSlot} from './slot-creation.ts'
 
 const network = await loadNetwork()
-const dcqlRule = readFileSync(required('KK_RULE_FILE'), 'utf8').trim()
+const rule = readFileSync(required('KK_RULE_FILE'), 'utf8').trim()
 const output = required('KK_SLOT_OUTPUT')
-const adminJwt = required('KK_ADMIN_JWT')
 const k = Number(required('KK_K'))
 const n = Number(required('KK_N'))
 if (!Number.isSafeInteger(k) || !Number.isSafeInteger(n) || k < 1 || n < k || n > 65535) {
@@ -27,27 +27,21 @@ if (!/^0x[0-9a-fA-F]{64}$/.test(privateKey)) throw new Error('Creator key must b
 const writer = createTasraWriteClient({rpcUrl: network.rpcUrl, addresses: network.addresses,
   chainId: network.manifest.chainId, privateKey: privateKey as `0x${string}`})
 const random32 = (): `0x${string}` => `0x${randomBytes(32).toString('hex')}`
-const args: CreateSlotArgs = {slotId: random32(), salt: random32(), ruleSalt: random32(), dcqlRule,
+const args: CreateSlotArgs = {slotId: random32(), salt: random32(), ruleSalt: random32(), rule,
   k, n, mode, exportable: custody === 'exportable'}
 // Persist BEFORE submitting a transaction; never overwrite an existing recovery record.
 writeFileSync(output, JSON.stringify({deploymentId: network.manifest.deploymentId, ...args}, null, 2), {flag: 'wx', mode: 0o600})
 const created = await createExampleSlot(writer, requiresCommitReveal, args)
 console.log(`Created ${mode} slot ${created.slotId}; recovery record: ${output}`)
 const deadline = Date.now() + 180_000
-let nodes: string[] = []
 let ready = false
 while (Date.now() < deadline) {
-  nodes = await resolveSlotKeeperUrls(network.chain, created.slotId)
+  const nodes = await resolveSlotKeeperUrls(network.chain, created.slotId)
   const keys = await Promise.all(nodes.map(url => fetchMpk(url, created.slotId).catch(() => null)))
   if (nodes.length >= k && keys.every(key => key && key.mpkBytes.length > 0)) { ready = true; break }
   await new Promise(resolve => setTimeout(resolve, 2000))
 }
 if (!ready) throw new Error(`DKG not ready within 180s; preserve ${output} and diagnose before creating another slot`)
-await Promise.all(nodes.map(async url => {
-  const response = await fetch(`${url.replace(/\/$/, '')}/v1/keys/${created.slotId}/rule`, {
-    method: 'POST', headers: {'Content-Type': 'application/json', Authorization: `Bearer ${adminJwt}`},
-    body: JSON.stringify({dcql_rule: dcqlRule, dcql_salt: created.ruleSalt}), signal: AbortSignal.timeout(15_000),
-  })
-  if (!response.ok) throw new Error(`Rule provisioning failed: HTTP ${response.status}; preserve the recovery record`)
-}))
+await provisionRule(network.chain, {slotId: created.slotId, ruleSalt: created.ruleSalt, rule,
+  signer: privateKeyToAccount(privateKey as `0x${string}`), signal: AbortSignal.timeout(30_000)})
 console.log('Rule provisioned. Fund metering and enroll the holder using the deployment instructions before application use.')

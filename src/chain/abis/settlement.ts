@@ -1,7 +1,7 @@
-// Vendored ABI. Do not edit by hand — refresh the whole file from the contract
-// artifacts (a manual step; see CONTRIBUTING.md).
+// Contract ABI data is refreshed from the contract build artifacts.
 // Source: contracts/out/Settlement.sol/Settlement.json (`abi` field).
 
+/** Settlement contract interface for prepaid slot balances and operation settlement. */
 export const settlementAbi = [
   {
     "type": "constructor",

@@ -1,4 +1,4 @@
-// Pure cryptographic primitives — NO network I/O. BLS KEM + envelope wire format,
+// Pure cryptographic primitives - NO network I/O. BLS KEM + envelope wire format,
 // FROST-Ed25519 signature aggregation, [KK] envelope detection, hex helpers.
 export {encryptEnvelope, toBytes, fromBytes, MAX_PLAINTEXT_LEN} from './envelope.js'
 export type {GroupEnvelope} from './envelope.js'

@@ -5,11 +5,11 @@
 // signature share z_i; the client (this code) combines them into a single group
 // Schnorr signature, byte-for-byte compatible with the keepers' implementation.
 //
-// ⚠ The CHALLENGE is RFC 9591 H2, which IS the RFC 8032 PureEdDSA challenge:
-// a bare SHA-512(R ‖ Y ‖ M) mod L, with NO domain tag and NO length prefix.
+// The CHALLENGE is RFC 9591 H2, which IS the RFC 8032 PureEdDSA challenge:
+// a bare SHA-512(R || Y || M) mod L, with NO domain tag and NO length prefix.
 // So an aggregate here is also a valid stock Ed25519 (and `ssh-ed25519`)
 // signature. Adding a domain tag here rejects every signature the network
-// produces. The BINDING FACTOR (ρ) does carry one — do not "simplify" that one
+// produces. The BINDING FACTOR (ρ) does carry one - do not "simplify" that one
 // to match. test/frost.crypto.ts pins both against known-answer vectors.
 //
 // All scalars are little-endian mod L (the ed25519 group order); all points are
@@ -24,10 +24,10 @@ const Point = ed25519.Point
 /** ed25519 group order L = 2^252 + 27742317777372353535851937790883648493. */
 const L = ed25519.CURVE.n
 
-// Pinned domain-separation tag for the binding factor (the reference// implementation RHO_DOMAIN). The challenge deliberately has none — see the header.
+// Domain separator for binding factors; the signature challenge has no domain tag.
 const DST_RHO = utf8ToBytes('FROST-Ed25519-SHA512-v1/rho')
 
-// ─── encoding helpers ─────────────────────────────────────────────────────────
+// encoding helpers
 
 function u16le(n: number): Uint8Array {
   const b = new Uint8Array(2)
@@ -41,14 +41,14 @@ function u64le(n: number): Uint8Array {
   return b
 }
 
-/** 32-byte little-endian → bigint (also used wide, for the 64-byte SHA-512). */
+/** 32-byte little-endian to bigint (also used wide, for the 64-byte SHA-512). */
 function leToBig(b: Uint8Array): bigint {
   let n = 0n
   for (let i = b.length - 1; i >= 0; i--) n = (n << 8n) | BigInt(b[i] as number)
   return n
 }
 
-/** bigint → 32-byte little-endian, reduced canonical mod L. */
+/** bigint to 32-byte little-endian, reduced canonical mod L. */
 export function scalarToLe(n: bigint): Uint8Array {
   let v = mod(n, L)
   const out = new Uint8Array(32)
@@ -89,7 +89,7 @@ function lagrangeAtZero(xi: bigint, xs: bigint[]): bigint {
   return mod(num * invert(den, L), L)
 }
 
-// ─── public types ─────────────────────────────────────────────────────────────
+// public types
 
 /** One node's Round-1 commitment (from POST /v1/shards/sign/commit). */
 export interface FrostCommitment {
@@ -103,6 +103,7 @@ export interface FrostCommitment {
 
 /** One node's Round-2 signature share (from POST /v1/shards/sign/partial). */
 export interface FrostShare {
+  /** Nonzero threshold participant identifier. */
   identifier: number
   /** 32-byte little-endian scalar z_i. */
   z: Uint8Array
@@ -112,11 +113,13 @@ export interface FrostShare {
 
 /** A FROST-Ed25519 group signature: R (32B compressed) + z (32B LE scalar). */
 export interface FrostSignature {
+  /** 32-byte compressed Edwards group commitment. */
   r: Uint8Array
+  /** 32-byte little-endian aggregate signature scalar. */
   z: Uint8Array
 }
 
-// ─── aggregation + verification ────────────────────────────────────────────────
+// aggregation + verification
 
 /**
  * Combine k Round-1 commitments + k Round-2 shares into the group signature.
@@ -124,7 +127,10 @@ export interface FrostSignature {
  * binding factors depend on the serialized list order). Each share is
  * identifiable-abort verified; an invalid share throws naming its identifier.
  *
- * Mirrors the reference signing implementation::aggregate.
+ * @param message - Message signed by every participant.
+ * @param groupPublicKey - 32-byte FROST group public key.
+ * @param commitments - Commitments from the selected signing participants.
+ * @param shares - Signature shares for those commitments.
  */
 export function aggregate(
   message: Uint8Array,
@@ -134,19 +140,19 @@ export function aggregate(
 ): FrostSignature {
   if (commitments.length === 0) throw new Error('aggregate: no commitments')
 
-  // serialized = ‖ over commitments of (u16_LE(id) ‖ hiding32 ‖ binding32)
+  // serialized = || over commitments of (u16_LE(id) || hiding32 || binding32)
   const serialized = concatBytes(
     ...commitments.flatMap(c => [u16le(c.identifier), c.hiding, c.binding]),
   )
   const lenMsg = u64le(message.length)
 
-  // ρ_i = H_rho(id_i, len(msg), msg, serialized)  — per signer
+  // ρ_i = H_rho(id_i, len(msg), msg, serialized)  - per signer
   const rho = new Map<number, bigint>()
   for (const c of commitments) {
     rho.set(c.identifier, hashToScalar(DST_RHO, u16le(c.identifier), lenMsg, message, serialized))
   }
 
-  // R = Σ_i (D_i + ρ_i · E_i)
+  // R = Σ_i (D_i + ρ_i * E_i)
   let R: Pt = Point.ZERO
   for (const c of commitments) {
     const Ri = decompress(c.hiding).add(mul(decompress(c.binding), rho.get(c.identifier)!))
@@ -154,7 +160,7 @@ export function aggregate(
   }
   const Rc = R.toRawBytes()
 
-  // c = SHA-512(R ‖ Y ‖ M) mod L  — RFC 8032, no domain tag, no length prefix
+  // c = SHA-512(R || Y || M) mod L  - RFC 8032, no domain tag, no length prefix
   const chal = hashToScalar(Rc, groupPublicKey, message)
 
   const ids = commitments.map(c => BigInt(c.identifier))
@@ -167,7 +173,7 @@ export function aggregate(
     const lambda = lagrangeAtZero(BigInt(c.identifier), ids)
     const zi = leToBig(share.z)
 
-    // identifiable abort: g^{z_i} == D_i + ρ_i·E_i + (λ_i·c)·Y_i
+    // identifiable abort: g^{z_i} == D_i + ρ_i*E_i + (λ_i*c)*Y_i
     const lhs = mul(Point.BASE, zi)
     const rhs = decompress(c.hiding)
       .add(mul(decompress(c.binding), rho.get(c.identifier)!))
@@ -182,8 +188,13 @@ export function aggregate(
 }
 
 /**
- * Verify a FROST-Ed25519 group signature: g^z == R + Y^c, where
- * c = H_chal(R, Y, len(msg), msg). Returns false on any malformed input.
+ * Verify the FROST-Ed25519 group signature using the challenge SHA-512 over
+ * the concatenated commitment, group public key and message, reduced modulo
+ * the scalar order. Return false if point decoding or signature verification fails.
+ *
+ * @param groupPublicKey - 32-byte FROST group public key.
+ * @param message - Original signed message bytes.
+ * @param sig - Aggregated FROST signature to verify.
  */
 export function verify(
   groupPublicKey: Uint8Array,

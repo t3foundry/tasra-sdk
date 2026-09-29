@@ -1,7 +1,7 @@
-// Vendored ABI. Do not edit by hand — refresh the whole file from the contract
-// artifacts (a manual step; see CONTRIBUTING.md).
+// Contract ABI data is refreshed from the contract build artifacts.
 // Source: contracts/out/NodeRegistry.sol/NodeRegistry.json (`abi` field).
 
+/** NodeRegistry contract interface for operator registration, role tags, stake and activity. */
 export const nodeRegistryAbi = [
   {
     "type": "constructor",

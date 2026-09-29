@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 dist/
 *.log
 .DS_Store
@@ -18,3 +18,6 @@ coverage/
 # dirties the tree, and certify's source snapshot is `git status --porcelain` UNSCOPED — it would
 # stamp an otherwise clean run `dirty-source=1` / PARTIAL VALIDATION.
 /test/verify/out/
+
+# Local verification evidence and single-writer lock
+.verification/

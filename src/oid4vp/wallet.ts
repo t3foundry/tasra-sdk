@@ -1,11 +1,5 @@
-// The wallet half, cloned from what the Hovi Wallet does against the Verifier Agent: fetch and verify
-// the JAR, pick ONE held SD-JWT VC that answers the `dcql_query` (one credential per presentation —
-// `credential_sets` with single-credential options are the only multi-query shape a Hovi user can
-// satisfy), disclose exactly the claims the chosen query asks for, bind with a KB-JWT to the JAR's
-// nonce and `client_id`, encrypt the JARM payload to the verifier-agent's ephemeral key, POST it.
-//
-// Runs in a browser extension's service worker (Tasra Vault), a PWA and Node alike — the holder
-// key is a P-256 scalar the caller keeps.
+// OpenID4VP presentation using one selected SD-JWT credential, selective
+// disclosure, holder-key binding and optional encrypted wallet responses.
 
 import {select, credentialMatches, validate, type CredentialView, type Query} from '../auth/oid4vp.js'
 import {encryptJwe, type JweEnc} from './jwe.js'
@@ -15,23 +9,29 @@ import {parseSdJwt, presentSdJwt, sdJwtCredentialView, type ParsedSdJwt} from '.
 
 /** A credential the wallet holds. */
 export interface HeldSdJwt {
+  /** Compact SD-JWT credential stored by the wallet. */
   sdJwt: string
   /** For the consent screen. */
   label?: string
 }
 
+/** Held credential that matches a named DCQL query during local selection. */
 export interface PresentationCandidate {
+  /** Original held credential and its display label. */
   held: HeldSdJwt
+  /** Parsed SD-JWT credential with disclosure hashes checked. */
   parsed: ParsedSdJwt
+  /** Credential claims exposed for advisory DCQL matching. */
   view: CredentialView
   /** The credential query id this credential answers. */
   queryId: string
 }
 
+/** Advisory credential selection, available candidates and unmatched query identifiers. */
 export interface PresentationPlan {
   /** Whether the local (advisory) selection found a credential that satisfies the request. */
   satisfies: boolean
-  /** Every held credential that answers some query — the choice to offer the user. */
+  /** Every held credential that answers some query - the choice to offer the user. */
   candidates: PresentationCandidate[]
   /** The default choice (the evaluator's pick), when satisfied. */
   chosen?: PresentationCandidate
@@ -42,6 +42,10 @@ export interface PresentationPlan {
 /**
  * Match held SD-JWT VCs against the request's `dcql_query`. Expired credentials are skipped.
  * Advisory: the drawn verifiers decide; a wrong local answer costs a wasted request, never access.
+ *
+ * @param ro - Verified request claims containing the DCQL query.
+ * @param held - Held SD-JWT credentials to consider.
+ * @param nowSecs - Current time in Unix seconds for excluding expired credentials.
  */
 export function planPresentation(ro: Pick<VerifiedRequestObject, 'claims'>, held: readonly HeldSdJwt[], nowSecs = Math.floor(Date.now() / 1000)): PresentationPlan {
   // A wallet reads the rule as dispatched; the issuer-entry mandate is the platform's.
@@ -68,23 +72,34 @@ export function planPresentation(ro: Pick<VerifiedRequestObject, 'claims'>, held
   return {satisfies: sel.satisfied && sel.credentials.length === 1 && chosen !== undefined, candidates, chosen, unmatched: sel.unsatisfied}
 }
 
-/** The top-level claim names a credential query asks to see. */
+/**
+ * The top-level claim names a credential query asks to see.
+ *
+ * @param query - Parsed DCQL query.
+ * @param queryId - Identifier of the credential query to inspect.
+ */
 export function requestedClaimNames(query: Query, queryId: string): string[] {
   const q = query.credentials.find(c => c.id === queryId)
   return [...new Set((q?.claims ?? []).map(c => c.path[0]).filter((n): n is string => typeof n === 'string'))]
 }
 
+/** Verified request, selected credential, holder key and disclosure options for a wallet response. */
 export interface BuildResponseOpts {
+  /** Verified request claims to bind the response to. */
   ro: Pick<VerifiedRequestObject, 'claims'>
+  /** Credential selected for this presentation. */
   candidate: PresentationCandidate
+  /** Holder key matching the selected credential binding. */
   holder: HolderKey
   /** Override which disclosures to reveal (default: exactly the claims the query names). */
   disclose?: 'all' | readonly string[]
+  /** Current time override in Unix seconds. */
   nowSecs?: number
   /** Preferred content encryption when the verifier-agent lists several (default A256GCM). */
   enc?: JweEnc
 }
 
+/** Holder-bound presentation and form fields ready for submission to the verifier agent. */
 export interface BuiltResponse {
   /** The presentation `issuer~disclosures~kb-jwt` that went into `vp_token`. */
   presentation: string
@@ -92,10 +107,15 @@ export interface BuiltResponse {
   payload: string
   /** The form body to POST: `response=<JWE>` when the verifier-agent served an encryption key, else the plain fields. */
   form: Record<string, string>
+  /** Whether the form contains an encrypted JWE response. */
   encrypted: boolean
 }
 
-/** Bind the chosen credential to the request (KB-JWT) and wrap it as the verifier-agent expects it. */
+/**
+ * Bind the chosen credential to the request (KB-JWT) and wrap it as the verifier-agent expects it.
+ *
+ * @param opts - Verified request, chosen credential, holder key and disclosure settings.
+ */
 export function buildResponse(opts: BuildResponseOpts): BuiltResponse {
   const claims = opts.ro.claims
   const disclose = opts.disclose ?? requestedClaimNames(validate(JSON.stringify(claims.dcql_query), {requireIssuer: false}), opts.candidate.queryId)
@@ -111,7 +131,13 @@ export function buildResponse(opts: BuildResponseOpts): BuiltResponse {
   return {presentation, payload, form: {vp_token: JSON.stringify(payloadObj.vp_token), state: claims.state}, encrypted: false}
 }
 
-/** POST the built response to `response_uri`; returns the verifier-agent's `redirect_uri` when it gives one. */
+/**
+ * POST the built response to `response_uri`; returns the verifier-agent's `redirect_uri` when it gives one.
+ *
+ * @param ro - Verified request containing the response endpoint.
+ * @param built - Built form fields to submit.
+ * @param fetchImpl - HTTP transport; defaults to the global fetch implementation.
+ */
 export async function submitResponse(ro: Pick<VerifiedRequestObject, 'claims'>, built: Pick<BuiltResponse, 'form'>, fetchImpl: typeof fetch = fetch): Promise<{redirectUri?: string}> {
   const res = await fetchImpl(ro.claims.response_uri, {
     method: 'POST',
@@ -123,16 +149,24 @@ export async function submitResponse(ro: Pick<VerifiedRequestObject, 'claims'>, 
   return {redirectUri: body.redirect_uri}
 }
 
+/** Request verification, credential selection and disclosure options for a wallet presentation. */
 export interface PresentOpts extends VerifyRequestObjectOpts {
+  /** HTTP transport override; defaults to the global fetch implementation. */
   fetchImpl?: typeof fetch
   /** Pick among the candidates (default: the evaluator's choice). Return `undefined` to abort. */
   choose?: (plan: PresentationPlan) => PresentationCandidate | undefined | Promise<PresentationCandidate | undefined>
+  /** Claim names to disclose, or all; defaults to the selected query's requested claims. */
   disclose?: 'all' | readonly string[]
 }
 
 /**
  * The whole wallet flow for one QR / deep link: fetch + verify the JAR, plan, let the caller
  * choose (consent screen), bind, encrypt, POST.
+ *
+ * @param requestUriOrOpenid4vp - Request-object URL or OpenID4VP deep link.
+ * @param held - Held SD-JWT credentials available for selection.
+ * @param holder - Holder key that matches the selected credential binding.
+ * @param opts - Verification, consent selection and disclosure settings.
  */
 export async function presentToRequestUri(requestUriOrOpenid4vp: string, held: readonly HeldSdJwt[], holder: HolderKey, opts: PresentOpts = {}): Promise<{ro: VerifiedRequestObject; plan: PresentationPlan; built: BuiltResponse; redirectUri?: string}> {
   const requestUri = requestUriOrOpenid4vp.startsWith('openid4vp://') ? parseOpenid4vpUri(requestUriOrOpenid4vp).requestUri : requestUriOrOpenid4vp

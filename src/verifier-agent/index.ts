@@ -1,24 +1,26 @@
-// Verifier Agent client — creates OID4VP sessions on the platform verifier-agent and
+// Verifier Agent client - creates OID4VP sessions on the platform verifier-agent and
 // polls for the compound token result.
 //
 // Usage:
-//   const session = await createOid4vpSession(verifierAgentUrl, {
-//     operation: { chain_id, slot_id, action, payload_digest, description, exp },
-//     operationSig: '0x...',
-//     messageHex: '0x...',
-//   })
-//   // ... wallet scans session.qrPayload ...
-//   const result = await pollOid4vpSession(verifierAgentUrl, session.sessionId, session.pollSecret)
-//   // result.compoundToken + result.bindingPreimage → committeeSign()
+// const session = await createOid4vpSession(verifierAgentUrl, {
+// operation: { chain_id, slot_id, action, payload_digest, description, exp },
+// operationSig: '0x...',
+// messageHex: '0x...',
+// })
+// // ... wallet scans session.qrPayload ...
+// const result = await pollOid4vpSession(verifierAgentUrl, session.sessionId, session.pollSecret)
+// // result.compoundToken + result.bindingPreimage to committeeSign()
 
 import {sha256} from '@noble/hashes/sha256'
 import {bytesToHex} from '@noble/hashes/utils'
 import {TasraError} from '../errors.js'
 
-/** The operation the holder is authorizing — signed by the creator's EIP-712 key. */
+/** The operation the holder is authorizing - signed by the creator's EIP-712 key. */
 import type {DpopSigner} from '../auth/dpop.js'
 
+/** Operation details signed by a slot creator or delegate for credential authorization. */
 export interface PresentationOperation {
+  /** EVM chain identifier. */
   chain_id: number
   /** 0x-hex 32-byte slot identifier */
   slot_id: string
@@ -28,24 +30,31 @@ export interface PresentationOperation {
   payload_digest: string
   /** Human-readable description shown in transaction_data */
   description: string
-  /** Unix timestamp — when the authorization expires */
+  /** Unix timestamp - when the authorization expires */
   exp: number
 }
 
 /** EIP-712 delegation from the slot creator to a delegate address. */
 export interface PresentationDelegation {
+  /** EVM chain identifier. */
   chain_id: number
+  /** Slot identifiers covered by this delegation. */
   slot_ids: string[]
   /** 0x-hex 20-byte delegate address */
   delegate: string
+  /** Operation names the delegate may authorize. */
   actions: string[]
+  /** Expiration time in Unix seconds. */
   exp: number
+  /** Delegation nonce included in the signed payload. */
   nonce: number
   /** 0x-hex 65-byte EIP-712 signature */
   signature: string
 }
 
+/** Signed operation, optional delegation and payload submitted to the verifier agent. */
 export interface CreateSessionParams {
+  /** Signed operation details presented for authorization. */
   operation: PresentationOperation
   /** 0x-hex 65-byte EIP-712 signature over the operation */
   operationSig: string
@@ -55,55 +64,59 @@ export interface CreateSessionParams {
   messageHex: string
 }
 
+/** Wallet presentation link and polling credentials for an opened authorization session. */
 export interface CreateSessionResult {
+  /** Opened authorization session identifier. */
   sessionId: string
-  /** Bearer token for polling — treat as a secret */
+  /** Bearer token for polling - treat as a secret */
   pollSecret: string
+  /** OpenID4VP deep link for a wallet or QR code. */
   qrPayload: string
+  /** URL from which the wallet retrieves the signed request. */
   requestUri: string
 }
 
-/** an `oauth` session — the client brings a DPoP-bound access token. */
+/** an `oauth` session - the client brings a DPoP-bound access token. */
 export interface CreateOauthSessionResult {
+  /** Opened authorization session identifier. */
   sessionId: string
-  /** Treat as a secret. Rides `X-Poll-Secret` on the response endpoint, `Authorization:
-   *  Bearer` when polling — DPoP owns `Authorization` on the response endpoint. */
+  /** Session secret used for polling and OAuth submission. Never expose it in logs. */
   pollSecret: string
-  /** The nonce the DPoP proof must carry. Returned so a client that can mint a proof
-   *  directly needs no RFC 9449 challenge round trip. */
+  /** Initial DPoP challenge nonce for this session. */
   nonce: string
-  /** The `htu` the DPoP proof must name. Session-INDEPENDENT by RFC 9449 (`htu` excludes
-   *  query and fragment), which is why any conformant client library derives the same
-   *  string from the URL it is about to call. */
+  /** Canonical OAuth response URI to bind into the DPoP proof. */
   dpopHtu: string
-  /** The `aud` the tenant must have registered with its IdP for tokens minted for this
-   *  platform. A token whose `aud` does not contain it is refused by every drawn verifier,
-   *  and that is the single most common onboarding mistake — surfaced so a client can say
-   *  so instead of showing a bare 400. */
+  /** Audience the identity provider must include in the access token for this platform. */
   platformAudience: string
 }
 
-/** What the client may show while `status` is `pending` (gap-closure P6): never a secret,
- *  never a promise — `done` means the committee answered, not that the operation ran. */
+/** Displayable authorization progress. A done phase means the committee answered; it does not mean the requested signing or decryption operation executed. */
 export type SessionPhase = 'awaiting_wallet' | 'verifying' | 'done' | 'failed'
 
+/** Authorization session progress and optional committee result or failure detail. */
 export interface SessionStatusResult {
+  /** Pending, completed or failed authorization state. */
   status: 'pending' | 'done' | 'failed'
+  /** Displayable progress within the authorization lifecycle. */
   phase: SessionPhase
+  /** Committee token returned after successful authorization. */
   compoundToken?: Record<string, unknown>
+  /** Verifier membership proofs for the selected snapshot. */
   verifierProofs?: unknown
+  /** Operation context used to derive the request-binding hash. */
   bindingPreimage?: Record<string, unknown>
+  /** Optional failure detail reported by the verifier agent. */
   error?: string
 }
 
-/** Why a session did not yield a token — the class the UI explains, with a NON-SECRET
+/** Why a session did not yield a token - the class the UI explains, with a NON-SECRET
  *  correlation reference (the session id; the poll secret is never part of an error). */
 export type VerifierAgentSessionErrorKind =
   /** The deadline passed while the verifier-agent still reported `pending`. */
   | 'timeout'
   /** The verifier-agent reported `failed`: a verifier or the wallet refused (`error` says which). */
   | 'refused'
-  /** The verifier-agent (or its store) could not answer — retry later, the session may still complete. */
+  /** The verifier-agent (or its store) could not answer - retry later, the session may still complete. */
   | 'unavailable'
   /** The verifier-agent answered something the contract does not allow (a malformed reply, 401/404). */
   | 'protocol'
@@ -112,12 +125,13 @@ export type VerifierAgentSessionErrorKind =
 
 /**
  * A Verifier Agent session did not produce a compound token. `kind` says why;
- * `retryable` is true only for `timeout` and `unavailable` — the session may
+ * `retryable` is true only for `timeout` and `unavailable` - the session may
  * still complete, so poll again. Extends {@link TasraError}.
  */
 export class VerifierAgentSessionError extends TasraError {
+  /** Failure category used to select recovery behavior. */
   readonly kind: VerifierAgentSessionErrorKind
-  /** The session id — safe to show and to log. */
+  /** The session id - safe to show and to log. */
   readonly correlation: string
   /** The HTTP status that produced a `protocol`/`unavailable` error, when there was one. */
   readonly httpStatus?: number
@@ -135,8 +149,13 @@ const PHASES: ReadonlySet<string> = new Set(['awaiting_wallet', 'verifying', 'do
 const STATUSES: ReadonlySet<string> = new Set(['pending', 'done', 'failed'])
 const HEX32 = /^0x[0-9a-f]{64}$/i
 
-/** The compound token the verifier-agent hands back must be the wire shape the keepers verify —
- *  checked field by field before anything is built on it. */
+/**
+ * The compound token the verifier-agent hands back must be the wire shape the keepers verify -
+ *  checked field by field before anything is built on it.
+ *
+ * @param raw - Untrusted compound_token response value.
+ * @param correlation - Session identifier used to correlate validation errors.
+ */
 export function assertCompoundTokenWire(raw: unknown, correlation: string): Record<string, unknown> {
   const bad: (why: string) => never = (why) => {
     throw new VerifierAgentSessionError('protocol', correlation, `compound_token: ${why}`)
@@ -172,6 +191,9 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
  *
  * For `sign` and `ibe-extract`, this is `sha256(message_bytes)` as 0x-hex.
  * Other actions should supply the digest directly.
+ *
+ * @param action - Operation name: sign and ibe-extract hash the supplied bytes.
+ * @param messageHex - Hexadecimal message bytes or an already computed digest for other actions.
  */
 export function payloadDigest(action: string, messageHex: string): string {
   const clean = messageHex.replace(/^0x/, '')
@@ -192,6 +214,9 @@ export function payloadDigest(action: string, messageHex: string): string {
  * The verifier-agent derives a nonce, generates an ECDH key for JWE, and returns a QR
  * payload the wallet scans. The session ID and poll secret are used to poll
  * for the result.
+ *
+ * @param verifierAgentUrl - Verifier-agent HTTP base URL from the selected network manifest.
+ * @param params - Signed operation, optional delegation and raw payload.
  */
 export async function createOid4vpSession(
   verifierAgentUrl: string,
@@ -226,9 +251,12 @@ export async function createOid4vpSession(
 }
 
 /**
- * Open an `oauth` session — same creator authorisation, same committee draw, same
+ * Open an `oauth` session - same creator authorisation, same committee draw, same
  * derived nonce, same poll contract as {@link createOid4vpSession}. No QR, no Request
  * Object, no JWE key: the client presents an access token its own IdP minted.
+ *
+ * @param verifierAgentUrl - Verifier-agent HTTP base URL from the selected network manifest.
+ * @param params - Signed operation, optional delegation and raw payload.
  */
 export async function createOauthSession(
   verifierAgentUrl: string,
@@ -257,7 +285,7 @@ export async function createOauthSession(
     }
   }
   // A wallet session's reply would carry a QR. Getting one back means the agent ignored
-  // `kind` — an older build — and the client would otherwise wait forever for a wallet that
+  // `kind` - an older build - and the client would otherwise wait forever for a wallet that
   // is never coming.
   if (data.qr_payload !== undefined) {
     throw new Error(
@@ -275,15 +303,10 @@ export async function createOauthSession(
 }
 
 /**
- * Deliver an access token + DPoP proof to an `oauth` session.
+ * Submit a DPoP-bound access token and proof to an OAuth session. The signer must use the key bound to that token. Retry once when the server responds with a DPoP nonce challenge.
  *
- * Speaks the RFC 9449 §9 resource-server contract — token in `Authorization: DPoP`, proof in
- * `DPoP:` — so a conformant client library needs no custom code. It also handles the
- * `use_dpop_nonce` challenge ITSELF: on a `401` carrying `DPoP-Nonce`, it re-mints the proof
- * with the server's nonce and resends ONCE. One retry, not a loop: a server that keeps
- * challenging is broken, and retrying forever would hide that.
- *
- * `signer` must be the key the token is bound to — see `../auth/dpop.js` for the two shapes.
+ * @param verifierAgentUrl - Verifier-agent HTTP base URL.
+ * @param args - Session credentials, DPoP-bound access token, nonce and matching signer.
  */
 export async function submitOauthResponse(
   verifierAgentUrl: string,
@@ -291,7 +314,7 @@ export async function submitOauthResponse(
     sessionId: string
     pollSecret: string
     accessToken: string
-    /** From {@link createOauthSession}. */
+    /** Initial DPoP challenge nonce returned when the OAuth session was created. */
     nonce: string
     dpopHtu: string
     signer: DpopSigner
@@ -332,14 +355,11 @@ export async function submitOauthResponse(
 }
 
 /**
- * Poll an OID4VP session on the Verifier Agent for its result — ONE poll.
+ * Fetch and validate one authorization session status. Transport failures and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error. The polling secret is sent in the Authorization header.
  *
- * The reply is validated against the contract: `status` ∈ {pending, done, failed}, a
- * `phase` the UI may show, and, when done, a well-formed compound token. The poll secret
- * travels only in the `Authorization` header and never appears in an error.
- *
- * Throws `VerifierAgentSessionError`: `unavailable` for 502/503/504 (the session may still complete —
- * `waitForSession` keeps polling), `protocol` for any other non-2xx or a malformed reply.
+ * @param verifierAgentUrl - Verifier-agent HTTP base URL.
+ * @param sessionId - Opened session identifier.
+ * @param pollSecret - Secret returned at session creation; do not expose it in logs.
  */
 export async function pollOid4vpSession(
   verifierAgentUrl: string,
@@ -367,7 +387,12 @@ export async function pollOid4vpSession(
   return parseVerifierAgentSessionStatus(data, sessionId)
 }
 
-/** Shared validation for the explicit-URL and registered-agent transports. */
+/**
+ * Shared validation for the explicit-URL and registered-agent transports.
+ *
+ * @param data - Untrusted JSON session response.
+ * @param sessionId - Session identifier used to correlate validation errors.
+ */
 export function parseVerifierAgentSessionStatus(data: Record<string, unknown>, sessionId: string): SessionStatusResult {
   if (typeof data.status !== 'string' || !STATUSES.has(data.status)) throw new VerifierAgentSessionError('protocol', sessionId, `poll: status ${JSON.stringify(data.status)} is not pending | done | failed`)
   const status = data.status as SessionStatusResult['status']
@@ -388,8 +413,9 @@ export function parseVerifierAgentSessionStatus(data: Record<string, unknown>, s
   }
 }
 
+/** Polling backoff, cancellation, progress callback and randomness options. */
 export interface WaitOpts {
-  /** Ceiling for the growing interval (default 4 × intervalMs). */
+  /** Ceiling for the growing interval (default 4 times intervalMs). */
   maxIntervalMs?: number
   /** Cancel (a user closed the wallet prompt): rejects with `cancelled`. */
   signal?: AbortSignal
@@ -399,8 +425,15 @@ export interface WaitOpts {
   random?: () => number
 }
 
-/** The next polling delay: geometric growth (×1.5) capped at `max`, ±20 % full jitter.
- *  Pure, so the schedule is testable without timers. */
+/**
+ * The next polling delay: geometric growth (times1.5) capped at `max`, plus or minus20 % full jitter.
+ *  Pure, so the schedule is testable without timers.
+ *
+ * @param previousMs - Previous polling delay in milliseconds, or zero before the first poll.
+ * @param baseMs - Initial polling interval in milliseconds.
+ * @param maxMs - Maximum interval before jitter is applied.
+ * @param random - Random source returning a value between zero and one.
+ */
 export function nextPollDelay(previousMs: number, baseMs: number, maxMs: number, random: () => number = Math.random): number {
   const grown = previousMs <= 0 ? baseMs : Math.min(maxMs, previousMs * 1.5)
   const jitter = (random() * 2 - 1) * 0.2 * grown
@@ -408,16 +441,20 @@ export function nextPollDelay(previousMs: number, baseMs: number, maxMs: number,
 }
 
 /**
- * Poll until the session reaches a terminal state (done or failed) — bounded by
+ * Poll until the session reaches a terminal state (done or failed) - bounded by
  * `timeoutMs`, with a growing jittered interval so many clients never poll in lock-step.
  * A transient `unavailable` answer (a 503, a dropped connection) is retried within the
  * deadline; a `protocol` answer stops at once; the deadline is a `timeout` error; the
  * caller's `signal` is a `cancelled` error. A terminal `failed` is RETURNED (the caller
- * decides how to explain it) — see `awaitVerifierAgentResult` for the version that throws `refused`.
+ * decides how to explain it) - see `awaitVerifierAgentResult` for the version that throws `refused`.
  *
  * @param pollSecret - bearer token returned by `createOid4vpSession`
  * @param intervalMs - initial polling interval in milliseconds (default 2000)
  * @param timeoutMs - total deadline in milliseconds (default 300000 = 5 min)
+ *
+ * @param verifierAgentUrl - Verifier-agent HTTP base URL.
+ * @param sessionId - Opened session identifier.
+ * @param opts - Cancellation, phase callback and polling backoff controls.
  */
 export async function waitForSession(
   verifierAgentUrl: string,

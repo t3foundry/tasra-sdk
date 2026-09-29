@@ -1,33 +1,43 @@
 # Prerequisites
 
-## Public testnet status
+For a first application, use the [quickstart](getting-started.md). New applications
+connect from a public manifest and let the SDK create wallets, identities, credentials
+and ready slots. No precreated learner account or slot is required.
 
-Canonical deployment records are published in
-[t3-foundry/tasra-releases](https://github.com/t3-foundry/tasra-releases).
-Avalanche Fuji uses chain ID **43113**. Start with
-[`networks/testnet/current.json`](https://github.com/t3-foundry/tasra-releases/blob/main/networks/testnet/current.json),
-which names `deployments/tasra-fuji-v1.json` and carries its `sha256`. Resolve the
-manifest path relative to `networks/testnet/` and read both files from the same
-reviewed repository commit. Preserve the exact JSON bytes and record the revision
-and checksum with the application. Network records are updated by commit, separately
-from the CLI binary release assets.
+## Network configuration
 
-Use `parsePinnedNetworkManifest` and `addressBookFromManifest`; the complete
-bootstrap is in [tasra-chain](../skills/tasra-chain/SKILL.md#public-deployment-manifest).
-Use `NETWORKS.testnet.rpcUrl` for the public RPC or supply your own Fuji RPC.
-The manifest publishes verifier-agent, relayer and explorer URLs in `services[]`;
-keeper and verifier URLs are discovered from chain. Do not invent missing endpoints.
+Use Node.js 24 and install `tasra-sdk@latest`. Download the network pointer and
+manifest from [tasra-releases](https://github.com/t3-foundry/tasra-releases).
+For Avalanche Fuji, use `networks/testnet/current.json`; resolve its `manifest`
+path relative to `networks/testnet/`, and fetch both files from the same reviewed
+commit. Verify the original manifest bytes against the pointer's trusted SHA-256.
 
-An active manifest establishes deployment configuration, not completed live
-acceptance. Credential enrollment, a funded account/slot, rule provisioning,
-compatible service versions, revocation timing and support instructions are separate
-prerequisites. Obtain any missing inputs from the deployment operator; report the
-specific blocked operation instead of treating the whole network as unpublished.
+Load the release with `TasraClient.fromManifest(manifestUrl, {sha256, coordinator})`.
+The explicit coordinator convention must match the deployment. The SDK resolves
+the RPC and configured verifier endpoint; it discovers assigned keepers from chain.
+Do not invent missing service URLs. Keep TLS verification enabled.
+
+## Accounts and protected operations
+
+Create a wallet with `tasra.wallets.create()`, or connect an Ethereum provider with
+`tasra.wallets.connect(provider)`. Save exported private keys in protected storage
+before requesting funds. Fund the public creator address through the network's
+faucet or a wallet you control. Creating a key does not fund it.
+
+Supply the creator wallet and a durable store to `tasra.slots.create()`. The SDK
+records the intent, creates the slot, waits for key generation, provisions its rule
+and configures its verifier policy. Node applications can use `createFileStore`;
+browser and database stores need atomic persistence and exclusive operation locks.
+
+The selected deployment must support the requested mode, thresholds, authorization
+format and service routes. Credential operations need an accepted issuer and
+holder format. Slot-account gas and usage or lease charges are distinct from
+creator gas. A healthy registry alone does not prove those requirements are met.
 
 ## Offline first result
 
 ```sh
-npm install tasra-sdk
+npm install tasra-sdk@latest
 npm install --save-dev tsx
 npx tsx node_modules/tasra-sdk/examples/minimal.ts
 ```
@@ -35,9 +45,13 @@ npx tsx node_modules/tasra-sdk/examples/minimal.ts
 Expected output: `Hello Tasra`. Public demo keys demonstrate local crypto only.
 The example requires no network deployment or `viem`. Examples ship in the package.
 
-## Application configuration
+<a id="application-configuration"></a>
 
-Install `viem` for the chain clients. Use a provisioned **non-exportable BLS slot**,
+## Advanced existing committee integrations
+
+The SDK includes the chain runtime dependencies; install `viem` directly only if
+your application imports it. The following advanced committee examples use a
+provisioned **non-exportable BLS slot**,
 an anchored verifier-set snapshot, sufficient metering funds, and a credential issued
 to your holder DID. The application never needs keeper admin or issuer secrets.
 
@@ -71,11 +85,15 @@ The first command verifies a threshold encrypt/decrypt round trip. The second ve
 a threshold FROST signature. Missing inputs fail nonzero. Neither creates a network,
 mints credentials, nor substitutes mock authorization.
 
-## Operator setup
+<a id="operator-setup"></a>
+
+## Advanced slot creation and provisioning
 
 `examples/provision-slot.ts` creates a dedicated slot, persists recovery inputs before
 submitting transactions, waits for DKG, and provisions the committed rule on keepers.
-It selects commit/reveal when the registry requires it.
+It selects commit/reveal when the registry requires it. Rule provisioning uses
+`provisionRule` with the creator's own key; no admin JWT is required on compatible
+fleets. For a complete tECDSA app, use the [shared-account tutorial](shared-account.md).
 
 In addition to manifest/RPC configuration, provide:
 
@@ -84,7 +102,6 @@ In addition to manifest/RPC configuration, provide:
 | `KK_CREATOR_KEY_FILE` | Private file containing a funded EVM key as 0x-prefixed hex |
 | `KK_RULE_FILE` | Exact rule to commit and provision |
 | `KK_SLOT_OUTPUT` | New recovery-record path; existing files are never overwritten |
-| `KK_ADMIN_JWT` | Short-lived keeper admin JWT for rule provisioning |
 | `KK_K`, `KK_N` | Threshold and keeper count |
 | `KK_SLOT_MODE` | `bls` for encryption or `frost` for signing |
 | `KK_CUSTODY` | `threshold`, or explicitly `exportable` for a personal BLS vault |
@@ -108,4 +125,13 @@ For an existing exportable BLS slot, configure the application inputs plus `KK_D
 and run `examples/personal-vault.ts`. This example uses one-shot VP authentication;
 it does not claim silent renewal.
 
-[Developer journey](DEVELOPER-EXPERIENCE.md) · [Glossary](glossary.md) · [Release acceptance](RELEASING.md#live-acceptance)
+[Deployment responsibilities](DEVELOPER-EXPERIENCE.md) · [Glossary](glossary.md)
+
+## Gas and usage credit
+
+Fund the creator wallet with AVAX for setup and token transaction gas. For Fuji,
+use the [official C-Chain faucet](https://core.app/tools/testnet-faucet/?subnet=c&token=c).
+Then buy TSRA with EURC from BondingCurve and deposit TSRA into each slot's
+Settlement balance. Follow the runnable [funding guide](funding.md). An Ethereum
+slot account additionally needs AVAX for its own transactions; this is separate
+from creator gas and TSRA usage credit.

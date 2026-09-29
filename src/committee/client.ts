@@ -1,13 +1,13 @@
-// Committee-mode HTTP orchestration — the glue around the pure token
+// Committee-mode HTTP orchestration - the glue around the pure token
 // crypto in ./committee.ts. Three pieces:
-//   • committeeAuthorize() — POST a VP to ONE verifier's /v1/committee-authorize,
-//     which (if that verifier is in the per-request draw) returns its ed25519
-//     signature over the canonical token hash.
-//   • gatherCommitteeToken() — fan out to the candidate verifiers, collect a
-//     quorum of signatures, and assemble the compound token. Self-checks that our
-//     canonical hash equals the hash the verifiers signed.
-//   • committeeSign() / committeeDecrypt() — POST the assembled token (in the
-//     BODY, no auth header) to the keeper's /v1/committee/{sign,decrypt}.
+// - committeeAuthorize() - POST a VP to ONE verifier's /v1/committee-authorize,
+// which (if that verifier is in the per-request draw) returns its ed25519
+// signature over the canonical token hash.
+// - gatherCommitteeToken() - fan out to the candidate verifiers, collect a
+// quorum of signatures, and assemble the compound token. Self-checks that our
+// canonical hash equals the hash the verifiers signed.
+// - committeeSign() / committeeDecrypt() - POST the assembled token (in the
+// BODY, no auth header) to the keeper's /v1/committee/{sign,decrypt}.
 
 import {hexToBytes, bytesToHex} from '../crypto/hex.js'
 import {httpError, TasraHttpError, ThresholdNotMetError} from '../errors.js'
@@ -23,6 +23,7 @@ import {base64Encode, base64Decode} from '../crypto/envelope.js'
 import type {Ciphertext} from '../crypto/kem.js'
 import type {FrostSignResult} from '../signing/frost.js'
 import type {BlsPeer} from '../decryption/client.js'
+import {decodeOperationReceipt, type OperationReceipt} from './receipts.js'
 
 const strip0x = (s: string): string => (s.startsWith('0x') ? s.slice(2) : s)
 const base = (u: string): string => u.replace(/\/$/, '')
@@ -37,6 +38,7 @@ function ctToWire(ct: Ciphertext): {u: string; nonce: string; aead_ct: string} {
 
 /** Trustless verifier-set inclusion proof, passed to the keeper. */
 export interface VerifierProof {
+  /** Zero-based verifier registry index. */
   verifierIndex: number
   /** 20-byte operator address (hex). */
   operator: string
@@ -55,7 +57,7 @@ function proofsToWire(proofs: VerifierProof[]): unknown[] {
   }))
 }
 
-// ─── verifier: POST /v1/committee-authorize ────────────────────────────────────
+// verifier: POST /v1/committee-authorize
 
 /**
  * A verifier refused to co-sign a committee token. Extends
@@ -63,7 +65,7 @@ function proofsToWire(proofs: VerifierProof[]): unknown[] {
  * all available and `isAuthDenied()` recognises a 401/403 here too.
  *
  * Distinct from a generic HTTP error because the committee flow polls several
- * verifiers and tolerates individual refusals as long as a quorum co-signs — see
+ * verifiers and tolerates individual refusals as long as a quorum co-signs - see
  * {@link ThresholdNotMetError} for the failure that means the quorum was missed.
  */
 export class CommitteeAuthorizeError extends TasraHttpError {
@@ -72,22 +74,25 @@ export class CommitteeAuthorizeError extends TasraHttpError {
   }
 }
 
-// ⚠ There is deliberately no rule field. The verifier fetches the slot's confidential
+// There is deliberately no rule field. The verifier fetches the slot's confidential
 // rule from a keeper by `slotId` and checks it against the on-chain `ruleCommitment`, so
 // a caller cannot present a permissive rule of its own choosing and have a committee
 // authorize against it.
+/** Credential presentation and request context sent to one verifier for committee authorization. */
 export interface CommitteeAuthorizeBody {
   /** Holder DID (the credentials' subject). */
   holder: string
   /** Compact-JWS verifiable credentials. */
   credentials: string[]
   /** F1/F4: holder proof-of-possession. Build via `createHolderProof`
-   *  (bind it to `slotId`). Empty string ⇒ omitted from the wire, which only a
+   *  (bind it to `slotId`). Empty string means omitted from the wire, which only a
    *  verifier with `require_holder_binding = false` accepts. */
   holderProof: string
+  /** Compound authorization token category. */
   tokenType: TokenType
   /** 32-byte on-chain beacon seed. */
   seed: Uint8Array
+  /** Beacon epoch used for the verifier committee draw. */
   epoch: number | bigint
   /** 32-byte slot id. */
   slotId: Uint8Array
@@ -95,12 +100,14 @@ export interface CommitteeAuthorizeBody {
   registrySize: number
   /** The slot's verifierPolicy committee size. */
   committee: number
+  /** Issue time in Unix seconds. */
   iat: number | bigint
+  /** Expiration time in Unix seconds. */
   exp: number | bigint
   /**
    * The requested IBE identity, present **iff** the operation is
    * identity-scoped. The committee evaluates the slot's scope binding against it and
-   * folds `keccak256(identity)` into the signed token — a quorum attests THIS identity
+   * folds `keccak256(identity)` into the signed token - a quorum attests THIS identity
    * and the token is unusable for any other. Omit for every other operation.
    */
   identity?: string
@@ -117,7 +124,7 @@ export interface CommitteeAuthorizeBody {
 export interface RequestBindingPreimage {
   chainId: number | bigint
   action: 'sign' | 'decrypt' | 'ibe-extract' | 'dual-approve'
-  /** 32 bytes — the per-action digest (`payloadDigestFor`). */
+  /** 32 bytes - the per-action digest (`payloadDigestFor`). */
   payloadDigest: Uint8Array
   /** 32 random bytes; the KB-JWT nonce derives from (request_hash, random). */
   random: Uint8Array
@@ -126,25 +133,30 @@ export interface RequestBindingPreimage {
   description?: string
 }
 
+/** Verifier signature, token hashes and committee metadata for an authorization request. */
 export interface CommitteeAuthorizeReply {
+  /** Zero-based verifier registry index. */
   verifierIndex: number
+  /** 32-byte compound token hash. */
   tokenHash: Uint8Array
+  /** Hash of the credential presentation bound into the token. */
   vpHash: Uint8Array
-  /** `keccak256` of the holder this verifier authenticated — inside the signed bytes. */
+  /** `keccak256` of the holder this verifier authenticated - inside the signed bytes. */
   holderHash: Uint8Array
-  /** `keccak256` of the RAW rule this verifier evaluated (UNSALTED) — what the keeper
+  /** `keccak256` of the RAW rule this verifier evaluated (UNSALTED) - what the keeper
    *  binds against its own `keccak256(rule)`. */
   ruleHash: Uint8Array
-  /** the identity binding this verifier signed — present iff the request
+  /** the identity binding this verifier signed - present iff the request
    *  carried `identity`. Inside the signed bytes, like `holderHash`. */
   identityHash?: Uint8Array
+  /** This verifier's signature over the compound token hash. */
   signature: Uint8Array
   /** The full ordered committee draw, so the caller knows whom else to ask. */
   committeeIndexes: number[]
   /**
    * The slot's `ruleVersion` this authorization was evaluated against.
    *
-   * ⚠ Diagnostic, not a gate. The keeper binds `ruleHash` to its own rule hash,
+   *  Diagnostic, not a gate. The keeper binds `ruleHash` to its own rule hash,
    * so a token minted under a superseded policy is refused there
    * whatever this says. Its value is that it explains the refusal: without it, a
    * token minted moments before an amendment activates is rejected with nothing
@@ -188,15 +200,20 @@ function authorizeWire(b: CommitteeAuthorizeBody): Record<string, unknown> {
   }
 }
 
-/** Ask one verifier to authorize the request. Throws CommitteeAuthorizeError
- *  (with `.status`) on a non-2xx — notably 403 when this verifier wasn't drawn. */
+/**
+ * Ask one verifier to authorize the request. Throws CommitteeAuthorizeError
+ *  (with `.status`) on a non-2xx - notably 403 when this verifier wasn't drawn.
+ *
+ * @param verifierUrl - Verifier HTTP base URL.
+ * @param body - Credential presentation and operation context for this verifier.
+ */
 export async function committeeAuthorize(
   verifierUrl: string,
   body: CommitteeAuthorizeBody,
 ): Promise<CommitteeAuthorizeReply> {
-  // ⚠ A SECOND copy of this guard used to live here as well as in
+  // A SECOND copy of this guard used to live here as well as in
   // `requestCommitteeToken`, and relaxing only the outer one left the inner one
-  // refusing every request — the duplicated policy is why. The rule belongs at
+  // refusing every request - the duplicated policy is why. The rule belongs at
   // ONE layer: the caller decides (and states it), this function transmits.
   //
   // The server field is an `Option` and a verifier with
@@ -253,36 +270,20 @@ export async function committeeAuthorize(
   }
 }
 
-// ─── coordinator: gather a quorum + assemble the token ─────────────────────────
+// coordinator: gather a quorum + assemble the token
 
+/** Verifier requests and quorum configuration for assembling a compound token. */
 export interface GatherCommitteeTokenOpts {
-  /** Candidate verifiers to ask (index → base URL). Asking the whole registry is
-   *  fine — non-drawn verifiers reply 403 and are skipped. */
+  /** Candidate verifiers to ask (index to base URL). Asking the whole registry is
+   *  fine - non-drawn verifiers reply 403 and are skipped. */
   verifiers: Array<{index: number; url: string}>
+  /** Authorization input shared across requests to the selected verifiers. */
   authorize: CommitteeAuthorizeBody
   /** The slot's verifierPolicy quorum (minimum distinct committee signatures). */
   quorum: number
-  /**
-   * Observe the raw replies. Added rather than widening the return type, which
-   * would break every existing caller for a diagnostic.
-   *
-   * `reference` is the reply whose `vpHash`/`ruleHash` were used to build the
-   * token — so anything read from it describes the SAME evaluation the token
-   * carries, which matters when verifiers straddle an amendment and disagree
-   * about the rule version.
-   */
+  /** Observe all replies and the reply used as the token payload reference. Useful when verifiers report different policy versions. */
   onReplies?: (all: CommitteeAuthorizeReply[], reference: CommitteeAuthorizeReply) => void
-  /**
-   * A holder proof PER VERIFIER, overriding `authorize.holderProof` for that verifier.
-   *
-   * ⚠ ONE HOLDER PROOF DOES NOT SERVE A COMMITTEE. A proof is bound to a nonce that is a
-   * row in ONE verifier's store and `consume` is an atomic take — so one proof fanned to k
-   * verifiers is spent by whichever answers first and the rest 401 under
-   * `require_holder_binding`. This callback lets the caller mint one proof per drawn
-   * verifier (nonce from THAT verifier, its audience, the same credentials + slot). Called
-   * once per candidate verifier, concurrently; a rejection fails that verifier only, so a
-   * quorum can still be reached from the others.
-   */
+  /** Mint a separate holder proof for each verifier, overriding authorize.holderProof. Called concurrently; a rejection excludes that verifier while other requests continue. */
   holderProofFor?: (verifier: {index: number; url: string}) => Promise<string> | string
 }
 
@@ -291,6 +292,8 @@ export interface GatherCommitteeTokenOpts {
  * until quorum, and assemble the compound token. Verifies that our locally
  * recomputed canonical token hash equals the hash the verifiers signed (a built-in
  * encoding cross-check). Returns the wire token to POST to the keeper.
+ *
+ * @param opts - Verifier requests, committee draw and required signature quorum.
  */
 export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Promise<CompoundTokenWire> {
   const settled = await Promise.allSettled(
@@ -305,10 +308,10 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
     .filter((r): r is PromiseFulfilledResult<CommitteeAuthorizeReply> => r.status === 'fulfilled')
     .map(r => r.value)
   if (replies.length === 0) {
-    // ⚠ Report WHY. "no verifier authorized the request" with the reasons
+    // Report WHY. "no verifier authorized the request" with the reasons
     // discarded is the least actionable error this library can produce: every
-    // cause — a stale credential, an undrawn verifier, a seed/epoch mismatch,
-    // a verifier that is simply down — looks identical, and each has a
+    // cause - a stale credential, an undrawn verifier, a seed/epoch mismatch,
+    // a verifier that is simply down - looks identical, and each has a
     // completely different fix.
     const why = settled
       .map((r, i) => {
@@ -336,7 +339,7 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
   }
   if (sigByIndex.size < opts.quorum) {
     // Typed, because this is exactly the failure `CommitteeAuthorizeError`'s doc points a caller at:
-    // individual refusals are tolerated, a missed quorum is not. Retryable — a verifier that was slow
+    // individual refusals are tolerated, a missed quorum is not. Retryable - a verifier that was slow
     // or restarting answers the next attempt, and the drawn committee is redrawn per request.
     throw new ThresholdNotMetError({
       got: sigByIndex.size,
@@ -356,7 +359,7 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
     vpHash: ref.vpHash,
     holderHash: ref.holderHash,
     ruleHash: ref.ruleHash,
-    // From the reference reply, like ruleHash — the hash cross-check below
+    // From the reference reply, like ruleHash - the hash cross-check below
     // then proves the whole committee signed over the SAME identity binding.
     ...(ref.identityHash !== undefined ? {identityHash: ref.identityHash} : {}),
     // The binding the reference verifier declared; the hash cross-check below proves
@@ -373,23 +376,39 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
   return assembleCompoundToken(payload, [...sigByIndex.values()])
 }
 
-// ─── keeper: POST /v1/committee/{sign,decrypt} (token in body, no auth header) ──
+// keeper: POST /v1/committee/{sign,decrypt} (token in body, no auth header)
 
+/** Committee-authorized FROST signing request and optional verifier membership proofs. */
 export interface CommitteeSignOpts {
+  /** Optional signal that cancels the request. */
+  signal?: AbortSignal
+  /** HTTP transport override; defaults to the global fetch implementation. */
+  fetchImpl?: typeof fetch
+  /** Keeper HTTP base URL. */
   nodeUrl: string
+  /** Compound token authorizing this operation. */
   committeeToken: CompoundTokenWire
+  /** Raw message bytes to sign. */
   message: Uint8Array
+  /** Optional threshold participant identifiers for the signing ceremony. */
   signingSet?: number[]
+  /** Optional Ed25519 owner signature over the canonical operation request. */
   userSignature?: Uint8Array
+  /** Optional 20-byte operator address to pin the intended keeper. */
   targetKeykeeper?: string
+  /** Verifier membership proofs for the selected snapshot. */
   verifierProofs?: VerifierProof[]
-  /** client request signature: the client's 32-byte ed25519 pubkey + its 64-byte
-   *  signature over `clientBindingHash(slotId, tokenHash)`. Both or neither. */
+  /** 32-byte Ed25519 client public key used to verify clientSignature over the slot and token hash; supply both fields together. */
   clientPubkey?: Uint8Array
+  /** Client signature over the slot and compound token binding. */
   clientSignature?: Uint8Array
 }
 
-/** Sign via committee authorization. The slot id is taken from the token. */
+/**
+ * Sign via committee authorization. The slot id is taken from the token.
+ *
+ * @param opts - Keeper endpoint, compound authorization and message to sign.
+ */
 export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignResult> {
   const body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
@@ -405,10 +424,11 @@ export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignR
   }
 
   const url = `${base(opts.nodeUrl)}/v1/committee/sign`
-  const res = await fetch(url, {
+  const res = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
+    signal: opts.signal,
   })
   if (!res.ok) throw await httpError(res, url, 'committee/sign')
   const d = (await res.json()) as {
@@ -418,8 +438,12 @@ export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignR
     signature_z: string
     message_sha256: string
     epoch?: number
+    op_id?: unknown
+    token_hash?: unknown
+    op_attestation?: unknown
   }
   return {
+    ...(decodeOperationReceipt(d) ? {receipt: decodeOperationReceipt(d)} : {}),
     keySlotId: d.key_slot_id,
     groupPublicKey: hexToBytes(d.group_public_key),
     signature: {r: hexToBytes(d.signature_r), z: hexToBytes(d.signature_z)},
@@ -428,23 +452,39 @@ export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignR
   }
 }
 
+/** Committee-authorized group decryption request and optional verifier membership proofs. */
 export interface CommitteeDecryptOpts {
+  /** Keeper HTTP base URL. */
   nodeUrl: string
+  /** Compound token authorizing this operation. */
   committeeToken: CompoundTokenWire
+  /** Ciphertext to decrypt. */
   ciphertext: Ciphertext
+  /** Original encryption associated data. */
   identity: Uint8Array
+  /** Threshold participant identifiers for the decryption ceremony. */
   decryptingSet: number[]
+  /** Peer identifiers for the selected BLS participants. */
   blsPeers: BlsPeer[]
+  /** Optional Ed25519 owner signature over the canonical operation request. */
   userSignature?: Uint8Array
+  /** Expected key epoch of the ciphertext; used to detect rotation. */
   ciphertextEpoch?: number
+  /** Optional 20-byte operator address to pin the intended keeper. */
   targetKeykeeper?: string
+  /** Verifier membership proofs for the selected snapshot. */
   verifierProofs?: VerifierProof[]
-  /** client request signature (see {@link CommitteeSignOpts}). */
+  /** 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together. */
   clientPubkey?: Uint8Array
+  /** Client signature over the slot and compound token binding. */
   clientSignature?: Uint8Array
 }
 
-/** Decrypt via committee authorization. The slot id is taken from the token. */
+/**
+ * Decrypt via committee authorization. The slot id is taken from the token.
+ *
+ * @param opts - Keeper endpoint, compound authorization, ciphertext and associated data.
+ */
 export async function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint8Array> {
   const body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
@@ -473,13 +513,17 @@ export async function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint
   return base64Decode(d.plaintext)
 }
 
-// ─── keeper: POST /v1/shards/ibe/extract (identity-key extraction) ────
+// keeper: POST /v1/shards/ibe/extract (identity-key extraction)
 
 /** One node's extraction partial, decoded from the wire. */
 export interface IbeExtractionPartial {
+  /** Echoed slot, when supplied by the server. Required by the strict helper. */
+  keySlotId?: string
+  /** Optional keeper attestation; presence alone does not establish validity. */
+  receipt?: OperationReceipt
   /** The node's BLS group identifier (1..n). */
   identifier: number
-  /** 48-byte compressed G1 partial `D_i = sk_i · Q_ID`. */
+  /** 48-byte compressed G1 partial `D_i = sk_i * Q_ID`. */
   value: Uint8Array
   /** The node's 96-byte G2 verifying share (the dual-group reply's first half). */
   verifyingShareG2: Uint8Array
@@ -489,20 +533,28 @@ export interface IbeExtractionPartial {
   nodeUrl: string
 }
 
+/** Committee authorization and keeper endpoints for extracting shares of one IBE identity key. */
 export interface IbeExtractOpts {
-  /** Base URLs of ≥ k keeper nodes holding the slot's BLS shards. */
+  /** Optional signal that cancels the request. */
+  signal?: AbortSignal
+  /** HTTP transport override; defaults to the global fetch implementation. */
+  fetchImpl?: typeof fetch
+  /** Base URLs of at least k keeper nodes holding the slot's BLS shards. */
   nodeUrls: string[]
   /** MUST be identity-scoped: the keeper enforces `identity_hash == keccak256(identity)`. */
   committeeToken: CompoundTokenWire
   /** The requested IBE identity, in the clear (the node computes Q_ID from it). */
   identity: string
-  /** Owner signature over `keccak256("keykeeper:ibe-extract:v1" ‖ identity)` when the
+  /** Owner signature over `keccak256("keykeeper:ibe-extract:v1" || identity)` when the
    *  slot has a registered `user_pubkey`. */
   userSignature?: Uint8Array
+  /** Expected key epoch of the ciphertext; used to detect rotation. */
   ciphertextEpoch?: number
+  /** Verifier membership proofs for the selected snapshot. */
   verifierProofs?: VerifierProof[]
-  /** client request signature (see {@link CommitteeSignOpts}). */
+  /** 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together. */
   clientPubkey?: Uint8Array
+  /** Client signature over the slot and compound token binding. */
   clientSignature?: Uint8Array
 }
 
@@ -519,10 +571,11 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
     body.client_signature = bareHex(opts.clientSignature)
   }
   const url = `${base(nodeUrl)}/v1/shards/ibe/extract`
-  const res = await fetch(url, {
+  const res = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
+    signal: opts.signal,
   })
   if (!res.ok) throw await httpError(res, url, 'shards/ibe/extract')
   const d = (await res.json()) as {
@@ -530,12 +583,18 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
     extraction_share: string
     verifying_share: string
     epoch: number
+    key_slot_id?: string
+    op_id?: unknown
+    token_hash?: unknown
+    op_attestation?: unknown
   }
   const vs = base64Decode(d.verifying_share)
   return {
+    ...(d.key_slot_id !== undefined ? {keySlotId: d.key_slot_id} : {}),
+    ...(decodeOperationReceipt(d) ? {receipt: decodeOperationReceipt(d)} : {}),
     identifier: Number(d.identifier),
     value: base64Decode(d.extraction_share),
-    // The reply is the 144-byte dual-group encoding (96B G2 ‖ 48B G1); the IBE pairing
+    // The reply is the 144-byte dual-group encoding (96B G2 || 48B G1); the IBE pairing
     // check needs the G2 half.
     verifyingShareG2: vs.slice(0, 96),
     epoch: Number(d.epoch),
@@ -545,9 +604,11 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
 
 /**
  * Fan out to the keeper nodes and collect extraction partials. Nodes that refuse or are
- * down are skipped; throws — naming every node and its reason — only when NONE served.
+ * down are skipped; throws - naming every node and its reason - only when NONE served.
  * The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
  * each partial (identifiable abort names the node via the identifier).
+ *
+ * @param opts - Compound token, identity, keepers and optional expected epoch.
  */
 export async function requestIbeExtractionPartials(
   opts: IbeExtractOpts,

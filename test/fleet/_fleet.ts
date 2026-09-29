@@ -11,9 +11,11 @@ import {existsSync, readFileSync} from 'node:fs'
 import {dirname, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {ed25519} from '@noble/curves/ed25519'
+import {createPublicClient, http, keccak256, toHex} from 'viem'
 import {addressBookFromEnv, type AddressBook} from '../../src/chain/deployments.ts'
 import {verifyPresentation, verifyVpJwt, type IssuedToken} from '../../src/auth/verifier.ts'
 import {createHolderProof, ed25519DidKey, type HolderSigner} from '../../src/auth/holderProof.ts'
+import {nodeRegistryAbi} from '../../src/chain/abis/nodeRegistry.ts'
 import {createTasraWriteClient} from '../../src/chain/write.ts'
 import {b64urlDecode, signCompactJws} from '../../src/oid4vp/jose.ts'
 import type {Suite} from './_assert.ts'
@@ -466,6 +468,51 @@ export async function provisionRule(
 }
 
 /**
+ * The largest `n` a `tags: ['keykeeper']` slot can actually be SEATED at on this deployment,
+ * with the two counts it is derived from so a caller can report them.
+ *
+ * ⚠⚠ REACHABILITY IS NOT ELIGIBILITY. `gate()` trims {@link FleetConfig.nodeUrls} to the keepers
+ *    answering `/readyz`, and sizing a committee off that count alone is wrong: a keeper can serve
+ *    HTTP perfectly while the registry has it INACTIVE — unbonding, retired or slashed-to-deactivate
+ *    — in which case `createKeySlotFiltered` reverts `InsufficientFilteredPool(have, need)` with no
+ *    hint that the two views disagree. Measured on the local fleet 2026-09-29: 5 healthy keeper
+ *    containers, one of them unbonding, so `taggedActiveCount` was 4 and a `n = nodeUrls.length`
+ *    create reverted `(4, 5)`. ⚠ Scaling the fleet UP does not fix that: each added keeper adds
+ *    both a URL and a pool slot, so the gap survives for as long as the ineligible one answers.
+ *
+ * ⚠ Bounded by BOTH counts, because each is necessary: the registry's count is what the draw can
+ *   seat, and the reachable count is who this process can then talk to.
+ *
+ * ⚠ One O(1) read, never a per-operator loop — same cost at 15 operators or 10,000.
+ *
+ * ⚠ RESIDUAL, deliberately not handled: the tag filter is not the collateral filter. A pool that is
+ *   tag-sufficient but under-collateralised still reverts — as `InsufficientStakedPool`, which names
+ *   the stake, so the two are not confusable (see KeyRegistry's own note on that vocabulary).
+ */
+export async function keeperSlotN(
+  cfg: FleetConfig,
+  opts: {want?: number; tag?: string} = {},
+): Promise<{n: number; reachable: number; eligible: number; tag: string}> {
+  const tag = opts.tag ?? 'keykeeper'
+  const reachable = cfg.nodeUrls.length
+  const want = opts.want ?? reachable
+  const registry = cfg.book.NodeRegistry
+  // No NodeRegistry in the address book: fall back to reachability rather than refusing. The
+  // suites run against any deployment, and a book without it is a deployment we cannot ask.
+  if (!registry) return {n: Math.min(want, reachable), reachable, eligible: reachable, tag}
+  const pub = createPublicClient({transport: http(cfg.rpcUrl)})
+  const eligible = Number(
+    await pub.readContract({
+      address: registry,
+      abi: nodeRegistryAbi,
+      functionName: 'taggedActiveCount',
+      args: [keccak256(toHex(tag))],
+    }),
+  )
+  return {n: Math.min(want, reachable, eligible), reachable, eligible, tag}
+}
+
+/**
  * Discover which nodes currently hold this slot's shards. A committee node
  * answers 200 on /v1/keys/:id/public; a non-committee node 404s. The demo's
  * beacon-entropy can move the committee off nodes 1-3, so we never assume it.
@@ -504,7 +551,7 @@ export async function createExportableShardSlot(
   const n = opts.n ?? Math.min(3, cfg.nodeUrls.length)
   const k = opts.k ?? Math.min(2, n)
   const writer = createTasraWriteClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, privateKey: cfg.deployPk as `0x${string}`, chainId: cfg.chainId})
-  const {slotId, ruleSalt} = await writer.createSlot({dcqlRule: SLOT_DCQL_RULE, k, n, mode: 'bls', exportable: true})
+  const {slotId, ruleSalt} = await writer.createSlot({rule: SLOT_DCQL_RULE, k, n, mode: 'bls', exportable: true})
 
   // A fresh slot answers /public 200 before its key exists, so wait for the group key itself.
   let committee: string[] = []

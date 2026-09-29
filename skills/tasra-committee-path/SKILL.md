@@ -1,156 +1,84 @@
 ---
 name: tasra-committee-path
-description: Use the Tasra committee path with tasra-sdk — createCommitteeSlotClient from a bare slot id, where a beacon-drawn verifier committee co-signs one compound token and keepers sign or decrypt without ever reconstructing the key; holder proofs per verifier; and when to reach for tasra-sdk/committee internals. Use for "committee path", "compound token", "createCommitteeSlotClient", "VerifierSetRegistry", "verifyCompoundToken", "holderProofPerVerifier", "the key must never be reconstructed".
+description: Use Tasra native FROST approval quorum or integrate request-bound committee operations. Use for two-person approval, dual-sign create/status/approve/resume, keeper receipts, and advanced compound-token consumers.
 metadata:
   package: tasra-sdk
   sources:
-    - docs/chain.md
-    - docs/api.md
-    - dist/chain/committeeClient.d.ts
+    - docs/native-approvals.md
+    - examples/credential-approvals.ts
+    - dist/committee/dual-sign.d.ts
+    - dist/committee/receipts.d.ts
 ---
 
-# The committee path
+# Request-bound operations and native approvals
 
-The JWT path's `Session.decrypt` reconstructs the master key in your process.
-The committee path never does: per request, a verifier committee drawn by the
-on-chain beacon co-signs one compound authorization token, and the keepers run
-the sign or decrypt ceremony themselves, authorized, metered and audited at the
-node. Endpoints come only from chain; there is no static fallback, and the flow
-refuses to run without trustless `VerifierSetRegistry` inclusion proofs.
+For ordinary signing/decryption use typed slots from `tasra-sdk/app`; they validate
+the exact-operation grant and anchored result. Reach for `tasra-sdk/committee`
+when an existing application needs the lower-level contract, not simply because it
+uses multiple keepers.
 
-**First check that the deployment accepts this flow.** A keeper running the
-production posture sets `api.require_request_binding`, which means a token is
-only good for the one request whose hash it carries. The verifiers cannot bind
-that hash — only the verifier agent sees the request — so a token gathered here
-is refused by the keeper with HTTP 403 `request binding required
-(api.require_request_binding) but token carries no request_hash — use a token
-issued by the Verifier Agent`. There is no way around it from this side: on such
-a deployment the authorization comes from the OID4VP flow in
-`tasra-oid4vp-wallet-and-verifier-agent`, and everything below applies to
-deployments that do not enforce binding. What is below still holds for reading
-the slot, resolving keepers and verifiers, and encrypting, none of which needs a
-token.
+## One FROST signature after distinct people approve
 
-**Then check the slot.** The committee path reads the slot's per-request verifier
-policy, and a slot created without one has none: every call fails with
-`slot 0x… has no verifierPolicy (committee path not wired); use the JWT path`. It is
-set once, by the slot creator, with `writer.setVerifierPolicy(slotId, committee, quorum)`
-(`tasra-create-slot`, step 8) — not something this side can work around.
+Read `docs/native-approvals.md`. `examples/native-approvals.ts` uses registered
+static approver keys; `examples/credential-approvals.ts` uses separate holder-bound
+credential presentations. Both set the real slot policy before requesting approvals.
+
+Use `setApprovalPolicy` to install the explicit policy with the creator wallet and
+durable store. For static keys, adapt SDK Ed25519 identities with `identityApprover`:
 
 ```ts
-import {createHolderProof, fromBytes, type HolderSigner} from 'tasra-sdk'
-import {holderProofPerVerifier} from 'tasra-sdk/committee'
-import {createTasraChainClient, createCommitteeSlotClient, addressBookFromEnv, VERIFIER_TAG} from 'tasra-sdk/chain'
-import {ed25519ClientSigner} from 'tasra-sdk/committee'
+import {setApprovalPolicy, identityApprover, type TasraClient,
+  type TasraIdentity, type TasraWallet, type ApplicationStore} from 'tasra-sdk/app'
 
-// addressBookFromEnv reads KEY_REGISTRY, NODE_REGISTRY, VERIFIER_SET_REGISTRY, … and skips
-// non-address values, so passing all of process.env is safe. chainId defaults to the local dev
-// chain (1337); pass it for any other deployment.
-const chain = createTasraChainClient({rpcUrl, addresses: addressBookFromEnv(process.env), chainId})   // chainId: number, e.g. 43112
-// The committee path needs KEY_REGISTRY (slot record + verifier policy), NODE_REGISTRY (keeper and
-// verifier URLs), THRESHOLD_BEACON (the per-request draw) and VERIFIER_SET_REGISTRY (the anchored
-// snapshot) in the book; a missing one throws on the read that needs it, not at construction.
-// verifierUrl below is one verifier from the on-chain directory — (await resolveVerifierDirectory(chain))[0].url
-// (tasra-chain) — or the single verifier of a small deployment.
-
-const holder = 'did:key:z6Mk…'                                     // the credentials' subject DID
-const credentials: string[] = [...]                                 // compact-JWS verifiable credentials
-const slotId: `0x${string}` = '0x…'                                 // bytes32 slot id, hex
-const signer: HolderSigner = {alg: 'EdDSA', did: holder, secretKey}  // secretKey: Uint8Array, the DID's 32-byte Ed25519
-                                                                    // authentication key; or {alg, did, sign(input)} for a callback/HSM
-// ONE PROOF PER VERIFIER. A proof names its audience and burns a nonce that lives in that one
-// verifier, so where the policy draws a committee the others answer 401 "aud does not include this
-// verifier". Pass the function and each drawn verifier gets a fresh proof, on every request:
-const holderProof = holderProofPerVerifier({signer, audience: 'your-verifier-iss', credentials, slotId})
-// A single string — await createHolderProof(verifierUrl, {signer, audience, credentials, slotId}) —
-// is enough only where the deployment has one verifier.
-const kk = createCommitteeSlotClient({
-  chain, holder, credentials, holderProof,
-  clientSigner: ed25519ClientSigner(clientSecretKey),   // optional, 32-byte Ed25519 secret; attributes the request bundle
-  ttlSecs: 300,                                         // compound-token TTL (default 300)
-})
-
-// This is a BLS slot. Signing needs a separate FROST slot and authorization for that slot.
-const messageBytes = new TextEncoder().encode('hello')
-const env = await kk.encrypt(slotId, messageBytes, {identity: new TextEncoder().encode(slotId)})                   // Uint8Array envelope; local, group key read from KeyRegistry
-
-// decrypt takes the envelope's parts, not the bytes: split them with fromBytes —
-// ciphertext is an opaque Ciphertext structure, identity the label bytes (Uint8Array), epoch a bigint
-const {ciphertext, identity, epoch} = fromBytes(env)
-const plaintext = await kk.decrypt(slotId, {                       // Uint8Array
-  ciphertext, identity,
-  ciphertextEpoch: epoch === null ? undefined : Number(epoch),
-  decryptingSet,   // number[]: k..n distinct BLS identifiers asked to run the ceremony
-  blsPeers,        // {id, peerId}[]: those keepers' libp2p peers — ceremony participants, not endpoints
-})
+export async function startApproval(tasra: TasraClient, slotId: `0x${string}`,
+  alice: TasraIdentity, bob: TasraIdentity, creator: TasraWallet,
+  store: ApplicationStore, message: Uint8Array) {
+  const signers = [identityApprover(alice), identityApprover(bob)]
+  await setApprovalPolicy(tasra, slotId, {
+    quorum: 2, approvers: signers.map(signer => signer.publicKey),
+  }, {wallet: creator, store})
+  const slot = await tasra.slots.frost(slotId)
+  const approvals = await slot.approvals({quorum: 2, credentialGated: false})
+  const request = await approvals.create(message)
+  await store.save(`approval-${request.requestId}`, {requestId: request.requestId,
+    coordinator: request.nodeUrl, slotId, message, quorum: 2, credentialGated: false})
+  await request.approve({signer: signers[0]!})
+  await request.approve({signer: signers[1]!})
+  return request.wait({timeoutMs: 120_000})
+}
 ```
 
-`encrypt` needs no holder or credentials (it only reads the public group key), so
-`createCommitteeSlotClient({chain})` alone is a valid encrypt-only client, built
-without any network call; `sign` and `decrypt` need `holder`, `credentials` and
-`holderProof`.
-`decryptingSet` and `blsPeers` are the one input you still supply: they name
-which keepers run the decryption ceremony — `k` to `n` distinct BLS identifiers,
-where `k` is `(await chain.readers.keyRegistry.getKeySlot(slotId)).threshold.k`.
-Take them from the slot's assigned keepers (`resolveSlotKeeperUrls`,
-`tasra-chain`) and each keeper's `/v1/info` (`node_identifier` → `id`,
-`peer_id` → `peerId`); both fields are optional in `NodeInfo`, so skip a keeper
-whose info lacks either. Those on-chain URLs are often in-cluster names, and
-`nodeApi.info` needs them reachable from where you run.
-`VERIFIER_TAG` is `keccak256("verifier")`, the `NodeRegistry` role tag the
-verifier set is discovered by.
+For credential mode, install `{quorum: 2, credentialPolicy: rule}` instead, open
+`slot.approvals({quorum: 2, credentialGated: true})`, and use
+`approveWithCredential(tasra, request, message, {identity, authorize})` for each
+holder. Obtain `authorize` with `tasra.credentials.authorize()` and that holder's
+credential. The SDK computes the canonical payload digest and binds the approval
+to this exact request. No application signing library or manual session glue is needed.
 
-Before the first request, the real slot must have a nonzero verifier committee
-and quorum policy, a provisioned DCQL rule and funded usage. A BLS slot cannot
-perform FROST signing. For a separate signing slot, obtain a fresh holder proof
-bound to that slot; never reuse the encryption slot's proof. Advertised keeper
-and verifier endpoints must be reachable from the application. This client
-does not rewrite internal cluster hostnames into public URLs.
+Keep the quorum and mode pinned independently of status responses. A credential
+policy admitting Alice OR Bob does not itself require two approvals; the separate
+native policy does. Keep private keys out of model-authored arguments and evidence.
 
-## Holder proofs and committees
+Call `request.status()` or bounded `request.wait({timeoutMs, signal})` to observe
+completion. The SDK verifies the final signature against the expected group key
+and original message. Native approval quorum counts people/keys; the keeper
+threshold counts cryptographic shares. Two separate document signatures are a
+third workflow, explained by `tasra-sign-and-decrypt`.
 
-A holder proof is bound to a nonce that lives in one verifier's store and is
-consumed atomically: the verifier that validates it spends the nonce and refuses
-that proof a second time, so one proof authorizes one request at one verifier.
-A committee is several verifiers, so a single string cannot serve it — the ones
-it does not name answer 401 `holder proof rejected: … aud does not include this
-verifier`, and there is no quorum.
+## Recovery and evidence
 
-`holderProofPerVerifier({signer, audience, credentials, slotId})` is the answer
-everywhere holder binding is enforced: it mints a fresh nonce-bound proof for
-each drawn verifier, on every request. `createCommitteeSlotClient` takes it as
-`holderProof`, and so do the lower-level flows (`requestCommitteeToken`,
-`committeeSign`, `committeeDecrypt`) and the one-call `committeeSignRequest`,
-`committeeDecryptRequest` and `ibeDecryptRequest` from `tasra-sdk/committee`.
-A plain string still works where the deployment has a single verifier, and a
-client built around one serves exactly one request.
+Use `approvals.resume(saved.requestId, saved.message)` with the original coordinator
+and pinned policy after a restart. On `OperationOutcomeUnknownError`, reconcile
+status before any further submission. If a create request lost its ID, the current
+API cannot discover it; report the uncertain outcome rather than creating another.
+Cancellation stops local work and does not retract an accepted approval.
 
-## `tasra-sdk/committee`
+Optional operation receipts are not proof merely because they are present. Use
+`verifyOperationReceipt` with authenticated keeper identity and the expected operation
+references, or typed FROST/BLS handles that perform those checks. Native dual-sign
+results do not guarantee an attested receipt on every deployment.
 
-The internals: `selectVerifierCommittee`, `compoundTokenHash`,
-`assembleCompoundToken`, `verifyCompoundToken`, Merkle proof helpers, wire
-codecs, and the orchestration (`committeeAuthorize`, `gatherCommitteeToken`,
-`requestCommitteeToken`, `committeeSign`, `committeeDecrypt`,
-`requestIbeExtractionPartials`). Most consumers never import it;
-`createCommitteeSlotClient` drives all of it. Reach for it when auditing or
-re-implementing the protocol, or to `verifyCompoundToken` offline.
-
-## Common mistakes
-
-- ❌ Passing `dcqlRule` in the config. It is unused: the verifier fetches the
-  slot's rule from a keeper and hash-checks it. Remove it.
-- ❌ Passing node or verifier URLs. There is no way to; they come from chain.
-- ❌ Running against a deployment without an anchored `VerifierSetRegistry`
-  snapshot. The client throws rather than degrade; ask the operator.
-- ❌ One holder proof for several verifiers under `require_holder_binding`, or
-  for a second request. Its nonce is single-use: mint a fresh proof, or use the
-  lower-level flow with `holderProofPerVerifier`.
-- ❌ Passing the envelope bytes to `decrypt`. Split them with `fromBytes` first.
-- ❌ Passing a key string as `signer`. It is a `HolderSigner` object.
-- ❌ Choosing this path for convenience. Choose it when the key must never be
-  reconstructed; otherwise the JWT path is simpler.
-
-## Where to read more
-
-- `node_modules/tasra-sdk/dist/chain/committeeClient.d.ts`,
-  `node_modules/tasra-sdk/dist/committee/index.d.ts`.
+For existing compound-token, verifier discovery and direct committee integrations,
+read [advanced committee operations](references/advanced.md). Direct credential
+committee helpers do not replace request-bound wallet authorization on a deployment
+that requires it. Native multi-approver IBE and task-context enforcement are unsupported.

@@ -1,7 +1,7 @@
-// Vendored ABI. Do not edit by hand — refresh the whole file from the contract
-// artifacts (a manual step; see CONTRIBUTING.md).
+// Contract ABI data is refreshed from the contract build artifacts.
 // Source: contracts/out/PlatformExecutor.sol/PlatformExecutor.json (`abi` field).
 
+/** PlatformExecutor contract interface for platform-authorized contract execution. */
 export const platformExecutorAbi = [
   {
     "type": "constructor",

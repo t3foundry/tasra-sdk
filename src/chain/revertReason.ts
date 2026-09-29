@@ -1,7 +1,7 @@
 // Name a revert that viem could not.
 //
 // viem decodes a custom error only when it knows which ABI the call belongs to. A raw
-// `estimateGas` — what the relay path does before asking a relayer to forward a call — carries no
+// `estimateGas` - what the relay path does before asking a relayer to forward a call - carries no
 // ABI, so viem reports every custom error as "Execution reverted for an unknown reason." and the
 // four bytes that say what actually happened are left inside the error chain. A caller then sees a
 // deployment refuse a write with no way to learn why: `createSlot` on a genesis that requires
@@ -21,7 +21,7 @@ const ERROR_ITEMS = Object.values(CONTRACT_ABIS)
 
 /**
  * The revert data viem kept somewhere in the error's `cause` chain. RPC transports differ on where
- * they put it (`EstimateGasExecutionError` → `ExecutionRevertedError` → `RpcRequestError.data` on
+ * they put it (`EstimateGasExecutionError` to `ExecutionRevertedError` to `RpcRequestError.data` on
  * an Avalanche C-chain node), so walk the chain rather than guess a shape.
  */
 function revertData(error: unknown): Hex | undefined {
@@ -39,6 +39,7 @@ function revertData(error: unknown): Hex | undefined {
  * `CommitRevealRequired()`, or `InsufficientFilteredPool(3, 5)`, for an error carrying revert data
  * this package's ABIs can decode; `undefined` when there is no data, or when it belongs to a
  * contract outside them (a token's own error, say). Never throws.
+ * @param error RPC or viem error whose nested causes may contain revert data.
  */
 export function describeRevert(error: unknown): string | undefined {
   const data = revertData(error)
@@ -54,6 +55,8 @@ export function describeRevert(error: unknown): string | undefined {
 /**
  * `prefix`, then the decoded revert when there is one and viem's message when there is not. Keeps
  * the original as `cause`, so a caller that wants the raw error still has it.
+ * @param error Underlying error carrying any revert details.
+ * @param prefix Context prepended to the readable error message.
  */
 export function revertError(error: unknown, prefix: string): Error {
   const named = describeRevert(error)

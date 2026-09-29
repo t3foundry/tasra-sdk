@@ -2,36 +2,77 @@ import {hashTypedData, recoverAddress, type Address, type Hex} from 'viem'
 import {hashServiceManifest, readApprovedServiceRecord, type ServiceApproval, type ServiceRecord, type ServiceType} from './services.js'
 import type {TasraChainClient} from './client.js'
 
+/**
+ * HTTPS path where a registered service publishes its canonical manifest.
+ */
 export const SERVICE_MANIFEST_PATH = '/.well-known/keykeeper-service.json'
+/**
+ * HTTPS endpoint that signs a registered-service identity challenge.
+ */
 export const SERVICE_IDENTITY_PATH = '/v1/service/identity'
+/**
+ * Maximum accepted service manifest size in bytes.
+ */
 export const SERVICE_MANIFEST_MAX_BYTES = 16_384
+/**
+ * Maximum accepted identity challenge response size in bytes.
+ */
 export const SERVICE_IDENTITY_MAX_BYTES = 2_048
+/**
+ * Maximum accepted identity challenge validity window in seconds.
+ */
 export const SERVICE_CHALLENGE_SECONDS = 30
 // Leave five seconds inside the responder acceptance window for ordinary clock differences.
+/**
+ * Challenge lifetime in seconds, leaving room for clock differences.
+ */
 export const SERVICE_CHALLENGE_LIFETIME_SECONDS = 25
+/**
+ * Protocol identifier required in registered-service manifests.
+ */
 export const SERVICE_IDENTITY_PROTOCOL = 'keykeeper-service-identity-v1'
 
+/**
+ * Canonical public metadata binding a service endpoint to its registry identity.
+ */
 export interface ServiceManifest {
+  /** Service manifest encoding version; currently 1. */
   schemaVersion: 1
+  /** Chain on which the service identity is registered. */
   chainId: number
+  /** ServiceRegistry contract holding the approved identity. */
   registry: Address
+  /** 32-byte registered service identifier. */
   serviceId: Hex
+  /** Registered service category: relayer, verifier agent or vault service. */
   serviceType: ServiceType
+  /** Canonical HTTPS service base URL pinned by the manifest. */
   endpoint: string
+  /** Required service identity protocol identifier. */
   protocol: typeof SERVICE_IDENTITY_PROTOCOL
+  /** Unique capability names committed in the service manifest. */
   capabilities: string[]
 }
 
 /** JSON wire shape. Revision is decimal text to preserve all uint64 values in JavaScript. */
 export interface ServiceChallenge {
+  /** Service challenge format version; currently 1. */
   version: 1
+  /** Chain containing the approved service identity. */
   chainId: number
+  /** ServiceRegistry contract for the challenge. */
   registry: Address
+  /** Registered service identity that must answer the challenge. */
   serviceId: Hex
+  /** Approved uint64 registry revision represented as decimal text. */
   revision: string
+  /** Canonical HTTPS endpoint bound into the challenge. */
   endpoint: string
+  /** Approved hash of the canonical service manifest bytes. */
   manifestHash: Hex
+  /** Fresh 32-byte challenge nonce encoded as lowercase hexadecimal. */
   nonce: Hex
+  /** Challenge expiration time in Unix seconds. */
   expiresAt: number
 }
 
@@ -42,7 +83,10 @@ function requireHex(value: unknown, bytes: number): asserts value is Hex {
 }
 function safeInteger(value: number): boolean { return Number.isSafeInteger(value) && value > 0 }
 
-/** Reject aliases instead of signing a URL which another implementation normalizes differently. */
+/**
+ * Reject aliases instead of signing a URL which another implementation normalizes differently.
+ * @param endpoint Canonical HTTPS base URL without credentials, query or fragment.
+ */
 export function validateServiceEndpoint(endpoint: string): URL {
   if (endpoint.length > 512 || !/^https:\/\/[\x21-\x7e]+$/.test(endpoint) || /[%\\?#@]/.test(endpoint)) {
     throw new Error('Service endpoint must be canonical HTTPS without escapes, userinfo, query or fragment')
@@ -55,7 +99,10 @@ export function validateServiceEndpoint(endpoint: string): URL {
   return url
 }
 
-/** Canonical v1 bytes: fixed field order, compact ASCII JSON, one LF. No optional/unknown fields. */
+/**
+ * Canonical v1 bytes: fixed field order, compact ASCII JSON, one LF. No optional/unknown fields.
+ * @param manifest Versioned service metadata to validate and encode canonically.
+ */
 export function encodeServiceManifest(manifest: ServiceManifest): Uint8Array {
   if (manifest.schemaVersion !== 1 || !safeInteger(manifest.chainId) || ![0, 1, 2].includes(manifest.serviceType) || manifest.protocol !== SERVICE_IDENTITY_PROTOCOL) {
     throw new Error('Unsupported service manifest')
@@ -75,6 +122,12 @@ export function encodeServiceManifest(manifest: ServiceManifest): Uint8Array {
   return bytes
 }
 
+/**
+ * Verify exact manifest bytes against the approved hash, canonical encoding and registry record.
+ * @param bytes Exact downloaded service manifest bytes.
+ * @param approval Application-approved service identity and pinned manifest hash.
+ * @param record Registry record whose endpoint and hash must match the manifest.
+ */
 export function verifyServiceManifest(bytes: Uint8Array, approval: ServiceApproval, record: ServiceRecord): ServiceManifest {
   if (bytes.length > SERVICE_MANIFEST_MAX_BYTES || hashServiceManifest(bytes).toLowerCase() !== approval.manifestHash.toLowerCase() || record.manifestHash.toLowerCase() !== approval.manifestHash.toLowerCase()) {
     throw new Error('Service manifest hash mismatch or size exceeded')
@@ -89,6 +142,10 @@ export function verifyServiceManifest(bytes: Uint8Array, approval: ServiceApprov
   return manifest
 }
 
+/**
+ * Build validated EIP-712 data binding a challenge to the approved service revision and endpoint.
+ * @param challenge Challenge binding the service revision, endpoint, nonce and expiry.
+ */
 export function serviceChallengeTypedData(challenge: ServiceChallenge) {
   requireHex(challenge.registry, 20)
   requireHex(challenge.serviceId, 32)
@@ -111,7 +168,10 @@ export function serviceChallengeTypedData(challenge: ServiceChallenge) {
   }
 }
 
-/** Canonical wire encoding accepted by both responder implementations. */
+/**
+ * Canonical wire encoding accepted by both responder implementations.
+ * @param challenge Validated challenge to encode in the protocol wire format.
+ */
 export function encodeServiceChallenge(challenge: ServiceChallenge): Uint8Array {
   serviceChallengeTypedData(challenge)
   const bytes = new TextEncoder().encode(JSON.stringify({
@@ -123,7 +183,10 @@ export function encodeServiceChallenge(challenge: ServiceChallenge): Uint8Array 
   return bytes
 }
 
-/** Call only after enforcing the same limit while receiving the HTTP body. */
+/**
+ * Call only after enforcing the same limit while receiving the HTTP body.
+ * @param bytes UTF-8 challenge JSON bytes to decode and validate.
+ */
 export function parseServiceChallenge(bytes: Uint8Array): ServiceChallenge {
   if (bytes.length > SERVICE_IDENTITY_MAX_BYTES) throw new Error('Service challenge too large')
   const text = new TextDecoder('utf-8', {fatal: true}).decode(bytes)
@@ -133,7 +196,13 @@ export function parseServiceChallenge(bytes: Uint8Array): ServiceChallenge {
   return challenge
 }
 
-/** Responder must validate against its own configured profile before asking its dedicated key to sign. */
+/**
+ * Responder must validate against its own configured profile before asking its dedicated key to sign.
+ * @param challenge Parsed challenge received from the client.
+ * @param approval Approved service identity and revision.
+ * @param endpoint Expected canonical service endpoint.
+ * @param now Current Unix time in seconds used to validate the expiry.
+ */
 export function validateServiceChallenge(challenge: ServiceChallenge, approval: ServiceApproval, endpoint: string, now: number): void {
   serviceChallengeTypedData(challenge)
   if (!Number.isSafeInteger(now) || now < 0 || challenge.expiresAt <= now || challenge.expiresAt - now > SERVICE_CHALLENGE_SECONDS) throw new Error('Service challenge expired or too far ahead')
@@ -142,6 +211,13 @@ export function validateServiceChallenge(challenge: ServiceChallenge, approval: 
   }
 }
 
+/**
+ * Verify the challenge response against the registry authentication key and expected request digest.
+ * @param challenge Expected challenge whose digest must be signed.
+ * @param signature Hex-encoded EIP-712 signature returned by the service.
+ * @param authKey Authentication address pinned by the registry record.
+ * @param now Current Unix time in seconds used to validate the expiry.
+ */
 export async function verifyServiceIdentity(challenge: ServiceChallenge, signature: Hex, authKey: Address, now: number): Promise<void> {
   serviceChallengeTypedData(challenge)
   if (!Number.isSafeInteger(now) || now < 0 || challenge.expiresAt <= now || challenge.expiresAt - now > SERVICE_CHALLENGE_SECONDS) throw new Error('Service challenge expired or too far ahead')
@@ -156,17 +232,31 @@ export async function verifyServiceIdentity(challenge: ServiceChallenge, signatu
  * verified TLS, no redirects/proxies/credentials, body limits and cancellation. Use chain/node in Node.
  * Native browser fetch cannot enforce DNS policy; it is intentionally not a default implementation. */
 export interface ServiceDiscoveryTransport {
+  /** Perform a bounded request using the required destination, TLS and cancellation policy; return response bytes. */
   request(url: string, options: {body?: Uint8Array; maxBytes: number; signal: AbortSignal}): Promise<Uint8Array>
 }
+/**
+ * Approved registry record and canonical manifest authenticated by a fresh endpoint challenge.
+ */
 export interface AuthenticatedService {
+  /** Application-supplied service identity and metadata pins that were checked. */
   approval: ServiceApproval
+  /** Registry record checked during endpoint authentication. */
   record: ServiceRecord
+  /** Canonical service manifest matching the approved hash and registry record. */
   manifest: ServiceManifest
+  /** Chain block used for the final registry record check. */
   blockNumber: bigint
+  /** Expiration of the endpoint authentication challenge in Unix seconds. */
   expiresAt: number
 }
 
-/** Uncached, bounded discovery only. A result is a short-lived observation, not verifier-agent or gas authorization. */
+/**
+ * Uncached, bounded discovery only. A result is a short-lived observation, not verifier-agent or gas authorization.
+ * @param chain Trusted chain reader for the service registry.
+ * @param approved Application-approved service identity, revision and manifest hash.
+ * @param transport Guarded HTTPS transport for manifest and identity requests.
+ */
 export async function authenticateApprovedService(chain: TasraChainClient, approved: ServiceApproval, transport: ServiceDiscoveryTransport): Promise<AuthenticatedService> {
   const approval = Object.freeze({...approved})
   const controller = new AbortController()

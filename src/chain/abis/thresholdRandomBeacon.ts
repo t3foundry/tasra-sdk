@@ -1,7 +1,7 @@
-// Vendored ABI. Do not edit by hand — refresh the whole file from the contract
-// artifacts (a manual step; see CONTRIBUTING.md).
+// Contract ABI data is refreshed from the contract build artifacts.
 // Source: contracts/out/ThresholdRandomBeacon.sol/ThresholdRandomBeacon.json (`abi` field).
 
+/** ThresholdRandomBeacon contract interface for threshold-signed randomness epochs. */
 export const thresholdRandomBeaconAbi = [
   {
     "type": "constructor",

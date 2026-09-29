@@ -1,34 +1,79 @@
-# tasra-sdk
+# Tasra SDK
 
-**Credential-gated encryption and threshold signing for TypeScript applications.**
+Build TypeScript apps that encrypt data and sign transactions through a distributed
+keeper network. Use verifiable credentials to control who can decrypt or sign.
 
-Use Tasra to protect application data, authorize access with verifiable credentials,
-and sign through a distributed keeper network. Tasra is the platform; Keykeeper is
-its threshold key-management implementation.
+**[Start here: learn TASRA step by step](docs/README.md)**
 
-> **Version 0.2.2.** Minor releases may change APIs; patches do not.
+Connect to a network, create your first slot, read and manage it, then add user
+access and sign a message. Continue to complete applications when those basics
+are familiar. Install the latest SDK from npm.
 
 ## Install
 
-```sh
-npm install tasra-sdk
-```
-
-ESM-only; Node ≥22.12 and modern browsers with WebCrypto in a secure context.
-Install the optional `viem` peer only for chain integration:
+Install the latest SDK from npm:
 
 ```sh
-npm install tasra-sdk viem
+npm install tasra-sdk@latest
 ```
 
-The package includes declarations, runnable examples, docs, and agent skills.
+Node.js **22.12+**, ESM, and modern browsers with WebCrypto.
+Wallet and credential adapters are included; no separate application dependency is required.
 [Installation and compatibility](docs/installation.md).
 
-## First result — no network required
+```ts
+import {TasraClient} from 'tasra-sdk/app'
 
-Copy this into `demo.ts`, install `tsx` with `npm install --save-dev tsx`, and run
-`npx tsx demo.ts`. It prints `Hello Tasra`. These are **public demo keys** and must
-never protect real data. This demonstrates local crypto, not network authorization.
+// Use the manifest URL and trusted checksum from the selected tasra-releases pointer.
+const tasra = await TasraClient.fromManifest(manifestUrl, {
+  sha256, coordinator: 'lowest-operator-id',
+})
+console.log(await tasra.check())
+```
+
+The [quickstart](docs/getting-started.md) gives the complete folder, installation,
+configuration, typecheck and run commands. The [application guide](docs/application-api.md) adds a creator wallet and durable
+store, then creates slots with `tasra.slots.create(...)`. It also covers credentials,
+shared accounts, encryption and document signing.
+
+## What do you want to build?
+
+| Your goal | Start here |
+|---|---|
+| Read the registry first (no writes) | [TypeScript quickstart](docs/getting-started.md) |
+| Encrypt data and let credential holders decrypt it | [Encrypted notes app](docs/encrypted-notes.md) |
+| Create a slot for your app | [Create your first slot](docs/create-slot.md) |
+| Pay for slot usage | [Buy TASRA and fund your slot](docs/funding.md) |
+| Store encrypted notes for one authorized holder | [Encrypted notes app](docs/encrypted-notes.md) |
+| Collect Alice's and Bob's document signatures | [Document-signing workflow](docs/document-signing.md) |
+| Require multiple approvers for one signature | [Native approval recipes](docs/native-approvals.md) |
+| Get an Ethereum address and sign transactions | [Shared account app](docs/shared-account.md) |
+| Add a credential wallet or OAuth login | [Authentication APIs](docs/api.md#tasra-sdkoid4vp--credential-wallets-against-the-verifier-agent) |
+| Find an API or solve an error | [SDK reference](docs/reference/README.md) · [Errors](docs/errors.md) |
+
+<a id="which-client-do-i-want"></a>
+
+For client selection, see [Choose a client](docs/api.md#choose-a-client).
+
+A **slot** is a network-managed key with an access rule. Use BLS slots for encryption,
+FROST slots for FROST signatures, and tECDSA slots for Ethereum accounts.
+[All capabilities](docs/capabilities.md) · [Documentation index](docs/README.md).
+
+Deployment addresses and service URLs come from
+[**tasra-releases**](https://github.com/t3-foundry/tasra-releases).
+The [Fuji configuration guide](docs/fuji.md) loads `networks/testnet/current.json`
+and its manifest from one pinned commit, then verifies the checksum. Confirm service support for the intended signing, authorization or decryption
+operation before executing it. A release record does not establish that support.
+
+## Try local encryption without a network
+
+<details>
+<summary>Optional: a complete offline TypeScript example</summary>
+
+Install `tasra-sdk` and `tsx`, save this as `demo.ts`, and run `npx tsx demo.ts`.
+It prints `Hello Tasra`. These are public demo keys; never use them for real data.
+This checks local encryption only. For live authorization, use the
+[encrypted notes app](docs/encrypted-notes.md).
 
 <!-- offline-example -->
 ```ts
@@ -52,134 +97,19 @@ function offlineRoundTrip(): string {
 console.log(offlineRoundTrip()) // Hello Tasra
 ```
 
-Or run the shipped example from your application directory:
+</details>
 
-```sh
-npx tsx node_modules/tasra-sdk/examples/minimal.ts
-```
+## Use with a coding agent
 
-## Choose the custody model
-
-| Model | How decryption works | Revocation boundary |
-|---|---|---|
-| **Threshold custody — start here for credential-gated applications** | Keepers cooperate for each authorized operation; the master key stays split. | Refuses future authorized operations after the deployment's revocation and token-expiry window. Plaintext already received cannot be revoked. |
-| Exportable personal vault | A managed session reconstructs and caches the master key from keeper shards. Requires a slot created with `exportable: true`. | A holder can retain the exported key and decrypt locally afterwards. Revocation cannot take that key back. |
-
-FROST signing and BLS encryption use separate slots. Threshold ECDSA uses a third
-slot mode. Do not call all operations on one slot regardless of its mode.
-The package has [not had an independent cryptographic audit](SECURITY.md#cryptographic-posture).
-
-## First live application
-
-Start with a provisioned, non-exportable BLS slot and a credential issued to your
-holder DID. The application example verifies a pinned deployment manifest, discovers
-keepers from chain, obtains fresh holder proofs for the drawn verifiers, and performs
-an encrypt/decrypt round trip without exporting the master key:
-
-```sh
-npm install tasra-sdk viem
-npm install --save-dev tsx
-# Configure the inputs listed in docs/prerequisites.md first.
-npx tsx node_modules/tasra-sdk/examples/getting-started.ts
-```
-
-For Fuji (43113), get the manifest and checksum from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases):
-`networks/testnet/current.json` points to `deployments/tasra-fuji-v1.json`.
-Pin both files to the same reviewed commit. Obtain enrollment, funding,
-rule-provisioning instructions, compatible versions, and support from the deployment.
-[Full prerequisites and configuration](docs/prerequisites.md).
-
-Slot creation is an **operator setup** example (`examples/provision-slot.ts`),
-separate from the application. It selects direct creation or commit/reveal based on
-the registry, persists the recovery record before submitting, and provisions the rule.
-Metering funding and credential enrollment follow the deployment's instructions.
-
-For threshold signing, use `examples/committee-slot.ts` with a separate FROST slot.
-For exportable personal vaults, use `examples/personal-vault.ts`.
-
-## Managed sessions for exportable vaults
-
-This integration fragment assumes an exportable BLS slot and a renewal token issued
-by your deployment. Use the complete personal-vault example for configuration.
-
-```ts
-import {createTasraClient} from 'tasra-sdk'
-
-const client = createTasraClient({nodes, verifier, identity: holderDid})
-const session = await client.openSession(slotId, {renewalToken})
-try {
-  const encrypted = session.encrypt(new TextEncoder().encode('vault data'))
-  const decrypted = await session.decrypt(encrypted)
-} finally {
-  await client.closeAll()
-}
-```
-
-`encrypt()` is synchronous and local: it uses the session's available public key
-and epoch, and does not refresh credentials or query the network. `decrypt()` and
-signing operations check authentication freshness. Only `{renewalToken}` silently
-renews; other authentication modes require reopening the session after expiry.
-The first decrypt assembles the master key, with reassembly on detected rotation.
-Closing clears the session's owned key buffer; it cannot erase copies retained elsewhere.
-
-## Which client do I want?
-
-| Factory | Entry | Purpose |
-|---|---|---|
-| `createCommitteeSlotClient` | `/chain` | Credential-gated threshold operations; no master-key export. |
-| `createTasraSlotClient` | `/chain` | Chain-discovered managed sessions; local decrypt requires an exportable slot. |
-| `createTasraClient` | main | Managed sessions with explicitly configured service endpoints. |
-| `createTasraChainClient` | `/chain` | Read client used by the chain-discovered clients. |
-| `createTasraWriteClient` | `/chain` | On-chain slot creation, funding, registration, and lifecycle operations. |
-
-Lower-level APIs remain available for envelope crypto, policy evaluation, credentials,
-partial decryption, committee tokens, and signing. [Capability catalogue](docs/capabilities.md).
-
----
-
-## Documentation
-
-| | |
-|---|---|
-| [What you can do](docs/capabilities.md) | The capability catalogue — every major thing the SDK does, and the call that does it |
-| [Prerequisites](docs/prerequisites.md) | What must exist before a session opens |
-| [API surface](docs/api.md) | Every export, grouped by purpose |
-| [Chain](docs/chain.md) | Reads, writes, slot creation, on-chain discovery |
-| [Signing](docs/signing.md) | Threshold ECDSA with ethers, viem, Hardhat |
-| [Errors](docs/errors.md) | The taxonomy, and what is worth retrying |
-| [Architecture](docs/architecture.md) | What the session does underneath |
-| [Glossary](docs/glossary.md) | Slot, k-of-n, MSK, epoch, DKG, DCQL, committee |
-
-[**Full documentation index →**](docs/README.md)
-
----
-
-## Using a coding agent?
-
-The package ships [agent skills](skills/README.md) — one folder per task: getting
-started, creating a slot, credentials, DCQL rules, errors, signing, IBE, chain reads,
-the committee path, OpenID4VP, and obtaining real credentials from a Hovi issuer.
-
-Installing the package does not register them with your agent — see the
-[installation instructions](skills/README.md), and refresh copied skills after every
-SDK upgrade. They are prose, maintained by hand: nothing checks them against the built
-declarations, so treat a skill as documentation of the version it shipped with and
-verify a symbol against `dist/**/*.d.ts` if it does not resolve.
-
----
+The package includes [task-based skills](skills/README.md). Follow their installation
+instructions to register them with your agent, and refresh them after SDK upgrades.
+The same guides and examples are available to developers without an agent.
 
 ## Project
 
-- **Contributing** — [CONTRIBUTING.md](CONTRIBUTING.md): setup, the gate, tests, conformance vectors.
-- **Security** — [SECURITY.md](SECURITY.md). Report vulnerabilities privately; never in a public issue.
-- **Changes** — [CHANGELOG.md](CHANGELOG.md). Pre-1.0: a minor may change API, a patch never does.
-- **Licence** — [Apache-2.0](LICENSE).
+See [migration guidance](docs/consumer-migrations.md) and
+[deployment compatibility](docs/compatibility.md) before upgrading.
+The package has [not had an independent cryptographic audit](SECURITY.md#cryptographic-posture).
 
-```
-the network ──────────────── keepers + verifiers + accountants + contracts, the source of truth
-        ▲ HTTP / JSON-RPC
-tasra-sdk (this repo) ───── a managed Client/Session over product-agnostic primitives
-        ▲ composed by
-your product ─────────────── a messaging app, a vault, a signer, an explorer — anything
-```
+[Contributing](https://github.com/t3-foundry/tasra-sdk/blob/develop/CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·
+[Security](SECURITY.md) · [Apache-2.0 license](LICENSE)

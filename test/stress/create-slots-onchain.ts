@@ -27,7 +27,7 @@ import {promisify} from 'node:util'
 import {createPublicClient, http, type Hex} from 'viem'
 import {WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
 import {Suite, metric} from '../fleet/_assert.ts'
-import {discoverCommittee, gate, loadFleetConfig, mintLocalJwt, provisionRule} from '../fleet/_fleet.ts'
+import {discoverCommittee, gate, keeperSlotN, loadFleetConfig, mintLocalJwt, provisionRule} from '../fleet/_fleet.ts'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.ts'
 import {requireAddress} from '../../src/chain/deployments.ts'
 
@@ -62,6 +62,9 @@ const CONC = Number(process.env.KK_STRESS_CONC || 4)
 const MODE = (process.env.KK_STRESS_MODE || 'mix') as 'mix' | 'frost' | 'bls'
 const K = Number(process.env.KK_K || 2)
 const N = Number(process.env.KK_N || 3)
+// ⚠ The FROST branch below needs the keeper count the REGISTRY can seat, not the count that
+//   answers HTTP — a healthy-but-inactive keeper reverts the create. See keeperSlotN.
+const KEEPER_N = (await keeperSlotN(cfg)).n
 const PROTECT = true
 const jwt = mintLocalJwt(cfg) // admin scope → provisions the DCQL rule (ADR-0025)
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -92,7 +95,7 @@ async function submitCreate(i: number): Promise<{slot: string; mode: string; rul
   // count or its DKG is rejected ("participants (N) != threshold.n") and the
   // slot sits forever pending. BLS respects the drawn k-of-n committee, so it
   // honours the requested N.
-  const n = mode === 'frost' ? cfg.nodeUrls.length : N
+  const n = mode === 'frost' ? KEEPER_N : N
   const sub = PROTECT ? 'protect' : 'create'
   const args = [
     'slot', sub,

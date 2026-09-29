@@ -5,7 +5,7 @@ name: Release
 # Publishing uses npm "trusted publishing": an OIDC token minted for this workflow,
 # so no NPM_TOKEN is stored anywhere. That binding has to exist on npmjs.com first —
 # package `tasra-sdk` → repository t3-foundry/tasra-sdk → workflow `release.yml`.
-# Until it does, cut releases by hand (docs/RELEASING.md, "Manual publish").
+# Until configured, releases require an authorized manual publish.
 
 on:
   push:
@@ -35,25 +35,19 @@ jobs:
       # `prepare` builds dist/ during install.
       - run: npm ci
 
-      # The tag must name the version in package.json — a stray tag must not publish
-      # whatever happens to be on the branch. A published version is immutable, so
-      # this check is the last thing standing between a typo and a permanent mistake.
-      - name: Check tag matches package.json version
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          pkg="$(node -p 'require("./package.json").version')"
-          if [ "$tag" != "$pkg" ]; then
-            echo "tag v$tag does not match package.json version $pkg" >&2
-            exit 1
-          fi
+      # Match the Git tag to package.json and choose the npm distribution tag.
+      # Prereleases stay on `next`; stable versions advance `latest`.
+      - name: Check release tag
+        id: release_tag
+        run: node scripts/release-tag.mjs
 
       # Repository gate; live deployment acceptance is recorded separately.
-      - run: npm run ci
+      - run: npm run verify
 
       - run: npx playwright install --with-deps chromium firefox webkit
-      - run: npm run verify:consumers
+      - run: npm run verify -- --consumers
 
       # `--provenance` attaches a signed attestation linking this tarball to this
       # commit and workflow run, which npm shows on the package page. It requires a
       # public repository — npm cannot attest a publish from a private one.
-      - run: npm publish --provenance --access public
+      - run: npm publish --provenance --access public --tag "${{ steps.release_tag.outputs.npm_tag }}"

@@ -5,7 +5,7 @@
 // and the chain reads in ../chain/client.ts. This module is the glue that turns them into a
 // one-call flow: read the per-request randomness + the slot's verifier-committee policy from
 // chain, gather a quorum of attributable verifier signatures, assemble the compound token, and
-// — when the full verifier set is known and an anchored snapshot matches — build the trustless
+// - when the full verifier set is known and an anchored snapshot matches - build the trustless
 // verifier-set inclusion proofs the keeper checks against `VerifierSetRegistry`.
 //
 // The chain reads are injected (`CommitteeChainReads`) so this works with the SDK chain client
@@ -41,19 +41,19 @@ import type {FrostSignResult} from '../signing/frost.js'
 /**
  * client request signature. The client (== the credential holder) proves it authorized
  * this exact request by signing `clientBindingHash(slotId, tokenHash)`. Supply an ed25519 signer
- * (the holder's authentication key) — the keeper (hot path) and the accountant (audit) verify it.
+ * (the holder's authentication key) - the keeper (hot path) and the accountant (audit) verify it.
  */
 export interface ClientSigner {
   /** 32-byte ed25519 public key. */
   publicKey: Uint8Array
-  /** Sign the 32-byte client-binding hash → 64-byte ed25519 signature. */
+  /** Sign the 32-byte client-binding hash to 64-byte ed25519 signature. */
   sign(bindingHash: Uint8Array): Uint8Array | Promise<Uint8Array>
 }
 
 /**
- * A holder proof minted PER VERIFIER — see {@link holderProofPerVerifier}.
+ * Callback that mints a separate holder proof for each verifier.
  *
- * ⚠ A single proof cannot serve a committee: it is bound to a nonce that lives in ONE
+ *  A single proof cannot serve a committee: it is bound to a nonce that lives in ONE
  * verifier's store, consumed atomically, so the first verifier to answer spends it and the
  * rest refuse (401) under `require_holder_binding`. Pass a function instead of a string and
  * the gather asks each candidate verifier for its own nonce.
@@ -65,6 +65,8 @@ export type HolderProofPerVerifier = (verifier: CommitteeVerifier) => Promise<st
  * with the holder key over the same credentials + slot, hand it back for that verifier only.
  * Pass the result as `holderProof` to {@link requestCommitteeToken} (or the one-call
  * helpers built on it).
+ *
+ * @param opts - Holder signer, credentials, audience and optional operation binding.
  */
 export function holderProofPerVerifier(opts: {
   signer: HolderSigner
@@ -86,7 +88,11 @@ export function holderProofPerVerifier(opts: {
     })
 }
 
-/** A {@link ClientSigner} from a 32-byte ed25519 secret key (the common `did:key` holder). */
+/**
+ * A {@link ClientSigner} from a 32-byte ed25519 secret key (the common `did:key` holder).
+ *
+ * @param secretKey - 32-byte Ed25519 secret seed used to sign client request bindings.
+ */
 export function ed25519ClientSigner(secretKey: Uint8Array): ClientSigner {
   return {
     publicKey: ed25519.getPublicKey(secretKey),
@@ -105,6 +111,7 @@ function toBytes32(x: `0x${string}` | Uint8Array): Uint8Array {
 /** One member of the active verifier set. `operator`+`pubkey` are needed only to build the
  *  trustless snapshot proofs; `index`+`url` alone suffice for the keeper's configured-set path. */
 export interface CommitteeVerifier {
+  /** Zero-based verifier registry index. */
   index: number
   /** Verifier HTTP base URL. */
   url: string
@@ -121,16 +128,20 @@ export interface CommitteeChainReads {
   seed(): Promise<`0x${string}` | Uint8Array>
   /** Current beacon epoch. */
   epoch(): Promise<bigint | number>
-  /** Seed of a past epoch (`ThresholdRandomBeacon.seedAt`) — needed for `epochLag > 0`. */
+  /** Seed of a past epoch (`ThresholdRandomBeacon.seedAt`) - needed for `epochLag > 0`. */
   seedAt?(epoch: bigint): Promise<`0x${string}` | Uint8Array>
   /** The slot's `[committee, quorum]` verifier policy (both `uint16`). */
   verifierPolicy(slotId: `0x${string}`): Promise<readonly [number, number]>
-  /** Optional anchored verifier-set snapshot `{root, size}` at an epoch — enables trustless
+  /** Optional anchored verifier-set snapshot `{root, size}` at an epoch - enables trustless
    *  proofs. Return `null` when none is anchored. */
   snapshot?(epoch: bigint): Promise<{root: `0x${string}` | Uint8Array; size: number} | null>
 }
 
-/** Adapt the SDK chain client's `readers` into {@link CommitteeChainReads}. */
+/**
+ * Adapt the SDK chain client's `readers` into {@link CommitteeChainReads}.
+ *
+ * @param readers - Chain reader methods for the beacon, slot verifier policy and optional verifier snapshots.
+ */
 export function committeeChainReadsFromClient(readers: {
   beacon: {seed(): Promise<unknown>; epoch(): Promise<unknown>; seedAt?(epoch: bigint): Promise<unknown>}
   keyRegistry: {verifierPolicy(id: `0x${string}`): Promise<readonly [number, number]>}
@@ -157,12 +168,14 @@ export function committeeChainReadsFromClient(readers: {
   }
 }
 
+/** Chain reads, verifier directory, credential presentation and optional request-signing context. */
 export interface RequestCommitteeTokenOpts {
+  /** Reader methods for the beacon and slot verifier policy. */
   chain: CommitteeChainReads
   /** Pin the draw to `latest - epochLag` (0 or 1). 1 = the previous epoch, always anchored: no wait for the accountants. */
   epochLag?: number
-  /** The active verifier set (index→url; add operator+pubkey to enable trustless proofs).
-   *  Asking the whole set is fine — non-drawn verifiers reply 403 and are skipped. */
+  /** The active verifier set (index to URL; add operator+pubkey to enable trustless proofs).
+   *  Asking the whole set is fine - non-drawn verifiers reply 403 and are skipped. */
   verifiers: CommitteeVerifier[]
   /** 0x-prefixed 32-byte slot id. */
   slotId: string
@@ -170,73 +183,58 @@ export interface RequestCommitteeTokenOpts {
   holder: string
   /** Compact-JWS verifiable credentials. */
   credentials: string[]
-  /**
-   * Holder proof-of-possession. Required by default — it is what stops a stolen
-   * credential being replayed by someone who did not earn it.
-   *
-   * ⚠ Optional only because the SERVER makes it optional: `holder_proof` is an
-   * `Option` and a verifier with `require_holder_binding = false` accepts the
-   * request without one. A client that refuses what the server accepts is the
-   * same defect as one that demands a field the server ignores — it makes a
-   * valid deployment unreachable. The opt-out is explicit so it cannot happen by
-   * forgetting to pass a value.
-   */
+  /** Proof of holder-key possession. Supply a per-verifier callback when each verifier has its own nonce store. Omitting it requires allowNoHolderProof and compatible verifier policy. */
   holderProof?: string | HolderProofPerVerifier
   /** Send no holder proof. Only valid against `require_holder_binding = false`. */
   allowNoHolderProof?: boolean
-  /** Token type — default `'JWT'`. */
+  /** Token type - default `'JWT'`. */
   tokenType?: TokenType
-  /** Token TTL in seconds — default 300. */
+  /** Token TTL in seconds - default 300. */
   ttlSecs?: number
   /** Override "now" (unix seconds), mainly for tests. */
   nowSecs?: number
   /** sign the request bundle with the holder's key so the keeper + audit can verify
    *  the user authorized this operation. Omit to skip (keeper accepts unless it requires it). */
   clientSigner?: ClientSigner
-  /**
-   * The requested IBE identity, for an identity-scoped operation ONLY (maps
-   * to the wire field `identity`). The committee evaluates the slot's scope binding
-   * against it and the token carries `identity_hash = keccak256(identity)` — a quorum
-   * attests THIS identity, keepers refuse the token on every identity-blind endpoint,
-   * and the extraction endpoint enforces the hash binding. Omit for sign/decrypt.
-   *
-   * ⚠ Named `scopedIdentity`, deliberately: `CommitteeDecryptRequestOpts.identity` is
-   * the KEM's SENDER identity (AEAD associated data) — an unrelated concept that must
-   * never be confused with the WHICH-gate binding.
-   */
+  /** Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field. */
   scopedIdentity?: string
 }
 
+/** Assembled compound token, committee draw and optional proofs and client signature. */
 export interface CommitteeTokenResult {
+  /** Compound committee authorization token. */
   token: CompoundTokenWire
+  /** Number of verifiers selected for the committee. */
   committee: number
+  /** Minimum required verifier signatures. */
   quorum: number
+  /** Number of entries in the verifier registry. */
   registrySize: number
+  /** Beacon seed used for committee selection. */
   seed: Uint8Array
+  /** Beacon epoch used for the verifier committee draw. */
   epoch: number
   /** Trustless snapshot-inclusion proofs for the token's signers, when derivable; else
    *  `undefined` (the keeper then uses its configured verifier set). */
   verifierProofs?: VerifierProof[]
-  /** client request signature, when a `clientSigner` was supplied. */
+  /** Ed25519 client public key corresponding to clientSignature, when a client signer was supplied. */
   clientPubkey?: Uint8Array
+  /** Client signature over the slot and compound token binding. */
   clientSignature?: Uint8Array
-  /**
-   * The slot's `ruleVersion` the committee evaluated against, as
-   * reported by the verifiers. `undefined` from a verifier predating it.
-   *
-   * ⚠ Diagnostic, not a gate — the keeper binds `ruleHash` to its own rule hash,
-   * so a token minted under a superseded policy is refused there
-   * regardless. What this buys is being able to SAY that is what happened,
-   * rather than leaving a refusal indistinguishable from an unauthorized one.
-   */
+  /** Policy version reported by the verifiers, when available. Diagnostic only; the keeper enforces the token rule hash against its current rule. */
   ruleVersion?: number
 }
 
 /**
  * Build snapshot-inclusion proofs for the token's `signerIndexes` from the full ordered verifier
  * directory. Returns `undefined` (never a wrong proof) when the directory is incomplete, a key is
- * missing, or the reconstructed root disagrees with the anchored `snapshotRoot` — so a mismatch
+ * missing, or the reconstructed root disagrees with the anchored `snapshotRoot` - so a mismatch
  * degrades to the keeper's configured-set path rather than shipping a proof the keeper rejects.
+ *
+ * @param verifiers - Complete verifier directory including indices, operators and public keys.
+ * @param registrySize - Expected number of registry entries.
+ * @param signerIndexes - Verifier indices whose inclusion proofs are required.
+ * @param snapshotRoot - Optional independently anchored verifier snapshot root.
  */
 export function buildVerifierProofs(
   verifiers: CommitteeVerifier[],
@@ -276,7 +274,7 @@ export function buildVerifierProofs(
  * (the seed pin). The accountants anchor an epoch's verifier-set snapshot one settle
  * tick after the epoch starts, so a token pinned to `latest` right after a flip is refused by
  * the keeper ("no verifier-set snapshot anchored at epoch N") until then; `epochLag: 1` pins
- * the draw to the previous epoch, which is always anchored — no wait, same security bound.
+ * the draw to the previous epoch, which is always anchored - no wait, same security bound.
  */
 export async function pinnedDraw(chain: Pick<CommitteeChainReads, 'seed' | 'seedAt'>, latest: number, epochLag = 0): Promise<{epoch: number; seed: Uint8Array}> {
   const lag = Math.max(0, Math.min(1, Math.floor(epochLag)))
@@ -286,6 +284,11 @@ export async function pinnedDraw(chain: Pick<CommitteeChainReads, 'seed' | 'seed
   return {epoch, seed: toBytes32(await chain.seedAt(BigInt(epoch)))}
 }
 
+/**
+ * Read the verifier committee draw, request authorization and assemble the quorum token with available membership proofs.
+ *
+ * @param opts - Chain draw, verifier directory, credentials and holder authorization.
+ */
 export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Promise<CommitteeTokenResult> {
   const slotId = opts.slotId as `0x${string}`
   if (!opts.holderProof && !opts.allowNoHolderProof) {
@@ -303,8 +306,8 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
     throw new Error(`slot ${slotId.slice(0, 10)}… has no verifierPolicy (committee path not wired); use the JWT path`)
   }
 
-  // Registry size (the committee-draw modulus): the anchored snapshot's size when available —
-  // it's the value the verifier/keeper agree on — else the directory length.
+  // Registry size (the committee-draw modulus): the anchored snapshot's size when available -
+  // it's the value the verifier/keeper agree on - else the directory length.
   let registrySize = opts.verifiers.length
   let snapshotRoot: Uint8Array | undefined
   if (opts.chain.snapshot) {
@@ -322,8 +325,8 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
   const iat = now - 5
   const exp = now + (opts.ttlSecs ?? 300)
 
-  // Taken from the REFERENCE reply — the one whose ruleHash built the
-  // token — so the version and the hash describe one evaluation. Verifiers that
+  // Taken from the REFERENCE reply - the one whose ruleHash built the
+  // token - so the version and the hash describe one evaluation. Verifiers that
   // straddle an activation legitimately disagree, and pairing a version from one
   // with a hash from another would describe a state that never existed.
   let ruleVersion: number | undefined
@@ -376,15 +379,23 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
 /** Operation-specific fields for {@link committeeSignRequest} (everything `committeeSign` needs
  *  except the token, which this resolves). */
 export interface CommitteeSignRequestOpts extends RequestCommitteeTokenOpts {
+  /** Keeper HTTP base URL. */
   nodeUrl: string
+  /** Raw message bytes to sign. */
   message: Uint8Array
+  /** Optional threshold participant identifiers for the signing ceremony. */
   signingSet?: number[]
+  /** Optional Ed25519 owner signature over the canonical operation request. */
   userSignature?: Uint8Array
   /** The keeper this request targets (anti-Sybil). Defaults to letting the node accept it. */
   targetKeykeeper?: string
 }
 
-/** One-call committee-authorized threshold sign: resolve token (+proofs) then POST to the keeper. */
+/**
+ * One-call committee-authorized threshold sign: resolve token (+proofs) then POST to the keeper.
+ *
+ * @param opts - Token request settings, keeper endpoint and message to sign.
+ */
 export async function committeeSignRequest(opts: CommitteeSignRequestOpts): Promise<FrostSignResult> {
   const {token, verifierProofs, clientPubkey, clientSignature} = await requestCommitteeToken(opts)
   const signOpts: CommitteeSignOpts = {
@@ -403,17 +414,29 @@ export async function committeeSignRequest(opts: CommitteeSignRequestOpts): Prom
 
 /** Operation-specific fields for {@link committeeDecryptRequest}. */
 export interface CommitteeDecryptRequestOpts extends RequestCommitteeTokenOpts {
+  /** Keeper HTTP base URL. */
   nodeUrl: string
+  /** Ciphertext to decrypt. */
   ciphertext: CommitteeDecryptOpts['ciphertext']
+  /** Original encryption associated data. */
   identity: Uint8Array
+  /** Threshold participant identifiers for the decryption ceremony. */
   decryptingSet: number[]
+  /** Peer identifiers for the selected BLS participants. */
   blsPeers: CommitteeDecryptOpts['blsPeers']
+  /** Optional Ed25519 owner signature over the canonical operation request. */
   userSignature?: Uint8Array
+  /** Expected key epoch of the ciphertext; used to detect rotation. */
   ciphertextEpoch?: number
+  /** Optional 20-byte operator address to pin the intended keeper. */
   targetKeykeeper?: string
 }
 
-/** One-call committee-authorized threshold decrypt. */
+/**
+ * One-call committee-authorized threshold decrypt.
+ *
+ * @param opts - Token request settings, keeper endpoint, ciphertext and associated data.
+ */
 export async function committeeDecryptRequest(opts: CommitteeDecryptRequestOpts): Promise<Uint8Array> {
   const {token, verifierProofs, clientPubkey, clientSignature} = await requestCommitteeToken(opts)
   const decOpts: CommitteeDecryptOpts = {
@@ -433,28 +456,31 @@ export async function committeeDecryptRequest(opts: CommitteeDecryptRequestOpts)
   return committeeDecrypt(decOpts)
 }
 
-// ─── identity-key extraction (one-call) ────────────────────────────
+// identity-key extraction (one-call)
 
 /** Operation-specific fields for {@link ibeDecryptRequest} / {@link ibeExtractRequest}. */
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
-  /** Base URLs of ≥ k keeper nodes holding the slot's BLS shards. */
+  /** Base URLs of at least k keeper nodes holding the slot's BLS shards. */
   nodeUrls: string[]
-  /** The IBE identity to extract for — becomes the token's `scopedIdentity`, so a quorum
+  /** The IBE identity to extract for - becomes the token's `scopedIdentity`, so a quorum
    *  attests exactly this identity and the keepers enforce the hash binding. */
   identity: string
   /** Owner signature over the identity-bound extract marker, when the slot has one. */
   userSignature?: Uint8Array
+  /** Expected key epoch of the ciphertext; used to detect rotation. */
   ciphertextEpoch?: number
 }
 
 /**
  * Resolve an identity-scoped committee token, fan out for extraction partials, verify
- * each (identifiable abort — the error names the node), and return `sk_ID` (48-byte
+ * each (identifiable abort - the error names the node), and return `sk_ID` (48-byte
  * compressed G1).
  *
- * ⚠ CUSTODY OPT-IN: holding `sk_ID` is a durable capability over every past and future
+ *  CUSTODY OPT-IN: holding `sk_ID` is a durable capability over every past and future
  * ciphertext to this identity. Prefer {@link ibeDecryptRequest}, which combines,
  * decrypts and drops it. Zeroize the returned bytes when done.
+ *
+ * @param opts - Authorization context, keeper endpoints and requested identity.
  */
 export async function ibeExtractRequest(opts: IbeExtractRequestOpts): Promise<Uint8Array> {
   const {partials, identityBytes} = await gatherIbePartials(opts)
@@ -467,8 +493,10 @@ export async function ibeExtractRequest(opts: IbeExtractRequestOpts): Promise<Ui
 }
 
 /**
- * One-call identity-scoped decrypt (the read path): token → extraction fan-out
- * → verify each partial → combine → decrypt. The intermediate `sk_ID` never surfaces.
+ * One-call identity-scoped decrypt (the read path): token to extraction fan-out
+ * to verify each partial to combine to decrypt. The intermediate `sk_ID` never surfaces.
+ *
+ * @param opts - Authorization context, identity and IBE ciphertext to decrypt.
  */
 export async function ibeDecryptRequest(
   opts: IbeExtractRequestOpts & {ciphertext: IbeCiphertext},

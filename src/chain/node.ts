@@ -20,13 +20,19 @@ for (const [address, prefix] of [['2001::', 23], ['2001:db8::', 32], ['2002::', 
 const globalV6 = new BlockList()
 globalV6.addSubnet('2000::', 3, 'ipv6')
 
-/** Conservative globally routable destinations; special-purpose exceptions require explicit policy. */
+/**
+ * Conservative globally routable destinations; special-purpose exceptions require explicit policy.
+ * @param address IPv4 or IPv6 address resolved for the service destination.
+ */
 export function isPublicServiceAddress(address: string): boolean {
   const family = isIP(address)
   return family === 4 ? !denied.check(address, 'ipv4')
     : family === 6 && globalV6.check(address, 'ipv6') && !denied.check(address, 'ipv6')
 }
 
+/**
+ * Caller-approved destination and certificate policy for Node.js service transports.
+ */
 export interface ServiceTransportPolicy {
   /** Exact, canonical hostnames/IPs only. Application configuration, never downloaded metadata. */
   allowedPrivateHosts?: readonly string[]
@@ -34,30 +40,47 @@ export interface ServiceTransportPolicy {
   ca?: string | Buffer | (string | Buffer)[]
 }
 
+/**
+ * Create a bounded HTTPS transport that validates destinations at socket connection time.
+ * @param policy Explicit private-host exceptions and additional trusted certificate roots.
+ */
 export function createNodeServiceDiscoveryTransport(policy: ServiceTransportPolicy = {}): ServiceDiscoveryTransport {
   return guardedTransport(policy, 'discovery')
 }
 
-/** Public readiness and relay-policy observations, with the same socket/TLS policy. */
+/**
+ * Public readiness and relay-policy observations, with the same socket/TLS policy.
+ * @param policy Explicit private-host exceptions and additional trusted certificate roots.
+ */
 export function createNodeServiceStatusTransport(policy: ServiceTransportPolicy = {}): ServiceDiscoveryTransport {
   return guardedTransport(policy, 'status')
 }
 
-/** Discovery and relay traffic use the same socket-bound destination and TLS policy. */
+/**
+ * Discovery and relay traffic use the same socket-bound destination and TLS policy.
+ * @param policy Explicit private-host exceptions and additional trusted certificate roots.
+ */
 export function createNodeRelayTransport(policy: ServiceTransportPolicy = {}): RelayTransport {
   const discovery = guardedTransport(policy, 'discovery')
   const relay = guardedTransport(policy, 'relay')
   return {...discovery, relayRequest: relay.request}
 }
 
-/** Session secrets use this same guarded connection and can only travel to a session GET. */
+/**
+ * Session secrets use this same guarded connection and can only travel to a session GET.
+ * @param policy Explicit private-host exceptions and additional trusted certificate roots.
+ */
 export function createNodeAgentTransport(policy: ServiceTransportPolicy = {}): AgentTransport {
   const discovery = guardedTransport(policy, 'discovery')
   const agent = guardedTransport(policy, 'agent')
   return {...discovery, agentRequest: agent.request}
 }
 
-/** Wallet protocol requests restricted to the selected session and approved DID, with socket checks. */
+/**
+ * Wallet protocol requests restricted to the selected session and approved DID, with socket checks.
+ * @param session Authenticated session whose request, response and DID URLs are allowed.
+ * @param policy Explicit private-host exceptions and additional trusted certificate roots.
+ */
 export function createNodeAgentWalletFetch(session: Pick<RegisteredAgentSession, 'profile' | 'requestUri' | 'sessionId'>, policy: ServiceTransportPolicy = {}): typeof fetch {
   const did = session.profile.clientId.replace(/^decentralized_identifier:/, '')
   if (!/^[0-9a-f]{64}$/.test(session.sessionId)) throw new Error('Invalid wallet session ID')

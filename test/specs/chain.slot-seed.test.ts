@@ -106,7 +106,7 @@ function writer(relay: boolean) {
     addresses: {KeyRegistry: address, ThresholdRandomBeacon: address, ServiceRegistry: address},
     ...(relay ? {relay: {forwarder: address, approvals: [{chainId: 31337, registry: address, serviceId: hash('02'), owner: address, serviceType: 0, revision: 1n, manifestHash: hash('03')}], transport: {request: vi.fn(), relayRequest: vi.fn()}}} : {}),
   })
-  return {w, direct, args: {slotId: hash('04'), salt: hash('05'), ruleSalt: hash('06'), dcqlRule: 'verify:demo', k: 2, n: 3, mode: 'bls' as const}}
+  return {w, direct, args: {slotId: hash('04'), salt: hash('05'), ruleSalt: hash('06'), rule: 'verify:demo', k: 2, n: 3, mode: 'bls' as const}}
 }
 
 beforeEach(() => {

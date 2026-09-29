@@ -23,7 +23,7 @@ export {
 } from './holderProof.js'
 export type {HolderSigner, HolderNonce, BuildHolderProofOpts} from './holderProof.js'
 
-// ─── OID4VP-DCQL — the ONLY rule language ──────────────────────────
+// OID4VP-DCQL - the ONLY rule language
 export {
   validate,
   evaluate,
@@ -56,7 +56,7 @@ export type {
   Selection,
 } from './oid4vp.js'
 
-// ─── DPoP (RFC 9449) ────────────────────────────────────────────
+// DPoP (RFC 9449)
 export {
   createDpopKey,
   auth0DpopSigner,
@@ -66,5 +66,5 @@ export {
 } from './dpop.js'
 export type {DpopSigner, DpopKey} from './dpop.js'
 
-// ─── identity-scope matcher ───────────────────────────────────────
+// identity-scope matcher
 export {scopeCovers, MAX_IDENTITY_LEN} from './identityScope.js'

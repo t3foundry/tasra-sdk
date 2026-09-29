@@ -30,7 +30,7 @@ try {
   const funder = createTasraWriteClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, privateKey: cfg.deployPk as `0x${string}`, chainId: cfg.chainId})
   await funder.sendEth(client.address, parseEther('1'))
 }
-const {slotId, ruleSalt} = await client.createSlotCommitReveal({dcqlRule: SLOT_DCQL_RULE, k: 2, n: 3, mode: 'bls', tags: ['keykeeper'], onEpoch: (c, t) => s.info(`beacon ${c}→${t}`)})
+const {slotId, ruleSalt} = await client.createSlotCommitReveal({rule: SLOT_DCQL_RULE, k: 2, n: 3, mode: 'bls', tags: ['keykeeper'], onEpoch: (c, t) => s.info(`beacon ${c}→${t}`)})
 s.ok('client created a BLS slot (commit-reveal)', /^0x[0-9a-f]{64}$/.test(slotId))
 
 let committee: string[] = []

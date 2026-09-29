@@ -1,7 +1,7 @@
-// BLS threshold decryption — HTTP clients for the two node paths:
-//   • custody        (POST /v1/decrypt)         — node coordinates, returns plaintext
-//   • shard-delivery (POST /v1/shards/decrypt)  — CLIENT fans out to k nodes and
-//                                                 combines partial shares locally
+// BLS threshold decryption - HTTP clients for the two node paths:
+// - custody        (POST /v1/decrypt)         - node coordinates, returns plaintext
+// - shard-delivery (POST /v1/shards/decrypt)  - CLIENT fans out to k nodes and
+// combines partial shares locally
 //
 // Ciphertext fields are base64 (standard, padded); key ids are bare hex; the
 // `identity` AAD is sent as a UTF-8 string (the node uses its bytes as the AEAD
@@ -36,18 +36,25 @@ async function nodePost<T>(
   return res.json() as Promise<T>
 }
 
-// ─── custody decrypt (POST /v1/decrypt) ────────────────────────────────────────
+// custody decrypt (POST /v1/decrypt)
 
 /** A node's BLS identifier + its libp2p PeerId, for the custody decrypting set. */
 export interface BlsPeer {
+  /** BLS threshold participant identifier. */
   id: number
+  /** Network peer identifier for that participant. */
   peerId: string
 }
 
+/** JWT-authorized group decryption coordinated by one keeper, including participant selection. */
 export interface DecryptCustodyOpts {
+  /** Keeper HTTP base URL. */
   nodeUrl: string
+  /** Compact bearer JWT authorizing the request. */
   jwt: string
+  /** 32-byte slot identifier. */
   slotId: string
+  /** Ciphertext to decrypt. */
   ciphertext: Ciphertext
   /** AEAD additional-authenticated-data (the identity the envelope was bound to). */
   identity: Uint8Array
@@ -59,12 +66,18 @@ export interface DecryptCustodyOpts {
   userSignature?: Uint8Array
   /** Pin the ciphertext epoch; a rotated slot returns 410. */
   ciphertextEpoch?: number
+  /** Optional 20-byte operator address to pin the intended keeper. */
   targetKeykeeper?: string
+  /** Request identifier used to correlate or resume the operation. */
   requestId?: string
 }
 
-/** Decrypt via the custody path: the node runs the whole k-of-n ceremony and
- *  returns the plaintext (one HTTP round-trip). */
+/**
+ * Decrypt via the custody path: the node runs the whole k-of-n ceremony and
+ *  returns the plaintext (one HTTP round-trip).
+ *
+ * @param opts - Keeper endpoint, JWT, ciphertext, associated data and decryption participants.
+ */
 export async function decryptCustody(opts: DecryptCustodyOpts): Promise<Uint8Array> {
   const body: Record<string, unknown> = {
     key_slot_id: strip0x(opts.slotId),
@@ -81,15 +94,21 @@ export async function decryptCustody(opts: DecryptCustodyOpts): Promise<Uint8Arr
   return base64Decode(d.plaintext)
 }
 
-// ─── shard-delivery decrypt (POST /v1/shards/decrypt) ──────────────────────────
+// shard-delivery decrypt (POST /v1/shards/decrypt)
 
+/** Keeper endpoints, JWT and ciphertext for combining partial decryptions in the caller. */
 export interface ShardDecryptOpts {
-  /** Base URLs of ≥ k nodes to fetch partial decryptions from. */
+  /** Base URLs of at least k nodes to fetch partial decryptions from. */
   nodeUrls: string[]
+  /** Compact bearer JWT authorizing the request. */
   jwt: string
+  /** 32-byte slot identifier. */
   slotId: string
+  /** Ciphertext to decrypt. */
   ciphertext: Ciphertext
+  /** Original encryption associated data. */
   identity: Uint8Array
+  /** Expected key epoch of the ciphertext; used to detect rotation. */
   ciphertextEpoch?: number
   /** Pairing-verify each share before combining (identifiable abort). Default false. */
   verifyShares?: boolean
@@ -121,8 +140,12 @@ async function partialDecrypt(
   }
 }
 
-/** Decrypt via the shard-delivery path: fetch a partial decryption from each
- *  node and combine the shares locally (the master key is never assembled). */
+/**
+ * Decrypt via the shard-delivery path: fetch a partial decryption from each
+ *  node and combine the shares locally (the master key is never assembled).
+ *
+ * @param opts - Keeper endpoints, JWT, ciphertext and optional per-share verification.
+ */
 export async function decryptWithShardDelivery(opts: ShardDecryptOpts): Promise<Uint8Array> {
   if (opts.nodeUrls.length === 0) throw new Error('decryptWithShardDelivery: no node URLs')
   const shares = await Promise.all(

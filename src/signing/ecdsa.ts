@@ -1,4 +1,4 @@
-// Threshold ECDSA (secp256k1) signing for EVM EOAs — POST /v1/sign/eoa-digest.
+// Threshold ECDSA (secp256k1) signing for EVM EOAs - POST /v1/sign/eoa-digest.
 // The node coordinates the signing ceremony internally; the client makes one
 // round-trip with a 32-byte prehash digest and gets back Ethereum (r, s, v).
 // The slot must be a `tecdsa`-mode slot.
@@ -15,8 +15,11 @@ import {httpError} from '../errors.js'
 const strip0x = (s: string): string => (s.startsWith('0x') ? s.slice(2) : s)
 const base = (u: string): string => u.replace(/\/$/, '')
 
+/** Keeper endpoint, JWT, slot and 32-byte digest for threshold ECDSA signing. */
 export interface EoaSignOpts {
+  /** Keeper HTTP base URL. */
   nodeUrl: string
+  /** Compact bearer JWT authorizing the request. */
   jwt: string
   /** 0x-prefixed (or bare) bytes32 slot id (must be a tecdsa-mode slot). */
   slotId: string
@@ -26,6 +29,7 @@ export interface EoaSignOpts {
   targetKeykeeper?: string
 }
 
+/** Threshold ECDSA signature components, recovery identifier and signing public key. */
 export interface EoaSignature {
   /** 33-byte compressed secp256k1 group public key (the EOA's pubkey). */
   groupPublicKey: Uint8Array
@@ -40,6 +44,8 @@ export interface EoaSignature {
 /**
  * Threshold-sign a 32-byte digest with a tecdsa slot's key. Returns the raw
  * Ethereum signature components; assemble into a transaction with ethSignatureV().
+ *
+ * @param opts - Keeper endpoint, JWT, slot and 32-byte ECDSA digest.
  */
 export async function signEoaDigest(opts: EoaSignOpts): Promise<EoaSignature> {
   if (opts.digest.length !== 32) {
@@ -72,13 +78,18 @@ export async function signEoaDigest(opts: EoaSignOpts): Promise<EoaSignature> {
   }
 }
 
-/** Map the raw recovery id (0/1) to an Ethereum `v`: legacy 27/28, or EIP-155
- *  (`35 + 2·chainId + yParity`) when a chainId is given. */
+/**
+ * Map the raw recovery id (0/1) to an Ethereum `v`: legacy 27/28, or EIP-155
+ *  (`35 + 2*chainId + yParity`) when a chainId is given.
+ *
+ * @param yParity - Recovery parity, zero or one.
+ * @param chainId - Optional chain identifier for an EIP-155 transaction signature.
+ */
 export function ethSignatureV(yParity: number, chainId?: number): number {
   return chainId === undefined ? 27 + yParity : 35 + 2 * chainId + yParity
 }
 
-// EIP-55 checksum: uppercase each hex nibble whose matching keccak nibble is ≥ 8.
+// EIP-55 checksum: uppercase each hex nibble whose matching keccak nibble is at least 8.
 function toChecksumAddress(addrLowerNoPrefix: string): string {
   const hash = toHex(keccak_256(addrLowerNoPrefix)) // keccak of the lowercase ASCII hex
   let out = ''
@@ -90,13 +101,15 @@ function toChecksumAddress(addrLowerNoPrefix: string): string {
 
 /**
  * Derive the EIP-55 checksummed `0x` Ethereum address of a threshold EOA from its
- * secp256k1 group public key — pass `EoaSignature.groupPublicKey` (33-byte
+ * secp256k1 group public key - pass `EoaSignature.groupPublicKey` (33-byte
  * compressed) or a 65-byte uncompressed key. Pure `@noble` (no ethers/web3): the
- * key is decompressed, keccak-256'd over X‖Y, and the low 20 bytes are checksummed.
+ * key is decompressed, keccak-256'd over X||Y, and the low 20 bytes are checksummed.
  * This is what an ethers `Signer.getAddress()` returns for a Tasra EOA slot.
+ *
+ * @param pubkey - SEC1-encoded secp256k1 public key, compressed or uncompressed.
  */
 export function addressFromEoaPubkey(pubkey: Uint8Array): `0x${string}` {
   const uncompressed = secp256k1.ProjectivePoint.fromHex(pubkey).toRawBytes(false)
-  const addr = toHex(keccak_256(uncompressed.subarray(1)).subarray(12)) // keccak(X‖Y) → last 20B
+  const addr = toHex(keccak_256(uncompressed.subarray(1)).subarray(12)) // keccak(X||Y) to last 20B
   return `0x${toChecksumAddress(addr)}`
 }

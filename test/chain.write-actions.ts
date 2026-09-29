@@ -454,7 +454,7 @@ try {
   {
     const rule = '{"credentials":[{"id":"a","format":"jwt_vc_json","claims":[{"path":["iss"]}]}]}'
     reset()
-    const plain = await client.createSlot({dcqlRule: rule, k: 2, n: 3, mode: 'frost'})
+    const plain = await client.createSlot({rule: rule, k: 2, n: 3, mode: 'frost'})
     eq('createSlot uses the plain filtered entry point', lastTx().data.slice(0, 10), selectorOf('KeyRegistry', 'createKeySlotFiltered'))
     // ⚠ ruleSalt exists NOWHERE else: without it the rule can never be provisioned to a
     // keeper, so it has to come back from the call that generated it.
@@ -464,7 +464,7 @@ try {
 
     reset()
     const withPolicy = await client.createSlot({
-      dcqlRule: rule, k: 2, n: 3, mode: 'frost',
+      rule: rule, k: 2, n: 3, mode: 'frost',
       rulePolicy: {admin: addr(0x41), guardian: addr(0x42), timelockSecs: 60},
     })
     // A policy uses a DIFFERENT entry point, so the common path keeps its long-standing
@@ -473,7 +473,7 @@ try {
     ok('the policy path still returns a salt', !!withPolicy.ruleSalt)
 
     reset()
-    await client.createSlot({dcqlRule: rule, k: 2, n: 3, mode: 'frost', exportable: true})
+    await client.createSlot({rule: rule, k: 2, n: 3, mode: 'frost', exportable: true})
     eq('exportable uses the Exportable entry point', lastTx().data.slice(0, 10), selectorOf('KeyRegistry', 'createKeySlotFilteredExportable'))
 
     // No single entry point does both, so the combination is refused locally rather than
@@ -482,14 +482,14 @@ try {
     await rejectsWith(
       'exportable + rulePolicy is refused, naming both options',
       /`exportable` and `rulePolicy` cannot be combined/,
-      () => client.createSlot({dcqlRule: rule, k: 2, n: 3, mode: 'frost', exportable: true, rulePolicy: {admin: addr(0x41), guardian: addr(0x42), timelockSecs: 60}}),
+      () => client.createSlot({rule: rule, k: 2, n: 3, mode: 'frost', exportable: true, rulePolicy: {admin: addr(0x41), guardian: addr(0x42), timelockSecs: 60}}),
     )
     eq('and nothing was signed for the impossible combination', txs.length, 0)
 
     // Supplied ids are used verbatim — a caller that pre-derived a slot id needs it kept.
     reset()
     const pinned = await client.createSlot({
-      dcqlRule: rule, k: 2, n: 3, mode: 'frost',
+      rule: rule, k: 2, n: 3, mode: 'frost',
       slotId, salt: `0x${'11'.repeat(32)}`, ruleSalt: `0x${'22'.repeat(32)}`,
     })
     eq('a supplied slot id and rule salt are returned unchanged', [pinned.slotId, pinned.ruleSalt], [slotId, `0x${'22'.repeat(32)}`])
@@ -498,7 +498,7 @@ try {
     // The default tag is keccak256("keykeeper") — a wire value, not a label.
     eq('tags default to keccak256("keykeeper")', args?.[7], [keccak256(toHex('keykeeper'))])
     reset()
-    await client.createSlot({dcqlRule: rule, k: 2, n: 3, mode: 'frost', tags: ['verifier']})
+    await client.createSlot({rule: rule, k: 2, n: 3, mode: 'frost', tags: ['verifier']})
     eq('supplied tags are hashed', decodeFunctionData({abi: CONTRACT_ABIS.KeyRegistry as Abi, data: lastTx().data}).args?.[7], [keccak256(toHex('verifier'))])
   }
   {
@@ -510,7 +510,7 @@ try {
     await rejectsWith(
       'CommitRevealRequired is rewritten to name createSlotCommitReveal',
       /requires commit-reveal creation.*use createSlotCommitReveal\(\)/s,
-      () => client.createSlot({dcqlRule: 'any', k: 2, n: 3, mode: 'frost'}),
+      () => client.createSlot({rule: 'any', k: 2, n: 3, mode: 'frost'}),
     )
     reset()
     // Any OTHER revert must pass through unchanged rather than being mislabelled.
@@ -518,7 +518,7 @@ try {
     await rejectsWith(
       'an unrelated revert is not rewritten',
       /SomethingElse/,
-      () => client.createSlot({dcqlRule: 'any', k: 2, n: 3, mode: 'frost'}),
+      () => client.createSlot({rule: 'any', k: 2, n: 3, mode: 'frost'}),
     )
     reset()
   }
@@ -565,7 +565,7 @@ try {
     /** [label, call, must it be relayed?] */
     const routes: Array<[string, () => Promise<unknown>, boolean]> = [
       // Forwarded: creator/`_msgSender()`-gated writes.
-      ['createSlot', () => relayClient.createSlot({dcqlRule: rule, k: 2, n: 3, mode: 'frost'}), true],
+      ['createSlot', () => relayClient.createSlot({rule: rule, k: 2, n: 3, mode: 'frost'}), true],
       ['renewSlot', () => relayClient.renewSlot(slotId), true],
       ['setVerifierPolicy', () => relayClient.setVerifierPolicy(slotId, 5, 3), true],
       ['buyTsra', () => relayClient.buyTsra(100n, 90n), true],
@@ -712,7 +712,7 @@ try {
     })
 
     const res = await client.createSlotCommitReveal({
-      dcqlRule: 'any',
+      rule: 'any',
       k: 2,
       n: 3,
       mode: 'frost',
@@ -742,12 +742,12 @@ try {
     await rejectsWith(
       'commit-reveal refuses an exportable slot',
       /does not support raw-export slots/,
-      () => client.createSlotCommitReveal({dcqlRule: 'any', k: 2, n: 3, mode: 'frost', exportable: true}),
+      () => client.createSlotCommitReveal({rule: 'any', k: 2, n: 3, mode: 'frost', exportable: true}),
     )
     await rejectsWith(
       'commit-reveal validates its wait bound',
       /Invalid commit-reveal wait/,
-      () => client.createSlotCommitReveal({dcqlRule: 'any', k: 2, n: 3, mode: 'frost', maxWaitMs: 0}),
+      () => client.createSlotCommitReveal({rule: 'any', k: 2, n: 3, mode: 'frost', maxWaitMs: 0}),
     )
     eq('neither refusal signed anything', txs.length, 0)
 
@@ -771,7 +771,7 @@ try {
     })
     callResults['KeyRegistry.slotCommits'] = [6n, 20n, account.address, false]
     const nudged = await client.createSlotCommitReveal({
-      dcqlRule: 'any', k: 2, n: 3, mode: 'frost', slotId, maxWaitMs: 60_000,
+      rule: 'any', k: 2, n: 3, mode: 'frost', slotId, maxWaitMs: 60_000,
     })
     const selfTransfers = txs.filter(t => t.to === account.address.toLowerCase() && t.data === '0x' && t.value === 0n)
     eq('a stalled beacon is nudged with a zero-value self-transfer', selfTransfers.length, 1)
@@ -785,7 +785,7 @@ try {
     stalledPolls = 3 // beacon already at the target
     selectorFailures.set(selectorOf('KeyRegistry', 'revealKeySlot'), 1)
     const retried = await client.createSlotCommitReveal({
-      dcqlRule: 'any', k: 2, n: 3, mode: 'frost', slotId, maxWaitMs: 60_000,
+      rule: 'any', k: 2, n: 3, mode: 'frost', slotId, maxWaitMs: 60_000,
     })
     ok('a transient reveal revert is retried, not surfaced', !!retried.revealTx)
     eq('the injected reveal failure was consumed', selectorFailures.get(selectorOf('KeyRegistry', 'revealKeySlot')), 0)
@@ -803,7 +803,7 @@ try {
     await rejectsWith(
       'a registry with no random beacon is named as such',
       /KeyRegistry has no random beacon/,
-      () => noBeacon.createSlotCommitReveal({dcqlRule: 'any', k: 2, n: 3, mode: 'frost'}),
+      () => noBeacon.createSlotCommitReveal({rule: 'any', k: 2, n: 3, mode: 'frost'}),
     )
     eq('and nothing was signed', txs.length, 0)
     callResults['KeyRegistry.randomBeacon'] = BEACON
@@ -821,7 +821,7 @@ try {
     await rejectsWith(
       'an unknown slot mode is refused, listing the valid ones',
       /unknown mode "nonsense" \(expected .*frost.*\)/,
-      () => client.createSlot({dcqlRule: 'any', k: 2, n: 3, mode: 'nonsense' as never}),
+      () => client.createSlot({rule: 'any', k: 2, n: 3, mode: 'nonsense' as never}),
     )
     eq('an unknown mode signs nothing', txs.length, 0)
 

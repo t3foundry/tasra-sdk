@@ -69,7 +69,7 @@ describe('provisionRule', () => {
     }) as unknown as typeof fetch
 
     await provisionRule(fakeChain(), {
-      slotId: SLOT, dcqlRule: RULE, ruleSalt: SALT, signer: signer(),
+      slotId: SLOT, rule: RULE, ruleSalt: SALT, signer: signer(),
       keeperUrls: ['http://k1'], fetchImpl, nowSecs: 1000,
     })
 
@@ -96,7 +96,7 @@ describe('provisionRule', () => {
     }) as unknown as typeof fetch
 
     await provisionRule(fakeChain(), {
-      slotId: SLOT, dcqlRule: RULE, ruleSalt: SALT, signer: signer(signed),
+      slotId: SLOT, rule: RULE, ruleSalt: SALT, signer: signer(signed),
       keeperUrls: ['http://k1', 'http://k2/', 'http://k3'], fetchImpl,
     })
     expect(signed).toHaveLength(1)
@@ -115,7 +115,7 @@ describe('provisionRule', () => {
 
     await expect(
       provisionRule(fakeChain(), {
-        slotId: SLOT, dcqlRule: RULE, ruleSalt: SALT, signer: signer(),
+        slotId: SLOT, rule: RULE, ruleSalt: SALT, signer: signer(),
         keeperUrls: ['http://k1', 'http://k2'], fetchImpl,
       }),
     ).rejects.toThrow(/1 of 2 keepers accepted.*self-heal/s)
@@ -127,7 +127,7 @@ describe('provisionRule', () => {
     const fetchImpl = vi.fn(async () => new Response('down', {status: 502})) as unknown as typeof fetch
     await expect(
       provisionRule(fakeChain(), {
-        slotId: SLOT, dcqlRule: RULE, ruleSalt: SALT, signer: signer(),
+        slotId: SLOT, rule: RULE, ruleSalt: SALT, signer: signer(),
         keeperUrls: ['http://k1', 'http://k2'], fetchImpl,
       }),
     ).rejects.toThrow(/0 of 2.*nothing can self-heal/s)
@@ -139,10 +139,32 @@ describe('provisionRule', () => {
     const signed: unknown[] = []
     await expect(
       provisionRule(fakeChain(), {
-        slotId: SLOT, dcqlRule: RULE, ruleSalt: '0xdeadbeef' as `0x${string}`,
+        slotId: SLOT, rule: RULE, ruleSalt: '0xdeadbeef' as `0x${string}`,
         signer: signer(signed), keeperUrls: ['http://k1'],
       }),
     ).rejects.toThrow(/ruleSalt must be 32 bytes/)
     expect(signed).toHaveLength(0)
   })
+})
+
+
+it('provisions the required rule using the existing keeper wire format', async () => {
+  const signed: unknown[] = []
+  const fetchImpl = vi.fn(async () => new Response('{}'))
+  const result = await provisionRule(fakeChain(), {slotId: SLOT, ruleSalt: SALT, signer: signer(signed), keeperUrls: ['http://k1'], fetchImpl, rule: RULE})
+  const body = JSON.parse(String((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body))
+  expect(body.dcql_rule).toBe(RULE)
+  expect(body.dcql_salt).toBe(SALT)
+  expect(body).not.toHaveProperty('rule')
+  expect(result.ruleCommitment).toBe(ruleCommitment(SALT, RULE))
+  expect(signed).toHaveLength(1)
+})
+
+it.each([{}, {rule: ''}, {rule: 123}, {dcqlRule: RULE}, {rule: RULE, dcqlRule: RULE}, {rule: RULE, dcqlRule: 'other'}, {rule: RULE, dcqlRule: undefined}])('rejects unsupported provision input %j before any RPC, signing or fetch', async fields => {
+  const getChainId = vi.fn(), fetchImpl = vi.fn(), signed: unknown[] = []
+  await expect(provisionRule({client: {getChainId}, addresses: {KeyRegistry: KEY_REGISTRY}} as never,
+    {slotId: SLOT, ruleSalt: SALT, signer: signer(signed), keeperUrls: ['http://k1'], fetchImpl, ...fields} as never)).rejects.toThrow(/rule/i)
+  expect(getChainId).not.toHaveBeenCalled()
+  expect(fetchImpl).not.toHaveBeenCalled()
+  expect(signed).toHaveLength(0)
 })

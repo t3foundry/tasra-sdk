@@ -1,5 +1,4 @@
-// Vendored ABI. Do not edit by hand — refresh the whole file from the contract
-// artifacts (a manual step; see CONTRIBUTING.md).
+// Contract ABI data is refreshed from the contract build artifacts.
 
 import {nodeRegistryAbi} from './nodeRegistry.js'
 import {keyRegistryAbi} from './keyRegistry.js'
@@ -43,7 +42,7 @@ export {verifierSetRegistryAbi} from './verifierSetRegistry.js'
 export {accountantSetRegistryAbi} from './accountantSetRegistry.js'
 export {keeperShareRegistryAbi} from './keeperShareRegistry.js'
 
-/** Contract name → ABI. Keys match Foundry artifact names. */
+/** Contract name to ABI. Keys match Foundry artifact names. */
 export const CONTRACT_ABIS = {
   NodeRegistry: nodeRegistryAbi,
   KeyRegistry: keyRegistryAbi,
@@ -67,4 +66,5 @@ export const CONTRACT_ABIS = {
   KeeperShareRegistry: keeperShareRegistryAbi,
 } as const
 
+/** Canonical contract names supported by the bundled ABI registry. */
 export type ContractName = keyof typeof CONTRACT_ABIS

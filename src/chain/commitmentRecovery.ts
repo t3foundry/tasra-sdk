@@ -5,14 +5,19 @@ import {thresholdRandomBeaconAbi} from './abis/thresholdRandomBeacon.js'
 
 /** A creation may keep its slot/rule inputs, but needs a durably saved new commit salt. */
 export class SlotCommitmentExpiredError extends Error {
-  constructor(readonly chainId: number, readonly keyRegistry: Address, readonly slotId: Hex,
-    readonly commitment: Hex, readonly creator: Address, readonly salt: Hex) {
+  constructor(/** Chain containing the expired creation commitment. */ readonly chainId: number, /** KeyRegistry contract that stores the commitment. */ readonly keyRegistry: Address, /** Slot identifier reserved by the original creation intent. */ readonly slotId: Hex,
+    /** Expired commit-reveal commitment hash. */
+    readonly commitment: Hex, /** Account that submitted the original commitment. */ readonly creator: Address, /** Original private commit salt; preserve it until outstanding requests are reconciled. */ readonly salt: Hex) {
     super('Slot commitment expired; reconcile outstanding relay requests before replacing its commit salt')
     this.name = 'SlotCommitmentExpiredError'
   }
 }
 
-/** Read-only recovery gate. The caller must also reconcile every outstanding signed request. */
+/**
+ * Read-only recovery gate. The caller must also reconcile every outstanding signed request.
+ * @param chain Reader for the deployment owning the expired commitment.
+ * @param error Saved commitment context to check before replacing its commit salt.
+ */
 export async function assertExpiredSlotCommitment(chain: TasraChainClient, error: SlotCommitmentExpiredError): Promise<void> {
   const registry = chain.addresses.KeyRegistry
   if (registry?.toLowerCase() !== error.keyRegistry.toLowerCase() || await chain.client.getChainId() !== error.chainId) {

@@ -2,13 +2,13 @@
 //
 // When a verifier runs with `require_holder_binding`, presenting credentials is not
 // enough: the presenter must prove control of the holder DID's `authentication` key over
-//   * a fresh single-use server nonce (POST /v1/nonce)  — anti-replay,
-//   * this verifier's audience (its token `iss`)         — anti cross-verifier replay,
-//   * a commitment to the exact ordered credentials      — so a captured proof can't be
-//     reused with a different credential set,
-//   * optionally the slot id + action the nonce was bound to (per-resource / action).
+// * a fresh single-use server nonce (POST /v1/nonce)  - anti-replay,
+// * this verifier's audience (its token `iss`)         - anti cross-verifier replay,
+// * a commitment to the exact ordered credentials      - so a captured proof can't be
+// reused with a different credential set,
+// * optionally the slot id + action the nonce was bound to (per-resource / action).
 //
-// This stays product-agnostic: the consumer brings the holder key (or a sign callback —
+// This stays product-agnostic: the consumer brings the holder key (or a sign callback -
 // e.g. an HSM / browser wallet). The SDK never persists it. Browser-safe (no Buffer).
 
 import {ed25519} from '@noble/curves/ed25519'
@@ -19,7 +19,7 @@ function base(url: string): string {
   return url.replace(/\/$/, '')
 }
 
-/** base64url (no padding) of raw bytes — browser + Node safe via btoa. */
+/** base64url (no padding) of raw bytes - browser + Node safe via btoa. */
 function b64urlBytes(bytes: Uint8Array): string {
   let bin = ''
   for (const b of bytes) bin += String.fromCharCode(b)
@@ -37,12 +37,16 @@ function b64urlString(s: string): string {
  * (the reference holder-proof implementation). Order-sensitive and delimiter-framed so both
  * sides agree without JSON canonicalization. Binds a holder proof to the exact set of
  * compact-JWS credentials being presented.
+ *
+ * @param credentials - Ordered compact credential strings; order is part of the commitment.
  */
 export function credentialsCommitment(credentials: string[]): string {
   return b64urlBytes(sha256(new TextEncoder().encode(credentials.join('\n'))))
 }
 
+/** Single-use verifier challenge, expiry and optional disclosed slot policy. */
 export interface HolderNonce {
+  /** Single-use verifier challenge. */
   nonce: string
   /** Expiry, Unix seconds. */
   expiresAt: number
@@ -57,6 +61,9 @@ export interface HolderNonce {
 /**
  * Mint a single-use challenge nonce, optionally bound to a slot id + action (F4).
  * POST {verifier}/v1/nonce
+ *
+ * @param verifierUrl - Verifier HTTP base URL.
+ * @param opts - Optional slot and action binding for the single-use challenge.
  */
 export async function fetchHolderNonce(
   verifierUrl: string,
@@ -89,15 +96,20 @@ export async function fetchHolderNonce(
  * that returns the raw JWS signature bytes for the given signing input.
  */
 export type HolderSigner =
-  | {alg: 'EdDSA'; did: string; secretKey: Uint8Array; kid?: string}
+  | {/** JWS algorithm used by the holder authentication key. */ alg: 'EdDSA'; /** Holder DID identifying the authentication key. */ did: string; secretKey: Uint8Array; /** Optional JOSE key identifier included in the proof header. */ kid?: string}
   | {
+      /** JWS algorithm used by the holder authentication key. */
       alg: 'EdDSA' | 'ES256'
+      /** Holder DID identifying the authentication key. */
       did: string
       sign: (signingInput: Uint8Array) => Uint8Array | Promise<Uint8Array>
+      /** Optional JOSE key identifier included in the proof header. */
       kid?: string
     }
 
+/** Holder signing key, verifier challenge and credentials to bind into a proof. */
 export interface BuildHolderProofOpts {
+  /** Holder DID authentication key or signing callback. */
   signer: HolderSigner
   /** The verifier's expected audience (its token `iss`). */
   audience: string
@@ -111,11 +123,15 @@ export interface BuildHolderProofOpts {
   action?: string
   /** Proof lifetime, seconds (default 300). */
   ttlSecs?: number
-  /** Override `iat` (Unix seconds) — for tests. */
+  /** Override `iat` (Unix seconds) - for tests. */
   nowSecs?: number
 }
 
-/** Build a holder-proof compact-JWS (header.payload.signature). */
+/**
+ * Build a holder-proof compact-JWS (header.payload.signature).
+ *
+ * @param opts - Holder signer, challenge, audience and ordered credentials to bind.
+ */
 export async function buildHolderProof(opts: BuildHolderProofOpts): Promise<string> {
   const now = opts.nowSecs ?? Math.floor(Date.now() / 1000)
   const header: Record<string, unknown> = {alg: opts.signer.alg, typ: 'JWT'}
@@ -150,6 +166,9 @@ export async function buildHolderProof(opts: BuildHolderProofOpts): Promise<stri
  * Convenience: fetch a nonce and build the holder proof in one step. Returns the
  * compact-JWS to put in the `holder_proof` field of a `verify-vp-jwt` /
  * `committee-authorize` request.
+ *
+ * @param verifierUrl - Verifier HTTP base URL.
+ * @param opts - Holder signer, verifier audience, credentials and optional operation binding.
  */
 export async function createHolderProof(
   verifierUrl: string,
@@ -174,8 +193,12 @@ export async function createHolderProof(
   })
 }
 
-/** A did:key identifier for an Ed25519 public key (multicodec 0xed01, base58btc). Useful
- *  when the holder is identified by a self-certifying did:key. */
+/**
+ * A did:key identifier for an Ed25519 public key (multicodec 0xed01, base58btc). Useful
+ *  when the holder is identified by a self-certifying did:key.
+ *
+ * @param publicKey - 32-byte Ed25519 public key.
+ */
 export function ed25519DidKey(publicKey: Uint8Array): string {
   // multibase base58btc('z') prefix; multicodec 0xed 0x01 || 32-byte key.
   const data = new Uint8Array(2 + publicKey.length)

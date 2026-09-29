@@ -5,8 +5,8 @@
 // Ed25519 signature against the slot's group public key. (We've load-tested sign
 // before but never asserted the signature is valid.)
 //
-// FROST's on-chain DKG uses ALL connected key-keepers as participants, so the
-// slot is k-of-n with n = the key-keeper count (5 on the demo fleet).
+// API reachability does not guarantee on-chain eligibility. Request a three-node
+// committee so this test exercises signing when the eligible pool varies.
 //
 // JWT: locally-minted EdDSA (the nodes accept it) — independent of the verifier's
 // signed-VC path. Run: tsx test/e2e/sign-roundtrip.ts
@@ -29,8 +29,8 @@ if (!(await gate(s, cfg))) {
   process.exit(0)
 }
 
-// ── sovereign client creates a FROST slot (n = key-keeper count) ──────────────
-const N = cfg.nodeUrls.length
+// ── sovereign client creates a FROST slot with three eligible keepers ────────
+const N = 3
 const creatorKey = generateClientKey()
 const client = createTasraWriteClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, privateKey: creatorKey, chainId: cfg.chainId})
 try {
@@ -42,7 +42,7 @@ try {
 }
 s.ok('client funded for gas', (await client.ethBalance()) > 0n)
 
-const {slotId, ruleSalt} = await client.createSlotCommitReveal({dcqlRule: SLOT_DCQL_RULE, k: 3, n: N, mode: 'frost', tags: ['keykeeper'], onEpoch: (c, t) => s.info(`beacon ${c}→${t}`)})
+const {slotId, ruleSalt} = await client.createSlotCommitReveal({rule: SLOT_DCQL_RULE, k: 3, n: N, mode: 'frost', tags: ['keykeeper'], onEpoch: (c, t) => s.info(`beacon ${c}→${t}`)})
 s.ok('client created a FROST slot (commit-reveal)', /^0x[0-9a-f]{64}$/.test(slotId))
 
 // wait for DKG to anchor an Ed25519 group key

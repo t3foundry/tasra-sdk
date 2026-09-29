@@ -65,7 +65,7 @@ const writer = createTasraWriteClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, 
 // Create a slot ON-CHAIN, wait for the drawn committee to anchor the key (DKG done), then
 // provision the clear DCQL rule to that committee so operations authorize.
 async function createOnchain(mode: 'frost' | 'bls', k: number, n: number): Promise<{slot: string; committee: string[]}> {
-  const {slotId, ruleSalt} = await writer.createSlot({dcqlRule: SLOT_DCQL_RULE, k, n, mode, tags: ['keykeeper']})
+  const {slotId, ruleSalt} = await writer.createSlot({rule: SLOT_DCQL_RULE, k, n, mode, tags: ['keykeeper']})
   const deadline = Date.now() + 90_000
   let committee: string[] = []
   while (Date.now() < deadline) {

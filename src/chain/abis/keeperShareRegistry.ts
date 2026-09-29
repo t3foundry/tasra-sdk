@@ -1,7 +1,7 @@
-// Vendored ABI. Do not edit by hand — refresh the whole file from the contract
-// artifacts (a manual step; see CONTRIBUTING.md).
+// Contract ABI data is refreshed from the contract build artifacts.
 // Source: contracts/out/KeeperShareRegistry.sol/KeeperShareRegistry.json (`abi` field).
 
+/** KeeperShareRegistry contract interface for anchored keeper verifying-share commitments. */
 export const keeperShareRegistryAbi = [
   {
     "type": "constructor",

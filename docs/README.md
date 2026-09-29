@@ -1,40 +1,33 @@
-# Documentation
+# Build your first TASRA app
 
-Start with the [README](../README.md) — install, the quick starts, and which client
-to reach for. These pages are the depth behind it.
+TASRA lets your application use a shared signing or encryption key without keeping
+the whole key on one server. Your app decides who may use it.
 
-## Building on the SDK
+Start with a small TypeScript project. Connect to a network, create one slot,
+and learn how to read and manage it. Then add users and use the slot in an application.
 
-| Page | What's in it |
+## Learn in order
+
+| Step | What you will do |
 |---|---|
-| [What you can do](capabilities.md) | The capability catalogue — every major thing the SDK does, and the call that does it |
-| [Prerequisites](prerequisites.md) | What has to be running before a session can open — and the parts that need nothing at all |
-| [Installation](installation.md) | The optional `viem` peer, module format, browser and Node support |
-| [API surface](api.md) | Every export grouped by purpose: envelopes, assembly, credentials, IBE, OpenID4VP, the committee path |
-| [Chain](chain.md) | `tasra-sdk/chain` — reads, writes, slot creation, on-chain discovery |
-| [Signing](signing.md) | Threshold ECDSA for EVM accounts, wired into ethers, viem and Hardhat |
-| [Errors](errors.md) | The error taxonomy, what retries, how to tell a denial from an outage |
-| [Architecture](architecture.md) | What the managed session does underneath, and where this package sits |
-| [Glossary](glossary.md) | Slot, k-of-n, MSK, epoch, DKG, DCQL, holder proof, committee |
+| 1. [Understand the basics](basics.md) | Learn what a slot is and who controls it. |
+| 2. [Connect to TASRA](getting-started.md) | Install the SDK and load a public network manifest. |
+| 3. [Create your first slot](create-slot.md) | Create a signing slot with your own account. |
+| 4. [Fund your slot](funding.md) | Buy TSRA and deposit usage credit before protected operations. |
+| 5. [Read your slot](read-slot.md) | Check its key and status. |
+| 6. [Control access](access-control.md) | Understand identities, credentials and permissions. |
+| 7. [Sign or encrypt](signing-and-encryption.md) | Use the slot with a credential. |
+| 8. [Manage your slot](manage-slot.md) | Renew its lease; cancel it when you are finished. |
 
-## Running against a real deployment
+**[Begin with the basics →](basics.md)**
 
-| Page | What's in it |
-|---|---|
-| [Developer experience](DEVELOPER-EXPERIENCE.md) | Live deployment handoff, pending public testnet publication, and each component’s responsibilities |
+<a id="build-an-app"></a>
 
-## Working on the SDK
+## After your first slot
 
-| Page | What's in it |
-|---|---|
-| [Contributing](../CONTRIBUTING.md) | Setup, the gate, tests, conformance vectors, PR expectations |
-| [Security policy](../SECURITY.md) | How to report a vulnerability, scope, cryptographic posture |
-| [Releasing](RELEASING.md) | Cutting a version and publishing |
-| [Changelog](../CHANGELOG.md) | What changed, by version |
+Build a [shared Ethereum account](shared-account.md),
+[private notes](encrypted-notes.md) or a [document-signing app](document-signing.md).
+Each tutorial explains its additional requirements.
 
-## For coding agents
-
-The package ships [agent skills](../skills/README.md) — task-oriented guides, one
-folder per job. They are hand-maintained prose with no automated check against the
-built declarations, so a skill describes the version it shipped with; `dist/**/*.d.ts`
-is the authority on what actually exists.
+For AI-assisted development, use [skills and example prompts](ai-development.md).
+When you need a method's exact signature, open the [SDK reference](reference/README.md).

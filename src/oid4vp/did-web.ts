@@ -1,23 +1,25 @@
-// `did:web` resolution for the Verifier Agent's identity: `did:web:<host>` → `https://<host>/.well-known/did.json`
-// (path form → `https://<host>/<path>/did.json`), and the verification key a JAR's `kid` names.
-// The verifier-agent serves the set document itself, derived from the on-chain verifier set, so every wallet
-// sees identical bytes. Since gap-closure P5.3 (2026-09-10) a verification method is named by its
-// KEY — `did:web:<host>#z6Mk…`, the key's did:key id — so a join/leave of the verifier set never
-// changes what a fragment means; a cached document or an in-flight JAR still resolves its signer.
-// (`#verifier-N`, the address-sorted position, is the legacy encoding a deployment may still pin.)
-// The lookup here is by id, whatever the encoding.
+// Resolve did:web verification methods by their identifiers.
 
 import {b64url, type Jwk} from './jose.js'
 import {base58Decode} from './jose.js'
 
+/** DID document fields used to resolve a public verification key. */
 export interface DidDocument {
+  /** DID identified by this document. */
   id: string
+  /** Public keys and verification method identifiers. */
   verificationMethod?: Array<{id: string; type?: string; controller?: string; publicKeyJwk?: Jwk; publicKeyMultibase?: string}>
+  /** Verification methods authorized for authentication. */
   authentication?: Array<string | {id: string}>
+  /** Verification methods authorized for assertions. */
   assertionMethod?: Array<string | {id: string}>
 }
 
-/** The HTTPS URL a `did:web` resolves from (W3C did:web method §3.2). */
+/**
+ * The HTTPS URL a `did:web` resolves from (W3C did:web method).
+ *
+ * @param did - did:web identifier, with an optional fragment.
+ */
 export function didWebUrl(did: string): string {
   const m = /^did:web:(.+)$/.exec(did.split('#')[0]!)
   if (!m) throw new Error(`not a did:web: ${did}`)
@@ -27,13 +29,20 @@ export function didWebUrl(did: string): string {
   return path.length === 0 ? `https://${host}/.well-known/did.json` : `https://${host}/${path.join('/')}/did.json`
 }
 
+/** Fetch implementation and optional loopback HTTP permission for did:web resolution. */
 export interface ResolveOpts {
+  /** HTTP transport override; defaults to the global fetch implementation. */
   fetchImpl?: typeof fetch
-  /** Allow `http://` for a loopback host (tests, local fleets); never for a public host. */
+  /** Allow `http://` for a loopback host (tests, loopback services); never for a public host. */
   allowInsecureLoopback?: boolean
 }
 
-/** Fetch and minimally validate a `did:web` document. */
+/**
+ * Fetch and minimally validate a `did:web` document.
+ *
+ * @param did - did:web identifier to resolve.
+ * @param opts - Fetch override and optional loopback HTTP permission.
+ */
 export async function resolveDidWeb(did: string, opts: ResolveOpts = {}): Promise<DidDocument> {
   let url = didWebUrl(did)
   if (opts.allowInsecureLoopback && /^https:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(url)) url = url.replace(/^https:/, 'http:')
@@ -45,7 +54,12 @@ export async function resolveDidWeb(did: string, opts: ResolveOpts = {}): Promis
   return doc
 }
 
-/** The JWK behind `kid` (a full DID URL or a `#fragment`) in `doc`. */
+/**
+ * The JWK behind `kid` (a full DID URL or a `#fragment`) in `doc`.
+ *
+ * @param doc - Resolved DID document containing public verification methods.
+ * @param kid - Signing key identifier or fragment to locate.
+ */
 export function verificationKey(doc: DidDocument, kid: string): Jwk {
   const frag = kid.includes('#') ? kid.slice(kid.indexOf('#')) : kid
   const vm = (doc.verificationMethod ?? []).find(v => v.id === kid || v.id === frag || v.id.endsWith(frag))

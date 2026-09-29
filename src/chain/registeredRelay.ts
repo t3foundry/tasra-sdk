@@ -4,45 +4,83 @@ import {authenticateApprovedService, type ServiceDiscoveryTransport} from './ser
 import {SERVICE_TYPES, type ServiceApproval} from './services.js'
 import {revertError} from './revertReason.js'
 
+/**
+ * Guarded discovery and transaction relay transport with bounded response bodies.
+ */
 export interface RelayTransport extends ServiceDiscoveryTransport {
   /** Guard the socket just like discovery. Accept bounded JSON status bodies for 200/202/422. */
   relayRequest(url: string, options: {body?: Uint8Array; maxBytes: number; signal: AbortSignal}): Promise<Uint8Array>
 }
 
+/**
+ * Chain, forwarder, signer and exact calldata identifying a relay operation.
+ */
 export interface RelayIntent {
+  /** Chain on which the forwarded call is intended to execute. */
   chainId: number
+  /** Independently pinned forwarding contract. */
   forwarder: Address
+  /** Account authorizing the forwarded operation. */
   from: Address
+  /** Target contract of the forwarded operation. */
   to: Address
+  /** Exact encoded calldata to execute. */
   data: Hex
+  /** Application label used to locate the operation recovery record. */
   label: string
 }
 
+/**
+ * Approved relay providers, pinned forwarder and durable recovery callbacks.
+ */
 export interface RegisteredRelayConfig {
   /** Application approvals, in preference order. Registry membership alone never selects a service. */
   approvals: readonly ServiceApproval[]
+  /** Guarded HTTP transport for service authentication and relay submission. */
   transport: RelayTransport
   /** Independently pinned deployment forwarder; never supplied by a relayer manifest. */
   forwarder: Address
+  /** Default operation label used when persisting or resuming relay attempts. */
   label?: string
   /** Persist the signed reconciliation handle before its first POST. */
   persistAttempt?: (attempt: RelayAttempt) => Promise<void>
   /** Load this durable operation's previous attempt before signing, including after a restart. */
   resumeAttempt?: (intent: RelayIntent) => Promise<RelayAttempt | undefined>
+  /** Relay status polling interval in milliseconds; defaults to 1500. */
   pollMs?: number
+  /** Deadline in milliseconds after a submission leaves the serialization queue; defaults to 120000 and cannot exceed it. */
   timeoutMs?: number
   /** At most three authenticated providers receive the identical signed request. */
   maxAttempts?: number
+  /** Status polling budget per provider in milliseconds; defaults to 10000 and cannot exceed 30000. */
   attemptMs?: number
 }
 
+/**
+ * Verified forwarded transaction result with optional gas and native-token cost.
+ */
 export interface RelayReceipt {
+  /**
+   * Signed relay-request identifier.
+   */
   id: string
+  /**
+   * Verified forwarded transaction hash.
+   */
   txHash: Hex
+  /**
+   * Gas consumed by the forwarded transaction, when reported.
+   */
   gasUsed?: number
+  /**
+   * Native-token transaction cost in base units, encoded as decimal text.
+   */
   costWei?: string
 }
 
+/**
+ * Forwarder ABI used to submit requests, read nonces and verify execution events.
+ */
 export const relayForwarderAbi = parseAbi([
   'function nonces(address owner) view returns (uint256)',
   'function execute((address from, address to, uint256 value, uint256 gas, uint48 deadline, bytes data, bytes signature) request) payable',
@@ -55,15 +93,23 @@ const types = {ForwardRequest: [
 
 /** JSON-safe reconciliation handle. Persist before POST to resume safely after a client restart. */
 export interface RelayAttempt {
+  /** Chain bound into the signed forward request. */
   chainId: number
+  /** Pinned forwarder contract expected to execute the request. */
   forwarder: Address
+  /** Decimal block number from which reconciliation scans execution logs. */
   fromBlock: string
+  /** EIP-712 hash identifying the exact signed forward request. */
   id: Hex
+  /** Signed sender, target, calldata, gas, nonce and deadline used for submission and reconciliation. */
   request: {from: Address; to: Address; value: '0'; gas: number; nonce: number; deadline: number; data: Hex; signature: Hex; label: string}
 }
 
+/**
+ * A relay request has no verified terminal result and must be reconciled before replacement.
+ */
 export class RelayOutcomeUnknownError extends Error {
-  constructor(readonly attempt: RelayAttempt, reason = 'No verified chain result before the relay deadline') {
+  constructor(/** Persisted signed relay attempt whose execution outcome remains unknown. */ readonly attempt: RelayAttempt, reason = 'No verified chain result before the relay deadline') {
     super(`${reason}; reconcile request ${attempt.id} before signing another operation`)
     this.name = 'RelayOutcomeUnknownError'
   }
@@ -116,28 +162,20 @@ async function verifiedReceipt(chain: TasraChainClient, attempt: RelayAttempt, h
 }
 
 /**
- * The outcome of reconciling one signed attempt against the chain.
- *
- * ⚠⚠ THREE OUTCOMES, NOT TWO, AND THE THIRD IS THE ONE THAT MATTERS OPERATIONALLY.
- *  - `receipt`      — it executed; here is the proof.
- *  - `expired`      — it never executed and never can (its deadline passed with the nonce still
- *                     free), so the same operation is safe to sign again.
- *  - `unresolvable` — its nonce HAS been consumed, so this request can never execute again
- *                     whatever took it, but the window in which that happened is now further back
- *                     than the log scan can reach. TERMINAL, outcome unknown.
- *
- * Collapsing `unresolvable` into "unknown, try again later" is what wedged a live deployment: a
- * caller that blocks until an attempt resolves blocks FOREVER, because every new block moves the
- * attempt further out of scan range. It is not a transient condition and retrying cannot fix it.
- *
- * ⚠ `unresolvable` is NOT a statement that the operation did not happen — it very probably did.
- * A caller must not blindly redo the work; it must re-read the state the operation would have
- * changed, or surface the attempt for a human. Conflating it with `expired` would turn one
- * uncertain write into a duplicated one.
+ * Reconciled relay outcome. A receipt proves execution. Expired means the deadline passed with the nonce unused. Unresolvable means the nonce was consumed beyond the available log window; execution remains unknown and must not be retried as a new operation.
  */
 export interface RelayReconciliation {
+  /**
+   * Verified successful execution receipt, when found.
+   */
   receipt?: RelayReceipt
+  /**
+   * Whether the deadline passed while the request nonce remained unused.
+   */
   expired: boolean
+  /**
+   * Whether the consumed nonce predates the available log scan, leaving execution unknown.
+   */
   unresolvable?: boolean
 }
 
@@ -148,8 +186,8 @@ async function reconcile(chain: TasraChainClient, attempt: RelayAttempt, budget:
   if (nonce < BigInt(attempt.request.nonce)) throw new RelayOutcomeUnknownError(attempt, 'Forwarder nonce moved backwards')
   if (nonce > BigInt(attempt.request.nonce)) {
     const start = BigInt(attempt.fromBlock)
-    // ⚠⚠ OUT OF RANGE IS TERMINAL, NOT TRANSIENT. The nonce is already consumed, so this exact
-    //    request can never execute again whatever took it — the forwarder rejects a spent nonce.
+    // OUT OF RANGE IS TERMINAL, not TRANSIENT. The nonce is already consumed, so this exact
+    //    request can never execute again whatever took it - the forwarder rejects a spent nonce.
     //    All that is lost is WHICH request consumed it, and no amount of waiting recovers that:
     //    every new block moves `start` further outside the window. Throwing here made callers
     //    retry forever and permanently wedged a deployment's entire write path.
@@ -169,14 +207,25 @@ async function reconcile(chain: TasraChainClient, attempt: RelayAttempt, budget:
   return {expired: head.timestamp > BigInt(attempt.request.deadline)}
 }
 
-/** Recover from a lost HTTP response or process restart using the trusted RPC, without broadcasting. */
+/**
+ * Recover from a lost HTTP response or process restart using the trusted RPC, without broadcasting.
+ * @param chain Trusted reader for the chain on which the forward request may have executed.
+ * @param attempt Persisted signed request and original log-scan start block.
+ * @param timeoutMs Maximum reconciliation duration in milliseconds; defaults to 30000.
+ */
 export async function reconcileRelayAttempt(chain: TasraChainClient, attempt: RelayAttempt, timeoutMs = 30_000): Promise<RelayReconciliation> {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000) throw new Error('Invalid reconciliation timeout')
   const budget = scope(timeoutMs)
   try { return await reconcile(chain, attempt, budget) } finally { budget.close() }
 }
 
-/** One signer per instance. Serializes nonces and blocks new signatures after an uncertain result. */
+/**
+ * One signer per instance. Serializes nonces and blocks new signatures after an uncertain result.
+ * @param chain Trusted chain reader used for nonce and receipt verification.
+ * @param config Approved relay providers, pinned forwarder and recovery controls.
+ * @param wallet Account-bound and chain-bound wallet that signs forward requests.
+ * @param options Optional durable callback invoked before submitting a signed request.
+ */
 export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: RegisteredRelayConfig, wallet: WalletClient<Transport, Chain, Account>,
   options: {persistAttempt?: (attempt: RelayAttempt) => Promise<void>} = {}) {
   if (!Array.isArray(config.approvals) || typeof config.transport?.request !== 'function' || typeof config.transport?.relayRequest !== 'function') {
@@ -212,10 +261,10 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
             previousAttempt.request.data.toLowerCase() !== data.toLowerCase()) throw new Error('Persisted relay operation does not match this request')
         const result = await reconcile(chain, previousAttempt, budget)
         if (result.receipt) return result.receipt
-        // ⚠⚠ `unresolvable` must NOT resume and must NOT block. Its nonce is spent, so replaying
+        // `unresolvable` must not resume and must not block. Its nonce is spent, so replaying
         //    the stored attempt is guaranteed to be rejected; but blocking on it never clears
         //    either, because the scan window only recedes. Fall through and sign a FRESH request
-        //    at the current nonce — the caller was told (via the journal) that the old one is
+        //    at the current nonce - the caller was told (via the journal) that the old one is
         //    terminal-with-unknown-outcome and is responsible for not redoing work that landed.
         if (result.unresolvable) pending = undefined
         else if (!result.expired) { pending = previousAttempt; throw new RelayOutcomeUnknownError(previousAttempt) }

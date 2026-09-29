@@ -2,13 +2,13 @@
 // lives on a given chain. Three interchangeable sources are supported:
 //
 //   1. A Foundry broadcast run JSON (contracts/broadcast/Deploy.s.sol/<id>/run-*.json):
-//      we map contractName → contractAddress across both deploy shapes the
-//      network's Deploy.s.sol emits — a plain CREATE, and (DETERMINISTIC=true /
+//      we map contractName to contractAddress across both deploy shapes the
+//      network's Deploy.s.sol emits - a plain CREATE, and (DETERMINISTIC=true /
 //      PRODUCTION) a CREATE2 through the DeterministicDeployer factory,
 //      which surfaces as `additionalContracts[]` on the factory CALL. UUPS
 //      contracts resolve to their ERC1967Proxy, never the
-//      implementation — see resolveProxies() below.
-//   2. A `chain.env` style KEY=VALUE blob (mirrors the fleet's credentials file),
+//      implementation - see resolveProxies() below.
+//   2. A `chain.env` style KEY=VALUE blob (mirrors the network's credentials file),
 //      e.g. NODE_REGISTRY=0x...  KEY_REGISTRY=0x...
 //   3. An explicit { ContractName: address } object.
 //
@@ -17,9 +17,12 @@
 
 import type {ContractName} from './abis/index.js'
 
+/**
+ * Hex-encoded EVM contract or account address.
+ */
 export type Address = `0x${string}`
 
-/** Canonical contract name → deployed address (lowercased keys allowed too). */
+/** Canonical contract name to deployed address (lowercased keys allowed too). */
 export type AddressBook = Partial<Record<ContractName, Address>> & {
   [k: string]: Address | undefined
 }
@@ -48,7 +51,7 @@ interface Deployment {
   address: Address
   /** Constructor args, when the run JSON decoded them (plain CREATE only). */
   args?: unknown[]
-  /** Creation bytecode ‖ ABI-encoded ctor args (CREATE2 via the factory). */
+  /** Creation bytecode || ABI-encoded ctor args (CREATE2 via the factory). */
   initCode?: string
 }
 
@@ -56,22 +59,21 @@ interface Deployment {
 const PROXY_CONTRACT = 'ERC1967Proxy'
 
 /**
- * Chain id assumed when a client config omits one: the demo fleet's Besu
- * genesis. Shared by the read and write clients — they used to disagree
- * (31337 vs 1337), so which id you got depended on which client you built.
- *
- * A wrong id is only cosmetic on the read path but breaks writes, since it
- * goes into the EIP-155 signature. Pass `chainId` explicitly against anything
- * other than the demo fleet — an anvil node is 31337, and mainnet is the
- * Avalanche C-Chain.
+ * Fallback chain ID retained for explicitly configured loopback connections. Set the chain ID from the downloaded tasra-releases network manifest for deployment access.
  */
 export const DEFAULT_CHAIN_ID = 1337
 
 /** The vesting tranches Deploy.s.sol creates, in the order it creates them. */
 export const VAULT_TRANCHES = ['investor', 'team', 'community'] as const
+/**
+ * Named vesting allocation used to resolve its deployed vault.
+ */
 export type VaultTranche = (typeof VAULT_TRANCHES)[number]
 
-/** Address-book key for one vesting tranche, e.g. TasraVestingVault_team. */
+/**
+ * Address-book key for one vesting tranche, e.g. TasraVestingVault_team.
+ * @param tranche Vesting allocation name.
+ */
 export function vaultKey(tranche: VaultTranche): string {
   return `TasraVestingVault_${tranche}`
 }
@@ -84,8 +86,8 @@ function asAddress(s: string | undefined): Address | undefined {
 
 /**
  * Collect every contract creation in the run, in order. Two shapes:
- *   · plain CREATE      → a top-level transaction carrying contractName
- *   · CREATE2 (factory) → a CALL to DeterministicDeployer whose created
+ *   - plain CREATE      to a top-level transaction carrying contractName
+ *   - CREATE2 (factory) to a CALL to DeterministicDeployer whose created
  *                         contracts are listed in `additionalContracts[]`
  */
 function collectDeployments(file: BroadcastFile): Deployment[] {
@@ -115,13 +117,13 @@ function collectDeployments(file: BroadcastFile): Deployment[] {
  * Point each proxied contract name at its ERC1967Proxy rather than its
  * implementation. Reads against an implementation address hit uninitialized
  * storage and return zeros instead of reverting, so getting this wrong is
- * silent — hence resolving the link explicitly rather than by position.
+ * silent - hence resolving the link explicitly rather than by position.
  *
  * The implementation is `ERC1967Proxy(implementation, initData)`'s first
  * constructor argument. A plain-CREATE run gives it decoded in `arguments[0]`;
  * a CREATE2 run gives only the init code, so we match on how `(address, bytes)`
  * ABI-encodes: the padded implementation word followed by the `bytes` offset
- * word (0x40). Matching the bare address is not enough — `initData` is an
+ * word (0x40). Matching the bare address is not enough - `initData` is an
  * `initialize(...)` call that embeds further addresses (owner, treasury, …)
  * after the implementation.
  */
@@ -153,6 +155,7 @@ function resolveProxies(deployments: Deployment[], book: AddressBook): void {
  * deployment of a given contract name wins (re-deploys later in the run
  * override). Proxied contracts resolve to the proxy, which is the address
  * callers must actually talk to.
+ * @param json Parsed Foundry broadcast artifact containing deployment transactions.
  */
 export function addressBookFromBroadcast(json: unknown): AddressBook {
   const file = json as BroadcastFile
@@ -166,8 +169,8 @@ export function addressBookFromBroadcast(json: unknown): AddressBook {
 
 /**
  * Split the vesting vaults into their tranches. Deploy.s.sol creates three
- * instances from one artifact — `TasraVestingVault_investor`, `_team`,
- * `_community` — but the run JSON labels all three `TasraVestingVault`, so a
+ * instances from one artifact - `TasraVestingVault_investor`, `_team`,
+ * `_community` - but the run JSON labels all three `TasraVestingVault`, so a
  * name-keyed book keeps only the last and silently reports the wrong tranche.
  *
  * Deployment order is the only discriminator available: with default env the
@@ -181,7 +184,7 @@ function resolveVaultTranches(
   book: AddressBook,
 ): void {
   const vaults = deployments.filter(d => d.name === 'TasraVestingVault')
-  if (vaults.length < 2) return // single vault — the plain name is unambiguous
+  if (vaults.length < 2) return // single vault - the plain name is unambiguous
   vaults.forEach((v, i) => {
     const tranche = VAULT_TRANCHES[i]
     if (tranche) book[vaultKey(tranche)] = v.address
@@ -256,27 +259,9 @@ function putEnvEntry(book: AddressBook, rawKey: string, rawVal: string): void {
 }
 
 /**
- * Build an AddressBook from deployment environment variables, resolving the
- * `ENV_ALIASES` shorthands (`KEY_REGISTRY`, `BEACON`, `TSRA_TOKEN`, …) to their
- * canonical contract names. Entries whose value is not a 0x-address are ignored,
- * so passing a whole `process.env` is safe.
- *
- * Accepts either form:
- * - a **`chain.env`-style KEY=VALUE blob** — `#` comments, optional `export`
- *   prefixes, and quoted values are all handled
- * - an **environment object** such as `process.env` or `import.meta.env`
- *
- * @param src the KEY=VALUE text blob, or an env-like object
- * @returns an AddressBook keyed by canonical contract name (raw keys are kept too)
- *
- * @example
- * ```ts
- * // from the ambient environment
- * const addresses = addressBookFromEnv(process.env)
- *
- * // or from a deployment's chain.env file
- * const addresses = addressBookFromEnv(await readFile('chain.env', 'utf8'))
- * ```
+ * Parse supported deployment environment keys or a KEY=VALUE text blob into contract addresses. Empty values and entries that are not valid addresses are ignored. Prefer deployment addresses from a tasra-releases network manifest.
+ * @param src Environment key-value object or serialized environment text.
+ * @returns Address book keyed by canonical contract names.
  */
 export function addressBookFromEnv(
   src: string | Record<string, string | undefined>,
@@ -298,7 +283,10 @@ export function addressBookFromEnv(
   return book
 }
 
-/** Normalise an explicit object into an AddressBook (validates addresses). */
+/**
+ * Normalise an explicit object into an AddressBook (validates addresses).
+ * @param obj Object containing canonical contract names or supported environment aliases.
+ */
 export function addressBookFromObject(
   obj: Record<string, string>,
 ): AddressBook {
@@ -311,18 +299,10 @@ export function addressBookFromObject(
 }
 
 /**
- * Resolve one vesting tranche's vault, falling back to the bare
- * `TasraVestingVault` entry.
- *
- * ⚠ That fallback is only self-evidently safe for a book built by
- * {@link addressBookFromBroadcast}, which deletes the bare key as soon as it
- * sees two vaults. A book built by {@link addressBookFromEnv} carries whatever
- * the deployment env declared: a `chain.env` with a single `VAULT=0x…` sets the
- * bare key regardless of how many vaults actually exist, so EVERY tranche then
- * resolves to that one address. Callers that aggregate across tranches must
- * de-duplicate on the resolved address — summing three identical vaults reports
- * 3x the real locked supply. Prefer per-tranche keys
- * (`TASRA_VAULT_INVESTOR` / `_TEAM` / `_COMMUNITY`) in any multi-vault env.
+ * Resolve the named vesting allocation. The unqualified vault address is accepted as a fallback; callers aggregating allocations must deduplicate resolved addresses.
+ * @param book Deployment contract addresses.
+ * @param tranche Vesting allocation to resolve.
+ * @returns Address of the allocation vault; throws when missing.
  */
 export function requireVaultAddress(
   book: AddressBook,
@@ -339,7 +319,11 @@ export function requireVaultAddress(
   return addr
 }
 
-/** Resolve a contract address, throwing a clear error if missing. */
+/**
+ * Resolve a contract address, throwing a clear error if missing.
+ * @param book Resolved deployment addresses.
+ * @param name Canonical contract name or supported address-book key.
+ */
 export function requireAddress(book: AddressBook, name: ContractName): Address {
   const addr = book[name]
   if (!addr) {

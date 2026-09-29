@@ -15,7 +15,7 @@
 // it would for a real install, so the exports map is genuinely under test.
 
 import {execFileSync} from 'node:child_process'
-import {mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync} from 'node:fs'
+import {cpSync, existsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {dirname, join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
@@ -32,9 +32,8 @@ const pkg = JSON.parse(
   peerDependencies?: Record<string, string>
 }
 
-// viem is an OPTIONAL PEER dependency: a core-only consumer never installs it,
-// but `tasra-sdk/chain` needs it, so the scratch consumer must provide it the
-// way a real chain consumer would. Link peers alongside real deps.
+// Link the package's declared runtime dependencies (including its wallet adapter),
+// plus any optional peers used by advanced consumer checks.
 const linkedDeps = [
   ...Object.keys(pkg.dependencies ?? {}),
   ...Object.keys(pkg.peerDependencies ?? {}),
@@ -80,7 +79,19 @@ try {
   const tarball = readdirSync(scratch).find(f => f.endsWith('.tgz'))
   if (!tarball) throw new Error(`npm pack produced no .tgz in ${scratch}`)
   const packedNames = execFileSync('tar', ['-tzf', join(scratch, tarball)], {encoding: 'utf8'}).trim().split('\n')
+  const publication = JSON.parse(readFileSync(join(repoRoot, 'publication.json'), 'utf8')) as {files: string[]}
+  const unexpected = packedNames.filter(name => {
+    const path = name.replace(/^package\//, '')
+    if (path === 'package.json' || publication.files.includes(path)) return false
+    if (!path.startsWith('dist/')) return true
+    const source = path.replace(/^dist\//, 'src/').replace(/(?:\.d\.ts|\.js)$/, '.ts')
+    return !/\.(?:js|d\.ts|json)$/.test(path) || !existsSync(join(repoRoot, source))
+  })
+  ok('tarball contains only allowlisted consumer files and compiled SDK modules', unexpected.length === 0, unexpected.join(', '))
+  ok('every allowlisted consumer file ships', publication.files.every(path => packedNames.includes('package/' + path)))
   ok('tarball contains no private source or source maps', !packedNames.some(p => p.startsWith('package/src/') || p.endsWith('.map')))
+  ok('document app ships source, configuration and sample PDF', ['package.json', 'gitignore.template', 'server.ts', 'setup.ts', 'workflow.test.ts', 'web/app.ts', 'web/preview.ts', 'public/sample.pdf', 'network.ts'].every(p => packedNames.includes('package/examples/document-signing/' + p)))
+  ok('document app excludes private state and generated assets', !packedNames.some(p => /^package\/examples\/document-signing\/(?:\.tasra|node_modules|\.superdesign|public\/pdf-assets)\//.test(p) || p === 'package/examples/document-signing/public/app.js'))
   ok('tarball contains all 11 agent skills', packedNames.filter(p => p.endsWith('/SKILL.md')).length === 11)
   for (const skill of packedNames.filter(p => p.endsWith('/SKILL.md'))) {
     const content = execFileSync('tar', ['-xOzf', join(scratch, tarball), skill], {encoding: 'utf8'})
@@ -107,14 +118,97 @@ try {
     symlinkSync(target, link, 'dir')
   }
 
+  // Compile copied beginner sources against the package consumers actually install.
+  const tutorials = join(consumer, 'tutorials')
+  mkdirSync(tutorials)
+  const tutorialFiles = ['connect-network.ts', 'slot-address.ts', 'shared-account.ts', 'encrypted-notes.ts', 'document-signing.ts',
+    'native-approvals.ts', 'credential-approvals.ts', 'tutorial-support.ts', 'fund-slot.ts', 'tutorial-negative.ts', 'network.ts', 'learning-context.ts', 'learning-create-slot.ts',
+    'learning-read-slot.ts', 'learning-renew-slot.ts', 'learning-cancel-slot.ts', 'learning-authorize.ts', 'learning-sign.ts']
+  for (const file of tutorialFiles) cpSync(join(installed, 'examples', file), join(tutorials, file))
+  // Node types are developer tooling; no extra application runtime library is installed.
+  mkdirSync(join(nodeModules, '@types'), {recursive: true})
+  symlinkSync(join(repoRoot, 'node_modules/@types/node'), join(nodeModules, '@types/node'), 'dir')
+  writeFileSync(join(tutorials, 'tsconfig.json'), JSON.stringify({compilerOptions: {
+    target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', resolveJsonModule: true,
+    strict: true, noUncheckedIndexedAccess: true, skipLibCheck: true, noEmit: true, types: ['node'],
+  }, include: ['*.ts']}))
+  let tutorialsCompile = true
+  try {
+    execFileSync(process.execPath, [join(repoRoot, 'node_modules/typescript/bin/tsc'), '-p', join(tutorials, 'tsconfig.json')], {stdio: 'inherit'})
+  } catch { tutorialsCompile = false }
+  ok('all copied beginner tutorials compile against the installed tarball', tutorialsCompile)
+
+  // Skills are copied independently of the SDK, so supporting links must stay
+  // inside the shipped skill folder. Compile their complete modern examples
+  // against the tarball's declarations, not aliases to repository source.
+  const snippets = join(consumer, 'skill-snippets')
+  mkdirSync(snippets)
+  const copiedSkills = join(consumer, '.agents/skills')
+  mkdirSync(copiedSkills, {recursive: true})
+  for (const folder of readdirSync(join(installed, 'skills')).filter(p => p.startsWith('tasra-'))) {
+    cpSync(join(installed, 'skills', folder), join(copiedSkills, folder), {recursive: true})
+  }
+  let snippetCount = 0
+  const missingReferences: string[] = []
+  for (const skill of packedNames.filter(p => /^package\/skills\/.*\.md$/.test(p))) {
+    const path = skill === 'package/skills/README.md'
+      ? join(installed, 'skills/README.md')
+      : join(copiedSkills, skill.slice('package/skills/'.length))
+    const markdown = readFileSync(path, 'utf8')
+    for (const match of markdown.matchAll(/\]\(([^)]+)\)/g)) {
+      const target = match[1]!
+      if (/^[a-z]+:|^#/i.test(target)) continue
+      if (!existsSync(resolve(dirname(path), target.split('#')[0]!))) missingReferences.push(`${skill}: ${target}`)
+    }
+    if (!skill.endsWith('/SKILL.md')) continue
+    for (const match of markdown.matchAll(/^```ts\n([\s\S]*?)^```/gm)) {
+      writeFileSync(join(snippets, `example-${++snippetCount}.ts`), match[1]!)
+    }
+  }
+  ok('copied skills retain their linked supporting references', missingReferences.length === 0, missingReferences.join('; '))
+  writeFileSync(join(snippets, 'tsconfig.json'), JSON.stringify({compilerOptions: {
+    target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext',
+    strict: true, noUncheckedIndexedAccess: true, skipLibCheck: true, noEmit: true,
+    types: [], lib: ['ES2022', 'DOM'],
+  }, include: ['*.ts']}))
+  let snippetsCompile = snippetCount > 0
+  try {
+    execFileSync(process.execPath, [join(repoRoot, 'node_modules/typescript/bin/tsc'), '-p', join(snippets, 'tsconfig.json')], {stdio: 'inherit'})
+  } catch { snippetsCompile = false }
+  ok(`all ${snippetCount} modern skill examples compile against the installed tarball`, snippetsCompile)
+
   // 3. Resolve through the exports map.
   console.log('resolving…')
 
-  for (const subpath of ['', '/chain', '/chain/node', '/committee', '/oid4vp', '/verifier-agent']) {
+  for (const subpath of ['', '/app', '/app/node', '/chain', '/chain/node', '/committee', '/oid4vp', '/verifier-agent']) {
     const specifier = `${pkg.name}${subpath}`
     ok(`ESM: ${specifier}`, runInConsumer(consumer, 'mjs', `import * as sdk from '${specifier}'; console.log(Object.keys(sdk).length)`) !== null)
     ok(`CJS: ${specifier}`, runInConsumer(consumer, 'cjs', `console.log(Object.keys(require('${specifier}')).length)`) !== null)
   }
+
+  const simpleApp = runInConsumer(consumer, 'mjs', `
+    import {TasraClient, resolveApplicationManifest, createIdentity, issueCredential, verifyCredential} from '${pkg.name}/app';
+    import {createFileStore} from '${pkg.name}/app/node';
+    const address = '0x' + '12'.repeat(20), hash = '0x' + 'ab'.repeat(32);
+    const manifest = {schemaVersion: 1, network: 'testnet', chainId: 43113,
+      deploymentId: 'package-check', revision: 1, status: 'active', protocolVersion: '0.3.0',
+      verifiedAt: {blockNumber: '12', blockHash: hash, timestamp: '2026-09-20T00:00:00Z'},
+      contracts: ['NodeRegistry', 'KeyRegistry'].map(name => ({name, address,
+        abi: 'contracts/abi/0.3.0/' + name + '.json', runtimeCodeHash: hash,
+        deployment: {transactionHash: hash, blockNumber: '11'}, create2: null, proxy: null})), services: []};
+    const network = resolveApplicationManifest(manifest, {coordinator: 'lowest-operator-id'});
+    const configured = new TasraClient({manifest: network.deployment});
+    if(configured.deployment.chainId!==43113||configured.deployment.coordinator!=='lowest-operator-id')throw new Error('Manifest configuration missing');
+    const issuer = createIdentity(), holder = createIdentity();
+    const credential = issueCredential({issuer, holder, type: 'Employee', claims: {role: 'editor'}});
+    verifyCredential(credential, {issuer: issuer.did, holder, type: 'Employee'});
+    const store = createFileStore('./private-state');
+    await store.save('identity', {key: holder.exportPrivateKey(), count: 2n});
+    const saved = await store.load('identity');
+    if (!(saved.key instanceof Uint8Array) || saved.count !== 2n || typeof TasraClient !== 'function') throw new Error('application API missing');
+    console.log('ok');
+  `);
+  ok('one-package application identities and durable Node storage work', simpleApp === 'ok');
 
   const esmMain = runInConsumer(
     consumer,

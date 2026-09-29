@@ -1,15 +1,15 @@
-// Slot-driven ON-CHAIN DISCOVERY — turn a bare slot id into everything the
+// Slot-driven ON-CHAIN DISCOVERY - turn a bare slot id into everything the
 // committee-authorization flow needs, read straight from the registry:
 //
-//   • resolveSlotKeeperUrls   — the slot's assigned keeper nodes → their HTTP URLs
-//                               (KeyRegistry.assignedNodes → NodeRegistry.nodeOf().url)
-//   • resolveVerifierDirectory — the active verifier set → {index,url,operator,pubkey}
+//   - resolveSlotKeeperUrls   - the slot's assigned keeper nodes to their HTTP URLs
+//                               (KeyRegistry.assignedNodes to NodeRegistry.nodeOf().url)
+//   - resolveVerifierDirectory - the active verifier set to {index,url,operator,pubkey}
 //                               (NodeRegistry operators tagged keccak256("verifier"))
-//   • resolveSlotGroupKey     — the slot's group public key + epoch, for LOCAL encrypt
-//                               (KeyRegistry.getKeySlot — no node/verifier round-trip)
+//   - resolveSlotGroupKey     - the slot's group public key + epoch, for local encrypt
+//                               (KeyRegistry.getKeySlot - no node/verifier round-trip)
 //
 // A slot is "equipped with" its keeper committee at creation (drawn on-chain, URLs on
-// chain), but NOT with a fixed verifier set: it carries only a verifierPolicy(committee,
+// chain), but not with a fixed verifier set: it carries only a verifierPolicy(committee,
 // quorum), and the actual committee is drawn per-request from the *global* verifier set
 // by the beacon. So node discovery is per-slot; verifier discovery is network-wide.
 //
@@ -41,13 +41,15 @@ interface OnchainNode {
  * The slot's assigned keeper nodes, resolved to their HTTP base URLs. These are the
  * nodes any `/v1/committee/{sign,decrypt}` request for this slot must target. Order
  * follows `assignedNodes`; url-less operators are skipped.
+ * @param chain Reader configured from the approved network manifest.
+ * @param slotId Slot whose assigned keeper endpoints are required.
  */
 export async function resolveSlotKeeperUrls(
   chain: TasraChainClient,
   slotId: `0x${string}`,
 ): Promise<string[]> {
   const ops = (await chain.readers.keyRegistry.assignedNodes(slotId)) as readonly Address[]
-  // `allowFailure: false` — an unreadable operator must FAIL the call, not silently
+  // `allowFailure: false` - an unreadable operator must fail the call, not silently
   // shrink the committee. A quietly short node list looks like a smaller slot.
   const nodes = (await chain.readMany(
     'NodeRegistry',
@@ -59,26 +61,17 @@ export async function resolveSlotKeeperUrls(
 }
 
 /**
- * Enumerate the active verifier set from chain: every active `NodeRegistry` operator
- * carrying the `keccak256("verifier")` tag, resolved to `{index, url, operator, pubkey}`.
- *
- * Hand the whole directory to the committee flow — the beacon-seeded on-chain draw
- * selects the per-request committee from it, and non-drawn verifiers reply
- * 403 and are skipped.
- *
- * `index` is assigned by **ascending operator address** — the same rule the network uses
- * to build every tagged set, so this directory's index/leaf order matches the anchored
- * `VerifierSetRegistry` snapshot. That makes the committee flow's inclusion proofs
- * derivable, so the keeper validates against on-chain state rather than any statically
- * configured set.
+ * Read active verifier records in ascending operator-address order. Stable indices must match the anchored verifier snapshot; unreadable records reject discovery rather than silently renumbering the committee.
+ * @param chain Reader for the deployment registry.
+ * @returns Verifier endpoints, public keys and snapshot indices.
  */
 export async function resolveVerifierDirectory(
   chain: TasraChainClient,
 ): Promise<CommitteeVerifier[]> {
   const ops = (await chain.readers.nodeRegistry.activeOperators()) as readonly Address[]
-  // ⚠ `allowFailure: false` on BOTH reads below is load-bearing, not caution. `index` is
+  // `allowFailure: false` on both reads below is load-bearing, not caution. `index` is
   // the position in this list, and the anchored snapshot's leaves are built from the same
-  // order — so one dropped operator renumbers every operator after it and the committee
+  // order - so one dropped operator renumbers every operator after it and the committee
   // flow's inclusion proofs are built against the wrong leaves. A short list must be an
   // error, never a different-but-plausible directory.
   const flags = (await chain.readMany(
@@ -88,7 +81,7 @@ export async function resolveVerifierDirectory(
     {allowFailure: false},
   )) as boolean[]
   // Ascending address = numeric order on fixed-width lowercase hex, which is what a
-  // byte-wise sort over the 20-byte addresses gives. Plain `<` on lowercased hex, NOT
+  // byte-wise sort over the 20-byte addresses gives. Plain `<` on lowercased hex, not
   // localeCompare (whose collation could disagree with byte order).
   const lower = (a: Address) => a.toLowerCase()
   const verifierOps = ops
@@ -115,15 +108,18 @@ export async function resolveVerifierDirectory(
 export interface SlotGroupKey {
   /** 0x-prefixed group public key (96-byte compressed G2 for a BLS slot). */
   publicKey: `0x${string}`
+  /** Slot key epoch associated with the returned group public key. */
   epoch: number
   /** 0 = frost, 1 = bls (KeyRegistry.Mode). Encrypt applies to BLS slots. */
   mode: number
 }
 
 /**
- * Read the slot's group public key + epoch straight from `KeyRegistry.getKeySlot` — so
+ * Read the slot's group public key + epoch straight from `KeyRegistry.getKeySlot` - so
  * `encrypt` needs no verifier, no JWT, and no node round-trip (it's local + offline once
  * you hold the key).
+ * @param chain Reader for the deployment owning the slot.
+ * @param slotId Slot whose anchored public key and epoch are required.
  */
 export async function resolveSlotGroupKey(
   chain: TasraChainClient,
@@ -144,18 +140,8 @@ export async function resolveSlotGroupKey(
 export const ACCOUNTANT_TAG: `0x${string}` = keccak256(toHex('accountant'))
 
 /**
- * Every active accountant's HTTP base URL, in registry order.
- *
- * Used to ask for an ADR-0075 slot seed. Any one of them can serve it — the seed is a threshold
- * signature the whole set produces, so whichever accountant answers leads the round and the
- * others verify. A caller therefore tries them in order and stops at the first success.
- *
- * ⚠ Read through `taggedActiveOperatorsPage`, NOT `activeOperators` + a `hasTag` fan-out. The
- * paged getter walks the contract's compact PER-TAG set, so its cost tracks the number of
- * accountants (single digits) rather than the operator population — ADR-0068's whole point. The
- * verifier directory beside this one cannot use it, because its `index` must be the position in
- * the global active list that the anchored snapshot's leaves are built from; nothing indexes into
- * this list, so it is free to take the cheap route.
+ * Read active accountant HTTP endpoints through the registry role index, preserving registry order.
+ * @param chain Reader for the registry containing accountant role registrations.
  */
 export async function resolveAccountantUrls(chain: TasraChainClient): Promise<string[]> {
   const PAGE = 256n

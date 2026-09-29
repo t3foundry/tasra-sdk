@@ -21,6 +21,9 @@ export default tseslint.config(
   // ---------------------------------------------------------------------
   {
     ignores: [
+      '.verification/**',
+      'site/**', // separate documentation toolchain
+      'examples/document-signing/**', // separate app; packaged build + workflow tests in verify:document-app
       'dist/**', // build output
       'node_modules/**',
       'src/chain/abis/**', // AUTO-GENERATED
@@ -93,6 +96,13 @@ export default tseslint.config(
         },
       ],
     },
+  },
+
+  {
+    files: ['scripts/**/*.mjs'],
+    extends: [js.configs.recommended],
+    languageOptions: {globals: {URL: 'readonly', process: 'readonly', console: 'readonly', Buffer: 'readonly', AbortController: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly'}},
+    rules: {'no-unused-vars': ['error', {argsIgnorePattern: '^_'}]},
   },
 
   // ---------------------------------------------------------------------

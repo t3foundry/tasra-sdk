@@ -29,7 +29,7 @@ Please include, as far as you have it:
 - what an attacker gains — key material, unauthorized decryption, policy bypass,
   signature forgery, denial of service;
 - the smallest reproduction you can manage, ideally a failing script against a
-  local fleet;
+  network selected from a verified tasra-releases manifest;
 - whether you have told anyone else.
 
 ### What to expect

@@ -3,17 +3,31 @@ import {validateServiceEndpoint} from './serviceIdentity.js'
 import type {ServiceApproval, ServiceType} from './services.js'
 import type {ApprovedAgentProfile} from './registeredAgent.js'
 
+/**
+ * Application-approved service identity and its expected endpoint.
+ */
 export interface ApprovedServiceProfile {
+  /**
+   * Independently reviewed registry identity and metadata pins.
+   */
   approval: ServiceApproval
+  /**
+   * Expected canonical service endpoint.
+   */
   endpoint: string
 }
 
 /** Reviewed application configuration, never a list downloaded from a service registry. */
 export interface ApplicationServiceProfiles {
+  /** Chain shared by all approved service profiles. */
   chainId: number
+  /** ServiceRegistry contract shared by the approved profiles. */
   registry: Address
+  /** Independently approved relay providers in application preference order. */
   relayers: ApprovedServiceProfile[]
+  /** Independently approved verifier agents and their pinned audiences. */
   verifierAgents: ApprovedAgentProfile[]
+  /** Independently approved vault-service identities and endpoints. */
   vaultServices: ApprovedServiceProfile[]
 }
 
@@ -29,7 +43,10 @@ function hex(value: unknown, bytes: number): Hex {
   return value.toLowerCase() as Hex
 }
 
-/** Parse the public, JSON-safe deployment approval file. Decimal revisions preserve uint64. */
+/**
+ * Parse the public, JSON-safe deployment approval file. Decimal revisions preserve uint64.
+ * @param value Parsed approval object or its JSON text.
+ */
 export function parseApplicationServiceProfiles(value: unknown): ApplicationServiceProfiles {
   if (typeof value === 'string') {
     if (new TextEncoder().encode(value).length > 65_536) throw new Error('Service profile file too large')
@@ -62,7 +79,10 @@ export function parseApplicationServiceProfiles(value: unknown): ApplicationServ
   return {chainId, registry, relayers, verifierAgents, vaultServices}
 }
 
-/** Publish only public approvals, with no runtime transport or private key material. */
+/**
+ * Publish only public approvals, with no runtime transport or private key material.
+ * @param profiles Application-approved service profiles to serialize without private runtime data.
+ */
 export function applicationServiceProfilesDocument(profiles: ApplicationServiceProfiles): Record<string, unknown> {
   function entries(values: readonly (ApprovedServiceProfile & {clientId?: string})[], serviceType: ServiceType) {
     return values.map(({approval: a, endpoint, clientId}) => {
