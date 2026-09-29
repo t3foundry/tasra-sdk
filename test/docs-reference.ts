@@ -15,12 +15,13 @@ const flags = ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefin
 const text = (parts: readonly ts.SymbolDisplayPart[] | undefined) => ts.displayPartsToString(parts ? [...parts] : undefined)
 // Use a delimiter longer than any backtick run in the type. Padding keeps a
 // template literal's own backticks inside the span. Only GFM table cells escape pipes.
+const escapeTable = (value: string) => value.replaceAll('\\', '\\\\').replaceAll('|', '\\|')
 const inlineCode = (value: string, table = false) => {
   const delimiter = '`'.repeat(Math.max(0, ...[...value.matchAll(/`+/g)].map(match => match[0].length)) + 1)
   const content = value.replace(/\r?\n\s*/g, ' ')
-  return `${delimiter} ${table ? content.replace(/\|/g, '\\|') : content} ${delimiter}`
+  return `${delimiter} ${table ? escapeTable(content) : content} ${delimiter}`
 }
-const cell = (value: string) => value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+const cell = (value: string) => escapeTable(value).replace(/\r?\n/g, ' ')
 const printer = ts.createPrinter({removeComments: true})
 const annotation = (node: ts.TypeNode) => printer.printNode(ts.EmitHint.Unspecified, node, node.getSourceFile())
 function parameterType(symbol: ts.Symbol, at: ts.Declaration) {

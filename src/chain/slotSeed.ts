@@ -45,12 +45,14 @@ function parseSeed(body: unknown, commitment: Hex): SlotSeed | null {
   // An all-zero signature is the point at infinity. The contract rejects it (it would otherwise
   // verify against an all-zero key from anyone), but rejecting it here means a misbehaving
   // accountant cannot make a caller pay for the discovery.
-  if (/^0x0+$/.test(signature)) return null
+  if (BigInt(signature) === 0n) return null
   return {commitment, digest: digest.toLowerCase() as Hex, signature: signature.toLowerCase() as Hex}
 }
 
 async function askOne(url: string, commitment: Hex, timeoutMs: number): Promise<SlotSeed | null> {
-  const base = url.replace(/\/+$/, '')
+  let end = url.length
+  while (end > 0 && url[end - 1] === '/') end--
+  const base = url.slice(0, end)
   const res = await fetch(`${base}/v1/slot-seed`, {
     method: 'POST',
     headers: {'content-type': 'application/json'},

@@ -27,7 +27,10 @@ export const OAUTH_RESPONSE_PATH = '/v1/sessions/oauth-response'
  * @param url - Endpoint text to normalize; scheme and authority are lowercased while the path is preserved.
  */
 export function normalizeOrigin(url: string): string {
-  const trimmed = url.trim().replace(/\/+$/, '')
+  const input = url.trim()
+  let end = input.length
+  while (end > 0 && input[end - 1] === '/') end--
+  const trimmed = input.slice(0, end)
   const i = trimmed.indexOf('://')
   if (i < 0) return trimmed
   const scheme = trimmed.slice(0, i)

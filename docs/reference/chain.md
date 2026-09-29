@@ -1100,7 +1100,7 @@ Returns: ` Promise<RelayReconciliation> `.
 
 Request a committee draw seed and compare its digest with the registry. Checks signature encoding and rejects the point at infinity; signature cryptography is verified during the on-chain reveal.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/slotSeed.ts#L85)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/slotSeed.ts#L87)
 
 Import: `import {requestSlotSeed} from 'tasra-sdk/chain'`
 
@@ -2919,7 +2919,7 @@ Fields:
 
 Accountant endpoint overrides and per-request timeout for committee seed discovery.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/slotSeed.ts#L70)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/slotSeed.ts#L72)
 
 ```ts
 export interface SlotSeedOptions {

@@ -544,7 +544,7 @@ or fragment, and a client library that derives it from the URL it is about to ca
 every conformant one does - produces this string, not one carrying a session id. The
 session is already bound by the `nonce`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L66)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L69)
 
 Import: `import {dpopHtu} from 'tasra-sdk/committee'`
 
@@ -803,7 +803,7 @@ The OAuth audience the tenant registers with its IdP and every rule pins:
 The chain id is in it so a token minted for a testnet deployment of the same platform
 cannot authorize on mainnet.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L51)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L54)
 
 Import: `import {platformAudience} from 'tasra-sdk/committee'`
 

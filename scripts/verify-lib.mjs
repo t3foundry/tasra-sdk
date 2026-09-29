@@ -1,6 +1,6 @@
 import {spawn, execFileSync} from 'node:child_process'
 import {createHash} from 'node:crypto'
-import {mkdirSync, readFileSync, writeFileSync, lstatSync, readlinkSync, unlinkSync, openSync, closeSync} from 'node:fs'
+import {mkdirSync, readFileSync, writeFileSync, lstatSync, fstatSync, readlinkSync, unlinkSync, openSync, closeSync, constants} from 'node:fs'
 import {join} from 'node:path'
 
 export function fingerprint(root) {
@@ -11,7 +11,15 @@ export function fingerprint(root) {
     try {
       const path = join(root, name), stat = lstatSync(path)
       hash.update(String(stat.mode) + '\0')
-      hash.update(stat.isSymbolicLink() ? readlinkSync(path) : readFileSync(path))
+      if (stat.isSymbolicLink()) hash.update(readlinkSync(path))
+      else {
+        const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+        try {
+          const opened = fstatSync(fd)
+          if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino) throw new Error(`Tracked file changed while hashing: ${name}`)
+          hash.update(readFileSync(fd))
+        } finally { closeSync(fd) }
+      }
     } catch (error) {
       if (error.code !== 'ENOENT') throw error
       hash.update('DELETED')

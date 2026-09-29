@@ -47,7 +47,7 @@ try{
  assert.equal(presentations,1,'accepted wallet presentation is not resubmitted after reload')
  await alice.reload();await alice.getByRole('heading',{name:'Your signature is saved'}).waitFor()
  const afterAlice=await(await fetch(origin+'/api/requests/'+id)).json()
- writeFileSync('/tmp/tasra-sign-live-checkpoint.json',JSON.stringify({id,attemptId:afterAlice.signers.alice.attemptId,proof:afterAlice.signers.alice.signature}))
+ writeFileSync(out+'checkpoint.json',JSON.stringify({id,attemptId:afterAlice.signers.alice.attemptId,proof:afterAlice.signers.alice.signature}),{mode:0o600})
  console.log('Alice signed; reload persisted. Request '+id)
  await bob.locator('#wallet').waitFor({timeout:15000});await bob.locator('#wallet').setInputFiles(root+'.tasra/wallets/bob.json')
  await bob.locator('#consent').check();await bob.getByRole('button',{name:'Approve and sign'}).click()

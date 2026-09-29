@@ -17,7 +17,21 @@ const decode = html => html.replace(/&(amp|lt|gt|quot|apos|#(?:x[\da-f]+|\d+));/
   if (entity[0] === '#') return String.fromCodePoint(entity[1] === 'x' ? parseInt(entity.slice(2), 16) : Number(entity.slice(1)))
   return {amp: '&', lt: '<', gt: '>', quot: '"', apos: "'"}[entity.toLowerCase()]
 })
-const text = html => decode(html.replace(/<(?:"[^"]*"|'[^']*'|[^'">])*>/g, ''))
+const stripTags = html => {
+  const content = []
+  let inTag = false, quote = ''
+  for (const char of html) {
+    if (!inTag) {
+      if (char === '<') inTag = true
+      else content.push(char)
+    } else if (quote) {
+      if (char === quote) quote = ''
+    } else if (char === '"' || char === "'") quote = char
+    else if (char === '>') inTag = false
+  }
+  return content.join('')
+}
+const text = html => decode(stripTags(html))
 // Expressive Code stores newlines as DEL in the copy button's data-code attribute.
 const codeText = value => decode(value).replaceAll('\u007f', '\n')
 const rows = html => [...html.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map(match => [...match[1].matchAll(/<td>([\s\S]*?)<\/td>/g)].map(cell => cell[1]))

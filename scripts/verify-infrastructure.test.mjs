@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync, mkdirSync} from 'node:fs'
+import {mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync, mkdirSync, symlinkSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {execFileSync, spawnSync} from 'node:child_process'
@@ -47,6 +47,19 @@ void test('fingerprint includes untracked edits and tracked deletions, excludes 
   writeFileSync(join(directory, 'new'), 'untracked'); assert.notEqual(fingerprint(directory), initial)
   rmSync(join(directory, 'new')); assert.equal(fingerprint(directory), initial)
   rmSync(join(directory, 'tracked')); assert.notEqual(fingerprint(directory), initial)
+})
+void test('fingerprint hashes a tracked symlink target name without reading its target file', t => {
+  const {directory} = fixture(t)
+  execFileSync('git', ['init', '-q', directory])
+  const external = mkdtempSync(join(tmpdir(), 'tasra-fingerprint-target-'))
+  t.after(() => rmSync(external, {recursive: true, force: true}))
+  const target = join(external, 'secret')
+  writeFileSync(target, 'first')
+  symlinkSync(target, join(directory, 'linked'))
+  execFileSync('git', ['add', 'linked'], {cwd: directory})
+  const initial = fingerprint(directory)
+  writeFileSync(target, 'second')
+  assert.equal(fingerprint(directory), initial)
 })
 void test('architecture and focused-test checks parse code, not quoted fixtures', async () => {
   const {sourceFindings} = await import('./verify-repository.mjs')

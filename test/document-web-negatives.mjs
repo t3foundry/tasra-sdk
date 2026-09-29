@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url'
 const requireApp=createRequire(new URL('../examples/document-signing/package.json',import.meta.url))
 const {fetchRequestObject,defaultKeyResolver,buildResponse,submitResponse,ed25519HolderKey,planPresentation,signCompactJws,holderSigner}=await import(pathToFileURL(requireApp.resolve('tasra-sdk/oid4vp')).href)
 const root=new URL('../examples/document-signing/',import.meta.url).pathname,out=new URL('../.verification/document-signing-web/',import.meta.url).pathname
-const origin='http://127.0.0.1:4177',service=JSON.parse(readFileSync(root+'.tasra/service.json')),saved=JSON.parse(readFileSync('/tmp/tasra-sign-live-checkpoint.json'))
+const origin='http://127.0.0.1:4177',service=JSON.parse(readFileSync(root+'.tasra/service.json')),saved=JSON.parse(readFileSync(out+'checkpoint.json'))
 const checks=[]
 async function call(path,data,owner=false){const r=await fetch(origin+'/api'+path,{method:data===undefined?'GET':'POST',headers:{origin,'content-type':'application/json',...(owner?{authorization:'Bearer '+service.senderToken}:{})},body:data===undefined?undefined:JSON.stringify(data)});return {status:r.status,body:await r.json()}}
 const after=await call('/requests/'+saved.id);assert.equal(after.body.status,'completed');assert.deepEqual(after.body.signers.alice.signature,saved.proof)
