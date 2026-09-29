@@ -30,7 +30,7 @@ import {randomBytes} from 'node:crypto'
 import {execFile} from 'node:child_process'
 import {keccak256, parseEther, toHex, type Hex} from 'viem'
 import {Suite, metric} from '../fleet/_assert.ts'
-import {discoverCommittee, gate, loadFleetConfig, mintLocalJwt, provisionRule, SLOT_DCQL_RULE} from '../fleet/_fleet.ts'
+import {discoverCommittee, gate, keeperSlotN, loadFleetConfig, mintLocalJwt, provisionRule, SLOT_DCQL_RULE} from '../fleet/_fleet.ts'
 import {frostVerify} from '../fleet/_crypto.ts'
 import {encryptEnvelope} from '../../src/crypto/envelope.ts'
 import {hexToBytes} from '../../src/crypto/hex.ts'
@@ -65,7 +65,9 @@ function pickSet(ids: number[], k: number): number[] {
   }
   return a.slice(0, k).sort((x, y) => x - y)
 }
-const NODES = cfg.nodeUrls.length
+// ⚠ The whole k/n matrix below derives from this, and every case tags ['keykeeper'], so it must be
+//   the count the REGISTRY can seat — not the count that answers HTTP. See keeperSlotN.
+const NODES = (await keeperSlotN(cfg)).n
 const jwt = mintLocalJwt(cfg)
 const H = {'Content-Type': 'application/json', Authorization: `Bearer ${jwt}`}
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -169,7 +171,7 @@ async function createSlot(mode: 'frost' | 'bls', k: number, n: number): Promise<
   let slot: string
   let ruleSalt: string
   try {
-    const created = await client.createSlot({dcqlRule: SLOT_DCQL_RULE, k, n, mode, tags: ['keykeeper']})
+    const created = await client.createSlot({rule: SLOT_DCQL_RULE, k, n, mode, tags: ['keykeeper']})
     slot = created.slotId
     ruleSalt = created.ruleSalt
   } catch (e) {

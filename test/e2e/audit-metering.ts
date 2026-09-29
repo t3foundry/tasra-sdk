@@ -10,7 +10,7 @@
 import {randomBytes} from 'node:crypto'
 import {parseEther} from 'viem'
 import {Suite} from '../fleet/_assert.ts'
-import {discoverCommittee, gate, loadFleetConfig, mintLocalJwt, provisionRule} from '../fleet/_fleet.ts'
+import {discoverCommittee, gate, keeperSlotN, loadFleetConfig, mintLocalJwt, provisionRule} from '../fleet/_fleet.ts'
 import {authorizeWallet, WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
 import {createTasraWriteClient, generateClientKey} from '../../src/chain/write.ts'
 import {httpFaucet} from '../../src/slots/faucet.ts'
@@ -25,6 +25,7 @@ if (!(await gate(s, cfg))) {
 
 const SUBJECT = 'did:demo:audit-e2e'
 const N = 4
+const K = 3
 const creatorKey = generateClientKey()
 const client = createTasraWriteClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, privateKey: creatorKey, chainId: cfg.chainId})
 try {
@@ -33,7 +34,18 @@ try {
   const funder = createTasraWriteClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, privateKey: cfg.deployPk as `0x${string}`, chainId: cfg.chainId})
   await funder.sendEth(client.address, parseEther('1'))
 }
-const {slotId, ruleSalt} = await client.createSlotCommitReveal({dcqlRule: SLOT_DCQL_RULE, k: 3, n: cfg.nodeUrls.length, mode: 'frost', tags: ['keykeeper'], onEpoch: (c, t) => s.info(`beacon ${c}→${t}`)})
+// ⚠⚠ SIZE THE COMMITTEE OFF THE REGISTRY, NOT OFF HTTP. This read `n: cfg.nodeUrls.length` until
+//    2026-09-29 and reverted `InsufficientFilteredPool(4, 5)` on a fleet whose five keeper
+//    containers were all healthy — one of them was unbonding, so the chain could seat only four.
+//    `keeperSlotN` bounds n by BOTH views; see its note for why scaling the fleet cannot fix it.
+const pool = await keeperSlotN(cfg)
+s.info(`keeper pool: ${pool.reachable} reachable, ${pool.eligible} ${pool.tag}-tagged active → n=${pool.n}`)
+if (!s.ok(`keeper pool can seat a ${K}-of-n committee`, pool.n >= K,
+  `only ${pool.n} keeper(s) are both reachable and ${pool.tag}-tagged active; need ${K}`)) {
+  s.done()
+  process.exit(1)
+}
+const {slotId, ruleSalt} = await client.createSlotCommitReveal({rule: SLOT_DCQL_RULE, k: K, n: pool.n, mode: 'frost', tags: ['keykeeper'], onEpoch: (c, t) => s.info(`beacon ${c}→${t}`)})
 s.ok('client created a FROST slot (commit-reveal)', /^0x[0-9a-f]{64}$/.test(slotId))
 
 // wait for the key
