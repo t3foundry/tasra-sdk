@@ -1,17 +1,28 @@
 # Tasra SDK documentation — deployment
 
-The Starlight site in [`site/`](../../site) served from `web-server` on two endpoints:
+The Starlight site in [`site/`](../../site), served from `web-server` at
 
-| | |
-|---|---|
-| **<https://sdk.t3-foundry.fuji.tasra.network>** | the canonical origin, via Nginx Proxy Manager. Needs the NPM proxy host + Let's Encrypt cert (`ingress.sh host`, then `ssl`). |
-| **<http://sdk.t3-foundry.fuji.tasra.network:8081>** | the published container port. No TLS. Works without NPM. |
+> **<http://195.154.104.141:8081>**
+
+and nowhere else. **There is no DNS name and no TLS** — the record was created and then removed on
+2026-09-30 by operator decision, and no Nginx Proxy Manager host was ever created. The published
+container port is the whole access path, which makes `ports:` in
+[`compose.yaml`](compose.yaml) load-bearing rather than a convenience.
 
 ⚠⚠ **8081 is world-reachable and `ufw` does not show it.** Docker's rules live in the `DOCKER`
 chain, which is consulted before ufw's `INPUT` rules, and this host's `DOCKER-USER` chain is empty —
-so `ufw status` lists only 22/80/443 and denies 81 while 8081 answers the internet. Do not read that
-output as evidence the port is shut. Nothing served is secret, but it carries no TLS and is not the
-canonical origin, so anything indexing it records the wrong origin for every page.
+so `ufw status` lists only 22/80/443 and a DENY on 81 while 8081 answers the internet. Do not read
+that output as evidence the port is shut. Nothing served here is secret (it is public
+documentation), but the port is plain http and unauthenticated.
+
+⚠ **The built HTML still declares `https://sdk.t3-foundry.fuji.tasra.network` as its canonical
+origin** (`site` in [`../../site/astro.config.mjs`](../../site/astro.config.mjs), asserted by
+`build.sh`). That is deliberate: it is the right value if the name comes back, and it is inert while
+nothing crawls an unadvertised IP. If this deployment is meant to stay IP-only, drop `site` and the
+assertion in `build.sh`, then rebuild — do not leave it pointing at a name that will never exist.
+
+To give it a name and TLS later, nothing needs rebuilding: `ingress.sh dns`, then `host`, then
+`ssl`. The container already sits on the shared `proxy` network for exactly that.
 
 Everything here reads [`deployment.json`](deployment.json), so a name or a path changes in one
 place. No file in this directory holds a secret.
