@@ -7,6 +7,8 @@ never does.
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-09-30
+
 ### Added
 
 - Additive `tasra-sdk/app` entry for typed slot operations, public EVM address lookup,
@@ -17,9 +19,6 @@ never does.
   and operation receipt preservation/verification.
 - Complete encrypted-notes, document-signing and native approval TypeScript examples,
   application guides and migration notes.
-
-Install `tasra-sdk@latest` from npm. Network operations require compatible contracts
-and services selected through a verified tasra-releases manifest.
 
 - `committeeSignEoaDigest` in `tasra-sdk/committee` for request-bound threshold
   Ethereum signing with verifier-agent compound tokens and membership proofs.
@@ -45,6 +44,9 @@ and services selected through a verified tasra-releases manifest.
   bootstrap from a pinned repository commit.
 - Narrow slot-creation results before reading the transaction hash in the skill's
   direct/commit-reveal example.
+
+Install `tasra-sdk@latest` from npm. Network operations require compatible contracts
+and services selected through a verified tasra-releases manifest.
 
 ## [0.2.2] — 2026-09-23
 

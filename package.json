@@ -1,6 +1,6 @@
 {
   "name": "tasra-sdk",
-  "version": "0.3.0-next.0",
+  "version": "0.2.3",
   "description": "TypeScript SDK for Tasra network slots, credential-based access, distributed encryption and signing, and on-chain operations.",
   "private": false,
   "type": "module",
