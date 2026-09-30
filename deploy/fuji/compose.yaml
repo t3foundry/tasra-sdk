@@ -18,26 +18,27 @@ services:
     image: tasra-sdk-docs:fuji
     container_name: tasra-sdk-docs
     restart: unless-stopped
-    # ⚠⚠ THE PUBLISHED PORT IS THE ONLY WAY IN. There is no DNS name and no proxy host for this
-    #    site (operator's decision, 2026-09-30): it is reached as http://<web-server-ip>:8081 and
-    #    nothing else. So this key is load-bearing — remove it and the site becomes unreachable
-    #    rather than merely losing a shortcut.
+    # Container port 80, declared and NOT published to the host.
     #
-    # ⚠⚠ ufw DOES NOT SHOW THIS PORT. Docker writes its rules into the DOCKER chain, consulted
-    #    BEFORE ufw's INPUT rules, and this host's DOCKER-USER chain is empty — so 8081 answers the
-    #    internet while `ufw status` lists only 22/80/443 and a DENY on 81. Do not read that output
-    #    as evidence the port is shut. Nothing served here is secret (it is public documentation),
-    #    but there is no TLS on this port: it is plain http, unauthenticated, to anyone who asks.
+    # ⚠⚠ HOST PORT 80 IS NOT AVAILABLE AND NEVER WILL BE: Nginx Proxy Manager (traefik-app-1) owns
+    #    0.0.0.0:80 and :443 on this machine for ~35 sites. `ports: ["80:80"]` here would fail with
+    #    "address already in use" — and is not what is wanted anyway, since NPM is the thing that
+    #    must answer :80 and route by hostname.
     #
-    # ⚠ 8081-8089 is the KEEPER HTTP range in this deployment's port scheme, and
-    #   keykeeper-network/deploy/fuji/firewall/kk-fuji-ports.sh drops that whole range from everyone
-    #   but the ingress host. That unit runs on DEV-BOX ONLY, so it does not cover this container —
-    #   the number simply reads as "keeper-1" to anyone scanning a port list on the wrong host.
-    ports:
-      - "8081:80"
+    # ⚠⚠ `expose` IS DOCUMENTATION, NOT PLUMBING. On a user-defined network every container can
+    #    already reach every port of its peers, so this line does not grant NPM access — joining
+    #    the shared `proxy` network below does. It is kept because it states the contract the proxy
+    #    host depends on: the NPM host for this site must forward to tasra-sdk-docs:80.
+    #    ⚠ Forwarding to :8081 is the mistake this replaces. 8081 only ever existed in the HOST's
+    #      namespace as a published mapping; nothing has ever listened on 8081 INSIDE the container,
+    #      so an NPM host pointed there answers 502.
+    expose:
+      - "80"
 
-    # The `proxy` network stays joined even with no proxy host: it costs nothing and it is what a
-    # future `ingress.sh host` would forward to by container name, without recreating anything.
+    # ⚠⚠ NO HOST PORT IS PUBLISHED, so the proxy is now the ONLY way in. That closes the plain-http
+    #    8081 that ufw could not show (Docker's DOCKER chain is consulted before ufw's INPUT rules
+    #    and DOCKER-USER is empty here) — but it also means the site is unreachable until BOTH the
+    #    DNS record exists and the NPM host forwards to :80.
     networks: [default, proxy]
     # The site is read-only at runtime; nginx needs writable temp paths, which tmpfs supplies.
     read_only: true

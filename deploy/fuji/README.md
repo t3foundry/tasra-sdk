@@ -1,28 +1,31 @@
 # Tasra SDK documentation — deployment
 
-The Starlight site in [`site/`](../../site), served from `web-server` at
+The Starlight site in [`site/`](../../site), served from `web-server` behind Nginx Proxy Manager at
+**<https://sdk.t3-foundry.fuji.tasra.network>**.
 
-> **<http://195.154.104.141:8081>**
+**Nothing is published to the host.** The container declares port 80 with `expose` and NPM reaches
+it by container name on the shared `proxy` network — the same way `kk-fuji-explorer-web` and
+`tasra-health-web` are reached. So the proxy is the only way in, and the site needs *both* of these
+to be reachable:
 
-and nowhere else. **There is no DNS name and no TLS** — the record was created and then removed on
-2026-09-30 by operator decision, and no Nginx Proxy Manager host was ever created. The published
-container port is the whole access path, which makes `ports:` in
-[`compose.yaml`](compose.yaml) load-bearing rather than a convenience.
+| | |
+|---|---|
+| **The DNS record** | `ingress.sh dns` — an A record to `195.154.104.141`, DNS-only (grey cloud). |
+| **The NPM proxy host** | forwarding to **`tasra-sdk-docs:80`**, then a Let's Encrypt cert on its SSL tab. |
 
-⚠⚠ **8081 is world-reachable and `ufw` does not show it.** Docker's rules live in the `DOCKER`
-chain, which is consulted before ufw's `INPUT` rules, and this host's `DOCKER-USER` chain is empty —
-so `ufw status` lists only 22/80/443 and a DENY on 81 while 8081 answers the internet. Do not read
-that output as evidence the port is shut. Nothing served here is secret (it is public
-documentation), but the port is plain http and unauthenticated.
+⚠⚠ **The NPM host must forward to port 80, not 8081.** An earlier revision published `8081:80` on
+the host; a proxy host pointed at `tasra-sdk-docs:8081` answers **502**, because 8081 only ever
+existed in the *host's* namespace as a mapping — nothing has ever listened on 8081 *inside* the
+container. `up.sh status` probes `tasra-sdk-docs:80` from inside the NPM container precisely to
+tell this case apart from a genuinely broken site.
 
-⚠ **The built HTML still declares `https://sdk.t3-foundry.fuji.tasra.network` as its canonical
-origin** (`site` in [`../../site/astro.config.mjs`](../../site/astro.config.mjs), asserted by
-`build.sh`). That is deliberate: it is the right value if the name comes back, and it is inert while
-nothing crawls an unadvertised IP. If this deployment is meant to stay IP-only, drop `site` and the
-assertion in `build.sh`, then rebuild — do not leave it pointing at a name that will never exist.
+⚠ **Host port 80 is not available to publish here**, now or ever: NPM (`traefik-app-1`) owns
+`0.0.0.0:80` and `:443` for ~35 sites. `ports: ["80:80"]` would fail with "address already in use".
 
-To give it a name and TLS later, nothing needs rebuilding: `ingress.sh dns`, then `host`, then
-`ssl`. The container already sits on the shared `proxy` network for exactly that.
+⚠ **If you ever publish a host port again, `ufw` will not show it.** Docker writes its rules into
+the `DOCKER` chain, consulted before ufw's `INPUT` rules, and this host's `DOCKER-USER` chain is
+empty — so a published port answers the internet while `ufw status` still lists only 22/80/443 and a
+DENY on 81. That is why 8081 was withdrawn.
 
 Everything here reads [`deployment.json`](deployment.json), so a name or a path changes in one
 place. No file in this directory holds a secret.

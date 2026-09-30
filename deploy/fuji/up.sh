@@ -28,12 +28,9 @@ WORKDIR="$(jq -r .host.workdir "$cfg")"
 PROJECT="$(jq -r .service.project "$cfg")"
 CONTAINER="$(jq -r .service.container "$cfg")"
 FQDN="$(jq -r .service.dns "$cfg").$(jq -r '.operator + "." + .domain' "$cfg")"
-# ⚠ Read from the config, not hardcoded — compose.yaml publishes the same number and the two must
-#   not drift, or `status` cheerfully probes a port nothing is listening on and reports it down.
-PUBLISHED_PORT="$(jq -r .service.published_port "$cfg")"
-# The site has NO DNS record: the published port on the ingress host's IP is the only way in, so
-# that is what `status` probes. FQDN is kept because ingress.sh can still create the name later.
-HOST_IP="$(jq -r .ingress.ip "$cfg")"
+# The container port the proxy must forward to. Nothing is published to the host, so there is no
+# second number to keep in step.
+PORT="$(jq -r .service.port "$cfg")"
 
 # See build.sh for why the docker invocation is resolved on the host rather than assumed.
 REMOTE_DOCKER='if docker ps >/dev/null 2>&1; then D=docker; DC="docker compose"; elif sudo -n docker ps >/dev/null 2>&1; then D="sudo -n docker"; DC="sudo -n docker compose"; else echo "no docker access" >&2; exit 1; fi'
@@ -58,14 +55,18 @@ case "$cmd" in
   status)
     remote "\$D ps --filter name=$CONTAINER --format '  {{.Names}}  {{.Image}}  {{.Status}}'" || true
     printf '  image  %s\n' "$(remote "\$D inspect $CONTAINER --format '{{.Image}}'" 2>/dev/null || echo '— not created')"
-    # The ONLY public endpoint: the published port on the ingress host's IP. There is deliberately
-    # no DNS record, so probing a name here would report the site down while it serves fine.
-    printf '  http   %s  http://%s:%s/  (no TLS, no DNS name)\n' \
-      "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "http://$HOST_IP:$PUBLISHED_PORT/" 2>/dev/null || echo unreachable)" \
-      "$HOST_IP" "$PUBLISHED_PORT"
+    # ⚠⚠ PROBE THE PATH THE PROXY ACTUALLY USES, from inside the proxy. Nothing is published to
+    #    the host, so there is no endpoint to curl from here — and this is the one check that
+    #    separates "the site is broken" from "the proxy host is misconfigured or DNS is missing".
+    #    It is what proved an NPM host forwarding to :8081 was the cause of a 502 while the
+    #    container was serving perfectly on :80.
+    printf '  upstream %s  (tasra-sdk-docs:%s, as NPM reaches it)\n' \
+      "$(remote "\$D exec traefik-app-1 curl -sS -o /dev/null -w '%{http_code}' --max-time 8 http://$CONTAINER:$PORT/" 2>/dev/null || echo unreachable)" "$PORT"
+    printf '  https    %s  (https://%s/ — needs the NPM host AND the DNS record)\n' \
+      "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "https://$FQDN/" 2>/dev/null || echo unreachable)" "$FQDN"
     # ⚠ A 200 on / proves nginx and the pages. It does NOT prove search: pagefind is fetched by JS
     #   and a missing index returns nothing for every query without any page looking broken.
-    printf '  search %s\n' "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "http://$HOST_IP:$PUBLISHED_PORT/pagefind/pagefind.js" 2>/dev/null || echo unreachable)"
+    printf '  search   %s\n' "$(remote "\$D exec traefik-app-1 curl -sS -o /dev/null -w '%{http_code}' --max-time 8 http://$CONTAINER:$PORT/pagefind/pagefind.js" 2>/dev/null || echo unreachable)"
     # Reported, not probed: the record was removed on purpose, so this only checks it stayed removed.
     # ⚠⚠ ASK THE AUTHORITATIVE NAMESERVER, NOT THE LOCAL RESOLVER. A plain `dig` returns this
     #    machine's cache, which holds the record for up to its old TTL after deletion — so status
@@ -77,7 +78,7 @@ case "$cmd" in
     #   printed a blank field, which reads as "the check did not run" rather than "no record".
     _ns="$(dig +short NS "$(jq -r .domain "$cfg" | sed 's/^.*\.\([^.]*\.[^.]*\)$/\1/')" 2>/dev/null | head -1)"
     _a="$(dig +short ${_ns:+@$_ns} "$FQDN" A 2>/dev/null | head -1)"
-    printf '  dns    %s\n' "${_a:-none at the authoritative NS (removed deliberately — ingress.sh dns recreates it)}"
+    printf '  dns      %s\n' "${_a:-none at the authoritative NS — run ./ingress.sh dns}"
     ;;
   logs)    remote "\$D logs --tail 80 -f $CONTAINER" ;;
   *) echo "usage: up.sh <sync|config|start|restart|stop|down|status|logs>" >&2; exit 1 ;;
