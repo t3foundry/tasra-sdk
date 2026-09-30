@@ -104,3 +104,14 @@ for (const flag of ['--assume-unchanged', '--skip-worktree']) void test(`push re
   assert.match(result.stderr, /index flags/)
   assert.equal(f.calls().length, 0)
 })
+
+test('install succeeds when the working tree was copied without a git binary', t => {
+  const {install, env} = fixture(t)
+  // A container that installs this package through a `file:` dependency lands here: npm runs
+  // `prepare` for linked local deps even under --ignore-scripts, `.git` rides along in the build
+  // context so the directory check passes, and the base image has no git. Hooks are a developer
+  // convenience — failing here fails the consumer's whole install.
+  const result = install({env: {...env, PATH: ''}})
+  assert.equal(result.status, 0, result.stderr)
+  assert.doesNotMatch(result.stderr, /Hook setup failed/)
+})

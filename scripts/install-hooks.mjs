@@ -8,6 +8,13 @@ function install() {
   // Published packages and CI do not need developer Git configuration.
   if (process.env.CI && process.env.CI !== 'false') return
   if (!existsSync(join(root, '.git'))) return
+  // A working tree COPIED without the git binary is not a developer environment either. A
+  // container that installs this package through a `file:` dependency hits exactly that: npm runs
+  // this `prepare` for linked local deps even under --ignore-scripts, `.git` rode along in the
+  // build context so the check above passes, and git is absent from the base image. Hooks are a
+  // convenience; never fail a consumer's install for them.
+  const gitBinary = spawnSync('git', ['--version'])
+  if (gitBinary.error || gitBinary.status !== 0) return
   const git = args => execFileSync('git', args, {cwd: root, encoding: 'utf8'}).trim()
   if (realpathSync(git(['rev-parse', '--show-toplevel'])) !== realpathSync(root)) return
   const configured = spawnSync('git', ['config', '--get', 'core.hooksPath'], {cwd: root, encoding: 'utf8'})
