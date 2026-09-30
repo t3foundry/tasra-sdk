@@ -46,7 +46,7 @@ build_site() {
   # ⚠ The canonical URL is baked in at BUILD TIME by astro (site/astro.config.mjs `site`). A
   #   rebuilt image does not change it, and a mismatch is invisible in the browser — it only shows
   #   in the canonical link, the sitemap and social previews. So assert it here.
-  if ! docker run --rm --entrypoint sh "$IMAGE" -c "grep -qF 'https://$FQDN' /usr/share/nginx/html/index.html"; then
+  if ! docker run --rm --entrypoint sh "$IMAGE" -c "grep -qF 'https://$FQDN' /srv/site/dist/index.html"; then
     echo "build: the built site does not carry https://$FQDN as its canonical origin" >&2
     echo "       set the 'site' key in site/astro.config.mjs to match deployment.json .service.dns" >&2
     exit 1

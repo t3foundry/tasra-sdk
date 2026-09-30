@@ -37,14 +37,14 @@
   "service": {
     "dns": "sdk",
     "container": "tasra-sdk-docs",
-    "port": 80,
+    "port": 4321,
     "_port_comment": [
-      "The port INSIDE the container, which compose.yaml declares with `expose` and which the",
-      "Nginx Proxy Manager host MUST forward to (tasra-sdk-docs:80).",
-      "⚠⚠ NOTHING IS PUBLISHED TO THE HOST. An earlier revision published 8081; an NPM host was",
-      "  then pointed at tasra-sdk-docs:8081 and answered 502, because 8081 only ever existed in",
-      "  the HOST's namespace as a mapping — nothing has ever listened on 8081 inside the",
-      "  container. Forward to 80.",
+      "Astro's default preview port, INSIDE the container. The Nginx Proxy Manager host must",
+      "forward to tasra-sdk-docs:4321.",
+      "⚠⚠ NOTHING IS PUBLISHED TO THE HOST. A published port is a mapping in the HOST's namespace",
+      "  and does not exist inside the container, so pointing the proxy at one answers 502 — that",
+      "  is exactly what happened when an NPM host was aimed at tasra-sdk-docs:8081 while the",
+      "  container served 80. Forward to the CONTAINER port, which is this value.",
       "⚠ Host port 80 is owned by Nginx Proxy Manager (traefik-app-1) for ~35 sites, so it is not",
       "  available to publish here and never will be."
     ],

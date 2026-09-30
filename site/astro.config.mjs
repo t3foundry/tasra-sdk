@@ -6,6 +6,19 @@ export default defineConfig({
   // crawler or a social preview. It must match deploy/fuji/deployment.json .service.dns, and
   // deploy/fuji/build.sh fails the image if the built index.html does not carry it.
   site: 'https://sdk.t3-foundry.fuji.tasra.network',
+  vite: {
+    preview: {
+      // ⚠⚠ WITHOUT THIS THE DEPLOYED SITE ANSWERS 403 TO EVERY REQUEST THAT ARRIVES THROUGH A
+      //    PROXY. Vite refuses any request whose Host header is not listed — the body says
+      //    `Blocked request. This host ("…") is not allowed.` and points at vite.config.js, which
+      //    this project does not have, so the advice does not match the repository. Only
+      //    localhost/127.0.0.1 are allowed by default, which is why it looks fine when curled
+      //    inside the container and 403s the moment Nginx Proxy Manager forwards Host: <fqdn>.
+      //    ⚠ The public name must match `site` above and deploy/fuji/deployment.json .service.dns;
+      //      the container name must match .service.container. Nothing checks that they agree.
+      allowedHosts: ['sdk.t3-foundry.fuji.tasra.network', 'tasra-sdk-docs'],
+    },
+  },
   integrations: [starlight({
     title: 'Tasra SDK',
     logo: {src: './assets/tasra-logo.webp', alt: '', replacesTitle: false},

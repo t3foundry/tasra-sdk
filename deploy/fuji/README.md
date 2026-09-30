@@ -3,29 +3,57 @@
 The Starlight site in [`site/`](../../site), served from `web-server` behind Nginx Proxy Manager at
 **<https://sdk.t3-foundry.fuji.tasra.network>**.
 
-**Nothing is published to the host.** The container declares port 80 with `expose` and NPM reaches
-it by container name on the shared `proxy` network — the same way `kk-fuji-explorer-web` and
-`tasra-health-web` are reached. So the proxy is the only way in, and the site needs *both* of these
-to be reachable:
+The container runs **`astro preview`** — the same server as `npm run preview` locally, so what is
+deployed behaves like what you develop against. There is no nginx in the image; Nginx Proxy Manager
+on the host is the only web server in the path.
+
+**Nothing is published to the host.** The container exposes **4321** (Astro's default preview port)
+and NPM reaches it by container name on the shared `proxy` network — the same way
+`kk-fuji-explorer-web` and `tasra-health-web` are reached. So the proxy is the only way in, and the
+site needs *both* of these:
 
 | | |
 |---|---|
 | **The DNS record** | `ingress.sh dns` — an A record to `195.154.104.141`, DNS-only (grey cloud). |
-| **The NPM proxy host** | forwarding to **`tasra-sdk-docs:80`**, then a Let's Encrypt cert on its SSL tab. |
+| **The NPM proxy host** | forwarding to **`tasra-sdk-docs`** port **`4321`**, then a Let's Encrypt cert on its SSL tab. |
 
-⚠⚠ **The NPM host must forward to port 80, not 8081.** An earlier revision published `8081:80` on
-the host; a proxy host pointed at `tasra-sdk-docs:8081` answers **502**, because 8081 only ever
-existed in the *host's* namespace as a mapping — nothing has ever listened on 8081 *inside* the
-container. `up.sh status` probes `tasra-sdk-docs:80` from inside the NPM container precisely to
-tell this case apart from a genuinely broken site.
+⚠⚠ **Forward to the CONTAINER port, never a published host port.** A published port is a mapping in
+the host's namespace and does not exist inside the container, so a proxy host aimed at one gets
+connection-refused and reports **502** while the container serves perfectly. That exact mistake —
+`tasra-sdk-docs:8081` against a container listening on 80 — is why `up.sh status` probes the
+upstream from *inside* the NPM container: it tells a misconfigured proxy apart from a broken site.
+
+⚠⚠ **`allowedHosts` in [`site/astro.config.mjs`](../../site/astro.config.mjs) is load-bearing.**
+Vite refuses any request whose `Host` header is not listed, with `Blocked request. This host (…) is
+not allowed.` and **403** — including the real public hostname the proxy forwards. Only
+`localhost`/`127.0.0.1` pass by default, so it looks healthy when curled inside the container and
+403s through the proxy. The list must contain the public FQDN *and* the container name (the
+healthcheck and `up.sh status` use the latter). Nothing checks that it agrees with
+`deployment.json`.
 
 ⚠ **Host port 80 is not available to publish here**, now or ever: NPM (`traefik-app-1`) owns
 `0.0.0.0:80` and `:443` for ~35 sites. `ports: ["80:80"]` would fail with "address already in use".
 
-⚠ **If you ever publish a host port again, `ufw` will not show it.** Docker writes its rules into
-the `DOCKER` chain, consulted before ufw's `INPUT` rules, and this host's `DOCKER-USER` chain is
-empty — so a published port answers the internet while `ufw status` still lists only 22/80/443 and a
-DENY on 81. That is why 8081 was withdrawn.
+⚠ **If you ever publish a host port, `ufw` will not show it.** Docker writes its rules into the
+`DOCKER` chain, consulted before ufw's `INPUT` rules, and this host's `DOCKER-USER` chain is empty —
+so a published port answers the internet while `ufw status` still lists only 22/80/443 and a DENY on
+81. That is why the earlier 8081 was withdrawn.
+
+## What this costs compared with a static file server
+
+`astro preview` runs Astro, so `node_modules` ships with it: **634 MB** versus 31 MB for the
+`nginx:alpine-slim` image it replaced. It also serves three things differently, all verified:
+
+| | `astro preview` | what nginx did |
+|---|---|---|
+| `/examples/*.ts` | `video/mp2t` — 42 files download as "video" | `text/plain` |
+| `/LICENSE` | no `Content-Type` | `text/plain` |
+| `Cache-Control` | `no-cache` on everything | `immutable` for hashed `/_astro/*`, `must-revalidate` for HTML |
+
+None of these break a page; the last one means every visit revalidates assets that can never
+change. All three are fixable in the NPM proxy host's **Advanced** field (`proxy_hide_header
+Content-Type` plus `add_header` for the first two, `add_header Cache-Control` for the third) if they
+matter — at the cost of moving config into the NPM UI.
 
 Everything here reads [`deployment.json`](deployment.json), so a name or a path changes in one
 place. No file in this directory holds a secret.

@@ -18,41 +18,51 @@ services:
     image: tasra-sdk-docs:fuji
     container_name: tasra-sdk-docs
     restart: unless-stopped
-    # Container port 80, declared and NOT published to the host.
-    #
-    # ⚠⚠ HOST PORT 80 IS NOT AVAILABLE AND NEVER WILL BE: Nginx Proxy Manager (traefik-app-1) owns
-    #    0.0.0.0:80 and :443 on this machine for ~35 sites. `ports: ["80:80"]` here would fail with
-    #    "address already in use" — and is not what is wanted anyway, since NPM is the thing that
-    #    must answer :80 and route by hostname.
+    # Astro's preview server, on its default port 4321, NOT published to the host.
     #
     # ⚠⚠ `expose` IS DOCUMENTATION, NOT PLUMBING. On a user-defined network every container can
     #    already reach every port of its peers, so this line does not grant NPM access — joining
     #    the shared `proxy` network below does. It is kept because it states the contract the proxy
-    #    host depends on: the NPM host for this site must forward to tasra-sdk-docs:80.
-    #    ⚠ Forwarding to :8081 is the mistake this replaces. 8081 only ever existed in the HOST's
-    #      namespace as a published mapping; nothing has ever listened on 8081 INSIDE the container,
-    #      so an NPM host pointed there answers 502.
+    #    host depends on: the NPM host for this site must forward to tasra-sdk-docs:4321.
+    #    ⚠ Forwarding to a PUBLISHED host port instead is the mistake to avoid. A published port is
+    #      a mapping in the HOST's namespace and does not exist inside the container, so the proxy
+    #      gets connection-refused and reports 502 while the container serves perfectly.
+    #
+    # ⚠ Host port 80 could not be published here anyway: Nginx Proxy Manager (traefik-app-1) owns
+    #   0.0.0.0:80 and :443 for ~35 sites, so `ports: ["80:80"]` fails with "address already in
+    #   use" — and NPM is the thing that should answer :80 and route by hostname.
     expose:
-      - "80"
+      - "4321"
 
-    # ⚠⚠ NO HOST PORT IS PUBLISHED, so the proxy is now the ONLY way in. That closes the plain-http
-    #    8081 that ufw could not show (Docker's DOCKER chain is consulted before ufw's INPUT rules
-    #    and DOCKER-USER is empty here) — but it also means the site is unreachable until BOTH the
-    #    DNS record exists and the NPM host forwards to :80.
+    # ⚠⚠ NO HOST PORT IS PUBLISHED, so the proxy is the ONLY way in. That keeps the plain-http port
+    #    closed that ufw could not show (Docker's DOCKER chain is consulted before ufw's INPUT
+    #    rules and DOCKER-USER is empty here) — but it also means the site is unreachable until
+    #    BOTH the DNS record exists and the NPM host forwards to :4321.
     networks: [default, proxy]
-    # The site is read-only at runtime; nginx needs writable temp paths, which tmpfs supplies.
+
+    # ⚠⚠ BOTH tmpfs ENTRIES ARE REQUIRED — astro preview is an application server, not a file
+    #    server, and it writes to its project directory at startup:
+    #      /srv/site/.astro   a lock file. Without it the server prints "ready in 53 ms", THEN
+    #                         throws `Failed to write lock file: ENOENT … mkdir '/srv/site/.astro/'`
+    #                         and exits 1 — so the log shows a successful start immediately above
+    #                         the crash, which reads like an unrelated failure.
+    #      /tmp               node expects a writable one.
+    #    ⚠ Astro's telemetry would also mkdir /root/.config/astro; that is prevented by
+    #      ASTRO_TELEMETRY_DISABLED in the Dockerfile rather than by another tmpfs.
     read_only: true
     tmpfs:
-      - /var/cache/nginx
-      - /var/run
       - /tmp
+      - /srv/site/.astro
     healthcheck:
-      # /healthz is served by nginx.conf itself, so this proves the server is answering without
-      # depending on any page surviving a content change.
-      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1/healthz || exit 1"]
+      # ⚠ There is no /healthz to ask for — astro preview serves the built site and nothing else,
+      #   so the healthcheck fetches the home page. That couples container health to index.html
+      #   existing, which is the weaker guarantee an application server gives you compared with a
+      #   purpose-built endpoint.
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:4321/ >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
-      start_period: 5s
+      # ⚠ Longer than an nginx start: this boots Node and Astro, not a static file server.
+      start_period: 20s
       retries: 3
 
 networks:
