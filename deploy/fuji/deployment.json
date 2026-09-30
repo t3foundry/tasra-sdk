@@ -1,0 +1,50 @@
+{
+  "_comment": [
+    "The one place this documentation deployment's constants live. Every script here reads this",
+    "file, so a name or a path changes in ONE place. It carries NO secrets and is tracked.",
+    "",
+    "This stack is PURELY STATIC. It is documentation for a public npm package: no chain access,",
+    "no database, no secrets, no volume, nothing to back up. It reads nothing from the keykeeper",
+    "deployment on the same host and writes nothing anywhere. A wipe costs a rebuild, not data.",
+    "",
+    "⚠ It is NOT part of the fuji fleet. keykeeper-network/deploy/fuji/topology.json drives the",
+    "  keepers, verifiers, accountants and the explorer, and its render.sh regenerates that",
+    "  compose file with a 'do not edit' banner. This stack lives beside them the same way the",
+    "  Tasra Vault relayer and the health demo do: its own project, its own ingress script."
+  ],
+  "operator": "t3-foundry",
+  "domain": "fuji.tasra.network",
+  "ingress": {
+    "host": "web-server",
+    "manager": "nginx-proxy-manager",
+    "manager_version": "2.15.1",
+    "admin_url": "https://admin.managination.com",
+    "proxy_network": "proxy",
+    "ip": "195.154.104.141",
+    "_ip_comment": [
+      "web-server. The A record points here and Let's Encrypt HTTP-01 is answered here, so the",
+      "record must stay DNS-only (grey cloud).",
+      "⚠ sdk.t3-foundry.fuji.tasra.network is THREE labels below the apex, so Cloudflare's",
+      "  Universal SSL does not cover it even if someone did orange-cloud it — the certificate",
+      "  has to come from Let's Encrypt at the origin either way."
+    ]
+  },
+  "host": {
+    "ssh": "web-server",
+    "workdir": "/srv/tasra-sdk-docs/fuji",
+    "_comment": "Its own tree. Nothing else on the host reads or writes it."
+  },
+  "service": {
+    "dns": "sdk",
+    "container": "tasra-sdk-docs",
+    "port": 80,
+    "project": "tasra-sdk-docs",
+    "image": "tasra-sdk-docs:fuji",
+    "_dns_comment": [
+      "The public name is https://sdk.t3-foundry.fuji.tasra.network — operator's choice of label.",
+      "⚠ It must match `site` in ../../site/astro.config.mjs. Astro bakes that value into the",
+      "  canonical <link>, the sitemap and the OpenGraph URLs, so a mismatch is invisible in the",
+      "  browser and wrong in every crawler and social preview."
+    ]
+  }
+}

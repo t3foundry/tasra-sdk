@@ -1,6 +1,11 @@
 import {defineConfig} from 'astro/config'
 import starlight from '@astrojs/starlight'
 export default defineConfig({
+  // The public origin. Astro bakes this into the canonical <link>, the sitemap and the OpenGraph
+  // URLs, none of which are visible in a browser — so a wrong value here is noticed only by a
+  // crawler or a social preview. It must match deploy/fuji/deployment.json .service.dns, and
+  // deploy/fuji/build.sh fails the image if the built index.html does not carry it.
+  site: 'https://sdk.t3-foundry.fuji.tasra.network',
   integrations: [starlight({
     title: 'Tasra SDK',
     logo: {src: './assets/tasra-logo.webp', alt: '', replacesTitle: false},
