@@ -1,7 +1,17 @@
 # Tasra SDK documentation — deployment
 
-The Starlight site in [`site/`](../../site) served at
-**<https://sdk.t3-foundry.fuji.tasra.network>** from `web-server`.
+The Starlight site in [`site/`](../../site) served from `web-server` on two endpoints:
+
+| | |
+|---|---|
+| **<https://sdk.t3-foundry.fuji.tasra.network>** | the canonical origin, via Nginx Proxy Manager. Needs the NPM proxy host + Let's Encrypt cert (`ingress.sh host`, then `ssl`). |
+| **<http://sdk.t3-foundry.fuji.tasra.network:8081>** | the published container port. No TLS. Works without NPM. |
+
+⚠⚠ **8081 is world-reachable and `ufw` does not show it.** Docker's rules live in the `DOCKER`
+chain, which is consulted before ufw's `INPUT` rules, and this host's `DOCKER-USER` chain is empty —
+so `ufw status` lists only 22/80/443 and denies 81 while 8081 answers the internet. Do not read that
+output as evidence the port is shut. Nothing served is secret, but it carries no TLS and is not the
+canonical origin, so anything indexing it records the wrong origin for every page.
 
 Everything here reads [`deployment.json`](deployment.json), so a name or a path changes in one
 place. No file in this directory holds a secret.

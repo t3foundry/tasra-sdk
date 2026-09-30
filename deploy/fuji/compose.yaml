@@ -18,9 +18,26 @@ services:
     image: tasra-sdk-docs:fuji
     container_name: tasra-sdk-docs
     restart: unless-stopped
-    # No published port. Nginx Proxy Manager reaches the container BY NAME on the shared `proxy`
-    # network, exactly as it reaches kk-fuji-explorer-web and tasra-health-web. Publishing a host
-    # port would expose the site on plain http, bypassing the proxy that terminates TLS.
+    # ⚠⚠ 8081 IS PUBLISHED AND IS THEREFORE WORLD-REACHABLE ON PLAIN HTTP (operator's decision,
+    #    2026-09-30, made with the following stated). ufw on this host allows only 22/tcp, 80/tcp
+    #    and 443/tcp from anywhere and explicitly DENIES 81/tcp — but Docker writes its rules into
+    #    the DOCKER chain, which is consulted BEFORE ufw's INPUT rules, and this host's DOCKER-USER
+    #    chain is empty. So `ufw status` will go on reporting 8081 as closed while it answers the
+    #    internet: do not read that output as evidence this port is shut.
+    #    Nothing served here is secret — it is public documentation — but this port carries no TLS
+    #    and is NOT the canonical origin (https://sdk.t3-foundry.fuji.tasra.network). Anything that
+    #    indexes it will record the wrong origin for every page.
+    #
+    # ⚠ 8081-8089 is the KEEPER HTTP range in this deployment's port scheme, and
+    #   keykeeper-network/deploy/fuji/firewall/kk-fuji-ports.sh drops that whole range from everyone
+    #   but the ingress host. That unit runs on DEV-BOX ONLY, so it does not cover this container —
+    #   the number simply reads as "keeper-1" to anyone scanning a port list on the wrong host.
+    ports:
+      - "8081:80"
+
+    # NPM additionally reaches the container BY NAME on the shared `proxy` network, exactly as it
+    # reaches kk-fuji-explorer-web and tasra-health-web. That path is what will serve the https
+    # origin once the proxy host exists, and it does not depend on the published port above.
     networks: [default, proxy]
     # The site is read-only at runtime; nginx needs writable temp paths, which tmpfs supplies.
     read_only: true

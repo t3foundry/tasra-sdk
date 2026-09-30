@@ -28,6 +28,9 @@ WORKDIR="$(jq -r .host.workdir "$cfg")"
 PROJECT="$(jq -r .service.project "$cfg")"
 CONTAINER="$(jq -r .service.container "$cfg")"
 FQDN="$(jq -r .service.dns "$cfg").$(jq -r '.operator + "." + .domain' "$cfg")"
+# ⚠ Read from the config, not hardcoded — compose.yaml publishes the same number and the two must
+#   not drift, or `status` cheerfully probes a port nothing is listening on and reports it down.
+PUBLISHED_PORT="$(jq -r .service.published_port "$cfg")"
 
 # See build.sh for why the docker invocation is resolved on the host rather than assumed.
 REMOTE_DOCKER='if docker ps >/dev/null 2>&1; then D=docker; DC="docker compose"; elif sudo -n docker ps >/dev/null 2>&1; then D="sudo -n docker"; DC="sudo -n docker compose"; else echo "no docker access" >&2; exit 1; fi'
@@ -53,10 +56,15 @@ case "$cmd" in
     remote "\$D ps --filter name=$CONTAINER --format '  {{.Names}}  {{.Image}}  {{.Status}}'" || true
     printf '  image  %s\n' "$(remote "\$D inspect $CONTAINER --format '{{.Image}}'" 2>/dev/null || echo '— not created')"
     printf '  dns    %s\n' "$(dig +short "$FQDN" A | head -1 | sed 's/^$/— does not resolve/')"
-    printf '  https  %s\n' "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "https://$FQDN/" 2>/dev/null || echo unreachable)"
+    # ⚠ BOTH ENDPOINTS ARE REPORTED, because the container can be serving perfectly while `https`
+    #   reads unreachable — that only means no Nginx Proxy Manager host exists yet. Reporting the
+    #   https origin alone made a working deployment look dead.
+    printf '  http   %s  (published port %s, no TLS)\n' \
+      "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "http://$FQDN:$PUBLISHED_PORT/" 2>/dev/null || echo unreachable)" "$PUBLISHED_PORT"
+    printf '  https  %s  (via NPM, the canonical origin)\n' "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "https://$FQDN/" 2>/dev/null || echo unreachable)"
     # ⚠ A 200 on / proves nginx and the pages. It does NOT prove search: pagefind is fetched by JS
     #   and a missing index returns nothing for every query without any page looking broken.
-    printf '  search %s\n' "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "https://$FQDN/pagefind/pagefind.js" 2>/dev/null || echo unreachable)"
+    printf '  search %s\n' "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "http://$FQDN:$PUBLISHED_PORT/pagefind/pagefind.js" 2>/dev/null || echo unreachable)"
     ;;
   logs)    remote "\$D logs --tail 80 -f $CONTAINER" ;;
   *) echo "usage: up.sh <sync|config|start|restart|stop|down|status|logs>" >&2; exit 1 ;;

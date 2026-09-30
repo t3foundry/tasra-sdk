@@ -38,6 +38,16 @@
     "dns": "sdk",
     "container": "tasra-sdk-docs",
     "port": 80,
+    "published_port": 8081,
+    "_published_port_comment": [
+      "The host port compose.yaml publishes, and the one up.sh probes. `port` above is the port",
+      "INSIDE the container, which is what Nginx Proxy Manager forwards to by container name.",
+      "⚠⚠ THIS PORT IS WORLD-REACHABLE ON PLAIN HTTP and ufw does not show it: Docker's rules live",
+      "  in the DOCKER chain, consulted before ufw's INPUT rules, and this host's DOCKER-USER chain",
+      "  is empty. `ufw status` lists only 22/80/443 and denies 81, yet 8081 answers the internet.",
+      "⚠ Change it here AND in compose.yaml — up.sh reads this value, so drift makes `status` probe",
+      "  a port nothing listens on and report the site down while it is serving fine."
+    ],
     "project": "tasra-sdk-docs",
     "image": "tasra-sdk-docs:fuji",
     "_dns_comment": [
