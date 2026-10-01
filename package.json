@@ -253,12 +253,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/t3-foundry/tasra-sdk.git"
+    "url": "git+https://github.com/t3foundry/tasra-sdk.git"
   },
   "bugs": {
-    "url": "https://github.com/t3-foundry/tasra-sdk/issues"
+    "url": "https://github.com/t3foundry/tasra-sdk/issues"
   },
-  "homepage": "https://github.com/t3-foundry/tasra-sdk#readme",
+  "homepage": "https://github.com/t3foundry/tasra-sdk#readme",
   "license": "Apache-2.0",
   "publishConfig": {
     "access": "public",
