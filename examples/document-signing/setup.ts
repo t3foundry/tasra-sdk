@@ -50,8 +50,8 @@ try {
   await store.save('creator-key', creator.exportPrivateKey())
   await store.save('network-pin', networkIdentity.manifestSha256)
   console.log(`Creator: ${creator.address} on chain ${deployment.chainId}.`)
-  if (await tasra.chain.client.getBalance({address: creator.address}) < 10n ** 18n) {
-    throw new Error('Fund this address with at least 1 AVAX using the official Fuji C-Chain faucet or your wallet, then rerun npm run setup. Saved creator state will be reused.')
+  if (await tasra.chain.client.getBalance({address: creator.address}) < 5n * 10n ** 16n) {
+    throw new Error('Fund this address with at least 0.05 AVAX using the official Fuji C-Chain faucet or your wallet, then rerun npm run setup. Saved creator state will be reused.')
   }
 
   // Each signer receives a separate identity and holder-bound credential.

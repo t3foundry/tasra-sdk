@@ -239,5 +239,5 @@ For **one signature requiring a native approval quorum**, follow
 `npx tsx network.ts` saves the verified manifest and its checksum pin. Keep both
 files with the application so restarts use the same deployment. The examples use
 `lowest-operator-id` as the explicit coordinator convention; confirm it matches
-the selected service. Fund each newly printed creator address with at least one
-native token on the selected chain before continuing.
+the selected service. Fund each newly printed creator address with at least 0.05
+AVAX on Fuji before continuing; more may be needed if gas costs rise.
