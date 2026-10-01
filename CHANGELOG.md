@@ -36,6 +36,8 @@ and services selected through a verified tasra-releases manifest.
 
 ### Fixed
 
+- Point npm package repository, issues, and homepage metadata to the publishing
+  GitHub repository.
 - Make the funding tutorial resolve the EURC token from the verified BondingCurve
   when the Fuji release manifest omits a separate token entry; reject conflicting
   token addresses before writes.
