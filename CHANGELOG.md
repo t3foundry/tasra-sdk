@@ -7,6 +7,18 @@ never does.
 
 ## [Unreleased]
 
+## [0.2.4] — 2026-10-01
+
+### Fixed
+
+- Make the funding tutorial resolve the EURC token from the verified BondingCurve
+  when the Fuji release manifest omits a separate token entry; reject conflicting
+  token addresses before writes.
+- Let the Fuji application examples proceed with 0.05 AVAX of creator gas and
+  use a purchase amount that meets the documented 1 TSRA minimum.
+- Avoid failing a consumer's install when Git is unavailable.
+- Update the development Next.js dependency past the `next/og` security advisory.
+
 ## [0.2.3] — 2026-09-30
 
 ### Added
@@ -35,12 +47,6 @@ never does.
 
 ### Fixed
 
-- Make the funding tutorial resolve the EURC token from the verified BondingCurve
-  when the Fuji release manifest omits a separate token entry; reject conflicting
-  token addresses before writes.
-- Let the Fuji application examples proceed with 0.05 AVAX of creator gas and
-  use a purchase amount that meets the documented 1 TSRA minimum.
-- Update the development Next.js dependency past the `next/og` security advisory.
 - Keep recovery salts out of public tutorial evidence; select public creation
   references explicitly.
 - Align note identity/result guidance with the API and include a complete standalone
