@@ -12,7 +12,7 @@ async function main() {
     threshold: {k: 2, n: 3}, verifiers: {committee: 3, quorum: 2}})
   await awaitUsageCredit(account.slotId)
   const address = await account.getAddress()
-  await creator.transfer('fund-treasury', {to: address, value: 10n ** 17n}, store)
+  await creator.transfer('fund-treasury', {to: address, value: 10n ** 16n}, store)
   console.log(`Shared Ethereum account: ${address} (slot ${account.slotId})`)
 
   // 3. Each holder authorizes a transfer. The SDK signs, journals and confirms it.

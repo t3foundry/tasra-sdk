@@ -46,8 +46,9 @@ lessons and the web document app save state for later runs.
 
 ## 3. Buy TSRA with EURC
 
-The curve accepts **EURC, not AVAX**. First obtain the EURC token configured by your
-manifest. The Fuji deployment uses test EURC; this optional command explicitly
+The curve accepts **EURC, not AVAX**. The funding helper reads the curve's EURC
+token address from the contract named by your verified manifest; the manifest may
+omit a separate token entry. The Fuji deployment uses test EURC; this optional command explicitly
 mints **10 test EURC** to the saved creator:
 
 ```sh
