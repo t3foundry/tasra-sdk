@@ -76,7 +76,7 @@ export type {IbeExtractOpts, IbeExtractionPartial} from './client.js'
 export {ibeExtractRequest, ibeDecryptRequest} from './request.js'
 export type {IbeExtractRequestOpts} from './request.js'
 
-// ─── Derived OAuth audience + DPoP htu ────────────────────────────
+// Derived OAuth audience + DPoP htu
 export {
   platformAudience,
   dpopHtu,

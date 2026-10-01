@@ -16,11 +16,11 @@
 //      (`auth0.generateDpopProof({url, method, nonce, accessToken})`). Wrap that call as a
 //      {@link DpopSigner} and pass it through; this file never sees the key.
 //
-// ⚠ `keycloak-js` has NO released DPoP API (`dpopConfig` exists only in an unreleased PR).
+// Note: `keycloak-js` has NO released DPoP API (`dpopConfig` exists only in an unreleased PR).
 // A Keycloak tenant therefore uses shape 1: obtain the token with `tokenRequestProof` from
 // `createDpopKey()` and present with the same key's `signer`.
 //
-// ⚠ The key MUST be non-extractable where the platform allows it. `createDpopKey` asks
+// Note: the key MUST be non-extractable where the platform allows it. `createDpopKey` asks
 // WebCrypto for `extractable: false`, which is what makes a stolen token inert: an attacker
 // who exfiltrates the token cannot exfiltrate the key that spends it.
 

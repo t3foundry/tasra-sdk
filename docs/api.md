@@ -211,14 +211,14 @@ htu: tokenEndpoint})` in the token request's `DPoP` header (add `nonce` only if 
 `use_dpop_nonce`); a token-request proof carries no `ath`, because there is no token yet. Then
 present with `key.signer`.
 
-⚠ **The `htu` is this session's route on the agent's PUBLIC origin:**
+**Note: the `htu` is this session's route on the agent's PUBLIC origin:**
 `{agentOrigin}/v1/sessions/{sessionId}/oauth-response`, returned as `session.dpopHtu`. When you
 call the agent at that origin, it is exactly the URL `submitOauthResponse` posts to, so a
 generic DPoP client that derives `htu` from the request URL works too. If you reach the agent
 through a different base URL (an internal hostname, a proxy), sign over `session.dpopHtu` — the
 origin the verifiers approved — not over the URL you called.
 
-⚠ **A refused delivery throws.** When the committee refuses (wrong role, stale token, wrong
+**Note: a refused delivery throws.** When the committee refuses (wrong role, stale token, wrong
 audience…) the agent answers the POST itself with `{status: "failed", error}` — `403` for a
 refusal, `503` when the drawn quorum could not be reached — and `submitOauthResponse` throws
 `VerifierAgentSessionError` with `kind: 'refused'` and the verifiers' reasons in `message`. The

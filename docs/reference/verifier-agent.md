@@ -225,7 +225,7 @@ challenging is broken, and retrying forever would hide that.
 
 `signer` must be the key the token is bound to — see `../auth/dpop.js` for the two shapes.
 
-⚠ The proof is signed over `dpopHtu` — the agent's PUBLIC origin plus this session's route,
+Note: the proof is signed over `dpopHtu` — the agent's PUBLIC origin plus this session's route,
 as [createOauthSession](#createoauthsession) returned it — and posted to `verifierAgentUrl`. When the two
 name the same host (the normal case) they are the same URL. When a client reaches the
 agent through a different base URL, the proof must still name the public one: that is

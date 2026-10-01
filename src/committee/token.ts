@@ -463,7 +463,7 @@ export interface CompoundTokenWire {
   evidence_signatures?: CommitteeSignatureWire[]
 }
 
-// ─── Sealed committee evidence binding ──────────────────────────────────────────
+// Sealed committee evidence binding
 
 const EVIDENCE_BINDING_DOMAIN = new TextEncoder().encode('keykeeper-committee/evidence-binding/v1')
 
