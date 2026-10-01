@@ -96,9 +96,8 @@ npx tsx app.ts
 ```
 
 The app prints its creator address and chain, then waits up to 15 minutes for
-at least one native token. In a separate window, use the network’s faucet or transfer
-native tokens
-from a wallet you control. Fund the printed address on the printed chain. The
+at least 0.05 AVAX. In a separate window, use the network’s faucet or transfer
+native tokens from a wallet you control. Fund the printed address on the printed chain. The
 creator pays setup transactions and funds the shared account's transaction gas.
 
 Key generation and threshold signing can take time. The app records the shared
@@ -165,5 +164,5 @@ files, never the entire directory.
 `npx tsx network.ts` saves the verified manifest and its checksum pin. Keep both
 files with the application so restarts use the same deployment. The examples use
 `lowest-operator-id` as the explicit coordinator convention; confirm it matches
-the selected service. Fund each newly printed creator address with at least one
-native token on the selected chain before continuing.
+the selected service. Fund each newly printed creator address with at least 0.05
+AVAX on Fuji before continuing; more may be needed if gas costs rise.

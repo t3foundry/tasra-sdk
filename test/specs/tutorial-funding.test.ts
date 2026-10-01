@@ -3,18 +3,23 @@ import {afterEach, beforeEach, expect, test, vi} from 'vitest'
 const doubles = vi.hoisted(() => {
   const writer = Object.fromEntries(['ethBalance', 'eurcBalance', 'tsraBalance', 'settlementBalance',
     'approveEurcForCurve', 'buyTsra', 'fundSlot', 'mintMockEurc'].map(name => [name, vi.fn()]))
-  return {writer, loadNetwork: vi.fn(), load: vi.fn(), getSlot: vi.fn(), createWriter: vi.fn(),
+  return {writer, loadNetwork: vi.fn(), load: vi.fn(), getSlot: vi.fn(), readContract: vi.fn(), createWriter: vi.fn(),
     slot: '0x' + 'ab'.repeat(32), key: '0x' + 'cd'.repeat(32)}
 })
 vi.mock('../../examples/network.js', () => ({loadNetwork: doubles.loadNetwork}))
 vi.mock('tasra-sdk/app/node', () => ({createFileStore: () => ({load: doubles.load,
   withLock: async (_: string, run: () => Promise<void>) => run()})}))
 vi.mock('tasra-sdk/app', () => ({TasraClient: class {
-  deployment = {chainId: 43113}
+  deployment: {chainId: number; addresses: Record<string, string>}
+  constructor(options: {manifest: {addresses?: Record<string, string>}}) {
+    this.deployment = {chainId: 43113,
+      addresses: {BondingCurve: '0x' + 'ef'.repeat(20), ...options.manifest.addresses}}
+  }
   wallets = {create: () => ({address: '0xcreator', wallet: {}})}
   slots = {get: doubles.getSlot}
+  chain = {client: {readContract: doubles.readContract}}
 }}))
-vi.mock('tasra-sdk/chain', () => ({createTasraWriteClient: doubles.createWriter}))
+vi.mock('tasra-sdk/chain', () => ({bondingCurveAbi: [], createTasraWriteClient: doubles.createWriter}))
 const originalArgs = process.argv
 beforeEach(() => {
   vi.resetModules()
@@ -23,6 +28,7 @@ beforeEach(() => {
   doubles.loadNetwork.mockReturnValue({deployment: {provenance: {manifestSha256: 'trusted'}}})
   doubles.load.mockImplementation(async (key: string) => ({'network-pin': 'trusted', 'creator-key': doubles.key, 'slot-id': doubles.slot}[key]))
   doubles.createWriter.mockReturnValue(doubles.writer)
+  doubles.readContract.mockResolvedValue('0x' + 'ab'.repeat(20))
   for (const mock of Object.values(doubles.writer)) mock.mockResolvedValue(1n)
   doubles.writer.fundSlot!.mockResolvedValue({approveTx: 'approve', fundTx: 'fund'})
 })
@@ -36,7 +42,21 @@ function expectNoWrites() {
 }
 test('status never mints, buys or funds', async () => {
   await run('status')
+  expect(doubles.readContract).toHaveBeenCalledWith(expect.objectContaining({
+    address: '0x' + 'ef'.repeat(20), functionName: 'eurc',
+  }))
+  expect(doubles.createWriter).toHaveBeenCalledWith(expect.objectContaining({addresses: {
+    BondingCurve: '0x' + 'ef'.repeat(20), MockEurc: '0x' + 'ab'.repeat(20),
+  }}))
   expect(doubles.writer.settlementBalance).toHaveBeenCalledWith(doubles.slot)
+  expectNoWrites()
+})
+test('a conflicting manifest EURC address refuses funding before any write', async () => {
+  doubles.readContract.mockResolvedValue('0x' + 'cd'.repeat(20))
+  doubles.loadNetwork.mockReturnValue({deployment: {provenance: {manifestSha256: 'trusted'},
+    addresses: {BondingCurve: '0x' + 'ef'.repeat(20), MockEurc: '0x' + 'ab'.repeat(20)}}})
+  await expect(run('buy', '1000000', '1')).rejects.toThrow('does not match BondingCurve')
+  expect(doubles.createWriter).not.toHaveBeenCalled()
   expectNoWrites()
 })
 test.each([['fund', '0'], ['fund', '-1'], ['fund', '1.5'], ['buy', '1000000', '0'], ['buy', '1000000'], ['fund', (2n ** 256n).toString()]])('invalid spend %j is rejected before reading a network', async (...args) => {
