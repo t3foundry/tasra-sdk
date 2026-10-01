@@ -28,6 +28,8 @@ const SESSION_ID = /^[A-Za-z0-9_-]+$/
 /**
  * Whether `sessionId` is one plain path segment: `[A-Za-z0-9_-]{1,128}`. Mirrors
  * `keykeeper_committee::oauth::validate_session_id`, which every drawn verifier runs.
+ *
+ * @param sessionId - Session id returned by the verifier agent when the session was opened.
  */
 export function isValidSessionId(sessionId: string): boolean {
   return sessionId.length > 0 && sessionId.length <= MAX_SESSION_ID_LEN && SESSION_ID.test(sessionId)
@@ -83,6 +85,9 @@ export function platformAudience(origin: string, chainId: number | bigint): stri
  *
  * Throws on a session id that is not one plain path segment, exactly as the verifiers refuse
  * one.
+ *
+ * @param origin - Verifier-agent public origin the verifiers approved.
+ * @param sessionId - Id of the OAuth session the proof is presented to.
  */
 export function dpopHtu(origin: string, sessionId: string): string {
   if (!isValidSessionId(sessionId)) {

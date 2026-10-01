@@ -229,7 +229,7 @@ What the platform proves this way is PRESENCE, not intent — the user never see
 operation; pin dual control on slots that need intent. Configuring a tenant identity
 provider is a deployment task, documented by whoever operates the network.
 
-## Sealed committee evidence — `evidence_ct` (ADR-0076)
+## Sealed committee evidence — `evidence_ct`
 
 Each drawn verifier seals the presentation it evaluated to the accountant set's certified
 evidence key, and signs a second message binding that ciphertext to the token it signed. When
@@ -262,7 +262,7 @@ verification, verifier-set Merkle proofs, wire codecs, and the
 import {verifyCompoundToken, selectVerifierCommittee} from 'tasra-sdk/committee'
 ```
 
-It also carries the ADR-0073 derivations `platformAudience(origin, chainId)` and
+It also carries the derivations `platformAudience(origin, chainId)` and
 `dpopHtu(origin, sessionId)` (+ `normalizeOrigin`, `isValidSessionId`,
 `OAUTH_RESPONSE_PATH_PREFIX`/`_SUFFIX`), vector-pinned byte for byte
 against `keykeeper-committee`'s `oauth` module (`test/dpop.ts`).

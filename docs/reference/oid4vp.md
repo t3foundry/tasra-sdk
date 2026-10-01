@@ -21,7 +21,7 @@ A Verifier Agent session did not produce a compound token. `kind` says why;
 `retryable` is true only for `timeout` and `unavailable` - the session may
 still complete, so poll again. Extends ` TasraError `.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L131)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L134)
 
 Import: `import {VerifierAgentSessionError} from 'tasra-sdk/oid4vp'`
 
@@ -126,7 +126,7 @@ Operations you can import and call.
 The compound token the verifier-agent hands back must be the wire shape the keepers verify -
  checked field by field before anything is built on it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L159)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L162)
 
 Import: `import {assertCompoundTokenWire} from 'tasra-sdk/oid4vp'`
 
@@ -149,7 +149,7 @@ refusing side), `timeout`, `unavailable`, `protocol`, `cancelled` - and whose
 `correlation` is the session id. A token that binds another request than this session
 opened, or one whose proofs are malformed, is a `protocol` refusal: nothing is built on it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L190)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L196)
 
 Import: `import {awaitVerifierAgentResult} from 'tasra-sdk/oid4vp'`
 
@@ -287,7 +287,7 @@ The verifier-agent derives a nonce, generates an ECDH key for JWE, and returns a
 payload the wallet scans. The session ID and poll secret are used to poll
 for the result.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L221)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L238)
 
 Import: `import {createOid4vpSession} from 'tasra-sdk/oid4vp'`
 
@@ -675,7 +675,7 @@ Returns: ` Jwk `.
 The next polling delay: geometric growth (times1.5) capped at `max`, plus or minus20 % full jitter.
  Pure, so the schedule is testable without timers.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L437)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L499)
 
 Import: `import {nextPollDelay} from 'tasra-sdk/oid4vp'`
 
@@ -866,7 +866,7 @@ Compute the `payload_digest` for a given action and message.
 For `sign` and `ibe-extract`, this is `sha256(message_bytes)` as 0x-hex.
 Other actions should supply the digest directly.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L198)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L215)
 
 Import: `import {payloadDigest} from 'tasra-sdk/oid4vp'`
 
@@ -964,7 +964,7 @@ Returns: ` PresentationPlan `.
 
 Fetch and validate one authorization session status. Transport failures and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error. The polling secret is sent in the Authorization header.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L364)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L424)
 
 Import: `import {pollOid4vpSession} from 'tasra-sdk/oid4vp'`
 
@@ -1320,7 +1320,7 @@ Returns: ` Jwk `.
 
 Validate request binding and proof encoding after either URL or registered-session polling.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L202)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L208)
 
 Import: `import {verifierAgentResult} from 'tasra-sdk/oid4vp'`
 
@@ -1339,7 +1339,7 @@ Returns: ` VerifierAgentResult `.
 
 The verifier-agent's `verifier_proofs` DTO (`{verifier_index, operator, pubkey, proof}`) to the SDK shape.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L165)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L171)
 
 Import: `import {verifierAgentVerifierProofs} from 'tasra-sdk/oid4vp'`
 
@@ -1444,7 +1444,7 @@ deadline; a `protocol` answer stops at once; the deadline is a `timeout` error; 
 caller's `signal` is a `cancelled` error. A terminal `failed` is RETURNED (the caller
 decides how to explain it) - see `awaitVerifierAgentResult` for the version that throws `refused`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L459)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L521)
 
 Import: `import {waitForSession} from 'tasra-sdk/oid4vp'`
 
@@ -2373,6 +2373,7 @@ export interface SessionStatusResult {
     verifierProofs?: unknown;
     bindingPreimage?: Record<string, unknown>;
     error?: string;
+    evidenceCt?: string;
 }
 ```
 
@@ -2384,6 +2385,7 @@ Fields:
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
 - **` bindingPreimage `**: Operation context used to derive the request-binding hash.
 - **` error `**: Optional failure detail reported by the verifier agent.
+- **` evidenceCt `**: the sealed presentation (base64url `bincode(Ciphertext)`) the token's `evidence_hash` names — post it to the keeper beside the token as `evidence_ct`.
 
 ### TypedDataSigner
 
@@ -2459,6 +2461,7 @@ export interface VerifierAgentResult {
     token: CompoundTokenWire;
     bindingPreimage?: Record<string, unknown>;
     verifierProofs?: VerifierProof[];
+    evidenceCt?: string;
 }
 ```
 
@@ -2467,13 +2470,14 @@ Fields:
 - **` token `**: Compound committee authorization token.
 - **` bindingPreimage `**: Operation context used to derive the request-binding hash.
 - **` verifierProofs `**: The drawn verifiers' snapshot membership proofs the verifier-agent built at session creation - hand them to every keeper call (`verifierProofs`): a keeper in snapshot-required mode (`api.require_verifier_proofs`) refuses a committee request without them.
+- **` evidenceCt `**: the sealed presentation the token's `evidence_hash` binds, when the committee sealed one — hand it to every keeper call (`evidenceCt`); a keeper with `require_committee_evidence` refuses the token without it.
 
 ### VerifierAgentSessionErrorKind
 
 Why a session did not yield a token - the class the UI explains, with a NON-SECRET
 correlation reference (the session id; the poll secret is never part of an error).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L114)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L117)
 
 ```ts
 export type VerifierAgentSessionErrorKind = 'timeout' | 'refused' | 'unavailable' | 'protocol' | 'cancelled';
@@ -2503,7 +2507,7 @@ Fields:
 
 Polling backoff, cancellation, progress callback and randomness options.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L417)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L479)
 
 ```ts
 export interface WaitOpts {

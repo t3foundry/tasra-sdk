@@ -107,7 +107,7 @@ export interface SessionStatusResult {
   bindingPreimage?: Record<string, unknown>
   /** Optional failure detail reported by the verifier agent. */
   error?: string
-  /** ADR-0076: the sealed presentation (base64url `bincode(Ciphertext)`) the token's
+  /** the sealed presentation (base64url `bincode(Ciphertext)`) the token's
    *  `evidence_hash` names — post it to the keeper beside the token as `evidence_ct`. */
   evidenceCt?: string
 }
@@ -189,7 +189,7 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
     }
   }
   checkSignatures(t.signatures as unknown[], 'signature')
-  // ADR-0076: the sealed-evidence binding is all-or-none.
+  // the sealed-evidence binding is all-or-none.
   for (const key of ['evidence_hash', 'evidence_key_id', 'evidence_signatures'] as const) if (t[key] === null) delete t[key]
   const evidence = ['evidence_hash', 'evidence_key_id', 'evidence_signatures'].filter(k => t[k] !== undefined).length
   if (evidence !== 0 && evidence !== 3) bad('evidence_hash, evidence_key_id and evidence_signatures come together or not at all')
@@ -339,6 +339,9 @@ export async function createOauthSession(
  * Throws `VerifierAgentSessionError`: `refused` when the agent reports the session failed
  * (the committee refused, or could not be reached — `message` says which; not retryable on
  * this session), `unavailable` for other 502/503/504, `protocol` for any other non-2xx.
+ *
+ * @param verifierAgentUrl - Verifier-agent HTTP base URL.
+ * @param args - Session credentials, DPoP-bound access token, nonce, `dpopHtu` and matching signer.
  */
 export async function submitOauthResponse(
   verifierAgentUrl: string,

@@ -452,24 +452,29 @@ export interface CompoundTokenWire {
   exp: number
   /** Hexadecimal verifier signatures and their registry indices. */
   signatures: CommitteeSignatureWire[]
-  /** ADR-0076: `0x..` keccak256 of the sealed presentation the quorum evaluated (the
+  /** `0x..` keccak256 of the sealed presentation the quorum evaluated (the
    *  ciphertext travels BESIDE the token as `evidence_ct`, never inside it). Present together
    *  with `evidence_key_id` and `evidence_signatures`, or not at all. NOT part of the signed
    *  canonical bytes — each signer's {@link evidenceBindingMessage} signature binds it. */
   evidence_hash?: string
-  /** ADR-0076: `0x..` keccak256 of the accountant evidence key it is sealed to. */
+  /** `0x..` keccak256 of the accountant evidence key it is sealed to. */
   evidence_key_id?: string
-  /** ADR-0076: each signer's ed25519 signature over {@link evidenceBindingMessage}. */
+  /** each signer's ed25519 signature over {@link evidenceBindingMessage}. */
   evidence_signatures?: CommitteeSignatureWire[]
 }
 
-// ─── ADR-0076: sealed committee evidence binding ──────────────────────────────────────────
+// ─── Sealed committee evidence binding ──────────────────────────────────────────
 
 const EVIDENCE_BINDING_DOMAIN = new TextEncoder().encode('keykeeper-committee/evidence-binding/v1')
 
 /** `keccak256(DOMAIN ‖ tokenHash ‖ evidenceHash ‖ evidenceKeyId)` — the message each drawn
  *  verifier signs beside its token signature. Byte-identical to the Rust
- *  `keykeeper_committee::evidence_binding_message`. */
+ *  `keykeeper_committee::evidence_binding_message`.
+ *
+ * @param tokenHash - 32-byte compound-token signing hash.
+ * @param evidenceHash - 32-byte keccak256 of the sealed evidence ciphertext.
+ * @param evidenceKeyId - 32-byte keccak256 of the accountant evidence key it is sealed to.
+ */
 export function evidenceBindingMessage(tokenHash: Uint8Array, evidenceHash: Uint8Array, evidenceKeyId: Uint8Array): Uint8Array {
   for (const [n, v] of [['tokenHash', tokenHash], ['evidenceHash', evidenceHash], ['evidenceKeyId', evidenceKeyId]] as const) {
     if (v.length !== 32) throw new Error(`${n} must be 32 bytes`)
@@ -477,14 +482,21 @@ export function evidenceBindingMessage(tokenHash: Uint8Array, evidenceHash: Uint
   return keccak_256(concatBytes(EVIDENCE_BINDING_DOMAIN, tokenHash, evidenceHash, evidenceKeyId))
 }
 
+/** Inputs to {@link verifyEvidenceBinding}. */
 export interface VerifyEvidenceBindingOptions {
+  /** 32-byte compound-token signing hash. */
   tokenHash: Uint8Array
+  /** 32-byte keccak256 of the sealed evidence ciphertext. */
   evidenceHash: Uint8Array
+  /** 32-byte keccak256 of the accountant evidence key it is sealed to. */
   evidenceKeyId: Uint8Array
+  /** Each signer's evidence-binding signature, by verifier index. */
   signatures: CommitteeSignature[]
+  /** The anchored verifier set the signer keys are read from. */
   set: VerifierSet
   /** The drawn committee (the token's `verifier_indexes`). */
   drawn: number[]
+  /** How many distinct drawn signers must verify. */
   quorum: number
 }
 
@@ -493,6 +505,8 @@ export interface VerifyEvidenceBindingOptions {
  * verifier in `set` and verify over {@link evidenceBindingMessage}; distinct signers are
  * counted once and must satisfy `quorum` of the drawn committee. Throws on any failure;
  * returns the verified indexes.
+ *
+ * @param opts - Token and evidence hashes, the signatures, the verifier set, the drawn committee and the quorum.
  */
 export function verifyEvidenceBinding(opts: VerifyEvidenceBindingOptions): number[] {
   const {tokenHash, evidenceHash, evidenceKeyId, signatures, set, drawn, quorum} = opts

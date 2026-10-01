@@ -402,7 +402,7 @@ export interface CommitteeSignOpts {
   clientPubkey?: Uint8Array
   /** Client signature over the slot and compound token binding. */
   clientSignature?: Uint8Array
-  /** ADR-0076: the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
+  /** the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
    *  posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`. */
   evidenceCt?: string
 }
@@ -482,7 +482,7 @@ export interface CommitteeDecryptOpts {
   clientPubkey?: Uint8Array
   /** Client signature over the slot and compound token binding. */
   clientSignature?: Uint8Array
-  /** ADR-0076: the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
+  /** the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
    *  posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`. */
   evidenceCt?: string
 }
@@ -564,7 +564,7 @@ export interface IbeExtractOpts {
   clientPubkey?: Uint8Array
   /** Client signature over the slot and compound token binding. */
   clientSignature?: Uint8Array
-  /** ADR-0076: the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
+  /** the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
    *  posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`. */
   evidenceCt?: string
 }

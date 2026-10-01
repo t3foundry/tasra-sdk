@@ -1,4 +1,4 @@
-// ADR-0073: DPoP (RFC 9449) proofs for the Keykeeper OAuth authorization flow.
+// DPoP (RFC 9449) proofs for the Keykeeper OAuth authorization flow.
 //
 // TWO CALL SHAPES, and which one you need is decided by WHERE YOUR TOKEN'S KEY LIVES.
 // A DPoP proof is only worth anything if its key is the key the access token is bound to

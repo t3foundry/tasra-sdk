@@ -344,7 +344,7 @@ A Verifier Agent session did not produce a compound token. `kind` says why;
 `retryable` is true only for `timeout` and `unavailable` - the session may
 still complete, so poll again. Extends [TasraError](#tasraerror).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L131)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L134)
 
 Import: `import {VerifierAgentSessionError} from 'tasra-sdk'`
 
@@ -464,7 +464,7 @@ Operations you can import and call.
 
 Compute the base64url SHA-256 access-token hash for the DPoP ath claim.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L36)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L64)
 
 Import: `import {accessTokenHash} from 'tasra-sdk'`
 
@@ -535,7 +535,7 @@ The SDK holds the key, so this is the ONLY way an Auth0 app can produce a proof 
 const signer = auth0DpopSigner((args) => auth0.generateDpopProof(args))
 ```
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L134)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L174)
 
 Import: `import {auth0DpopSigner} from 'tasra-sdk'`
 
@@ -666,7 +666,7 @@ Returns: ` Uint8Array `.
 Generate an ES256 DPoP key pair with a non-extractable private key.
 The returned signer can create proofs without exposing the private key bytes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L55)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L89)
 
 Import: `import {createDpopKey} from 'tasra-sdk'`
 
@@ -710,7 +710,7 @@ Open an `oauth` session - same creator authorisation, same committee draw, same
 derived nonce, same poll contract as [createOid4vpSession](#createoid4vpsession). No QR, no Request
 Object, no JWE key: the client presents an access token its own IdP minted.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L261)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L278)
 
 Import: `import {createOauthSession} from 'tasra-sdk'`
 
@@ -733,7 +733,7 @@ The verifier-agent derives a nonce, generates an ECDH key for JWE, and returns a
 payload the wallet scans. The session ID and poll secret are used to poll
 for the result.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L221)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L238)
 
 Import: `import {createOid4vpSession} from 'tasra-sdk'`
 
@@ -1527,7 +1527,7 @@ Returns: ` e is TasraHttpError `.
 
 Guard for a nonce that can ride in a header (the agent's challenge carries it back).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L154)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L194)
 
 Import: `import {isHeaderSafeNonce} from 'tasra-sdk'`
 
@@ -1679,7 +1679,7 @@ RFC 7638 JWK thumbprint of an EC P-256 public key.
 exactly specified string, so `JSON.stringify` over an object literal in a different order
 yields a different thumbprint and the token's `cnf.jkt` would never match.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L105)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L145)
 
 Import: `import {jwkThumbprint} from 'tasra-sdk'`
 
@@ -1736,7 +1736,7 @@ Compute the `payload_digest` for a given action and message.
 For `sign` and `ibe-extract`, this is `sha256(message_bytes)` as 0x-hex.
 Other actions should supply the digest directly.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L198)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L215)
 
 Import: `import {payloadDigest} from 'tasra-sdk'`
 
@@ -1755,7 +1755,7 @@ Returns: ` string `.
 
 Fetch and validate one authorization session status. Transport failures and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error. The polling secret is sent in the Authorization header.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L364)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L424)
 
 Import: `import {pollOid4vpSession} from 'tasra-sdk'`
 
@@ -1819,7 +1819,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L613)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L625)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk'`
 
@@ -2015,7 +2015,25 @@ Returns: ` Promise<FrostSignature> `.
 
 Submit a DPoP-bound access token and proof to an OAuth session. The signer must use the key bound to that token. Retry once when the server responds with a DPoP nonce challenge.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L311)
+Speaks the RFC 9449 §9 resource-server contract — token in `Authorization: DPoP`, proof in
+`DPoP:` — so a conformant client library needs no custom code. It also handles the
+`use_dpop_nonce` challenge ITSELF: on a `401` carrying `DPoP-Nonce`, it re-mints the proof
+with the server's nonce and resends ONCE. One retry, not a loop: a server that keeps
+challenging is broken, and retrying forever would hide that.
+
+`signer` must be the key the token is bound to — see `../auth/dpop.js` for the two shapes.
+
+⚠ The proof is signed over `dpopHtu` — the agent's PUBLIC origin plus this session's route,
+as [createOauthSession](#createoauthsession) returned it — and posted to `verifierAgentUrl`. When the two
+name the same host (the normal case) they are the same URL. When a client reaches the
+agent through a different base URL, the proof must still name the public one: that is
+the origin the verifiers approved.
+
+Throws `VerifierAgentSessionError`: `refused` when the agent reports the session failed
+(the committee refused, or could not be reached — `message` says which; not retryable on
+this session), `unavailable` for other 502/503/504, `protocol` for any other non-2xx.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L346)
 
 Import: `import {submitOauthResponse} from 'tasra-sdk'`
 
@@ -2033,7 +2051,7 @@ declare function submitOauthResponse(verifierAgentUrl: string, args: {
 | Parameter | Type | Description |
 |---|---|---|
 | ` verifierAgentUrl ` | ` string ` | - Verifier-agent HTTP base URL. |
-| ` args ` | ` { sessionId: string; pollSecret: string; accessToken: string; nonce: string; dpopHtu: string; signer: DpopSigner; } ` | - Session credentials, DPoP-bound access token, nonce and matching signer. |
+| ` args ` | ` { sessionId: string; pollSecret: string; accessToken: string; nonce: string; dpopHtu: string; signer: DpopSigner; } ` | - Session credentials, DPoP-bound access token, nonce, `dpopHtu` and matching signer. |
 
 Returns: ` Promise<void> `.
 
@@ -2221,7 +2239,7 @@ deadline; a `protocol` answer stops at once; the deadline is a `timeout` error; 
 caller's `signal` is a `cancelled` error. A terminal `failed` is RETURNED (the caller
 decides how to explain it) - see `awaitVerifierAgentResult` for the version that throws `refused`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L459)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L521)
 
 Import: `import {waitForSession} from 'tasra-sdk'`
 
@@ -2665,12 +2683,17 @@ Fields:
 
 An ES256 key pair for DPoP, plus a [DpopSigner](#dpopsigner) over it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L42)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L70)
 
 ```ts
 export interface DpopKey {
     publicJwk: JsonWebKey;
     thumbprint(): Promise<string>;
+    tokenRequestProof(args: {
+        htm: string;
+        htu: string;
+        nonce?: string;
+    }): Promise<string>;
     signer: DpopSigner;
 }
 ```
@@ -2679,28 +2702,29 @@ Fields:
 
 - **` publicJwk `**: The public half, as the JWK that rides in every proof header.
 - **` thumbprint `**: RFC 7638 thumbprint - the value the IdP puts in the token's `cnf.jkt`.
-- **` signer `**: DPoP proof signer bound to this key.
+- **` tokenRequestProof `**: The proof for a TOKEN REQUEST to the IdP (RFC 9449 §5): `htm`/`htu` of the token endpoint, the IdP's `DPoP-Nonce` only if it challenged for one, and never `ath`. The IdP binds the token it issues to this key (`cnf.jkt`).
+- **` signer `**: The proof for PRESENTING the token — pass it to `submitOauthResponse`.
 
 ### DpopSigner
 
 Anything that can produce a DPoP proof for a given request.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L8)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/dpop.ts#L30)
 
 ```ts
 export interface DpopSigner {
     proof(args: {
         htm: string;
         htu: string;
-        nonce: string;
-        accessToken: string;
+        nonce?: string;
+        accessToken?: string;
     }): Promise<string>;
 }
 ```
 
 Fields:
 
-- **` proof `**: Mint a proof binding `accessToken` to `(htm, htu, nonce)`. An implementation MUST sign with the key the access token is bound to; a proof under any other key is refused by every drawn verifier with `DPoP proof jwk is not the key the access token is bound to`.
+- **` proof `**: Mint a proof over `(htm, htu)`, with `nonce` and `ath` (from `accessToken`) when given. RFC 9449 decides which claims a proof carries, and the two requests differ: a proof PRESENTING a token carries `ath` (and our agent always demands a `nonce`); a proof REQUESTING a token cannot carry `ath` — there is no token yet — and carries `nonce` only when the authorization server has challenged for one. An implementation omits each claim whose argument is absent, never sends it empty. An implementation MUST sign with the key the access token is bound to; a proof under any other key is refused by every drawn verifier with `DPoP proof jwk is not the key the access token is bound to`.
 
 ### EoaSignature
 
@@ -3067,7 +3091,7 @@ Fields:
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L519)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L527)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -3095,7 +3119,7 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L537)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L545)
 
 ```ts
 export interface IbeExtractOpts {
@@ -3109,6 +3133,7 @@ export interface IbeExtractOpts {
     verifierProofs?: VerifierProof[];
     clientPubkey?: Uint8Array;
     clientSignature?: Uint8Array;
+    evidenceCt?: string;
 }
 ```
 
@@ -3124,6 +3149,7 @@ Fields:
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
 - **` clientPubkey `**: 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together.
 - **` clientSignature `**: Client signature over the slot and compound token binding.
+- **` evidenceCt `**: the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`), posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`.
 
 ### IbeExtractRequestOpts
 
@@ -3449,6 +3475,7 @@ export interface SessionStatusResult {
     verifierProofs?: unknown;
     bindingPreimage?: Record<string, unknown>;
     error?: string;
+    evidenceCt?: string;
 }
 ```
 
@@ -3460,6 +3487,7 @@ Fields:
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
 - **` bindingPreimage `**: Operation context used to derive the request-binding hash.
 - **` error `**: Optional failure detail reported by the verifier agent.
+- **` evidenceCt `**: the sealed presentation (base64url `bincode(Ciphertext)`) the token's `evidence_hash` names — post it to the keeper beside the token as `evidence_ct`.
 
 ### ShardDecryptOpts
 
@@ -3619,7 +3647,7 @@ Fields:
 Why a session did not yield a token - the class the UI explains, with a NON-SECRET
 correlation reference (the session id; the poll secret is never part of an error).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L114)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L117)
 
 ```ts
 export type VerifierAgentSessionErrorKind = 'timeout' | 'refused' | 'unavailable' | 'protocol' | 'cancelled';

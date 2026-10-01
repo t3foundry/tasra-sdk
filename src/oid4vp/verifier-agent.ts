@@ -156,7 +156,7 @@ export interface VerifierAgentResult {
    */
   verifierProofs?: VerifierProof[]
   /**
-   * ADR-0076: the sealed presentation the token's `evidence_hash` binds, when the committee
+   * the sealed presentation the token's `evidence_hash` binds, when the committee
    * sealed one — hand it to every keeper call (`evidenceCt`); a keeper with
    * `require_committee_evidence` refuses the token without it.
    */

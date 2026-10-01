@@ -88,7 +88,7 @@ declare class OperationOutcomeUnknownError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 37 functions</summary>
+<summary>Browse 40 functions</summary>
 
 - [assembleCompoundToken](#assemblecompoundtoken)
 - [auditOperationId](#auditoperationid)
@@ -110,11 +110,13 @@ Operations you can import and call.
 - [dpopHtu](#dpophtu)
 - [dualSignApprovalPayload](#dualsignapprovalpayload)
 - [ed25519ClientSigner](#ed25519clientsigner)
+- [evidenceBindingMessage](#evidencebindingmessage)
 - [extractIdentityStrict](#extractidentitystrict)
 - [gatherCommitteeToken](#gathercommitteetoken)
 - [holderProofPerVerifier](#holderproofperverifier)
 - [ibeDecryptRequest](#ibedecryptrequest)
 - [ibeExtractRequest](#ibeextractrequest)
+- [isValidSessionId](#isvalidsessionid)
 - [merkleProof](#merkleproof)
 - [merkleRoot](#merkleroot)
 - [normalizeOrigin](#normalizeorigin)
@@ -125,6 +127,7 @@ Operations you can import and call.
 - [selectVerifierCommittee](#selectverifiercommittee)
 - [verifierLeaf](#verifierleaf)
 - [verifyCompoundToken](#verifycompoundtoken)
+- [verifyEvidenceBinding](#verifyevidencebinding)
 - [verifyMerkleProof](#verifymerkleproof)
 - [verifyOperationReceipt](#verifyoperationreceipt)
 
@@ -134,7 +137,7 @@ Operations you can import and call.
 
 Encode a token payload and verifier signatures into the keeper JSON wire format. This does not verify signatures.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L480)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L552)
 
 Import: `import {assembleCompoundToken} from 'tasra-sdk/committee'`
 
@@ -294,7 +297,7 @@ Returns: ` CommitteeChainReads `.
 
 Decrypt via committee authorization. The slot id is taken from the token.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L488)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L495)
 
 Import: `import {committeeDecrypt} from 'tasra-sdk/committee'`
 
@@ -330,7 +333,7 @@ Returns: ` Promise<Uint8Array> `.
 
 Sign via committee authorization. The slot id is taken from the token.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L412)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L415)
 
 Import: `import {committeeSign} from 'tasra-sdk/committee'`
 
@@ -462,7 +465,7 @@ Returns:
 
 Decode a wire compound token into the byte-level payload + signatures for verification.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L504)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L576)
 
 Import: `import {decodeCompoundToken} from 'tasra-sdk/committee'`
 
@@ -536,25 +539,29 @@ Promise<Omit<StrictExtractionResult, 'key'> & {
 
 ### dpopHtu
 
-The `htu` (RFC 9449) a DPoP proof for an OAuth response must carry:
-`{origin}/v1/sessions/oauth-response`.
+The `htu` (RFC 9449 §4.2) a DPoP proof for an OAuth response must carry:
+`{origin}/v1/sessions/{sessionId}/oauth-response` — the URL the proof is presented at.
 
-Session-INDEPENDENT, deliberately: RFC 9449 defines `htu` as the request URI WITHOUT query
-or fragment, and a client library that derives it from the URL it is about to call - which
-every conformant one does - produces this string, not one carrying a session id. The
-session is already bound by the `nonce`.
+Per session, because RFC 9449 §4.3 checks `htu` against the request URI and a conformant
+client library derives it from the URL it calls. The ORIGIN is still the agent origin the
+verifiers approved, so a client posting to a different base URL (an internal hostname, a
+proxy) must still sign over the value the agent returned, not over the URL it called.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L69)
+Throws on a session id that is not one plain path segment, exactly as the verifiers refuse
+one.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L92)
 
 Import: `import {dpopHtu} from 'tasra-sdk/committee'`
 
 ```ts
-declare function dpopHtu(origin: string): string;
+declare function dpopHtu(origin: string, sessionId: string): string;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` origin ` | ` string ` | - Platform origin used to derive the OAuth response target. |
+| ` origin ` | ` string ` | - Verifier-agent public origin the verifiers approved. |
+| ` sessionId ` | ` string ` | - Id of the OAuth session the proof is presented to. |
 
 Returns: ` string `.
 
@@ -595,6 +602,28 @@ declare function ed25519ClientSigner(secretKey: Uint8Array): ClientSigner;
 | ` secretKey ` | ` Uint8Array ` | - 32-byte Ed25519 secret seed used to sign client request bindings. |
 
 Returns: ` ClientSigner `.
+
+### evidenceBindingMessage
+
+`keccak256(DOMAIN ‖ tokenHash ‖ evidenceHash ‖ evidenceKeyId)` — the message each drawn
+verifier signs beside its token signature. Byte-identical to the Rust
+`keykeeper_committee::evidence_binding_message`.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L478)
+
+Import: `import {evidenceBindingMessage} from 'tasra-sdk/committee'`
+
+```ts
+declare function evidenceBindingMessage(tokenHash: Uint8Array, evidenceHash: Uint8Array, evidenceKeyId: Uint8Array): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` tokenHash ` | ` Uint8Array ` | - 32-byte compound-token signing hash. |
+| ` evidenceHash ` | ` Uint8Array ` | - 32-byte keccak256 of the sealed evidence ciphertext. |
+| ` evidenceKeyId ` | ` Uint8Array ` | - 32-byte keccak256 of the accountant evidence key it is sealed to. |
+
+Returns: ` Uint8Array `.
 
 ### extractIdentityStrict
 
@@ -711,6 +740,25 @@ declare function ibeExtractRequest(opts: IbeExtractRequestOpts): Promise<Uint8Ar
 
 Returns: ` Promise<Uint8Array> `.
 
+### isValidSessionId
+
+Whether `sessionId` is one plain path segment: `[A-Za-z0-9_-]{1,128}`. Mirrors
+`keykeeper_committee::oauth::validate_session_id`, which every drawn verifier runs.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L34)
+
+Import: `import {isValidSessionId} from 'tasra-sdk/committee'`
+
+```ts
+declare function isValidSessionId(sessionId: string): boolean;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` sessionId ` | ` string ` | - Session id returned by the verifier agent when the session was opened. |
+
+Returns: ` boolean `.
+
 ### merkleProof
 
 The inclusion proof (sibling hashes, leaf to root) for `index` in `leaves`. `null` if `index`
@@ -760,7 +808,7 @@ written.
  The PATH keeps its case deliberately - a path is case-sensitive, and lower-casing it
 would silently rewrite an agent deployed under `/API`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L29)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L48)
 
 Import: `import {normalizeOrigin} from 'tasra-sdk/committee'`
 
@@ -803,7 +851,7 @@ The OAuth audience the tenant registers with its IdP and every rule pins:
 The chain id is in it so a token minted for a testnet deployment of the same platform
 cannot authorize on mainnet.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L54)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L73)
 
 Import: `import {platformAudience} from 'tasra-sdk/committee'`
 
@@ -843,7 +891,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L613)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L625)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk/committee'`
 
@@ -924,6 +972,27 @@ Return details: Fields attested by the verified committee token.
 
 Throws: If any binding, freshness, signer or quorum check fails.
 
+### verifyEvidenceBinding
+
+Mirror of the Rust `verify_evidence_binding`: every signature must come from a DRAWN
+verifier in `set` and verify over [evidenceBindingMessage](#evidencebindingmessage); distinct signers are
+counted once and must satisfy `quorum` of the drawn committee. Throws on any failure;
+returns the verified indexes.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L511)
+
+Import: `import {verifyEvidenceBinding} from 'tasra-sdk/committee'`
+
+```ts
+declare function verifyEvidenceBinding(opts: VerifyEvidenceBindingOptions): number[];
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` opts ` | ` VerifyEvidenceBindingOptions ` | - Token and evidence hashes, the signatures, the verifier set, the drawn committee and the quorum. |
+
+Returns: ` number[] `.
+
 ### verifyMerkleProof
 
 Verify a sorted-pair keccak Merkle inclusion proof (leaf to root).
@@ -969,7 +1038,7 @@ Returns: ` boolean `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 36 types</summary>
+<summary>Browse 37 types</summary>
 
 - [ClientSigner](#clientsigner)
 - [CommitteeAuthorizeBody](#committeeauthorizebody)
@@ -1007,6 +1076,7 @@ Options, data structures and return types.
 - [VerifierProof](#verifierproof)
 - [VerifierSet](#verifierset)
 - [VerifyCompoundTokenOptions](#verifycompoundtokenoptions)
+- [VerifyEvidenceBindingOptions](#verifyevidencebindingoptions)
 
 </details>
 
@@ -1141,7 +1211,7 @@ Fields:
 
 Committee-authorized group decryption request and optional verifier membership proofs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L456)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L460)
 
 ```ts
 export interface CommitteeDecryptOpts {
@@ -1157,6 +1227,7 @@ export interface CommitteeDecryptOpts {
     verifierProofs?: VerifierProof[];
     clientPubkey?: Uint8Array;
     clientSignature?: Uint8Array;
+    evidenceCt?: string;
 }
 ```
 
@@ -1174,6 +1245,7 @@ Fields:
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
 - **` clientPubkey `**: 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together.
 - **` clientSignature `**: Client signature over the slot and compound token binding.
+- **` evidenceCt `**: the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`), posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`.
 
 ### CommitteeDecryptRequestOpts
 
@@ -1305,6 +1377,7 @@ export interface CommitteeSignOpts {
     verifierProofs?: VerifierProof[];
     clientPubkey?: Uint8Array;
     clientSignature?: Uint8Array;
+    evidenceCt?: string;
 }
 ```
 
@@ -1321,6 +1394,7 @@ Fields:
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
 - **` clientPubkey `**: 32-byte Ed25519 client public key used to verify clientSignature over the slot and token hash; supply both fields together.
 - **` clientSignature `**: Client signature over the slot and compound token binding.
+- **` evidenceCt `**: the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`), posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`.
 
 ### CommitteeSignRequestOpts
 
@@ -1479,6 +1553,9 @@ export interface CompoundTokenWire {
     iat: number;
     exp: number;
     signatures: CommitteeSignatureWire[];
+    evidence_hash?: string;
+    evidence_key_id?: string;
+    evidence_signatures?: CommitteeSignatureWire[];
 }
 ```
 
@@ -1498,6 +1575,9 @@ Fields:
 - **` iat `**: Issue time in Unix seconds.
 - **` exp `**: Expiration time in Unix seconds.
 - **` signatures `**: Hexadecimal verifier signatures and their registry indices.
+- **` evidence_hash `**: `0x..` keccak256 of the sealed presentation the quorum evaluated (the ciphertext travels BESIDE the token as `evidence_ct`, never inside it). Present together with `evidence_key_id` and `evidence_signatures`, or not at all. NOT part of the signed canonical bytes — each signer's [evidenceBindingMessage](#evidencebindingmessage) signature binds it.
+- **` evidence_key_id `**: `0x..` keccak256 of the accountant evidence key it is sealed to.
+- **` evidence_signatures `**: each signer's ed25519 signature over [evidenceBindingMessage](#evidencebindingmessage).
 
 ### DualSignApprover
 
@@ -1707,7 +1787,7 @@ export type HolderProofPerVerifier = (verifier: CommitteeVerifier) => Promise<st
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L519)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L527)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -1735,7 +1815,7 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L537)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L545)
 
 ```ts
 export interface IbeExtractOpts {
@@ -1749,6 +1829,7 @@ export interface IbeExtractOpts {
     verifierProofs?: VerifierProof[];
     clientPubkey?: Uint8Array;
     clientSignature?: Uint8Array;
+    evidenceCt?: string;
 }
 ```
 
@@ -1764,6 +1845,7 @@ Fields:
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
 - **` clientPubkey `**: 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together.
 - **` clientSignature `**: Client signature over the slot and compound token binding.
+- **` evidenceCt `**: the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`), posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`.
 
 ### IbeExtractRequestOpts
 
@@ -1921,6 +2003,7 @@ Fields:
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
 - **` clientPubkey `**: 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together.
 - **` clientSignature `**: Client signature over the slot and compound token binding.
+- **` evidenceCt `**: the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`), posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`.
 
 ### StrictExtractionResult
 
@@ -2052,10 +2135,40 @@ Fields:
 - **` leeway `**: Clock-skew tolerance, **seconds**, applied to both `iat` and `exp`.
 - **` slotRuleHash `**: Expected Keccak-256 hash of the raw rule bytes, without salt. Do not supply the on-chain salted ruleCommitment.
 
+### VerifyEvidenceBindingOptions
+
+Inputs to [verifyEvidenceBinding](#verifyevidencebinding).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L486)
+
+```ts
+export interface VerifyEvidenceBindingOptions {
+    tokenHash: Uint8Array;
+    evidenceHash: Uint8Array;
+    evidenceKeyId: Uint8Array;
+    signatures: CommitteeSignature[];
+    set: VerifierSet;
+    drawn: number[];
+    quorum: number;
+}
+```
+
+Fields:
+
+- **` tokenHash `**: 32-byte compound-token signing hash.
+- **` evidenceHash `**: 32-byte keccak256 of the sealed evidence ciphertext.
+- **` evidenceKeyId `**: 32-byte keccak256 of the accountant evidence key it is sealed to.
+- **` signatures `**: Each signer's evidence-binding signature, by verifier index.
+- **` set `**: The anchored verifier set the signer keys are read from.
+- **` drawn `**: The drawn committee (the token's `verifier_indexes`).
+- **` quorum `**: How many distinct drawn signers must verify.
+
 ## Constants and ABI values
 
 Shared values and contract definitions.
 
 | Export | Description | Definition |
 |---|---|---|
-| `OAUTH_RESPONSE_PATH` | The path an OAuth response is POSTed to - the `htu` a DPoP proof must name. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L17) |
+| `MAX_SESSION_ID_LEN` | The longest session id an `htu` may carry — mirrors `MAX_SESSION_ID_LEN`. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L24) |
+| `OAUTH_RESPONSE_PATH_PREFIX` | The OAuth response route is `{PREFIX}{sessionId}{SUFFIX}` under the agent origin. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L19) |
+| `OAUTH_RESPONSE_PATH_SUFFIX` | The trailing segment of the OAuth response route. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L21) |
