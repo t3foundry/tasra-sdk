@@ -21,7 +21,8 @@
 //
 //   • THE OPTIONAL FIELDS on committeeDecrypt and the extraction request. Each is a keeper
 //     check the caller can silently lose: a user signature, a ciphertext epoch, verifier
-//     proofs, a client binding. `client_pubkey`/`client_signature` are both-or-neither.
+//     proofs - and NOTHING the keeper does not declare (it refuses unknown fields with a 422
+//     since 2026-10-03; the retired `client_pubkey`/`client_signature` pair must never go out).
 //
 // Run: tsx test/committee.guards.ts — exits non-zero on any failure.
 
@@ -371,7 +372,7 @@ const bareHex = (b: Uint8Array): string => Array.from(b).map(x => x.toString(16)
       nodeUrl: 'http://keeper-1', committeeToken: token, ciphertext,
       identity: new TextEncoder().encode('did:example:sender'), decryptingSet: [1, 2], blsPeers: [],
       userSignature: fill(64, 9), ciphertextEpoch: 4, targetKeykeeper: `0x${'ee'.repeat(32)}`,
-      verifierProofs: proofs, clientPubkey: fill(32, 7), clientSignature: fill(64, 8),
+      verifierProofs: proofs,
     })
     const body = sent[0]!.body
     eq('decrypt: user_signature is bare hex', body.user_signature, bareHex(fill(64, 9)))
@@ -381,20 +382,11 @@ const bareHex = (b: Uint8Array): string => Array.from(b).map(x => x.toString(16)
     eq('decrypt: verifier_proofs are converted to the wire DTO', body.verifier_proofs, [
       {verifier_index: 1, operator: 'ab'.repeat(20), pubkey: 'cd'.repeat(32), proof: ['11'.repeat(32)]},
     ])
-    eq('decrypt: the client binding is sent as bare hex', [body.client_pubkey, body.client_signature], [bareHex(fill(32, 7)), bareHex(fill(64, 8))])
-
-    // ⚠ BOTH-OR-NEITHER on the client binding: the keeper verifies the signature against the
-    // pubkey, so one without the other is unverifiable and must not be sent at all.
-    for (const [label, half] of [
-      ['only a pubkey', {clientPubkey: fill(32, 7)}],
-      ['only a signature', {clientSignature: fill(64, 8)}],
-    ] as const) {
-      sent.length = 0
-      await committeeDecrypt({
-        nodeUrl: 'http://keeper-1', committeeToken: token, ciphertext,
-        identity: new Uint8Array(), decryptingSet: [1], blsPeers: [], ...half,
-      })
-      ok(`decrypt: ${label} sends neither half`, !('client_pubkey' in sent[0]!.body) && !('client_signature' in sent[0]!.body))
+    // The keeper refuses any key its schema does not declare (422 since 2026-10-03), so the
+    // wire body is EXACTLY the declared set - the retired `client_*` pair above all.
+    {
+      const declared = new Set(['committee_token', 'ciphertext', 'identity', 'decrypting_set', 'bls_peers', 'user_signature', 'ciphertext_epoch', 'target_keykeeper', 'verifier_proofs'])
+      eq('decrypt: only declared keys go on the wire', Object.keys(body).filter(k => !declared.has(k)), [])
     }
 
     // ciphertextEpoch 0 is a VALUE, not an absence — `!== undefined` rather than truthiness.
@@ -410,19 +402,16 @@ const bareHex = (b: Uint8Array): string => Array.from(b).map(x => x.toString(16)
     await requestIbeExtractionPartials({
       nodeUrls: ['http://keeper-1'], committeeToken: token, identity: 'did:example:alice/imaging',
       userSignature: fill(64, 9), ciphertextEpoch: 2, verifierProofs: proofs,
-      clientPubkey: fill(32, 7), clientSignature: fill(64, 8),
     })
     const ex = sent[0]!.body
     eq('extract: identity is sent in the clear', ex.identity, 'did:example:alice/imaging')
     eq('extract: user_signature is bare hex', ex.user_signature, bareHex(fill(64, 9)))
     eq('extract: ciphertext_epoch is forwarded', ex.ciphertext_epoch, 2)
     ok('extract: verifier_proofs are converted', Array.isArray(ex.verifier_proofs))
-    eq('extract: the client binding is sent', [ex.client_pubkey, ex.client_signature], [bareHex(fill(32, 7)), bareHex(fill(64, 8))])
-    sent.length = 0
-    await requestIbeExtractionPartials({
-      nodeUrls: ['http://keeper-1'], committeeToken: token, identity: 'x', clientPubkey: fill(32, 7),
-    })
-    ok('extract: a lone client pubkey sends neither half', !('client_pubkey' in sent[0]!.body))
+    {
+      const declared = new Set(['committee_token', 'identity', 'user_signature', 'ciphertext_epoch', 'verifier_proofs'])
+      eq('extract: only declared keys go on the wire', Object.keys(ex).filter(k => !declared.has(k)), [])
+    }
   } finally {
     globalThis.fetch = realFetch
   }

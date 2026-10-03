@@ -7,6 +7,27 @@ never does.
 
 ## [Unreleased]
 
+> Needs a MINOR bump (0.3.0): a public option is removed.
+
+### Removed
+- `clientSigner` on `requestCommitteeToken` / `committeeSignRequest` / `committeeDecryptRequest` /
+  `ibeExtractRequest` and on `createCommitteeSlotClient`, with `ClientSigner` and
+  `ed25519ClientSigner`. They put `client_pubkey` + `client_signature` into the keeper's
+  `/v1/committee/sign`, `/v1/committee/decrypt` and `/v1/shards/ibe/extract` bodies - fields the
+  keeper retired when request binding moved INTO the compound token (`request_hash` +
+  `BindingStrength`, enforced by the keeper under `require_request_binding`). The keeper had been
+  silently dropping them; since 2026-10-03 it refuses any undeclared field with a 422, so the
+  option would now make every call fail. Nothing is lost: the holder binding the option claimed
+  to provide is carried by the token on every call already. `clientBindingHash` (a pure
+  function pinned by the conformance vectors) stays exported.
+- `credentials` on `verifyPresentation`'s body type: the verifier's `VerifyBody` declares only
+  `dcql_rule` and `presentation` and refuses anything else.
+
+### Changed
+- The committee sign / decrypt / extract bodies are asserted to carry ONLY the keys the keeper
+  declares (`test/committee.one-call.ts`, `test/committee.guards.ts`) - the SDK-side mirror of the
+  keeper's strict-body test.
+
 ## [0.2.4] — 2026-10-01
 
 ### Fixed

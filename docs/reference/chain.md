@@ -385,7 +385,7 @@ Returns: ` EventCategory `.
 
 Create registry-discovered threshold signing, encryption and decryption operations. Signing and decryption require holder credentials and proofs against an anchored verifier snapshot. Encryption needs only the public group key read from the chain. The master key is not reconstructed by these threshold operations.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L141)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L138)
 
 Import: `import {createCommitteeSlotClient} from 'tasra-sdk/chain'`
 
@@ -1760,7 +1760,7 @@ Fields:
 
 Decryption options for a registry-discovered committee slot.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L111)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L108)
 
 ```ts
 export type CommitteeDecryptOptions = SlotCommitteeDecryptOptions;
@@ -1780,7 +1780,7 @@ Fields:
 
 Signing options for a registry-discovered committee slot.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L107)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L104)
 
 ```ts
 export type CommitteeSignOptions = SlotCommitteeSignOptions;
@@ -1796,7 +1796,7 @@ Fields:
 
 Slot-based committee operations that discover keepers and verifiers from the chain.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L116)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L113)
 
 ```ts
 export interface CommitteeSlotClient {
@@ -1821,7 +1821,7 @@ Fields:
 
 Chain discovery and holder-proof configuration for threshold signing and identity decryption.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L35)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L34)
 
 ```ts
 export interface CommitteeSlotClientConfig {
@@ -1830,7 +1830,6 @@ export interface CommitteeSlotClientConfig {
     credentials?: string[];
     dcqlRule?: string;
     holderProof?: string | HolderProofPerVerifier;
-    clientSigner?: ClientSigner;
     ttlSecs?: number;
 }
 ```
@@ -1842,7 +1841,6 @@ Fields:
 - **` credentials `**: Compact-JWS verifiable credentials presented to the committee. Required for sign/decrypt.
 - **` dcqlRule `**: Ignored compatibility field. Verifiers fetch the committed rule from a keeper; supplying this field does not change authorization.
 - **` holderProof `**: Holder proof-of-possession for the holder DID authentication key. Required for sign/decrypt. One string serves one verifier: the proof names its audience and burns a nonce that lives in that verifier, so on any deployment whose policy draws a committee the others answer 401 ("aud does not include this verifier"). Pass `holderProofPerVerifier({signer, audience, credentials, slotId})` there - it mints a fresh proof per drawn verifier, on every request.
-- **` clientSigner `**: sign the request bundle so keeper + audit can verify you authorized it.
 - **` ttlSecs `**: Compound-token TTL in seconds (default 300).
 
 ### ContractName
@@ -2817,7 +2815,7 @@ export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth';
 
 Everything a committee-authorized threshold decrypt needs beyond the slot id.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L80)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L77)
 
 ```ts
 export interface SlotCommitteeDecryptOptions {
@@ -2845,7 +2843,7 @@ Fields:
 
 Per-call overrides for a committee-authorized FROST signature.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L69)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L66)
 
 ```ts
 export interface SlotCommitteeSignOptions {

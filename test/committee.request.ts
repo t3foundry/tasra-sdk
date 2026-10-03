@@ -10,8 +10,6 @@ import {ed25519} from '@noble/curves/ed25519'
 import {
   selectVerifierCommittee,
   compoundTokenHash,
-  clientBindingHash,
-  decodeCompoundToken,
   verifierLeaf,
   merkleRoot,
   verifyMerkleProof,
@@ -21,7 +19,6 @@ import {hexToBytes} from '../src/crypto/hex.ts'
 import {
   requestCommitteeToken,
   buildVerifierProofs,
-  ed25519ClientSigner,
   type CommitteeChainReads,
   type CommitteeVerifier,
 } from '../src/committee/request.ts'
@@ -149,26 +146,19 @@ try {
     ok('trustless proofs attached for the signer set', !!res.verifierProofs && res.verifierProofs.length === res.token.signatures.length)
   }
 
-  // ── requestCommitteeToken: client request signature ──────────────
+  // ── requestCommitteeToken: no client-side request signature exists any more ───
+  // Request binding rides INSIDE the compound token (`request_hash` +
+  // `BindingStrength`, checked by the keeper under `require_request_binding`). The retired
+  // `client_pubkey`/`client_signature` pair is a field the keeper REFUSES (422) since
+  // 2026-10-03, so the bundle must not carry anything the sign/decrypt/extract calls could
+  // put on the wire.
   {
     installFleet()
-    const signer = ed25519ClientSigner(fill(32, 0x77))
     const res = await requestCommitteeToken({
       chain: chainReads(true), verifiers: dir, slotId: '0x' + bareHex(slotId), holder: 'did:example:alice', credentials: ['vc-jwt'], holderProof: 'holder-proof-jws',
-      nowSecs: NOW, ttlSecs: TTL, clientSigner: signer,
+      nowSecs: NOW, ttlSecs: TTL,
     })
-    ok('client signature + pubkey returned', !!res.clientSignature && !!res.clientPubkey)
-    // Must verify over clientBindingHash(slotId, tokenHash) under the holder key.
-    const tokenHash = compoundTokenHash(decodeCompoundToken(res.token))
-    const binding = clientBindingHash(slotId, tokenHash)
-    ok(
-      'client signature verifies over the request binding',
-      ed25519.verify(res.clientSignature!, binding, res.clientPubkey!),
-    )
-    const noSig = await requestCommitteeToken({
-      chain: chainReads(true), verifiers: dir, slotId: '0x' + bareHex(slotId), holder: 'did:example:alice', credentials: ['vc-jwt'], holderProof: 'holder-proof-jws', nowSecs: NOW,
-    })
-    ok('no clientSigner → no client signature', noSig.clientSignature === undefined)
+    ok('the bundle carries no client-binding halves', !('clientSignature' in res) && !('clientPubkey' in res))
   }
 
   // ── requestCommitteeToken: no operator/pubkey → proofs omitted (config fallback) ─

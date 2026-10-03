@@ -1327,7 +1327,7 @@ Returns: ` Promise<Uint8Array> `.
 One-call identity-scoped decrypt (the read path): token to extraction fan-out
 to verify each partial to combine to decrypt. The intermediate `sk_ID` never surfaces.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L501)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L452)
 
 Import: `import {ibeDecryptRequest} from 'tasra-sdk'`
 
@@ -1395,7 +1395,7 @@ compressed G1).
 ciphertext to this identity. Prefer [ibeDecryptRequest](#ibedecryptrequest), which combines,
 decrypts and drops it. Zeroize the returned bytes when done.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L485)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L436)
 
 Import: `import {ibeExtractRequest} from 'tasra-sdk'`
 
@@ -1819,7 +1819,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L613)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L589)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk'`
 
@@ -2171,14 +2171,13 @@ Import: `import {verifyPresentation} from 'tasra-sdk'`
 declare function verifyPresentation(verifierUrl: string, body: {
     dcql_rule: string;
     presentation: unknown;
-    credentials?: unknown;
 }): Promise<IssuedToken>;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` verifierUrl ` | ` string ` | - Verifier HTTP base URL. |
-| ` body ` | ` { dcql_rule: string; presentation: unknown; credentials?: unknown; } ` | - Policy and credential presentation for verifier evaluation. |
+| ` body ` | ` { dcql_rule: string; presentation: unknown; } ` | - Policy and credential presentation for verifier evaluation. |
 
 Returns: ` Promise<IssuedToken> `.
 
@@ -3067,7 +3066,7 @@ Fields:
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L519)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L503)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -3095,7 +3094,7 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L537)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L521)
 
 ```ts
 export interface IbeExtractOpts {
@@ -3107,8 +3106,6 @@ export interface IbeExtractOpts {
     userSignature?: Uint8Array;
     ciphertextEpoch?: number;
     verifierProofs?: VerifierProof[];
-    clientPubkey?: Uint8Array;
-    clientSignature?: Uint8Array;
 }
 ```
 
@@ -3122,14 +3119,12 @@ Fields:
 - **` userSignature `**: Owner signature over `keccak256("keykeeper:ibe-extract:v1" || identity)` when the slot has a registered `user_pubkey`.
 - **` ciphertextEpoch `**: Expected key epoch of the ciphertext; used to detect rotation.
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
-- **` clientPubkey `**: 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together.
-- **` clientSignature `**: Client signature over the slot and compound token binding.
 
 ### IbeExtractRequestOpts
 
 Operation-specific fields for [ibeDecryptRequest](#ibedecryptrequest) / [ibeExtractRequest](#ibeextractrequest).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L462)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L413)
 
 ```ts
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
@@ -3157,7 +3152,6 @@ Fields:
 - **` tokenType `**: Token type - default `'JWT'`.
 - **` ttlSecs `**: Token TTL in seconds - default 300.
 - **` nowSecs `**: Override "now" (unix seconds), mainly for tests.
-- **` clientSigner `**: sign the request bundle with the holder's key so the keeper + audit can verify the user authorized this operation. Omit to skip (keeper accepts unless it requires it).
 - **` scopedIdentity `**: Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field.
 
 ### IbeVerifyingShares
