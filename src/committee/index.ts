@@ -74,5 +74,5 @@ export type {IbeExtractRequestOpts} from './request.js'
 // derived OAuth audience + DPoP htu
 export {platformAudience, dpopHtu, normalizeOrigin, OAUTH_RESPONSE_PATH} from './oauth.js'
 
-export {keeperAssignmentCommitment, paymentIntentTypedData, paymentIntentHash, paymentSessionCommitment, assertPaymentIntentWire} from './payment.js'
+export {keeperAssignmentCommitment, paymentIntentTypedData, paymentIntentHash, prepaidRequestId, paymentSessionCommitment, assertPaymentIntentWire} from './payment.js'
 export type {PaidKeeperAssignment, PaymentIntentWire} from './payment.js'

@@ -149,6 +149,19 @@ export function paymentIntentHash(p: Omit<PaymentIntentWire, 'signature'>): Hex 
 }
 
 /**
+ * Derive the Settlement reservation identity for this exact payment and operation.
+ * @param p - Fixed creator intent; neither hashing nor an ID proves a mined reservation.
+ */
+export function prepaidRequestId(p: Omit<PaymentIntentWire, 'signature'>): Hex {
+  const intentHash = paymentIntentHash(p)
+  return bytesToHex(keccak_256(concatBytes(
+    new TextEncoder().encode('keykeeper/prepaid-request/v1'), be(p.chain_id, 8),
+    new Uint8Array(12), hexToBytes(p.settlement), hexToBytes(p.slot),
+    Uint8Array.of(ACTIONS[p.action]), hexToBytes(p.payload_digest), hexToBytes(intentHash),
+  ))) as Hex
+}
+
+/**
  * Validate the wire representation and its signed commitment, without chain access.
  * @param value - Untrusted payment object; signature encoding is checked, not signer recovery.
  */

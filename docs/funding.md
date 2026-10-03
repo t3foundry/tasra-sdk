@@ -39,15 +39,31 @@ that the returned token preserves the expected payment hash and its preimage.
 
 For direct verifier integration, `committeeAuthorize` and `gatherCommitteeToken` carry
 the payment with the matching request binding and pinned verification epoch. The
-assembled token includes both `payment_hash` and `payment`. Send it to the independently
-verified assigned keeper coordinator. Do not fail over a paid request to another keeper,
+assembled token includes both `payment_hash` and `payment`.
+
+`tasra-sdk/chain` provides `readSlotFunding` for available, reserved and total TASRA,
+and `readPaidOperationReceipt` for the exact operation's existing reservation. Both pin
+reads to one fresh canonical block using EIP-1898 and refuse unsupported canonical reads,
+stale heads and reorgs. The receipt also retains original cost and refunded amount after
+settlement; reading it never authorizes another execution.
+
+Use `resolvePaidKeeperTarget` with an independently selected deployment, slot, action and
+payload digest. It checks the reservation, recovers the creator signature, verifies the
+current sharing against the signed keeper assignment, and returns only the assigned
+coordinator's registered endpoint and the slot's group public key. It never contacts the
+keeper. Supply a bounded, trusted Viem public client. HTTPS is the default; development
+HTTP requires `allowLocalHttp: true` and chain43112 together. Fuji always requires HTTPS.
+Private endpoint access and custom CA trust remain the application's transport policy.
+
+Send the grant to that coordinator using the matching key-operation client and verify
+the result against the discovered group key. Do not fail over a paid request to another keeper,
 create a replacement reservation automatically, or treat an HTTP timeout as proof that
 no work occurred. Keep the payment and operation identity for reconciliation.
 
 Paid token signatures use a separate domain; existing unpaid token bytes stay unchanged.
 This encoding compatibility does not enable unpaid service on a prepaid deployment.
-SDK reservation submission, chain-backed coordinator routing and settlement remain
-separate integration work; the helpers above do not claim a complete prepaid client.
+SDK reservation submission, settlement and integration into the one-call application
+helpers remain separate work; the helpers above do not claim a complete prepaid client.
 
 ## 1. Fund the creator with AVAX
 

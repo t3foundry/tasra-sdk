@@ -6,6 +6,8 @@
 
 // Contract ABIs (generated from the Foundry artifacts) + nametoabi map.
 export * from './abis/index.js'
+export {readSlotFunding, readPaidOperationReceipt, resolvePaidKeeperTarget} from './prepaid.js'
+export type {PrepaidDeployment, PrepaidObservation, SlotFunding, PaidOperationReceipt, ExpectedPaidOperation, PaidKeeperTarget, PaidKeeperTransportOptions} from './prepaid.js'
 export {SlotCommitmentExpiredError, assertExpiredSlotCommitment} from './commitmentRecovery.js'
 
 // Deployment address discovery.

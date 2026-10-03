@@ -12,7 +12,13 @@ never does.
 - Paid committee-token hashing and creator payment-intent helpers in `tasra-sdk/committee`.
   Wallet and OAuth session clients can carry an already reserved payment and its fixed
   presentation random. Session results reject changed or missing payment commitments.
-  These helpers do not submit reservations, discover paid coordinators or settle fees.
+  These helpers do not submit reservations or settle fees.
+- `readSlotFunding`, `readPaidOperationReceipt` and `resolvePaidKeeperTarget` in
+  `tasra-sdk/chain`: fresh canonical TASRA observations and discovery of the signed
+  coordinator, including current sharing, registered identity and creator-signature checks.
+  The bundled Settlement ABI now targets v2, including prepaid calls and the changed
+  legacy settlement selectors with base cursors. Legacy v1 settlement writes require
+  their version-specific ABI.
 
 ## [0.3.0] — 2026-10-03
 

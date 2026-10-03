@@ -104,7 +104,7 @@ declare class SlotCommitmentExpiredError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 57 functions</summary>
+<summary>Browse 60 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -145,12 +145,15 @@ Operations you can import and call.
 - [provisionRule](#provisionrule)
 - [provisionRuleTypedData](#provisionruletypeddata)
 - [readApprovedServiceRecord](#readapprovedservicerecord)
+- [readPaidOperationReceipt](#readpaidoperationreceipt)
+- [readSlotFunding](#readslotfunding)
 - [reconcileRelayAttempt](#reconcilerelayattempt)
 - [requestSlotSeed](#requestslotseed)
 - [requireAddress](#requireaddress)
 - [requireVaultAddress](#requirevaultaddress)
 - [resolveAccountantUrls](#resolveaccountanturls)
 - [resolveNetworkProfile](#resolvenetworkprofile)
+- [resolvePaidKeeperTarget](#resolvepaidkeepertarget)
 - [resolveSlotGroupKey](#resolveslotgroupkey)
 - [resolveSlotKeeperUrls](#resolveslotkeeperurls)
 - [resolveVerifierDirectory](#resolveverifierdirectory)
@@ -1076,6 +1079,49 @@ Promise<{
 }>
 ```
 
+### readPaidOperationReceipt
+
+Require mined backing for an independently selected operation, without spending or performing it.
+A completed reservation remains inspectable. This result never authorizes another execution;
+the keeper must independently verify the holder, current assignment and durable operation journal.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L177)
+
+Import: `import {readPaidOperationReceipt} from 'tasra-sdk/chain'`
+
+```ts
+declare function readPaidOperationReceipt(client: PublicClient, deployment: PrepaidDeployment, payment: PaymentIntentWire, expected: ExpectedPaidOperation): Promise<PaidOperationReceipt>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | - Trusted bounded Viem RPC client for the selected deployment. |
+| ` deployment ` | ` PrepaidDeployment ` | - Independently approved chain and contract addresses. |
+| ` payment ` | ` PaymentIntentWire ` | - Fixed creator-signed intent for the existing reservation. |
+| ` expected ` | ` ExpectedPaidOperation ` | - Slot, action and digest derived from the operation the application intends. |
+
+Returns: ` Promise<PaidOperationReceipt> `.
+
+### readSlotFunding
+
+Read available, reserved and total slot TASRA at one fresh canonical block. Performs no transaction.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L155)
+
+Import: `import {readSlotFunding} from 'tasra-sdk/chain'`
+
+```ts
+declare function readSlotFunding(client: PublicClient, deployment: PrepaidDeployment, slot: Hex): Promise<SlotFunding>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | - Trusted bounded Viem RPC client for the selected deployment. |
+| ` deployment ` | ` PrepaidDeployment ` | - Independently approved chain and contract addresses. |
+| ` slot ` | ` Hex ` | - Slot whose TASRA balances are required. |
+
+Returns: ` Promise<SlotFunding> `.
+
 ### reconcileRelayAttempt
 
 Recover from a lost HTTP response or process restart using the trusted RPC, without broadcasting.
@@ -1199,6 +1245,29 @@ declare function resolveNetworkProfile(environment: NetworkName, options?: {
 | ` options? ` | ` { chainId?: number; rpcUrl?: string; eurcAddress?: string; } ` | Explicit chain, RPC and EURC address overrides from approved configuration. |
 
 Returns: ` ResolvedNetworkProfile `.
+
+### resolvePaidKeeperTarget
+
+Resolve only the signed coordinator after checking mined backing, creator consent and current sharing.
+Does not contact any keeper, submit a transaction, mint a credential grant or execute work.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L209)
+
+Import: `import {resolvePaidKeeperTarget} from 'tasra-sdk/chain'`
+
+```ts
+declare function resolvePaidKeeperTarget(client: PublicClient, deployment: PrepaidDeployment, payment: PaymentIntentWire, expected: ExpectedPaidOperation, transport?: PaidKeeperTransportOptions): Promise<PaidKeeperTarget>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | - Trusted bounded Viem RPC client for the selected deployment. |
+| ` deployment ` | ` PrepaidDeployment ` | - Independently approved chain and contract addresses. |
+| ` payment ` | ` PaymentIntentWire ` | - Creator-signed intent for the existing reservation. |
+| ` expected ` | ` ExpectedPaidOperation ` | - Independently derived slot, action and exact payload digest. |
+| ` transport? ` | ` PaidKeeperTransportOptions ` | - Explicit local HTTP allowance; defaults to HTTPS only. |
+
+Returns: ` Promise<PaidKeeperTarget> `.
 
 ### resolveSlotGroupKey
 
@@ -1490,7 +1559,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 67 types</summary>
+<summary>Browse 74 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -1511,6 +1580,7 @@ Options, data structures and return types.
 - [CreateSlotArgs](#createslotargs)
 - [DecodedEvent](#decodedevent)
 - [EventCategory](#eventcategory)
+- [ExpectedPaidOperation](#expectedpaidoperation)
 - [FetchOpts](#fetchopts)
 - [GetLogsWindowedOpts](#getlogswindowedopts)
 - [KeeperProvisionResult](#keeperprovisionresult)
@@ -1521,6 +1591,11 @@ Options, data structures and return types.
 - [NetworkName](#networkname)
 - [NetworkPreset](#networkpreset)
 - [NodeInfo](#nodeinfo)
+- [PaidKeeperTarget](#paidkeepertarget)
+- [PaidKeeperTransportOptions](#paidkeepertransportoptions)
+- [PaidOperationReceipt](#paidoperationreceipt)
+- [PrepaidDeployment](#prepaiddeployment)
+- [PrepaidObservation](#prepaidobservation)
 - [ProvisionRuleArgs](#provisionruleargs)
 - [ProvisionRuleResult](#provisionruleresult)
 - [RegisteredAgentSession](#registeredagentsession)
@@ -1546,6 +1621,7 @@ Options, data structures and return types.
 - [SlotAuthType](#slotauthtype)
 - [SlotCommitteeDecryptOptions](#slotcommitteedecryptoptions)
 - [SlotCommitteeSignOptions](#slotcommitteesignoptions)
+- [SlotFunding](#slotfunding)
 - [SlotGroupKey](#slotgroupkey)
 - [SlotMode](#slotmode)
 - [SlotSeed](#slotseed)
@@ -1999,6 +2075,26 @@ Display category assigned to decoded contract events.
 export type EventCategory = 'node' | 'slot' | 'slashing' | 'tasra' | 'settlement' | 'beacon' | 'governance';
 ```
 
+### ExpectedPaidOperation
+
+Explicit expected operation, independent of the supplied payment.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L58)
+
+```ts
+export interface ExpectedPaidOperation {
+    slot: Hex;
+    action: PaymentIntentWire['action'];
+    payloadDigest: Hex;
+}
+```
+
+Fields:
+
+- **` slot `**: Intended slot identifier.
+- **` action `**: Intended final key operation.
+- **` payloadDigest `**: Independently derived exact operation payload digest.
+
 ### FetchOpts
 
 Timeout and optional bearer authorization for direct service reads.
@@ -2270,6 +2366,115 @@ Fields:
 - **` connected_peers `**: Reported connected-peer count, or null when unavailable.
 - **` rate_limit_enabled `**: Whether the keeper reports rate limiting as enabled.
 - **` admin_scope_enabled `**: Whether the keeper reports administrative scope checks as enabled.
+
+### PaidKeeperTarget
+
+The single currently eligible coordinator selected by the creator's paid assignment.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L68)
+
+```ts
+export interface PaidKeeperTarget {
+    receipt: PaidOperationReceipt;
+    operator: Address;
+    publicKey: Hex;
+    url: string;
+    groupPublicKey: Hex;
+    mode: number;
+}
+```
+
+Fields:
+
+- **` receipt `**: Chain-backed reservation observation; never substitutes for holder authorization.
+- **` operator `**: Coordinator's registered payout/operator address.
+- **` publicKey `**: Coordinator's registered Ed25519 key.
+- **` url `**: Exact registered HTTP(S) base URL; there is no coordinator failover.
+- **` groupPublicKey `**: Published slot group key for independently checking the operation result.
+- **` mode `**: Solidity KeyRegistry mode ordinal for selecting the matching key-operation client.
+
+### PaidKeeperTransportOptions
+
+Explicit transport allowance for a development chain. HTTPS is otherwise required.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L84)
+
+```ts
+export interface PaidKeeperTransportOptions {
+    allowLocalHttp?: boolean;
+}
+```
+
+Fields:
+
+- **` allowLocalHttp `**: Allow an HTTP coordinator only on local chain43112. Never enables HTTP on Fuji.
+
+### PaidOperationReceipt
+
+Chain backing for one operation; holder authorization and execution journals remain separate.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L44)
+
+```ts
+export interface PaidOperationReceipt extends PrepaidObservation {
+    requestId: Hex;
+    assignmentBlock: Hex;
+    cost: bigint;
+    settled: boolean;
+    refunded: bigint;
+}
+```
+
+Fields:
+
+- **` requestId `**: Reservation identity derived locally from the payment intent.
+- **` assignmentBlock `**: Original quoted assignment block committed by the reservation quorum.
+- **` cost `**: Original reserved TASRA base units, retained after settlement.
+- **` settled `**: Whether final settlement has completed. This is not permission to execute again.
+- **` refunded `**: TASRA base units refunded to this slot during reconciliation.
+- **` blockNumber `**: Canonical block number.
+- **` blockHash `**: Exact canonical block used for EIP-1898 calls.
+- **` blockTimestamp `**: Block timestamp in Unix seconds.
+
+### PrepaidDeployment
+
+Deployment independently selected by the application, not taken from a received intent.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L10)
+
+```ts
+export interface PrepaidDeployment {
+    chainId: number;
+    settlement: Address;
+    keyRegistry: Address;
+}
+```
+
+Fields:
+
+- **` chainId `**: Expected EVM chain ID.
+- **` settlement `**: Expected Settlement proxy.
+- **` keyRegistry `**: Expected KeyRegistry proxy.
+
+### PrepaidObservation
+
+Fresh canonical observation shared by every field in a funding or reservation result.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L20)
+
+```ts
+export interface PrepaidObservation {
+    blockNumber: bigint;
+    blockHash: Hex;
+    blockTimestamp: bigint;
+}
+```
+
+Fields:
+
+- **` blockNumber `**: Canonical block number.
+- **` blockHash `**: Exact canonical block used for EIP-1898 calls.
+- **` blockTimestamp `**: Block timestamp in Unix seconds.
 
 ### ProvisionRuleArgs
 
@@ -2858,6 +3063,33 @@ Fields:
 - **` signingSet `**: Optional FROST participant identifiers selected for signing.
 - **` userSignature `**: Optional Ed25519 slot-owner approval signature for the signing request.
 - **` targetKeykeeper `**: Pin the keeper this request targets (anti-Sybil). Must be one of the slot's on-chain assigned operators; there is no way to point at an off-chain node.
+
+### SlotFunding
+
+Slot TASRA balances at a single canonical block; this does not grant paid admission.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L30)
+
+```ts
+export interface SlotFunding extends PrepaidObservation {
+    slot: Hex;
+    enabled: boolean;
+    available: bigint;
+    reserved: bigint;
+    total: bigint;
+}
+```
+
+Fields:
+
+- **` slot `**: Slot identifier.
+- **` enabled `**: Whether the slot has prepaid mode enabled.
+- **` available `**: Unreserved TASRA base units.
+- **` reserved `**: TASRA base units held by unsettled reservations.
+- **` total `**: Available plus reserved TASRA base units.
+- **` blockNumber `**: Canonical block number.
+- **` blockHash `**: Exact canonical block used for EIP-1898 calls.
+- **` blockTimestamp `**: Block timestamp in Unix seconds.
 
 ### SlotGroupKey
 

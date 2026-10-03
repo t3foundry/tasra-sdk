@@ -88,7 +88,7 @@ declare class OperationOutcomeUnknownError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 41 functions</summary>
+<summary>Browse 42 functions</summary>
 
 - [assembleCompoundToken](#assemblecompoundtoken)
 - [assertPaymentIntentWire](#assertpaymentintentwire)
@@ -124,6 +124,7 @@ Operations you can import and call.
 - [paymentIntentTypedData](#paymentintenttypeddata)
 - [paymentSessionCommitment](#paymentsessioncommitment)
 - [platformAudience](#platformaudience)
+- [prepaidRequestId](#prepaidrequestid)
 - [requestCommitteeToken](#requestcommitteetoken)
 - [requestIbeExtractionPartials](#requestibeextractionpartials)
 - [selectVerifierCommittee](#selectverifiercommittee)
@@ -157,7 +158,7 @@ Returns: ` CompoundTokenWire `.
 
 Validate the wire representation and its signed commitment, without chain access.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L155)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L168)
 
 Import: `import {assertPaymentIntentWire} from 'tasra-sdk/committee'`
 
@@ -1039,7 +1040,7 @@ Returns:
 
 Commit a fixed presentation random and audience before reserving a payment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L168)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L181)
 
 Import: `import {paymentSessionCommitment} from 'tasra-sdk/committee'`
 
@@ -1077,6 +1078,24 @@ declare function platformAudience(origin: string, chainId: number | bigint): str
 | ` chainId ` | ` number \| bigint ` | - EVM chain identifier for the selected network. |
 
 Returns: ` string `.
+
+### prepaidRequestId
+
+Derive the Settlement reservation identity for this exact payment and operation.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L155)
+
+Import: `import {prepaidRequestId} from 'tasra-sdk/committee'`
+
+```ts
+declare function prepaidRequestId(p: Omit<PaymentIntentWire, 'signature'>): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` p ` | ` Omit<PaymentIntentWire, 'signature'> ` | - Fixed creator intent; neither hashing nor an ID proves a mined reservation. |
+
+Returns: ` Hex `.
 
 ### requestCommitteeToken
 
