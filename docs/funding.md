@@ -92,8 +92,8 @@ settlement; reading it never authorizes another execution.
 
 Use `resolvePaidKeeperTarget` with an independently selected deployment, slot, action and
 payload digest. It checks the reservation, recovers the creator signature, verifies the
-current sharing against the signed keeper assignment, and returns only the assigned
-coordinator's registered endpoint and the slot's group public key. It never contacts the
+current sharing against the signed keeper assignment, and returns the assigned
+coordinator, signed contributor endpoints and the slot's group public key. It never contacts the
 keeper and refuses a settled payment. Supply a bounded, trusted Viem public client. HTTPS is the default; development
 HTTP requires `allowLocalHttp: true` and chain43112 together. Fuji always requires HTTPS.
 Private endpoint access and custom CA trust remain the application's transport policy.
@@ -103,9 +103,22 @@ the result against the discovered group key. Do not fail over a paid request to 
 create a replacement reservation automatically, or treat an HTTP timeout as proof that
 no work occurred. Keep the payment and operation identity for reconciliation.
 
+The application ECDSA `signDigest`, FROST `sign`, and BLS `extractIdentity` / `decrypt`
+methods accept `{authorize, payment, random}` for an already reserved operation. They
+check canonical backing and current assignment before requesting credentials and again
+after authorization. The authorization callback receives a defensive payment copy and
+the original expiry through `nowSecs` / `ttlSecs`; registered wallet and credential
+authorizers forward these to session creation. A changed or missing payment in the grant
+is refused before contacting a keeper. Signatures use the paid coordinator; IBE extraction
+uses only the signed contributors. Results are still cryptographically verified.
+Custom `keeperUrl` mappings must preserve HTTPS. Local HTTP additionally requires
+`allowLocalPaidHttp: true` on the application client and chain43112. The application does
+not fail over a paid attempt or submit a replacement reservation. Each operation needs
+its own payment; do not reuse one fixed payment for multiple Viem account calls.
+
 Paid token signatures use a separate domain; existing unpaid token bytes stay unchanged.
 This encoding compatibility does not enable unpaid service on a prepaid deployment.
-Settlement and integration into the one-call application helpers remain separate work;
+Automatic intent discovery, reservation journaling and final settlement orchestration remain separate work;
 the helpers above do not claim a complete prepaid client.
 
 ## 1. Fund the creator with AVAX

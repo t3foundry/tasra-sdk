@@ -149,7 +149,7 @@ refusing side), `timeout`, `unavailable`, `protocol`, `cancelled` - and whose
 `correlation` is the session id. A token that binds another request than this session
 opened, or one whose proofs are malformed, is a `protocol` refusal: nothing is built on it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L197)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L203)
 
 Import: `import {awaitVerifierAgentResult} from 'tasra-sdk/oid4vp'`
 
@@ -696,7 +696,7 @@ Returns: ` number `.
 
 Sign the operation and open a session; hand `qrPayload` to the wallet.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L145)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L146)
 
 Import: `import {openVerifierAgentSession} from 'tasra-sdk/oid4vp'`
 
@@ -984,7 +984,7 @@ Returns: ` Promise<SessionStatusResult> `.
 
 The typed data a creator (or delegate) signs, plus the wire operation and the verifier-agent's `message_hex`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L79)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L80)
 
 Import: `import {presentationOperationTypedData} from 'tasra-sdk/oid4vp'`
 
@@ -1320,7 +1320,7 @@ Returns: ` Jwk `.
 
 Validate request binding and proof encoding after either URL or registered-session polling.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L209)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L215)
 
 Import: `import {verifierAgentResult} from 'tasra-sdk/oid4vp'`
 
@@ -1339,7 +1339,7 @@ Returns: ` VerifierAgentResult `.
 
 The verifier-agent's `verifier_proofs` DTO (`{verifier_index, operator, pubkey, proof}`) to the SDK shape.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L172)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L178)
 
 Import: `import {verifierAgentVerifierProofs} from 'tasra-sdk/oid4vp'`
 
@@ -1960,7 +1960,7 @@ Fields:
 
 Opened wallet session with its signed operation and expected request-binding hash.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L129)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L130)
 
 ```ts
 export interface OpenedVerifierAgentSession extends CreateSessionResult {
@@ -1986,7 +1986,7 @@ Fields:
 
 Operation, signing wallet and verifier-agent endpoint for opening a presentation session.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L115)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L116)
 
 ```ts
 export interface OpenVerifierAgentSessionOpts extends OperationInput {
@@ -2020,7 +2020,7 @@ Fields:
 
 Slot operation, payload context and authorization lifetime used to construct EIP-712 typed data.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L51)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L52)
 
 ```ts
 export interface OperationInput {
@@ -2399,7 +2399,7 @@ Fields:
 
 Anything that signs EIP-712 typed data for an address - a viem `LocalAccount` or `WalletClient`-bound account fits.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L38)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L39)
 
 ```ts
 export interface TypedDataSigner {
@@ -2462,7 +2462,7 @@ Fields:
 
 Compound committee token with optional request preimage and verifier membership proofs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L154)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L160)
 
 ```ts
 export interface VerifierAgentResult {
@@ -2543,9 +2543,9 @@ Shared values and contract definitions.
 | `DECRYPT_DIGEST_DOMAIN` | Domain separator for the ciphertext digest used in decryption authorization. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L14) |
 | `KB_JWT_TYP` | JOSE type identifier for the holder key-binding JWT. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/sd-jwt.ts#L11) |
 | `PRE_AUTHORIZED_GRANT` | OAuth grant identifier for credential issuance using a pre-authorized code. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/oid4vci.ts#L8) |
-| `PRESENTATION_EIP712_NAME` | EIP-712 domain name for creator-signed presentation operations. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L21) |
-| `PRESENTATION_EIP712_VERSION` | EIP-712 domain version for creator-signed presentation operations. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L23) |
-| `PRESENTATION_OPERATION_TYPES` | The EIP-712 types mirrored from the reference presentation-auth types - do not reorder. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L26) |
+| `PRESENTATION_EIP712_NAME` | EIP-712 domain name for creator-signed presentation operations. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L22) |
+| `PRESENTATION_EIP712_VERSION` | EIP-712 domain version for creator-signed presentation operations. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L24) |
+| `PRESENTATION_OPERATION_TYPES` | The EIP-712 types mirrored from the reference presentation-auth types - do not reorder. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L27) |
 | `PROOF_TYP` | JOSE type identifier for an OpenID4VCI proof of key possession. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/oid4vci.ts#L10) |
 | `REQUEST_BINDING_DOMAIN` | Domain separator for binding chain, slot, action and payload digest. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L10) |
 | `REQUEST_OBJECT_TYP` | JOSE type identifier for a signed authorization request object. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L12) |

@@ -384,9 +384,11 @@ export function credentialAuthorization(options: CredentialAuthorizationOptions)
     request.signal?.throwIfAborted()
     for (const credential of credentials) verifyCredential(credential, {holder: options.identity})
     const operation = {...request, ...(request.message ? {message: request.message.slice()} : {}),
+      ...(request.payment ? {payment: structuredClone(request.payment)} : {}),
       ...(request.payloadDigest ? {payloadDigest: request.payloadDigest.slice()} : {}),
       slotId: typeof request.slotId === 'string' ? request.slotId : request.slotId.slice()}
     const consent = {...operation, ...(operation.message ? {message: operation.message.slice()} : {}),
+      ...(operation.payment ? {payment: structuredClone(operation.payment)} : {}),
       ...(operation.payloadDigest ? {payloadDigest: operation.payloadDigest.slice()} : {}),
       slotId: typeof operation.slotId === 'string' ? operation.slotId : operation.slotId.slice()}
     if (options.approve && !await options.approve(Object.freeze(consent))) throw new Error('Credential authorization declined locally')

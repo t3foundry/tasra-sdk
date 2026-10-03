@@ -1,10 +1,11 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
-import type {Hex} from 'viem'
+import {toHex, type Hex} from 'viem'
 import {keeperAssignmentCommitment, paymentIntentHash, paymentSessionCommitment, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {assembleCompoundToken, compoundTokenHash, decodeCompoundToken, selectVerifierCommittee, verifyCompoundToken, type CompoundTokenPayload} from '../../src/committee/token.js'
 import {assertCompoundTokenWire, createOauthSession, createOid4vpSession, type CreateSessionParams} from '../../src/verifier-agent/index.js'
-import {verifierAgentResult} from '../../src/oid4vp/verifier-agent.js'
+import {openVerifierAgentSession, verifierAgentResult} from '../../src/oid4vp/verifier-agent.js'
+import {payloadDigestFor, requestHash} from '../../src/oid4vp/binding.js'
 import {gatherCommitteeToken, type CommitteeAuthorizeBody} from '../../src/committee/client.js'
 import {bytesToHex, hexToBytes} from '../../src/crypto/hex.js'
 
@@ -86,6 +87,31 @@ describe('paid protocol conformance', () => {
 })
 
 describe('paid session transport', () => {
+  it('pins payment and request binding before the wallet signing callback can mutate caller options', async () => {
+    const message = new Uint8Array([1, 2, 3]), slotId = hexToBytes(h(3))
+    const digest = payloadDigestFor('sign', {message}), intent = {...payment(), payload_digest: toHex(digest)}
+    const original = structuredClone(intent)
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({session_id: 'id', poll_secret: 'secret', qr_payload: 'openid4vp://test', request_uri: 'https://test/request'}))
+    vi.stubGlobal('fetch', fetch)
+    const session = await openVerifierAgentSession({verifierAgentUrl: 'https://test', chainId: 43112, keyRegistry: h(2, 20), slotId, action: 'sign', message,
+      description: 'test', nowSecs: 1000, ttlSecs: 60, payment: intent, random: h(33), signer: {address: h(1, 20), signTypedData: async () => {
+        intent.max_cost = '99'; slotId.fill(99); message.fill(99)
+        return h(1, 65)
+      }}})
+    const body = JSON.parse(String(fetch.mock.calls[0]![1]?.body)) as {payment: PaymentIntentWire; message_hex: string}
+    expect(body.payment).toEqual(original)
+    expect(body.message_hex).toBe('0x010203')
+    expect(session.paymentHash).toBe(paymentIntentHash(original))
+    expect(session.requestHash).toEqual(requestHash(43112, hexToBytes(h(3)), 'sign', digest))
+  })
+  it('refuses inconsistent payment before asking the creator to sign', async () => {
+    const signTypedData = vi.fn(), fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    await expect(openVerifierAgentSession({verifierAgentUrl: 'https://test', chainId: 43112, keyRegistry: h(2, 20), slotId: h(3), action: 'sign', message: new Uint8Array([1]),
+      description: 'test', nowSecs: 1000, ttlSecs: 60, payment: payment(), random: h(33), signer: {address: h(1, 20), signTypedData}})).rejects.toThrow(/payment differs/)
+    expect(signTypedData).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+  })
   for (const kind of ['wallet', 'oauth'] as const) {
     it(`${kind} sends the fixed payment/random once and omits them from legacy sessions`, async () => {
       const fetch = vi.fn(async () => Response.json(kind === 'wallet'

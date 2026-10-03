@@ -64,16 +64,22 @@ export interface ExpectedPaidOperation {
   payloadDigest: Hex
 }
 
-/** The single currently eligible coordinator selected by the creator's paid assignment. */
-export interface PaidKeeperTarget {
+/** Currently eligible registered keeper selected in the creator's paid assignment. */
+export interface PaidKeeperEndpoint {
+  /** Registered payout/operator address. */
+  operator: Address
+  /** Registered Ed25519 key. */
+  publicKey: Hex
+  /** Exact registered HTTP(S) base URL, checked against the selected transport policy. */
+  url: string
+}
+
+/** The single coordinator and contributor set selected by the creator's paid assignment. */
+export interface PaidKeeperTarget extends PaidKeeperEndpoint {
   /** Chain-backed reservation observation; never substitutes for holder authorization. */
   receipt: PaidOperationReceipt
-  /** Coordinator's registered payout/operator address. */
-  operator: Address
-  /** Coordinator's registered Ed25519 key. */
-  publicKey: Hex
-  /** Exact registered HTTP(S) base URL; there is no coordinator failover. */
-  url: string
+  /** Exact signed contributor set, for operations that request individual shares. */
+  contributors: PaidKeeperEndpoint[]
   /** Published slot group key for independently checking the operation result. */
   groupPublicKey: Hex
   /** Solidity KeyRegistry mode ordinal for selecting the matching key-operation client. */
@@ -247,16 +253,18 @@ export async function resolvePaidKeeperTarget(
       members.set(member.key, member)
     }
   }
-  for (const key of assignment.contributors) {
-    if (!members.get(toHex(Uint8Array.from(key)))?.eligible) throw new Error('paid contributor is not an eligible assigned keeper')
+  const endpoint = (key: Hex): PaidKeeperEndpoint => {
+    const member = members.get(key)
+    if (!member?.eligible) throw new Error('paid contributor is not an eligible assigned keeper')
+    const url = new URL(member.url)
+    if (url.username || url.password || url.search || url.hash
+      || (url.protocol !== 'https:' && !(transport.allowLocalHttp === true && deployment.chainId === 43112 && url.protocol === 'http:'))) throw new Error('invalid paid keeper URL or transport')
+    return {operator: member.operator, publicKey: key, url: url.toString().replace(/\/$/, '')}
   }
+  const contributors = assignment.contributors.map(key => endpoint(toHex(Uint8Array.from(key))))
   const publicKey = toHex(Uint8Array.from(assignment.coordinator))
-  const coordinator = members.get(publicKey)
-  if (!coordinator?.eligible) throw new Error('paid coordinator is not eligible')
-  const url = new URL(coordinator.url)
-  if (url.username || url.password || url.search || url.hash
-    || (url.protocol !== 'https:' && !(transport.allowLocalHttp === true && deployment.chainId === 43112 && url.protocol === 'http:'))) throw new Error('invalid paid coordinator URL or transport')
+  const coordinator = endpoint(publicKey)
   await finishObservation(client, receipt)
   if (BigInt(payment.expires) <= time()) throw new Error('payment expired during coordinator discovery')
-  return {receipt, operator: coordinator.operator, publicKey, url: url.toString().replace(/\/$/, ''), groupPublicKey: slot.publicKey, mode: slot.mode}
+  return {...coordinator, receipt, contributors, groupPublicKey: slot.publicKey, mode: slot.mode}
 }

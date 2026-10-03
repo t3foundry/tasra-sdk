@@ -10,7 +10,7 @@ import {nodeRegistryAbi} from '../../src/chain/abis/nodeRegistry.js'
 
 const h = (n: number, len = 32): Hex => `0x${n.toString(16).padStart(2, '0').repeat(len)}`
 const expected = {slot: h(3), action: 'sign' as const, payloadDigest: h(4)}
-async function fixture(change: {epoch?: bigint; version?: bigint; threshold?: number; inactive?: boolean; untagged?: boolean; duplicateId?: boolean; duplicateKey?: boolean; foreignCreator?: boolean; url?: string; expired?: boolean; cancelled?: boolean; chainId?: number; settled?: boolean} = {}) {
+async function fixture(change: {epoch?: bigint; version?: bigint; threshold?: number; inactive?: boolean; untagged?: boolean; duplicateId?: boolean; duplicateKey?: boolean; foreignCreator?: boolean; url?: string; contributorUrl?: string; expired?: boolean; cancelled?: boolean; chainId?: number; settled?: boolean} = {}) {
   const now = Math.floor(Date.now() / 1000)
   const creator = privateKeyToAccount(h(11))
   const publicKeys = [1, 2, 3].map(n => ed25519.getPublicKey(new Uint8Array(32).fill(n))).sort((a, b) => toHex(a).localeCompare(toHex(b)))
@@ -45,7 +45,7 @@ async function fixture(change: {epoch?: bigint; version?: bigint; threshold?: nu
         cancelled: change.cancelled ?? false, expiry: BigInt(now + 3600), ruleVersion: 1n, auth: 0},
       assignedNodes: operators, nodeRegistry: nodes, operatorIdOf: BigInt(change.duplicateId ? 1 : index + 1),
       hasTag: !change.untagged,
-      nodeOf: {operator: operators[index], dns: 'keeper', url: change.url ?? `https://keeper${index}.example`, p2pAddr: '',
+      nodeOf: {operator: operators[index], dns: 'keeper', url: (index === 2 ? change.contributorUrl : undefined) ?? change.url ?? `https://keeper${index}.example`, p2pAddr: '',
         pubkey: toHex(publicKeys[change.duplicateKey ? 0 : index] ?? publicKeys[0]!), stake: 100n, rewardBalance: 0n, unbondingAt: 0n, active: !change.inactive},
     }
     return encodeFunctionResult({abi, functionName: decoded.functionName, result: table[decoded.functionName]})
@@ -58,7 +58,12 @@ it('resolves only the creator-signed coordinator using the same canonical block 
   const result = await resolvePaidKeeperTarget(f.client, f.deployment, f.payment, expected)
   expect(result).toMatchObject({operator: getAddress(f.operators[0]!), publicKey: toHex(f.publicKeys[0]!), url: 'https://keeper0.example', groupPublicKey: h(44), mode: 0})
   expect(result.receipt.cost).toBe(10n)
+  expect(result.contributors).toEqual(f.operators.map((operator, i) => ({operator: getAddress(operator), publicKey: toHex(f.publicKeys[i]!), url: `https://keeper${i}.example`})))
   expect(f.calls.every(m => ['eth_chainId', 'eth_getBlockByNumber', 'eth_call'].includes(m))).toBe(true)
+})
+it('checks transport for every paid contributor even when the coordinator uses HTTPS', async () => {
+  const f = await fixture({contributorUrl: 'http://keeper2.example'})
+  await expect(resolvePaidKeeperTarget(f.client, f.deployment, f.payment, expected)).rejects.toThrow(/transport/)
 })
 it('rotation, reshare, inactive identities, ambiguous registries and foreign spending signatures refuse discovery', async () => {
   for (const change of [{epoch: 2n}, {version: 3n}, {threshold: 3}, {inactive: true}, {untagged: true}, {duplicateId: true}, {duplicateKey: true}, {foreignCreator: true}, {expired: true}, {cancelled: true}]) {

@@ -26,6 +26,10 @@ never does.
 - Registered verifier-agent sessions preserve prepaid intent/random and reject changed
   audience, expiry, wallet nonce context or returned payment commitment. Paid discovery
   never falls back to another provider. Settled payments cannot route a new keeper operation.
+- Application ECDSA, FROST and IBE methods accept a reserved payment and fixed presentation
+  random. They check canonical backing before and after authorization, preserve the payment
+  commitment and route only to its selected coordinator or contributors. Returned signatures
+  and IBE shares retain the existing cryptographic verification.
 
 ## [0.3.0] — 2026-10-03
 

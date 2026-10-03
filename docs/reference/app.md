@@ -22,7 +22,7 @@ Clients, adapters and error classes.
 
 Manifest-first application API. Construction validates configuration without network I/O.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/tasra-client.ts#L65)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/tasra-client.ts#L67)
 
 Import: `import {TasraClient} from 'tasra-sdk/app'`
 
@@ -158,7 +158,7 @@ declare class CreationReconciliationRequiredError {
 
 An application operation rejected because its deployment, slot, authorization or result failed validation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L28)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L30)
 
 Import: `import {TasraApplicationError} from 'tasra-sdk/app'`
 
@@ -383,7 +383,7 @@ Configure one application client. Construction does no I/O and holds no wallet c
 Start with `await tasra.slots.ecdsa(slotId)` and `await account.getAddress()`;
 provide an authorizer only when signing or decrypting.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L121)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L133)
 
 Import: `import {createTasra} from 'tasra-sdk/app'`
 
@@ -899,7 +899,7 @@ Fields:
 
 Failure categories for deployment, slot, authorization and result validation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L24)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L26)
 
 ```ts
 export type ApplicationErrorCode = 'CHAIN_MISMATCH' | 'SLOT_NOT_FOUND' | 'SLOT_CANCELLED' | 'WRONG_SLOT_MODE' | 'KEY_NOT_READY' | 'SLOT_CHANGED' | 'INVALID_AUTHORIZATION' | 'INVALID_RESULT';
@@ -974,10 +974,12 @@ Fields:
 
 Immutable operation details presented to the application authorizer.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L44)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L46)
 
 ```ts
 export type AuthorizationRequest = Readonly<OperationInput & {
+    payment?: PaymentIntentWire;
+    random?: string;
     signal?: AbortSignal;
 }>;
 ```
@@ -994,16 +996,20 @@ Fields:
 - **` description `**: Shown by the wallet as the operation's purpose.
 - **` ttlSecs `**: Seconds the authorization stays valid (default 600, the verifier-agent caps at 3600).
 - **` nowSecs `**: Current time override in Unix seconds.
+- **` payment `**: Fixed creator intent for the already mined reservation; never replace it during authorization.
+- **` random `**: Presentation random committed by the payment.
 - **` signal `**: Cancellation signal propagated to the authorization provider.
 
 ### AuthorizedOperationOptions
 
 Authorization callback, consent description and cancellation controls for a protected operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L53)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L59)
 
 ```ts
 export interface AuthorizedOperationOptions {
+    payment?: PaymentIntentWire;
+    random?: string;
     authorize: OperationAuthorizer;
     description?: string;
     signal?: AbortSignal;
@@ -1013,6 +1019,8 @@ export interface AuthorizedOperationOptions {
 
 Fields:
 
+- **` payment `**: Existing creator-signed reservation intent for this exact operation. Requires random.
+- **` random `**: Fixed presentation random committed before reservation. Requires payment.
 - **` authorize `**: Obtain a fresh holder-bound grant for this exact operation.
 - **` description `**: Human-readable consent text attached to the authorization request.
 - **` signal `**: Cancel pending authorization or network work.
@@ -1022,7 +1030,7 @@ Fields:
 
 Identity-based encryption handle with authorized decryption and explicit identity-key extraction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L325)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L372)
 
 ```ts
 export type BlsSlot = Awaited<ReturnType<TasraApplication['slots']['bls']>>;
@@ -1105,7 +1113,7 @@ Fields:
 
 Per-operation overrides for the creator wallet, durable store and cancellation deadline.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/tasra-client.ts#L42)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/tasra-client.ts#L44)
 
 ```ts
 export interface CreateSlotOptions {
@@ -1188,7 +1196,7 @@ Fields:
 
 Threshold Ethereum account handle that verifies each signature against the anchored public key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L317)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L364)
 
 ```ts
 export type EcdsaSlot = Awaited<ReturnType<TasraApplication['slots']['ecdsa']>>;
@@ -1204,7 +1212,7 @@ Fields:
 
 Threshold Ed25519 signing handle with optional receipt checks and native approval sessions.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L321)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L368)
 
 ```ts
 export type FrostSlot = Awaited<ReturnType<TasraApplication['slots']['frost']>>;
@@ -1270,7 +1278,7 @@ Fields:
 
 Called once for the exact operation. Applications display the wallet request here.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L49)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L55)
 
 ```ts
 export type OperationAuthorizer = (request: AuthorizationRequest) => Promise<OperationGrant>;
@@ -1280,7 +1288,7 @@ export type OperationAuthorizer = (request: AuthorizationRequest) => Promise<Ope
 
 Holder-bound committee token and verifier membership proofs for one operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L35)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L37)
 
 ```ts
 export interface OperationGrant {
@@ -1446,7 +1454,7 @@ Fields:
 
 Current slot mode, key epoch, threshold and anchored public key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L87)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L99)
 
 ```ts
 export interface SlotMetadata {
@@ -1475,7 +1483,7 @@ Fields:
 
 Application client exposing checked slot operations and deployment readiness probes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L313)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L360)
 
 ```ts
 export type TasraApplication = ReturnType<typeof createTasra>;
@@ -1492,10 +1500,11 @@ Fields:
 
 Deployment, chain reader and transport choices used by the application client.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L74)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L84)
 
 ```ts
 export interface TasraApplicationConfig {
+    allowLocalPaidHttp?: boolean;
     deployment: TasraDeployment;
     chain?: TasraChainClient;
     keeperUrl?: (registeredUrl: string) => string;
@@ -1505,6 +1514,7 @@ export interface TasraApplicationConfig {
 
 Fields:
 
+- **` allowLocalPaidHttp `**: Permit paid keeper HTTP only on local chain43112; otherwise HTTPS is required.
 - **` deployment `**: Application-approved chain, registry and coordinator configuration.
 - **` chain `**: Reuse the read client in an existing app. Its actual chain is checked before use.
 - **` keeperUrl `**: Caller-approved routing, e.g. local Docker hostnames to published loopback ports.
@@ -1518,6 +1528,7 @@ Network manifest and optional wallet, storage and transport adapters for an appl
 
 ```ts
 export interface TasraClientOptions extends ResolveApplicationManifestOptions {
+    allowLocalPaidHttp?: boolean;
     manifest: ApplicationManifest;
     store?: ApplicationStore;
     wallet?: Pick<ReturnType<typeof createLocalWallet>, 'wallet' | 'signer'>;
@@ -1530,6 +1541,7 @@ export interface TasraClientOptions extends ResolveApplicationManifestOptions {
 
 Fields:
 
+- **` allowLocalPaidHttp `**: Permit paid keeper HTTP only on the explicitly selected local chain43112.
 - **` manifest `**: Network manifest downloaded from tasra-releases, or approved application settings.
 - **` store `**: Private durable store required when creating slots.
 - **` wallet `**: Creator wallet; connect a browser wallet or explicitly generate a local one.

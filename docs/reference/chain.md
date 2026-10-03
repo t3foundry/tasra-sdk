@@ -1130,7 +1130,7 @@ Require mined backing for an independently selected operation, without spending 
 A completed reservation remains inspectable. This result never authorizes another execution;
 the keeper must independently verify the holder, current assignment and durable operation journal.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L177)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L183)
 
 Import: `import {readPaidOperationReceipt} from 'tasra-sdk/chain'`
 
@@ -1151,7 +1151,7 @@ Returns: ` Promise<PaidOperationReceipt> `.
 
 Read available, reserved and total slot TASRA at one fresh canonical block. Performs no transaction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L155)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L161)
 
 Import: `import {readSlotFunding} from 'tasra-sdk/chain'`
 
@@ -1331,7 +1331,7 @@ Returns: ` ResolvedNetworkProfile `.
 Resolve only the signed coordinator after checking mined backing, creator consent and current sharing.
 Does not contact any keeper, submit a transaction, mint a credential grant or execute work.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L209)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L215)
 
 Import: `import {resolvePaidKeeperTarget} from 'tasra-sdk/chain'`
 
@@ -1639,7 +1639,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 78 types</summary>
+<summary>Browse 79 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -1671,6 +1671,7 @@ Options, data structures and return types.
 - [NetworkName](#networkname)
 - [NetworkPreset](#networkpreset)
 - [NodeInfo](#nodeinfo)
+- [PaidKeeperEndpoint](#paidkeeperendpoint)
 - [PaidKeeperTarget](#paidkeepertarget)
 - [PaidKeeperTransportOptions](#paidkeepertransportoptions)
 - [PaidOperationReceipt](#paidoperationreceipt)
@@ -2451,18 +2452,36 @@ Fields:
 - **` rate_limit_enabled `**: Whether the keeper reports rate limiting as enabled.
 - **` admin_scope_enabled `**: Whether the keeper reports administrative scope checks as enabled.
 
-### PaidKeeperTarget
+### PaidKeeperEndpoint
 
-The single currently eligible coordinator selected by the creator's paid assignment.
+Currently eligible registered keeper selected in the creator's paid assignment.
 
 [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L68)
 
 ```ts
-export interface PaidKeeperTarget {
-    receipt: PaidOperationReceipt;
+export interface PaidKeeperEndpoint {
     operator: Address;
     publicKey: Hex;
     url: string;
+}
+```
+
+Fields:
+
+- **` operator `**: Registered payout/operator address.
+- **` publicKey `**: Registered Ed25519 key.
+- **` url `**: Exact registered HTTP(S) base URL, checked against the selected transport policy.
+
+### PaidKeeperTarget
+
+The single coordinator and contributor set selected by the creator's paid assignment.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L78)
+
+```ts
+export interface PaidKeeperTarget extends PaidKeeperEndpoint {
+    receipt: PaidOperationReceipt;
+    contributors: PaidKeeperEndpoint[];
     groupPublicKey: Hex;
     mode: number;
 }
@@ -2471,17 +2490,18 @@ export interface PaidKeeperTarget {
 Fields:
 
 - **` receipt `**: Chain-backed reservation observation; never substitutes for holder authorization.
-- **` operator `**: Coordinator's registered payout/operator address.
-- **` publicKey `**: Coordinator's registered Ed25519 key.
-- **` url `**: Exact registered HTTP(S) base URL; there is no coordinator failover.
+- **` contributors `**: Exact signed contributor set, for operations that request individual shares.
 - **` groupPublicKey `**: Published slot group key for independently checking the operation result.
 - **` mode `**: Solidity KeyRegistry mode ordinal for selecting the matching key-operation client.
+- **` operator `**: Registered payout/operator address.
+- **` publicKey `**: Registered Ed25519 key.
+- **` url `**: Exact registered HTTP(S) base URL, checked against the selected transport policy.
 
 ### PaidKeeperTransportOptions
 
 Explicit transport allowance for a development chain. HTTPS is otherwise required.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L84)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L90)
 
 ```ts
 export interface PaidKeeperTransportOptions {

@@ -12,6 +12,7 @@ import type {VerifierProof} from '../committee/client.js'
 import {assertCompoundTokenWire, VerifierAgentSessionError, createOid4vpSession, waitForSession, type CreateSessionResult, type PresentationDelegation, type PresentationOperation, type WaitOpts, type SessionStatusResult} from '../verifier-agent/index.js'
 import {payloadDigestFor, requestHash, type CommitteeAction} from './binding.js'
 import {utf8} from './jose.js'
+import {sessionPaymentFields} from '../verifier-agent/payment.js'
 
 export {createOid4vpSession, pollOid4vpSession, waitForSession, payloadDigest, nextPollDelay, assertCompoundTokenWire, VerifierAgentSessionError} from '../verifier-agent/index.js'
 export type {SessionPhase, VerifierAgentSessionErrorKind, WaitOpts} from '../verifier-agent/index.js'
@@ -144,10 +145,15 @@ export interface OpenedVerifierAgentSession extends CreateSessionResult {
  */
 export async function openVerifierAgentSession(opts: OpenVerifierAgentSessionOpts): Promise<OpenedVerifierAgentSession> {
   const {typedData, operation, messageHex, payloadDigest} = presentationOperationTypedData(opts)
-  const operationSig = await opts.signer.signTypedData(typedData)
-  const session = await createOid4vpSession(opts.verifierAgentUrl, {operation, operationSig, delegation: opts.delegation, messageHex, payment: opts.payment, random: opts.random})
+  const payment = opts.payment && structuredClone(opts.payment), random = opts.random
+  const delegation = opts.delegation && structuredClone(opts.delegation), verifierAgentUrl = opts.verifierAgentUrl
+  sessionPaymentFields({operation, operationSig: '0x', messageHex, payment, random})
+  const paymentHash = payment && paymentIntentHash(payment)
   const slot = typeof opts.slotId === 'string' ? hexToBytes(opts.slotId) : opts.slotId
-  return {...session, operation, ...(opts.payment ? {paymentHash: paymentIntentHash(opts.payment)} : {}), requestHash: requestHash(opts.chainId, slot, opts.action, payloadDigest), verifierAgentUrl: opts.verifierAgentUrl}
+  const expectedRequestHash = requestHash(opts.chainId, slot, opts.action, payloadDigest)
+  const operationSig = await opts.signer.signTypedData(typedData)
+  const session = await createOid4vpSession(verifierAgentUrl, {operation, operationSig, delegation, messageHex, payment, random})
+  return {...session, operation, ...(paymentHash ? {paymentHash} : {}), requestHash: expectedRequestHash, verifierAgentUrl}
 }
 
 /** Compound committee token with optional request preimage and verifier membership proofs. */
