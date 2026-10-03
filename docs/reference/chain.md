@@ -9,9 +9,10 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 3 classes</summary>
+<summary>Browse 4 classes</summary>
 
 - [AgentSessionCreationUnknownError](#agentsessioncreationunknownerror)
+- [PaidReservationUncertainError](#paidreservationuncertainerror)
 - [RelayOutcomeUnknownError](#relayoutcomeunknownerror)
 - [SlotCommitmentExpiredError](#slotcommitmentexpirederror)
 
@@ -32,6 +33,32 @@ declare class AgentSessionCreationUnknownError {
 ```
 
 - ` readonly profile: Readonly<ApprovedAgentProfile>; ` — Approved verifier-agent profile whose session creation outcome is unknown.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PaidReservationUncertainError
+
+Reservation submission may have happened; inspect the saved identity before further spending.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L97)
+
+Import: `import {PaidReservationUncertainError} from 'tasra-sdk/chain'`
+
+```ts
+declare class PaidReservationUncertainError {
+    constructor(requestId: Hex, transactionHash: Hex | undefined, cause: unknown);
+}
+```
+
+- ` readonly requestId: Hex; ` — Original request ID for readPaidOperationReceipt and durable journal lookup.
+
+- ` readonly transactionHash: Hex | undefined; ` — Transaction hash when received; absence does not establish that no transaction was sent.
 
 - ` name: string; `
 
@@ -104,7 +131,7 @@ declare class SlotCommitmentExpiredError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 60 functions</summary>
+<summary>Browse 61 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -151,6 +178,7 @@ Operations you can import and call.
 - [requestSlotSeed](#requestslotseed)
 - [requireAddress](#requireaddress)
 - [requireVaultAddress](#requirevaultaddress)
+- [reservePaidOperation](#reservepaidoperation)
 - [resolveAccountantUrls](#resolveaccountanturls)
 - [resolveNetworkProfile](#resolvenetworkprofile)
 - [resolvePaidKeeperTarget](#resolvepaidkeepertarget)
@@ -1205,6 +1233,41 @@ Returns: ` Address `.
 
 Return details: Address of the allocation vault; throws when missing.
 
+### reservePaidOperation
+
+Reserve TASRA for a fixed creator-signed operation using an accountant threshold quote.
+Does not create an intent, approve tokens, activate a slot, authorize credentials or do keeper
+work. One broadcast attempt only; no replacement, coordinator failover or implicit gas funding.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L194)
+
+Import: `import {reservePaidOperation} from 'tasra-sdk/chain'`
+
+```ts
+declare function reservePaidOperation(client: PublicClient, wallet: WalletClient<Transport, Chain, Account>, deployment: PrepaidDeployment, original: PaymentIntentWire, expected: ExpectedPaidOperation, options: ReservePaidOperationOptions): Promise<{
+    transactionHash: Hex;
+    receipt: PaidOperationReceipt;
+}>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | - Trusted bounded public RPC client; use retryCount: 0 for submissions. |
+| ` wallet ` | ` WalletClient<Transport, Chain, Account> ` | - Account-bound gas payer on the selected chain; no automatic wallet retries. |
+| ` deployment ` | ` PrepaidDeployment ` | - Independently approved deployment. |
+| ` original ` | ` PaymentIntentWire ` | - Creator intent from independently verified assignment/session discovery. |
+| ` expected ` | ` ExpectedPaidOperation ` | - Independently derived operation. |
+| ` options ` | ` ReservePaidOperationOptions ` | - Fee limits, accountant endpoints and mandatory durable persistence. |
+
+Returns:
+
+```ts
+Promise<{
+    transactionHash: Hex;
+    receipt: PaidOperationReceipt;
+}>
+```
+
 ### resolveAccountantUrls
 
 Read active accountant HTTP endpoints through the registry role index, preserving registry order.
@@ -1559,7 +1622,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 74 types</summary>
+<summary>Browse 78 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -1594,6 +1657,9 @@ Options, data structures and return types.
 - [PaidKeeperTarget](#paidkeepertarget)
 - [PaidKeeperTransportOptions](#paidkeepertransportoptions)
 - [PaidOperationReceipt](#paidoperationreceipt)
+- [PaidReservationCheckpoint](#paidreservationcheckpoint)
+- [PaidReservationQuote](#paidreservationquote)
+- [PaidReservationRecord](#paidreservationrecord)
 - [PrepaidDeployment](#prepaiddeployment)
 - [PrepaidObservation](#prepaidobservation)
 - [ProvisionRuleArgs](#provisionruleargs)
@@ -1607,6 +1673,7 @@ Options, data structures and return types.
 - [RelayReceipt](#relayreceipt)
 - [RelayReconciliation](#relayreconciliation)
 - [RelayTransport](#relaytransport)
+- [ReservePaidOperationOptions](#reservepaidoperationoptions)
 - [ResolvedEndpoints](#resolvedendpoints)
 - [ResolvedNetworkProfile](#resolvednetworkprofile)
 - [RuleInput](#ruleinput)
@@ -2436,6 +2503,97 @@ Fields:
 - **` blockHash `**: Exact canonical block used for EIP-1898 calls.
 - **` blockTimestamp `**: Block timestamp in Unix seconds.
 
+### PaidReservationCheckpoint
+
+Durable write checkpoints. A timeout after preparation requires observation, never a new attempt.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L44)
+
+```ts
+export type PaidReservationCheckpoint = {
+    phase: 'prepared';
+    record: PaidReservationRecord;
+} | {
+    phase: 'submitted';
+    requestId: Hex;
+    transactionHash: Hex;
+} | {
+    phase: 'confirmed';
+    requestId: Hex;
+    transactionHash: Hex;
+    blockHash: Hex;
+};
+```
+
+Fields:
+
+- **` phase `**: Persisted before any transaction submission. A transaction hash was returned; mining is still unproven. The transaction and reservation were observed on the canonical chain.
+
+### PaidReservationQuote
+
+Accountant authorization for a single operation. This is not a mined reservation.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L8)
+
+```ts
+export interface PaidReservationQuote {
+    slot: Hex;
+    quote_block: Hex;
+    request_ids: Hex[];
+    costs: string[];
+    legacy_nonce: number;
+    deadline: number;
+    digest: Hex;
+    signature: Hex | null;
+    mined: false;
+}
+```
+
+Fields:
+
+- **` slot `**: Slot being funded.
+- **` quote_block `**: Canonical block fixing the original operator assignment.
+- **` request_ids `**: Locally derived operation ID; exactly one entry.
+- **` costs `**: TASRA base-unit quote; exactly one entry.
+- **` legacy_nonce `**: Reconciled legacy settlement cursor.
+- **` deadline `**: Authorization expiry in Unix seconds.
+- **` digest `**: Deployment-bound reservation digest.
+- **` signature `**: Threshold BN254 signature, absent from an unsigned preparation.
+- **` mined `**: Always false: accountant authorization does not establish mining.
+
+### PaidReservationRecord
+
+Immutable transaction identity retained before any broadcast; JSON serializable.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L30)
+
+```ts
+export interface PaidReservationRecord {
+    schema: 1;
+    requestId: Hex;
+    payment: PaymentIntentWire;
+    quote: PaidReservationQuote;
+    transaction: {
+        chainId: number;
+        from: Address;
+        to: Address;
+        data: Hex;
+        value: '0';
+        nonce: number;
+        gas: string;
+        gasPrice: string;
+    };
+}
+```
+
+Fields:
+
+- **` schema `**: Record format.
+- **` requestId `**: Locally derived key used by durable storage to refuse duplicate attempts.
+- **` payment `**: Creator's fixed intent, needed for recovery and the credential session.
+- **` quote `**: Signed accountant quote.
+- **` transaction `**: Exact bounded transaction; decimal strings preserve integer precision in storage.
+
 ### PrepaidDeployment
 
 Deployment independently selected by the application, not taken from a received intent.
@@ -2756,6 +2914,36 @@ Fields:
 
 - **` relayRequest `**: Guard the socket just like discovery. Accept bounded JSON status bodies for 200/202/422.
 - **` request `**: Perform a bounded request using the required destination, TLS and cancellation policy; return response bytes.
+
+### ReservePaidOperationOptions
+
+Explicit limits and durable storage for one direct reservation transaction.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L71)
+
+```ts
+export interface ReservePaidOperationOptions {
+    accountantUrls: readonly string[];
+    allowLocalHttp?: boolean;
+    maxGas: bigint;
+    maxGasPrice: bigint;
+    requestTimeoutMs?: number;
+    receiptTimeoutMs?: number;
+    confirmations?: number;
+    persist: (checkpoint: PaidReservationCheckpoint) => Promise<void>;
+}
+```
+
+Fields:
+
+- **` accountantUrls `**: Independently selected accountant HTTPS endpoints; all must agree on the same quote.
+- **` allowLocalHttp `**: Permit HTTP only on local chain43112; never on Fuji.
+- **` maxGas `**: Maximum transaction gas units.
+- **` maxGasPrice `**: Maximum native gas price in wei; separate from the payment's TASRA cap.
+- **` requestTimeoutMs `**: Per-accountant request timeout, 1..85000 ms (default 85000).
+- **` receiptTimeoutMs `**: Receipt timeout, 1..120000 ms (default 60000).
+- **` confirmations `**: Required confirmations, 1..64 (default 1).
+- **` persist `**: Await durable storage before resolving. The prepared checkpoint MUST atomically create a unique requestId record, refuse every existing record, and survive process loss. Retain it on every later failure. Subsequent checkpoints update that record without deleting it. A callback failure before preparation completes prevents broadcast. The SDK cannot prove an application's persistence guarantees; an in-memory callback is not safe for production.
 
 ### ResolvedEndpoints
 

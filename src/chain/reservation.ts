@@ -42,9 +42,30 @@ export interface PaidReservationRecord {
 
 /** Durable write checkpoints. A timeout after preparation requires observation, never a new attempt. */
 export type PaidReservationCheckpoint =
-  | {phase: 'prepared'; record: PaidReservationRecord}
-  | {phase: 'submitted'; requestId: Hex; transactionHash: Hex}
-  | {phase: 'confirmed'; requestId: Hex; transactionHash: Hex; blockHash: Hex}
+  | {
+    /** Persisted before any transaction submission. */
+    phase: 'prepared'
+    /** Exact operation and transaction identity; create exclusively by requestId. */
+    record: PaidReservationRecord
+  }
+  | {
+    /** A transaction hash was returned; mining is still unproven. */
+    phase: 'submitted'
+    /** Key of the existing durable preparation. */
+    requestId: Hex
+    /** Returned transaction hash, retained for recovery. */
+    transactionHash: Hex
+  }
+  | {
+    /** The transaction and reservation were observed on the canonical chain. */
+    phase: 'confirmed'
+    /** Key of the existing durable preparation. */
+    requestId: Hex
+    /** Verified reservation transaction hash. */
+    transactionHash: Hex
+    /** Canonical block containing the transaction. */
+    blockHash: Hex
+  }
 
 /** Explicit limits and durable storage for one direct reservation transaction. */
 export interface ReservePaidOperationOptions {
