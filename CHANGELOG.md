@@ -7,7 +7,9 @@ never does.
 
 ## [Unreleased]
 
-> Needs a MINOR bump (0.3.0): a public option is removed.
+## [0.3.0] — 2026-10-03
+
+A minor bump: a public option is removed.
 
 ### Removed
 - `clientSigner` on `requestCommitteeToken` / `committeeSignRequest` / `committeeDecryptRequest` /
@@ -27,6 +29,11 @@ never does.
 - The committee sign / decrypt / extract bodies are asserted to carry ONLY the keys the keeper
   declares (`test/committee.one-call.ts`, `test/committee.guards.ts`) - the SDK-side mirror of the
   keeper's strict-body test.
+- `verify:security` runs `scripts/audit.mjs`: `npm audit` at high/critical with EXPLICIT, dated,
+  per-advisory exceptions in `security/audit-exceptions.json` (an expired or no-longer-matching
+  exception fails the gate), instead of a lowered audit level. One exception is recorded:
+  GHSA-ch52-4w7c-c8xp on `http-cache-semantics`, a build-time dependency of the docs site's
+  `astro` with no patched release; it does not reach the published package.
 
 ## [0.2.4] — 2026-10-01
 
