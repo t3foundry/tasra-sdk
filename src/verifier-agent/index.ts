@@ -15,6 +15,7 @@ import {sha256} from '@noble/hashes/sha256'
 import {bytesToHex} from '@noble/hashes/utils'
 import {TasraError} from '../errors.js'
 import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
+import {sessionPaymentFields} from './payment.js'
 
 /** The operation the holder is authorizing - signed by the creator's EIP-712 key. */
 import type {DpopSigner} from '../auth/dpop.js'
@@ -196,17 +197,6 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
     if (!(t.verifier_indexes as number[]).includes(sg.verifier_index as number)) bad('a signature names an index outside the committee')
   }
   return t
-}
-
-function sessionPaymentFields(params: CreateSessionParams): Record<string, unknown> {
-  if (params.payment === undefined && params.random === undefined) return {}
-  if (!params.payment || typeof params.random !== 'string' || !HEX32.test(params.random)) throw new Error('payment and its 32-byte random are required together')
-  assertPaymentIntentWire(params.payment)
-  const p = params.payment
-  const op = params.operation
-  const action = p.action === 'eoa-sign' ? 'sign' : p.action
-  if (p.chain_id !== op.chain_id || p.slot.toLowerCase() !== op.slot_id.toLowerCase() || action !== op.action || p.payload_digest.toLowerCase() !== op.payload_digest.toLowerCase()) throw new Error('payment differs from session operation')
-  return {payment: p, random: params.random}
 }
 
 /**

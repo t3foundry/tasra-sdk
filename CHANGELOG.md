@@ -23,6 +23,9 @@ never does.
   canonical contract simulation, then submits one gas-capped reservation with mandatory
   durable recovery checkpoints. Uncertain outcomes retain the request ID and any known
   transaction hash; the helper never automatically resubmits or changes payment identity.
+- Registered verifier-agent sessions preserve prepaid intent/random and reject changed
+  audience, expiry, wallet nonce context or returned payment commitment. Paid discovery
+  never falls back to another provider. Settled payments cannot route a new keeper operation.
 
 ## [0.3.0] — 2026-10-03
 

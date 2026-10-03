@@ -112,6 +112,7 @@ describe('paid session transport', () => {
       {...params(), payment: {...payment(), action: 'decrypt'}},
       {...params(), payment: {...payment(), slot: h(2)}},
       {...params(), payment: {...payment(), signature: '0x00'}},
+      {...params(), operation: {...params().operation, exp: 1061}},
     ]
     for (const p of bad) await expect(createOid4vpSession('https://test', p)).rejects.toThrow()
     expect(fetch).not.toHaveBeenCalled()

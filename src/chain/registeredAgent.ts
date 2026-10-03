@@ -2,6 +2,8 @@ import {authenticateApprovedService, validateServiceEndpoint, type ServiceDiscov
 import type {TasraChainClient} from './client.js'
 import type {ServiceApproval, ServiceRecord} from './services.js'
 import {parseVerifierAgentSessionStatus, type CreateSessionParams, type CreateSessionResult, type SessionStatusResult} from '../verifier-agent/index.js'
+import {sessionPaymentFields} from '../verifier-agent/payment.js'
+import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 
 /**
  * Guarded HTTPS transport for service discovery and verifier-agent sessions.
@@ -31,6 +33,12 @@ export interface ApprovedAgentProfile {
  * Session pinned to its authenticated provider, with a closure for polling that provider.
  */
 export interface RegisteredAgentSession extends Readonly<CreateSessionResult> {
+  /** Expected paid-token commitment, fixed before the session POST. */
+  readonly paymentHash?: string
+  /** Defensive copy of the fixed spending intent, when this session is prepaid. */
+  readonly payment?: PaymentIntentWire
+  /** Presentation random bound by the spending intent to the approved audience. */
+  readonly random?: string
   /**
    * Provider identity and endpoint pinned when the session was opened.
    */
@@ -43,8 +51,13 @@ export interface RegisteredAgentSession extends Readonly<CreateSessionResult> {
  * Session creation may have reached the provider, so automatic retry is unsafe.
  */
 export class AgentSessionCreationUnknownError extends Error {
-  constructor(/** Approved verifier-agent profile whose session creation outcome is unknown. */ readonly profile: Readonly<ApprovedAgentProfile>) {
-    super('Agent session creation has an uncertain result; explicitly open a fresh wallet session to retry. No session secret or presentation is transferred.')
+  constructor(
+    /** Approved verifier-agent profile whose session creation outcome is unknown. */ readonly profile: Readonly<ApprovedAgentProfile>,
+    /** Retained payment commitment; reconcile it before another paid session attempt. */ readonly paymentHash?: string,
+  ) {
+    super(paymentHash
+      ? 'Paid agent session creation has an uncertain result; retain the original payment and reconcile it before another session attempt.'
+      : 'Agent session creation has an uncertain result; explicitly open a fresh wallet session to retry. No session secret or presentation is transferred.')
     this.name = 'AgentSessionCreationUnknownError'
   }
 }
@@ -89,19 +102,25 @@ function equalPin(actual: unknown, expected: ReturnType<typeof pin>): boolean {
  */
 export function createRegisteredAgentClient(chain: TasraChainClient, config: {profiles: readonly ApprovedAgentProfile[]; transport: AgentTransport}) {
   if (!Array.isArray(config.profiles) || !config.profiles.length || config.profiles.length > 16 || typeof config.transport?.agentRequest !== 'function' || typeof config.transport.request !== 'function') throw new Error('Approved agent profiles and a guarded transport are required')
-  const profiles = config.profiles.map(p => {
+  const profiles = config.profiles.map((p: ApprovedAgentProfile) => {
     validateServiceEndpoint(p.endpoint)
     if (p.approval.serviceType !== 1 || !/^decentralized_identifier:did:web:[a-z0-9.-]+(?:(?:%3A)[0-9]+)?$/.test(p.clientId)) throw new Error('Invalid verifier-agent profile')
     return Object.freeze({...p, approval: Object.freeze({...p.approval})})
   })
   const transport = config.transport
   return {
-    /** At most three discovery candidates; optional index explicitly starts a new independent session. */
+    /** At most three unpaid discovery candidates. A paid session uses only its selected profile. */
     async createSession(params: CreateSessionParams, options: {profileIndex?: number; signal?: AbortSignal} = {}): Promise<RegisteredAgentSession> {
+      params = structuredClone(params)
+      const paid = sessionPaymentFields(params)
+      const paymentHash = paid.payment && paymentIntentHash(paid.payment)
       const start = options.profileIndex ?? 0
       if (!Number.isInteger(start) || start < 0 || start >= profiles.length) throw new Error('Invalid agent profile index')
       return bounded(options.signal, async signal => {
-        for (const profile of profiles.slice(start, start + 3)) {
+        for (const profile of profiles.slice(start, start + (paid.payment ? 1 : 3))) {
+          // Do this before discovery or POST: a paid session cannot be redrawn at another
+          // audience, and the caller cannot change the committed random or expiry.
+          sessionPaymentFields(params, profile.clientId)
           let record: ServiceRecord
           try {
             const result = await authenticateApprovedService(chain, profile.approval, {
@@ -112,12 +131,12 @@ export function createRegisteredAgentClient(chain: TasraChainClient, config: {pr
             record = result.record
           } catch { signal.throwIfAborted(); continue }
           if (params.operation.chain_id !== profile.approval.chainId) throw new Error('Agent operation chain mismatch')
-          const body = new TextEncoder().encode(JSON.stringify({operation: params.operation, operation_sig: params.operationSig, delegation: params.delegation, message_hex: params.messageHex}))
+          const body = new TextEncoder().encode(JSON.stringify({operation: params.operation, operation_sig: params.operationSig, delegation: params.delegation, message_hex: params.messageHex, ...paid}))
           if (body.length > 65_536) throw new Error('Agent session request too large')
           signal.throwIfAborted()
           let data: Record<string, unknown>
           try { data = decode(await transport.agentRequest(profile.endpoint + '/v1/sessions', {body, maxBytes: 32_768, signal}), 32_768) }
-          catch { throw new AgentSessionCreationUnknownError(profile) }
+          catch { throw new AgentSessionCreationUnknownError(profile, paymentHash) }
           const expected = pin(profile, record)
           if (!equalPin(data.service_profile, expected) || typeof data.session_id !== 'string' || !/^[0-9a-f]{64}$/.test(data.session_id)
             || typeof data.poll_secret !== 'string' || !/^[0-9a-f]{64}$/.test(data.poll_secret)) throw new Error('Agent session profile or identifiers mismatch')
@@ -129,6 +148,8 @@ export function createRegisteredAgentClient(chain: TasraChainClient, config: {pr
           // Closure-owned routing and secret prevent a caller's mutable session object from
           // redirecting a bearer. Replicas sit behind this one approved base endpoint.
           return Object.freeze({sessionId, pollSecret, requestUri, qrPayload: data.qr_payload, profile,
+            ...(paid.payment ? {paymentHash, random: paid.random} : {}),
+            get payment() { return paid.payment && structuredClone(paid.payment) },
             poll: (pollSignal?: AbortSignal) => bounded(pollSignal, async activeSignal => {
               const a = profile.approval
               if (chain.addresses.ServiceRegistry?.toLowerCase() !== a.registry.toLowerCase() || await chain.client.getChainId() !== a.chainId) throw new Error('Agent session chain/registry changed')

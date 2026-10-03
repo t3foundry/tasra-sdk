@@ -22,17 +22,19 @@ Clients, adapters and error classes.
 
 Session creation may have reached the provider, so automatic retry is unsafe.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L45)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L53)
 
 Import: `import {AgentSessionCreationUnknownError} from 'tasra-sdk/chain'`
 
 ```ts
 declare class AgentSessionCreationUnknownError {
-    constructor(profile: Readonly<ApprovedAgentProfile>);
+    constructor(profile: Readonly<ApprovedAgentProfile>, paymentHash?: string);
 }
 ```
 
 - ` readonly profile: Readonly<ApprovedAgentProfile>; ` — Approved verifier-agent profile whose session creation outcome is unknown.
+
+- ` readonly paymentHash?: string; ` — Retained payment commitment; reconcile it before another paid session attempt.
 
 - ` name: string; `
 
@@ -335,7 +337,7 @@ Returns: ` Promise<void> `.
 
 Bind the wallet's signed request to the operation and authenticated session before disclosure.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L105)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L122)
 
 Import: `import {assertRegisteredWalletRequest} from 'tasra-sdk/chain'`
 
@@ -375,7 +377,7 @@ Returns: ` Promise<AuthenticatedService> `.
 
 Poll the original authenticated session only; no URL reconstruction or provider failover.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L54)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L71)
 
 Import: `import {awaitRegisteredVerifierAgentResult} from 'tasra-sdk/chain'`
 
@@ -436,7 +438,7 @@ Return details: Committee client whose operations each take a slot ID.
 
 Selection authenticates public metadata first. Once POSTed, never silently switch providers.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L90)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L103)
 
 Import: `import {createRegisteredAgentClient} from 'tasra-sdk/chain'`
 
@@ -825,7 +827,7 @@ Promise<{
 
 Sign once, authenticate an explicitly approved provider, and retain its pinned poll closure.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L33)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L35)
 
 Import: `import {openRegisteredVerifierAgentSession} from 'tasra-sdk/chain'`
 
@@ -835,13 +837,28 @@ declare function openRegisteredVerifierAgentSession(client: ReturnType<typeof cr
     delegation?: PresentationDelegation;
     profileIndex?: number;
     signal?: AbortSignal;
+    payment?: PaymentIntentWire;
+    random?: string;
 }): Promise<RegisteredVerifierAgentSession>;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` client ` | ` ReturnType<typeof createRegisteredAgentClient> ` | Registered agent client with independently approved providers. |
-| ` opts ` | ` OperationInput & { signer: TypedDataSigner; delegation?: PresentationDelegation; profileIndex?: number; signal?: AbortSignal; } ` | Exact operation, authorizing signer and optional delegation or cancellation. |
+| ` opts ` | See detailed type below. | Exact operation, authorizing signer and optional delegation or cancellation. |
+
+**` opts ` type**
+
+```ts
+OperationInput & {
+    signer: TypedDataSigner;
+    delegation?: PresentationDelegation;
+    profileIndex?: number;
+    signal?: AbortSignal;
+    payment?: PaymentIntentWire;
+    random?: string;
+}
+```
 
 Returns: ` Promise<RegisteredVerifierAgentSession> `.
 
@@ -1731,7 +1748,7 @@ export type AddressBook = Partial<Record<ContractName, Address>> & {
 
 Guarded HTTPS transport for service discovery and verifier-agent sessions.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L9)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L11)
 
 ```ts
 export interface AgentTransport extends ServiceDiscoveryTransport {
@@ -1777,7 +1794,7 @@ Fields:
 
 Both the application and committee verifiers must independently approve this verifier-agent identity.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L15)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L17)
 
 ```ts
 export interface ApprovedAgentProfile {
@@ -2691,10 +2708,13 @@ Fields:
 
 Session pinned to its authenticated provider, with a closure for polling that provider.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L33)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L35)
 
 ```ts
 export interface RegisteredAgentSession extends Readonly<CreateSessionResult> {
+    readonly paymentHash?: string;
+    readonly payment?: PaymentIntentWire;
+    readonly random?: string;
     readonly profile: Readonly<ApprovedAgentProfile>;
     poll(signal?: AbortSignal): Promise<SessionStatusResult>;
 }
@@ -2702,6 +2722,9 @@ export interface RegisteredAgentSession extends Readonly<CreateSessionResult> {
 
 Fields:
 
+- **` paymentHash `**: Expected paid-token commitment, fixed before the session POST.
+- **` payment `**: Defensive copy of the fixed spending intent, when this session is prepaid.
+- **` random `**: Presentation random bound by the spending intent to the approved audience.
 - **` profile `**: Provider identity and endpoint pinned when the session was opened.
 - **` poll `**: Poll only the original endpoint/profile. A provider change requires a fresh wallet session.
 - **` sessionId `**: Opened authorization session identifier.
@@ -2747,7 +2770,7 @@ Fields:
 
 Authenticated provider session bound to one signed operation and request hash.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L13)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L15)
 
 ```ts
 export interface RegisteredVerifierAgentSession extends RegisteredAgentSession {
@@ -2762,6 +2785,9 @@ Fields:
 - **` operation `**: Creator-signed operation associated with this session.
 - **` requestHash `**: Defensive copy of the operation request hash.
 - **` verifierAgentUrl `**: Authenticated provider endpoint retained for this session.
+- **` paymentHash `**: Expected paid-token commitment, fixed before the session POST.
+- **` payment `**: Defensive copy of the fixed spending intent, when this session is prepaid.
+- **` random `**: Presentation random bound by the spending intent to the approved audience.
 - **` profile `**: Provider identity and endpoint pinned when the session was opened.
 - **` poll `**: Poll only the original endpoint/profile. A provider change requires a fresh wallet session.
 - **` sessionId `**: Opened authorization session identifier.

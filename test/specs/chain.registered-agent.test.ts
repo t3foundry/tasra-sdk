@@ -9,6 +9,8 @@ import {authenticateApprovedService} from '../../src/chain/serviceIdentity.js'
 import type {ServiceRecord} from '../../src/chain/services.js'
 import type {TasraChainClient} from '../../src/chain/client.js'
 import type {CreateSessionParams} from '../../src/verifier-agent/index.js'
+import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, type PaymentIntentWire} from '../../src/committee/payment.js'
+import {presentationOperationTypedData} from '../../src/oid4vp/verifier-agent.js'
 vi.mock('../../src/chain/serviceIdentity.js', async original => ({...await original<typeof import('../../src/chain/serviceIdentity.js')>(), authenticateApprovedService: vi.fn()}))
 const address = (s: string) => `0x${s.repeat(20)}` as Address
 const hash = (s: string) => `0x${s.repeat(32)}` as Hex
@@ -100,10 +102,94 @@ describe('registered verifier-agent sessions', () => {
   })
 })
 
-afterEach(() => vi.useRealTimers())
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
 const input = () => ({chainId: 31337, keyRegistry: address('12'), slotId: hash('11'), action: 'sign' as const,
   message: new Uint8Array([1, 2, 3]), description: 'Approve this exact message', signer: privateKeyToAccount(hash('01'))})
+
+async function paidInput(clientId: string) {
+  const base = {...input(), nowSecs: Math.floor(Date.now() / 1000), ttlSecs: 60}
+  const {operation} = presentationOperationTypedData(base), random = hash('01')
+  const payment: PaymentIntentWire = {chain_id: base.chainId, settlement: address('13'), key_registry: base.keyRegistry,
+    slot: base.slotId, action: 'sign', payload_digest: operation.payload_digest as Hex,
+    session_commitment: paymentSessionCommitment(random, clientId, operation.exp), nonce: hash('06'), max_cost: '10', expires: operation.exp,
+    verification_epoch: 1, verification_seed: hash('03'), verification_root: hash('02'), verification_registry_size: 3, verification_committee: 3, verification_quorum: 2,
+    keeper_assignment: {key_epoch: 1, committee_version: 2, threshold: 2, coordinator: Array<number>(32).fill(9), contributors: [9, 10, 11].map(n => Array<number>(32).fill(n))},
+    signature: `0x${'00'.repeat(65)}`}
+  payment.signature = await base.signer.signTypedData(paymentIntentTypedData(payment))
+  return {...base, payment, random}
+}
+
+describe('registered prepaid sessions', () => {
+  it('carries the exact paid intent and random, pins the hash, and refuses result downgrade or substitution', async () => {
+    const h = harness(), request = await paidInput(h.profiles[0]!.clientId)
+    const session = await openRegisteredVerifierAgentSession(h.client, request)
+    const body = JSON.parse(new TextDecoder().decode(vi.mocked(h.transport.agentRequest).mock.calls[0]![1].body)) as CreateSessionParams & {operation_sig: string}
+    expect(body.payment).toEqual(request.payment)
+    expect(body.random).toBe(request.random)
+    expect(body.operation.exp).toBe(request.payment.expires)
+    const original = structuredClone(request.payment), commitment = paymentIntentHash(original)
+    request.payment.max_cost = '999'
+    session.payment!.keeper_assignment.contributors[0]![0] = 42
+    expect(session.paymentHash).toBe(commitment)
+    expect(session.payment).toEqual(original)
+    const token = {token_type: 'JWT', seed: hash('03'), slot_id: hash('11'), vp_hash: hash('12'), holder_hash: hash('12'), rule_hash: hash('12'), epoch: 1, iat: 100,
+      exp: original.expires, request_hash: bytesToHex(session.requestHash), binding: 'holder_key', verifier_indexes: [0], signatures: [{verifier_index: 0, signature: '0x' + '34'.repeat(64)}],
+      payment: original, payment_hash: commitment}
+    const reply = (compound_token: unknown) => encoded({status: 'done', phase: 'done', compound_token, binding_preimage: {service_profile: h.profilePin(0)}})
+    vi.mocked(h.transport.agentRequest).mockResolvedValue(reply(token))
+    expect((await awaitRegisteredVerifierAgentResult(session)).token.payment).toEqual(original)
+    vi.mocked(h.transport.agentRequest).mockResolvedValue(reply({...token, payment: undefined, payment_hash: undefined}))
+    await expect(awaitRegisteredVerifierAgentResult(session)).rejects.toThrow(/payment/)
+    const other = {...original, nonce: hash('99')}
+    vi.mocked(h.transport.agentRequest).mockResolvedValue(reply({...token, payment: other, payment_hash: paymentIntentHash(other)}))
+    await expect(awaitRegisteredVerifierAgentResult(session)).rejects.toThrow(/payment/)
+  })
+  it('refuses wrong audience, random or expiry before disclosing a paid operation', async () => {
+    for (const kind of ['audience', 'random', 'expiry'] as const) {
+      const h = harness(), request = await paidInput(kind === 'audience' ? h.profiles[1]!.clientId : h.profiles[0]!.clientId)
+      if (kind === 'random') request.random = hash('99')
+      if (kind === 'expiry') request.ttlSecs++
+      await expect(openRegisteredVerifierAgentSession(h.client, request)).rejects.toThrow(/payment/)
+      expect(h.transport.agentRequest).not.toHaveBeenCalled()
+      expect(authenticateApprovedService).not.toHaveBeenCalled()
+    }
+  })
+  it('never changes a paid provider when discovery fails before POST', async () => {
+    const h = harness(), request = await paidInput(h.profiles[0]!.clientId)
+    h.records[0]!.status = 1
+    await expect(openRegisteredVerifierAgentSession(h.client, request)).rejects.toThrow(/No approved/)
+    expect(authenticateApprovedService).toHaveBeenCalledTimes(1)
+    expect(h.transport.agentRequest).not.toHaveBeenCalled()
+  })
+  it('retains the payment commitment when the session POST has an uncertain outcome', async () => {
+    const h = harness(), request = await paidInput(h.profiles[0]!.clientId)
+    vi.mocked(h.transport.agentRequest).mockRejectedValue(new Error('lost session reply'))
+    await expect(openRegisteredVerifierAgentSession(h.client, request)).rejects.toMatchObject({
+      name: 'AgentSessionCreationUnknownError', paymentHash: paymentIntentHash(request.payment),
+    })
+    expect(h.transport.agentRequest).toHaveBeenCalledTimes(1)
+    expect(authenticateApprovedService).toHaveBeenCalledTimes(1)
+  })
+  it('refuses a recomputed wallet nonce with any changed prepaid context before presentation', async () => {
+    const h = harness(), request = await paidInput(h.profiles[0]!.clientId)
+    const session = await openRegisteredVerifierAgentSession(h.client, request)
+    const binding = {operation: session.operation, payment: request.payment, random: request.random, seed: hash('03'), snapshot_root: hash('02'), epoch: 1, registry_size: 3, committee_count: 3, quorum: 2, nonce: ''}
+    const check = (changed: Partial<typeof binding> = {}) => {
+      const b = {...binding, ...changed}
+      const nonce = derivedNonce(session.requestHash, new Uint8Array(Buffer.from(b.random.slice(2), 'hex')),
+        {epoch: b.epoch, snapshotRoot: new Uint8Array(Buffer.from(b.snapshot_root.slice(2), 'hex')), registrySize: b.registry_size, committee: b.committee_count, quorum: b.quorum, operationExp: session.operation.exp})
+      const ro = {jwt: 'already-verified', header: {alg: 'EdDSA'}, signerDid: session.profile.clientId.replace('decentralized_identifier:', ''), signerKey: {kty: 'OKP', crv: 'Ed25519', x: ''}, claims: {
+        iss: session.profile.clientId.replace('decentralized_identifier:', ''), state: 'state', client_id: session.profile.clientId, response_mode: 'direct_post.jwt', response_uri: session.profile.endpoint + '/v1/response?session=' + session.sessionId, nonce, exp: session.operation.exp, dcql_query: {credentials: []},
+      }} as VerifiedRequestObject
+      assertRegisteredWalletRequest(session, ro, {status: 'pending', phase: 'awaiting_wallet', bindingPreimage: {...b, nonce}})
+    }
+    expect(() => check()).not.toThrow()
+    for (const changed of [{random: hash('99')}, {seed: hash('99')}, {snapshot_root: hash('99')}, {epoch: 2}, {registry_size: 4}, {committee_count: 2}, {quorum: 1}, {payment: {...request.payment, nonce: hash('99')}}]) {
+      expect(() => check(changed)).toThrow(/reserved payment/)
+    }
+  })
+})
 describe('registered application operation flow', () => {
   it('retains authenticated polling and checks the returned operation binding', async () => {
     const h = harness(), session = await openRegisteredVerifierAgentSession(h.client, input())

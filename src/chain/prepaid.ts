@@ -211,6 +211,7 @@ export async function resolvePaidKeeperTarget(
   transport: PaidKeeperTransportOptions = {},
 ): Promise<PaidKeeperTarget> {
   const receipt = await readPaidOperationReceipt(client, deployment, payment, expected)
+  if (receipt.settled) throw new Error('payment already settled; it cannot start another keeper operation')
   if (BigInt(payment.expires) <= time()) throw new Error('payment expired; reconcile before starting another operation')
   const [slot, assigned, nodes] = await Promise.all([
     registryRead(client, receipt, deployment.keyRegistry, keyRegistryAbi, 'getKeySlot', [payment.slot]) as Promise<ReadContractReturnType<typeof keyRegistryAbi, 'getKeySlot'>>,

@@ -10,7 +10,7 @@ import {nodeRegistryAbi} from '../../src/chain/abis/nodeRegistry.js'
 
 const h = (n: number, len = 32): Hex => `0x${n.toString(16).padStart(2, '0').repeat(len)}`
 const expected = {slot: h(3), action: 'sign' as const, payloadDigest: h(4)}
-async function fixture(change: {epoch?: bigint; version?: bigint; threshold?: number; inactive?: boolean; untagged?: boolean; duplicateId?: boolean; duplicateKey?: boolean; foreignCreator?: boolean; url?: string; expired?: boolean; cancelled?: boolean; chainId?: number} = {}) {
+async function fixture(change: {epoch?: bigint; version?: bigint; threshold?: number; inactive?: boolean; untagged?: boolean; duplicateId?: boolean; duplicateKey?: boolean; foreignCreator?: boolean; url?: string; expired?: boolean; cancelled?: boolean; chainId?: number; settled?: boolean} = {}) {
   const now = Math.floor(Date.now() / 1000)
   const creator = privateKeyToAccount(h(11))
   const publicKeys = [1, 2, 3].map(n => ed25519.getPublicKey(new Uint8Array(32).fill(n))).sort((a, b) => toHex(a).localeCompare(toHex(b)))
@@ -38,7 +38,7 @@ async function fixture(change: {epoch?: bigint; version?: bigint; threshold?: nu
     const decoded = decodeFunctionData({abi, data: call.data})
     const index = decoded.args?.[0] === undefined ? -1 : operators.findIndex(operator => operator.toLowerCase() === String(decoded.args![0]).toLowerCase())
     const table: Record<string, unknown> = {
-      prepaidEnabled: true, prepaidCost: 10n, prepaidSettled: false, prepaidRefunded: 0n, prepaidAssignmentBlock: h(19),
+      prepaidEnabled: true, prepaidCost: 10n, prepaidSettled: change.settled ?? false, prepaidRefunded: 0n, prepaidAssignmentBlock: h(19),
       getKeySlot: {creator: change.foreignCreator ? h(88, 20) : creator.address,
         ruleCommitment: h(33), threshold: {k: change.threshold ?? 2, n: 3}, mode: 0, publicKey: h(44),
         epoch: change.epoch ?? 1n, committeeVersion: change.version ?? 2n, exists: true,
@@ -74,4 +74,8 @@ it('HTTP requires both explicit local allowance and local chain; URL credentials
     const other = await fixture(change)
     await expect(resolvePaidKeeperTarget(other.client, other.deployment, other.payment, expected, {allowLocalHttp: true})).rejects.toThrow(/transport/)
   }
+})
+it('a settled fee remains inspectable but cannot be routed into a new keeper operation', async () => {
+  const f = await fixture({settled: true})
+  await expect(resolvePaidKeeperTarget(f.client, f.deployment, f.payment, expected)).rejects.toThrow(/already settled/)
 })

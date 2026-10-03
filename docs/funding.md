@@ -69,6 +69,17 @@ the expiry committed before reservation. The verifier-agent checks the session r
 and its configured audience against that commitment. `awaitVerifierAgentResult` checks
 that the returned token preserves the expected payment hash and its preimage.
 
+The registered-provider path supports the same `payment` and `random` through
+`openRegisteredVerifierAgentSession`. Its operation expiry must equal the intent expiry.
+It validates the random/audience commitment against the selected approved agent profile
+before disclosure and never falls back to another paid provider. The returned session
+retains an immutable payment commitment and defensive copies of the intent. The registered
+wallet-request check compares the disclosed payment, seed, epoch, snapshot, policy and
+random with that intent before presentation, even if a changed context produces a
+self-consistent nonce. Registered result polling rejects a missing or substituted payment.
+An uncertain paid creation error retains `paymentHash`; reconcile the original payment
+before trying another session.
+
 For direct verifier integration, `committeeAuthorize` and `gatherCommitteeToken` carry
 the payment with the matching request binding and pinned verification epoch. The
 assembled token includes both `payment_hash` and `payment`.
@@ -83,7 +94,7 @@ Use `resolvePaidKeeperTarget` with an independently selected deployment, slot, a
 payload digest. It checks the reservation, recovers the creator signature, verifies the
 current sharing against the signed keeper assignment, and returns only the assigned
 coordinator's registered endpoint and the slot's group public key. It never contacts the
-keeper. Supply a bounded, trusted Viem public client. HTTPS is the default; development
+keeper and refuses a settled payment. Supply a bounded, trusted Viem public client. HTTPS is the default; development
 HTTP requires `allowLocalHttp: true` and chain43112 together. Fuji always requires HTTPS.
 Private endpoint access and custom CA trust remain the application's transport policy.
 
