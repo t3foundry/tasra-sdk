@@ -1,6 +1,6 @@
 {
   "name": "tasra-sdk",
-  "version": "0.3.0-next.0",
+  "version": "0.3.0",
   "description": "TypeScript SDK for Tasra network slots, credential-based access, distributed encryption and signing, and on-chain operations.",
   "private": false,
   "type": "module",
@@ -241,9 +241,9 @@
     "docs:build": "npm run build --prefix site",
     "verify:document-app": "node test/document-app-check.mjs",
     "verify": "node scripts/verify.mjs",
-    "verify:infrastructure": "node --test scripts/verify-infrastructure.test.mjs scripts/git-hooks.test.mjs scripts/api-surface.test.mjs scripts/api-changes.test.mjs scripts/quality.test.mjs scripts/performance.test.mjs scripts/publication.test.mjs scripts/release-tag.test.mjs",
+    "verify:infrastructure": "node --test scripts/verify-infrastructure.test.mjs scripts/git-hooks.test.mjs scripts/api-surface.test.mjs scripts/api-changes.test.mjs scripts/quality.test.mjs scripts/performance.test.mjs scripts/publication.test.mjs scripts/release-tag.test.mjs scripts/audit.test.mjs",
     "verify:repository": "node scripts/verify-repository.mjs && npm run api:changes",
-    "verify:security": "npm audit --include=dev --include=optional --include=peer --audit-level=high && npm audit --prefix site --include=dev --include=optional --audit-level=high && npm audit signatures",
+    "verify:security": "node scripts/audit.mjs && npm audit signatures",
     "verify:site": "npm ci --prefix site && npm run docs:build",
     "api:changes": "node scripts/api-changes.mjs",
     "quality": "node scripts/quality.mjs",
@@ -253,12 +253,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/t3-foundry/tasra-sdk.git"
+    "url": "git+https://github.com/t3foundry/tasra-sdk.git"
   },
   "bugs": {
-    "url": "https://github.com/t3-foundry/tasra-sdk/issues"
+    "url": "https://github.com/t3foundry/tasra-sdk/issues"
   },
-  "homepage": "https://github.com/t3-foundry/tasra-sdk#readme",
+  "homepage": "https://github.com/t3foundry/tasra-sdk#readme",
   "license": "Apache-2.0",
   "publishConfig": {
     "access": "public",
@@ -282,7 +282,7 @@
     "eslint": "^10.10.0",
     "ethers": "^6.13.0",
     "fast-check": "4.10.2",
-    "next": "^16.3.5",
+    "next": "^16.3.8",
     "playwright": "^1.63.0",
     "publint": "^0.3.24",
     "react": "^19.3.0",

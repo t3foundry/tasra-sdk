@@ -23,9 +23,9 @@ export async function createTutorial(name: string, type: string, role: string, n
   const tasra = new TasraClient({...options, wallet, store})
   // Send AVAX for setup gas; usage credit is deposited separately after slot creation.
   console.log(`Creator: ${wallet.address} on chain ${tasra.deployment.chainId}.`)
-  console.log('Fund this address with at least 1 AVAX for gas. Fuji faucet: https://core.app/tools/testnet-faucet/?subnet=c&token=c. Waiting up to 15 minutes.')
+  console.log('Fund this address with at least 0.05 AVAX for demo gas. Fuji faucet: https://core.app/tools/testnet-faucet/?subnet=c&token=c. Waiting up to 15 minutes.')
   const deadline = Date.now() + 15 * 60_000
-  while (await tasra.chain.client.getBalance({address: wallet.address}) < 10n ** 18n) {
+  while (await tasra.chain.client.getBalance({address: wallet.address}) < 5n * 10n ** 16n) {
     if (Date.now() >= deadline) throw new Error(`Creator funding timed out. Preserve private state in ${directory}.`)
     await new Promise(resolve => setTimeout(resolve, 5000))
   }

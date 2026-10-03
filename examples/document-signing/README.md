@@ -23,12 +23,12 @@ together. The example explicitly selects the `lowest-operator-id` coordinator po
 confirm that the chosen services use this policy before creating slots.
 
 Setup saves a new creator wallet and prints its address. Fund that address with at
-least 1 AVAX through the [official Fuji C-Chain faucet](https://core.app/tools/testnet-faucet/?subnet=c&token=c) or your own wallet, then rerun
+least 0.05 AVAX through the [official Fuji C-Chain faucet](https://core.app/tools/testnet-faucet/?subnet=c&token=c) or your own wallet, then rerun
 `npm run setup`. The saved creator is reused. The network must support FROST slots,
 credential authorization and creator-signed rule provisioning. After creation, buy TSRA with EURC from BondingCurve and deposit TSRA into each
 slot's Settlement balance before starting the app. Use the printed status commands
-with `fund-slot.ts`; change `status` to `mint-test-eurc 1000000` (test EURC only),
-`buy 1000000 1000000000000000000` (spend 1 EURC, require at least 1 TSRA), then
+with `fund-slot.ts`; change `status` to `mint-test-eurc 10000000` (test EURC only),
+`buy 10000000 1000000000000000000` (spend 10 EURC, require at least 1 TSRA), then
 `fund 1000000000000000000` (deposit 1 TSRA). Keep each command's `--slot` argument.
 Repeat the deposit for both slots, acquiring enough TSRA first. These are example
 budgets; actual charges vary. The commands report confirmed hashes and balances.

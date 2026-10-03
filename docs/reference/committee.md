@@ -88,7 +88,7 @@ declare class OperationOutcomeUnknownError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 37 functions</summary>
+<summary>Browse 36 functions</summary>
 
 - [assembleCompoundToken](#assemblecompoundtoken)
 - [auditOperationId](#auditoperationid)
@@ -109,7 +109,6 @@ Operations you can import and call.
 - [decryptIdentityStrict](#decryptidentitystrict)
 - [dpopHtu](#dpophtu)
 - [dualSignApprovalPayload](#dualsignapprovalpayload)
-- [ed25519ClientSigner](#ed25519clientsigner)
 - [extractIdentityStrict](#extractidentitystrict)
 - [gatherCommitteeToken](#gathercommitteetoken)
 - [holderProofPerVerifier](#holderproofperverifier)
@@ -177,7 +176,7 @@ directory. Returns `undefined` (never a wrong proof) when the directory is incom
 missing, or the reconstructed root disagrees with the anchored `snapshotRoot` - so a mismatch
 degrades to the keeper's configured-set path rather than shipping a proof the keeper rejects.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L239)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L204)
 
 Import: `import {buildVerifierProofs} from 'tasra-sdk/committee'`
 
@@ -240,7 +239,7 @@ Returns: ` Promise<CommitteeAuthorizeReply> `.
 
 Adapt the SDK chain client's `readers` into [CommitteeChainReads](#committeechainreads).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L145)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L117)
 
 Import: `import {committeeChainReadsFromClient} from 'tasra-sdk/committee'`
 
@@ -294,7 +293,7 @@ Returns: ` CommitteeChainReads `.
 
 Decrypt via committee authorization. The slot id is taken from the token.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L488)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L476)
 
 Import: `import {committeeDecrypt} from 'tasra-sdk/committee'`
 
@@ -312,7 +311,7 @@ Returns: ` Promise<Uint8Array> `.
 
 One-call committee-authorized threshold decrypt.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L440)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L393)
 
 Import: `import {committeeDecryptRequest} from 'tasra-sdk/committee'`
 
@@ -330,7 +329,7 @@ Returns: ` Promise<Uint8Array> `.
 
 Sign via committee authorization. The slot id is taken from the token.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L412)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L408)
 
 Import: `import {committeeSign} from 'tasra-sdk/committee'`
 
@@ -374,7 +373,7 @@ HTTP 401/403 is an authorization denial; do not retry it as a network failure.
 
 One-call committee-authorized threshold sign: resolve token (+proofs) then POST to the keeper.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L399)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L354)
 
 Import: `import {committeeSignRequest} from 'tasra-sdk/committee'`
 
@@ -578,24 +577,6 @@ declare function dualSignApprovalPayload(slotId: string, message: Uint8Array, re
 
 Returns: ` Uint8Array `.
 
-### ed25519ClientSigner
-
-A [ClientSigner](#clientsigner) from a 32-byte ed25519 secret key (the common `did:key` holder).
-
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L96)
-
-Import: `import {ed25519ClientSigner} from 'tasra-sdk/committee'`
-
-```ts
-declare function ed25519ClientSigner(secretKey: Uint8Array): ClientSigner;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` secretKey ` | ` Uint8Array ` | - 32-byte Ed25519 secret seed used to sign client request bindings. |
-
-Returns: ` ClientSigner `.
-
 ### extractIdentityStrict
 
 Extract using a distinct assigned quorum, one epoch and the chain-anchored group key.
@@ -645,7 +626,7 @@ with the holder key over the same credentials + slot, hand it back for that veri
 Pass the result as `holderProof` to [requestCommitteeToken](#requestcommitteetoken) (or the one-call
 helpers built on it).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L71)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L55)
 
 Import: `import {holderProofPerVerifier} from 'tasra-sdk/committee'`
 
@@ -671,7 +652,7 @@ Returns: ` HolderProofPerVerifier `.
 One-call identity-scoped decrypt (the read path): token to extraction fan-out
 to verify each partial to combine to decrypt. The intermediate `sk_ID` never surfaces.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L501)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L452)
 
 Import: `import {ibeDecryptRequest} from 'tasra-sdk/committee'`
 
@@ -697,7 +678,7 @@ compressed G1).
 ciphertext to this identity. Prefer [ibeDecryptRequest](#ibedecryptrequest), which combines,
 decrypts and drops it. Zeroize the returned bytes when done.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L485)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L436)
 
 Import: `import {ibeExtractRequest} from 'tasra-sdk/committee'`
 
@@ -822,7 +803,7 @@ Returns: ` string `.
 
 Read the verifier committee draw, request authorization and assemble the quorum token with available membership proofs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L292)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L257)
 
 Import: `import {requestCommitteeToken} from 'tasra-sdk/committee'`
 
@@ -843,7 +824,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L613)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L589)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk/committee'`
 
@@ -969,9 +950,8 @@ Returns: ` boolean `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 36 types</summary>
+<summary>Browse 35 types</summary>
 
-- [ClientSigner](#clientsigner)
 - [CommitteeAuthorizeBody](#committeeauthorizebody)
 - [CommitteeAuthorizeReply](#committeeauthorizereply)
 - [CommitteeChainReads](#committeechainreads)
@@ -1009,26 +989,6 @@ Options, data structures and return types.
 - [VerifyCompoundTokenOptions](#verifycompoundtokenoptions)
 
 </details>
-
-### ClientSigner
-
-client request signature. The client (== the credential holder) proves it authorized
-this exact request by signing `clientBindingHash(slotId, tokenHash)`. Supply an ed25519 signer
-(the holder's authentication key) - the keeper (hot path) and the accountant (audit) verify it.
-
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L46)
-
-```ts
-export interface ClientSigner {
-    publicKey: Uint8Array;
-    sign(bindingHash: Uint8Array): Uint8Array | Promise<Uint8Array>;
-}
-```
-
-Fields:
-
-- **` publicKey `**: 32-byte ed25519 public key.
-- **` sign `**: Sign the 32-byte client-binding hash to 64-byte ed25519 signature.
 
 ### CommitteeAuthorizeBody
 
@@ -1111,7 +1071,7 @@ Fields:
 The chain reads the committee flow needs. Adapt from the SDK chain client with
 [committeeChainReadsFromClient](#committeechainreadsfromclient), or supply raw viem reads.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L126)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L98)
 
 ```ts
 export interface CommitteeChainReads {
@@ -1141,7 +1101,7 @@ Fields:
 
 Committee-authorized group decryption request and optional verifier membership proofs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L456)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L448)
 
 ```ts
 export interface CommitteeDecryptOpts {
@@ -1155,8 +1115,6 @@ export interface CommitteeDecryptOpts {
     ciphertextEpoch?: number;
     targetKeykeeper?: string;
     verifierProofs?: VerifierProof[];
-    clientPubkey?: Uint8Array;
-    clientSignature?: Uint8Array;
 }
 ```
 
@@ -1172,14 +1130,12 @@ Fields:
 - **` ciphertextEpoch `**: Expected key epoch of the ciphertext; used to detect rotation.
 - **` targetKeykeeper `**: Optional 20-byte operator address to pin the intended keeper.
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
-- **` clientPubkey `**: 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together.
-- **` clientSignature `**: Client signature over the slot and compound token binding.
 
 ### CommitteeDecryptRequestOpts
 
 Operation-specific fields for [committeeDecryptRequest](#committeedecryptrequest).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L416)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L369)
 
 ```ts
 export interface CommitteeDecryptRequestOpts extends RequestCommitteeTokenOpts {
@@ -1215,7 +1171,6 @@ Fields:
 - **` tokenType `**: Token type - default `'JWT'`.
 - **` ttlSecs `**: Token TTL in seconds - default 300.
 - **` nowSecs `**: Override "now" (unix seconds), mainly for tests.
-- **` clientSigner `**: sign the request bundle with the holder's key so the keeper + audit can verify the user authorized this operation. Omit to skip (keeper accepts unless it requires it).
 - **` scopedIdentity `**: Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field.
 
 ### CommitteeEoaSignOpts
@@ -1303,8 +1258,6 @@ export interface CommitteeSignOpts {
     userSignature?: Uint8Array;
     targetKeykeeper?: string;
     verifierProofs?: VerifierProof[];
-    clientPubkey?: Uint8Array;
-    clientSignature?: Uint8Array;
 }
 ```
 
@@ -1319,15 +1272,13 @@ Fields:
 - **` userSignature `**: Optional Ed25519 owner signature over the canonical operation request.
 - **` targetKeykeeper `**: Optional 20-byte operator address to pin the intended keeper.
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
-- **` clientPubkey `**: 32-byte Ed25519 client public key used to verify clientSignature over the slot and token hash; supply both fields together.
-- **` clientSignature `**: Client signature over the slot and compound token binding.
 
 ### CommitteeSignRequestOpts
 
 Operation-specific fields for [committeeSignRequest](#committeesignrequest) (everything `committeeSign` needs
 except the token, which this resolves).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L381)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L336)
 
 ```ts
 export interface CommitteeSignRequestOpts extends RequestCommitteeTokenOpts {
@@ -1357,14 +1308,13 @@ Fields:
 - **` tokenType `**: Token type - default `'JWT'`.
 - **` ttlSecs `**: Token TTL in seconds - default 300.
 - **` nowSecs `**: Override "now" (unix seconds), mainly for tests.
-- **` clientSigner `**: sign the request bundle with the holder's key so the keeper + audit can verify the user authorized this operation. Omit to skip (keeper accepts unless it requires it).
 - **` scopedIdentity `**: Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field.
 
 ### CommitteeTokenResult
 
 Assembled compound token, committee draw and optional proofs and client signature.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L204)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L173)
 
 ```ts
 export interface CommitteeTokenResult {
@@ -1375,8 +1325,6 @@ export interface CommitteeTokenResult {
     seed: Uint8Array;
     epoch: number;
     verifierProofs?: VerifierProof[];
-    clientPubkey?: Uint8Array;
-    clientSignature?: Uint8Array;
     ruleVersion?: number;
 }
 ```
@@ -1390,8 +1338,6 @@ Fields:
 - **` seed `**: Beacon seed used for committee selection.
 - **` epoch `**: Beacon epoch used for the verifier committee draw.
 - **` verifierProofs `**: Trustless snapshot-inclusion proofs for the token's signers, when derivable; else `undefined` (the keeper then uses its configured verifier set).
-- **` clientPubkey `**: Ed25519 client public key corresponding to clientSignature, when a client signer was supplied.
-- **` clientSignature `**: Client signature over the slot and compound token binding.
 - **` ruleVersion `**: Policy version reported by the verifiers, when available. Diagnostic only; the keeper enforces the token rule hash against its current rule.
 
 ### CommitteeVerifier
@@ -1399,7 +1345,7 @@ Fields:
 One member of the active verifier set. `operator`+`pubkey` are needed only to build the
 trustless snapshot proofs; `index`+`url` alone suffice for the keeper's configured-set path.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L113)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L85)
 
 ```ts
 export interface CommitteeVerifier {
@@ -1697,7 +1643,7 @@ verifier's store, consumed atomically, so the first verifier to answer spends it
 rest refuse (401) under `require_holder_binding`. Pass a function instead of a string and
 the gather asks each candidate verifier for its own nonce.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L61)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L45)
 
 ```ts
 export type HolderProofPerVerifier = (verifier: CommitteeVerifier) => Promise<string> | string;
@@ -1707,7 +1653,7 @@ export type HolderProofPerVerifier = (verifier: CommitteeVerifier) => Promise<st
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L519)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L503)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -1735,7 +1681,7 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L537)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L521)
 
 ```ts
 export interface IbeExtractOpts {
@@ -1747,8 +1693,6 @@ export interface IbeExtractOpts {
     userSignature?: Uint8Array;
     ciphertextEpoch?: number;
     verifierProofs?: VerifierProof[];
-    clientPubkey?: Uint8Array;
-    clientSignature?: Uint8Array;
 }
 ```
 
@@ -1762,14 +1706,12 @@ Fields:
 - **` userSignature `**: Owner signature over `keccak256("keykeeper:ibe-extract:v1" || identity)` when the slot has a registered `user_pubkey`.
 - **` ciphertextEpoch `**: Expected key epoch of the ciphertext; used to detect rotation.
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
-- **` clientPubkey `**: 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together.
-- **` clientSignature `**: Client signature over the slot and compound token binding.
 
 ### IbeExtractRequestOpts
 
 Operation-specific fields for [ibeDecryptRequest](#ibedecryptrequest) / [ibeExtractRequest](#ibeextractrequest).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L462)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L413)
 
 ```ts
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
@@ -1797,7 +1739,6 @@ Fields:
 - **` tokenType `**: Token type - default `'JWT'`.
 - **` ttlSecs `**: Token TTL in seconds - default 300.
 - **` nowSecs `**: Override "now" (unix seconds), mainly for tests.
-- **` clientSigner `**: sign the request bundle with the holder's key so the keeper + audit can verify the user authorized this operation. Omit to skip (keeper accepts unless it requires it).
 - **` scopedIdentity `**: Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field.
 
 ### OperationReceipt
@@ -1848,7 +1789,7 @@ Fields:
 
 Chain reads, verifier directory, credential presentation and optional request-signing context.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L172)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L144)
 
 ```ts
 export interface RequestCommitteeTokenOpts {
@@ -1863,7 +1804,6 @@ export interface RequestCommitteeTokenOpts {
     tokenType?: TokenType;
     ttlSecs?: number;
     nowSecs?: number;
-    clientSigner?: ClientSigner;
     scopedIdentity?: string;
 }
 ```
@@ -1881,7 +1821,6 @@ Fields:
 - **` tokenType `**: Token type - default `'JWT'`.
 - **` ttlSecs `**: Token TTL in seconds - default 300.
 - **` nowSecs `**: Override "now" (unix seconds), mainly for tests.
-- **` clientSigner `**: sign the request bundle with the holder's key so the keeper + audit can verify the user authorized this operation. Omit to skip (keeper accepts unless it requires it).
 - **` scopedIdentity `**: Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field.
 
 ### StrictExtractionOptions
@@ -1919,8 +1858,6 @@ Fields:
 - **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
 - **` committeeToken `**: MUST be identity-scoped: the keeper enforces `identity_hash == keccak256(identity)`.
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
-- **` clientPubkey `**: 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together.
-- **` clientSignature `**: Client signature over the slot and compound token binding.
 
 ### StrictExtractionResult
 

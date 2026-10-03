@@ -1,7 +1,7 @@
 /** Explicit purchases and usage deposits for a saved tutorial creator. */
 import {TasraClient} from 'tasra-sdk/app'
 import {createFileStore} from 'tasra-sdk/app/node'
-import {createTasraWriteClient} from 'tasra-sdk/chain'
+import {bondingCurveAbi, createTasraWriteClient} from 'tasra-sdk/chain'
 import {loadNetwork} from './network.js'
 
 // Amounts are positive integer base units: EURC has 6 decimals; TSRA has 18.
@@ -32,7 +32,15 @@ if (!pin || pin !== network.deployment.provenance?.manifestSha256) throw new Err
 const privateKey = await store.load<`0x${string}`>('creator-key')
 if (!privateKey) throw new Error('Saved creator key missing; run the tutorial setup first')
 const creator = tasra.wallets.create({privateKey})
-const writer = createTasraWriteClient({...tasra.deployment, wallet: creator.wallet})
+// The release manifest may omit the EURC token. Read it from the pinned curve.
+const curve = tasra.deployment.addresses.BondingCurve
+if (!curve) throw new Error('Network manifest has no BondingCurve')
+const eurc = await tasra.chain.client.readContract({address: curve, abi: bondingCurveAbi, functionName: 'eurc'})
+if (tasra.deployment.addresses.MockEurc && tasra.deployment.addresses.MockEurc.toLowerCase() !== eurc.toLowerCase()) {
+  throw new Error('Manifest EURC address does not match BondingCurve')
+}
+const writer = createTasraWriteClient({...tasra.deployment,
+  addresses: {...tasra.deployment.addresses, MockEurc: eurc}, wallet: creator.wallet})
 const slotId = explicitSlot ?? await store.load<string>('slot-id')
 if (!slotId || !/^0x[0-9a-fA-F]{64}$/.test(slotId)) throw new Error('Saved slot missing; use the slot ID printed by the tutorial with --slot')
 const slot = slotId as `0x${string}`

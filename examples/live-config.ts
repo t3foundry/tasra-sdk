@@ -6,7 +6,8 @@ import {
   observeNetworkManifest, resolveSlotKeeperUrls, nodeApi,
   createCommitteeSlotClient, type TasraChainClient,
 } from 'tasra-sdk/chain'
-import {ed25519ClientSigner, holderProofPerVerifier} from 'tasra-sdk/committee'
+import {holderProofPerVerifier} from 'tasra-sdk/committee'
+import {ed25519} from '@noble/curves/ed25519'
 
 export function required(name: string, env: NodeJS.ProcessEnv = process.env): string {
   const value = env[name]?.trim()
@@ -39,7 +40,7 @@ export function loadHolder(prefix = 'KK') {
     if (!Array.isArray(credentials) || !credentials.length || !credentials.every(v => typeof v === 'string' && v.length > 0)) {
       throw new Error('Credentials file must be a nonempty JSON array of compact-JWS credentials')
     }
-    const holder = ed25519DidKey(ed25519ClientSigner(secretKey).publicKey)
+    const holder = ed25519DidKey(ed25519.getPublicKey(secretKey))
     const signer: HolderSigner = {alg: 'EdDSA', did: holder, secretKey}
     return {holder, signer, secretKey, credentials: credentials as string[]}
   } catch (error) {
@@ -50,7 +51,6 @@ export function loadHolder(prefix = 'KK') {
 
 export function committeeClient(chain: TasraChainClient, slot: string, identity: ReturnType<typeof loadHolder>, action: 'sign' | 'decrypt') {
   return createCommitteeSlotClient({chain, holder: identity.holder, credentials: identity.credentials,
-    clientSigner: ed25519ClientSigner(identity.secretKey),
     holderProof: holderProofPerVerifier({signer: identity.signer, credentials: identity.credentials,
       audience: required('KK_VERIFIER_AUDIENCE'), slotId: slot, action}),
   })
