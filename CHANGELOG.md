@@ -7,6 +7,13 @@ never does.
 
 ## [Unreleased]
 
+### Added
+
+- Paid committee-token hashing and creator payment-intent helpers in `tasra-sdk/committee`.
+  Wallet and OAuth session clients can carry an already reserved payment and its fixed
+  presentation random. Session results reject changed or missing payment commitments.
+  These helpers do not submit reservations, discover paid coordinators or settle fees.
+
 ## [0.3.0] — 2026-10-03
 
 A minor bump: a public option is removed.

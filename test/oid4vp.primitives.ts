@@ -525,7 +525,13 @@ const fill = (n: number, v: number): Uint8Array => new Uint8Array(n).fill(v)
   // the caller distinguishes a protocol fault from a refusal, and retries only one of them.
   const requestHashBytes = fill(32, 0x77)
   const session = {sessionId: 'sess-1', requestHash: requestHashBytes}
-  const goodToken = {request_hash: `0x${hex(requestHashBytes)}`} as unknown as Parameters<typeof verifierAgentResult>[1]['compoundToken']
+  const field = `0x${'11'.repeat(32)}`
+  const goodToken = {
+    request_hash: `0x${hex(requestHashBytes)}`, token_type: 'JWT', seed: field,
+    slot_id: field, vp_hash: field, holder_hash: field, rule_hash: field,
+    epoch: 1, iat: 1000, exp: 1100, verifier_indexes: [0],
+    signatures: [{verifier_index: 0, signature: `0x${'22'.repeat(64)}`}],
+  }
   throwsWith('a malformed verifier_proofs becomes a protocol session error', /not \{verifier_index/, () =>
     verifierAgentResult(session, {status: 'done', compoundToken: goodToken, verifierProofs: [{verifier_index: 'x'}]} as never),
   )
@@ -540,7 +546,7 @@ const fill = (n: number, v: number): Uint8Array => new Uint8Array(n).fill(v)
   // A token that binds a DIFFERENT request must be refused — that check is the whole point
   // of carrying requestHash through the session.
   throwsWith('a token binding another request is refused', /does not bind the request this session opened/, () =>
-    verifierAgentResult(session, {status: 'done', compoundToken: {request_hash: `0x${'00'.repeat(32)}`}} as never),
+    verifierAgentResult(session, {status: 'done', compoundToken: {...goodToken, request_hash: `0x${'00'.repeat(32)}`}} as never),
   )
   throwsWith('a session that is not done is a refusal', /presentation refused/, () =>
     verifierAgentResult(session, {status: 'refused', error: 'the holder declined'} as never),

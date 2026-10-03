@@ -15,9 +15,11 @@ import {concatBytes} from '@noble/hashes/utils'
 import {ed25519} from '@noble/curves/ed25519'
 
 import {bytesToHex, hexToBytes} from '../crypto/hex.js'
+import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from './payment.js'
 
 // Domain separators (must equal the reference constants verbatim)
 const SELECT_DOMAIN = new TextEncoder().encode('keykeeper-committee/select/v1')
+const PAID_TOKEN_DOMAIN = new TextEncoder().encode('keykeeper-committee/paid-token/v1')
 const TOKEN_DOMAIN = new TextEncoder().encode('keykeeper-committee/token/v1')
 const OP_ATTEST_DOMAIN = new TextEncoder().encode('keykeeper-committee/op-attest/v1')
 const VERIFIER_LEAF_DOMAIN = new TextEncoder().encode('keykeeper-verifier-leaf:v1')
@@ -135,6 +137,10 @@ export interface CompoundTokenPayload {
   identityHash?: Uint8Array
   /** Keccak-256 operation-binding hash. Required when keepers enforce request binding; absent only on authorization paths that do not derive it. */
   requestHash?: Uint8Array
+  /** Creator payment intent hash; uses a distinct signing domain when present. */
+  paymentHash?: Uint8Array
+  /** Optional transport preimage. Must match paymentHash; chain backing is checked separately. */
+  payment?: PaymentIntentWire
   /**
    * How the holder's key possession was proved. `0x00` = Unbound (no proof),
    * `0x01` = HolderKey (KB-JWT nonce verified), `0x02` = IssuerAsserted (reserved).
@@ -155,8 +161,13 @@ export interface CompoundTokenPayload {
  * @param p - Compound token payload, excluding signatures.
  */
 export function compoundTokenCanonicalBytes(p: CompoundTokenPayload): Uint8Array {
+  if (p.paymentHash !== undefined && p.paymentHash.length !== 32) throw new Error('paymentHash must be 32 bytes')
+  if (p.payment !== undefined) {
+    assertPaymentIntentWire(p.payment)
+    if (!p.paymentHash || paymentIntentHash(p.payment).toLowerCase() !== bytesToHex(p.paymentHash).toLowerCase()) throw new Error('payment preimage differs from paymentHash')
+  }
   const parts: Uint8Array[] = [
-    TOKEN_DOMAIN,
+    ...(p.paymentHash !== undefined ? [PAID_TOKEN_DOMAIN, p.paymentHash] : [TOKEN_DOMAIN]),
     Uint8Array.of(discriminant(p.tokenType)),
     p.seed,
     u64be(p.epoch),
@@ -322,6 +333,8 @@ export interface VerifierSet {
 
 /** What a valid compound token attests. */
 export interface VerifiedToken {
+  /** Creator payment commitment authenticated by the verifier quorum, when present. */
+  paymentHash?: Uint8Array
   /** 32-byte slot identifier. */
   slotId: Uint8Array
   /** Hash of the credential presentation bound into the token. */
@@ -407,6 +420,7 @@ export function verifyCompoundToken(opts: VerifyCompoundTokenOptions): VerifiedT
     ...(token.identityHash !== undefined ? {identityHash: token.identityHash} : {}),
     epoch: token.epoch,
     tokenType: token.tokenType,
+    ...(token.paymentHash !== undefined ? {paymentHash: token.paymentHash} : {}),
     verifiedSigners: verified,
   }
 }
@@ -442,6 +456,10 @@ export interface CompoundTokenWire {
   identity_hash?: string
   /** `0x..` request binding hash - present when minted via the verifier-agent flow. */
   request_hash?: string
+  /** Creator payment-intent hash, attested by the verifier quorum. */
+  payment_hash?: string
+  /** Creator-signed intent carried to keepers for independent reservation checks. */
+  payment?: PaymentIntentWire
   /** `"unbound"` | `"holder_key"` | `"issuer_asserted"`. */
   binding?: string
   /** Indices of the selected verifier committee. */
@@ -478,6 +496,7 @@ export function bindingFromWire(s: string | undefined): number {
  * @param signatures - Verifier signatures to include in the wire object.
  */
 export function assembleCompoundToken(p: CompoundTokenPayload, signatures: CommitteeSignature[]): CompoundTokenWire {
+  compoundTokenCanonicalBytes(p)
   return {
     token_type: p.tokenType,
     seed: bytesToHex(p.seed),
@@ -489,6 +508,8 @@ export function assembleCompoundToken(p: CompoundTokenPayload, signatures: Commi
     ...(p.identityHash !== undefined ? {identity_hash: bytesToHex(p.identityHash)} : {}),
     ...(p.requestHash !== undefined ? {request_hash: bytesToHex(p.requestHash)} : {}),
     ...(bindingToWire(p.binding) !== undefined ? {binding: bindingToWire(p.binding)} : {}),
+    ...(p.paymentHash !== undefined ? {payment_hash: bytesToHex(p.paymentHash)} : {}),
+    ...(p.payment !== undefined ? {payment: p.payment} : {}),
     verifier_indexes: p.verifierIndexes,
     iat: Number(p.iat),
     exp: Number(p.exp),
@@ -502,7 +523,7 @@ export function assembleCompoundToken(p: CompoundTokenPayload, signatures: Commi
  * @param w - Keeper JSON token representation to decode into byte fields.
  */
 export function decodeCompoundToken(w: CompoundTokenWire): CompoundTokenPayload & {signatures: CommitteeSignature[]} {
-  return {
+  const result = {
     tokenType: w.token_type,
     seed: hexToBytes(w.seed),
     epoch: w.epoch,
@@ -513,9 +534,13 @@ export function decodeCompoundToken(w: CompoundTokenWire): CompoundTokenPayload 
     ...(w.identity_hash !== undefined ? {identityHash: hexToBytes(w.identity_hash)} : {}),
     ...(w.request_hash !== undefined ? {requestHash: hexToBytes(w.request_hash)} : {}),
     binding: bindingFromWire(w.binding),
+    ...(w.payment_hash != null ? {paymentHash: hexToBytes(w.payment_hash)} : {}),
+    ...(w.payment != null ? {payment: w.payment} : {}),
     verifierIndexes: w.verifier_indexes,
     iat: w.iat,
     exp: w.exp,
     signatures: w.signatures.map(s => ({verifierIndex: s.verifier_index, signature: hexToBytes(s.signature)})),
   }
+  compoundTokenCanonicalBytes(result)
+  return result
 }

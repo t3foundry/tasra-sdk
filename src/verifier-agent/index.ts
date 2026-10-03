@@ -14,6 +14,7 @@
 import {sha256} from '@noble/hashes/sha256'
 import {bytesToHex} from '@noble/hashes/utils'
 import {TasraError} from '../errors.js'
+import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 
 /** The operation the holder is authorizing - signed by the creator's EIP-712 key. */
 import type {DpopSigner} from '../auth/dpop.js'
@@ -54,6 +55,10 @@ export interface PresentationDelegation {
 
 /** Signed operation, optional delegation and payload submitted to the verifier agent. */
 export interface CreateSessionParams {
+  /** Creator-signed intent for an already reserved TASRA payment. Requires random. */
+  payment?: PaymentIntentWire
+  /** Fixed 32-byte hex presentation random committed before reservation. */
+  random?: string
   /** Signed operation details presented for authorization. */
   operation: PresentationOperation
   /** 0x-hex 65-byte EIP-712 signature over the operation */
@@ -164,7 +169,7 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
   const t = {...raw as Record<string, unknown>}
   // Reference-side optional fields are serialized as null for non-IBE operations. Normalize
   // absence before consumers decode the token; never replace it with a zero hash.
-  for (const key of ['identity_hash', 'request_hash'] as const) if (t[key] === null) delete t[key]
+  for (const key of ['identity_hash', 'request_hash', 'payment_hash', 'payment'] as const) if (t[key] === null) delete t[key]
   for (const k of ['seed', 'slot_id', 'vp_hash', 'holder_hash', 'rule_hash'] as const) {
     if (typeof t[k] !== 'string' || !HEX32.test(t[k] as string)) bad(`${k} is not a 32-byte hex string`)
   }
@@ -175,6 +180,13 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
   if ((t.exp as number) <= (t.iat as number)) bad('exp is not after iat')
   if (t.request_hash !== undefined && (typeof t.request_hash !== 'string' || !HEX32.test(t.request_hash))) bad('request_hash is not a 32-byte hex string')
   if (t.identity_hash !== undefined && (typeof t.identity_hash !== 'string' || !HEX32.test(t.identity_hash))) bad('identity_hash is not a 32-byte hex string')
+  if (t.payment_hash !== undefined && (typeof t.payment_hash !== 'string' || !HEX32.test(t.payment_hash))) bad('payment_hash is not a 32-byte hex string')
+  if (t.payment !== undefined) {
+    try {
+      assertPaymentIntentWire(t.payment)
+      if (paymentIntentHash(t.payment).toLowerCase() !== (typeof t.payment_hash === 'string' ? t.payment_hash.toLowerCase() : undefined)) bad('payment preimage differs from payment_hash')
+    } catch { bad('invalid payment preimage or commitment') }
+  }
   if (t.binding !== undefined && !['unbound', 'holder_key', 'issuer_asserted'].includes(t.binding as string)) bad('binding is not a known strength')
   if (!Array.isArray(t.verifier_indexes) || !t.verifier_indexes.every(i => Number.isInteger(i) && (i as number) >= 0)) bad('verifier_indexes is not an index list')
   if (!Array.isArray(t.signatures) || t.signatures.length === 0) bad('signatures missing')
@@ -184,6 +196,17 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
     if (!(t.verifier_indexes as number[]).includes(sg.verifier_index as number)) bad('a signature names an index outside the committee')
   }
   return t
+}
+
+function sessionPaymentFields(params: CreateSessionParams): Record<string, unknown> {
+  if (params.payment === undefined && params.random === undefined) return {}
+  if (!params.payment || typeof params.random !== 'string' || !HEX32.test(params.random)) throw new Error('payment and its 32-byte random are required together')
+  assertPaymentIntentWire(params.payment)
+  const p = params.payment
+  const op = params.operation
+  const action = p.action === 'eoa-sign' ? 'sign' : p.action
+  if (p.chain_id !== op.chain_id || p.slot.toLowerCase() !== op.slot_id.toLowerCase() || action !== op.action || p.payload_digest.toLowerCase() !== op.payload_digest.toLowerCase()) throw new Error('payment differs from session operation')
+  return {payment: p, random: params.random}
 }
 
 /**
@@ -227,6 +250,7 @@ export async function createOid4vpSession(
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
+      ...sessionPaymentFields(params),
       operation: params.operation,
       operation_sig: params.operationSig,
       delegation: params.delegation,
@@ -267,6 +291,7 @@ export async function createOauthSession(
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
+      ...sessionPaymentFields(params),
       operation: params.operation,
       operation_sig: params.operationSig,
       delegation: params.delegation,

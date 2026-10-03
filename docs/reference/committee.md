@@ -26,7 +26,7 @@ Distinct from a generic HTTP error because the committee flow polls several
 verifiers and tolerates individual refusals as long as a quorum co-signs - see
 ` ThresholdNotMetError ` for the failure that means the quorum was missed.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L71)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L72)
 
 Import: `import {CommitteeAuthorizeError} from 'tasra-sdk/committee'`
 
@@ -88,9 +88,10 @@ declare class OperationOutcomeUnknownError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 36 functions</summary>
+<summary>Browse 41 functions</summary>
 
 - [assembleCompoundToken](#assemblecompoundtoken)
+- [assertPaymentIntentWire](#assertpaymentintentwire)
 - [auditOperationId](#auditoperationid)
 - [buildVerifierProofs](#buildverifierproofs)
 - [clientBindingHash](#clientbindinghash)
@@ -114,10 +115,14 @@ Operations you can import and call.
 - [holderProofPerVerifier](#holderproofperverifier)
 - [ibeDecryptRequest](#ibedecryptrequest)
 - [ibeExtractRequest](#ibeextractrequest)
+- [keeperAssignmentCommitment](#keeperassignmentcommitment)
 - [merkleProof](#merkleproof)
 - [merkleRoot](#merkleroot)
 - [normalizeOrigin](#normalizeorigin)
 - [opAttestationHash](#opattestationhash)
+- [paymentIntentHash](#paymentintenthash)
+- [paymentIntentTypedData](#paymentintenttypeddata)
+- [paymentSessionCommitment](#paymentsessioncommitment)
 - [platformAudience](#platformaudience)
 - [requestCommitteeToken](#requestcommitteetoken)
 - [requestIbeExtractionPartials](#requestibeextractionpartials)
@@ -133,7 +138,7 @@ Operations you can import and call.
 
 Encode a token payload and verifier signatures into the keeper JSON wire format. This does not verify signatures.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L480)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L498)
 
 Import: `import {assembleCompoundToken} from 'tasra-sdk/committee'`
 
@@ -147,6 +152,24 @@ declare function assembleCompoundToken(p: CompoundTokenPayload, signatures: Comm
 | ` signatures ` | ` CommitteeSignature[] ` | - Verifier signatures to include in the wire object. |
 
 Returns: ` CompoundTokenWire `.
+
+### assertPaymentIntentWire
+
+Validate the wire representation and its signed commitment, without chain access.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L155)
+
+Import: `import {assertPaymentIntentWire} from 'tasra-sdk/committee'`
+
+```ts
+declare function assertPaymentIntentWire(value: unknown): asserts value is PaymentIntentWire;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` value ` | ` unknown ` | - Untrusted payment object; signature encoding is checked, not signer recovery. |
+
+Returns: ` asserts value is PaymentIntentWire `.
 
 ### auditOperationId
 
@@ -200,7 +223,7 @@ operation on `slotId` under the compound token whose canonical hash is `tokenHas
 `keccak256(DOMAIN || slotId || tokenHash)`. Byte-identical to the reference `client_binding_hash`, so
 the keeper (hot path) and accountant (audit) verify the client signature over the same bytes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L225)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L236)
 
 Import: `import {clientBindingHash} from 'tasra-sdk/committee'`
 
@@ -220,7 +243,7 @@ Returns: ` Uint8Array `.
 Ask one verifier to authorize the request. Throws CommitteeAuthorizeError
  (with `.status`) on a non-2xx - notably 403 when this verifier wasn't drawn.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L210)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L231)
 
 Import: `import {committeeAuthorize} from 'tasra-sdk/committee'`
 
@@ -293,7 +316,7 @@ Returns: ` CommitteeChainReads `.
 
 Decrypt via committee authorization. The slot id is taken from the token.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L476)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L504)
 
 Import: `import {committeeDecrypt} from 'tasra-sdk/committee'`
 
@@ -329,7 +352,7 @@ Returns: ` Promise<Uint8Array> `.
 
 Sign via committee authorization. The slot id is taken from the token.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L408)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L436)
 
 Import: `import {committeeSign} from 'tasra-sdk/committee'`
 
@@ -391,7 +414,7 @@ Returns: ` Promise<FrostSignResult> `.
 
 Canonical, domain-separated, length-prefixed byte encoding hashed for signing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L157)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L163)
 
 Import: `import {compoundTokenCanonicalBytes} from 'tasra-sdk/committee'`
 
@@ -409,7 +432,7 @@ Returns: ` Uint8Array `.
 
 `keccak256` of the canonical bytes - the value each quorum verifier signs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L189)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L200)
 
 Import: `import {compoundTokenHash} from 'tasra-sdk/committee'`
 
@@ -461,7 +484,7 @@ Returns:
 
 Decode a wire compound token into the byte-level payload + signatures for verification.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L504)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L525)
 
 Import: `import {decodeCompoundToken} from 'tasra-sdk/committee'`
 
@@ -605,7 +628,7 @@ until quorum, and assemble the compound token. Verifies that our locally
 recomputed canonical token hash equals the hash the verifiers signed (a built-in
 encoding cross-check). Returns the wire token to POST to the keeper.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L298)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L323)
 
 Import: `import {gatherCommitteeToken} from 'tasra-sdk/committee'`
 
@@ -692,12 +715,30 @@ declare function ibeExtractRequest(opts: IbeExtractRequestOpts): Promise<Uint8Ar
 
 Returns: ` Promise<Uint8Array> `.
 
+### keeperAssignmentCommitment
+
+Hash a validated assignment using the platform's fixed-width canonical encoding.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L85)
+
+Import: `import {keeperAssignmentCommitment} from 'tasra-sdk/committee'`
+
+```ts
+declare function keeperAssignmentCommitment(a: PaidKeeperAssignment): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` a ` | ` PaidKeeperAssignment ` | - Fixed sharing and registered keeper keys from independent discovery. |
+
+Returns: ` Hex `.
+
 ### merkleProof
 
 The inclusion proof (sibling hashes, leaf to root) for `index` in `leaves`. `null` if `index`
 is out of range. Mirrors the reference `merkle_proof`; pairs with [`verifyMerkleProof`].
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L291)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L302)
 
 Import: `import {merkleProof} from 'tasra-sdk/committee'`
 
@@ -718,7 +759,7 @@ Build the Merkle root over `leaves` (sorted-pair; an odd node is promoted unchan
 next level). `null` for an empty set. Byte-identical to the reference `merkle_root`, so a root
 built here matches the on-chain `VerifierSetRegistry`/`Settlement` anchored root.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L277)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L288)
 
 Import: `import {merkleRoot} from 'tasra-sdk/committee'`
 
@@ -759,7 +800,7 @@ Returns: ` string `.
 
 The hash a keeper signs to attest it served `opId` on `slotId` under the token `tokenHash`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L203)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L214)
 
 Import: `import {opAttestationHash} from 'tasra-sdk/committee'`
 
@@ -775,6 +816,244 @@ declare function opAttestationHash(chainId: number | bigint, opId: Uint8Array, s
 | ` tokenHash ` | ` Uint8Array ` | - 32-byte compound token hash. |
 
 Returns: ` Uint8Array `.
+
+### paymentIntentHash
+
+Hash the creator intent. A matching hash is not proof of a mined reservation or a valid creator signature.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L147)
+
+Import: `import {paymentIntentHash} from 'tasra-sdk/committee'`
+
+```ts
+declare function paymentIntentHash(p: Omit<PaymentIntentWire, 'signature'>): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` p ` | ` Omit<PaymentIntentWire, 'signature'> ` | - Creator payment intent; a signature is not part of the EIP-712 preimage. |
+
+Returns: ` Hex `.
+
+### paymentIntentTypedData
+
+Build creator EIP-712 data. Validate chain backing, price, expiry and creator independently before spending.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L120)
+
+Import: `import {paymentIntentTypedData} from 'tasra-sdk/committee'`
+
+```ts
+declare function paymentIntentTypedData(p: Omit<PaymentIntentWire, 'signature'>): {
+    domain: {
+        name: string;
+        version: string;
+        chainId: number;
+        verifyingContract: `0x${string}`;
+    };
+    primaryType: "SlotAssignedPaymentIntent";
+    types: {
+        readonly SlotAssignedPaymentIntent: readonly [
+            {
+                readonly name: "keyRegistry";
+                readonly type: "address";
+            },
+            {
+                readonly name: "slotId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "action";
+                readonly type: "uint8";
+            },
+            {
+                readonly name: "payloadDigest";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "sessionCommitment";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "nonce";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "maxCost";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "expires";
+                readonly type: "uint64";
+            },
+            {
+                readonly name: "verificationEpoch";
+                readonly type: "uint64";
+            },
+            {
+                readonly name: "verificationSeed";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "verificationRoot";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "verificationRegistrySize";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "verificationCommittee";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "verificationQuorum";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "keeperAssignment";
+                readonly type: "bytes32";
+            }
+        ];
+    };
+    message: {
+        keyRegistry: `0x${string}`;
+        slotId: `0x${string}`;
+        action: 0 | 1 | 2 | 3;
+        payloadDigest: `0x${string}`;
+        sessionCommitment: `0x${string}`;
+        nonce: `0x${string}`;
+        maxCost: bigint;
+        expires: bigint;
+        verificationEpoch: bigint;
+        verificationSeed: `0x${string}`;
+        verificationRoot: `0x${string}`;
+        verificationRegistrySize: number;
+        verificationCommittee: number;
+        verificationQuorum: number;
+        keeperAssignment: `0x${string}`;
+    };
+};
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` p ` | ` Omit<PaymentIntentWire, 'signature'> ` | - Creator payment intent before attaching its signature. |
+
+Returns:
+
+```ts
+{
+    domain: {
+        name: string;
+        version: string;
+        chainId: number;
+        verifyingContract: `0x${string}`;
+    };
+    primaryType: "SlotAssignedPaymentIntent";
+    types: {
+        readonly SlotAssignedPaymentIntent: readonly [
+            {
+                readonly name: "keyRegistry";
+                readonly type: "address";
+            },
+            {
+                readonly name: "slotId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "action";
+                readonly type: "uint8";
+            },
+            {
+                readonly name: "payloadDigest";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "sessionCommitment";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "nonce";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "maxCost";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "expires";
+                readonly type: "uint64";
+            },
+            {
+                readonly name: "verificationEpoch";
+                readonly type: "uint64";
+            },
+            {
+                readonly name: "verificationSeed";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "verificationRoot";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "verificationRegistrySize";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "verificationCommittee";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "verificationQuorum";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "keeperAssignment";
+                readonly type: "bytes32";
+            }
+        ];
+    };
+    message: {
+        keyRegistry: `0x${string}`;
+        slotId: `0x${string}`;
+        action: 0 | 1 | 2 | 3;
+        payloadDigest: `0x${string}`;
+        sessionCommitment: `0x${string}`;
+        nonce: `0x${string}`;
+        maxCost: bigint;
+        expires: bigint;
+        verificationEpoch: bigint;
+        verificationSeed: `0x${string}`;
+        verificationRoot: `0x${string}`;
+        verificationRegistrySize: number;
+        verificationCommittee: number;
+        verificationQuorum: number;
+        keeperAssignment: `0x${string}`;
+    };
+}
+```
+
+### paymentSessionCommitment
+
+Commit a fixed presentation random and audience before reserving a payment.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L168)
+
+Import: `import {paymentSessionCommitment} from 'tasra-sdk/committee'`
+
+```ts
+declare function paymentSessionCommitment(random: Hex, clientId: string, operationExp: number): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` random ` | ` Hex ` | - Fixed 32-byte cryptographic presentation random. |
+| ` clientId ` | ` string ` | - Verifier-agent audience used for the presentation. |
+| ` operationExp ` | ` number ` | - Original signed operation expiry in Unix seconds. |
+
+Returns: ` Hex `.
 
 ### platformAudience
 
@@ -824,7 +1103,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L589)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L617)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk/committee'`
 
@@ -845,7 +1124,7 @@ request: `index = keccak256(SELECT_DOMAIN || slotId || epoch(u64 BE) || seed || 
 skipping a repeat and incrementing `iter`. Identical, identically-ordered to what the
 verifier selects and the keeper reconstructs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L92)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L94)
 
 Import: `import {selectVerifierCommittee} from 'tasra-sdk/committee'`
 
@@ -867,7 +1146,7 @@ Returns: ` number[] `.
 
 `keccak256(DOMAIN || index(u32 BE) || operator(20) || keccak256(pubkey))` - matches the on-chain leaf.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L238)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L249)
 
 Import: `import {verifierLeaf} from 'tasra-sdk/committee'`
 
@@ -887,7 +1166,7 @@ Returns: ` Uint8Array `.
 
 Verify rule binding, committee selection, token lifetime, Ed25519 signatures and quorum against the supplied verifier set.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L376)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L389)
 
 Import: `import {verifyCompoundToken} from 'tasra-sdk/committee'`
 
@@ -909,7 +1188,7 @@ Throws: If any binding, freshness, signer or quorum check fails.
 
 Verify a sorted-pair keccak Merkle inclusion proof (leaf to root).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L253)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L264)
 
 Import: `import {verifyMerkleProof} from 'tasra-sdk/committee'`
 
@@ -950,7 +1229,7 @@ Returns: ` boolean `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 35 types</summary>
+<summary>Browse 37 types</summary>
 
 - [CommitteeAuthorizeBody](#committeeauthorizebody)
 - [CommitteeAuthorizeReply](#committeeauthorizereply)
@@ -978,6 +1257,8 @@ Options, data structures and return types.
 - [IbeExtractOpts](#ibeextractopts)
 - [IbeExtractRequestOpts](#ibeextractrequestopts)
 - [OperationReceipt](#operationreceipt)
+- [PaidKeeperAssignment](#paidkeeperassignment)
+- [PaymentIntentWire](#paymentintentwire)
 - [ReceiptExpectation](#receiptexpectation)
 - [RequestCommitteeTokenOpts](#requestcommitteetokenopts)
 - [StrictExtractionOptions](#strictextractionoptions)
@@ -994,10 +1275,11 @@ Options, data structures and return types.
 
 Credential presentation and request context sent to one verifier for committee authorization.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L82)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L83)
 
 ```ts
 export interface CommitteeAuthorizeBody {
+    payment?: PaymentIntentWire;
     holder: string;
     credentials: string[];
     holderProof: string;
@@ -1016,6 +1298,7 @@ export interface CommitteeAuthorizeBody {
 
 Fields:
 
+- **` payment `**: Creator intent for the already mined reservation.
 - **` holder `**: Holder DID (the credentials' subject).
 - **` credentials `**: Compact-JWS verifiable credentials.
 - **` holderProof `**: F1/F4: holder proof-of-possession. Build via `createHolderProof` (bind it to `slotId`). Empty string means omitted from the wire, which only a verifier with `require_holder_binding = false` accepts.
@@ -1034,7 +1317,7 @@ Fields:
 
 Verifier signature, token hashes and committee metadata for an authorization request.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L137)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L140)
 
 ```ts
 export interface CommitteeAuthorizeReply {
@@ -1048,6 +1331,7 @@ export interface CommitteeAuthorizeReply {
     committeeIndexes: number[];
     ruleVersion?: number;
     requestHash?: Uint8Array;
+    paymentHash?: Uint8Array;
     binding: number;
 }
 ```
@@ -1064,6 +1348,7 @@ Fields:
 - **` committeeIndexes `**: The full ordered committee draw, so the caller knows whom else to ask.
 - **` ruleVersion `**: The slot's `ruleVersion` this authorization was evaluated against.  Diagnostic, not a gate. The keeper binds `ruleHash` to its own rule hash, so a token minted under a superseded policy is refused there whatever this says. Its value is that it explains the refusal: without it, a token minted moments before an amendment activates is rejected with nothing to distinguish it from a genuinely unauthorized request. `undefined` from a verifier that predates rule versioning.
 - **` requestHash `**: present when the request carried a binding preimage; inside the signed bytes.
+- **` paymentHash `**: Payment commitment attested by this verifier.
 - **` binding `**: binding strength byte (`bindingFromWire`); `0x00` when the verifier declared none.
 
 ### CommitteeChainReads
@@ -1101,7 +1386,7 @@ Fields:
 
 Committee-authorized group decryption request and optional verifier membership proofs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L448)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L476)
 
 ```ts
 export interface CommitteeDecryptOpts {
@@ -1209,7 +1494,7 @@ Fields:
 
 One verifier's signature within a compound token.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L308)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L319)
 
 ```ts
 export interface CommitteeSignature {
@@ -1227,7 +1512,7 @@ Fields:
 
 One verifier's signature on the wire (hex).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L417)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L431)
 
 ```ts
 export interface CommitteeSignatureWire {
@@ -1245,7 +1530,7 @@ Fields:
 
 Committee-authorized FROST signing request and optional verifier membership proofs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L382)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L410)
 
 ```ts
 export interface CommitteeSignOpts {
@@ -1367,7 +1652,7 @@ Fields:
 
 The data the quorum verifiers sign over. All byte fields are 32 bytes unless noted.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L119)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L121)
 
 ```ts
 export interface CompoundTokenPayload {
@@ -1380,6 +1665,8 @@ export interface CompoundTokenPayload {
     ruleHash: Uint8Array;
     identityHash?: Uint8Array;
     requestHash?: Uint8Array;
+    paymentHash?: Uint8Array;
+    payment?: PaymentIntentWire;
     binding?: number;
     verifierIndexes: number[];
     iat: number | bigint;
@@ -1398,6 +1685,8 @@ Fields:
 - **` ruleHash `**: Keccak-256 hash of the raw rule bytes, without salt. This differs from the salted on-chain ruleCommitment.
 - **` identityHash `**: Keccak-256 hash of the authorized IBE identity. Present only for identity-scoped operations and included in the signed encoding; identity-blind endpoints reject scoped tokens.
 - **` requestHash `**: Keccak-256 operation-binding hash. Required when keepers enforce request binding; absent only on authorization paths that do not derive it.
+- **` paymentHash `**: Creator payment intent hash; uses a distinct signing domain when present.
+- **` payment `**: Optional transport preimage. Must match paymentHash; chain backing is checked separately.
 - **` binding `**: How the holder's key possession was proved. `0x00` = Unbound (no proof), `0x01` = HolderKey (KB-JWT nonce verified), `0x02` = IssuerAsserted (reserved). Always present in the canonical bytes; defaults to `0x00` when omitted.
 - **` verifierIndexes `**: Indices of the selected verifier committee.
 - **` iat `**: Issue time in Unix seconds.
@@ -1407,7 +1696,7 @@ Fields:
 
 The compound token JSON a client submits with `/v1/committee/{sign,decrypt}`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L425)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L439)
 
 ```ts
 export interface CompoundTokenWire {
@@ -1420,6 +1709,8 @@ export interface CompoundTokenWire {
     rule_hash: string;
     identity_hash?: string;
     request_hash?: string;
+    payment_hash?: string;
+    payment?: PaymentIntentWire;
     binding?: string;
     verifier_indexes: number[];
     iat: number;
@@ -1439,6 +1730,8 @@ Fields:
 - **` rule_hash `**: `keccak256` of the RAW rule (UNSALTED) - the counterpart of `DualControlPolicy.ruleHash`, never the salted `KeySlot.ruleCommitment`.
 - **` identity_hash `**: `0x..` identity binding - present iff the token is identity-scoped.
 - **` request_hash `**: `0x..` request binding hash - present when minted via the verifier-agent flow.
+- **` payment_hash `**: Creator payment-intent hash, attested by the verifier quorum.
+- **` payment `**: Creator-signed intent carried to keepers for independent reservation checks.
 - **` binding `**: `"unbound"` | `"holder_key"` | `"issuer_asserted"`.
 - **` verifier_indexes `**: Indices of the selected verifier committee.
 - **` iat `**: Issue time in Unix seconds.
@@ -1608,7 +1901,7 @@ Fields:
 
 Verifier requests and quorum configuration for assembling a compound token.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L276)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L301)
 
 ```ts
 export interface GatherCommitteeTokenOpts {
@@ -1653,7 +1946,7 @@ export type HolderProofPerVerifier = (verifier: CommitteeVerifier) => Promise<st
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L503)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L531)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -1681,7 +1974,7 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L521)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L549)
 
 ```ts
 export interface IbeExtractOpts {
@@ -1760,6 +2053,80 @@ Fields:
 - **` opId `**: 32-byte audit operation identifier.
 - **` tokenHash `**: 32-byte compound token hash.
 - **` attestation `**: Ed25519 signature over the chain-bound operation attestation hash.
+
+### PaidKeeperAssignment
+
+Immutable execution assignment from independently verified slot discovery.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L7)
+
+```ts
+export interface PaidKeeperAssignment {
+    key_epoch: number;
+    committee_version: number;
+    threshold: number;
+    coordinator: number[];
+    contributors: number[][];
+}
+```
+
+Fields:
+
+- **` key_epoch `**: Sharing epoch.
+- **` committee_version `**: Slot committee version.
+- **` threshold `**: Required contributor count.
+- **` coordinator `**: Registered Ed25519 coordinator key, serialized as 32 bytes.
+- **` contributors `**: Strictly sorted distinct registered Ed25519 keys, including the coordinator.
+
+### PaymentIntentWire
+
+Creator spending authorization; it neither reserves funds nor authorizes key access.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L21)
+
+```ts
+export interface PaymentIntentWire {
+    chain_id: number;
+    settlement: Hex;
+    key_registry: Hex;
+    slot: Hex;
+    action: 'sign' | 'decrypt' | 'eoa-sign' | 'ibe-extract';
+    payload_digest: Hex;
+    session_commitment: Hex;
+    nonce: Hex;
+    max_cost: string;
+    expires: number;
+    verification_epoch: number;
+    verification_seed: Hex;
+    verification_root: Hex;
+    verification_registry_size: number;
+    verification_committee: number;
+    verification_quorum: number;
+    keeper_assignment: PaidKeeperAssignment;
+    signature: Hex;
+}
+```
+
+Fields:
+
+- **` chain_id `**: EVM chain identifier.
+- **` settlement `**: Settlement proxy address.
+- **` key_registry `**: KeyRegistry proxy address.
+- **` slot `**: Slot identifier.
+- **` action `**: Final billable key operation.
+- **` payload_digest `**: Digest of the exact operation payload.
+- **` session_commitment `**: Commitment to the presentation random, audience and operation expiry.
+- **` nonce `**: Unique creator payment nonce.
+- **` max_cost `**: Maximum TASRA base units, as a decimal string to avoid precision loss.
+- **` expires `**: Payment expiry in Unix seconds.
+- **` verification_epoch `**: Pinned verification epoch.
+- **` verification_seed `**: Pinned beacon seed.
+- **` verification_root `**: Pinned verifier snapshot root.
+- **` verification_registry_size `**: Pinned verifier registry size.
+- **` verification_committee `**: Pinned verifier committee size.
+- **` verification_quorum `**: Pinned verifier quorum.
+- **` keeper_assignment `**: Fixed keeper sharing and execution membership.
+- **` signature `**: Creator's 65-byte EIP-712 signature.
 
 ### ReceiptExpectation
 
@@ -1885,7 +2252,7 @@ Fields:
 
 Compound authorization token category, used in the signed canonical encoding.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L26)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L28)
 
 ```ts
 export type TokenType = 'JWT' | 'refresh';
@@ -1895,10 +2262,11 @@ export type TokenType = 'JWT' | 'refresh';
 
 What a valid compound token attests.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L324)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L335)
 
 ```ts
 export interface VerifiedToken {
+    paymentHash?: Uint8Array;
     slotId: Uint8Array;
     vpHash: Uint8Array;
     holderHash: Uint8Array;
@@ -1911,6 +2279,7 @@ export interface VerifiedToken {
 
 Fields:
 
+- **` paymentHash `**: Creator payment commitment authenticated by the verifier quorum, when present.
 - **` slotId `**: 32-byte slot identifier.
 - **` vpHash `**: Hash of the credential presentation bound into the token.
 - **` holderHash `**: The holder a quorum attested - the value a distinctness rule keys on.
@@ -1923,7 +2292,7 @@ Fields:
 
 Trustless verifier-set inclusion proof, passed to the keeper.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L40)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L41)
 
 ```ts
 export interface VerifierProof {
@@ -1945,7 +2314,7 @@ Fields:
 
 The active verifier set: registry size + index to Ed25519 public key (32 bytes).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L316)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L327)
 
 ```ts
 export interface VerifierSet {
@@ -1963,7 +2332,7 @@ Fields:
 
 Compound token, trusted verifier set, expected rule binding and freshness constraints.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L352)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L365)
 
 ```ts
 export interface VerifyCompoundTokenOptions {

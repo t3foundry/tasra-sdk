@@ -12,6 +12,43 @@ There are three steps:
 AVAX is not sent to a slot ID. An Ethereum slot's derived account separately needs
 AVAX when it sends Ethereum transactions. Its account balance is not usage credit.
 
+## Prepaid deployment protocol
+
+The certification deployment requires a mined TASRA reservation before verification or
+keeper work. Depositing funds alone does not create that reservation. The SDK's existing
+one-call application helpers do not yet orchestrate this complete lifecycle.
+
+For clients integrating with an independently verified reservation service,
+`tasra-sdk/committee` exports `PaymentIntentWire`, `paymentIntentTypedData`,
+`paymentIntentHash`, `keeperAssignmentCommitment` and `paymentSessionCommitment`.
+The payment intent binds the deployment, slot, exact operation, fee cap, presentation
+session, verifier committee and keeper assignment. Amounts use decimal TASRA base-unit
+strings. JSON integer inputs must be safe integers; unsafe numbers are refused.
+
+The creator signs the typed data. A presentation delegate has no implicit spending
+authority. Verify the deployment, current assignment, fee quote, creator signature and
+mined reservation independently before opening a session. Hashing an intent does not
+establish any of those facts.
+
+Pass the same `payment` and committed `random` to `createOid4vpSession`,
+`createOauthSession` or `openVerifierAgentSession`. For the high-level session helper,
+keep the original operation expiry fixed with `nowSecs` and `ttlSecs`; it must match
+the expiry committed before reservation. The verifier-agent checks the session random
+and its configured audience against that commitment. `awaitVerifierAgentResult` checks
+that the returned token preserves the expected payment hash and its preimage.
+
+For direct verifier integration, `committeeAuthorize` and `gatherCommitteeToken` carry
+the payment with the matching request binding and pinned verification epoch. The
+assembled token includes both `payment_hash` and `payment`. Send it to the independently
+verified assigned keeper coordinator. Do not fail over a paid request to another keeper,
+create a replacement reservation automatically, or treat an HTTP timeout as proof that
+no work occurred. Keep the payment and operation identity for reconciliation.
+
+Paid token signatures use a separate domain; existing unpaid token bytes stay unchanged.
+This encoding compatibility does not enable unpaid service on a prepaid deployment.
+SDK reservation submission, chain-backed coordinator routing and settlement remain
+separate integration work; the helpers above do not claim a complete prepaid client.
+
 ## 1. Fund the creator with AVAX
 
 Run the [creation lesson](create-slot.md) to print your saved creator address.

@@ -10,6 +10,7 @@
 // BODY, no auth header) to the keeper's /v1/committee/{sign,decrypt}.
 
 import {hexToBytes, bytesToHex} from '../crypto/hex.js'
+import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from './payment.js'
 import {httpError, TasraHttpError, ThresholdNotMetError} from '../errors.js'
 import {bytesToHex as bareHex} from '@noble/hashes/utils'
 import {
@@ -80,6 +81,8 @@ export class CommitteeAuthorizeError extends TasraHttpError {
 // authorize against it.
 /** Credential presentation and request context sent to one verifier for committee authorization. */
 export interface CommitteeAuthorizeBody {
+  /** Creator intent for the already mined reservation. */
+  payment?: PaymentIntentWire
   /** Holder DID (the credentials' subject). */
   holder: string
   /** Compact-JWS verifiable credentials. */
@@ -167,12 +170,30 @@ export interface CommitteeAuthorizeReply {
   ruleVersion?: number
   /** present when the request carried a binding preimage; inside the signed bytes. */
   requestHash?: Uint8Array
+  /** Payment commitment attested by this verifier. */
+  paymentHash?: Uint8Array
   /** binding strength byte (`bindingFromWire`); `0x00` when the verifier declared none. */
   binding: number
 }
 
 function authorizeWire(b: CommitteeAuthorizeBody): Record<string, unknown> {
+  if (b.payment !== undefined) {
+    assertPaymentIntentWire(b.payment)
+    const p = b.payment
+    if (!b.binding
+      || p.chain_id !== Number(b.binding.chainId)
+      || p.slot.toLowerCase() !== bytesToHex(b.slotId).toLowerCase()
+      || p.payload_digest.toLowerCase() !== bytesToHex(b.binding.payloadDigest).toLowerCase()
+      || (p.action === 'eoa-sign' ? 'sign' : p.action) !== b.binding.action
+      || p.verification_epoch !== Number(b.epoch)
+      || p.verification_seed.toLowerCase() !== bytesToHex(b.seed).toLowerCase()
+      || p.verification_registry_size !== b.registrySize
+      || p.verification_committee !== b.committee) {
+      throw new Error('payment differs from verifier request')
+    }
+  }
   return {
+    ...(b.payment !== undefined ? {payment: b.payment} : {}),
     holder: b.holder,
     credentials: b.credentials,
     // Omit rather than send "": the server field is an Option, and an empty
@@ -253,9 +274,13 @@ export async function committeeAuthorize(
     rule_version?: number
     /** Present when the request carried the binding preimage. */
     request_hash?: string
+    payment_hash?: string
     binding?: string
   }
+  const expectedPayment = body.payment ? paymentIntentHash(body.payment) : undefined
+  if ((d.payment_hash ?? undefined)?.toLowerCase() !== expectedPayment?.toLowerCase()) throw new Error('verifier changed or omitted the payment commitment')
   return {
+    ...(expectedPayment ? {paymentHash: hexToBytes(expectedPayment)} : {}),
     verifierIndex: Number(d.verifier_index),
     tokenHash: hexToBytes(d.token_hash),
     vpHash: hexToBytes(d.vp_hash),
@@ -296,6 +321,7 @@ export interface GatherCommitteeTokenOpts {
  * @param opts - Verifier requests, committee draw and required signature quorum.
  */
 export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Promise<CompoundTokenWire> {
+  if (opts.authorize.payment && opts.quorum !== opts.authorize.payment.verification_quorum) throw new Error('quorum differs from payment')
   const settled = await Promise.allSettled(
     opts.verifiers.map(async v => {
       const body = opts.holderProofFor
@@ -365,12 +391,14 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
     // The binding the reference verifier declared; the hash cross-check below proves
     // every signer signed the SAME request_hash + binding byte.
     ...(ref.requestHash !== undefined ? {requestHash: ref.requestHash} : {}),
+    ...(ref.paymentHash !== undefined ? {paymentHash: ref.paymentHash, payment: opts.authorize.payment} : {}),
     binding: ref.binding,
     verifierIndexes: committeeIndexes,
     iat: opts.authorize.iat,
     exp: opts.authorize.exp,
   }
-  if (!bytesEqual(compoundTokenHash(payload), ref.tokenHash)) {
+  const canonicalHash = compoundTokenHash(payload)
+  if (replies.some(r => !bytesEqual(canonicalHash, r.tokenHash))) {
     throw new Error('gatherCommitteeToken: canonical token hash disagrees with the verifier (encoding mismatch)')
   }
   return assembleCompoundToken(payload, [...sigByIndex.values()])
