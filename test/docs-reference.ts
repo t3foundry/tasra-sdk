@@ -34,7 +34,28 @@ function parameterType(symbol: ts.Symbol, at: ts.Declaration) {
 // same indentation as source annotations, without altering their public contract.
 function formatDeclaration(value: string) {
   const source = ts.createSourceFile('reference.ts', value, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  return printer.printFile(source).trim()
+  const printed = printer.printFile(source).trim()
+  // TypeScript indents structural types but keeps flat parameter lists on one line.
+  // Wrap those lists using parsed parameter boundaries, preserving commas inside
+  // generic arguments and string/template literals exactly as printed.
+  const formatted = ts.createSourceFile('reference.ts', printed, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const edits: {start: number; end: number; text: string}[] = []
+  function visit(node: ts.Node) {
+    if (ts.isFunctionLike(node) && node.parameters.length) {
+      const first = node.parameters[0]!, last = node.parameters.at(-1)!
+      const start = first.getStart(formatted), end = last.end
+      const lineStart = printed.lastIndexOf('\n', start - 1) + 1
+      const nextLine = printed.indexOf('\n', end), lineEnd = nextLine < 0 ? printed.length : nextLine
+      if (!printed.slice(start, end).includes('\n') && lineEnd - lineStart > 240) {
+        const indent = /^ */.exec(printed.slice(lineStart))![0]
+        edits.push({start, end, text: '\n' + node.parameters.map(parameter => indent + '    ' + parameter.getText(formatted)).join(',\n') + '\n' + indent})
+        return
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(formatted)
+  return edits.sort((a, b) => b.start - a.start).reduce((text, edit) => text.slice(0, edit.start) + edit.text + text.slice(edit.end), printed)
 }
 function formatType(value: string) {
   const source = ts.createSourceFile('reference.ts', `type ReferenceType = ${value}`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)

@@ -1261,7 +1261,14 @@ work. One broadcast attempt only; no replacement, coordinator failover or implic
 Import: `import {reservePaidOperation} from 'tasra-sdk/chain'`
 
 ```ts
-declare function reservePaidOperation(client: PublicClient, wallet: WalletClient<Transport, Chain, Account>, deployment: PrepaidDeployment, original: PaymentIntentWire, expected: ExpectedPaidOperation, options: ReservePaidOperationOptions): Promise<{
+declare function reservePaidOperation(
+    client: PublicClient,
+    wallet: WalletClient<Transport, Chain, Account>,
+    deployment: PrepaidDeployment,
+    original: PaymentIntentWire,
+    expected: ExpectedPaidOperation,
+    options: ReservePaidOperationOptions
+): Promise<{
     transactionHash: Hex;
     receipt: PaidOperationReceipt;
 }>;
