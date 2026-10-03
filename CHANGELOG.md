@@ -19,6 +19,10 @@ never does.
   The bundled Settlement ABI now targets v2, including prepaid calls and the changed
   legacy settlement selectors with base cursors. Legacy v1 settlement writes require
   their version-specific ABI.
+- `reservePaidOperation` requests matching accountant quotes, checks creator consent and
+  canonical contract simulation, then submits one gas-capped reservation with mandatory
+  durable recovery checkpoints. Uncertain outcomes retain the request ID and any known
+  transaction hash; the helper never automatically resubmits or changes payment identity.
 
 ## [0.3.0] — 2026-10-03
 

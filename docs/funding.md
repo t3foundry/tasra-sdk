@@ -30,6 +30,38 @@ authority. Verify the deployment, current assignment, fee quote, creator signatu
 mined reservation independently before opening a session. Hashing an intent does not
 establish any of those facts.
 
+For direct reservation submission, call `reservePaidOperation` from `tasra-sdk/chain`
+with the signed intent, an independently selected deployment and expected operation,
+a Viem public client, and an account-bound Viem gas-payer wallet. It gathers the same
+quote from the supplied accountants, compares the deployment's digest, recovers the
+creator signature and simulates the threshold-authorized contract call. All reads for
+the quote use its fresh canonical block; unsupported canonical reads fail.
+
+Set `maxGas` and `maxGasPrice` explicitly. These limit native transaction gas; the
+intent's `max_cost` separately limits TASRA. Supply trusted, bounded clients and
+accountant HTTPS endpoints. `allowLocalHttp` permits HTTP only on chain43112.
+The function does not mint tokens, fund a wallet, enable a slot or create a new intent.
+It also does not replace independent assignment and verifier-context discovery.
+
+Its required `persist` callback is part of the spending guarantee. On `prepared`,
+atomically create a durable record keyed by `record.requestId` and reject an existing
+record, including concurrent attempts. Resolve only after the record survives process
+loss. On `submitted` and `confirmed`, durably update that same record. A process-local
+map or a no-op callback is insufficient. Use the application's transactional database
+or an equivalently durable exclusive file journal; never overwrite or delete an
+uncertain preparation to enable a retry. Keep the presentation random and audience
+alongside the intent in the application's session journal.
+
+Only after durable preparation does the helper submit one transaction. It neither
+retries through another wallet method nor replaces a transaction. It checks the mined
+transaction against the saved nonce, sender, call data and gas bounds, then checks the
+canonical reservation's exact cost and assignment block. A successful return includes
+the transaction hash and reservation receipt. `PaidReservationUncertainError` carries
+the request ID and any known hash; inspect the journal and `readPaidOperationReceipt`
+before further spending. Absence of a hash or an HTTP response does not prove that
+the transaction was never sent. Other uses of the gas-payer account must coordinate
+nonces with this application.
+
 Pass the same `payment` and committed `random` to `createOid4vpSession`,
 `createOauthSession` or `openVerifierAgentSession`. For the high-level session helper,
 keep the original operation expiry fixed with `nowSecs` and `ttlSecs`; it must match
@@ -62,8 +94,8 @@ no work occurred. Keep the payment and operation identity for reconciliation.
 
 Paid token signatures use a separate domain; existing unpaid token bytes stay unchanged.
 This encoding compatibility does not enable unpaid service on a prepaid deployment.
-SDK reservation submission, settlement and integration into the one-call application
-helpers remain separate work; the helpers above do not claim a complete prepaid client.
+Settlement and integration into the one-call application helpers remain separate work;
+the helpers above do not claim a complete prepaid client.
 
 ## 1. Fund the creator with AVAX
 
