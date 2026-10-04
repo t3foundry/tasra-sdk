@@ -30,6 +30,9 @@ never does.
   random. They check canonical backing before and after authorization, preserve the payment
   commitment and route only to its selected coordinator or contributors. Returned signatures
   and IBE shares retain the existing cryptographic verification.
+- `createPaidReservationJournal` adapts a durable application store to reservation checkpoints,
+  preserving creator intent, transaction and private session context. Exclusive preparation
+  refuses duplicate attempts across processes; restart reads never authorize resubmission.
 
 ## [0.3.0] — 2026-10-03
 

@@ -52,6 +52,33 @@ or an equivalently durable exclusive file journal; never overwrite or delete an
 uncertain preparation to enable a retry. Keep the presentation random and audience
 alongside the intent in the application's session journal.
 
+`createPaidReservationJournal` from `tasra-sdk/app` supplies this callback for an
+`ApplicationStore`. For Node.js, use `createFileStore` from `tasra-sdk/app/node` in a
+private directory. Browser applications must supply durable storage and exclusive locks
+shared across tabs; an in-memory store does not meet this contract.
+
+```ts
+import {createPaidReservationJournal} from 'tasra-sdk/app'
+import {createFileStore} from 'tasra-sdk/app/node'
+
+const store = createFileStore('.tasra/payments')
+const journal = createPaidReservationJournal(store, payment, {random, audience})
+const result = await reservePaidOperation(client, wallet, deployment, payment, expected, {
+  ...limits,
+  persist: journal.persist,
+})
+```
+
+The adapter checks the session commitment, durably retains the original intent, quote,
+transaction, random and audience before submission, and refuses any existing preparation.
+It also refuses changed hashes and out-of-order checkpoint updates. After restart,
+`loadPaidReservationJournal(store, requestId)` reads the saved evidence without network I/O.
+A saved `confirmed` phase may have become orphaned: recheck canonical chain state before
+using it. A `prepared` record without a hash may still have been broadcast. Reconcile that
+original transaction using its saved payer and nonce; never delete the record to retry.
+This adapter coordinates each reservation identity. Other operations sharing a gas payer
+still need application-wide nonce coordination.
+
 Only after durable preparation does the helper submit one transaction. It neither
 retries through another wallet method nor replaces a transaction. It checks the mined
 transaction against the saved nonce, sender, call data and gas bounds, then checks the

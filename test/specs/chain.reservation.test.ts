@@ -1,8 +1,13 @@
 import {afterEach, expect, it, vi} from 'vitest'
+import {mkdtemp, rm} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {createPublicClient, createWalletClient, custom, decodeFunctionData, defineChain, encodeAbiParameters, encodeFunctionResult, keccak256, parseTransaction, toHex, type Abi, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {PaidReservationUncertainError, reservePaidOperation, type PaidReservationCheckpoint, type PaidReservationQuote, type ReservePaidOperationOptions} from '../../src/chain/reservation.js'
-import {paymentIntentTypedData, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
+import {paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
+import {createFileStore} from '../../src/app/node.js'
+import {createPaidReservationJournal} from '../../src/app/paid-journal.js'
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.js'
 
@@ -12,6 +17,7 @@ const expected = {slot: h(3), action: 'sign' as const, payloadDigest: h(4)}
 const chain = defineChain({id: 43112, name: 'local', nativeCurrency: {name: 'AVAX', symbol: 'AVAX', decimals: 18}, rpcUrls: {default: {http: ['http://127.0.0.1:1']}}})
 const encoded = (abi: Abi, functionName: string, result: unknown) => encodeFunctionResult({abi, functionName, result})
 interface Changes {
+  session?: {random: Hex; audience: string}
   quote?: (quote: PaidReservationQuote, method: string, index: number) => void
   gas?: bigint; price?: bigint; chain?: number; creator?: Hex; simulateFailure?: boolean
   orphan?: boolean; stale?: boolean; failSend?: boolean; rpcSendError?: boolean; failPersist?: string; response?: Response
@@ -25,6 +31,7 @@ async function fixture(change: Changes = {}) {
     payload_digest: h(4), session_commitment: h(5), nonce: h(6), max_cost: '10', expires: 1060,
     verification_epoch: 7, verification_seed: h(8), verification_root: h(9), verification_registry_size: 5, verification_committee: 3, verification_quorum: 2,
     keeper_assignment: {key_epoch: 1, committee_version: 2, threshold: 2, coordinator: Array<number>(32).fill(9), contributors: [9, 10, 11].map(n => Array<number>(32).fill(n))}, signature: h(1, 65)}
+  if (change.session) payment.session_commitment = paymentSessionCommitment(change.session.random, change.session.audience, payment.expires)
   payment.signature = await creator.signTypedData(paymentIntentTypedData(payment))
   const requestId = prepaidRequestId(payment)
   const quote: PaidReservationQuote = {slot: payment.slot, quote_block: h(19), request_ids: [requestId], costs: ['10'], legacy_nonce: 0, deadline: 1060, digest: h(0), signature: null, mined: false}
@@ -105,6 +112,20 @@ async function fixture(change: Changes = {}) {
   return {run, payment, quote, client, wallet, trace, checkpoints, transactions, fetcher, options}
 }
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it('uses the durable application journal through real reservation serialization and refuses resubmission after restart', async () => {
+  const session = {random: h(33), audience: 'did:web:agent.example'}
+  const f = await fixture({session}), directory = await mkdtemp(join(tmpdir(), 'tasra-reservation-'))
+  try {
+    const journal = createPaidReservationJournal(createFileStore(directory), f.payment, session)
+    const result = await f.run({persist: async checkpoint => {await journal.persist(checkpoint); await f.options.persist(checkpoint)}})
+    const restarted = createPaidReservationJournal(createFileStore(directory), f.payment, session)
+    expect(await restarted.load()).toMatchObject({phase: 'confirmed', transactionHash: result.transactionHash, blockHash: h(20), session,
+      record: {payment: f.payment, transaction: {nonce: 4, to: deployment.settlement}}})
+    await expect(f.run({persist: restarted.persist})).rejects.toThrow(/already journaled/)
+    expect(f.transactions).toHaveLength(1)
+  } finally {await rm(directory, {recursive: true, force: true})}
+})
 
 it('prepares one pinned quote, simulates, journals before one budgeted broadcast and verifies mined backing', async () => {
   const f = await fixture()

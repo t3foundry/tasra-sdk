@@ -185,13 +185,14 @@ declare class TasraApplicationError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 21 functions</summary>
+<summary>Browse 23 functions</summary>
 
 - [approveWithCredential](#approvewithcredential)
 - [connectWallet](#connectwallet)
 - [createApplicationSlot](#createapplicationslot)
 - [createIdentity](#createidentity)
 - [createLocalWallet](#createlocalwallet)
+- [createPaidReservationJournal](#createpaidreservationjournal)
 - [createPreparedSlot](#createpreparedslot)
 - [createSlotWallet](#createslotwallet)
 - [createTasra](#createtasra)
@@ -201,6 +202,7 @@ Operations you can import and call.
 - [identityApprover](#identityapprover)
 - [issueCredential](#issuecredential)
 - [loadApplicationManifest](#loadapplicationmanifest)
+- [loadPaidReservationJournal](#loadpaidreservationjournal)
 - [prepareSlot](#prepareslot)
 - [presentCredentials](#presentcredentials)
 - [registeredWalletAuthorization](#registeredwalletauthorization)
@@ -331,6 +333,28 @@ TasraWallet & {
 ```
 
 Return details: Chain-bound wallet with an explicit private-key export function.
+
+### createPaidReservationJournal
+
+Persist reservation checkpoints and their session preimage using the application's store.
+Preparation exclusively creates its request ID; every existing record refuses a new attempt.
+This does not coordinate the gas payer's nonces with other operations or reconcile chain state.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-journal.ts#L98)
+
+Import: `import {createPaidReservationJournal} from 'tasra-sdk/app'`
+
+```ts
+declare function createPaidReservationJournal(store: ApplicationStore, original: PaymentIntentWire, originalSession: PaidReservationSession): PaidReservationJournal;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` store ` | ` ApplicationStore ` | - Durable private store with locks shared by all participating processes/tabs. |
+| ` original ` | ` PaymentIntentWire ` | - Fixed creator intent supplied to reservePaidOperation. |
+| ` originalSession ` | ` PaidReservationSession ` | - Random and approved audience committed by that intent. |
+
+Returns: ` PaidReservationJournal `.
 
 ### createPreparedSlot
 
@@ -634,6 +658,26 @@ Returns: ` Promise<ResolvedApplicationManifest> `.
 
 Return details: Parsed deployment after any supplied digest pin has been verified.
 
+### loadPaidReservationJournal
+
+Load retained private evidence by request ID without transmitting or resubmitting anything.
+Reverify the original transaction and reservation on chain before acting on a saved phase.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-journal.ts#L85)
+
+Import: `import {loadPaidReservationJournal} from 'tasra-sdk/app'`
+
+```ts
+declare function loadPaidReservationJournal(store: ApplicationStore, requestId: Hex): Promise<ApplicationReservationJournal | undefined>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` store ` | ` ApplicationStore ` | - Durable private application store with atomic reads/writes. |
+| ` requestId ` | ` Hex ` | - Original operation identity, never a replacement nonce. |
+
+Returns: ` Promise<ApplicationReservationJournal | undefined> `.
+
 ### prepareSlot
 
 Prepare without I/O. Save this private journal durably before requesting creation.
@@ -829,11 +873,12 @@ Return details: Verified disclosed claims; issuer trust depends on the supplied 
 Options, data structures and return types.
 
 <details>
-<summary>Browse 36 types</summary>
+<summary>Browse 39 types</summary>
 
 - [ApplicationDeployment](#applicationdeployment)
 - [ApplicationErrorCode](#applicationerrorcode)
 - [ApplicationManifest](#applicationmanifest)
+- [ApplicationReservationJournal](#applicationreservationjournal)
 - [ApplicationSlotRecoveryCode](#applicationslotrecoverycode)
 - [ApplicationStore](#applicationstore)
 - [ApprovalPolicy](#approvalpolicy)
@@ -851,6 +896,8 @@ Options, data structures and return types.
 - [LoadApplicationManifestOptions](#loadapplicationmanifestoptions)
 - [OperationAuthorizer](#operationauthorizer)
 - [OperationGrant](#operationgrant)
+- [PaidReservationJournal](#paidreservationjournal)
+- [PaidReservationSession](#paidreservationsession)
 - [PresentCredentialsOptions](#presentcredentialsoptions)
 - [ReadySlotJournal](#readyslotjournal)
 - [ResolveApplicationManifestOptions](#resolveapplicationmanifestoptions)
@@ -919,6 +966,32 @@ Fields:
 
 - **` schemaVersion `**: Deployment descriptor schema version. Network manifest schema version.
 - **` chainId `**: EVM chain ID used to bind transactions and authorization. EVM chain ID matching the selected network profile.
+
+### ApplicationReservationJournal
+
+Durable reservation evidence; its phase never substitutes for fresh canonical chain checks.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-journal.ts#L15)
+
+```ts
+export interface ApplicationReservationJournal {
+    schemaVersion: 1;
+    phase: PaidReservationCheckpoint['phase'];
+    record: PaidReservationRecord;
+    session: PaidReservationSession;
+    transactionHash?: Hex;
+    blockHash?: Hex;
+}
+```
+
+Fields:
+
+- **` schemaVersion `**: Storage schema.
+- **` phase `**: Last durably saved checkpoint.
+- **` record `**: Original transaction, signed fee quote and creator intent.
+- **` session `**: Original random and audience; keep this journal private.
+- **` transactionHash `**: RPC-reported hash when known; absence does not prove no submission occurred.
+- **` blockHash `**: Observed inclusion block at confirmation; it may later reorganize.
 
 ### ApplicationSlotRecoveryCode
 
@@ -1301,6 +1374,44 @@ Fields:
 
 - **` token `**: Fresh compound verifier token bound to the holder and exact operation.
 - **` verifierProofs `**: Membership proofs for the verifiers that authorized the operation.
+
+### PaidReservationJournal
+
+Persistent callback adapter for reservePaidOperation, with immutable recovery identity.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-journal.ts#L31)
+
+```ts
+export interface PaidReservationJournal {
+    readonly requestId: Hex;
+    readonly persist: ReservePaidOperationOptions['persist'];
+    load(): Promise<ApplicationReservationJournal | undefined>;
+}
+```
+
+Fields:
+
+- **` requestId `**: Locally derived operation identity.
+- **` persist `**: Callback that durably records each checkpoint before allowing submission to continue.
+- **` load `**: Read the original saved evidence, including after failures or process restart.
+
+### PaidReservationSession
+
+Private session preimage retained with a reservation for recovery after process loss.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-journal.ts#L7)
+
+```ts
+export interface PaidReservationSession {
+    random: Hex;
+    audience: string;
+}
+```
+
+Fields:
+
+- **` random `**: Fixed 32-byte presentation random committed before reservation.
+- **` audience `**: Independently approved verifier-agent audience committed before reservation.
 
 ### PresentCredentialsOptions
 

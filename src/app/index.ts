@@ -22,3 +22,5 @@ export type {TasraIdentity, IssueCredentialOptions, VerifyCredentialOptions, Cre
 export type {ApplicationDeployment, ResolvedApplicationManifest} from './manifest.js'
 export {setApprovalPolicy, identityApprover, approveWithCredential} from './approvals.js'
 export type {ApprovalPolicy} from './approvals.js'
+export {createPaidReservationJournal, loadPaidReservationJournal} from './paid-journal.js'
+export type {PaidReservationJournal, PaidReservationSession, ApplicationReservationJournal} from './paid-journal.js'
