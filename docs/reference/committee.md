@@ -454,7 +454,7 @@ Native multi-approver FROST lifecycle. Never falls back to a JWT route or create
 a new request after an ambiguous POST. All approval and result checks use the
 original expected message, slot, public key and quorum, not server-selected values.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L152)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L156)
 
 Import: `import {createDualSignClient} from 'tasra-sdk/committee'`
 
@@ -1791,7 +1791,7 @@ Fields:
 
 Ed25519 approver public key and callback that signs canonical approval bytes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L115)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L119)
 
 ```ts
 export interface DualSignApprover {
@@ -1841,7 +1841,7 @@ Fields:
 
 Handle for checking, approving and waiting for one native multi-approver signing request.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L123)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L127)
 
 ```ts
 export interface DualSignRequest {
@@ -1895,12 +1895,14 @@ export type DualSignStatus = {
     result: FrostSignResult;
 } | {
     status: 'failed';
+} | {
+    status: 'uncertain';
 };
 ```
 
 Fields:
 
-- **` status `**: Lifecycle state: pending or signing until the request is signed or fails.
+- **` status `**: Lifecycle state: pending or signing until the request is signed or fails. Work may have started, but its durable outcome is unavailable. Never retry the ceremony.
 
 ### ExtractionEvidence
 

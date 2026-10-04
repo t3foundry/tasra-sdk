@@ -7,7 +7,7 @@ import {createIdentity, credentialPolicy} from '../../src/app/identity.js'
 import type {TasraApplication, OperationGrant} from '../../src/app/client.js'
 import type {TasraWallet} from '../../src/app/wallet.js'
 import type {ApplicationStore} from '../../src/app/ready-slot.js'
-import type {DualSignRequest} from '../../src/committee/dual-sign.js'
+import type {DualSignRequest, DualSignStatus} from '../../src/committee/dual-sign.js'
 import {dualSignApprovalPayload, paidDualSignApprovalPayload} from '../../src/committee/dual-sign.js'
 import {paymentIntentHash, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {keyRegistryAbi} from '../../src/chain/abis/index.js'
@@ -34,7 +34,8 @@ describe('application approval helpers', () => {
     const requestId = prepaidRequestId(payment).slice(2), payload = paidDualSignApprovalPayload(43112, slot, message, requestId, payment)
     const approval: PaymentIntentWire = {...payment, action: 'dual-approve', payload_digest: toHex(sha256(payload))}
     const approve = vi.fn(async () => ({status: 'pending' as const, have: 1, need: 2}))
-    const request = {requestId, slotId: slot, payment, approve} as unknown as DualSignRequest
+    const status = vi.fn<() => Promise<DualSignStatus>>(async () => ({status: 'pending', have: 0, need: 2}))
+    const request = {requestId, slotId: slot, payment, approve, status} as unknown as DualSignRequest
     const grant = {token: {payment: approval, payment_hash: paymentIntentHash(approval), exp: approval.expires}, verifierProofs: []} as unknown as OperationGrant
     const authorize = vi.fn(async () => grant)
     await expect(approveWithCredential(s.app, request, message, {identity, authorize})).rejects.toThrow('own reservation')
@@ -47,6 +48,11 @@ describe('application approval helpers', () => {
     const changed = {...approval, nonce: h(66)}
     authorize.mockResolvedValue({...grant, token: {...grant.token, payment: changed, payment_hash: paymentIntentHash(changed)}})
     await expect(approveWithCredential(s.app, request, message, {identity, authorize, payment: approval, random: h(33)})).rejects.toThrow('changed the reserved')
+    expect(approve).toHaveBeenCalledTimes(1)
+    status.mockResolvedValue({status: 'uncertain'})
+    authorize.mockClear()
+    await expect(approveWithCredential(s.app, request, message, {identity, authorize})).resolves.toEqual({status: 'uncertain'})
+    expect(authorize).not.toHaveBeenCalled()
     expect(approve).toHaveBeenCalledTimes(1)
   })
   it('signs canonical approval bytes with the identity public key and refuses destroyed or wrong-algorithm keys', async () => {
@@ -96,12 +102,25 @@ describe('application approval helpers', () => {
   it('binds credential authorization to the exact chain, registry, slot, message and request', async () => {
     const s = setup(), message = new Uint8Array([3, 4]), identity = s.identities[0]!, grant = {token: {}, verifierProofs: []} as unknown as OperationGrant
     const approve = vi.fn(async () => ({status: 'pending' as const, have: 1, need: 2})), authorize = vi.fn(async () => grant)
-    const request = {requestId: 'request-1', slotId: slot, approve} as unknown as DualSignRequest
+    const status = vi.fn(async () => ({status: 'pending' as const, have: 0, need: 2}))
+    const request = {requestId: 'request-1', slotId: slot, approve, status} as unknown as DualSignRequest
     await approveWithCredential(s.app, request, message, {identity, authorize})
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({chainId: 43112, keyRegistry: registry, slotId: slot, action: 'dual-approve',
       payloadDigest: sha256(dualSignApprovalPayload(slot, message, request.requestId))}))
     expect(approve).toHaveBeenCalledWith(expect.objectContaining({authorization: grant}))
     await expect(approveWithCredential(s.app, request, message, {identity, authorize, signal: AbortSignal.abort()})).rejects.toThrow()
     expect(approve).toHaveBeenCalledTimes(1)
+  })
+  it.each(['uncertain', 'failed', 'signing'] as const)('does no credential work for a %s request', async state => {
+    const s = setup(), authorize = vi.fn(), approve = vi.fn()
+    const observed = {status: state, have: 2, need: 2}
+    const request = {requestId: 'request-1', slotId: slot, approve,
+      status: vi.fn(async () => observed)} as unknown as DualSignRequest
+    await expect(approveWithCredential(s.app, request, new Uint8Array([3, 4]), {
+      identity: s.identities[0]!, authorize,
+    })).resolves.toEqual(observed)
+    expect(authorize).not.toHaveBeenCalled()
+    expect(approve).not.toHaveBeenCalled()
+    expect(s.frost).not.toHaveBeenCalled()
   })
 })

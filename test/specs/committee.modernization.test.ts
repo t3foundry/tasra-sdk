@@ -233,6 +233,18 @@ describe('native dual-sign lifecycle', () => {
     expect(() => createDualSignClient({...config, quorum: 0})).toThrow('quorum')
     expect(() => createDualSignClient({...config, timeoutMs: 0})).toThrow('timeout')
   })
+  it('preserves an uncertain persisted outcome without another approval or ceremony', async () => {
+    const {config, signer} = dualFixture()
+    const transport = vi.fn<typeof fetch>(async () => json({status: 'uncertain'}))
+    const sign = vi.fn(signer.sign)
+    const request = createDualSignClient({...config, fetchImpl: transport}).resume('request-1', message)
+    await expect(request.status()).resolves.toEqual({status: 'uncertain'})
+    await expect(request.approve({signer: {...signer, sign}})).resolves.toEqual({status: 'uncertain'})
+    await expect(request.wait()).rejects.toMatchObject({requestId: 'request-1'})
+    expect(sign).not.toHaveBeenCalled()
+    expect(transport).toHaveBeenCalledTimes(3)
+    for (const [, init] of transport.mock.calls) expect(init?.method ?? 'GET').toBe('GET')
+  })
 })
 
 it('polls pending approvals, reports progress and honours cancellation', async () => {

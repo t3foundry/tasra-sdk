@@ -110,6 +110,10 @@ export type DualSignStatus =
       /** Lifecycle state: pending or signing until the request is signed or fails. */
       status: 'failed'
     }
+  | {
+      /** Work may have started, but its durable outcome is unavailable. Never retry the ceremony. */
+      status: 'uncertain'
+    }
 
 /** Ed25519 approver public key and callback that signs canonical approval bytes. */
 export interface DualSignApprover {
@@ -223,6 +227,7 @@ export function createDualSignClient(input: DualSignConfig): {
       const d = await http(path, options.signal)
       if (d.status === 'signed') return {status: 'signed', result: signed(d.reply, original)}
       if (d.status === 'failed') return {status: 'failed'}
+      if (d.status === 'uncertain') return {status: 'uncertain'}
       if (d.status !== 'pending' && d.status !== 'signing') throw new TasraError('Invalid dual-sign status')
       bound(d, original)
       return {status: d.status, ...counts(d)}
@@ -276,6 +281,7 @@ export function createDualSignClient(input: DualSignConfig): {
           options.onStatus?.(current)
           if (current.status === 'signed') return current.result
           if (current.status === 'failed') throw new TasraError('Native dual-sign request failed')
+          if (current.status === 'uncertain') throw new OperationOutcomeUnknownError('dual-approve', requestId)
           await new Promise<void>((resolve, reject) => {
             const done = () => { signal.removeEventListener('abort', abort); resolve() }
             const timer = setTimeout(done, interval)

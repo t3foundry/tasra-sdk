@@ -9,6 +9,10 @@ never does.
 
 ### Added
 
+- Native dual-sign status exposes `uncertain` when a keeper has retained an execution
+  latch without a terminal result. Approval stops without another signature request;
+  polling raises `OperationOutcomeUnknownError` with the original request ID.
+  Credential approval checks request status before requesting paid verification work.
 - Payment intents support the distinct `dual-approve` billing action for credential
   approvals. It uses ordinal 6, preserving existing payment hashes, and cannot pay for
   a final keeper signature. Native dual-control clients carry a separate final Sign

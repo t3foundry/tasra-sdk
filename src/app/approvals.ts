@@ -97,6 +97,9 @@ export async function approveWithCredential(app: Pick<TasraApplication, 'deploym
   const slotId = request.slotId as Hex, payment = request.payment
   const canonical = payment ? paidDualSignApprovalPayload(app.deployment.chainId, slotId, message.slice(), request.requestId, payment)
     : dualSignApprovalPayload(slotId, message.slice(), request.requestId)
+  signal?.throwIfAborted()
+  const current = await request.status({signal})
+  if (current.status !== 'pending') return current
   const approvalPayment = options.payment && structuredClone(options.payment)
   const nowSecs = Math.floor(Date.now() / 1000)
   if (payment && (!approvalPayment || !options.random)) throw new Error('Paid credential approval needs its own reservation and presentation random')
