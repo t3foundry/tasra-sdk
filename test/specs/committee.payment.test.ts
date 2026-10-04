@@ -1,7 +1,8 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
-import {toHex, type Hex} from 'viem'
-import {keeperAssignmentCommitment, paymentIntentHash, paymentSessionCommitment, type PaymentIntentWire} from '../../src/committee/payment.js'
+import {recoverTypedDataAddress, toHex, type Hex} from 'viem'
+import {privateKeyToAccount} from 'viem/accounts'
+import {keeperAssignmentCommitment, paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {assembleCompoundToken, compoundTokenHash, decodeCompoundToken, selectVerifierCommittee, verifyCompoundToken, type CompoundTokenPayload} from '../../src/committee/token.js'
 import {assertCompoundTokenWire, createOauthSession, createOid4vpSession, type CreateSessionParams} from '../../src/verifier-agent/index.js'
 import {openVerifierAgentSession, verifierAgentResult} from '../../src/oid4vp/verifier-agent.js'
@@ -34,6 +35,16 @@ describe('paid protocol conformance', () => {
   it('matches Rust assignment and EIP-712 fixed vectors', () => {
     expect(keeperAssignmentCommitment(payment().keeper_assignment)).toBe('0xa4cf48dfd2a9c21b21a4d74dc24e9c598289fb71ea32b1b0049681dd800a867b')
     expect(paymentIntentHash(payment())).toBe('0x7dba29411d2dd206eb4fc475d78a1f3be8d0ddc410c45f9b5a1ebb144478ceb5')
+  })
+  it('separates signed approval consent from final key work with the append-only billing ordinal', async () => {
+    const creator = privateKeyToAccount(h(11)), final = payment(), approval = {...payment(), action: 'dual-approve' as const}
+    expect(paymentIntentTypedData(approval).message.action).toBe(6)
+    expect(paymentIntentTypedData(final).message.action).toBe(0)
+    approval.signature = await creator.signTypedData(paymentIntentTypedData(approval))
+    expect(await recoverTypedDataAddress({...paymentIntentTypedData(approval), signature: approval.signature})).toBe(creator.address)
+    expect(await recoverTypedDataAddress({...paymentIntentTypedData(final), signature: approval.signature})).not.toBe(creator.address)
+    expect(prepaidRequestId(approval)).not.toBe(prepaidRequestId(final))
+    expect(paymentIntentHash(approval)).not.toBe(paymentIntentHash(final))
   })
   it('binds each deployment, fee, operation, committee and assignment input', () => {
     const original = payment()
@@ -113,6 +124,26 @@ describe('paid session transport', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
   for (const kind of ['wallet', 'oauth'] as const) {
+    it(`${kind} carries approval payment without permitting it for a final signature`, async () => {
+      const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(kind === 'wallet'
+        ? {session_id: 'id', poll_secret: 'secret', qr_payload: 'openid4vp://test', request_uri: 'https://test/request'}
+        : {session_id: 'id', poll_secret: 'secret', nonce: 'nonce', dpop_htu: 'https://test/response', platform_audience: 'test'}))
+      vi.stubGlobal('fetch', fetch)
+      const create = kind === 'wallet' ? createOid4vpSession : createOauthSession
+      const request = params()
+      request.operation.action = 'dual-approve'
+      request.payment = {...payment(), action: 'dual-approve'}
+      await create('https://test', request)
+      const body = JSON.parse(String(fetch.mock.calls[0]![1]?.body)) as {payment: PaymentIntentWire; operation: {action: string}}
+      expect(body.payment.action).toBe('dual-approve')
+      expect(body.operation.action).toBe('dual-approve')
+      request.operation.action = 'sign'
+      await expect(create('https://test', request)).rejects.toThrow(/payment differs/)
+      request.operation.action = 'dual-approve'
+      request.payment = payment()
+      await expect(create('https://test', request)).rejects.toThrow(/payment differs/)
+      expect(fetch).toHaveBeenCalledTimes(1)
+    })
     it(`${kind} sends the fixed payment/random once and omits them from legacy sessions`, async () => {
       const fetch = vi.fn(async () => Response.json(kind === 'wallet'
         ? {session_id: 'id', poll_secret: 'secret', qr_payload: 'openid4vp://test', request_uri: 'https://test/request'}

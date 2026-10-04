@@ -8,7 +8,8 @@ import type {TasraApplication, OperationGrant} from '../../src/app/client.js'
 import type {TasraWallet} from '../../src/app/wallet.js'
 import type {ApplicationStore} from '../../src/app/ready-slot.js'
 import type {DualSignRequest} from '../../src/committee/dual-sign.js'
-import {dualSignApprovalPayload} from '../../src/committee/dual-sign.js'
+import {dualSignApprovalPayload, paidDualSignApprovalPayload} from '../../src/committee/dual-sign.js'
+import {paymentIntentHash, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {keyRegistryAbi} from '../../src/chain/abis/index.js'
 const slot = `0x${'11'.repeat(32)}` as const, registry = `0x${'22'.repeat(20)}` as const, zero = `0x${'00'.repeat(32)}` as const
 function setup() {
@@ -21,6 +22,33 @@ function setup() {
   return {app, wallet, store, identities, approvers, frost, readContract, transfer}
 }
 describe('application approval helpers', () => {
+  it('passes a separate fixed approval payment to the wallet and refuses a substituted result', async () => {
+    const s = setup(), message = new Uint8Array([3, 4]), identity = s.identities[0]!
+    const h = (n: number, size = 32) => ('0x' + n.toString(16).padStart(2, '0').repeat(size)) as Hex
+    const payment: PaymentIntentWire = {
+      chain_id: 43112, settlement: h(1, 20), key_registry: registry, slot, action: 'sign', payload_digest: toHex(sha256(message)),
+      session_commitment: h(5), nonce: h(6), max_cost: '100', expires: Math.floor(Date.now() / 1000) + 600,
+      verification_epoch: 7, verification_seed: h(8), verification_root: h(9), verification_registry_size: 1, verification_committee: 1, verification_quorum: 1,
+      keeper_assignment: {key_epoch: 0, committee_version: 0, threshold: 1, coordinator: Array<number>(32).fill(1), contributors: [Array<number>(32).fill(1)]}, signature: h(1, 65),
+    }
+    const requestId = prepaidRequestId(payment).slice(2), payload = paidDualSignApprovalPayload(43112, slot, message, requestId, payment)
+    const approval: PaymentIntentWire = {...payment, action: 'dual-approve', payload_digest: toHex(sha256(payload))}
+    const approve = vi.fn(async () => ({status: 'pending' as const, have: 1, need: 2}))
+    const request = {requestId, slotId: slot, payment, approve} as unknown as DualSignRequest
+    const grant = {token: {payment: approval, payment_hash: paymentIntentHash(approval), exp: approval.expires}, verifierProofs: []} as unknown as OperationGrant
+    const authorize = vi.fn(async () => grant)
+    await expect(approveWithCredential(s.app, request, message, {identity, authorize})).rejects.toThrow('own reservation')
+    await expect(approveWithCredential(s.app, request, message, {identity, authorize, payment, random: h(33)})).rejects.toThrow('reservation differs')
+    expect(authorize).not.toHaveBeenCalled()
+    await approveWithCredential(s.app, request, message, {identity, authorize, payment: approval, random: h(33)})
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({payment: approval, random: h(33), action: 'dual-approve', payloadDigest: sha256(payload)}))
+    const submitted = (authorize.mock.calls[0] as unknown as [{nowSecs: number; ttlSecs: number}])[0]
+    expect(submitted.nowSecs + submitted.ttlSecs).toBe(approval.expires)
+    const changed = {...approval, nonce: h(66)}
+    authorize.mockResolvedValue({...grant, token: {...grant.token, payment: changed, payment_hash: paymentIntentHash(changed)}})
+    await expect(approveWithCredential(s.app, request, message, {identity, authorize, payment: approval, random: h(33)})).rejects.toThrow('changed the reserved')
+    expect(approve).toHaveBeenCalledTimes(1)
+  })
   it('signs canonical approval bytes with the identity public key and refuses destroyed or wrong-algorithm keys', async () => {
     const identity = createIdentity(), signer = identityApprover(identity), payload = dualSignApprovalPayload(slot, new Uint8Array([1, 2]), 'request-1')
     const signature = await signer.sign(payload)

@@ -307,9 +307,20 @@ export function createTasra(config: TasraApplicationConfig) {
             return {...result, receiptStatus: verified ? 'verified' as const : 'absent' as const}
           },
           /** Quorum and approval mode must come from the application's independently pinned policy. */
-          async approvals(policy: {quorum: number; credentialGated: boolean}) {
-            const s = await ready(slotId, 0), node = (await keepers(slotId))[0]!
-            return createDualSignClient({chainId: deployment.chainId, nodeUrl: node.nodeUrl, slotId, groupPublicKey: protocolHex(s.publicKey, 32, 'FROST public key'), ...policy, fetchImpl})
+          async approvals(policy: {quorum: number; credentialGated: boolean; payment?: PaymentIntentWire}) {
+            const payment = policy.payment && structuredClone(policy.payment)
+            const s = await ready(slotId, 0)
+            let node
+            if (payment) {
+              const settlement = deployment.addresses.Settlement
+              if (!settlement) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Paid dual-control needs a pinned Settlement')
+              const target = await resolvePaidKeeperTarget(chain.client, {chainId: deployment.chainId, settlement, keyRegistry: deployment.addresses.KeyRegistry!}, payment,
+                {slot: slotId, action: 'sign', payloadDigest: payment.payload_digest}, {allowLocalHttp: allowLocalPaidHttp})
+              if (target.mode !== s.mode || target.groupPublicKey.toLowerCase() !== s.publicKey.toLowerCase() || payment.keeper_assignment.key_epoch !== s.epoch) throw new TasraApplicationError('SLOT_CHANGED', 'Paid dual-control sharing changed')
+              node = paidNode(target)
+            } else node = (await keepers(slotId))[0]!
+            return createDualSignClient({chainId: deployment.chainId, nodeUrl: node.nodeUrl, slotId, groupPublicKey: protocolHex(s.publicKey, 32, 'FROST public key'),
+              quorum: policy.quorum, credentialGated: policy.credentialGated, payment, fetchImpl})
           },
         }
       },

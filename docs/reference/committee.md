@@ -59,7 +59,7 @@ declare class CommitteeAuthorizeError {
 
 A signing request may have been accepted despite a transport or response failure. Reconcile before resubmitting.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L14)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L15)
 
 Import: `import {OperationOutcomeUnknownError} from 'tasra-sdk/committee'`
 
@@ -88,7 +88,7 @@ declare class OperationOutcomeUnknownError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 42 functions</summary>
+<summary>Browse 43 functions</summary>
 
 - [assembleCompoundToken](#assemblecompoundtoken)
 - [assertPaymentIntentWire](#assertpaymentintentwire)
@@ -120,6 +120,7 @@ Operations you can import and call.
 - [merkleRoot](#merkleroot)
 - [normalizeOrigin](#normalizeorigin)
 - [opAttestationHash](#opattestationhash)
+- [paidDualSignApprovalPayload](#paiddualsignapprovalpayload)
 - [paymentIntentHash](#paymentintenthash)
 - [paymentIntentTypedData](#paymentintenttypeddata)
 - [paymentSessionCommitment](#paymentsessioncommitment)
@@ -453,7 +454,7 @@ Native multi-approver FROST lifecycle. Never falls back to a JWT route or create
 a new request after an ambiguous POST. All approval and result checks use the
 original expected message, slot, public key and quorum, not server-selected values.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L122)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L152)
 
 Import: `import {createDualSignClient} from 'tasra-sdk/committee'`
 
@@ -461,8 +462,11 @@ Import: `import {createDualSignClient} from 'tasra-sdk/committee'`
 declare function createDualSignClient(input: DualSignConfig): {
     create(message: Uint8Array, options?: {
         signal?: AbortSignal;
+        payment?: PaymentIntentWire;
     }): Promise<DualSignRequest>;
-    resume(requestId: string, expectedMessage: Uint8Array): DualSignRequest;
+    resume(requestId: string, expectedMessage: Uint8Array, options?: {
+        payment?: PaymentIntentWire;
+    }): DualSignRequest;
 };
 ```
 
@@ -476,8 +480,11 @@ Returns:
 {
     create(message: Uint8Array, options?: {
         signal?: AbortSignal;
+        payment?: PaymentIntentWire;
     }): Promise<DualSignRequest>;
-    resume(requestId: string, expectedMessage: Uint8Array): DualSignRequest;
+    resume(requestId: string, expectedMessage: Uint8Array, options?: {
+        payment?: PaymentIntentWire;
+    }): DualSignRequest;
 }
 ```
 
@@ -585,7 +592,7 @@ Returns: ` string `.
 
 Exact existing Rust canonical_dual_sig_payload, including little-endian lengths.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L35)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L36)
 
 Import: `import {dualSignApprovalPayload} from 'tasra-sdk/committee'`
 
@@ -818,6 +825,29 @@ declare function opAttestationHash(chainId: number | bigint, opId: Uint8Array, s
 
 Returns: ` Uint8Array `.
 
+### paidDualSignApprovalPayload
+
+Paid approval bytes, binding the final keeper reservation independently of each
+credential approval's payment. Matches Rust canonical_paid_dual_sig_payload.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L55)
+
+Import: `import {paidDualSignApprovalPayload} from 'tasra-sdk/committee'`
+
+```ts
+declare function paidDualSignApprovalPayload(chainId: number, slotId: string, message: Uint8Array, requestId: string, payment: PaymentIntentWire): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` chainId ` | ` number ` | - Expected deployment chain. |
+| ` slotId ` | ` string ` | - Expected slot identifier. |
+| ` message ` | ` Uint8Array ` | - Exact message to sign. |
+| ` requestId ` | ` string ` | - Native dual-sign request identifier. |
+| ` payment ` | ` PaymentIntentWire ` | - Final keeper Sign intent, already reserved independently. |
+
+Returns: ` Uint8Array `.
+
 ### paymentIntentHash
 
 Hash the creator intent. A matching hash is not proof of a mined reservation or a valid creator signature.
@@ -920,7 +950,7 @@ declare function paymentIntentTypedData(p: Omit<PaymentIntentWire, 'signature'>)
     message: {
         keyRegistry: `0x${string}`;
         slotId: `0x${string}`;
-        action: 0 | 1 | 2 | 3;
+        action: 0 | 1 | 2 | 6 | 3;
         payloadDigest: `0x${string}`;
         sessionCommitment: `0x${string}`;
         nonce: `0x${string}`;
@@ -1019,7 +1049,7 @@ Returns:
     message: {
         keyRegistry: `0x${string}`;
         slotId: `0x${string}`;
-        action: 0 | 1 | 2 | 3;
+        action: 0 | 1 | 2 | 6 | 3;
         payloadDigest: `0x${string}`;
         sessionCommitment: `0x${string}`;
         nonce: `0x${string}`;
@@ -1761,7 +1791,7 @@ Fields:
 
 Ed25519 approver public key and callback that signs canonical approval bytes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L87)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L115)
 
 ```ts
 export interface DualSignApprover {
@@ -1779,10 +1809,11 @@ Fields:
 
 Trusted slot key, keeper endpoint and approver policy for a native signing request.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L46)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L72)
 
 ```ts
 export interface DualSignConfig {
+    payment?: PaymentIntentWire;
     chainId: number;
     nodeUrl: string;
     slotId: string;
@@ -1796,6 +1827,7 @@ export interface DualSignConfig {
 
 Fields:
 
+- **` payment `**: Optional pinned final Sign payment for this coordinator; per-call replacements are refused.
 - **` chainId `**: EVM chain identifier.
 - **` nodeUrl `**: Keeper HTTP base URL.
 - **` slotId `**: 32-byte slot identifier.
@@ -1809,10 +1841,11 @@ Fields:
 
 Handle for checking, approving and waiting for one native multi-approver signing request.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L95)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L123)
 
 ```ts
 export interface DualSignRequest {
+    readonly payment?: PaymentIntentWire;
     readonly requestId: string;
     readonly slotId: string;
     readonly nodeUrl: string;
@@ -1838,6 +1871,7 @@ export interface DualSignRequest {
 
 Fields:
 
+- **` payment `**: Final keeper Sign intent; each access returns a copy. Credential approvals pay separately.
 - **` requestId `**: Request identifier used to correlate or resume the operation.
 - **` slotId `**: 32-byte slot identifier.
 - **` nodeUrl `**: Keeper HTTP base URL.
@@ -1849,7 +1883,7 @@ Fields:
 
 Native signing request progress, verified completed signature or terminal failure.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L66)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L94)
 
 ```ts
 export type DualSignStatus = {
@@ -2109,7 +2143,7 @@ export interface PaymentIntentWire {
     settlement: Hex;
     key_registry: Hex;
     slot: Hex;
-    action: 'sign' | 'decrypt' | 'eoa-sign' | 'ibe-extract';
+    action: 'sign' | 'decrypt' | 'eoa-sign' | 'ibe-extract' | 'dual-approve';
     payload_digest: Hex;
     session_commitment: Hex;
     nonce: Hex;
@@ -2132,7 +2166,7 @@ Fields:
 - **` settlement `**: Settlement proxy address.
 - **` key_registry `**: KeyRegistry proxy address.
 - **` slot `**: Slot identifier.
-- **` action `**: Final billable key operation.
+- **` action `**: Billable operation; a dual approval is separate from the final keeper signature.
 - **` payload_digest `**: Digest of the exact operation payload.
 - **` session_commitment `**: Commitment to the presentation random, audience and operation expiry.
 - **` nonce `**: Unique creator payment nonce.

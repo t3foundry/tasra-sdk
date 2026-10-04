@@ -67,6 +67,12 @@ slots/deployments on the same chain. An uncertain preparation holds that payer u
 journal or clear a claim based on age. It does not coordinate external wallet transactions
 or submit cancellations. See `docs/funding.md` for the complete recovery contract.
 
+Paid dual-control uses `frostSlot.approvals({quorum, credentialGated, payment})` to
+pin the final Sign reservation and its assigned keeper. Each credential approval
+needs a separate `dual-approve` payment and fixed presentation random; it binds the
+paid approval bytes, including the final Sign commitment. Resume uncertain requests
+using the original reservation ID and payment; do not mint replacement payments on timeout.
+
 The SDK includes its wallet/chain runtime dependencies. Add `viem` directly only
 when your application intentionally imports its advanced APIs. Only `/chain/node` imports Node TLS helpers;
 keep it out of browser/extension bundles. Missing services in a manifest should

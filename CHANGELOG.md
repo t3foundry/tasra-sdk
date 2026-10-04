@@ -9,6 +9,12 @@ never does.
 
 ### Added
 
+- Payment intents support the distinct `dual-approve` billing action for credential
+  approvals. It uses ordinal 6, preserving existing payment hashes, and cannot pay for
+  a final keeper signature. Native dual-control clients carry a separate final Sign
+  reservation, bind every approval to its commitment, and resume with the original
+  reservation ID after an uncertain creation response. Application approval clients
+  resolve the payment's assigned coordinator; credential approvals pay independently.
 - Paid committee-token hashing and creator payment-intent helpers in `tasra-sdk/committee`.
   Wallet and OAuth session clients can carry an already reserved payment and its fixed
   presentation random. Session results reject changed or missing payment commitments.

@@ -78,6 +78,11 @@ quote from the supplied accountants, compares the deployment's digest, recovers 
 creator signature and simulates the threshold-authorized contract call. All reads for
 the quote use its fresh canonical block; unsupported canonical reads fail.
 
+Credential approvals use `action: 'dual-approve'` and their exact approval payload digest.
+Each holder's approval has its own intent, session and reservation. These payments do not
+fund the final keeper signature, which requires a separate `sign` intent and reservation.
+The final paid signature uses the separate native dual-control lifecycle described below.
+
 Set `maxGas` and `maxGasPrice` explicitly. These limit native transaction gas; the
 intent's `max_cost` separately limits TASRA. Supply trusted, bounded clients and
 accountant HTTPS endpoints. `allowLocalHttp` permits HTTP only on chain43112.
@@ -376,3 +381,32 @@ if its following purchase or deposit fails.
 </details>
 
 **Next: [Read your slot →](read-slot.md)**
+
+### Paid dual-control signatures
+
+Reserve a final `sign` payment for SHA-256 of the exact message. Pass it as
+`payment` to `frostSlot.approvals({quorum, credentialGated, payment})`. This resolves
+and pins the assigned coordinator from chain. Then call `create(message)` on the
+returned client. The lower-level `createDualSignClient` also accepts a pinned
+`payment`, or `create(message, {payment})` when you already verified its coordinator.
+
+The request ID is the reservation ID without its `0x` prefix. Every approval signs
+`paidDualSignApprovalPayload(chainId, slotId, message, requestId, payment)`, binding
+the chain, slot, message, request and final payment commitment. A static approver
+needs no credential verification. A credential approver needs a **separate** reserved
+`dual-approve` intent whose payload digest is SHA-256 of these approval bytes. Pass
+that intent and its fixed presentation `random` to `approveWithCredential`.
+The final Sign payment cannot pay for credential approval work.
+
+Opening a request and collecting approvals does not start keeper key work. A keeper
+starts only after independently verifying the distinct approval quorum, current
+policy, final reservation and assigned sharing. Fee settlement uses actual signed
+work reports; a role whose operators did no work receives no fee.
+
+Persist the message and original payments before sending. If creation has an unknown
+outcome, its error includes the stable request ID. Resume with
+`client.resume(requestId, message, {payment})` and poll before resubmitting. A pinned
+client retains that payment automatically. Pending and terminal keeper request state
+is currently held in memory for five minutes; process loss or expiry requires payment
+reconciliation. The durable work journal prevents spending the same payment twice,
+but is not a durable result-retrieval API or an automatic payout supervisor.

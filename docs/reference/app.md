@@ -244,7 +244,7 @@ Operations you can import and call.
 
 Present a credential for this exact request, then sign its canonical approval payload.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L89)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L90)
 
 Import: `import {approveWithCredential} from 'tasra-sdk/app'`
 
@@ -254,6 +254,8 @@ declare function approveWithCredential(app: Pick<TasraApplication, 'deployment' 
     authorize: OperationAuthorizer;
     signal?: AbortSignal;
     description?: string;
+    payment?: PaymentIntentWire;
+    random?: string;
 }): Promise<DualSignStatus>;
 ```
 
@@ -262,7 +264,7 @@ declare function approveWithCredential(app: Pick<TasraApplication, 'deployment' 
 | ` app ` | ` Pick<TasraApplication, 'deployment' \| 'slots'> ` | Application client for the request deployment. |
 | ` request ` | ` DualSignRequest ` | Native signing request awaiting an approval. |
 | ` message ` | ` Uint8Array ` | Exact document bytes identified by the request. |
-| ` options ` | ` { identity: TasraIdentity; authorize: OperationAuthorizer; signal?: AbortSignal; description?: string; } ` | Approver identity, credential authorizer and cancellation controls. |
+| ` options ` | ` { identity: TasraIdentity; authorize: OperationAuthorizer; signal?: AbortSignal; description?: string; payment?: PaymentIntentWire; random?: string; } ` | Approver identity, credential authorizer and cancellation controls. |
 
 Returns: ` Promise<DualSignStatus> `.
 
@@ -476,11 +478,15 @@ declare function createTasra(config: TasraApplicationConfig): {
             approvals(policy: {
                 quorum: number;
                 credentialGated: boolean;
+                payment?: PaymentIntentWire;
             }): Promise<{
                 create(message: Uint8Array, options?: {
                     signal?: AbortSignal;
+                    payment?: PaymentIntentWire;
                 }): Promise<DualSignRequest>;
-                resume(requestId: string, expectedMessage: Uint8Array): DualSignRequest;
+                resume(requestId: string, expectedMessage: Uint8Array, options?: {
+                    payment?: PaymentIntentWire;
+                }): DualSignRequest;
             }>;
         }>;
         bls(slotId: Hex): Promise<{
@@ -543,11 +549,15 @@ Returns:
             approvals(policy: {
                 quorum: number;
                 credentialGated: boolean;
+                payment?: PaymentIntentWire;
             }): Promise<{
                 create(message: Uint8Array, options?: {
                     signal?: AbortSignal;
+                    payment?: PaymentIntentWire;
                 }): Promise<DualSignRequest>;
-                resume(requestId: string, expectedMessage: Uint8Array): DualSignRequest;
+                resume(requestId: string, expectedMessage: Uint8Array, options?: {
+                    payment?: PaymentIntentWire;
+                }): DualSignRequest;
             }>;
         }>;
         bls(slotId: Hex): Promise<{
@@ -628,7 +638,7 @@ Returns: ` Readonly<TasraDeployment> `.
 
 Adapt an SDK Ed25519 identity to native approval signatures without exporting its key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L70)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L71)
 
 Import: `import {identityApprover} from 'tasra-sdk/app'`
 
@@ -896,7 +906,7 @@ Return details: Validated deployment and optional routing without a network requ
 
 Install an explicit native FROST approval policy using a durable named transaction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L36)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L37)
 
 Import: `import {setApprovalPolicy} from 'tasra-sdk/app'`
 
@@ -1147,7 +1157,7 @@ Fields:
 
 Required approval count and either trusted Ed25519 keys or a credential rule.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L18)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L19)
 
 ```ts
 export interface ApprovalPolicy {
@@ -1223,7 +1233,7 @@ Fields:
 
 Identity-based encryption handle with authorized decryption and explicit identity-key extraction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L372)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L383)
 
 ```ts
 export type BlsSlot = Awaited<ReturnType<TasraApplication['slots']['bls']>>;
@@ -1389,7 +1399,7 @@ Fields:
 
 Threshold Ethereum account handle that verifies each signature against the anchored public key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L364)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L375)
 
 ```ts
 export type EcdsaSlot = Awaited<ReturnType<TasraApplication['slots']['ecdsa']>>;
@@ -1405,7 +1415,7 @@ Fields:
 
 Threshold Ed25519 signing handle with optional receipt checks and native approval sessions.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L368)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L379)
 
 ```ts
 export type FrostSlot = Awaited<ReturnType<TasraApplication['slots']['frost']>>;
@@ -1714,7 +1724,7 @@ Fields:
 
 Application client exposing checked slot operations and deployment readiness probes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L360)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L371)
 
 ```ts
 export type TasraApplication = ReturnType<typeof createTasra>;

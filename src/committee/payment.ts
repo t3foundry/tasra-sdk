@@ -27,8 +27,8 @@ export interface PaymentIntentWire {
   key_registry: Hex
   /** Slot identifier. */
   slot: Hex
-  /** Final billable key operation. */
-  action: 'sign' | 'decrypt' | 'eoa-sign' | 'ibe-extract'
+  /** Billable operation; a dual approval is separate from the final keeper signature. */
+  action: 'sign' | 'decrypt' | 'eoa-sign' | 'ibe-extract' | 'dual-approve'
   /** Digest of the exact operation payload. */
   payload_digest: Hex
   /** Commitment to the presentation random, audience and operation expiry. */
@@ -101,7 +101,7 @@ export function keeperAssignmentCommitment(a: PaidKeeperAssignment): Hex {
   ))) as Hex
 }
 
-const ACTIONS = {'sign': 0, 'decrypt': 1, 'eoa-sign': 2, 'ibe-extract': 3} as const
+const ACTIONS = {'sign': 0, 'decrypt': 1, 'eoa-sign': 2, 'ibe-extract': 3, 'dual-approve': 6} as const
 const TYPES = {SlotAssignedPaymentIntent: [
   {name: 'keyRegistry', type: 'address'}, {name: 'slotId', type: 'bytes32'},
   {name: 'action', type: 'uint8'}, {name: 'payloadDigest', type: 'bytes32'},
