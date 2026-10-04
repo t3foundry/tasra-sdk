@@ -7,6 +7,13 @@ never does.
 
 ## [Unreleased]
 
+### Fixed
+
+- Payment context discovery requires an approved `accountantSet` address and selects
+  only a current or previous epoch with both verifier and accountant snapshots. This
+  avoids reservation failures while the two role anchors are being published. All
+  three registry beacon pointers must agree with the approved deployment.
+
 ### Added
 
 - Native dual-sign status exposes `uncertain` when a keeper has retained an execution

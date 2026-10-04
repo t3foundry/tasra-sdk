@@ -31,10 +31,11 @@ mined reservation independently before opening a session. Hashing an intent does
 establish any of those facts.
 
 Before constructing an intent, use `discoverPaidOperationContext` from `tasra-sdk/chain`.
-Supply independently approved Settlement, KeyRegistry, VerifierSetRegistry and beacon
+Supply independently approved Settlement, KeyRegistry, VerifierSetRegistry, AccountantSetRegistry and beacon
 addresses. It checks the registry beacon pointers and reads the keeper sharing, eligible
-workers and anchored verifier context at one fresh canonical block. If the current epoch
-has no snapshot, only the immediately preceding epoch is eligible as a fallback.
+workers and anchored verifier context at one fresh canonical block. The selected epoch must
+have both verifier and accountant snapshots. If either current snapshot is missing, only
+the immediately preceding epoch is eligible as a fallback.
 
 ```ts
 import {discoverPaidOperationContext} from 'tasra-sdk/chain'
@@ -42,6 +43,7 @@ import {discoverPaidOperationContext} from 'tasra-sdk/chain'
 const context = await discoverPaidOperationContext(client, {
   ...deployment,
   verifierSet,
+  accountantSet,
   beacon,
 }, slotId, {
   defaultVerificationPolicy: {committee: 3, quorum: 2},

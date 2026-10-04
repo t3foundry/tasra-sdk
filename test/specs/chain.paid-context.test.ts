@@ -9,17 +9,19 @@ import {nodeRegistryAbi} from '../../src/chain/abis/nodeRegistry.js'
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
 import {thresholdRandomBeaconAbi} from '../../src/chain/abis/thresholdRandomBeacon.js'
 import {verifierSetRegistryAbi} from '../../src/chain/abis/verifierSetRegistry.js'
+import {accountantSetRegistryAbi} from '../../src/chain/abis/accountantSetRegistry.js'
 
 const h = (n: number, len = 32): Hex => `0x${n.toString(16).padStart(2, '0').repeat(len)}`
 interface Changes {
   policy?: [number, number]; size?: number; unanchored?: boolean; noPrevious?: boolean; missingSeed?: boolean
-  beaconMismatch?: 'key' | 'snapshot'; epoch?: bigint; sharingEpoch?: bigint; sharingVersion?: bigint
+  beaconMismatch?: 'key' | 'snapshot' | 'accountant'; epoch?: bigint; sharingEpoch?: bigint; sharingVersion?: bigint
+  accountantUnanchored?: boolean; accountantNoPrevious?: boolean; accountantSize?: number
   inactive?: number[]; duplicateId?: boolean; duplicateKey?: boolean; insufficient?: boolean
   enabled?: boolean; available?: bigint; cancelled?: boolean; noKey?: boolean; age?: number; orphan?: boolean
   chain?: number; unsupported?: boolean; url?: string; chainId?: number; onChainId?: () => void
 }
 function fixture(change: Changes = {}) {
-  const deployment = {chainId: change.chainId ?? 43112, settlement: h(1, 20), keyRegistry: h(2, 20), verifierSet: h(5, 20), beacon: h(6, 20)}
+  const deployment = {chainId: change.chainId ?? 43112, settlement: h(1, 20), keyRegistry: h(2, 20), verifierSet: h(5, 20), accountantSet: h(8, 20), beacon: h(6, 20)}
   const nodes = h(7, 20), approved = {...deployment}, slotId = h(3), creator = privateKeyToAccount(h(11))
   const keys = [1, 2, 3].map(n => toHex(ed25519.getPublicKey(new Uint8Array(32).fill(n))))
   const operators = [11, 12, 13].map(n => h(n, 20)), ids = [30n, 10n, 20n]
@@ -34,17 +36,21 @@ function fixture(change: Changes = {}) {
     const [call, at] = params as [{to: Hex; data: Hex}, unknown]
     expect(at).toEqual({blockHash: h(20), requireCanonical: true})
     const abi: Abi = call.to === nodes ? nodeRegistryAbi : call.to === approved.keyRegistry ? keyRegistryAbi
-      : call.to === approved.beacon ? thresholdRandomBeaconAbi : call.to === approved.verifierSet ? verifierSetRegistryAbi : settlementAbi
+      : call.to === approved.beacon ? thresholdRandomBeaconAbi : call.to === approved.verifierSet ? verifierSetRegistryAbi
+        : call.to === approved.accountantSet ? accountantSetRegistryAbi : settlementAbi
     const {functionName: name, args} = decodeFunctionData({abi, data: call.data})
     calls[calls.length - 1] = {method, name, args}
     const index = operators.findIndex(op => op.toLowerCase() === String(args?.[0]).toLowerCase())
     const previous = args?.[0] !== (change.epoch ?? 7n)
+    const accountant = call.to === approved.accountantSet
     const values: Record<string, unknown> = {
       prepaidEnabled: change.enabled ?? true, balanceOf: change.available ?? 100n,
       randomBeacon: change.beaconMismatch === 'key' ? h(99, 20) : approved.beacon,
-      beacon: change.beaconMismatch === 'snapshot' ? h(99, 20) : approved.beacon,
+      beacon: change.beaconMismatch === (accountant ? 'accountant' : 'snapshot') ? h(99, 20) : approved.beacon,
       epoch: change.epoch ?? 7n, seedAt: change.missingSeed ? h(0) : previous ? h(8) : h(9),
-      snapshotAt: change.unanchored && !previous || change.noPrevious && previous ? [h(0), 0] : [previous ? h(17) : h(18), change.size ?? 5],
+      snapshotAt: accountant
+        ? change.accountantUnanchored && !previous || change.accountantNoPrevious && previous ? [h(0), 0] : [h(19), change.accountantSize ?? 3]
+        : change.unanchored && !previous || change.noPrevious && previous ? [h(0), 0] : [previous ? h(17) : h(18), change.size ?? 5],
       verifierPolicy: change.policy ?? [3, 2], nodeRegistry: nodes, assignedNodes: operators,
       getKeySlot: {creator: creator.address, ruleCommitment: h(33), threshold: {k: change.insufficient ? 3 : 2, n: 3}, mode: 0,
         publicKey: change.noKey ? '0x' : keys[0], epoch: change.sharingEpoch ?? 1n, committeeVersion: change.sharingVersion ?? 2n,
@@ -75,8 +81,19 @@ it('discovers one canonical assignment/policy and produces creator-signable inte
 it('uses only the immediately previous anchored snapshot and refuses missing current seed', async () => {
   now(); const f = fixture({unanchored: true})
   expect((await f.run()).intentFields).toMatchObject({verification_epoch: 6, verification_seed: h(8), verification_root: h(17)})
-  expect(f.calls.filter(c => c.name === 'snapshotAt').map(c => c.args)).toEqual([[7n], [6n]])
+  expect(f.calls.filter(c => c.name === 'snapshotAt').map(c => c.args)).toEqual([[7n], [7n], [6n], [6n]])
   for (const change of [{unanchored: true, noPrevious: true}, {unanchored: true, epoch: 0n}, {missingSeed: true, unanchored: true}]) await expect(fixture(change).run()).rejects.toThrow(/seed|snapshot/)
+})
+it('waits for both role anchors and never selects an epoch missing its accountant snapshot', async () => {
+  now()
+  expect((await fixture({accountantUnanchored: true}).run()).intentFields.verification_epoch).toBe(6)
+  for (const change of [
+    {accountantUnanchored: true, accountantNoPrevious: true},
+    {unanchored: true, accountantNoPrevious: true},
+    {accountantUnanchored: true, epoch: 0n},
+    {accountantSize: 0}, {accountantSize: 65536},
+  ]) await expect(fixture(change).run()).rejects.toThrow(/snapshot/)
+  await expect(fixture({beaconMismatch: 'accountant'}).run()).rejects.toThrow(/beacon/)
 })
 it('requires explicit defaults and enforces the native verifier policy bounds', async () => {
   now()

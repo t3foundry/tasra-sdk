@@ -7,6 +7,7 @@ import {keyRegistryAbi} from './abis/keyRegistry.js'
 import {nodeRegistryAbi} from './abis/nodeRegistry.js'
 import {thresholdRandomBeaconAbi} from './abis/thresholdRandomBeacon.js'
 import {verifierSetRegistryAbi} from './abis/verifierSetRegistry.js'
+import {accountantSetRegistryAbi} from './abis/accountantSetRegistry.js'
 
 /** Deployment independently selected by the application, not taken from a received intent. */
 export interface PrepaidDeployment {
@@ -98,6 +99,8 @@ export interface PaidKeeperTransportOptions {
 export interface PaidContextDeployment extends PrepaidDeployment {
   /** Expected anchored verifier-set registry. */
   verifierSet: Address
+  /** Expected accountant snapshot registry used by reservation approval. */
+  accountantSet: Address
   /** Expected threshold beacon, also checked through registry pointers. */
   beacon: Address
 }
@@ -324,7 +327,7 @@ function safeInteger(value: bigint, name: string): number {
 
 /**
  * Discover keeper sharing and verifier policy from one fresh canonical block before creating an intent.
- * Selects the current anchored verifier epoch, or only its immediate predecessor when unanchored.
+ * Selects the current epoch with both verifier and accountant snapshots, otherwise its immediate predecessor.
  * Performs no signing, reservation, service contact or gas/TASRA mutation.
  * @param client - Trusted bounded Viem client supporting EIP-1898 canonical reads.
  * @param deployment - Independently approved contract and beacon addresses.
@@ -336,30 +339,34 @@ export async function discoverPaidOperationContext(
 ): Promise<PaidOperationContext> {
   deployment = {...deployment}; options = structuredClone(options)
   validateDeployment(deployment)
-  if (!HEX32.test(slotId) || [deployment.verifierSet, deployment.beacon, ...(options.coordinator ? [options.coordinator] : [])]
+  if (!HEX32.test(slotId) || [deployment.verifierSet, deployment.accountantSet, deployment.beacon, ...(options.coordinator ? [options.coordinator] : [])]
     .some(address => !ADDRESS.test(address) || /^0x0{40}$/i.test(address))) throw new Error('invalid payment discovery identity')
   const at = await observe(client, deployment)
-  const [keyBeacon, snapshotBeacon, latest, policy, enabled, available, directory] = await Promise.all([
+  const [keyBeacon, snapshotBeacon, accountantBeacon, latest, policy, enabled, available, directory] = await Promise.all([
     registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'randomBeacon') as Promise<Address>,
     registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'beacon') as Promise<Address>,
+    registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'beacon') as Promise<Address>,
     registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch') as Promise<bigint>,
     registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'verifierPolicy', [slotId]) as Promise<readonly [number, number]>,
     readAt(client, deployment.settlement, at, 'prepaidEnabled', slotId),
     readAt(client, deployment.settlement, at, 'balanceOf', slotId),
     keeperDirectory(client, at, deployment.keyRegistry, slotId),
   ])
-  if (keyBeacon.toLowerCase() !== deployment.beacon.toLowerCase() || snapshotBeacon.toLowerCase() !== deployment.beacon.toLowerCase()) throw new Error('payment discovery beacon pointers differ')
+  if ([keyBeacon, snapshotBeacon, accountantBeacon].some(pointer => pointer.toLowerCase() !== deployment.beacon.toLowerCase())) throw new Error('payment discovery beacon pointers differ')
   if (enabled !== true || typeof available !== 'bigint' || available <= 0n) throw new Error('payment discovery requires an activated TASRA-funded slot')
   const seedAt = (epoch: bigint) => registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [epoch]) as Promise<Hex>
   const snapshotAt = (epoch: bigint) => registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
+  const accountantAt = (epoch: bigint) => registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
+  const complete = (seed: Hex, root: Hex, size: number, accountant: readonly [Hex, number]) =>
+    seed !== ZERO32 && root !== ZERO32 && size > 0 && accountant[0] !== ZERO32 && accountant[1] > 0 && accountant[1] <= 65535
   let epoch = latest
-  let [seed, [root, size]] = await Promise.all([seedAt(epoch), snapshotAt(epoch)])
+  let [seed, [root, size], accountant] = await Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)])
   if (seed === ZERO32) throw new Error('current beacon seed unavailable')
-  if (root === ZERO32 || size === 0) {
-    if (epoch === 0n) throw new Error('no anchored verifier snapshot')
+  if (!complete(seed, root, size, accountant)) {
+    if (epoch === 0n) throw new Error('no anchored verifier and accountant snapshots')
     epoch--
-    ;[seed, [root, size]] = await Promise.all([seedAt(epoch), snapshotAt(epoch)])
-    if (seed === ZERO32 || root === ZERO32 || size === 0) throw new Error('no current or previous anchored verifier snapshot')
+    ;[seed, [root, size], accountant] = await Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)])
+    if (!complete(seed, root, size, accountant)) throw new Error('no current or previous anchored verifier and accountant snapshots')
   }
   const [onChainCommittee, onChainQuorum] = policy
   if (onChainCommittee === 0 && onChainQuorum !== 0) throw new Error('invalid on-chain verifier policy')
