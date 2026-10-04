@@ -2,7 +2,7 @@ import {afterEach, expect, it, vi} from 'vitest'
 import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {createPublicClient, createWalletClient, custom, decodeFunctionData, defineChain, encodeAbiParameters, encodeFunctionResult, keccak256, parseTransaction, toHex, type Abi, type Hex} from 'viem'
+import {createPublicClient, createWalletClient, custom, decodeFunctionData, defineChain, encodeAbiParameters, encodeFunctionData, encodeFunctionResult, keccak256, parseTransaction, toHex, type Abi, type Hex, type TransactionSerialized} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {PaidReservationUncertainError, reservePaidOperation, reconcilePaidReservation, type PaidReservationRecord, type PaidReservationCheckpoint, type PaidReservationQuote, type ReservePaidOperationOptions} from '../../src/chain/reservation.js'
 import {paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
@@ -23,6 +23,7 @@ interface Changes {
   orphan?: boolean; stale?: boolean; failSend?: boolean; rpcSendError?: boolean; failPersist?: string; response?: Response
   receiptCost?: bigint; receiptAssignment?: Hex; receiptReorg?: boolean; reverted?: boolean
   localSigner?: boolean; transactionChanged?: boolean; alreadyReserved?: boolean
+  wrongReturnedHash?: boolean
   headNumber?: number; headTimestamp?: number; receiptMissing?: boolean; recoveryUnsupported?: boolean
   settled?: boolean; refunded?: bigint; onChainId?: () => void
   candidate?: (transaction: Record<string, unknown>) => Record<string, unknown>
@@ -98,7 +99,8 @@ async function fixture(change: Changes = {}) {
       const tx = parseTransaction(raw)
       transactions.push({from: creator.address, to: tx.to, data: tx.data, value: toHex(tx.value ?? 0n), gas: toHex(tx.gas!), gasPrice: toHex(tx.gasPrice!), nonce: toHex(tx.nonce!), chainId: toHex(tx.chainId!), type: '0x0'})
       transactionHash = keccak256(raw)
-      return transactionHash
+      if (change.failSend) throw new Error('transport lost after raw send')
+      return change.wrongReturnedHash ? h(88) : transactionHash
     }
     if (method === 'eth_getTransactionByHash') {
       const tx = {...transactions[0], input: change.transactionChanged ? '0xdead' : transactions[0]!.data, hash: transactionHash, blockHash: h(20), blockNumber: '0x14', transactionIndex: '0x0', v: '0x1b', r: h(1), s: h(2)}
@@ -281,6 +283,45 @@ it('a local signer broadcasts one signed transaction with its pre-recorded nonce
   expect(result.receipt.cost).toBe(10n)
   expect(f.trace.filter(s => /send.*Transaction/.test(s))).toEqual(['eth_sendRawTransaction'])
   expect(f.transactions[0]).toMatchObject({nonce: '0x4', gas: '0x186a0', gasPrice: '0x19', chainId: '0xa868'})
+})
+it('refuses altered locally signed bytes before any broadcast', async () => {
+  for (const edit of [{to: h(88, 20)}, {data: '0xdead' as Hex}, {value: 1n}, {gas: 200001n}, {gasPrice: 51n}, {nonce: 5}, {chainId: 43113}, {}]) {
+    const f = await fixture({localSigner: true})
+    const data = encodeFunctionData({abi: settlementAbi, functionName: 'reservePrepaidBls', args: [f.payment.slot, 0n, h(19), [prepaidRequestId(f.payment)], [10n], 1060n, h(7, 64)]})
+    const signer = privateKeyToAccount(h(Object.keys(edit).length ? 11 : 12))
+    const raw = await signer.signTransaction({type: 'legacy', chainId: 43112, to: deployment.settlement, data, value: 0n, nonce: 4, gas: 100000n, gasPrice: 25n, ...edit})
+    vi.spyOn(f.wallet, 'signTransaction').mockResolvedValue(raw as TransactionSerialized)
+    await expect(f.run()).rejects.toMatchObject({cause: {message: 'signed transaction differs from the durable reservation'}})
+    expect(f.transactions).toHaveLength(0)
+    expect(f.checkpoints.map(c => c.phase)).toEqual(['prepared'])
+  }
+})
+it('retains the locally computed hash after a lost or false RPC reply and recovers without rebroadcast', async () => {
+  for (const change of [{failSend: true}, {wrongReturnedHash: true}]) {
+    const f = await fixture({localSigner: true, ...change})
+    const failure = await f.run().catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(PaidReservationUncertainError)
+    const hash = (failure as PaidReservationUncertainError).transactionHash!
+    expect(hash).not.toBe(h(88))
+    expect((await reconcilePaidReservation(f.client, deployment, f.record(), expected, hash)).status).toBe('success')
+    expect(f.transactions).toHaveLength(1)
+  }
+})
+it('pins the gas payer before callbacks and checks expiry again after local signing', async () => {
+  const f = await fixture({localSigner: true}), persist = f.options.persist
+  await f.run({persist: async checkpoint => {
+    await persist(checkpoint)
+    if (checkpoint.phase === 'prepared') Object.assign(f.wallet, {account: privateKeyToAccount(h(12)), chain: {...chain, id: 1}})
+  }})
+  expect(f.transactions[0]!.from).toBe(privateKeyToAccount(h(11)).address)
+  const expired = await fixture({localSigner: true}), sign = expired.wallet.signTransaction.bind(expired.wallet)
+  vi.spyOn(expired.wallet, 'signTransaction').mockImplementation(async args => {
+    const raw = await sign(args)
+    vi.spyOn(Date, 'now').mockReturnValue(1_061_000)
+    return raw
+  })
+  await expect(expired.run()).rejects.toBeInstanceOf(PaidReservationUncertainError)
+  expect(expired.transactions).toHaveLength(0)
 })
 it('does not fall back to another wallet submission method on ambiguous RPC errors', async () => {
   const f = await fixture({rpcSendError: true})

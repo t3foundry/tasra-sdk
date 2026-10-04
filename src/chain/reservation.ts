@@ -1,4 +1,4 @@
-import {decodeFunctionResult, encodeAbiParameters, encodeFunctionData, keccak256, recoverTypedDataAddress, toHex, type Account, type Address, type Chain, type Hex, type PublicClient, type Transport, type WalletClient} from 'viem'
+import {decodeFunctionResult, encodeAbiParameters, encodeFunctionData, keccak256, parseTransaction, recoverTransactionAddress, recoverTypedDataAddress, toHex, type Account, type Address, type Chain, type Hex, type PublicClient, type Transport, type WalletClient} from 'viem'
 import {assertPaymentIntentWire, paymentIntentTypedData, prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
 import {settlementAbi} from './abis/settlement.js'
 import {keyRegistryAbi} from './abis/keyRegistry.js'
@@ -307,6 +307,7 @@ export async function reservePaidOperation(
   // Snapshot caller-owned inputs before the first await; storage receives its own copy too.
   const payment = structuredClone(original), d = {...deployment}, operation = {...expected}
   const opts = {...options, accountantUrls: [...options.accountantUrls]}
+  const payer = {...wallet.account}, payerChain = {...wallet.chain}
   assertPaymentIntentWire(payment)
   if (!Number.isSafeInteger(d.chainId) || d.chainId <= 0 || payment.chain_id !== d.chainId
     || !same(payment.settlement, d.settlement) || !same(payment.key_registry, d.keyRegistry)
@@ -318,8 +319,8 @@ export async function reservePaidOperation(
     || !Number.isSafeInteger(confirmations) || confirmations < 1 || confirmations > 64) throw new Error('invalid reservation timeout or confirmations')
   live(payment)
   const urls = endpoints(opts, d.chainId)
-  if (wallet.account.type !== 'local' && wallet.account.type !== 'json-rpc') throw new Error('reservation requires an EOA gas payer')
-  if (wallet.chain.id !== d.chainId || await wallet.getChainId() !== d.chainId || await client.getChainId() !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
+  if (payer.type !== 'local' && payer.type !== 'json-rpc') throw new Error('reservation requires an EOA gas payer')
+  if (payerChain.id !== d.chainId || await wallet.getChainId() !== d.chainId || await client.getChainId() !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
   const quote = await ask(urls[0]!, 'prepare', payment, null, requestTimeout)
   const preparations = await Promise.all(urls.slice(1).map(url => ask(url, 'prepare', payment, quote.quote_block, requestTimeout)))
   if (preparations.some(q => unsigned(q) !== unsigned(quote))) throw new Error('accountants disagree on reservation')
@@ -336,7 +337,7 @@ export async function reservePaidOperation(
   }
   fresh()
   const call = async (to: Address, data: Hex) => {
-    const result = await client.call({to, data, account: wallet.account, blockHash: quote.quote_block, requireCanonical: true, batch: false})
+    const result = await client.call({to, data, account: payer, blockHash: quote.quote_block, requireCanonical: true, batch: false})
     if (result.data === undefined) throw new Error('empty reservation observation')
     return result.data
   }
@@ -351,10 +352,10 @@ export async function reservePaidOperation(
   const creator = await recoverTypedDataAddress({...paymentIntentTypedData(payment), signature: payment.signature})
   if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= BigInt(now())) || !same(creator, slot.creator)) throw new Error('reservation intent is not from an active slot creator')
   // Contract simulation verifies the accountant threshold signature and reservation state without gas.
-  await client.call({to: d.settlement, data, account: wallet.account, blockHash: quote.quote_block, requireCanonical: true, batch: false})
+  await client.call({to: d.settlement, data, account: payer, blockHash: quote.quote_block, requireCanonical: true, batch: false})
   const [gasPrice, gas, nonce] = await Promise.all([
-    client.getGasPrice(), client.estimateGas({account: wallet.account, to: d.settlement, data, value: 0n}),
-    client.getTransactionCount({address: wallet.account.address, blockTag: 'pending'}),
+    client.getGasPrice(), client.estimateGas({account: payer, to: d.settlement, data, value: 0n}),
+    client.getTransactionCount({address: payer.address, blockTag: 'pending'}),
   ])
   if (gas <= 0n || gas > opts.maxGas || gasPrice <= 0n || gasPrice > opts.maxGasPrice) throw new Error('reservation exceeds native gas budget')
   if (block.number === null) throw new Error('reservation quote has no block number')
@@ -362,20 +363,26 @@ export async function reservePaidOperation(
   if (canonical.hash === null || !same(canonical.hash, quote.quote_block)) throw new Error('reservation quote reorganized')
   fresh()
   const record: PaidReservationRecord = {schema: 1, requestId, payment, quote: authorized,
-    transaction: {chainId: d.chainId, from: wallet.account.address, to: d.settlement, data, value: '0', nonce, gas: gas.toString(), gasPrice: gasPrice.toString()}}
+    transaction: {chainId: d.chainId, from: payer.address, to: d.settlement, data, value: '0', nonce, gas: gas.toString(), gasPrice: gasPrice.toString()}}
   await opts.persist({phase: 'prepared', record: structuredClone(record)})
   let transactionHash: Hex | undefined
   try {
     fresh()
     // Viem's generic sendTransaction can retry through wallet_sendTransaction on certain
     // RPC errors. Use exactly one RPC submission, including when the outcome is uncertain.
-    if (wallet.account.type === 'local') {
-      const raw = await wallet.signTransaction({account: wallet.account, chain: wallet.chain,
+    if (payer.type === 'local') {
+      const raw = await wallet.signTransaction({account: payer, chain: payerChain,
         to: d.settlement, data, value: 0n, nonce, gas, gasPrice, type: 'legacy'})
-      transactionHash = await wallet.request({method: 'eth_sendRawTransaction', params: [raw]}, {retryCount: 0})
-      if (transactionHash === undefined || !same(transactionHash, keccak256(raw))) throw new Error('RPC returned another signed transaction hash')
+      const signed = parseTransaction(raw), sender = await recoverTransactionAddress({serializedTransaction: raw})
+      if (signed.type !== 'legacy' || signed.chainId !== d.chainId || !same(sender, payer.address)
+        || !signed.to || !same(signed.to, d.settlement) || !signed.data || !same(signed.data, data)
+        || (signed.value ?? 0n) !== 0n || signed.nonce !== nonce || signed.gas !== gas || signed.gasPrice !== gasPrice) throw new Error('signed transaction differs from the durable reservation')
+      transactionHash = keccak256(raw)
+      fresh()
+      const returned = await wallet.request({method: 'eth_sendRawTransaction', params: [raw]}, {retryCount: 0})
+      if (returned === undefined || !same(returned, transactionHash)) throw new Error('RPC returned another signed transaction hash')
     } else {
-      transactionHash = await wallet.request({method: 'eth_sendTransaction', params: [{from: wallet.account.address,
+      transactionHash = await wallet.request({method: 'eth_sendTransaction', params: [{from: payer.address,
         to: d.settlement, data, value: '0x0', nonce: toHex(nonce), gas: toHex(gas), gasPrice: toHex(gasPrice),
         type: '0x0', chainId: toHex(d.chainId)}]}, {retryCount: 0})
     }

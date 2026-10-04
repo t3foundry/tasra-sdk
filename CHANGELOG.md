@@ -42,6 +42,13 @@ never does.
   confirmation depth and exact reservation backing, including expired or already settled intents.
   Reverts report native gas separately and do not assert that no other reservation exists.
 
+### Fixed
+
+- Locally signed reservations are decoded and their signer, destination, calldata, chain,
+  nonce, value and gas verified before broadcast. Gas-payer inputs are pinned before awaits;
+  expiry is rechecked after signing. Lost or false RPC replies retain the computed hash in
+  the uncertainty error, without retrying the transaction.
+
 ## [0.3.0] — 2026-10-03
 
 A minor bump: a public option is removed.

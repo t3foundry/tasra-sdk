@@ -130,6 +130,13 @@ before further spending. Absence of a hash or an HTTP response does not prove th
 the transaction was never sent. Other uses of the gas-payer account must coordinate
 nonces with this application.
 
+For a local signer, it also decodes the returned signed bytes and recovers their sender before
+broadcast, checking every saved transaction field and rechecking expiry after signing.
+A lost or incorrect RPC reply leaves the locally computed hash in the uncertainty error;
+retain that error's hash with your recovery evidence. The prepared journal still survives
+if no subsequent checkpoint can be saved. The selected payer and chain are captured before
+asynchronous work so callback changes cannot redirect the request.
+
 After restart, `reconcilePaidReservation` checks the transaction against the original durable
 record without requesting a quote, signing, broadcasting or changing the journal:
 
