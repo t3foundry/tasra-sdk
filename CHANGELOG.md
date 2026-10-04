@@ -41,6 +41,11 @@ never does.
   It checks the complete transaction identity, historical creator consent, canonical inclusion,
   confirmation depth and exact reservation backing, including expired or already settled intents.
   Reverts report native gas separately and do not assert that no other reservation exists.
+- `reserveApplicationPayment` coordinates reservations through a durable lock per chain and
+  gas payer. Uncertain submissions block further reservations across process restarts;
+  `reconcileApplicationPayment` releases the payer only after verifying the original mined
+  transaction. A retained nonce floor refuses stale RPC nonces. All callers must share one
+  store and a dedicated payer; unrelated wallet transactions are outside this coordination.
 
 ### Fixed
 

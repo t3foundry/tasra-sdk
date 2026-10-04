@@ -59,6 +59,14 @@ for these integrations. The SDK retains advanced writers, governance and meterin
 APIs; choose them by capability, not a fixed number of clients. `chainId` must be
 explicit for the chosen deployment, and slot IDs are 32-byte hex strings.
 
+For prepaid reservations, use `reserveApplicationPayment` from `tasra-sdk/app` with
+the original creator intent/session, explicit gas limits and one durable private store
+shared by every caller of a dedicated gas payer. It serializes nonce selection across
+slots/deployments on the same chain. An uncertain preparation holds that payer until
+`reconcileApplicationPayment` verifies its original mined transaction; never remove a
+journal or clear a claim based on age. It does not coordinate external wallet transactions
+or submit cancellations. See `docs/funding.md` for the complete recovery contract.
+
 The SDK includes its wallet/chain runtime dependencies. Add `viem` directly only
 when your application intentionally imports its advanced APIs. Only `/chain/node` imports Node TLS helpers;
 keep it out of browser/extension bundles. Missing services in a manifest should

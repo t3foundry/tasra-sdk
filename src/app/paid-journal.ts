@@ -90,7 +90,7 @@ export async function loadPaidReservationJournal(store: ApplicationStore, reques
 /**
  * Persist reservation checkpoints and their session preimage using the application's store.
  * Preparation exclusively creates its request ID; every existing record refuses a new attempt.
- * This does not coordinate the gas payer's nonces with other operations or reconcile chain state.
+ * For coordinated gas payer nonces and recovery, use reserveApplicationPayment instead.
  * @param store - Durable private store with locks shared by all participating processes/tabs.
  * @param original - Fixed creator intent supplied to reservePaidOperation.
  * @param originalSession - Random and approved audience committed by that intent.

@@ -9,6 +9,12 @@ credentials. Existing `createTasra` and lower-level APIs remain available. The a
 chooses its policy, consent behavior and private storage; the SDK handles network
 operations and cryptographic checks.
 
+For a prepaid deployment, reserve the creator-signed operation with
+`reserveApplicationPayment` and retain its original session. Use one durable store and a
+dedicated gas payer across operations; recover uncertain submissions with
+`reconcileApplicationPayment` before spending again. See [slot funding](funding.md) for
+the required discovery, fee limits, journal guarantees and recovery limits.
+
 Install the latest SDK from npm as your application dependency. TypeScript and
 `tsx` are development tools:
 

@@ -24,3 +24,5 @@ export {setApprovalPolicy, identityApprover, approveWithCredential} from './appr
 export type {ApprovalPolicy} from './approvals.js'
 export {createPaidReservationJournal, loadPaidReservationJournal} from './paid-journal.js'
 export type {PaidReservationJournal, PaidReservationSession, ApplicationReservationJournal} from './paid-journal.js'
+export {reserveApplicationPayment, reconcileApplicationPayment, ApplicationPayerRecoveryError} from './paid-reservation.js'
+export type {ApplicationReservationOptions} from './paid-reservation.js'

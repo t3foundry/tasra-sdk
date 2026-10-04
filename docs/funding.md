@@ -117,8 +117,46 @@ It also refuses changed hashes and out-of-order checkpoint updates. After restar
 A saved `confirmed` phase may have become orphaned: recheck canonical chain state before
 using it. A `prepared` record without a hash may still have been broadcast. Reconcile that
 original transaction using its saved payer and nonce; never delete the record to retry.
-This adapter coordinates each reservation identity. Other operations sharing a gas payer
-still need application-wide nonce coordination.
+This adapter coordinates each reservation identity. For multiple operations sharing a gas
+payer, use the application wrapper below.
+
+### Coordinate the gas payer
+
+`reserveApplicationPayment` takes the same clients, deployment, payment and expected
+operation, plus a durable store and the original session:
+
+```ts
+import {reserveApplicationPayment, reconcileApplicationPayment} from 'tasra-sdk/app'
+
+const result = await reserveApplicationPayment(client, wallet, deployment, payment, expected, {
+  ...limits, store, session: {random, audience},
+})
+
+// After an uncertain submission, locate its original hash; this call never sends a transaction.
+const resolution = await reconcileApplicationPayment(
+  client, store, deployment, requestId, expected, independentlyRecoveredHash, 2,
+)
+```
+
+All reservation callers must share the same store and use a dedicated gas payer. The
+lock spans nonce selection, durable preparation, submission and verification. It covers
+different slots and deployments on the same chain. A concurrent call either waits or is
+refused, depending on the store; the file store refuses with `StoreLockedError`.
+Unrelated CLI, wallet and low-level `reservePaidOperation` writes are outside this lock.
+
+Once preparation claims a payer, any uncertain outcome retains that claim across restart.
+`ApplicationPayerRecoveryError.requestId` identifies the operation to inspect. Recovery
+requires the original exact transaction to be canonically mined, including a revert; it
+retains the recovered evidence before releasing the payer. The original journal is never
+deleted or made reusable. A durable nonce floor refuses RPC responses older than the last
+verified consumption. Neither expiry nor an absent transaction hash releases a claim.
+If the transaction never lands, the payer remains held: this API does not broadcast a
+cancellation or replacement. A process killed while holding a file-store lock also leaves
+that lock for explicit reconciliation under the store's existing recovery policy.
+
+The wrapper returns the same verified reservation receipt as the low-level helper. It
+does not resume authorization or keeper work, and it cannot coordinate other applications
+using another store or an externally shared wallet.
 
 Only after durable preparation does the helper submit one transaction. It neither
 retries through another wallet method nor replaces a transaction. It checks the mined

@@ -8,6 +8,8 @@ import {PaidReservationUncertainError, reservePaidOperation, reconcilePaidReserv
 import {paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {createFileStore} from '../../src/app/node.js'
 import {createPaidReservationJournal} from '../../src/app/paid-journal.js'
+import {reserveApplicationPayment, reconcileApplicationPayment, ApplicationPayerRecoveryError} from '../../src/app/paid-reservation.js'
+import type {ApplicationStore} from '../../src/app/ready-slot.js'
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.js'
 
@@ -17,6 +19,7 @@ const expected = {slot: h(3), action: 'sign' as const, payloadDigest: h(4)}
 const chain = defineChain({id: 43112, name: 'local', nativeCurrency: {name: 'AVAX', symbol: 'AVAX', decimals: 18}, rpcUrls: {default: {http: ['http://127.0.0.1:1']}}})
 const encoded = (abi: Abi, functionName: string, result: unknown) => encodeFunctionResult({abi, functionName, result})
 interface Changes {
+  paymentNonce?: Hex; payerNonce?: number; applicationJournal?: boolean
   session?: {random: Hex; audience: string}
   quote?: (quote: PaidReservationQuote, method: string, index: number) => void
   gas?: bigint; price?: bigint; chain?: number; creator?: Hex; simulateFailure?: boolean
@@ -32,7 +35,7 @@ async function fixture(change: Changes = {}) {
   vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
   const creator = privateKeyToAccount(h(11))
   const payment: PaymentIntentWire = {chain_id: 43112, settlement: h(1, 20), key_registry: h(2, 20), slot: h(3), action: 'sign',
-    payload_digest: h(4), session_commitment: h(5), nonce: h(6), max_cost: '10', expires: 1060,
+    payload_digest: h(4), session_commitment: h(5), nonce: change.paymentNonce ?? h(6), max_cost: '10', expires: 1060,
     verification_epoch: 7, verification_seed: h(8), verification_root: h(9), verification_registry_size: 5, verification_committee: 3, verification_quorum: 2,
     keeper_assignment: {key_epoch: 1, committee_version: 2, threshold: 2, coordinator: Array<number>(32).fill(9), contributors: [9, 10, 11].map(n => Array<number>(32).fill(n))}, signature: h(1, 65)}
   if (change.session) payment.session_commitment = paymentSessionCommitment(change.session.random, change.session.audience, payment.expires)
@@ -85,16 +88,16 @@ async function fixture(change: Changes = {}) {
     }
     if (method === 'eth_gasPrice') return toHex(change.price ?? 25n)
     if (method === 'eth_estimateGas') return toHex(change.gas ?? 100000n)
-    if (method === 'eth_getTransactionCount') return '0x4'
+    if (method === 'eth_getTransactionCount') return toHex(change.payerNonce ?? 4)
     if (method === 'eth_sendTransaction') {
-      expect(checkpoints[0]?.phase).toBe('prepared')
+      if (!change.applicationJournal) expect(checkpoints[0]?.phase).toBe('prepared')
       transactions.push((params as Record<string, unknown>[])[0]!)
       if (change.rpcSendError) throw Object.assign(new Error('invalid input after uncertain submission'), {code: -32602})
       if (change.failSend) throw new Error('transport lost after send')
       return h(77)
     }
     if (method === 'eth_sendRawTransaction') {
-      expect(checkpoints[0]?.phase).toBe('prepared')
+      if (!change.applicationJournal) expect(checkpoints[0]?.phase).toBe('prepared')
       const raw = (params as Hex[])[0]!
       const tx = parseTransaction(raw)
       transactions.push({from: creator.address, to: tx.to, data: tx.data, value: toHex(tx.value ?? 0n), gas: toHex(tx.gas!), gasPrice: toHex(tx.gasPrice!), nonce: toHex(tx.nonce!), chainId: toHex(tx.chainId!), type: '0x0'})
@@ -353,4 +356,107 @@ it('caller and journal mutation cannot change the signed operation or the outgoi
   }})
   expect((await result).receipt.cost).toBe(10n)
   expect(f.transactions[0]!.to).toBe(deployment.settlement)
+})
+
+async function applicationFixture(change: Changes = {}) {
+  const directory = await mkdtemp(join(tmpdir(), 'tasra-payer-'))
+  const session = {random: h(33), audience: 'did:web:agent.example'}
+  Object.assign(change, {applicationJournal: true, session})
+  const f = await fixture(change), store = createFileStore(directory)
+  const {persist: _persist, ...limits} = f.options
+  const run = (storage: ApplicationStore = store, payment = f.payment) => reserveApplicationPayment(f.client, f.wallet, deployment, payment, expected, {...limits, store: storage, session})
+  const recover = (storage: ApplicationStore = store, hash = h(77)) => reconcileApplicationPayment(f.client, storage, deployment, prepaidRequestId(f.payment), expected, hash)
+  return {...f, directory, session, store, run, recover, limits,
+    cleanup: () => rm(directory, {recursive: true, force: true}),
+    payerKey: `prepaid-payer-43112-${f.wallet.account.address.toLowerCase()}`}
+}
+
+it('serializes different operations for one payer and retains uncertain claims across store instances', async () => {
+  const f = await applicationFixture({failSend: true})
+  try {
+    let entered!: () => void, resume!: () => void
+    const waiting = new Promise<void>(resolve => {entered = resolve}), released = new Promise<void>(resolve => {resume = resolve})
+    const slow: ApplicationStore = {...f.store, save: async (key, value) => {
+      await f.store.save(key, value)
+      if (key === f.payerKey) {entered(); await released}
+    }}
+    const attempt = f.run(slow).catch((error: unknown) => error)
+    await waiting
+    const different = {...f.payment, nonce: h(44)}, before = f.trace.length
+    await expect(f.run(createFileStore(f.directory), different)).rejects.toThrow(/locked/)
+    expect(f.trace).toHaveLength(before)
+    resume()
+    expect(await attempt).toBeInstanceOf(PaidReservationUncertainError)
+    await expect(f.run(createFileStore(f.directory), different)).rejects.toBeInstanceOf(ApplicationPayerRecoveryError)
+    expect(f.transactions).toHaveLength(1)
+    expect(await f.store.load(f.payerKey)).toMatchObject({pending: {requestId: prepaidRequestId(f.payment), nonce: 4}})
+    expect(await f.recover(createFileStore(f.directory))).toMatchObject({status: 'success'})
+    expect(await f.store.load(f.payerKey)).toMatchObject({nextNonce: 5})
+    expect(await f.store.load(f.payerKey)).not.toHaveProperty('pending')
+    expect(await f.store.load(`prepaid-recovery-${prepaidRequestId(f.payment)}`)).toMatchObject({transactionHash: h(77), status: 'success'})
+    expect(f.transactions).toHaveLength(1)
+  } finally {await f.cleanup()}
+})
+
+it('refuses a stale pending RPC nonce after restart and admits the next nonce for a distinct operation', async () => {
+  const f = await applicationFixture()
+  try {
+    await f.run()
+    const next = await fixture({applicationJournal: true, session: f.session, paymentNonce: h(22), payerNonce: 4})
+    const run = () => reserveApplicationPayment(next.client, next.wallet, deployment, next.payment, expected,
+      {...f.limits, session: f.session, store: createFileStore(f.directory)})
+    await expect(run()).rejects.toThrow(/durable payer floor/)
+    expect(next.transactions).toHaveLength(0)
+    const third = await fixture({applicationJournal: true, session: f.session, paymentNonce: h(23), payerNonce: 5})
+    await reserveApplicationPayment(third.client, third.wallet, deployment, third.payment, expected,
+      {...f.limits, session: f.session, store: createFileStore(f.directory)})
+    expect(third.transactions).toHaveLength(1)
+    expect(third.transactions[0]!.nonce).toBe('0x5')
+    expect(await f.store.load(f.payerKey)).toMatchObject({nextNonce: 6})
+  } finally {await f.cleanup()}
+})
+
+it('keeps the payer claimed on reorg, a wrong candidate and recovery storage failure; a canonical revert frees only its nonce', async () => {
+  const change: Changes = {failSend: true, reverted: true}, f = await applicationFixture(change)
+  try {
+    await expect(f.run()).rejects.toBeInstanceOf(PaidReservationUncertainError)
+    change.receiptReorg = true
+    await expect(f.recover()).rejects.toThrow(/reorganized/)
+    change.receiptReorg = false
+    await expect(f.recover(f.store, h(88))).rejects.toThrow(/candidate/)
+    await expect(f.recover({...f.store, save: async () => {throw new Error('disk full')}})).rejects.toThrow(/disk full/)
+    expect(await f.store.load(f.payerKey)).toHaveProperty('pending')
+    expect(await f.recover()).toMatchObject({status: 'reverted', gasCost: 2500000n})
+    expect(await f.store.load(f.payerKey)).toEqual({schema: 1, chainId: 43112, payer: f.wallet.account.address, nextNonce: 5})
+    expect(f.transactions).toHaveLength(1)
+  } finally {await f.cleanup()}
+})
+
+it('never submits if payer persistence fails after its durable write and never clears the uncertain claim by age', async () => {
+  const f = await applicationFixture()
+  try {
+    await expect(f.run({...f.store, save: async (key, value) => {
+      await f.store.save(key, value)
+      if (key === f.payerKey) throw new Error('lost payer write acknowledgement')
+    }})).rejects.toThrow(/lost payer write/)
+    expect(f.transactions).toHaveLength(0)
+    vi.spyOn(Date, 'now').mockReturnValue(9_000_000)
+    await expect(f.run(createFileStore(f.directory), {...f.payment, nonce: h(22)})).rejects.toBeInstanceOf(ApplicationPayerRecoveryError)
+    expect(f.transactions).toHaveLength(0)
+  } finally {await f.cleanup()}
+})
+
+it('refuses corrupt payer state and repeated operation journals before any network calls', async () => {
+  const f = await applicationFixture()
+  try {
+    await f.store.save(f.payerKey, {schema: 99})
+    await expect(f.run()).rejects.toThrow(/durable reservation payer state/)
+    expect(f.trace).toHaveLength(0)
+    await f.store.save(f.payerKey, {schema: 1, chainId: 43112, payer: f.wallet.account.address, nextNonce: 0})
+    await f.run()
+    const before = f.trace.length
+    await expect(f.run()).rejects.toThrow(/already journaled/)
+    expect(f.trace).toHaveLength(before)
+    await expect(f.recover()).rejects.toThrow(/does not own/)
+  } finally {await f.cleanup()}
 })

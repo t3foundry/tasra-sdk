@@ -9,9 +9,10 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 4 classes</summary>
+<summary>Browse 5 classes</summary>
 
 - [TasraClient](#tasraclient)
+- [ApplicationPayerRecoveryError](#applicationpayerrecoveryerror)
 - [ApplicationSlotRecoveryError](#applicationslotrecoveryerror)
 - [CreationReconciliationRequiredError](#creationreconciliationrequirederror)
 - [TasraApplicationError](#tasraapplicationerror)
@@ -89,6 +90,30 @@ readonly wallets: {
 - ` readonly check: TasraApplication['check']; ` — Check the RPC chain ID and required registry bytecode.
 
 - ` static fromManifest(source: string | URL, options?: Omit<TasraClientOptions, 'manifest'> & LoadApplicationManifestOptions): Promise<TasraClient>; ` — Download a network manifest from tasra-releases and construct the application client. An optional independently trusted digest is checked before parsing.
+
+### ApplicationPayerRecoveryError
+
+Another reservation may have consumed this payer's nonce; reconcile it before proceeding.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L17)
+
+Import: `import {ApplicationPayerRecoveryError} from 'tasra-sdk/app'`
+
+```ts
+declare class ApplicationPayerRecoveryError {
+    constructor(requestId: Hex);
+}
+```
+
+- ` readonly requestId: Hex; ` — Original reservation that must be reconciled.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
 
 ### ApplicationSlotRecoveryError
 
@@ -185,7 +210,7 @@ declare class TasraApplicationError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 23 functions</summary>
+<summary>Browse 25 functions</summary>
 
 - [approveWithCredential](#approvewithcredential)
 - [connectWallet](#connectwallet)
@@ -205,7 +230,9 @@ Operations you can import and call.
 - [loadPaidReservationJournal](#loadpaidreservationjournal)
 - [prepareSlot](#prepareslot)
 - [presentCredentials](#presentcredentials)
+- [reconcileApplicationPayment](#reconcileapplicationpayment)
 - [registeredWalletAuthorization](#registeredwalletauthorization)
+- [reserveApplicationPayment](#reserveapplicationpayment)
 - [resolveApplicationManifest](#resolveapplicationmanifest)
 - [setApprovalPolicy](#setapprovalpolicy)
 - [toViemAccount](#toviemaccount)
@@ -338,7 +365,7 @@ Return details: Chain-bound wallet with an explicit private-key export function.
 
 Persist reservation checkpoints and their session preimage using the application's store.
 Preparation exclusively creates its request ID; every existing record refuses a new attempt.
-This does not coordinate the gas payer's nonces with other operations or reconcile chain state.
+For coordinated gas payer nonces and recovery, use reserveApplicationPayment instead.
 
 [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-journal.ts#L98)
 
@@ -737,6 +764,40 @@ Promise<{
 }>
 ```
 
+### reconcileApplicationPayment
+
+Release an application's pending gas payer only after verifying the original mined transaction.
+Success and revert both consume the nonce. Missing/replaced/reorganized transactions retain
+the claim. This does not resubmit, delete the original journal or authorize keeper work.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L103)
+
+Import: `import {reconcileApplicationPayment} from 'tasra-sdk/app'`
+
+```ts
+declare function reconcileApplicationPayment(
+    client: PublicClient,
+    store: ApplicationStore,
+    deployment: PrepaidDeployment,
+    requestId: Hex,
+    expected: ExpectedPaidOperation,
+    transactionHash: Hex,
+    confirmations?: number
+): Promise<PaidReservationResolution>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | - Trusted bounded RPC client with historical canonical reads. |
+| ` store ` | ` ApplicationStore ` | - Same durable private store used for reservation. |
+| ` deployment ` | ` PrepaidDeployment ` | - Independently approved original deployment. |
+| ` requestId ` | ` Hex ` | - Original operation ID retained in the private journal. |
+| ` expected ` | ` ExpectedPaidOperation ` | - Independently selected original operation. |
+| ` transactionHash ` | ` Hex ` | - Saved or independently located candidate; its full identity is verified. |
+| ` confirmations? ` | ` number ` | - Required canonical inclusion depth, 1..64 (default 1). |
+
+Returns: ` Promise<PaidReservationResolution> `.
+
 ### registeredWalletAuthorization
 
 Request-bound authorization through an independently approved registered agent.
@@ -776,6 +837,39 @@ declare function registeredWalletAuthorization(config: {
 ```
 
 Returns: ` OperationAuthorizer `.
+
+### reserveApplicationPayment
+
+Reserve one operation while exclusively coordinating its gas payer across the application.
+The same private store must cover all reservation callers, including different deployments
+on one chain. Use a dedicated payer: unrelated wallet/CLI transactions are not coordinated.
+Any uncertainty after preparation retains a durable payer claim; elapsed time never clears it.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L59)
+
+Import: `import {reserveApplicationPayment} from 'tasra-sdk/app'`
+
+```ts
+declare function reserveApplicationPayment(
+    client: PublicClient,
+    wallet: WalletClient<Transport, Chain, Account>,
+    deployment: PrepaidDeployment,
+    original: PaymentIntentWire,
+    expected: ExpectedPaidOperation,
+    options: ApplicationReservationOptions
+): ReturnType<typeof reservePaidOperation>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | - Trusted bounded RPC client; submission retries disabled. |
+| ` wallet ` | ` WalletClient<Transport, Chain, Account> ` | - Dedicated account-bound gas payer. |
+| ` deployment ` | ` PrepaidDeployment ` | - Independently approved prepaid deployment. |
+| ` original ` | ` PaymentIntentWire ` | - Fixed creator intent from verified assignment and session discovery. |
+| ` expected ` | ` ExpectedPaidOperation ` | - Independently derived operation. |
+| ` options ` | ` ApplicationReservationOptions ` | - Durable store, original session, endpoints and explicit gas limits. |
+
+Returns: ` ReturnType<typeof reservePaidOperation> `.
 
 ### resolveApplicationManifest
 
@@ -873,12 +967,13 @@ Return details: Verified disclosed claims; issuer trust depends on the supplied 
 Options, data structures and return types.
 
 <details>
-<summary>Browse 39 types</summary>
+<summary>Browse 40 types</summary>
 
 - [ApplicationDeployment](#applicationdeployment)
 - [ApplicationErrorCode](#applicationerrorcode)
 - [ApplicationManifest](#applicationmanifest)
 - [ApplicationReservationJournal](#applicationreservationjournal)
+- [ApplicationReservationOptions](#applicationreservationoptions)
 - [ApplicationSlotRecoveryCode](#applicationslotrecoverycode)
 - [ApplicationStore](#applicationstore)
 - [ApprovalPolicy](#approvalpolicy)
@@ -992,6 +1087,31 @@ Fields:
 - **` session `**: Original random and audience; keep this journal private.
 - **` transactionHash `**: RPC-reported hash when known; absence does not prove no submission occurred.
 - **` blockHash `**: Observed inclusion block at confirmation; it may later reorganize.
+
+### ApplicationReservationOptions
+
+Durable application reservation controls, shared by every use of this gas payer.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L9)
+
+```ts
+export interface ApplicationReservationOptions extends Omit<ReservePaidOperationOptions, 'persist'> {
+    store: ApplicationStore;
+    session: PaidReservationSession;
+}
+```
+
+Fields:
+
+- **` store `**: Private atomic store whose locks coordinate all participating processes or tabs.
+- **` session `**: Original presentation random and independently approved audience.
+- **` accountantUrls `**: Independently selected accountant HTTPS endpoints; all must agree on the same quote.
+- **` allowLocalHttp `**: Permit HTTP only on local chain43112; never on Fuji.
+- **` maxGas `**: Maximum transaction gas units.
+- **` maxGasPrice `**: Maximum native gas price in wei; separate from the payment's TASRA cap.
+- **` requestTimeoutMs `**: Per-accountant request timeout, 1..85000 ms (default 85000).
+- **` receiptTimeoutMs `**: Receipt timeout, 1..120000 ms (default 60000).
+- **` confirmations `**: Required confirmations, 1..64 (default 1).
 
 ### ApplicationSlotRecoveryCode
 
