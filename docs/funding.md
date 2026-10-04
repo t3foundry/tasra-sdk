@@ -130,6 +130,35 @@ before further spending. Absence of a hash or an HTTP response does not prove th
 the transaction was never sent. Other uses of the gas-payer account must coordinate
 nonces with this application.
 
+After restart, `reconcilePaidReservation` checks the transaction against the original durable
+record without requesting a quote, signing, broadcasting or changing the journal:
+
+```ts
+import {loadPaidReservationJournal} from 'tasra-sdk/app'
+import {reconcilePaidReservation} from 'tasra-sdk/chain'
+
+const saved = await loadPaidReservationJournal(store, requestId)
+if (!saved) throw new Error('Original reservation journal is required')
+const transactionHash = saved.transactionHash ?? independentlyRecoveredHash
+const resolution = await reconcilePaidReservation(
+  client, deployment, saved.record, expected, transactionHash, 2,
+)
+console.log(resolution.status, resolution.gasCost)
+```
+
+The candidate hash may come from the journal or an independent search for the original
+payer/nonce. A matching hash alone is insufficient: the SDK checks sender, destination,
+nonce, call data, value, chain, transaction type and gas bounds against the saved record.
+It verifies creator consent using the original canonical quote block and requires the
+requested confirmation depth at a fresh head. The RPC must retain that historical state;
+missing state, unknown transactions, reorgs or missing receipts never become evidence of
+non-submission. Expired intents can still be inspected. A successful result includes current
+reservation state, even after final settlement or a refund. A reverted result proves only
+that this original transaction reverted; another transaction may have reserved the same intent.
+`gasCost` is the original transaction's consumed native gas in wei, not TASRA usage charges.
+Neither result authorizes another spend or keeper operation. Keep the original journal;
+the helper does not clear a payer lock, retry a payment or resume an expired session.
+
 Pass the same `payment` and committed `random` to `createOid4vpSession`,
 `createOauthSession` or `openVerifierAgentSession`. For the high-level session helper,
 keep the original operation expiry fixed with `nowSecs` and `ttlSecs`; it must match

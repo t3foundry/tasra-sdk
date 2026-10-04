@@ -9,8 +9,8 @@ export * from './abis/index.js'
 export {readSlotFunding, readPaidOperationReceipt, resolvePaidKeeperTarget, discoverPaidOperationContext} from './prepaid.js'
 export type {PrepaidDeployment, PrepaidObservation, SlotFunding, PaidOperationReceipt, ExpectedPaidOperation, PaidKeeperEndpoint, PaidKeeperTarget, PaidKeeperTransportOptions,
   PaidContextDeployment, PaidContextOptions, DiscoveredPaymentFields, PaidOperationContext} from './prepaid.js'
-export {reservePaidOperation, PaidReservationUncertainError} from './reservation.js'
-export type {PaidReservationQuote, PaidReservationRecord, PaidReservationCheckpoint, ReservePaidOperationOptions} from './reservation.js'
+export {reservePaidOperation, reconcilePaidReservation, PaidReservationUncertainError} from './reservation.js'
+export type {PaidReservationQuote, PaidReservationRecord, PaidReservationCheckpoint, ReservePaidOperationOptions, PaidReservationResolution} from './reservation.js'
 export {SlotCommitmentExpiredError, assertExpiredSlotCommitment} from './commitmentRecovery.js'
 
 // Deployment address discovery.

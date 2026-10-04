@@ -37,6 +37,10 @@ never does.
   context before creator signing. It checks approved beacon pointers, explicit verifier
   defaults, eligible workers and positive TASRA funding at one fresh canonical block.
   Discovery, funding and receipt helpers snapshot caller inputs before asynchronous reads.
+- `reconcilePaidReservation` verifies a saved transaction after restart without resubmitting.
+  It checks the complete transaction identity, historical creator consent, canonical inclusion,
+  confirmation depth and exact reservation backing, including expired or already settled intents.
+  Reverts report native gas separately and do not assert that no other reservation exists.
 
 ## [0.3.0] — 2026-10-03
 

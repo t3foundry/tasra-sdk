@@ -116,7 +116,7 @@ function live(payment: PaymentIntentWire, quote?: PaidReservationQuote): void {
   if (payment.expires <= at || payment.expires > at + 3600) throw new Error('payment expiry is outside the allowed lifetime')
   if (quote && (quote.deadline <= at || quote.deadline > payment.expires || quote.deadline > at + 120)) throw new Error('reservation quote deadline is expired or outside consent')
 }
-function parseQuote(value: unknown, payment: PaymentIntentWire, signed: boolean): PaidReservationQuote {
+function parseQuote(value: unknown, payment: PaymentIntentWire, signed: boolean, historical = false): PaidReservationQuote {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid accountant quote')
   const q = value as Record<string, unknown>
   const fields = ['slot', 'quote_block', 'request_ids', 'costs', 'legacy_nonce', 'deadline', 'digest', 'signature', 'mined']
@@ -127,10 +127,10 @@ function parseQuote(value: unknown, payment: PaymentIntentWire, signed: boolean)
     || !Array.isArray(q.costs) || q.costs.length !== 1 || typeof q.costs[0] !== 'string' || !/^[0-9]{1,78}$/.test(q.costs[0])
     || BigInt(q.costs[0]) <= 0n || BigInt(q.costs[0]) > BigInt(payment.max_cost)
     || !Number.isSafeInteger(q.legacy_nonce) || (q.legacy_nonce as number) < 0
-    || !Number.isSafeInteger(q.deadline) || (q.deadline as number) <= 0) throw new Error('accountant quote does not match consent')
+    || !Number.isSafeInteger(q.deadline) || (q.deadline as number) <= 0 || (q.deadline as number) > payment.expires) throw new Error('accountant quote does not match consent')
   if (signed ? typeof q.signature !== 'string' || !/^0x[0-9a-f]{128}$/i.test(q.signature) || /^0x0{128}$/i.test(q.signature) : q.signature !== null) throw new Error('invalid accountant quote signature')
   const quote = q as unknown as PaidReservationQuote
-  live(payment, quote)
+  if (!historical) live(payment, quote)
   const digest = keccak256(encodeAbiParameters([
     {type: 'bytes32'}, {type: 'address'}, {type: 'uint256'}, {type: 'bytes32'}, {type: 'uint64'},
     {type: 'bytes32'}, {type: 'bytes32[]'}, {type: 'uint256[]'}, {type: 'uint64'},
@@ -138,6 +138,115 @@ function parseQuote(value: unknown, payment: PaymentIntentWire, signed: boolean)
     BigInt(quote.legacy_nonce), quote.quote_block, quote.request_ids, [BigInt(quote.costs[0]!)], BigInt(quote.deadline)]))
   if (!same(quote.digest, digest)) throw new Error('accountant quote digest mismatch')
   return quote
+}
+
+/** Canonical transaction outcome retained for recovery; this never authorizes another operation. */
+export type PaidReservationResolution = {
+  /** Fresh canonical head used to check transaction confirmation depth. */
+  blockNumber: bigint
+  /** Hash of that head; historical consent and reservation state carry their own block identities. */
+  blockHash: Hex
+  /** Timestamp of the confirmation head in Unix seconds. */
+  blockTimestamp: bigint
+  /** Original locally derived reservation identity. */
+  requestId: Hex
+  /** Hash independently located for the saved transaction, including after a hashless timeout. */
+  transactionHash: Hex
+  /** Canonical block containing the original transaction. */
+  transactionBlockHash: Hex
+  /** Number of the transaction's inclusion block. */
+  transactionBlockNumber: bigint
+  /** Native gas units actually consumed, including by a reverted transaction. */
+  gasUsed: bigint
+  /** Verified legacy gas price in native base units. */
+  gasPrice: bigint
+  /** Native gas used times gas price; separate from TASRA slot charges. */
+  gasCost: bigint
+} & (
+  | {
+    /** Successful original reservation transaction and currently observable backing. */
+    status: 'success'
+    /** Reservation state, including settlement/refund information if already reconciled. */
+    receipt: PaidOperationReceipt
+  }
+  | {
+    /** Original transaction reverted. This does not prove no other transaction reserved the intent. */
+    status: 'reverted'
+  }
+)
+
+/**
+ * Verify a saved reservation transaction after restart without submitting or replacing anything.
+ * Expired intents remain recoverable. Missing transactions, unavailable historical state, reorgs
+ * and insufficient confirmations fail closed; none prove that the operation was never submitted.
+ * A reverted result proves only this transaction's failure, not absence of another reservation.
+ * @param client - Trusted bounded public RPC client with canonical historical reads.
+ * @param deployment - Independently approved original deployment.
+ * @param original - Original durable preparation; never a newly created replacement intent.
+ * @param expected - Independently selected original slot, action and payload digest.
+ * @param transactionHash - Saved or independently found candidate hash; its entire identity is checked.
+ * @param confirmations - Required inclusion depth, 1..64 (default 1).
+ */
+export async function reconcilePaidReservation(
+  client: PublicClient, deployment: PrepaidDeployment, original: PaidReservationRecord,
+  expected: ExpectedPaidOperation, transactionHash: Hex, confirmations = 1,
+): Promise<PaidReservationResolution> {
+  const d = {...deployment}, record = structuredClone(original), operation = {...expected}
+  const payment = record.payment
+  assertPaymentIntentWire(payment)
+  const requestId = prepaidRequestId(payment), tx = record.transaction
+  if (record.schema !== 1 || record.requestId !== requestId || !Number.isSafeInteger(d.chainId) || d.chainId <= 0
+    || [d.settlement, d.keyRegistry].some(address => !/^0x[0-9a-f]{40}$/i.test(address) || /^0x0{40}$/i.test(address))
+    || payment.chain_id !== d.chainId || !same(payment.settlement, d.settlement) || !same(payment.key_registry, d.keyRegistry)
+    || !same(payment.slot, operation.slot) || payment.action !== operation.action || !same(payment.payload_digest, operation.payloadDigest)
+    || !HEX32.test(transactionHash) || /^0x0{64}$/i.test(transactionHash) || !Number.isSafeInteger(confirmations) || confirmations < 1 || confirmations > 64) throw new Error('invalid reservation recovery identity or confirmations')
+  const quote = parseQuote(record.quote, payment, true, true)
+  const data = encodeFunctionData({abi: settlementAbi, functionName: 'reservePrepaidBls', args: [payment.slot, BigInt(quote.legacy_nonce), quote.quote_block,
+    [requestId], [BigInt(quote.costs[0]!)], BigInt(quote.deadline), quote.signature!]})
+  if (!tx || tx.chainId !== d.chainId || !/^0x[0-9a-f]{40}$/i.test(tx.from) || /^0x0{40}$/i.test(tx.from)
+    || !same(tx.to, d.settlement) || !same(tx.data, data) || tx.value !== '0'
+    || !Number.isSafeInteger(tx.nonce) || tx.nonce < 0 || typeof tx.gas !== 'string' || !/^[1-9][0-9]{0,77}$/.test(tx.gas) || BigInt(tx.gas) >= 1n << 64n
+    || typeof tx.gasPrice !== 'string' || !/^[1-9][0-9]{0,77}$/.test(tx.gasPrice) || BigInt(tx.gasPrice) >= 1n << 128n) throw new Error('invalid saved reservation transaction')
+  if (await client.getChainId() !== d.chainId) throw new Error('reservation recovery chain mismatch')
+  const [transaction, mined, head, quoteBlock] = await Promise.all([
+    client.getTransaction({hash: transactionHash}), client.getTransactionReceipt({hash: transactionHash}),
+    client.getBlock({blockTag: 'latest'}), client.getBlock({blockHash: quote.quote_block}),
+  ])
+  const fresh = () => {
+    if (head.number === null || head.hash === null || !HEX32.test(head.hash) || /^0x0{64}$/i.test(head.hash)
+      || BigInt(now()) - head.timestamp > 30n || head.timestamp - BigInt(now()) > 2n) throw new Error('reservation recovery head is stale or unavailable')
+  }
+  fresh()
+  if (transaction.to === null || !same(transaction.hash, transactionHash) || !same(mined.transactionHash, transactionHash)
+    || !same(transaction.to, tx.to) || !same(transaction.from, tx.from) || !same(transaction.input, tx.data)
+    || transaction.value !== 0n || transaction.nonce !== tx.nonce || transaction.type !== 'legacy' || transaction.chainId !== tx.chainId
+    || transaction.gas !== BigInt(tx.gas) || transaction.gasPrice !== BigInt(tx.gasPrice)
+    || transaction.blockHash === null || !same(transaction.blockHash, mined.blockHash) || transaction.blockNumber !== mined.blockNumber
+    || mined.to === null || !same(mined.to, tx.to) || !same(mined.from, tx.from) || mined.type !== 'legacy'
+    || mined.gasUsed <= 0n || mined.gasUsed > BigInt(tx.gas) || mined.effectiveGasPrice !== BigInt(tx.gasPrice)
+    || !['success', 'reverted'].includes(mined.status)) throw new Error('candidate transaction differs from the saved reservation')
+  if (head.number === null || head.hash === null || head.number < mined.blockNumber + BigInt(confirmations - 1)) throw new Error('reservation recovery needs more confirmations')
+  if (quoteBlock.number === null || quoteBlock.hash === null || !same(quoteBlock.hash, quote.quote_block)
+    || quoteBlock.number > mined.blockNumber) throw new Error('invalid original reservation quote block')
+  const result = await client.call({to: d.keyRegistry, data: encodeFunctionData({abi: keyRegistryAbi, functionName: 'getKeySlot', args: [payment.slot]}),
+    blockHash: quote.quote_block, requireCanonical: true, batch: false})
+  if (result.data === undefined) throw new Error('original slot creator unavailable')
+  const slot = decodeFunctionResult({abi: keyRegistryAbi, functionName: 'getKeySlot', data: result.data})
+  const creator = await recoverTypedDataAddress({...paymentIntentTypedData(payment), signature: payment.signature})
+  if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= quoteBlock.timestamp) || !same(creator, slot.creator)) throw new Error('saved payment is not from the original active slot creator')
+  const receipt = mined.status === 'success' ? await readPaidOperationReceipt(client, d, payment, operation) : undefined
+  if (receipt && (receipt.blockNumber < mined.blockNumber || receipt.cost !== BigInt(quote.costs[0]!) || !same(receipt.assignmentBlock, quote.quote_block))) throw new Error('recovered reservation differs from the saved quote')
+  const [canonicalMined, canonicalQuote, canonicalHead] = await Promise.all([
+    client.getBlock({blockNumber: mined.blockNumber}), client.getBlock({blockNumber: quoteBlock.number}), client.getBlock({blockNumber: head.number}),
+  ])
+  if (canonicalMined.hash === null || !same(canonicalMined.hash, mined.blockHash)
+    || canonicalQuote.hash === null || !same(canonicalQuote.hash, quote.quote_block)
+    || canonicalHead.hash === null || !same(canonicalHead.hash, head.hash)) throw new Error('reservation recovery observation reorganized')
+  fresh()
+  const observed = {blockNumber: head.number, blockHash: head.hash, blockTimestamp: head.timestamp, requestId, transactionHash,
+    transactionBlockNumber: mined.blockNumber, transactionBlockHash: mined.blockHash,
+    gasUsed: mined.gasUsed, gasPrice: mined.effectiveGasPrice, gasCost: mined.gasUsed * mined.effectiveGasPrice}
+  return receipt ? {...observed, status: 'success', receipt} : {...observed, status: 'reverted'}
 }
 function unsigned(q: PaidReservationQuote): string {
   return JSON.stringify([q.slot.toLowerCase(), q.quote_block.toLowerCase(), q.request_ids.map(s => s.toLowerCase()), q.costs.map(s => BigInt(s).toString()), q.legacy_nonce, q.deadline, q.digest.toLowerCase()])

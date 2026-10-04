@@ -133,7 +133,7 @@ declare class SlotCommitmentExpiredError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 62 functions</summary>
+<summary>Browse 63 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -177,6 +177,7 @@ Operations you can import and call.
 - [readApprovedServiceRecord](#readapprovedservicerecord)
 - [readPaidOperationReceipt](#readpaidoperationreceipt)
 - [readSlotFunding](#readslotfunding)
+- [reconcilePaidReservation](#reconcilepaidreservation)
 - [reconcileRelayAttempt](#reconcilerelayattempt)
 - [requestSlotSeed](#requestslotseed)
 - [requireAddress](#requireaddress)
@@ -1191,6 +1192,39 @@ declare function readSlotFunding(client: PublicClient, deployment: PrepaidDeploy
 
 Returns: ` Promise<SlotFunding> `.
 
+### reconcilePaidReservation
+
+Verify a saved reservation transaction after restart without submitting or replacing anything.
+Expired intents remain recoverable. Missing transactions, unavailable historical state, reorgs
+and insufficient confirmations fail closed; none prove that the operation was never submitted.
+A reverted result proves only this transaction's failure, not absence of another reservation.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L190)
+
+Import: `import {reconcilePaidReservation} from 'tasra-sdk/chain'`
+
+```ts
+declare function reconcilePaidReservation(
+    client: PublicClient,
+    deployment: PrepaidDeployment,
+    original: PaidReservationRecord,
+    expected: ExpectedPaidOperation,
+    transactionHash: Hex,
+    confirmations?: number
+): Promise<PaidReservationResolution>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | - Trusted bounded public RPC client with canonical historical reads. |
+| ` deployment ` | ` PrepaidDeployment ` | - Independently approved original deployment. |
+| ` original ` | ` PaidReservationRecord ` | - Original durable preparation; never a newly created replacement intent. |
+| ` expected ` | ` ExpectedPaidOperation ` | - Independently selected original slot, action and payload digest. |
+| ` transactionHash ` | ` Hex ` | - Saved or independently found candidate hash; its entire identity is checked. |
+| ` confirmations? ` | ` number ` | - Required inclusion depth, 1..64 (default 1). |
+
+Returns: ` Promise<PaidReservationResolution> `.
+
 ### reconcileRelayAttempt
 
 Recover from a lost HTTP response or process restart using the trusted RPC, without broadcasting.
@@ -1280,7 +1314,7 @@ Reserve TASRA for a fixed creator-signed operation using an accountant threshold
 Does not create an intent, approve tokens, activate a slot, authorize credentials or do keeper
 work. One broadcast attempt only; no replacement, coordinator failover or implicit gas funding.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L194)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L303)
 
 Import: `import {reservePaidOperation} from 'tasra-sdk/chain'`
 
@@ -1670,7 +1704,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 83 types</summary>
+<summary>Browse 84 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -1713,6 +1747,7 @@ Options, data structures and return types.
 - [PaidReservationCheckpoint](#paidreservationcheckpoint)
 - [PaidReservationQuote](#paidreservationquote)
 - [PaidReservationRecord](#paidreservationrecord)
+- [PaidReservationResolution](#paidreservationresolution)
 - [PrepaidDeployment](#prepaiddeployment)
 - [PrepaidObservation](#prepaidobservation)
 - [ProvisionRuleArgs](#provisionruleargs)
@@ -2775,6 +2810,46 @@ Fields:
 - **` payment `**: Creator's fixed intent, needed for recovery and the credential session.
 - **` quote `**: Signed accountant quote.
 - **` transaction `**: Exact bounded transaction; decimal strings preserve integer precision in storage.
+
+### PaidReservationResolution
+
+Canonical transaction outcome retained for recovery; this never authorizes another operation.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L144)
+
+```ts
+export type PaidReservationResolution = {
+    blockNumber: bigint;
+    blockHash: Hex;
+    blockTimestamp: bigint;
+    requestId: Hex;
+    transactionHash: Hex;
+    transactionBlockHash: Hex;
+    transactionBlockNumber: bigint;
+    gasUsed: bigint;
+    gasPrice: bigint;
+    gasCost: bigint;
+} & ({
+    status: 'success';
+    receipt: PaidOperationReceipt;
+} | {
+    status: 'reverted';
+});
+```
+
+Fields:
+
+- **` blockNumber `**: Fresh canonical head used to check transaction confirmation depth.
+- **` blockHash `**: Hash of that head; historical consent and reservation state carry their own block identities.
+- **` blockTimestamp `**: Timestamp of the confirmation head in Unix seconds.
+- **` requestId `**: Original locally derived reservation identity.
+- **` transactionHash `**: Hash independently located for the saved transaction, including after a hashless timeout.
+- **` transactionBlockHash `**: Canonical block containing the original transaction.
+- **` transactionBlockNumber `**: Number of the transaction's inclusion block.
+- **` gasUsed `**: Native gas units actually consumed, including by a reverted transaction.
+- **` gasPrice `**: Verified legacy gas price in native base units.
+- **` gasCost `**: Native gas used times gas price; separate from TASRA slot charges.
+- **` status `**: Successful original reservation transaction and currently observable backing. Original transaction reverted. This does not prove no other transaction reserved the intent.
 
 ### PrepaidDeployment
 
