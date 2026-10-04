@@ -11,6 +11,7 @@ import {createPaidReservationJournal} from '../../src/app/paid-journal.js'
 import {reserveApplicationPayment, reconcileApplicationPayment, ApplicationPayerRecoveryError} from '../../src/app/paid-reservation.js'
 import type {ApplicationStore} from '../../src/app/ready-slot.js'
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
+import {UnderfundedSlotError} from '../../src/errors.js'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.js'
 
 const h = (n: number, length = 32): Hex => `0x${n.toString(16).padStart(2, '0').repeat(length)}`
@@ -131,6 +132,19 @@ async function fixture(change: Changes = {}) {
     recover: (confirmations = 1) => reconcilePaidReservation(client, deployment, record(), expected, transactionHash, confirmations)}
 }
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it('returns a typed underfunded slot error before journaling or broadcasting a reservation', async () => {
+  const f = await fixture({response: new Response('insufficient available TASRA', {status: 402})})
+  const error: unknown = await f.run().catch((error: unknown) => error)
+  expect(error).toBeInstanceOf(UnderfundedSlotError)
+  if (!(error instanceof UnderfundedSlotError)) throw new Error('Expected the typed funding refusal')
+  expect(error).toMatchObject({slotId: f.payment.slot, status: 402, retryable: false,
+    url: 'https://acct0.example/v1/prepaid/reservations/prepare'})
+  expect(error.availableTasraUnits).toBeUndefined()
+  expect(f.transactions).toHaveLength(0)
+  expect(f.checkpoints).toHaveLength(0)
+  expect(f.fetcher).toHaveBeenCalledTimes(1)
+})
 
 it('recovers a hashless submission after restart without another quote, signature or broadcast', async () => {
   const f = await fixture({failSend: true})

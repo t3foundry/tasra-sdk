@@ -3,6 +3,7 @@ import {assertPaymentIntentWire, paymentIntentTypedData, prepaidRequestId, type 
 import {settlementAbi} from './abis/settlement.js'
 import {keyRegistryAbi} from './abis/keyRegistry.js'
 import {readPaidOperationReceipt, type ExpectedPaidOperation, type PaidOperationReceipt, type PrepaidDeployment} from './prepaid.js'
+import {UnderfundedSlotError} from '../errors.js'
 
 /** Accountant authorization for a single operation. This is not a mined reservation. */
 export interface PaidReservationQuote {
@@ -265,7 +266,13 @@ function endpoints(options: ReservePaidOperationOptions, chainId: number): strin
 async function ask(endpoint: string, method: 'prepare' | 'authorize', payment: PaymentIntentWire, block: Hex | null, timeout: number): Promise<PaidReservationQuote> {
   const response = await fetch(`${endpoint}/v1/prepaid/reservations/${method}`, {method: 'POST', redirect: 'error',
     headers: {'content-type': 'application/json'}, body: JSON.stringify({intents: [payment], quote_block: block}), signal: AbortSignal.timeout(timeout)})
-  if (!response.ok || !response.body) throw new Error(`accountant reservation request refused (${response.status})`)
+  if (!response.ok) {
+    void response.body?.cancel().catch(() => {})
+    if (response.status === 402) throw new UnderfundedSlotError({slotId: payment.slot, status: 402,
+      url: `${endpoint}/v1/prepaid/reservations/${method}`, message: 'accountant reservation request refused (402): insufficient available TASRA'})
+    throw new Error(`accountant reservation request refused (${response.status})`)
+  }
+  if (!response.body) throw new Error(`accountant reservation request refused (${response.status})`)
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
   let size = 0

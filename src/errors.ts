@@ -43,6 +43,31 @@ export class TasraError extends Error {
 }
 
 /**
+ * A new payment cannot be prepared with the slot's available TASRA. Reserved
+ * credit belongs to earlier jobs and is not available for a new reservation.
+ * Top up and read fresh funding before starting another payment; this error
+ * never authorizes resubmission of an uncertain transaction.
+ */
+export class UnderfundedSlotError extends TasraError {
+  /** Slot whose new payment was refused. */
+  readonly slotId: string
+  /** Unreserved TASRA base units, when observed during on-chain discovery. */
+  readonly availableTasraUnits?: bigint
+  /** Accountant HTTP status, absent for a local funding observation. */
+  readonly status?: 402
+  /** Accountant endpoint, when a reservation request returned HTTP 402. */
+  readonly url?: string
+
+  constructor(args: {slotId: string; availableTasraUnits?: bigint; status?: 402; url?: string; message?: string}) {
+    super(args.message ?? `Slot ${args.slotId} has insufficient available TASRA`, {retryable: false})
+    this.slotId = args.slotId
+    this.availableTasraUnits = args.availableTasraUnits
+    this.status = args.status
+    this.url = args.url
+  }
+}
+
+/**
  * A node or verifier answered with a non-2xx status. `body` is the response body,
  * truncated to 200 characters - enough to carry the service's own error text
  * without dumping a page of HTML into a log line.

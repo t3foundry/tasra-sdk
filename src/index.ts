@@ -82,6 +82,7 @@ export type {Faucet, FaucetGrant} from './slots/index.js'
 export {
   TasraError,
   TasraHttpError,
+  UnderfundedSlotError,
   AuthDeniedError,
   NodeUnreachableError,
   ThresholdNotMetError,

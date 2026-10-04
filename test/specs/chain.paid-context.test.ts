@@ -3,6 +3,7 @@ import {ed25519} from '@noble/curves/ed25519'
 import {createPublicClient, custom, decodeFunctionData, encodeFunctionResult, getAddress, recoverTypedDataAddress, toHex, type Abi, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {discoverPaidOperationContext, type PaidContextOptions} from '../../src/chain/prepaid.js'
+import {UnderfundedSlotError} from '../../src/errors.js'
 import {paymentIntentTypedData, paymentSessionCommitment} from '../../src/committee/payment.js'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.js'
 import {nodeRegistryAbi} from '../../src/chain/abis/nodeRegistry.js'
@@ -65,6 +66,17 @@ function fixture(change: Changes = {}) {
 }
 afterEach(() => vi.restoreAllMocks())
 const now = () => vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+
+it('identifies an exhausted activated slot without inventing an HTTP response or starting payment work', async () => {
+  now(); const f = fixture({available: 0n})
+  const error: unknown = await f.run().catch((error: unknown) => error)
+  expect(error).toBeInstanceOf(UnderfundedSlotError)
+  expect(error).toMatchObject({slotId: f.slotId, availableTasraUnits: 0n, retryable: false})
+  if (!(error instanceof UnderfundedSlotError)) throw new Error('Expected the typed funding refusal')
+  expect(error.status).toBeUndefined()
+  expect(error.url).toBeUndefined()
+  expect(f.calls.every(call => ['eth_chainId', 'eth_getBlockByNumber', 'eth_call'].includes(call.method))).toBe(true)
+})
 
 it('discovers one canonical assignment/policy and produces creator-signable intent fields without mutations', async () => {
   now(); const f = fixture(), context = await f.run()

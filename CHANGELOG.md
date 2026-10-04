@@ -16,6 +16,10 @@ never does.
 
 ### Added
 
+- `UnderfundedSlotError` identifies an exhausted slot during payment discovery and
+  an accountant's HTTP 402 reservation refusal. It carries the slot ID and any
+  observed available TASRA, without implying another transaction is safe to submit.
+
 - Native dual-sign status exposes `uncertain` when a keeper has retained an execution
   latch without a terminal result. Approval stops without another signature request;
   polling raises `OperationOutcomeUnknownError` with the original request ID.

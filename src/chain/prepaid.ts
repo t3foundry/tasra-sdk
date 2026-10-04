@@ -1,5 +1,6 @@
 import {decodeFunctionResult, encodeFunctionData, keccak256, recoverTypedDataAddress, toHex, type Abi, type Address, type Hex, type PublicClient, type ReadContractReturnType} from 'viem'
 import {ed25519} from '@noble/curves/ed25519'
+import {UnderfundedSlotError} from '../errors.js'
 import {hexToBytes} from '../crypto/hex.js'
 import {assertPaymentIntentWire, keeperAssignmentCommitment, paymentIntentTypedData, prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
 import {settlementAbi} from './abis/settlement.js'
@@ -353,7 +354,9 @@ export async function discoverPaidOperationContext(
     keeperDirectory(client, at, deployment.keyRegistry, slotId),
   ])
   if ([keyBeacon, snapshotBeacon, accountantBeacon].some(pointer => pointer.toLowerCase() !== deployment.beacon.toLowerCase())) throw new Error('payment discovery beacon pointers differ')
-  if (enabled !== true || typeof available !== 'bigint' || available <= 0n) throw new Error('payment discovery requires an activated TASRA-funded slot')
+  if (enabled !== true || typeof available !== 'bigint' || available < 0n) throw new Error('payment discovery requires an activated TASRA-funded slot')
+  if (available === 0n) throw new UnderfundedSlotError({slotId, availableTasraUnits: available,
+    message: 'payment discovery requires an activated TASRA-funded slot'})
   const seedAt = (epoch: bigint) => registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [epoch]) as Promise<Hex>
   const snapshotAt = (epoch: bigint) => registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
   const accountantAt = (epoch: bigint) => registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>

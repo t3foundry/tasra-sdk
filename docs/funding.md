@@ -408,7 +408,34 @@ work reports; a role whose operators did no work receives no fee.
 Persist the message and original payments before sending. If creation has an unknown
 outcome, its error includes the stable request ID. Resume with
 `client.resume(requestId, message, {payment})` and poll before resubmitting. A pinned
-client retains that payment automatically. Pending and terminal keeper request state
-is currently held in memory for five minutes; process loss or expiry requires payment
-reconciliation. The durable work journal prevents spending the same payment twice,
-but is not a durable result-retrieval API or an automatic payout supervisor.
+client retains that payment automatically. The prepaid keeper deployment stores
+dual-control bindings, approvals and terminal results in its encrypted durable journal.
+After a keeper restart, resume against the original coordinator and request ID. A
+completed result remains retrievable after the approval window expires. An interrupted
+signing attempt is uncertain and does not reopen the payment for another execution;
+reconcile its original payment and execution evidence.
+
+The SDK does not run the platform's payout supervisor. Operators must configure that
+service separately. After canonical settlement, the platform CLI can retrieve a minimal
+claim plan from an assigned accountant with `payment claim-plan`. Save a private backup;
+the claim command independently checks its proofs against the canonical chain root.
+Claiming credits an operator's reward balance, and withdrawing that balance is a separate
+transaction. Neither operation resumes keeper work or changes the saved reservation.
+
+## Handle depleted slot credit
+
+Catch `UnderfundedSlotError` from `tasra-sdk/chain` when discovering or reserving a new
+payment. The error carries `slotId`; discovery of an activated zero-balance slot also
+reports `availableTasraUnits: 0n`. An accountant refusal reports `status: 402` and its
+endpoint. The API does not return a verified required/available amount with that refusal,
+so the SDK leaves those amounts absent instead of estimating them.
+
+Check fresh slot funding and top up TASRA before preparing new work. Available credit
+excludes funds already reserved by other requests. A request can be underfunded with a
+positive balance if its fee is larger, and concurrent requests can consume credit between
+discovery and reservation; on-chain reservation remains atomic. AVAX in the slot creator's
+wallet pays gas and does not fund service work. An already backed operation keeps its
+reserved fee even when the slot's available balance reaches zero.
+
+This error is not automatically retryable. After an uncertain broadcast, reconcile the
+saved reservation rather than submitting it again in response to a balance change.

@@ -9,7 +9,7 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 10 classes</summary>
+<summary>Browse 11 classes</summary>
 
 - [RecipientStore](#recipientstore)
 - [AuthDeniedError](#authdeniederror)
@@ -20,6 +20,7 @@ Clients, adapters and error classes.
 - [TasraError](#tasraerror)
 - [TasraHttpError](#tasrahttperror)
 - [ThresholdNotMetError](#thresholdnotmeterror)
+- [UnderfundedSlotError](#underfundedsloterror)
 - [VerifierAgentSessionError](#verifieragentsessionerror)
 
 </details>
@@ -65,7 +66,7 @@ static fromJwtBodies(bodies: Array<{
 The credential was rejected: 401 or 403. Never retryable - the same token will
 be refused again. Re-claim (redeem a fresh credential or renewal) instead.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L75)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L100)
 
 Import: `import {AuthDeniedError} from 'tasra-sdk'`
 
@@ -166,7 +167,7 @@ declare class DcqlMalformedError {
 The request never got an HTTP answer - DNS failure, connection refused,
 timeout, CORS. Retryable: the service may simply not be up yet.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L85)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L110)
 
 Import: `import {NodeUnreachableError} from 'tasra-sdk'`
 
@@ -198,7 +199,7 @@ The slot was re-keyed (rotated) since the key in hand was assembled, so that
 key cannot read anything encrypted after the rotation. Retryable: re-assemble
 at the new epoch and try again - the managed [Session](#session) does this for you.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L133)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L158)
 
 Import: `import {SlotRotatedError} from 'tasra-sdk'`
 
@@ -264,7 +265,7 @@ without dumping a page of HTML into a log line.
 
 5xx and 429 are marked retryable; other 4xx are not.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L52)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L77)
 
 Import: `import {TasraHttpError} from 'tasra-sdk'`
 
@@ -306,7 +307,7 @@ signing set.
 this actionable: previously those were collected and then discarded, so a DNS
 failure and a cold DKG produced the same opaque message.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L104)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L129)
 
 Import: `import {ThresholdNotMetError} from 'tasra-sdk'`
 
@@ -327,6 +328,47 @@ declare class ThresholdNotMetError {
 - ` readonly need: number; ` — How many were needed.
 
 - ` readonly reasons: readonly string[]; ` — Why each failing participant failed, one string per participant.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### UnderfundedSlotError
+
+A new payment cannot be prepared with the slot's available TASRA. Reserved
+credit belongs to earlier jobs and is not available for a new reservation.
+Top up and read fresh funding before starting another payment; this error
+never authorizes resubmission of an uncertain transaction.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L51)
+
+Import: `import {UnderfundedSlotError} from 'tasra-sdk'`
+
+```ts
+declare class UnderfundedSlotError {
+    constructor(args: {
+        slotId: string;
+        availableTasraUnits?: bigint;
+        status?: 402;
+        url?: string;
+        message?: string;
+    });
+}
+```
+
+- ` readonly slotId: string; ` — Slot whose new payment was refused.
+
+- ` readonly availableTasraUnits?: bigint; ` — Unreserved TASRA base units, when observed during on-chain discovery.
+
+- ` readonly status?: 402; ` — Accountant HTTP status, absent for a local funding observation.
+
+- ` readonly url?: string; ` — Accountant endpoint, when a reservation request returned HTTP 402.
 
 - ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
@@ -1509,7 +1551,7 @@ True when `e` is an auth rejection - i.e. retrying is pointless, re-claim
 instead. Keyed on the HTTP status rather than the class, so it also catches
 subclasses that carry their own name (e.g. `CommitteeAuthorizeError`).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L178)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L203)
 
 Import: `import {isAuthDenied} from 'tasra-sdk'`
 
@@ -1586,7 +1628,7 @@ Returns: ` boolean `.
 True when a typed failure may be transient. Errors outside the TasraError
 hierarchy return false. This hint does not make a write safe to repeat.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L188)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L213)
 
 Import: `import {isRetryable} from 'tasra-sdk'`
 
