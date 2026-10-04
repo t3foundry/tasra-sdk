@@ -2192,7 +2192,19 @@ Chain-derived fields safe to copy into the creator's independently bounded payme
 [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L114)
 
 ```ts
-export type DiscoveredPaymentFields = Pick<PaymentIntentWire, 'chain_id' | 'settlement' | 'key_registry' | 'slot' | 'verification_epoch' | 'verification_seed' | 'verification_root' | 'verification_registry_size' | 'verification_committee' | 'verification_quorum' | 'keeper_assignment'>;
+export type DiscoveredPaymentFields = Pick<PaymentIntentWire,
+    | 'chain_id'
+    | 'settlement'
+    | 'key_registry'
+    | 'slot'
+    | 'verification_epoch'
+    | 'verification_seed'
+    | 'verification_root'
+    | 'verification_registry_size'
+    | 'verification_committee'
+    | 'verification_quorum'
+    | 'keeper_assignment'
+>;
 ```
 
 Fields:

@@ -35,9 +35,8 @@ function parameterType(symbol: ts.Symbol, at: ts.Declaration) {
 function formatDeclaration(value: string) {
   const source = ts.createSourceFile('reference.ts', value, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const printed = printer.printFile(source).trim()
-  // TypeScript indents structural types but keeps flat parameter lists on one line.
-  // Wrap those lists using parsed parameter boundaries, preserving commas inside
-  // generic arguments and string/template literals exactly as printed.
+  // TypeScript indents structural types but keeps flat parameter lists and unions on one line.
+  // Wrap at parsed boundaries, preserving delimiters inside generic arguments and literals.
   const formatted = ts.createSourceFile('reference.ts', printed, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const edits: {start: number; end: number; text: string}[] = []
   function visit(node: ts.Node) {
@@ -49,6 +48,18 @@ function formatDeclaration(value: string) {
       if (!printed.slice(start, end).includes('\n') && lineEnd - lineStart > 240) {
         const indent = /^ */.exec(printed.slice(lineStart))![0]
         edits.push({start, end, text: '\n' + node.parameters.map(parameter => indent + '    ' + parameter.getText(formatted)).join(',\n') + '\n' + indent})
+        return
+      }
+    }
+    if (ts.isUnionTypeNode(node)) {
+      let start = node.getStart(formatted)
+      const end = node.end
+      const lineStart = printed.lastIndexOf('\n', start - 1) + 1
+      const nextLine = printed.indexOf('\n', end), lineEnd = nextLine < 0 ? printed.length : nextLine
+      if (!printed.slice(start, end).includes('\n') && lineEnd - lineStart > 240) {
+        const indent = /^ */.exec(printed.slice(lineStart))![0]
+        while (start > lineStart && printed[start - 1] === ' ') start--
+        edits.push({start, end, text: '\n' + node.types.map(type => indent + '    | ' + type.getText(formatted)).join('\n') + '\n' + indent})
         return
       }
     }
