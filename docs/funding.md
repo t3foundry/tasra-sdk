@@ -30,6 +30,47 @@ authority. Verify the deployment, current assignment, fee quote, creator signatu
 mined reservation independently before opening a session. Hashing an intent does not
 establish any of those facts.
 
+Before constructing an intent, use `discoverPaidOperationContext` from `tasra-sdk/chain`.
+Supply independently approved Settlement, KeyRegistry, VerifierSetRegistry and beacon
+addresses. It checks the registry beacon pointers and reads the keeper sharing, eligible
+workers and anchored verifier context at one fresh canonical block. If the current epoch
+has no snapshot, only the immediately preceding epoch is eligible as a fallback.
+
+```ts
+import {discoverPaidOperationContext} from 'tasra-sdk/chain'
+
+const context = await discoverPaidOperationContext(client, {
+  ...deployment,
+  verifierSet,
+  beacon,
+}, slotId, {
+  defaultVerificationPolicy: {committee: 3, quorum: 2},
+})
+const unsignedPayment = {
+  ...context.intentFields,
+  action,
+  payload_digest: payloadDigest,
+  nonce,
+  max_cost: maximumTasraCost,
+  expires,
+  session_commitment: paymentSessionCommitment(random, audience, expires),
+}
+```
+
+Use the verifier defaults approved for your deployment; the numbers above are examples.
+A slot's nonzero policy overrides them. Missing defaults for a slot with no override are
+refused. Discovery selects the eligible assigned keeper with the lowest registered operator
+ID as coordinator, or accepts an explicit `coordinator` address. The intent includes all
+currently eligible assigned contributors. It refuses fewer contributors than the threshold.
+
+The result includes the creator, published group key, endpoints, available TASRA and block
+identity. Only `intentFields` belongs in the payment preimage. The application still chooses
+the exact operation digest, fresh nonce and presentation random, audience, fee cap and expiry;
+the creator must review and sign them. A positive balance is not a fee quote or reserved
+credit. Discovery makes no service request or transaction, and later reservation and
+execution checks must revalidate chain state. HTTPS is required except with the explicit
+`allowLocalHttp` option on local chain43112; that option never enables HTTP on Fuji.
+
 For direct reservation submission, call `reservePaidOperation` from `tasra-sdk/chain`
 with the signed intent, an independently selected deployment and expected operation,
 a Viem public client, and an account-bound Viem gas-payer wallet. It gathers the same
@@ -41,7 +82,7 @@ Set `maxGas` and `maxGasPrice` explicitly. These limit native transaction gas; t
 intent's `max_cost` separately limits TASRA. Supply trusted, bounded clients and
 accountant HTTPS endpoints. `allowLocalHttp` permits HTTP only on chain43112.
 The function does not mint tokens, fund a wallet, enable a slot or create a new intent.
-It also does not replace independent assignment and verifier-context discovery.
+Use the discovery helper above before creator signing.
 
 Its required `persist` callback is part of the spending guarantee. On `prepared`,
 atomically create a durable record keyed by `record.requestId` and reject an existing
@@ -145,7 +186,8 @@ its own payment; do not reuse one fixed payment for multiple Viem account calls.
 
 Paid token signatures use a separate domain; existing unpaid token bytes stay unchanged.
 This encoding compatibility does not enable unpaid service on a prepaid deployment.
-Automatic intent discovery, reservation journaling and final settlement orchestration remain separate work;
+The helpers cover discovery, reservation journaling and execution separately. Application-wide
+gas nonce coordination and automatic final settlement orchestration remain separate work;
 the helpers above do not claim a complete prepaid client.
 
 ## 1. Fund the creator with AVAX

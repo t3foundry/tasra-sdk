@@ -17,13 +17,13 @@ const intent = (): PaymentIntentWire => ({
 })
 const expected = {slot: h(3), action: 'sign' as const, payloadDigest: h(4)}
 
-function rpc(overrides: Record<string, unknown> = {}, options: {chain?: number; age?: number; hash?: Hex; orphan?: boolean; unsupported?: boolean; pause?: number; empty?: boolean; failure?: boolean} = {}) {
+function rpc(overrides: Record<string, unknown> = {}, options: {chain?: number; age?: number; hash?: Hex; orphan?: boolean; unsupported?: boolean; pause?: number; empty?: boolean; failure?: boolean; onChainId?: () => void} = {}) {
   const calls: {method: string; params?: unknown}[] = []
   const now = Math.floor(Date.now() / 1000)
   let blocks = 0
   const client = createPublicClient({transport: custom({request: async ({method, params}: {method: string; params?: unknown}) => {
     calls.push({method, params})
-    if (method === 'eth_chainId') return `0x${(options.chain ?? 43112).toString(16)}`
+    if (method === 'eth_chainId') {options.onChainId?.(); return `0x${(options.chain ?? 43112).toString(16)}`}
     if (method === 'eth_getBlockByNumber') {
       blocks++
       return {number: '0x14', hash: blocks > 1 && options.orphan ? h(99) : (options.hash ?? h(20)), timestamp: `0x${(now - (options.age ?? 0)).toString(16)}`, transactions: []}
@@ -50,6 +50,13 @@ function rpc(overrides: Record<string, unknown> = {}, options: {chain?: number; 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('canonical prepaid reads', () => {
+  it('retains the approved deployment and payment when caller objects change during RPC', async () => {
+    const d = {...deployment}, payment = intent(), operation = {...expected}
+    const {client} = rpc({}, {onChainId: () => {d.settlement = h(99, 20); payment.slot = h(99); payment.max_cost = '1'; operation.slot = h(99)}})
+    expect((await readPaidOperationReceipt(client, d, payment, operation)).requestId).toBe(prepaidRequestId(intent()))
+    const funding = {...deployment}
+    expect((await readSlotFunding(rpc({}, {onChainId: () => {funding.settlement = h(99, 20)}}).client, funding, h(3))).available).toBe(17n)
+  })
   it('matches the Rust request-ID domain with a 32-byte padded Settlement address', () => {
     // Independently packed from PrepaidRequest::id and hashed using cast keccak.
     expect(prepaidRequestId(intent())).toBe('0xd5dc32f6c86a81eccc18c0e2f88086a3115dc6e6ef0401e2478aff0fa7d86d7a')

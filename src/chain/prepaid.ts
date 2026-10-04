@@ -1,10 +1,12 @@
 import {decodeFunctionResult, encodeFunctionData, keccak256, recoverTypedDataAddress, toHex, type Abi, type Address, type Hex, type PublicClient, type ReadContractReturnType} from 'viem'
 import {ed25519} from '@noble/curves/ed25519'
 import {hexToBytes} from '../crypto/hex.js'
-import {assertPaymentIntentWire, paymentIntentTypedData, prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
+import {assertPaymentIntentWire, keeperAssignmentCommitment, paymentIntentTypedData, prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
 import {settlementAbi} from './abis/settlement.js'
 import {keyRegistryAbi} from './abis/keyRegistry.js'
 import {nodeRegistryAbi} from './abis/nodeRegistry.js'
+import {thresholdRandomBeaconAbi} from './abis/thresholdRandomBeacon.js'
+import {verifierSetRegistryAbi} from './abis/verifierSetRegistry.js'
 
 /** Deployment independently selected by the application, not taken from a received intent. */
 export interface PrepaidDeployment {
@@ -92,6 +94,43 @@ export interface PaidKeeperTransportOptions {
   allowLocalHttp?: boolean
 }
 
+/** Independently approved deployment used to discover a payment before creator signing. */
+export interface PaidContextDeployment extends PrepaidDeployment {
+  /** Expected anchored verifier-set registry. */
+  verifierSet: Address
+  /** Expected threshold beacon, also checked through registry pointers. */
+  beacon: Address
+}
+
+/** Explicit application policy for selecting currently eligible paid workers. */
+export interface PaidContextOptions extends PaidKeeperTransportOptions {
+  /** Requested registered coordinator; otherwise the eligible keeper with the lowest operator ID. */
+  coordinator?: Address
+  /** Independently approved deployed verifier defaults; required only for a zero slot override. */
+  defaultVerificationPolicy?: {committee: number; quorum: number}
+}
+
+/** Chain-derived fields safe to copy into the creator's independently bounded payment intent. */
+export type DiscoveredPaymentFields = Pick<PaymentIntentWire, 'chain_id' | 'settlement' | 'key_registry' | 'slot' | 'verification_epoch' | 'verification_seed' | 'verification_root' | 'verification_registry_size' | 'verification_committee' | 'verification_quorum' | 'keeper_assignment'>
+
+/** One canonical pre-signing observation; later reservation and execution must revalidate it. */
+export interface PaidOperationContext extends PrepaidObservation {
+  /** Chain and assignment fields; add the exact action/digest, cap, nonce, expiry and session commitment before signing. */
+  intentFields: DiscoveredPaymentFields
+  /** On-chain slot creator whose EIP-712 signature authorizes spending. */
+  creator: Address
+  /** Slot mode ordinal for selecting the operation client. */
+  mode: number
+  /** Published group key, independently verified again during execution. */
+  groupPublicKey: Hex
+  /** Selected eligible keeper coordinator. */
+  coordinator: PaidKeeperEndpoint
+  /** All currently eligible assigned contributors in canonical public-key order. */
+  contributors: PaidKeeperEndpoint[]
+  /** Unreserved slot TASRA at this block; it is not a reservation or an operation quote. */
+  available: bigint
+}
+
 const ZERO32 = `0x${'00'.repeat(32)}`
 const ADDRESS = /^0x[0-9a-f]{40}$/i
 const HEX32 = /^0x[0-9a-f]{64}$/i
@@ -159,6 +198,7 @@ async function registryRead(client: PublicClient, at: PrepaidObservation, addres
  * @param slot - Slot whose TASRA balances are required.
  */
 export async function readSlotFunding(client: PublicClient, deployment: PrepaidDeployment, slot: Hex): Promise<SlotFunding> {
+  deployment = {...deployment}
   if (!HEX32.test(slot)) throw new Error('invalid funding slot')
   const at = await observe(client, deployment)
   const [enabled, available, reserved] = await Promise.all([
@@ -183,6 +223,7 @@ export async function readSlotFunding(client: PublicClient, deployment: PrepaidD
 export async function readPaidOperationReceipt(
   client: PublicClient, deployment: PrepaidDeployment, payment: PaymentIntentWire, expected: ExpectedPaidOperation,
 ): Promise<PaidOperationReceipt> {
+  deployment = {...deployment}; payment = structuredClone(payment); expected = {...expected}
   validateDeployment(deployment)
   assertPaymentIntentWire(payment)
   if (payment.chain_id !== deployment.chainId || payment.settlement.toLowerCase() !== deployment.settlement.toLowerCase()
@@ -216,32 +257,43 @@ export async function resolvePaidKeeperTarget(
   client: PublicClient, deployment: PrepaidDeployment, payment: PaymentIntentWire, expected: ExpectedPaidOperation,
   transport: PaidKeeperTransportOptions = {},
 ): Promise<PaidKeeperTarget> {
+  deployment = {...deployment}; payment = structuredClone(payment); expected = {...expected}; transport = {...transport}
   const receipt = await readPaidOperationReceipt(client, deployment, payment, expected)
   if (receipt.settled) throw new Error('payment already settled; it cannot start another keeper operation')
   if (BigInt(payment.expires) <= time()) throw new Error('payment expired; reconcile before starting another operation')
-  const [slot, assigned, nodes] = await Promise.all([
-    registryRead(client, receipt, deployment.keyRegistry, keyRegistryAbi, 'getKeySlot', [payment.slot]) as Promise<ReadContractReturnType<typeof keyRegistryAbi, 'getKeySlot'>>,
-    registryRead(client, receipt, deployment.keyRegistry, keyRegistryAbi, 'assignedNodes', [payment.slot]) as Promise<readonly Address[]>,
-    registryRead(client, receipt, deployment.keyRegistry, keyRegistryAbi, 'nodeRegistry') as Promise<Address>,
-  ])
+  const {slot, members} = await keeperDirectory(client, receipt, deployment.keyRegistry, payment.slot)
   const assignment = payment.keeper_assignment
-  if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= receipt.blockTimestamp) || slot.publicKey === '0x') throw new Error('paid slot is inactive or has no published key')
-  if (!ADDRESS.test(nodes) || /^0x0{40}$/i.test(nodes) || assigned.length === 0 || assigned.length > 256
-    || assigned.length !== slot.threshold.n || slot.threshold.k === 0 || slot.threshold.k > slot.threshold.n
-    || new Set(assigned.map(a => a.toLowerCase())).size !== assigned.length || assigned.some(a => /^0x0{40}$/i.test(a))) throw new Error('invalid assigned keeper roster')
   if (slot.epoch !== BigInt(assignment.key_epoch) || slot.committeeVersion !== BigInt(assignment.committee_version) || slot.threshold.k !== assignment.threshold) throw new Error('payment keeper sharing or threshold changed')
   const creator = await recoverTypedDataAddress({...paymentIntentTypedData(payment), signature: payment.signature})
   if (creator.toLowerCase() !== slot.creator.toLowerCase()) throw new Error('payment is not signed by the slot creator')
+  const endpoint = (key: Hex) => keeperEndpoint(members, key, deployment.chainId, transport)
+  const contributors = assignment.contributors.map(key => endpoint(toHex(Uint8Array.from(key))))
+  const coordinator = endpoint(toHex(Uint8Array.from(assignment.coordinator)))
+  await finishObservation(client, receipt)
+  if (BigInt(payment.expires) <= time()) throw new Error('payment expired during coordinator discovery')
+  return {...coordinator, receipt, contributors, groupPublicKey: slot.publicKey, mode: slot.mode}
+}
 
-  const members = new Map<Hex, {operator: Address; url: string; eligible: boolean}>()
+interface KeeperDirectoryMember {key: Hex; id: bigint; operator: Address; url: string; eligible: boolean}
+async function keeperDirectory(client: PublicClient, at: PrepaidObservation, registry: Address, slotId: Hex) {
+  const [slot, assigned, nodes] = await Promise.all([
+    registryRead(client, at, registry, keyRegistryAbi, 'getKeySlot', [slotId]) as Promise<ReadContractReturnType<typeof keyRegistryAbi, 'getKeySlot'>>,
+    registryRead(client, at, registry, keyRegistryAbi, 'assignedNodes', [slotId]) as Promise<readonly Address[]>,
+    registryRead(client, at, registry, keyRegistryAbi, 'nodeRegistry') as Promise<Address>,
+  ])
+  if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= at.blockTimestamp) || slot.publicKey === '0x') throw new Error('paid slot is inactive or has no published key')
+  if (!ADDRESS.test(nodes) || /^0x0{40}$/i.test(nodes) || assigned.length === 0 || assigned.length > 256
+    || assigned.length !== slot.threshold.n || slot.threshold.k === 0 || slot.threshold.k > slot.threshold.n
+    || new Set(assigned.map(a => a.toLowerCase())).size !== assigned.length || assigned.some(a => /^0x0{40}$/i.test(a))) throw new Error('invalid assigned keeper roster')
+  const members = new Map<Hex, KeeperDirectoryMember>()
   const ids = new Set<bigint>()
   // Bound RPC fanout even on maximum-size slots. Do not silently drop unreadable members.
   for (let offset = 0; offset < assigned.length; offset += 8) {
     const batch = await Promise.all(assigned.slice(offset, offset + 8).map(async operator => {
       const [node, id, tagged] = await Promise.all([
-        registryRead(client, receipt, nodes, nodeRegistryAbi, 'nodeOf', [operator]) as Promise<ReadContractReturnType<typeof nodeRegistryAbi, 'nodeOf'>>,
-        registryRead(client, receipt, nodes, nodeRegistryAbi, 'operatorIdOf', [operator]) as Promise<bigint>,
-        registryRead(client, receipt, nodes, nodeRegistryAbi, 'hasTag', [operator, keccak256(toHex('keykeeper'))]) as Promise<boolean>,
+        registryRead(client, at, nodes, nodeRegistryAbi, 'nodeOf', [operator]) as Promise<ReadContractReturnType<typeof nodeRegistryAbi, 'nodeOf'>>,
+        registryRead(client, at, nodes, nodeRegistryAbi, 'operatorIdOf', [operator]) as Promise<bigint>,
+        registryRead(client, at, nodes, nodeRegistryAbi, 'hasTag', [operator, keccak256(toHex('keykeeper'))]) as Promise<boolean>,
       ])
       if (node.operator.toLowerCase() !== operator.toLowerCase() || !HEX32.test(node.pubkey) || node.pubkey === ZERO32 || id <= 0n || id >= 1n << 64n) throw new Error('invalid registered keeper identity')
       ed25519.ExtendedPoint.fromHex(hexToBytes(node.pubkey))
@@ -253,18 +305,80 @@ export async function resolvePaidKeeperTarget(
       members.set(member.key, member)
     }
   }
-  const endpoint = (key: Hex): PaidKeeperEndpoint => {
-    const member = members.get(key)
-    if (!member?.eligible) throw new Error('paid contributor is not an eligible assigned keeper')
-    const url = new URL(member.url)
-    if (url.username || url.password || url.search || url.hash
-      || (url.protocol !== 'https:' && !(transport.allowLocalHttp === true && deployment.chainId === 43112 && url.protocol === 'http:'))) throw new Error('invalid paid keeper URL or transport')
-    return {operator: member.operator, publicKey: key, url: url.toString().replace(/\/$/, '')}
+  return {slot, members}
+}
+
+function keeperEndpoint(members: Map<Hex, KeeperDirectoryMember>, key: Hex, chainId: number, transport: PaidKeeperTransportOptions): PaidKeeperEndpoint {
+  const member = members.get(key)
+  if (!member?.eligible) throw new Error('paid contributor is not an eligible assigned keeper')
+  const url = new URL(member.url)
+  if (url.username || url.password || url.search || url.hash
+    || (url.protocol !== 'https:' && !(transport.allowLocalHttp === true && chainId === 43112 && url.protocol === 'http:'))) throw new Error('invalid paid keeper URL or transport')
+  return {operator: member.operator, publicKey: key, url: url.toString().replace(/\/$/, '')}
+}
+
+function safeInteger(value: bigint, name: string): number {
+  if (value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`${name} exceeds the JSON integer range`)
+  return Number(value)
+}
+
+/**
+ * Discover keeper sharing and verifier policy from one fresh canonical block before creating an intent.
+ * Selects the current anchored verifier epoch, or only its immediate predecessor when unanchored.
+ * Performs no signing, reservation, service contact or gas/TASRA mutation.
+ * @param client - Trusted bounded Viem client supporting EIP-1898 canonical reads.
+ * @param deployment - Independently approved contract and beacon addresses.
+ * @param slotId - Independently selected slot to fund and operate.
+ * @param options - Approved default verifier policy, optional coordinator and transport policy.
+ */
+export async function discoverPaidOperationContext(
+  client: PublicClient, deployment: PaidContextDeployment, slotId: Hex, options: PaidContextOptions = {},
+): Promise<PaidOperationContext> {
+  deployment = {...deployment}; options = structuredClone(options)
+  validateDeployment(deployment)
+  if (!HEX32.test(slotId) || [deployment.verifierSet, deployment.beacon, ...(options.coordinator ? [options.coordinator] : [])]
+    .some(address => !ADDRESS.test(address) || /^0x0{40}$/i.test(address))) throw new Error('invalid payment discovery identity')
+  const at = await observe(client, deployment)
+  const [keyBeacon, snapshotBeacon, latest, policy, enabled, available, directory] = await Promise.all([
+    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'randomBeacon') as Promise<Address>,
+    registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'beacon') as Promise<Address>,
+    registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch') as Promise<bigint>,
+    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'verifierPolicy', [slotId]) as Promise<readonly [number, number]>,
+    readAt(client, deployment.settlement, at, 'prepaidEnabled', slotId),
+    readAt(client, deployment.settlement, at, 'balanceOf', slotId),
+    keeperDirectory(client, at, deployment.keyRegistry, slotId),
+  ])
+  if (keyBeacon.toLowerCase() !== deployment.beacon.toLowerCase() || snapshotBeacon.toLowerCase() !== deployment.beacon.toLowerCase()) throw new Error('payment discovery beacon pointers differ')
+  if (enabled !== true || typeof available !== 'bigint' || available <= 0n) throw new Error('payment discovery requires an activated TASRA-funded slot')
+  const seedAt = (epoch: bigint) => registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [epoch]) as Promise<Hex>
+  const snapshotAt = (epoch: bigint) => registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
+  let epoch = latest
+  let [seed, [root, size]] = await Promise.all([seedAt(epoch), snapshotAt(epoch)])
+  if (seed === ZERO32) throw new Error('current beacon seed unavailable')
+  if (root === ZERO32 || size === 0) {
+    if (epoch === 0n) throw new Error('no anchored verifier snapshot')
+    epoch--
+    ;[seed, [root, size]] = await Promise.all([seedAt(epoch), snapshotAt(epoch)])
+    if (seed === ZERO32 || root === ZERO32 || size === 0) throw new Error('no current or previous anchored verifier snapshot')
   }
-  const contributors = assignment.contributors.map(key => endpoint(toHex(Uint8Array.from(key))))
-  const publicKey = toHex(Uint8Array.from(assignment.coordinator))
-  const coordinator = endpoint(publicKey)
-  await finishObservation(client, receipt)
-  if (BigInt(payment.expires) <= time()) throw new Error('payment expired during coordinator discovery')
-  return {...coordinator, receipt, contributors, groupPublicKey: slot.publicKey, mode: slot.mode}
+  const [onChainCommittee, onChainQuorum] = policy
+  if (onChainCommittee === 0 && onChainQuorum !== 0) throw new Error('invalid on-chain verifier policy')
+  const {committee, quorum} = onChainCommittee === 0
+    ? options.defaultVerificationPolicy ?? {committee: 0, quorum: 0}
+    : {committee: onChainCommittee, quorum: onChainQuorum}
+  if (!Number.isInteger(committee) || !Number.isInteger(quorum) || quorum <= 0 || quorum > committee || committee > 4096 || committee > size) throw new Error('missing or invalid approved verifier policy')
+  const members = [...directory.members.values()].filter(member => member.eligible).sort((a, b) => a.id < b.id ? -1 : 1)
+  const selected = members.find(member => !options.coordinator || member.operator.toLowerCase() === options.coordinator.toLowerCase())
+  if (!selected) throw new Error('requested coordinator is not an eligible assigned keeper')
+  const contributors = members.map(member => member.key).sort()
+  const assignment = {key_epoch: safeInteger(directory.slot.epoch, 'keeper epoch'), committee_version: safeInteger(directory.slot.committeeVersion, 'committee version'),
+    threshold: directory.slot.threshold.k, coordinator: [...hexToBytes(selected.key)], contributors: contributors.map(key => [...hexToBytes(key)])}
+  keeperAssignmentCommitment(assignment)
+  const endpoints = contributors.map(key => keeperEndpoint(directory.members, key, deployment.chainId, options))
+  const coordinator = keeperEndpoint(directory.members, selected.key, deployment.chainId, options)
+  const intentFields: DiscoveredPaymentFields = {chain_id: deployment.chainId, settlement: deployment.settlement, key_registry: deployment.keyRegistry, slot: slotId,
+    verification_epoch: safeInteger(epoch, 'verification epoch'), verification_seed: seed, verification_root: root, verification_registry_size: size,
+    verification_committee: committee, verification_quorum: quorum, keeper_assignment: assignment}
+  await finishObservation(client, at)
+  return {...at, intentFields, creator: directory.slot.creator, mode: directory.slot.mode, groupPublicKey: directory.slot.publicKey, coordinator, contributors: endpoints, available}
 }

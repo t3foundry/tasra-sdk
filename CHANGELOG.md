@@ -33,6 +33,10 @@ never does.
 - `createPaidReservationJournal` adapts a durable application store to reservation checkpoints,
   preserving creator intent, transaction and private session context. Exclusive preparation
   refuses duplicate attempts across processes; restart reads never authorize resubmission.
+- `discoverPaidOperationContext` reads the current keeper assignment and anchored verifier
+  context before creator signing. It checks approved beacon pointers, explicit verifier
+  defaults, eligible workers and positive TASRA funding at one fresh canonical block.
+  Discovery, funding and receipt helpers snapshot caller inputs before asynchronous reads.
 
 ## [0.3.0] — 2026-10-03
 
