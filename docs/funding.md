@@ -271,6 +271,38 @@ The helpers cover discovery, reservation journaling and execution separately. Ap
 gas nonce coordination and automatic final settlement orchestration remain separate work;
 the helpers above do not claim a complete prepaid client.
 
+### Client consent for paid stages
+
+`tasra-sdk/committee` provides `createLocalExecutionSigner`,
+`createExecutionCertificate`, `approveExecutionRequest`, and
+`verifyExecutionAuthorization` for client-owned execution consent. The application
+keeps the Ed25519 private execution key locally. The slot creator signs a separate
+certificate binding its public key to the original payment, deployment, request ID,
+session commitment and expiry. Payment hashes and reservation identities stay unchanged.
+
+For each stage, independently authenticate the destination operator and construct
+the complete unsigned request body from your own operation intent and validated
+presentation. Pass that body as `expected.body` and the agent's complete proposal as
+`proposal.unsigned_body`. `approveExecutionRequest` compares their canonical hashes
+before asking the local signer to authorize the stage. Operator, stage, payment,
+action, payload and bounded expiry are part of the signed message. An opaque hash
+from the agent is insufficient. Explicit `null` and absent fields are different;
+the body must contain only safe JSON values and must exclude the
+`execution_authorization` envelope.
+
+`ExecutionConsentPolicy` must come from your approved deployment, independently read
+slot creator, locally retained payment hash, canonical quote or mined reservation
+cost, and a fresh clock. The helper checks signatures and commitments; the caller
+still checks mined backing and verifier assignment. A valid signature alone does
+not prove funds are reserved or that a verifier was drawn.
+
+These consent helpers do not automatically approve wallet callbacks, poll an agent
+approval queue, dispatch operations, or settle fees. Agent delivery and application
+orchestration are separate integrations. Never copy an untrusted proposal into
+`expected.body` without checking every field against your own intent. Never send the
+private seed or signing capability to the agent. Call the local signer's `dispose()`
+when its session finishes; persisted seed copies remain the application's responsibility.
+
 ## 1. Fund the creator with AVAX
 
 Run the [creation lesson](create-slot.md) to print your saved creator address.

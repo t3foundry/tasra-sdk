@@ -88,8 +88,9 @@ declare class OperationOutcomeUnknownError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 43 functions</summary>
+<summary>Browse 50 functions</summary>
 
+- [approveExecutionRequest](#approveexecutionrequest)
 - [assembleCompoundToken](#assemblecompoundtoken)
 - [assertPaymentIntentWire](#assertpaymentintentwire)
 - [auditOperationId](#auditoperationid)
@@ -105,11 +106,16 @@ Operations you can import and call.
 - [compoundTokenCanonicalBytes](#compoundtokencanonicalbytes)
 - [compoundTokenHash](#compoundtokenhash)
 - [createDualSignClient](#createdualsignclient)
+- [createExecutionCertificate](#createexecutioncertificate)
+- [createLocalExecutionSigner](#createlocalexecutionsigner)
 - [decodeCompoundToken](#decodecompoundtoken)
 - [decodeOperationReceipt](#decodeoperationreceipt)
 - [decryptIdentityStrict](#decryptidentitystrict)
 - [dpopHtu](#dpophtu)
 - [dualSignApprovalPayload](#dualsignapprovalpayload)
+- [executionApprovalTypedData](#executionapprovaltypeddata)
+- [executionBodyHash](#executionbodyhash)
+- [executionCertificateTypedData](#executioncertificatetypeddata)
 - [extractIdentityStrict](#extractidentitystrict)
 - [gatherCommitteeToken](#gathercommitteetoken)
 - [holderProofPerVerifier](#holderproofperverifier)
@@ -131,10 +137,51 @@ Operations you can import and call.
 - [selectVerifierCommittee](#selectverifiercommittee)
 - [verifierLeaf](#verifierleaf)
 - [verifyCompoundToken](#verifycompoundtoken)
+- [verifyExecutionAuthorization](#verifyexecutionauthorization)
 - [verifyMerkleProof](#verifymerkleproof)
 - [verifyOperationReceipt](#verifyoperationreceipt)
 
 </details>
+
+### approveExecutionRequest
+
+Approve a complete proposal ONLY after comparing it with a separately client-built body.
+Applications must construct expected.body from their own intent and validated presentation,
+never echo an agent's proposal into that field. This helper performs no automatic HTTP dispatch.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L302)
+
+Import: `import {approveExecutionRequest} from 'tasra-sdk/committee'`
+
+```ts
+declare function approveExecutionRequest(options: {
+    payment: PaymentIntentWire;
+    certificate: ExecutionCertificate;
+    signer: ClientExecutionSigner;
+    policy: ExecutionConsentPolicy;
+    expected: ExpectedExecution;
+    proposal: ExecutionProposal;
+}): Promise<ExecutionAuthorization>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` options ` | See detailed type below. | Original consent, certified local signer, independent expected body and untrusted proposal. |
+
+**` options ` type**
+
+```ts
+{
+    payment: PaymentIntentWire;
+    certificate: ExecutionCertificate;
+    signer: ClientExecutionSigner;
+    policy: ExecutionConsentPolicy;
+    expected: ExpectedExecution;
+    proposal: ExecutionProposal;
+}
+```
+
+Returns: ` Promise<ExecutionAuthorization> `.
 
 ### assembleCompoundToken
 
@@ -488,6 +535,49 @@ Returns:
 }
 ```
 
+### createExecutionCertificate
+
+Sign and verify a creator certificate without handing a private execution key to the agent.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L265)
+
+Import: `import {createExecutionCertificate} from 'tasra-sdk/committee'`
+
+```ts
+declare function createExecutionCertificate(options: {
+    payment: PaymentIntentWire;
+    policy: ExecutionConsentPolicy;
+    publicKey: Uint8Array;
+    expires: number;
+    creator: ExecutionCreatorSigner;
+}): Promise<ExecutionCertificate>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` options ` | ` { payment: PaymentIntentWire; policy: ExecutionConsentPolicy; publicKey: Uint8Array; expires: number; creator: ExecutionCreatorSigner; } ` | Independent consent policy, original payment, public execution key and creator wallet. |
+
+Returns: ` Promise<ExecutionCertificate> `.
+
+### createLocalExecutionSigner
+
+Create a disposable client-only Ed25519 execution signer. The seed is copied or generated
+with Web Crypto, retained only locally and erased by dispose; caller copies remain its responsibility.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L329)
+
+Import: `import {createLocalExecutionSigner} from 'tasra-sdk/committee'`
+
+```ts
+declare function createLocalExecutionSigner(seed?: Uint8Array): LocalExecutionSigner;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` seed? ` | ` Uint8Array ` | Optional local 32-byte seed, for private persistence or deterministic tests. |
+
+Returns: ` LocalExecutionSigner `.
+
 ### decodeCompoundToken
 
 Decode a wire compound token into the byte-level payload + signatures for verification.
@@ -607,6 +697,357 @@ declare function dualSignApprovalPayload(slotId: string, message: Uint8Array, re
 | ` requestId ` | ` string ` | - Existing native signing request identifier. |
 
 Returns: ` Uint8Array `.
+
+### executionApprovalTypedData
+
+Reconstruct the complete stage typed data; callers never sign an agent's opaque hash.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L176)
+
+Import: `import {executionApprovalTypedData} from 'tasra-sdk/committee'`
+
+```ts
+declare function executionApprovalTypedData(payment: PaymentIntentWire, approval: Omit<ExecutionAuthorization, 'signature'>): {
+    domain: {
+        name: string;
+        version: string;
+        chainId: number;
+        verifyingContract: `0x${string}`;
+    };
+    primaryType: "ClientStageApproval";
+    types: {
+        readonly ClientStageApproval: readonly [
+            {
+                readonly name: "chainId";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "settlement";
+                readonly type: "address";
+            },
+            {
+                readonly name: "keyRegistry";
+                readonly type: "address";
+            },
+            {
+                readonly name: "slotId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "paymentHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "requestId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "sessionCommitment";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "certificateHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "stage";
+                readonly type: "uint8";
+            },
+            {
+                readonly name: "operatorKey";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "action";
+                readonly type: "uint8";
+            },
+            {
+                readonly name: "payloadDigest";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "bodyHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "expires";
+                readonly type: "uint64";
+            }
+        ];
+    };
+    message: {
+        certificateHash: `0x${string}`;
+        stage: number;
+        operatorKey: `0x${string}`;
+        action: 0 | 1 | 2 | 6 | 3;
+        payloadDigest: `0x${string}`;
+        bodyHash: `0x${string}`;
+        expires: bigint;
+        chainId: bigint;
+        settlement: `0x${string}`;
+        keyRegistry: `0x${string}`;
+        slotId: `0x${string}`;
+        paymentHash: `0x${string}`;
+        requestId: `0x${string}`;
+        sessionCommitment: `0x${string}`;
+    };
+};
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` payment ` | ` PaymentIntentWire ` | Original independently retained payment. |
+| ` approval ` | ` Omit<ExecutionAuthorization, 'signature'> ` | Stage, target and locally recomputed body commitment. |
+
+Returns:
+
+```ts
+{
+    domain: {
+        name: string;
+        version: string;
+        chainId: number;
+        verifyingContract: `0x${string}`;
+    };
+    primaryType: "ClientStageApproval";
+    types: {
+        readonly ClientStageApproval: readonly [
+            {
+                readonly name: "chainId";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "settlement";
+                readonly type: "address";
+            },
+            {
+                readonly name: "keyRegistry";
+                readonly type: "address";
+            },
+            {
+                readonly name: "slotId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "paymentHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "requestId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "sessionCommitment";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "certificateHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "stage";
+                readonly type: "uint8";
+            },
+            {
+                readonly name: "operatorKey";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "action";
+                readonly type: "uint8";
+            },
+            {
+                readonly name: "payloadDigest";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "bodyHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "expires";
+                readonly type: "uint64";
+            }
+        ];
+    };
+    message: {
+        certificateHash: `0x${string}`;
+        stage: number;
+        operatorKey: `0x${string}`;
+        action: 0 | 1 | 2 | 6 | 3;
+        payloadDigest: `0x${string}`;
+        bodyHash: `0x${string}`;
+        expires: bigint;
+        chainId: bigint;
+        settlement: `0x${string}`;
+        keyRegistry: `0x${string}`;
+        slotId: `0x${string}`;
+        paymentHash: `0x${string}`;
+        requestId: `0x${string}`;
+        sessionCommitment: `0x${string}`;
+    };
+}
+```
+
+### executionBodyHash
+
+Hash the complete unsigned body with the existing RFC8785 encoder and Rust bounds.
+Explicit null and absent fields remain distinct; no operation field is dropped.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L228)
+
+Import: `import {executionBodyHash} from 'tasra-sdk/committee'`
+
+```ts
+declare function executionBodyHash(body: Record<string, unknown>): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` body ` | ` Record<string, unknown> ` | Complete unsigned JSON object, excluding only its approval envelope. |
+
+Returns: ` Hex `.
+
+### executionCertificateTypedData
+
+Reconstruct the creator certificate typed data from the original payment.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L155)
+
+Import: `import {executionCertificateTypedData} from 'tasra-sdk/committee'`
+
+```ts
+declare function executionCertificateTypedData(payment: PaymentIntentWire, certificate: Pick<ExecutionCertificate, 'execution_key' | 'expires'>): {
+    domain: {
+        name: string;
+        version: string;
+        chainId: number;
+        verifyingContract: `0x${string}`;
+    };
+    primaryType: "ClientExecutionCertificate";
+    types: {
+        readonly ClientExecutionCertificate: readonly [
+            {
+                readonly name: "chainId";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "settlement";
+                readonly type: "address";
+            },
+            {
+                readonly name: "keyRegistry";
+                readonly type: "address";
+            },
+            {
+                readonly name: "slotId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "paymentHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "requestId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "sessionCommitment";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "executionKey";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "expires";
+                readonly type: "uint64";
+            }
+        ];
+    };
+    message: {
+        executionKey: `0x${string}`;
+        expires: bigint;
+        chainId: bigint;
+        settlement: `0x${string}`;
+        keyRegistry: `0x${string}`;
+        slotId: `0x${string}`;
+        paymentHash: `0x${string}`;
+        requestId: `0x${string}`;
+        sessionCommitment: `0x${string}`;
+    };
+};
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` payment ` | ` PaymentIntentWire ` | Locally retained payment; signing this data does not reserve or spend funds. |
+| ` certificate ` | ` Pick<ExecutionCertificate, 'execution_key' \| 'expires'> ` | Public execution key and expiry to certify. |
+
+Returns:
+
+```ts
+{
+    domain: {
+        name: string;
+        version: string;
+        chainId: number;
+        verifyingContract: `0x${string}`;
+    };
+    primaryType: "ClientExecutionCertificate";
+    types: {
+        readonly ClientExecutionCertificate: readonly [
+            {
+                readonly name: "chainId";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "settlement";
+                readonly type: "address";
+            },
+            {
+                readonly name: "keyRegistry";
+                readonly type: "address";
+            },
+            {
+                readonly name: "slotId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "paymentHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "requestId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "sessionCommitment";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "executionKey";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "expires";
+                readonly type: "uint64";
+            }
+        ];
+    };
+    message: {
+        executionKey: `0x${string}`;
+        expires: bigint;
+        chainId: bigint;
+        settlement: `0x${string}`;
+        keyRegistry: `0x${string}`;
+        slotId: `0x${string}`;
+        paymentHash: `0x${string}`;
+        requestId: `0x${string}`;
+        sessionCommitment: `0x${string}`;
+    };
+}
+```
 
 ### extractIdentityStrict
 
@@ -1233,6 +1674,30 @@ Return details: Fields attested by the verified committee token.
 
 Throws: If any binding, freshness, signer or quorum check fails.
 
+### verifyExecutionAuthorization
+
+Verify creator consent, stage/operator/body binding and the strict local client signature.
+The caller must independently authenticate the operator assignment and fresh payment backing.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L282)
+
+Import: `import {verifyExecutionAuthorization} from 'tasra-sdk/committee'`
+
+```ts
+declare function verifyExecutionAuthorization(options: {
+    payment: PaymentIntentWire;
+    policy: ExecutionConsentPolicy;
+    expected: ExpectedExecution;
+    authorization: ExecutionAuthorization;
+}): Promise<void>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` options ` | ` { payment: PaymentIntentWire; policy: ExecutionConsentPolicy; expected: ExpectedExecution; authorization: ExecutionAuthorization; } ` | Original payment, independently selected policy/target and untrusted proof. |
+
+Returns: ` Promise<void> `.
+
 ### verifyMerkleProof
 
 Verify a sorted-pair keccak Merkle inclusion proof (leaf to root).
@@ -1278,8 +1743,9 @@ Returns: ` boolean `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 37 types</summary>
+<summary>Browse 46 types</summary>
 
+- [ClientExecutionSigner](#clientexecutionsigner)
 - [CommitteeAuthorizeBody](#committeeauthorizebody)
 - [CommitteeAuthorizeReply](#committeeauthorizereply)
 - [CommitteeChainReads](#committeechainreads)
@@ -1298,6 +1764,13 @@ Options, data structures and return types.
 - [DualSignConfig](#dualsignconfig)
 - [DualSignRequest](#dualsignrequest)
 - [DualSignStatus](#dualsignstatus)
+- [ExecutionAuthorization](#executionauthorization)
+- [ExecutionCertificate](#executioncertificate)
+- [ExecutionConsentPolicy](#executionconsentpolicy)
+- [ExecutionCreatorSigner](#executioncreatorsigner)
+- [ExecutionProposal](#executionproposal)
+- [ExecutionStage](#executionstage)
+- [ExpectedExecution](#expectedexecution)
 - [ExtractionEvidence](#extractionevidence)
 - [ExtractionKeeper](#extractionkeeper)
 - [GatherCommitteeTokenOpts](#gathercommitteetokenopts)
@@ -1305,6 +1778,7 @@ Options, data structures and return types.
 - [IbeExtractionPartial](#ibeextractionpartial)
 - [IbeExtractOpts](#ibeextractopts)
 - [IbeExtractRequestOpts](#ibeextractrequestopts)
+- [LocalExecutionSigner](#localexecutionsigner)
 - [OperationReceipt](#operationreceipt)
 - [PaidKeeperAssignment](#paidkeeperassignment)
 - [PaymentIntentWire](#paymentintentwire)
@@ -1319,6 +1793,24 @@ Options, data structures and return types.
 - [VerifyCompoundTokenOptions](#verifycompoundtokenoptions)
 
 </details>
+
+### ClientExecutionSigner
+
+Local Ed25519 signing capability; implementations must keep their key on the client.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L86)
+
+```ts
+export interface ClientExecutionSigner {
+    publicKey: Uint8Array;
+    sign(message: Uint8Array): Promise<Uint8Array>;
+}
+```
+
+Fields:
+
+- **` publicKey `**: Public key used by the creator certificate.
+- **` sign `**: Sign the SDK-reconstructed structured hash; never a hash supplied by an agent.
 
 ### CommitteeAuthorizeBody
 
@@ -1904,6 +2396,150 @@ Fields:
 
 - **` status `**: Lifecycle state: pending or signing until the request is signed or fails. Work may have started, but its durable outcome is unavailable. Never retry the ceremony.
 
+### ExecutionAuthorization
+
+Client signature authorizing one exact body, stage and assigned operator.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L30)
+
+```ts
+export interface ExecutionAuthorization {
+    certificate: ExecutionCertificate;
+    stage: ExecutionStage;
+    operator_key: Hex;
+    body_hash: Hex;
+    expires: number;
+    signature: Hex;
+}
+```
+
+Fields:
+
+- **` certificate `**: Creator-certified public execution key and bounded consent.
+- **` stage `**: Paid stage being authorized.
+- **` operator_key `**: Independently authenticated operator's Ed25519 public key.
+- **` body_hash `**: Locally recomputed complete unsigned body hash.
+- **` expires `**: Unix expiry no later than the certificate.
+- **` signature `**: Client Ed25519 signature over the structured stage approval hash.
+
+### ExecutionCertificate
+
+Creator certificate for one payment and a client-owned Ed25519 public key.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L20)
+
+```ts
+export interface ExecutionCertificate {
+    execution_key: Hex;
+    expires: number;
+    creator_signature: Hex;
+}
+```
+
+Fields:
+
+- **` execution_key `**: Public key; never deliver its private seed to the verifier agent.
+- **` expires `**: Unix expiry no later than the original creator payment.
+- **` creator_signature `**: Creator EIP-712 signature over the certificate.
+
+### ExecutionConsentPolicy
+
+Independently selected deployment, creator and exact reserved payment.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L46)
+
+```ts
+export interface ExecutionConsentPolicy {
+    chainId: number;
+    settlement: Address;
+    keyRegistry: Address;
+    creator: Address;
+    paymentHash: Hex;
+    cost: bigint;
+    nowSecs: number;
+}
+```
+
+Fields:
+
+- **` chainId `**: Approved chain ID.
+- **` settlement `**: Approved Settlement proxy.
+- **` keyRegistry `**: Approved KeyRegistry proxy.
+- **` creator `**: Creator read independently from the intended slot.
+- **` paymentHash `**: Exact locally retained payment commitment, never copied from a proposal.
+- **` cost `**: Nonzero fee from the canonical quote or mined reservation, in TASRA base units.
+- **` nowSecs `**: Fresh clock supplied at the approval boundary; no stale policy cache.
+
+### ExecutionCreatorSigner
+
+Creator wallet capable of signing the separate execution certificate.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L164)
+
+```ts
+export interface ExecutionCreatorSigner {
+    address: Address;
+    signTypedData(args: ReturnType<typeof executionCertificateTypedData>): Promise<Hex>;
+}
+```
+
+Fields:
+
+- **` address `**: Must equal the independently read slot creator. Delegation is not spending authority.
+- **` signTypedData `**: Sign the SDK-reconstructed creator certificate typed data.
+
+### ExecutionProposal
+
+Untrusted agent proposal. An opaque body hash is deliberately not accepted.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L74)
+
+```ts
+export interface ExecutionProposal {
+    stage: ExecutionStage;
+    operator_key: Hex;
+    unsigned_body: Record<string, unknown>;
+    expires: number;
+}
+```
+
+Fields:
+
+- **` stage `**: Requested stage; compared with the application's own selection.
+- **` operator_key `**: Requested key; compared with an independently authenticated key.
+- **` unsigned_body `**: Complete unsigned JSON body, with no execution_authorization envelope.
+- **` expires `**: Requested bounded Unix expiry.
+
+### ExecutionStage
+
+Stable stage names and ordinals from the shared execution report protocol.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L16)
+
+```ts
+export type ExecutionStage = 'coordinator' | 'contributor' | 'presentation_sign' | 'presentation_attest' | 'credential';
+```
+
+### ExpectedExecution
+
+Client-built complete unsigned body and independently selected destination.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L64)
+
+```ts
+export interface ExpectedExecution {
+    stage: ExecutionStage;
+    operatorKey: Hex;
+    body: Record<string, unknown>;
+}
+```
+
+Fields:
+
+- **` stage `**: Stage the application intends to authorize.
+- **` operatorKey `**: Key from authenticated slot assignment or verifier snapshot/draw.
+- **` body `**: Complete body reconstructed by the application, including optional field shape.
+
 ### ExtractionEvidence
 
 Keeper identity, share identifier and receipt verification status for an accepted extraction share.
@@ -2088,6 +2724,24 @@ Fields:
 - **` ttlSecs `**: Token TTL in seconds - default 300.
 - **` nowSecs `**: Override "now" (unix seconds), mainly for tests.
 - **` scopedIdentity `**: Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field.
+
+### LocalExecutionSigner
+
+Disposable local signer whose private seed never leaves its closure.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L94)
+
+```ts
+export interface LocalExecutionSigner extends ClientExecutionSigner {
+    dispose(): void;
+}
+```
+
+Fields:
+
+- **` dispose `**: Erase the retained private seed and permanently disable further signatures.
+- **` publicKey `**: Public key used by the creator certificate.
+- **` sign `**: Sign the SDK-reconstructed structured hash; never a hash supplied by an agent.
 
 ### OperationReceipt
 
@@ -2419,4 +3073,7 @@ Shared values and contract definitions.
 
 | Export | Description | Definition |
 |---|---|---|
+| `EXECUTION_APPROVAL_DOMAIN` | Client stage approvals bind complete request bodies and assigned operator keys. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L11) |
+| `EXECUTION_CERTIFICATE_DOMAIN` | Separate creator-consent domain; original payment commitments remain unchanged. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L9) |
+| `MAX_EXECUTION_BODY_BYTES` | Maximum complete unsigned request size shared with the Rust verifier. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L13) |
 | `OAUTH_RESPONSE_PATH` | The path an OAuth response is POSTed to - the `htu` a DPoP proof must name. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L17) |

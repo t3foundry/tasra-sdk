@@ -16,6 +16,12 @@ never does.
 
 ### Added
 
+- Client-owned execution certificate and stage approval helpers in
+  `tasra-sdk/committee`. Creator consent binds a local Ed25519 public key to one
+  payment; stage approvals bind the complete client-built body and independently
+  authenticated operator. Private keys stay with the application. The helpers do
+  not automatically authorize agent proposals or dispatch operations.
+
 - `UnderfundedSlotError` identifies an exhausted slot during payment discovery and
   an accountant's HTTP 402 reservation refusal. It carries the slot ID and any
   observed available TASRA, without implying another transaction is safe to submit.

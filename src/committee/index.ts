@@ -76,3 +76,8 @@ export {platformAudience, dpopHtu, normalizeOrigin, OAUTH_RESPONSE_PATH} from '.
 
 export {keeperAssignmentCommitment, paymentIntentTypedData, paymentIntentHash, prepaidRequestId, paymentSessionCommitment, assertPaymentIntentWire} from './payment.js'
 export type {PaidKeeperAssignment, PaymentIntentWire} from './payment.js'
+export {EXECUTION_CERTIFICATE_DOMAIN, EXECUTION_APPROVAL_DOMAIN, MAX_EXECUTION_BODY_BYTES,
+  executionCertificateTypedData, executionApprovalTypedData, executionBodyHash,
+  createExecutionCertificate, approveExecutionRequest, verifyExecutionAuthorization, createLocalExecutionSigner} from './execution.js'
+export type {ExecutionStage, ExecutionCertificate, ExecutionAuthorization, ExecutionConsentPolicy,
+  ExpectedExecution, ExecutionProposal, ClientExecutionSigner, LocalExecutionSigner, ExecutionCreatorSigner} from './execution.js'
