@@ -11,8 +11,12 @@ them under `node_modules/tasra-sdk/skills/`. Copy the whole skill folders — no
 the `SKILL.md` — into the directory your agent discovers:
 
 ```sh
-mkdir -p .agents/skills
-cp -R node_modules/tasra-sdk/skills/tasra-* .agents/skills/
+npx @t3foundry/tasra-skills@latest init
+```
+
+Or if you're using a specific agent
+```sh
+npx @t3foundry/tasra-skills@latest init --target <destination-folder>
 ```
 
 The directory name varies by agent; check yours for where it looks for project
@@ -20,9 +24,9 @@ skills. Review existing folders before copying so you keep local customisations,
 start a new session if the installed skills do not appear. Ask the agent to use
 `tasra-getting-started`, then the skill for your task.
 
-**After each SDK upgrade, refresh the copied skills from that exact installed
-package.** npm updates the package, not these copies. Keep local modifications in
-separate skills, or review their diff before replacing one. Record
+**After each SDK upgrade, refresh the skills by reexecuting the installation.** 
+
+Keep local modifications in separate skills, or review their diff before replacing one. Record
 `node -p "require('tasra-sdk/package.json').version"` alongside the copied set.
 
 Installing these instructions needs no private checkout, global installer or platform

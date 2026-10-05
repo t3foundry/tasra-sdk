@@ -1,0 +1,18 @@
+{
+  "name": "tasra-sdk-skills",
+  "version": "0.3.0-next.0",
+  "description": "Agent skills for the Tasra SDK — credential-controlled slots, distributed encryption and signing, and on-chain operations.",
+  "skills": [
+    "tasra-getting-started",
+    "tasra-create-slot",
+    "tasra-credentials-and-sessions",
+    "tasra-dcql-rules",
+    "tasra-handle-errors",
+    "tasra-sign-and-decrypt",
+    "tasra-ibe-identity-scoped",
+    "tasra-chain",
+    "tasra-committee-path",
+    "tasra-oid4vp-wallet-and-verifier-agent",
+    "tasra-hovi-issuer"
+  ]
+}
