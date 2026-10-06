@@ -671,7 +671,7 @@ Return details: Client that opens and tracks managed slot sessions.
 
 Create an account-bound client for slot lifecycle, settlement and token transactions. Use deployed addresses and the chain ID from a tasra-releases network manifest.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L348)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L352)
 
 Import: `import {createTasraWriteClient} from 'tasra-sdk/chain'`
 
@@ -866,7 +866,7 @@ Returns: ` string `.
 
 Fresh 0x-prefixed 32-byte private key for a new sovereign client account.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L315)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L319)
 
 Import: `import {generateClientKey} from 'tasra-sdk/chain'`
 
@@ -1729,7 +1729,7 @@ Return details: Verifier endpoints, public keys and snapshot indices.
 
 Compute the salted rule commitment. OID4VP and OAuth rules use canonical JSON; other rule formats retain their exact bytes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L291)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L295)
 
 Import: `import {ruleCommitment} from 'tasra-sdk/chain'`
 
@@ -1891,7 +1891,7 @@ Returns: ` string `.
 
 Return whether the disclosed rule and salt reproduce the on-chain commitment. Invalid inputs and mismatches return false.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L302)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L306)
 
 Import: `import {verifyRuleCommitment} from 'tasra-sdk/chain'`
 
@@ -2289,7 +2289,7 @@ Fields:
 
 Recovery and timing controls for commit-reveal creation. Accountant seed discovery is attempted first; unavailable seeds fall back to a beacon epoch wait.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L164)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L166)
 
 ```ts
 export interface CommitRevealOptions {
@@ -2493,7 +2493,7 @@ Fields:
 
 Slot key mode, keeper threshold, private authorization rule and creation policies.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L198)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L200)
 
 ```ts
 export interface CreateSlotArgs extends RuleInput {
@@ -2516,7 +2516,7 @@ Fields:
 - **` k `**: Minimum participating keeper shares required for an operation.
 - **` n `**: Total keeper shares assigned to the slot.
 - **` mode `**: Key algorithm and threshold operation family.
-- **` authType `**: `KeyRegistry.AuthType` for this slot - how a holder authorises against the rule. Defaults to `'unspecified'` (ordinal 0), which declares nothing and is what every slot predating the field reads as. Set it when the rule is an OID4VP-DCQL query (`'oid4vp'`) or an OAuth/OIDC token rule (`'oauth'`).
+- **` authType `**: `KeyRegistry.AuthType` for this slot - how a holder authorises against the rule. Defaults to `'unspecified'` (ordinal 0), interpreted as OID4VP by current keepers. Choose `'oid4vp'` for wallet credentials or `'oauth'` for OAuth/OIDC. The separate administrative `'bls-bn254'` mode requires `'governance'` (ordinal 3); this type cannot authorize customer key modes or wallet grants. Update fleet readers to support ordinal 3 before creating authority slots.
 - **` tags `**: Committee-draw filter tags; default `["keykeeper"]`.
 - **` slotId `**: Explicit 32-byte slot identifier, generated when omitted.
 - **` salt `**: 32-byte committee-selection salt, generated when omitted.
@@ -3769,7 +3769,7 @@ Fields:
 
 Approved relay configuration for gas-sponsored sender-bound contract calls. The creator signs the forward request; the relayer pays gas. ERC-20 approvals still require direct transactions.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L123)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L125)
 
 ```ts
 export type RelayConfig = RegisteredRelayConfig;
@@ -4163,7 +4163,7 @@ Authorization family recorded at creation. The default unspecified value declare
 [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L105)
 
 ```ts
-export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth';
+export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth' | 'governance';
 ```
 
 ### SlotCommitteeDecryptOptions
@@ -4409,7 +4409,7 @@ Fields:
 
 Account-bound operations for slot creation, lifecycle management, settlement funding and token transactions.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L995)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L999)
 
 ```ts
 export interface TasraWriteClient {
@@ -4547,7 +4547,7 @@ Fields:
 
 Either a private-key signer or an account-bound wallet with network write configuration.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L159)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L161)
 
 ```ts
 export type WriteClientConfig = WriteClientKeyConfig | WriteClientWalletConfig;
@@ -4566,7 +4566,7 @@ Fields:
 
 Sovereign-key variant: the SDK owns the account and signs with `privateKey`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L139)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L141)
 
 ```ts
 export interface WriteClientKeyConfig extends WriteClientConfigBase {
@@ -4588,7 +4588,7 @@ Fields:
 
 Account-bound and chain-bound viem wallet used for signing without exposing its private key. Reads and receipt polling use the separately configured RPC.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L149)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L151)
 
 ```ts
 export interface WriteClientWalletConfig extends WriteClientConfigBase {

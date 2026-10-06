@@ -2827,6 +2827,22 @@ export const keyRegistryAbi = [
   },
   {
     "type": "error",
+    "name": "InvalidGovernanceAuthMode",
+    "inputs": [
+      {
+        "name": "mode",
+        "type": "uint8",
+        "internalType": "enum KeyRegistry.Mode"
+      },
+      {
+        "name": "auth",
+        "type": "uint8",
+        "internalType": "enum KeyRegistry.AuthType"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidInitialization",
     "inputs": []
   },

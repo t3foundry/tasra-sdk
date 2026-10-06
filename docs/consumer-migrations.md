@@ -61,6 +61,17 @@ for an OAuth-only policy. Both types validate the policy family before creation.
 Existing named credential requests with an omitted authorization type retain their
 OID4VP meaning. Resume with the original policy and authorization type.
 
+## Administrative authority slots
+
+Chain writers require `mode: 'bls-bn254', authType: 'governance'` for the separate
+BN254 platform authority. The contract also enforces this pairing. Its administrative
+JWT policy cannot authorize customer wallet operations; the application slot API
+continues to use OID4VP or OAuth. Existing type ordinals stay unchanged, and
+`unspecified` retains OID4VP semantics. Fleet readers must support the appended
+`Governance=3` ordinal before creating authority slots; older three-member readers
+cannot decode them. This change requires a compatible fresh deployment or a planned
+reader-first upgrade, rather than assuming legacy image compatibility.
+
 ## Validate your application
 
 1. Install the [latest SDK from npm](installation.md) and keep

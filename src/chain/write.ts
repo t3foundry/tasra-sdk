@@ -102,17 +102,19 @@ function modeIndex(mode: SlotMode): number {
 /**
  * Authorization family recorded at creation. The default unspecified value declares no family. This label is not included in the committee-selection commitment.
  */
-export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth'
+export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth' | 'governance'
 
 /** `KeyRegistry.AuthType` enum order - APPEND-only on-chain, so never reorder. */
-const SLOT_AUTH_TYPES: readonly SlotAuthType[] = ['unspecified', 'oid4vp', 'oauth']
-function authTypeIndex(auth: SlotAuthType | undefined): number {
-  if (auth === undefined) return 0
-  const i = SLOT_AUTH_TYPES.indexOf(auth)
+const SLOT_AUTH_TYPES: readonly SlotAuthType[] = ['unspecified', 'oid4vp', 'oauth', 'governance']
+function authTypeIndex(auth: SlotAuthType | undefined, mode: SlotMode): number {
+  const i = SLOT_AUTH_TYPES.indexOf(auth ?? 'unspecified')
   if (i < 0) {
     throw new TasraError(
       `createSlot: unknown authType ${JSON.stringify(auth)} (expected ${SLOT_AUTH_TYPES.join(' | ')})`,
     )
+  }
+  if ((auth === 'governance') !== (mode === 'bls-bn254')) {
+    throw new TasraError('createSlot: governance authorization is required only for bls-bn254 authority slots')
   }
   return i
 }
@@ -214,9 +216,11 @@ export interface CreateSlotArgs extends RuleInput {
   mode: SlotMode
   /**
    * `KeyRegistry.AuthType` for this slot - how a holder authorises against the rule.
-   * Defaults to `'unspecified'` (ordinal 0), which declares nothing and is what every
-   * slot predating the field reads as. Set it when the rule is an OID4VP-DCQL query
-   * (`'oid4vp'`) or an OAuth/OIDC token rule (`'oauth'`).
+   * Defaults to `'unspecified'` (ordinal 0), interpreted as OID4VP by current
+   * keepers. Choose `'oid4vp'` for wallet credentials or `'oauth'` for OAuth/OIDC.
+   * The separate administrative `'bls-bn254'` mode requires `'governance'`
+   * (ordinal 3); this type cannot authorize customer key modes or wallet grants.
+   * Update fleet readers to support ordinal 3 before creating authority slots.
    */
   authType?: SlotAuthType
   /** Committee-draw filter tags; default `["keykeeper"]`. */
@@ -589,9 +593,9 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     // Named `…Hash` only because `ruleCommitment` is the function that derives it;
     // this is the SALTED value the contract stores as `KeySlot.ruleCommitment`.
     const ruleCommitmentHash = ruleCommitment(ruleSalt, rule)
-    const tags = await resolveDrawTags(args.tags, args.n)
     const mode = modeIndex(args.mode)
-    const auth = authTypeIndex(args.authType)
+    const auth = authTypeIndex(args.authType, args.mode)
+    const tags = await resolveDrawTags(args.tags, args.n)
     // The `…WithPolicy` entry point is used only when there is a policy: a slot with
     // no amendment authority is created through the original function, so the common
     // path keeps its long-standing, widely-verified call shape.
@@ -634,11 +638,11 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     const salt = args.salt ?? random32()
     const ruleSalt = args.ruleSalt ?? random32()
     const ruleCommitmentHash = ruleCommitment(ruleSalt, rule)
-    const tags = await resolveDrawTags(args.tags, args.n)
     const mode = modeIndex(args.mode)
     // `auth` is not an input to `computeCommitment` - the commitment deliberately
     // does not cover it, so it is passed at the REVEAL only.
-    const auth = authTypeIndex(args.authType)
+    const auth = authTypeIndex(args.authType, args.mode)
+    const tags = await resolveDrawTags(args.tags, args.n)
     // Application descriptors already pin KeyRegistry. Its configured beacon is
     // authoritative when the caller has no separate beacon address in its book.
     const beacon = addr.ThresholdRandomBeacon ?? await pub.readContract({
