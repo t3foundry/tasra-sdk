@@ -5,7 +5,7 @@ import {privateKeyToAccount} from 'viem/accounts'
 import fc from 'fast-check'
 import {paymentIntentHash, paymentIntentTypedData, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {approveExecutionRequest, createExecutionCertificate, createLocalExecutionSigner,
-  executionApprovalTypedData, executionBodyHash, executionCertificateTypedData, verifyExecutionAuthorization,
+  initializeExecutionSession, verifySessionInitialization, executionInitializationTypedData, executionApprovalTypedData, executionBodyHash, executionCertificateTypedData, verifyExecutionAuthorization,
   MAX_EXECUTION_BODY_BYTES, type ExecutionAuthorization, type ExecutionConsentPolicy,
   type ExecutionProposal, type ExecutionStage, type ExpectedExecution} from '../../src/committee/execution.js'
 
@@ -262,5 +262,57 @@ describe('local-only execution signer', () => {
     expect(first.publicKey).not.toEqual(second.publicKey)
     first.dispose(); second.dispose()
     for (const length of [0, 31, 33]) expect(() => createLocalExecutionSigner(new Uint8Array(length))).toThrow(/32 bytes/)
+  })
+})
+
+
+describe('client-authorized session initialization', () => {
+  const expected = () => ({serviceProfile: {chainId: 43112, serviceId: 'agent-one', endpoint: 'https://agent.example'},
+    body: {payment: 'original', poll_secret: 'client-only', kind: 'wallet'}})
+  it('requires the creator-certified client and keeps a stable session identity on retries', async () => {
+    const f = await fixture(), intent = expected()
+    const options = {...f, expected: intent, expires: 1030}
+    const proof = await initializeExecutionSession(options)
+    await expect(verifySessionInitialization({payment: f.payment, policy: f.policy, expected: intent, initialization: proof})).resolves.toBeUndefined()
+    const repeated = await initializeExecutionSession(options)
+    expect(repeated).toEqual(proof)
+    expect(hashTypedData(executionInitializationTypedData(f.payment, repeated))).toEqual(hashTypedData(executionInitializationTypedData(f.payment, proof)))
+    f.signer.dispose()
+  })
+  it('refuses a copied certificate, changed owner bearer, profile, null shape, kind or forged signature', async () => {
+    const f = await fixture(), intent = expected()
+    const proof = await initializeExecutionSession({...f, expected: intent, expires: 1030})
+    for (const changed of [
+      {...intent, body: {...intent.body, poll_secret: 'attacker'}},
+      {...intent, body: {...intent.body, kind: 'oauth'}},
+      {...intent, body: {...intent.body, optional: null}},
+      {...intent, serviceProfile: {...intent.serviceProfile, serviceId: 'agent-two'}},
+    ]) await expect(verifySessionInitialization({payment: f.payment, policy: f.policy, expected: changed, initialization: proof})).rejects.toThrow(/differs/)
+    const stolen = createLocalExecutionSigner(new Uint8Array(32).fill(22))
+    await expect(initializeExecutionSession({...f, signer: stolen, expected: intent, expires: 1030})).rejects.toThrow(/differs/)
+    const forged = {...proof, signature: toHex(await stolen.sign(new Uint8Array(32).fill(1)))}
+    await expect(verifySessionInitialization({payment: f.payment, policy: f.policy, expected: intent, initialization: forged})).rejects.toThrow(/signature/)
+    stolen.dispose(); f.signer.dispose()
+  })
+  it('refuses expiry, fee, deployment and unknown fields before signing', async () => {
+    const f = await fixture(), sign = vi.fn(f.signer.sign), intent = expected()
+    const options = {...f, signer: {...f.signer, sign}, expected: intent, expires: 1030}
+    await expect(initializeExecutionSession({...options, expires: 1000})).rejects.toThrow(/expired/)
+    await expect(initializeExecutionSession({...options, expires: 1051})).rejects.toThrow(/expiry/)
+    await expect(initializeExecutionSession({...options, policy: {...f.policy, cost: 11n}})).rejects.toThrow(/policy/)
+    await expect(initializeExecutionSession({...options, policy: {...f.policy, settlement: h(99, 20)}})).rejects.toThrow(/policy/)
+    expect(sign).not.toHaveBeenCalled()
+    const proof = await initializeExecutionSession(options)
+    await expect(verifySessionInitialization({payment: f.payment, policy: f.policy, expected: intent, initialization: {...proof, unknown: true} as typeof proof})).rejects.toThrow(/unknown/)
+    await expect(verifySessionInitialization({payment: f.payment, policy: {...f.policy, nowSecs: 1030}, expected: intent, initialization: proof})).rejects.toThrow(/expired|live/)
+    f.signer.dispose()
+  })
+  it('rejects ambiguous and self-enveloped creation bodies before evaluating accessors', async () => {
+    const f = await fixture(), getter = vi.fn(() => 'secret'), intent = expected()
+    const accessor = Object.defineProperty({}, 'poll_secret', {enumerable: true, get: getter})
+    await expect(initializeExecutionSession({...f, expected: {...intent, body: accessor}, expires: 1030})).rejects.toThrow(/non-JSON/)
+    expect(getter).not.toHaveBeenCalled()
+    await expect(initializeExecutionSession({...f, expected: {...intent, body: {...intent.body, execution_initialization: null}}, expires: 1030})).rejects.toThrow(/exclude/)
+    f.signer.dispose()
   })
 })

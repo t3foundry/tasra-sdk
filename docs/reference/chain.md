@@ -9,9 +9,10 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 5 classes</summary>
+<summary>Browse 6 classes</summary>
 
 - [AgentSessionCreationUnknownError](#agentsessioncreationunknownerror)
+- [PaidAgentControlError](#paidagentcontrolerror)
 - [PaidReservationUncertainError](#paidreservationuncertainerror)
 - [RelayOutcomeUnknownError](#relayoutcomeunknownerror)
 - [SlotCommitmentExpiredError](#slotcommitmentexpirederror)
@@ -36,6 +37,32 @@ declare class AgentSessionCreationUnknownError {
 - ` readonly profile: Readonly<ApprovedAgentProfile>; ` — Approved verifier-agent profile whose session creation outcome is unknown.
 
 - ` readonly paymentHash?: string; ` — Retained payment commitment; reconcile it before another paid session attempt.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PaidAgentControlError
+
+HTTP refusal or consent/recovery wait, with no credential-bearing response text.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L67)
+
+Import: `import {PaidAgentControlError} from 'tasra-sdk/chain'`
+
+```ts
+declare class PaidAgentControlError {
+    constructor(sessionId: string, httpStatus: number);
+}
+```
+
+- ` readonly sessionId: string; ` — Original locally derived session identity.
+
+- ` readonly httpStatus: number; ` — Observed status; this never authorizes an automatic resend.
 
 - ` name: string; `
 
@@ -175,7 +202,7 @@ declare class UnderfundedSlotError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 63 functions</summary>
+<summary>Browse 65 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -214,9 +241,11 @@ Operations you can import and call.
 - [parsePinnedNetworkManifest](#parsepinnednetworkmanifest)
 - [parsePrometheus](#parseprometheus)
 - [parseServiceChallenge](#parseservicechallenge)
+- [prepareRegisteredPaidSession](#prepareregisteredpaidsession)
 - [provisionRule](#provisionrule)
 - [provisionRuleTypedData](#provisionruletypeddata)
 - [readApprovedServiceRecord](#readapprovedservicerecord)
+- [readClientExecutionPolicy](#readclientexecutionpolicy)
 - [readPaidOperationReceipt](#readpaidoperationreceipt)
 - [readSlotFunding](#readslotfunding)
 - [reconcilePaidReservation](#reconcilepaidreservation)
@@ -656,7 +685,7 @@ Discover keeper sharing and verifier policy from one fresh canonical block befor
 Selects the current epoch with both verifier and accountant snapshots, otherwise its immediate predecessor.
 Performs no signing, reservation, service contact or gas/TASRA mutation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L338)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L430)
 
 Import: `import {discoverPaidOperationContext} from 'tasra-sdk/chain'`
 
@@ -1020,6 +1049,55 @@ declare function parseServiceChallenge(bytes: Uint8Array): ServiceChallenge;
 
 Returns: ` ServiceChallenge `.
 
+### prepareRegisteredPaidSession
+
+Authenticate one approved provider and prepare complete client-signed initialization before HTTP.
+This function reserves nothing, sends no session POST and keeps the execution signer local.
+The caller must retain the returned object through uncertain creation/delivery outcomes.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L192)
+
+Import: `import {prepareRegisteredPaidSession} from 'tasra-sdk/chain'`
+
+```ts
+declare function prepareRegisteredPaidSession(chain: TasraChainClient, config: {
+    profile: ApprovedAgentProfile;
+    deployment: ClientExecutionDeployment;
+    transport: PaidAgentTransport;
+    members: readonly PaidVerifierWitness[];
+    ruleHash: Hex;
+    dcqlQuery: Record<string, unknown>;
+}, params: PaidAgentSessionParams, consent: {
+    certificate: ExecutionCertificate;
+    signer: ClientExecutionSigner;
+    pollSecret?: string;
+    expires?: number;
+    signal?: AbortSignal;
+}): Promise<RegisteredPaidAgentSession>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` chain ` | ` TasraChainClient ` | Independently configured trusted RPC/registry client. |
+| ` config ` | See detailed type below. | Approved provider, deployment, drawn Merkle witnesses and client-verified rule/query. |
+| ` params ` | ` PaidAgentSessionParams ` | Original operation and fixed mined payment, built before contacting the agent. |
+| ` consent ` | ` { certificate: ExecutionCertificate; signer: ClientExecutionSigner; pollSecret?: string; expires?: number; signal?: AbortSignal; } ` | Creator-certified client key, optional locally retained bearer and consent deadline. |
+
+**` config ` type**
+
+```ts
+{
+    profile: ApprovedAgentProfile;
+    deployment: ClientExecutionDeployment;
+    transport: PaidAgentTransport;
+    members: readonly PaidVerifierWitness[];
+    ruleHash: Hex;
+    dcqlQuery: Record<string, unknown>;
+}
+```
+
+Returns: ` Promise<RegisteredPaidAgentSession> `.
+
 ### provisionRule
 
 Deliver the clear rule and its salt to every assigned keeper using creator authorization. Throws if any delivery fails; inspect cause.results for individual outcomes.
@@ -1191,13 +1269,37 @@ Promise<{
 }>
 ```
 
+### readClientExecutionPolicy
+
+Read canonical mined credit, creator, beacon and verifier policy before approving work.
+All registry calls use the receipt's EIP-1898 block hash; no latest/number fallback.
+A target additionally proves drawn membership and current registered verifier standing.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L112)
+
+Import: `import {readClientExecutionPolicy} from 'tasra-sdk/chain'`
+
+```ts
+declare function readClientExecutionPolicy(client: PublicClient, deployment: ClientExecutionDeployment, payment: PaymentIntentWire, expected: ExpectedPaidOperation, target?: PaidVerifierWitness): Promise<ClientExecutionObservation>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | Trusted RPC client for the independently selected deployment. |
+| ` deployment ` | ` ClientExecutionDeployment ` | Approved contracts and explicit default verification policy. |
+| ` payment ` | ` PaymentIntentWire ` | Original locally retained creator intent, never copied from a proposal. |
+| ` expected ` | ` ExpectedPaidOperation ` | Application-selected slot, action and payload digest. |
+| ` target? ` | ` PaidVerifierWitness ` | Optional drawn verifier whose work is about to be approved. |
+
+Returns: ` Promise<ClientExecutionObservation> `.
+
 ### readPaidOperationReceipt
 
 Require mined backing for an independently selected operation, without spending or performing it.
 A completed reservation remains inspectable. This result never authorizes another execution;
 the keeper must independently verify the holder, current assignment and durable operation journal.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L227)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L319)
 
 Import: `import {readPaidOperationReceipt} from 'tasra-sdk/chain'`
 
@@ -1218,7 +1320,7 @@ Returns: ` Promise<PaidOperationReceipt> `.
 
 Read available, reserved and total slot TASRA at one fresh canonical block. Performs no transaction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L204)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L296)
 
 Import: `import {readSlotFunding} from 'tasra-sdk/chain'`
 
@@ -1438,7 +1540,7 @@ Returns: ` ResolvedNetworkProfile `.
 Resolve only the signed coordinator after checking mined backing, creator consent and current sharing.
 Does not contact any keeper, submit a transaction, mint a credential grant or execute work.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L260)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L352)
 
 Import: `import {resolvePaidKeeperTarget} from 'tasra-sdk/chain'`
 
@@ -1746,7 +1848,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 84 types</summary>
+<summary>Browse 94 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -1756,6 +1858,9 @@ Options, data structures and return types.
 - [ApprovedServiceProfile](#approvedserviceprofile)
 - [AuthenticatedService](#authenticatedservice)
 - [ChainClientConfig](#chainclientconfig)
+- [ClientApprovedPresentation](#clientapprovedpresentation)
+- [ClientExecutionDeployment](#clientexecutiondeployment)
+- [ClientExecutionObservation](#clientexecutionobservation)
 - [CommitRevealOptions](#commitrevealoptions)
 - [CommitteeDecryptOptions](#committeedecryptoptions)
 - [CommitteeSignOptions](#committeesignoptions)
@@ -1779,6 +1884,10 @@ Options, data structures and return types.
 - [NetworkName](#networkname)
 - [NetworkPreset](#networkpreset)
 - [NodeInfo](#nodeinfo)
+- [PaidAgentHttpResponse](#paidagenthttpresponse)
+- [PaidAgentProposal](#paidagentproposal)
+- [PaidAgentSessionParams](#paidagentsessionparams)
+- [PaidAgentTransport](#paidagenttransport)
 - [PaidContextDeployment](#paidcontextdeployment)
 - [PaidContextOptions](#paidcontextoptions)
 - [PaidKeeperEndpoint](#paidkeeperendpoint)
@@ -1790,11 +1899,14 @@ Options, data structures and return types.
 - [PaidReservationQuote](#paidreservationquote)
 - [PaidReservationRecord](#paidreservationrecord)
 - [PaidReservationResolution](#paidreservationresolution)
+- [PaidRetainedPresentation](#paidretainedpresentation)
+- [PaidVerifierWitness](#paidverifierwitness)
 - [PrepaidDeployment](#prepaiddeployment)
 - [PrepaidObservation](#prepaidobservation)
 - [ProvisionRuleArgs](#provisionruleargs)
 - [ProvisionRuleResult](#provisionruleresult)
 - [RegisteredAgentSession](#registeredagentsession)
+- [RegisteredPaidAgentSession](#registeredpaidagentsession)
 - [RegisteredRelayConfig](#registeredrelayconfig)
 - [RegisteredVerifierAgentSession](#registeredverifieragentsession)
 - [RelayAttempt](#relayattempt)
@@ -1988,6 +2100,78 @@ Fields:
 - **` chainId `**: Chain id; defaults to DEFAULT_CHAIN_ID (the RPC is never consulted).
 - **` logWindow `**: getLogs block-window size; keep <= the RPC's range cap (anvil/besu: large; public: ~2k).
 - **` multicall3 `**: Multicall3 address for batching. Omit to probe the canonical address, supply an explicit address to probe that deployment, or set false to disable batching. Unavailable batching falls back to individual reads.
+
+### ClientApprovedPresentation
+
+Complete presentation explicitly accepted by the client before verifier work.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L35)
+
+```ts
+export interface ClientApprovedPresentation {
+    holder: string;
+    credentials: string[];
+    holder_proof: string | null;
+    oauth: {
+        access_token: string;
+        dpop_proof: string;
+    } | null;
+    iat: number;
+}
+```
+
+Fields:
+
+- **` holder `**: Holder hint; the committee still authenticates it.
+- **` credentials `**: Every compact wallet credential, or an empty array for OAuth.
+- **` holder_proof `**: Original holder proof, if applicable.
+- **` oauth `**: Original OAuth artifacts, if this session uses OAuth.
+- **` iat `**: Original holder-selected integer issuance time; never change it on a retry.
+
+### ClientExecutionDeployment
+
+Approved contracts and default verifier policy for client-side execution consent.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L75)
+
+```ts
+export interface ClientExecutionDeployment extends PrepaidDeployment {
+    verifierSet: Address;
+    beacon: Address;
+    defaultVerificationPolicy?: {
+        committee: number;
+        quorum: number;
+    };
+}
+```
+
+Fields:
+
+- **` verifierSet `**: Independently approved anchored verifier registry.
+- **` beacon `**: Independently approved randomness beacon.
+- **` defaultVerificationPolicy `**: Explicit deployment default, used only when the slot's on-chain policy is zero.
+- **` chainId `**: Expected EVM chain ID.
+- **` settlement `**: Expected Settlement proxy.
+- **` keyRegistry `**: Expected KeyRegistry proxy.
+
+### ClientExecutionObservation
+
+Fresh canonical payment and verifier-policy observation before a client signature.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L97)
+
+```ts
+export interface ClientExecutionObservation extends PrepaidObservation {
+    policy: ExecutionConsentPolicy;
+}
+```
+
+Fields:
+
+- **` policy `**: Exact independently read creator, deployment, reserved cost and current time.
+- **` blockNumber `**: Canonical block number.
+- **` blockHash `**: Exact canonical block used for EIP-1898 calls.
+- **` blockTimestamp `**: Block timestamp in Unix seconds.
 
 ### CommitRevealOptions
 
@@ -2266,7 +2450,7 @@ Fields:
 
 Chain-derived fields safe to copy into the creator's independently bounded payment intent.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L118)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L210)
 
 ```ts
 export type DiscoveredPaymentFields = Pick<PaymentIntentWire,
@@ -2312,7 +2496,7 @@ export type EventCategory = 'node' | 'slot' | 'slashing' | 'tasra' | 'settlement
 
 Explicit expected operation, independent of the supplied payment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L62)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L65)
 
 ```ts
 export interface ExpectedPaidOperation {
@@ -2600,11 +2784,100 @@ Fields:
 - **` rate_limit_enabled `**: Whether the keeper reports rate limiting as enabled.
 - **` admin_scope_enabled `**: Whether the keeper reports administrative scope checks as enabled.
 
+### PaidAgentHttpResponse
+
+Bounded response from the original approved agent; non-success is never a retry instruction.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/paidAgentTransport.ts#L4)
+
+```ts
+export interface PaidAgentHttpResponse {
+    status: number;
+    body: Uint8Array;
+}
+```
+
+Fields:
+
+- **` status `**: Observed HTTP status, including consent waits and unknown-delivery failures.
+- **` body `**: Exact bounded bytes; never log credentials or bearer-bearing creation bodies.
+
+### PaidAgentProposal
+
+Owner proposal, including its transport correlation identity.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L61)
+
+```ts
+export interface PaidAgentProposal extends ExecutionProposal {
+    id: string;
+}
+```
+
+Fields:
+
+- **` id `**: Transport identity; it never replaces the complete-body comparison.
+- **` stage `**: Requested stage; compared with the application's own selection.
+- **` operator_key `**: Requested key; compared with an independently authenticated key.
+- **` unsigned_body `**: Complete unsigned JSON body, with no execution_authorization envelope.
+- **` expires `**: Requested bounded Unix expiry.
+
+### PaidAgentSessionParams
+
+Client-built original operation and reserved intent. No provider fallback is permitted.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L25)
+
+```ts
+export interface PaidAgentSessionParams extends CreateSessionParams {
+    payment: PaymentIntentWire;
+    random: string;
+    kind?: 'wallet' | 'oauth';
+}
+```
+
+Fields:
+
+- **` payment `**: Original creator-signed reserved TASRA intent.
+- **` random `**: Original presentation random committed before reservation.
+- **` kind `**: Credential adapter; omitted means wallet.
+- **` operation `**: Signed operation details presented for authorization.
+- **` operationSig `**: 0x-hex 65-byte EIP-712 signature over the operation
+- **` delegation `**: Optional EIP-712 delegation from the slot creator
+- **` messageHex `**: The raw payload as 0x-hex
+
+### PaidAgentTransport
+
+Transport for client-owned session initialization, consent and continuation.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/paidAgentTransport.ts#L12)
+
+```ts
+export interface PaidAgentTransport extends ServiceDiscoveryTransport {
+    paidAgentRequest(url: string, options: {
+        method: 'GET' | 'POST';
+        body?: Uint8Array;
+        bearer?: string;
+        oauth?: {
+            accessToken: string;
+            proof: string;
+        };
+        maxBytes: number;
+        signal: AbortSignal;
+    }): Promise<PaidAgentHttpResponse>;
+}
+```
+
+Fields:
+
+- **` paidAgentRequest `**: Require verified TLS, connection-time destination checks, no redirects and cancellation.
+- **` request `**: Perform a bounded request using the required destination, TLS and cancellation policy; return response bytes.
+
 ### PaidContextDeployment
 
 Independently approved deployment used to discover a payment before creator signing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L100)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L192)
 
 ```ts
 export interface PaidContextDeployment extends PrepaidDeployment {
@@ -2627,7 +2900,7 @@ Fields:
 
 Explicit application policy for selecting currently eligible paid workers.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L110)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L202)
 
 ```ts
 export interface PaidContextOptions extends PaidKeeperTransportOptions {
@@ -2649,7 +2922,7 @@ Fields:
 
 Currently eligible registered keeper selected in the creator's paid assignment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L72)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L164)
 
 ```ts
 export interface PaidKeeperEndpoint {
@@ -2669,7 +2942,7 @@ Fields:
 
 The single coordinator and contributor set selected by the creator's paid assignment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L82)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L174)
 
 ```ts
 export interface PaidKeeperTarget extends PaidKeeperEndpoint {
@@ -2694,7 +2967,7 @@ Fields:
 
 Explicit transport allowance for a development chain. HTTPS is otherwise required.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L94)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L186)
 
 ```ts
 export interface PaidKeeperTransportOptions {
@@ -2710,7 +2983,7 @@ Fields:
 
 One canonical pre-signing observation; later reservation and execution must revalidate it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L121)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L213)
 
 ```ts
 export interface PaidOperationContext extends PrepaidObservation {
@@ -2741,7 +3014,7 @@ Fields:
 
 Chain backing for one operation; holder authorization and execution journals remain separate.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L48)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L51)
 
 ```ts
 export interface PaidOperationReceipt extends PrepaidObservation {
@@ -2895,11 +3168,55 @@ Fields:
 - **` gasCost `**: Native gas used times gas price; separate from TASRA slot charges.
 - **` status `**: Successful original reservation transaction and currently observable backing. Original transaction reverted. This does not prove no other transaction reserved the intent.
 
+### PaidRetainedPresentation
+
+Retained callback is untrusted until the application accepts its complete presentation.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L49)
+
+```ts
+export interface PaidRetainedPresentation {
+    id: string;
+    presentation: ClientApprovedPresentation;
+    expires: number;
+    selected: boolean;
+}
+```
+
+Fields:
+
+- **` id `**: Locally checked callback identity; safe for correlation.
+- **` presentation `**: Complete owner-only proposal. Do not log credential contents.
+- **` expires `**: Immutable parent expiry.
+- **` selected `**: Whether this callback has already been selected.
+
+### PaidVerifierWitness
+
+An anchored drawn verifier identity, supplied with its inclusion proof.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L85)
+
+```ts
+export interface PaidVerifierWitness {
+    index: number;
+    operator: Address;
+    publicKey: Hex;
+    proof: Hex[];
+}
+```
+
+Fields:
+
+- **` index `**: Snapshot index; the SDK independently recomputes the draw.
+- **` operator `**: Registered operator account.
+- **` publicKey `**: Ed25519 key anchored at the payment's verification epoch.
+- **` proof `**: Sorted-pair Merkle inclusion path.
+
 ### PrepaidDeployment
 
 Deployment independently selected by the application, not taken from a received intent.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L14)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L17)
 
 ```ts
 export interface PrepaidDeployment {
@@ -2919,7 +3236,7 @@ Fields:
 
 Fresh canonical observation shared by every field in a funding or reservation result.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L24)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L27)
 
 ```ts
 export interface PrepaidObservation {
@@ -3015,6 +3332,62 @@ Fields:
 - **` pollSecret `**: Bearer token for polling - treat as a secret
 - **` qrPayload `**: OpenID4VP deep link for a wallet or QR code.
 - **` requestUri `**: URL from which the wallet retrieves the signed request.
+
+### RegisteredPaidAgentSession
+
+Prepared client-owned session; creation sends once, reconciliation only reads.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L78)
+
+```ts
+export interface RegisteredPaidAgentSession {
+    readonly sessionId: string;
+    readonly profile: Readonly<ApprovedAgentProfile>;
+    readonly paymentHash: Hex;
+    readonly initialization: SessionInitialization;
+    readonly oauthContext: Readonly<{
+        nonce: string;
+        dpopHtu: string;
+        platformAudience: string;
+    }>;
+    prepareOAuthPresentation(accessToken: string, signer: DpopSigner, signal?: AbortSignal): Promise<ClientApprovedPresentation>;
+    submitOAuthPresentation(approved: ClientApprovedPresentation, signal?: AbortSignal): Promise<void>;
+    create(signal?: AbortSignal): Promise<void>;
+    reconcile(signal?: AbortSignal): Promise<SessionStatusResult>;
+    proposals(signal?: AbortSignal): Promise<PaidAgentProposal[]>;
+    approveRequest(proposal: PaidAgentProposal, stage: 'presentation_sign' | 'presentation_attest', member: PaidVerifierWitness, signal?: AbortSignal): Promise<void>;
+    presentations(signal?: AbortSignal): Promise<PaidRetainedPresentation[]>;
+    resumePresentation(id: string, approved: ClientApprovedPresentation, signal?: AbortSignal): Promise<void>;
+    approveCredentials(proposal: PaidAgentProposal, member: PaidVerifierWitness, approved: ClientApprovedPresentation, signal?: AbortSignal): Promise<void>;
+    rejectProposal(id: string, signal?: AbortSignal): Promise<void>;
+    requestObject(signal?: AbortSignal): Promise<{
+        request: VerifiedRequestObject;
+        requestUri: string;
+        qrPayload: string;
+    }>;
+    poll(signal?: AbortSignal): Promise<SessionStatusResult>;
+}
+```
+
+Fields:
+
+- **` sessionId `**: Locally derived deterministic initialization identity.
+- **` profile `**: Original approved provider, immutable and independently authenticated.
+- **` paymentHash `**: Original spending commitment.
+- **` initialization `**: Public initialization proof; the execution private key remains with the caller.
+- **` oauthContext `**: Locally derived OAuth audience and nonce; available after public-context recovery.
+- **` prepareOAuthPresentation `**: Build and verify the original OAuth presentation locally. Retain it before submission.
+- **` submitOAuthPresentation `**: Submit the retained original OAuth artifacts once; HTTP202 means client consent is still needed.
+- **` create `**: Send the exact initialized creation POST once. Retain this object if its result is unknown.
+- **` reconcile `**: Recover the original public context via authenticated GET after a lost creation reply.
+- **` proposals `**: Read owner-only complete-body proposals, without approving or sending operator work.
+- **` approveRequest `**: Approve one JAR signer or distinct attester after canonical member/policy checks and local body reconstruction.
+- **` presentations `**: Read retained callback candidates; application acceptance must precede selection or signing.
+- **` resumePresentation `**: Select/resume the exact client-accepted callback. HTTP425 requires separate operator approvals.
+- **` approveCredentials `**: Approve one drawn verifier's complete credential body, built from the separately accepted presentation.
+- **` rejectProposal `**: Record a refusal; never reopens a dispatched operator stage.
+- **` requestObject `**: Fetch and independently verify the drawn signer's JAR and every bound session claim before exposing a QR.
+- **` poll `**: Poll the original provider and verify a completed token against the anchored draw and application's rule hash.
 
 ### RegisteredRelayConfig
 
@@ -3566,7 +3939,7 @@ Fields:
 
 Slot TASRA balances at a single canonical block; this does not grant paid admission.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L34)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L37)
 
 ```ts
 export interface SlotFunding extends PrepaidObservation {

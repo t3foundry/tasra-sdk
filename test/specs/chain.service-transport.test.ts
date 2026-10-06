@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs'
 import {createServer, type Server} from 'node:https'
 import {lookup} from 'node:dns'
 import {afterEach, describe, expect, it, vi} from 'vitest'
-import {createNodeServiceStatusTransport, createNodeAgentWalletFetch, createNodeAgentTransport, createNodeRelayTransport, createNodeServiceDiscoveryTransport, isPublicServiceAddress} from '../../src/chain/node.js'
+import {createNodePaidAgentTransport, createNodeServiceStatusTransport, createNodeAgentWalletFetch, createNodeAgentTransport, createNodeRelayTransport, createNodeServiceDiscoveryTransport, isPublicServiceAddress} from '../../src/chain/node.js'
 import {authenticateApprovedService, encodeServiceManifest, serviceChallengeTypedData, type ServiceChallenge, type ServiceManifest} from '../../src/chain/serviceIdentity.js'
 import {createTasraChainClient} from '../../src/chain/client.js'
 import {hashServiceManifest, type ServiceApproval, type ServiceRecord} from '../../src/chain/services.js'
@@ -206,5 +206,113 @@ describe('registered wallet HTTPS transport', () => {
     await expect(fetcher('https://other.example/v1/response', {method: 'POST', body: 'secret'})).rejects.toThrow(/outside/)
     await expect(fetcher(endpoint + '/v1/response?session=' + session.sessionId, {method: 'POST', body: 'x'.repeat(1_048_577)})).rejects.toThrow(/bounds/)
     expect(hits).toHaveLength(3)
+  })
+})
+
+
+describe('paid agent owner-control HTTPS transport', () => {
+  const id = 'ab'.repeat(32), proposal = 'cd'.repeat(32), owner = 'ef'.repeat(32)
+  const session = '/v1/sessions/' + id
+  it('submits OAuth artifacts only on its guarded POST with a separate owner header and preserves HTTP202', async () => {
+    const hits: Array<{authorization?: string; owner?: string; proof?: string; body: string}> = []
+    const endpoint=await serve((req,res)=>{
+      const chunks:Buffer[]=[];req.on('data',(chunk:Buffer)=>chunks.push(chunk));req.on('end',()=>{
+        hits.push({authorization:req.headers.authorization,owner:req.headers['x-poll-secret'] as string|undefined,
+          proof:req.headers.dpop as string|undefined,body:Buffer.concat(chunks).toString()})
+        res.writeHead(202,{'content-type':'application/json'});res.end('{}')
+      })
+    })
+    const t=createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']})
+    const oauth={accessToken:'original.access.token',proof:'original.dpop.proof'}
+    expect((await t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'POST',bearer:owner,oauth})).status).toBe(202)
+    expect(hits).toEqual([{authorization:'DPoP '+oauth.accessToken,owner,proof:oauth.proof,body:''}])
+    for(const path of [session,session+'/execution','/v1/request/'+id,'/v1/sessions']){
+      expect(()=>t.paidAgentRequest(endpoint+path,{...options(),method:'POST',bearer:owner,oauth})).toThrow(/OAuth/)
+    }
+    expect(()=>t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'POST',bearer:owner})).toThrow(/paid agent/)
+    expect(()=>t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'GET',bearer:owner,oauth})).toThrow(/paid agent/)
+    expect(()=>t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'POST',bearer:owner,oauth,body:new Uint8Array()})).toThrow(/paid agent/)
+    for(const artifacts of [{...oauth,accessToken:'token\r\nX-Leak: owner'},{...oauth,proof:'malformed'},
+      {...oauth,accessToken:'x'.repeat(16385)},{...oauth,proof:'x'.repeat(4097)}]){
+      expect(()=>t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'POST',bearer:owner,oauth:artifacts})).toThrow(/OAuth/)
+    }
+    expect(hits).toHaveLength(1)
+  })
+  it('preserves consent and recovery statuses, sends bodyless POSTs and keeps owners off public routes', async () => {
+    const hits: Array<{path?: string; method?: string; bearer?: string; body: string}> = []
+    let createStatus = 201
+    const endpoint = await serve((req,res) => {
+      const chunks: Buffer[] = []
+      req.on('data', (chunk: Buffer) => chunks.push(chunk))
+      req.on('end', () => {
+        hits.push({path: req.url, method: req.method, bearer: req.headers.authorization, body: Buffer.concat(chunks).toString()})
+        if (req.url?.endsWith('/approve')) {res.writeHead(204); res.end(); return}
+        const status = req.url === '/v1/sessions' ? createStatus : req.url?.startsWith('/v1/request/') ? 425 : req.url?.endsWith('/resume') ? 503 : 200
+        res.writeHead(status, {'content-type': 'application/json'}); res.end('{}')
+      })
+    })
+    const transport = createNodePaidAgentTransport({ca, allowedPrivateHosts: ['localhost']})
+    const body = new TextEncoder().encode('{"client":"public consent"}')
+    for (const status of [201,200]) {
+      createStatus = status
+      expect((await transport.paidAgentRequest(endpoint+'/v1/sessions',{...options(),method:'POST',body})).status).toBe(status)
+    }
+    const request = await transport.paidAgentRequest(endpoint+'/v1/request/'+id,{...options(),method:'GET'})
+    expect(request.status).toBe(425)
+    expect(new TextDecoder().decode(request.body)).toBe('{}')
+    const approved = await transport.paidAgentRequest(endpoint+session+'/execution/'+proposal+'/approve',{...options(),method:'POST',bearer:owner,body})
+    expect(approved.status).toBe(204); expect(approved.body.length).toBe(0)
+    expect((await transport.paidAgentRequest(endpoint+session+'/presentations/'+proposal+'/resume',{...options(),method:'POST',bearer:owner})).status).toBe(503)
+    expect(hits.map(h=>h.bearer)).toEqual([undefined,undefined,undefined,'Bearer '+owner,'Bearer '+owner])
+    expect(hits.at(-1)?.method).toBe('POST'); expect(hits.at(-1)?.body).toBe('')
+    expect(hits).toHaveLength(5) // no automatic resend after an unknown delivery
+  })
+  it('refuses wrong paths, methods, bodies and owner-bearer disclosure before connecting', async () => {
+    const hits = vi.fn()
+    const endpoint = await serve((_req,res) => {hits();res.end('{}')})
+    const t = createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']})
+    const body = new TextEncoder().encode('{}')
+    for (const [path,method,secret,bytes] of [
+      [session+'/execution','GET',undefined,undefined],
+      ['/v1/sessions','POST',owner,body],
+      ['/v1/request/'+id,'GET',owner,undefined],
+      [session+'/execution','POST',owner,body],
+      [session+'/execution/'+proposal+'/approve','GET',owner,body],
+      [session+'/execution/'+proposal+'/approve','POST',owner,undefined],
+      [session+'/execution/'+proposal+'/reject','POST',owner,body],
+      [session+'/presentations/'+proposal+'/resume','GET',owner,undefined],
+      [session+'/presentations/'+proposal+'/resume','POST','wrong',undefined],
+      [session+'/execution?elsewhere=1','GET',owner,undefined],
+      [session+'/../execution','GET',owner,undefined],
+    ] as const) {
+      expect(()=>t.paidAgentRequest(endpoint+path,{...options(),method,bearer:secret,body:bytes})).toThrow(/paid agent/)
+    }
+    expect(hits).not.toHaveBeenCalled()
+  })
+  it('applies private-address, TLS and redirect refusal to owner controls', async () => {
+    const hits = vi.fn()
+    const endpoint = await serve((req,res) => {hits(req.headers.authorization);req.resume();res.writeHead(307,{'content-type':'application/json',location:'https://other.example/secret'});res.end('{}')})
+    const opts = {...options(),method:'GET' as const,bearer:owner}
+    await expect(createNodePaidAgentTransport({ca}).paidAgentRequest(endpoint+session+'/execution',opts)).rejects.toThrow(/destination policy/)
+    await expect(createNodePaidAgentTransport({allowedPrivateHosts:['localhost']}).paidAgentRequest(endpoint+session+'/execution',opts)).rejects.toThrow()
+    expect(hits).not.toHaveBeenCalled()
+    await expect(createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']}).paidAgentRequest(endpoint+session+'/execution',opts)).rejects.toThrow(/status/)
+    expect(hits).toHaveBeenCalledExactlyOnceWith('Bearer '+owner)
+  })
+  it('bounds chunked proposals and rejects a JSON success in place of the signed request object', async () => {
+    const endpoint = await serve((req,res) => {req.resume();res.writeHead(200,{'content-type':'application/json'});res.end('x'.repeat(129))})
+    const t = createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']})
+    await expect(t.paidAgentRequest(endpoint+session+'/execution',{...options(),method:'GET',bearer:owner})).rejects.toThrow(/too large/)
+    await expect(t.paidAgentRequest(endpoint+'/v1/request/'+id,{...options(),method:'GET'})).rejects.toThrow(/content type/)
+  })
+  it('cancels an owner control without retrying its POST', async () => {
+    const hits = vi.fn()
+    const endpoint = await serve(req => {hits();req.resume()})
+    const t = createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']})
+    const controller = new AbortController()
+    const pending = t.paidAgentRequest(endpoint+session+'/execution/'+proposal+'/reject',{...options(),method:'POST',bearer:owner,signal:controller.signal})
+    const failed = expect(pending).rejects.toThrow()
+    controller.abort(); await failed
+    expect(hits.mock.calls.length).toBeLessThanOrEqual(1)
   })
 })

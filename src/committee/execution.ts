@@ -9,6 +9,8 @@ import {assertPaymentIntentWire, paymentIntentHash, paymentIntentTypedData, prep
 export const EXECUTION_CERTIFICATE_DOMAIN = 'Keykeeper Client Execution Certificate'
 /** Client stage approvals bind complete request bodies and assigned operator keys. */
 export const EXECUTION_APPROVAL_DOMAIN = 'Keykeeper Client Stage Approval'
+/** Client consent to one exact session and independently approved registered agent. */
+export const EXECUTION_INITIALIZATION_DOMAIN = 'Keykeeper Client Session Initialization'
 /** Maximum complete unsigned request size shared with the Rust verifier. */
 export const MAX_EXECUTION_BODY_BYTES = 2 * 1024 * 1024
 
@@ -40,6 +42,28 @@ export interface ExecutionAuthorization {
   expires: number
   /** Client Ed25519 signature over the structured stage approval hash. */
   signature: Hex
+}
+
+/** Client authorization to create a session; this is not a paid operator stage. */
+export interface SessionInitialization {
+  /** Public execution key certified by the slot creator. */
+  certificate: ExecutionCertificate
+  /** Hash of the independently approved registered agent profile. */
+  profile_hash: Hex
+  /** Hash of the complete unsigned create body, including the client owner bearer. */
+  body_hash: Hex
+  /** Unix expiry bounded by the certificate. */
+  expires: number
+  /** Client Ed25519 signature in a separate initialization domain. */
+  signature: Hex
+}
+
+/** Independent client intent for a registered agent session. */
+export interface ExpectedInitialization {
+  /** Previously authenticated and approved agent profile; never copied from its response. */
+  serviceProfile: Record<string, unknown>
+  /** Client-built complete create body, excluding execution_initialization. */
+  body: Record<string, unknown>
 }
 
 /** Independently selected deployment, creator and exact reserved payment. */
@@ -110,6 +134,10 @@ const APPROVAL_TYPES = {ClientStageApproval: [...COMMON_FIELDS,
   {name: 'operatorKey', type: 'bytes32'}, {name: 'action', type: 'uint8'},
   {name: 'payloadDigest', type: 'bytes32'}, {name: 'bodyHash', type: 'bytes32'},
   {name: 'expires', type: 'uint64'},
+]} as const
+const INITIALIZATION_TYPES = {ClientSessionInitialization: [...COMMON_FIELDS,
+  {name: 'certificateHash', type: 'bytes32'}, {name: 'profileHash', type: 'bytes32'},
+  {name: 'bodyHash', type: 'bytes32'}, {name: 'expires', type: 'uint64'},
 ]} as const
 const ACTIONS = {sign: 0, decrypt: 1, 'eoa-sign': 2, 'ibe-extract': 3, 'dual-approve': 6} as const
 
@@ -319,6 +347,71 @@ export async function approveExecutionRequest(options: {payment: PaymentIntentWi
   approval.signature = toHex(await signer.sign(protocolHex(hash, 32, 'execution approval hash')))
   await verifyExecutionAuthorization({payment, policy, expected, authorization: approval})
   return approval
+}
+
+/**
+ * Reconstruct session initialization typed data from the original payment and client-built commitments.
+ * @param payment Original locally retained creator payment.
+ * @param initialization Certificate, approved profile hash, complete create-body hash and expiry.
+ */
+export function executionInitializationTypedData(payment: PaymentIntentWire, initialization: Omit<SessionInitialization, 'signature'>) {
+  integer(initialization.expires)
+  protocolHex(initialization.profile_hash, 32, 'approved agent profile hash')
+  protocolHex(initialization.body_hash, 32, 'session creation body hash')
+  if (initialization.expires === 0 || initialization.expires > initialization.certificate.expires
+    || [initialization.profile_hash, initialization.body_hash].some(hash => /^0x0{64}$/i.test(hash))) throw new Error('Invalid session initialization expiry or commitment')
+  return {domain: {name: EXECUTION_INITIALIZATION_DOMAIN, version: '1', chainId: payment.chain_id, verifyingContract: payment.settlement},
+    primaryType: 'ClientSessionInitialization' as const, types: INITIALIZATION_TYPES,
+    message: {...common(payment), certificateHash: hashTypedData(executionCertificateTypedData(payment, initialization.certificate)),
+      profileHash: initialization.profile_hash, bodyHash: initialization.body_hash, expires: BigInt(initialization.expires)}}
+}
+
+function initializationSnapshot(expected: ExpectedInitialization): ExpectedInitialization {
+  exactObject(expected, ['serviceProfile', 'body'])
+  if (Object.hasOwn(expected.body, 'execution_initialization')) throw new Error('Session body must exclude its initialization envelope')
+  executionBodyHash(expected.serviceProfile); executionBodyHash(expected.body)
+  return structuredClone(expected)
+}
+
+/**
+ * Verify fresh client consent before creating or retrying a registered agent session.
+ * @param options Independently selected profile/body/policy, original payment and untrusted proof.
+ */
+export async function verifySessionInitialization(options: {payment: PaymentIntentWire; policy: ExecutionConsentPolicy;
+  expected: ExpectedInitialization; initialization: SessionInitialization}): Promise<void> {
+  exactObject(options.initialization, ['certificate', 'profile_hash', 'body_hash', 'expires', 'signature'])
+  certificateShape(options.initialization.certificate)
+  const payment = structuredClone(options.payment), policy = {...options.policy}
+  const expected = initializationSnapshot(options.expected), proof = structuredClone(options.initialization)
+  await paymentConsent(payment, policy); await certified(payment, proof.certificate, policy)
+  if (proof.expires <= policy.nowSecs) throw new Error('Session initialization expired')
+  if (proof.profile_hash.toLowerCase() !== executionBodyHash(expected.serviceProfile)
+    || proof.body_hash.toLowerCase() !== executionBodyHash(expected.body)) throw new Error('Session initialization differs from the approved agent and client body')
+  const hash = protocolHex(hashTypedData(executionInitializationTypedData(payment, proof)), 32, 'session initialization hash')
+  if (!ed25519.verify(protocolHex(proof.signature, 64, 'session initialization signature'), hash, strongKey(proof.certificate.execution_key), {zip215: false})) throw new Error('Invalid client session initialization signature')
+}
+
+/**
+ * Authorize one client-built creation body, including a locally generated owner bearer.
+ * Retain the body, proof and signer privately until expiry: retrying the identical POST uses
+ * the hash of these typed data as its session ID and cannot replace the original ECDH key.
+ * This function neither reserves funds nor starts or pays an operator.
+ * @param options Original payment, certified client signer and independently approved create intent.
+ */
+export async function initializeExecutionSession(options: {payment: PaymentIntentWire; certificate: ExecutionCertificate;
+  signer: ClientExecutionSigner; policy: ExecutionConsentPolicy; expected: ExpectedInitialization; expires: number}): Promise<SessionInitialization> {
+  certificateShape(options.certificate)
+  const payment = structuredClone(options.payment), policy = {...options.policy}, certificate = structuredClone(options.certificate)
+  const expected = initializationSnapshot(options.expected), signer = options.signer, publicKey = signer.publicKey.slice(), expires = options.expires
+  if (!equalBytes(publicKey, strongKey(certificate.execution_key))) throw new Error('Local execution signer differs from creator certificate')
+  await paymentConsent(payment, policy); await certified(payment, certificate, policy)
+  const proof: SessionInitialization = {certificate, profile_hash: executionBodyHash(expected.serviceProfile),
+    body_hash: executionBodyHash(expected.body), expires, signature: '0x'}
+  if (proof.expires <= policy.nowSecs) throw new Error('Session initialization expired')
+  const hash = hashTypedData(executionInitializationTypedData(payment, proof))
+  proof.signature = toHex(await signer.sign(protocolHex(hash, 32, 'session initialization hash')))
+  await verifySessionInitialization({payment, policy, expected, initialization: proof})
+  return proof
 }
 
 /**

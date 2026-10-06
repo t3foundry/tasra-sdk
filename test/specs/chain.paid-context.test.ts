@@ -1,10 +1,11 @@
 import {afterEach, expect, it, vi} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
-import {createPublicClient, custom, decodeFunctionData, encodeFunctionResult, getAddress, recoverTypedDataAddress, toHex, type Abi, type Hex} from 'viem'
+import {createPublicClient, custom, decodeFunctionData, encodeFunctionResult, getAddress, keccak256, recoverTypedDataAddress, toHex, type Abi, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {discoverPaidOperationContext, type PaidContextOptions} from '../../src/chain/prepaid.js'
+import {discoverPaidOperationContext, readClientExecutionPolicy, type PaidContextOptions} from '../../src/chain/prepaid.js'
 import {UnderfundedSlotError} from '../../src/errors.js'
-import {paymentIntentTypedData, paymentSessionCommitment} from '../../src/committee/payment.js'
+import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, type PaymentIntentWire} from '../../src/committee/payment.js'
+import {verifierLeaf} from '../../src/committee/token.js'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.js'
 import {nodeRegistryAbi} from '../../src/chain/abis/nodeRegistry.js'
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
@@ -20,6 +21,7 @@ interface Changes {
   inactive?: number[]; duplicateId?: boolean; duplicateKey?: boolean; insufficient?: boolean
   enabled?: boolean; available?: bigint; cancelled?: boolean; noKey?: boolean; age?: number; orphan?: boolean
   chain?: number; unsupported?: boolean; url?: string; chainId?: number; onChainId?: () => void
+  reserved?: bigint; settled?: boolean; refunded?: bigint; root?: Hex; tagged?: boolean; creator?: Hex; registeredKey?: Hex
 }
 function fixture(change: Changes = {}) {
   const deployment = {chainId: change.chainId ?? 43112, settlement: h(1, 20), keyRegistry: h(2, 20), verifierSet: h(5, 20), accountantSet: h(8, 20), beacon: h(6, 20)}
@@ -46,18 +48,20 @@ function fixture(change: Changes = {}) {
     const accountant = call.to === approved.accountantSet
     const values: Record<string, unknown> = {
       prepaidEnabled: change.enabled ?? true, balanceOf: change.available ?? 100n,
+      prepaidCost: change.reserved ?? 5n, prepaidSettled: change.settled ?? false,
+      prepaidRefunded: change.refunded ?? 0n, prepaidAssignmentBlock: h(19),
       randomBeacon: change.beaconMismatch === 'key' ? h(99, 20) : approved.beacon,
       beacon: change.beaconMismatch === (accountant ? 'accountant' : 'snapshot') ? h(99, 20) : approved.beacon,
       epoch: change.epoch ?? 7n, seedAt: change.missingSeed ? h(0) : previous ? h(8) : h(9),
       snapshotAt: accountant
         ? change.accountantUnanchored && !previous || change.accountantNoPrevious && previous ? [h(0), 0] : [h(19), change.accountantSize ?? 3]
-        : change.unanchored && !previous || change.noPrevious && previous ? [h(0), 0] : [previous ? h(17) : h(18), change.size ?? 5],
+        : change.unanchored && !previous || change.noPrevious && previous ? [h(0), 0] : [change.root ?? (previous ? h(17) : h(18)), change.size ?? 5],
       verifierPolicy: change.policy ?? [3, 2], nodeRegistry: nodes, assignedNodes: operators,
-      getKeySlot: {creator: creator.address, ruleCommitment: h(33), threshold: {k: change.insufficient ? 3 : 2, n: 3}, mode: 0,
+      getKeySlot: {creator: change.creator ?? creator.address, ruleCommitment: h(33), threshold: {k: change.insufficient ? 3 : 2, n: 3}, mode: 0,
         publicKey: change.noKey ? '0x' : keys[0], epoch: change.sharingEpoch ?? 1n, committeeVersion: change.sharingVersion ?? 2n,
         exists: true, cancelled: change.cancelled ?? false, expiry: 2000n, ruleVersion: 1n, auth: 0},
-      operatorIdOf: change.duplicateId ? 1n : ids[index], hasTag: true,
-      nodeOf: {operator: operators[index], dns: 'keeper', url: change.url ?? `https://keeper${index}.example`, p2pAddr: '', pubkey: keys[change.duplicateKey ? 0 : index],
+      operatorIdOf: change.duplicateId ? 1n : ids[index], hasTag: change.tagged ?? true,
+      nodeOf: {operator: operators[index], dns: 'keeper', url: change.url ?? `https://keeper${index}.example`, p2pAddr: '', pubkey: change.registeredKey ?? keys[change.duplicateKey ? 0 : index],
         stake: 100n, rewardBalance: 0n, unbondingAt: 0n, active: !change.inactive?.includes(index)},
     }
     return encodeFunctionResult({abi, functionName: name, result: values[name]})
@@ -141,4 +145,70 @@ it('pins deployment and approved defaults before asynchronous discovery starts',
   now(); const options = {defaultVerificationPolicy: {committee: 3, quorum: 2}}
   const f = fixture({policy: [0, 0], onChainId: () => {f.deployment.beacon = h(99, 20); options.defaultVerificationPolicy.committee = 1}})
   expect((await f.run(options)).intentFields.verification_committee).toBe(3)
+})
+
+
+function reservedPayment(): PaymentIntentWire {
+  return {chain_id:43112,settlement:h(1,20),key_registry:h(2,20),slot:h(3),action:'sign',
+    payload_digest:h(44),session_commitment:h(46),nonce:h(45),max_cost:'10',expires:1060,
+    verification_epoch:7,verification_seed:h(9),verification_root:h(18),verification_registry_size:5,
+    verification_committee:3,verification_quorum:2,keeper_assignment:{key_epoch:1,committee_version:2,threshold:2,
+      coordinator:Array<number>(32).fill(9),contributors:[9,10,11].map(n=>Array<number>(32).fill(n))},signature:h(1,65)}
+}
+const intendedWork={slot:h(3),action:'sign' as const,payloadDigest:h(44)}
+
+it('reads client consent from the original mined reservation and one canonical registry snapshot',async()=>{
+  now();const f=fixture(), payment=reservedPayment()
+  const observation=await readClientExecutionPolicy(f.client,f.deployment,payment,intendedWork)
+  expect(observation).toMatchObject({blockHash:h(20),blockNumber:20n,policy:{chainId:43112,
+    settlement:f.deployment.settlement,keyRegistry:f.deployment.keyRegistry,creator:f.creator.address,
+    paymentHash:paymentIntentHash(payment),cost:5n,nowSecs:1000}})
+  expect(f.calls.filter(c=>c.name==='prepaidCost')[0]?.args).toHaveLength(2)
+  expect(f.calls.filter(c=>c.name==='snapshotAt').map(c=>c.args)).toEqual([[7n]])
+  expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber'].includes(c.method))).toBe(true)
+})
+
+it('refuses new client consent on settled, expired, unavailable or changed canonical context',async()=>{
+  now()
+  for(const change of [{settled:true},{reserved:0n},{reserved:11n},{refunded:1n},{enabled:false},
+    {beaconMismatch:'key' as const},{beaconMismatch:'snapshot' as const},{cancelled:true},{creator:h(0,20)},
+    {missingSeed:true},{root:h(99)},{size:6},{epoch:9n},{policy:[3,1] as [number,number]},
+    {age:31},{orphan:true},{unsupported:true},{chain:43113}]){
+    const f=fixture(change)
+    await expect(readClientExecutionPolicy(f.client,f.deployment,reservedPayment(),intendedWork)).rejects.toThrow()
+    expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber'].includes(c.method))).toBe(true)
+  }
+  const f=fixture()
+  await expect(readClientExecutionPolicy(f.client,f.deployment,{...reservedPayment(),expires:1000},intendedWork)).rejects.toThrow(/expiry|expired/)
+})
+
+it('requires explicit defaults and preserves the reserved previous epoch without silently redrawing',async()=>{
+  now();const f=fixture({policy:[0,0]})
+  await expect(readClientExecutionPolicy(f.client,f.deployment,reservedPayment(),intendedWork)).rejects.toThrow(/policy/)
+  const d={...f.deployment,defaultVerificationPolicy:{committee:3,quorum:2}}
+  expect((await readClientExecutionPolicy(f.client,d,reservedPayment(),intendedWork)).policy.cost).toBe(5n)
+  const previous={...reservedPayment(),verification_epoch:6,verification_seed:h(8),verification_root:h(17)}
+  expect((await readClientExecutionPolicy(f.client,d,previous,intendedWork)).policy.paymentHash).toBe(paymentIntentHash(previous))
+  await expect(readClientExecutionPolicy(f.client,d,{...previous,verification_epoch:5},intendedWork)).rejects.toThrow(/policy/)
+})
+
+it('requires an anchored drawn key that is still active and tagged before approving its work',async()=>{
+  now();const base=fixture(), member={index:0,operator:base.operators[0]!,publicKey:base.keys[0]!,proof:[] as Hex[]}
+  const root=toHex(verifierLeaf(0,Uint8Array.from(Buffer.from(member.operator.slice(2),'hex')),
+    Uint8Array.from(Buffer.from(member.publicKey.slice(2),'hex'))))
+  const payment={...reservedPayment(),verification_root:root,verification_registry_size:1,verification_committee:1,verification_quorum:1}
+  const change={root,size:1,policy:[1,1] as [number,number]}
+  const good=fixture(change)
+  expect((await readClientExecutionPolicy(good.client,good.deployment,payment,intendedWork,member)).policy.creator).toBe(base.creator.address)
+  expect(good.calls.filter(c=>c.name==='hasTag')[0]?.args?.[1]).toBe(keccak256(toHex('verifier')))
+  for(const extra of [{inactive:[0]},{tagged:false},{registeredKey:base.keys[1]!}]){
+    const f=fixture({...change,...extra})
+    await expect(readClientExecutionPolicy(f.client,f.deployment,payment,intendedWork,member)).rejects.toThrow(/standing/)
+  }
+  for(const target of [{...member,index:1},{...member,publicKey:base.keys[1]!},{...member,operator:base.operators[1]!},
+    {...member,proof:[h(99)]},{...member,proof:Array<Hex>(33).fill(h(99))}]){
+    const f=fixture(change)
+    await expect(readClientExecutionPolicy(f.client,f.deployment,payment,intendedWork,target)).rejects.toThrow(/member/)
+    expect(f.calls.some(c=>c.name==='nodeOf')).toBe(false)
+  }
 })

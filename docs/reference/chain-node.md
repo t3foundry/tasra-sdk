@@ -9,10 +9,11 @@ Generated from public TypeScript exports.
 Operations you can import and call.
 
 <details>
-<summary>Browse 6 functions</summary>
+<summary>Browse 7 functions</summary>
 
 - [createNodeAgentTransport](#createnodeagenttransport)
 - [createNodeAgentWalletFetch](#createnodeagentwalletfetch)
+- [createNodePaidAgentTransport](#createnodepaidagenttransport)
 - [createNodeRelayTransport](#createnoderelaytransport)
 - [createNodeServiceDiscoveryTransport](#createnodeservicediscoverytransport)
 - [createNodeServiceStatusTransport](#createnodeservicestatustransport)
@@ -24,7 +25,7 @@ Operations you can import and call.
 
 Session secrets use this same guarded connection and can only travel to a session GET.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L73)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L74)
 
 Import: `import {createNodeAgentTransport} from 'tasra-sdk/chain/node'`
 
@@ -42,7 +43,7 @@ Returns: ` AgentTransport `.
 
 Wallet protocol requests restricted to the selected session and approved DID, with socket checks.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L84)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L98)
 
 Import: `import {createNodeAgentWalletFetch} from 'tasra-sdk/chain/node'`
 
@@ -57,11 +58,29 @@ declare function createNodeAgentWalletFetch(session: Pick<RegisteredAgentSession
 
 Returns: ` typeof fetch `.
 
+### createNodePaidAgentTransport
+
+Guarded paid-session creation and owner control, preserving HTTP consent/recovery statuses.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L84)
+
+Import: `import {createNodePaidAgentTransport} from 'tasra-sdk/chain/node'`
+
+```ts
+declare function createNodePaidAgentTransport(policy?: ServiceTransportPolicy): PaidAgentTransport;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` policy? ` | ` ServiceTransportPolicy ` | Client-approved private hosts and additional CA roots; TLS verification stays enabled. |
+
+Returns: ` PaidAgentTransport `.
+
 ### createNodeRelayTransport
 
 Discovery and relay traffic use the same socket-bound destination and TLS policy.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L63)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L64)
 
 Import: `import {createNodeRelayTransport} from 'tasra-sdk/chain/node'`
 
@@ -79,7 +98,7 @@ Returns: ` RelayTransport `.
 
 Create a bounded HTTPS transport that validates destinations at socket connection time.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L47)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L48)
 
 Import: `import {createNodeServiceDiscoveryTransport} from 'tasra-sdk/chain/node'`
 
@@ -97,7 +116,7 @@ Returns: ` ServiceDiscoveryTransport `.
 
 Public readiness and relay-policy observations, with the same socket/TLS policy.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L55)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L56)
 
 Import: `import {createNodeServiceStatusTransport} from 'tasra-sdk/chain/node'`
 
@@ -115,7 +134,7 @@ Returns: ` ServiceDiscoveryTransport `.
 
 Conservative globally routable destinations; special-purpose exceptions require explicit policy.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L27)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L28)
 
 Import: `import {isPublicServiceAddress} from 'tasra-sdk/chain/node'`
 
@@ -144,7 +163,7 @@ Options, data structures and return types.
 
 Caller-approved destination and certificate policy for Node.js service transports.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L36)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L37)
 
 ```ts
 export interface ServiceTransportPolicy {

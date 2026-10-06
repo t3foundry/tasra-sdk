@@ -2,13 +2,16 @@ import {decodeFunctionResult, encodeFunctionData, keccak256, recoverTypedDataAdd
 import {ed25519} from '@noble/curves/ed25519'
 import {UnderfundedSlotError} from '../errors.js'
 import {hexToBytes} from '../crypto/hex.js'
-import {assertPaymentIntentWire, keeperAssignmentCommitment, paymentIntentTypedData, prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
+import {assertPaymentIntentWire, keeperAssignmentCommitment, paymentIntentHash, paymentIntentTypedData, prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
 import {settlementAbi} from './abis/settlement.js'
 import {keyRegistryAbi} from './abis/keyRegistry.js'
 import {nodeRegistryAbi} from './abis/nodeRegistry.js'
 import {thresholdRandomBeaconAbi} from './abis/thresholdRandomBeacon.js'
 import {verifierSetRegistryAbi} from './abis/verifierSetRegistry.js'
 import {accountantSetRegistryAbi} from './abis/accountantSetRegistry.js'
+import type {ExecutionConsentPolicy} from '../committee/execution.js'
+import {selectVerifierCommittee, verifierLeaf, verifyMerkleProof} from '../committee/token.js'
+import {protocolHex} from '../committee/receipts.js'
 
 /** Deployment independently selected by the application, not taken from a received intent. */
 export interface PrepaidDeployment {
@@ -66,6 +69,95 @@ export interface ExpectedPaidOperation {
   action: PaymentIntentWire['action']
   /** Independently derived exact operation payload digest. */
   payloadDigest: Hex
+}
+
+/** Approved contracts and default verifier policy for client-side execution consent. */
+export interface ClientExecutionDeployment extends PrepaidDeployment {
+  /** Independently approved anchored verifier registry. */
+  verifierSet: Address
+  /** Independently approved randomness beacon. */
+  beacon: Address
+  /** Explicit deployment default, used only when the slot's on-chain policy is zero. */
+  defaultVerificationPolicy?: {committee: number; quorum: number}
+}
+
+/** An anchored drawn verifier identity, supplied with its inclusion proof. */
+export interface PaidVerifierWitness {
+  /** Snapshot index; the SDK independently recomputes the draw. */
+  index: number
+  /** Registered operator account. */
+  operator: Address
+  /** Ed25519 key anchored at the payment's verification epoch. */
+  publicKey: Hex
+  /** Sorted-pair Merkle inclusion path. */
+  proof: Hex[]
+}
+
+/** Fresh canonical payment and verifier-policy observation before a client signature. */
+export interface ClientExecutionObservation extends PrepaidObservation {
+  /** Exact independently read creator, deployment, reserved cost and current time. */
+  policy: ExecutionConsentPolicy
+}
+
+/**
+ * Read canonical mined credit, creator, beacon and verifier policy before approving work.
+ * All registry calls use the receipt's EIP-1898 block hash; no latest/number fallback.
+ * A target additionally proves drawn membership and current registered verifier standing.
+ * @param client Trusted RPC client for the independently selected deployment.
+ * @param deployment Approved contracts and explicit default verification policy.
+ * @param payment Original locally retained creator intent, never copied from a proposal.
+ * @param expected Application-selected slot, action and payload digest.
+ * @param target Optional drawn verifier whose work is about to be approved.
+ */
+export async function readClientExecutionPolicy(client: PublicClient, deployment: ClientExecutionDeployment,
+  payment: PaymentIntentWire, expected: ExpectedPaidOperation, target?: PaidVerifierWitness): Promise<ClientExecutionObservation> {
+  deployment = structuredClone(deployment); payment = structuredClone(payment); expected = {...expected}; target = target && structuredClone(target)
+  if ([deployment.verifierSet, deployment.beacon].some(a => !ADDRESS.test(a) || /^0x0{40}$/i.test(a))) throw new Error('invalid execution registry deployment')
+  const receipt = await readPaidOperationReceipt(client, deployment, payment, expected)
+  if (receipt.settled || BigInt(payment.expires) <= time()) throw new Error('payment cannot approve new work after settlement or expiry')
+  const at = receipt
+  const [slot, keyBeacon, setBeacon, latest, seed, snapshot, verifierPolicy, nodes] = await Promise.all([
+    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'getKeySlot', [payment.slot]) as Promise<ReadContractReturnType<typeof keyRegistryAbi, 'getKeySlot'>>,
+    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'randomBeacon') as Promise<Address>,
+    registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'beacon') as Promise<Address>,
+    registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch') as Promise<bigint>,
+    registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [BigInt(payment.verification_epoch)]) as Promise<Hex>,
+    registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [BigInt(payment.verification_epoch)]) as Promise<readonly [Hex, number]>,
+    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'verifierPolicy', [payment.slot]) as Promise<readonly [number, number]>,
+    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'nodeRegistry') as Promise<Address>,
+  ])
+  const epoch = BigInt(payment.verification_epoch)
+  const [committee, quorum] = verifierPolicy[0] === 0 && verifierPolicy[1] === 0
+    ? [deployment.defaultVerificationPolicy?.committee, deployment.defaultVerificationPolicy?.quorum] : verifierPolicy
+  if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= at.blockTimestamp)
+    || !ADDRESS.test(slot.creator) || /^0x0{40}$/i.test(slot.creator)
+    || [keyBeacon,setBeacon].some(pointer => pointer.toLowerCase() !== deployment.beacon.toLowerCase())
+    || (epoch !== latest && !(latest > 0n && epoch === latest - 1n))
+    || seed.toLowerCase() !== payment.verification_seed.toLowerCase()
+    || snapshot[0].toLowerCase() !== payment.verification_root.toLowerCase()
+    || snapshot[1] !== payment.verification_registry_size
+    || committee !== payment.verification_committee || quorum !== payment.verification_quorum) throw new Error('payment verification context differs from canonical chain policy')
+  if (target) {
+    const drawn = selectVerifierCommittee(protocolHex(payment.slot,32,'slot'), payment.verification_epoch,
+      protocolHex(payment.verification_seed,32,'seed'), payment.verification_registry_size, payment.verification_committee)
+    if (!Number.isSafeInteger(target.index) || !drawn.includes(target.index) || target.proof.length > 32
+      || !verifyMerkleProof(verifierLeaf(target.index,protocolHex(target.operator,20,'operator'),protocolHex(target.publicKey,32,'verifier key')),
+        target.proof.map(p=>protocolHex(p,32,'proof')),protocolHex(payment.verification_root,32,'snapshot root'))
+      || !ADDRESS.test(nodes) || /^0x0{40}$/i.test(nodes)) throw new Error('verifier is not an authenticated member of the paid draw')
+    const [node, tagged] = await Promise.all([
+      registryRead(client,at,nodes,nodeRegistryAbi,'nodeOf',[target.operator]) as Promise<ReadContractReturnType<typeof nodeRegistryAbi,'nodeOf'>>,
+      registryRead(client,at,nodes,nodeRegistryAbi,'hasTag',[target.operator,keccak256(toHex('verifier'))]) as Promise<boolean>,
+    ])
+    if (!node.active || tagged !== true || node.operator.toLowerCase() !== target.operator.toLowerCase()
+      || node.pubkey.toLowerCase() !== target.publicKey.toLowerCase()) throw new Error('drawn verifier no longer has its registered key and standing')
+  }
+  await finishObservation(client,at)
+  const nowSecs = Number(time())
+  if (nowSecs >= payment.expires) throw new Error('payment expired during client policy discovery')
+  if (slot.expiry !== 0n && slot.expiry <= BigInt(nowSecs)) throw new Error('slot expired during client policy discovery')
+  return {blockNumber:at.blockNumber,blockHash:at.blockHash,blockTimestamp:at.blockTimestamp,
+    policy:{chainId:deployment.chainId,settlement:deployment.settlement,keyRegistry:deployment.keyRegistry,
+      creator:slot.creator,paymentHash:paymentIntentHash(payment),cost:receipt.cost,nowSecs}}
 }
 
 /** Currently eligible registered keeper selected in the creator's paid assignment. */

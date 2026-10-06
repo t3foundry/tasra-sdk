@@ -143,6 +143,11 @@ export type {RegisteredRelayConfig, RelayTransport, RelayAttempt, RelayIntent, R
 
 export {createRegisteredAgentClient, AgentSessionCreationUnknownError} from './registeredAgent.js'
 export type {AgentTransport, ApprovedAgentProfile, RegisteredAgentSession} from './registeredAgent.js'
+export type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
+export {prepareRegisteredPaidSession, PaidAgentControlError} from './registeredPaidAgent.js'
+export type {RegisteredPaidAgentSession, PaidAgentSessionParams, ClientApprovedPresentation, PaidRetainedPresentation, PaidAgentProposal} from './registeredPaidAgent.js'
+export {readClientExecutionPolicy} from './prepaid.js'
+export type {ClientExecutionDeployment, ClientExecutionObservation, PaidVerifierWitness} from './prepaid.js'
 
 export {parseApplicationServiceProfiles, applicationServiceProfilesDocument} from './serviceProfiles.js'
 export type {ApplicationServiceProfiles, ApprovedServiceProfile} from './serviceProfiles.js'

@@ -88,7 +88,7 @@ declare class OperationOutcomeUnknownError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 50 functions</summary>
+<summary>Browse 53 functions</summary>
 
 - [approveExecutionRequest](#approveexecutionrequest)
 - [assembleCompoundToken](#assemblecompoundtoken)
@@ -116,11 +116,13 @@ Operations you can import and call.
 - [executionApprovalTypedData](#executionapprovaltypeddata)
 - [executionBodyHash](#executionbodyhash)
 - [executionCertificateTypedData](#executioncertificatetypeddata)
+- [executionInitializationTypedData](#executioninitializationtypeddata)
 - [extractIdentityStrict](#extractidentitystrict)
 - [gatherCommitteeToken](#gathercommitteetoken)
 - [holderProofPerVerifier](#holderproofperverifier)
 - [ibeDecryptRequest](#ibedecryptrequest)
 - [ibeExtractRequest](#ibeextractrequest)
+- [initializeExecutionSession](#initializeexecutionsession)
 - [keeperAssignmentCommitment](#keeperassignmentcommitment)
 - [merkleProof](#merkleproof)
 - [merkleRoot](#merkleroot)
@@ -140,6 +142,7 @@ Operations you can import and call.
 - [verifyExecutionAuthorization](#verifyexecutionauthorization)
 - [verifyMerkleProof](#verifymerkleproof)
 - [verifyOperationReceipt](#verifyoperationreceipt)
+- [verifySessionInitialization](#verifysessioninitialization)
 
 </details>
 
@@ -149,7 +152,7 @@ Approve a complete proposal ONLY after comparing it with a separately client-bui
 Applications must construct expected.body from their own intent and validated presentation,
 never echo an agent's proposal into that field. This helper performs no automatic HTTP dispatch.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L302)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L330)
 
 Import: `import {approveExecutionRequest} from 'tasra-sdk/committee'`
 
@@ -539,7 +542,7 @@ Returns:
 
 Sign and verify a creator certificate without handing a private execution key to the agent.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L265)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L293)
 
 Import: `import {createExecutionCertificate} from 'tasra-sdk/committee'`
 
@@ -564,7 +567,7 @@ Returns: ` Promise<ExecutionCertificate> `.
 Create a disposable client-only Ed25519 execution signer. The seed is copied or generated
 with Web Crypto, retained only locally and erased by dispose; caller copies remain its responsibility.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L329)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L422)
 
 Import: `import {createLocalExecutionSigner} from 'tasra-sdk/committee'`
 
@@ -702,7 +705,7 @@ Returns: ` Uint8Array `.
 
 Reconstruct the complete stage typed data; callers never sign an agent's opaque hash.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L176)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L204)
 
 Import: `import {executionApprovalTypedData} from 'tasra-sdk/committee'`
 
@@ -894,7 +897,7 @@ Returns:
 Hash the complete unsigned body with the existing RFC8785 encoder and Rust bounds.
 Explicit null and absent fields remain distinct; no operation field is dropped.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L228)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L256)
 
 Import: `import {executionBodyHash} from 'tasra-sdk/committee'`
 
@@ -912,7 +915,7 @@ Returns: ` Hex `.
 
 Reconstruct the creator certificate typed data from the original payment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L155)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L183)
 
 Import: `import {executionCertificateTypedData} from 'tasra-sdk/committee'`
 
@@ -1049,6 +1052,167 @@ Returns:
 }
 ```
 
+### executionInitializationTypedData
+
+Reconstruct session initialization typed data from the original payment and client-built commitments.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L357)
+
+Import: `import {executionInitializationTypedData} from 'tasra-sdk/committee'`
+
+```ts
+declare function executionInitializationTypedData(payment: PaymentIntentWire, initialization: Omit<SessionInitialization, 'signature'>): {
+    domain: {
+        name: string;
+        version: string;
+        chainId: number;
+        verifyingContract: `0x${string}`;
+    };
+    primaryType: "ClientSessionInitialization";
+    types: {
+        readonly ClientSessionInitialization: readonly [
+            {
+                readonly name: "chainId";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "settlement";
+                readonly type: "address";
+            },
+            {
+                readonly name: "keyRegistry";
+                readonly type: "address";
+            },
+            {
+                readonly name: "slotId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "paymentHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "requestId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "sessionCommitment";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "certificateHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "profileHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "bodyHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "expires";
+                readonly type: "uint64";
+            }
+        ];
+    };
+    message: {
+        certificateHash: `0x${string}`;
+        profileHash: `0x${string}`;
+        bodyHash: `0x${string}`;
+        expires: bigint;
+        chainId: bigint;
+        settlement: `0x${string}`;
+        keyRegistry: `0x${string}`;
+        slotId: `0x${string}`;
+        paymentHash: `0x${string}`;
+        requestId: `0x${string}`;
+        sessionCommitment: `0x${string}`;
+    };
+};
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` payment ` | ` PaymentIntentWire ` | Original locally retained creator payment. |
+| ` initialization ` | ` Omit<SessionInitialization, 'signature'> ` | Certificate, approved profile hash, complete create-body hash and expiry. |
+
+Returns:
+
+```ts
+{
+    domain: {
+        name: string;
+        version: string;
+        chainId: number;
+        verifyingContract: `0x${string}`;
+    };
+    primaryType: "ClientSessionInitialization";
+    types: {
+        readonly ClientSessionInitialization: readonly [
+            {
+                readonly name: "chainId";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "settlement";
+                readonly type: "address";
+            },
+            {
+                readonly name: "keyRegistry";
+                readonly type: "address";
+            },
+            {
+                readonly name: "slotId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "paymentHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "requestId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "sessionCommitment";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "certificateHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "profileHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "bodyHash";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "expires";
+                readonly type: "uint64";
+            }
+        ];
+    };
+    message: {
+        certificateHash: `0x${string}`;
+        profileHash: `0x${string}`;
+        bodyHash: `0x${string}`;
+        expires: bigint;
+        chainId: bigint;
+        settlement: `0x${string}`;
+        keyRegistry: `0x${string}`;
+        slotId: `0x${string}`;
+        paymentHash: `0x${string}`;
+        requestId: `0x${string}`;
+        sessionCommitment: `0x${string}`;
+    };
+}
+```
+
 ### extractIdentityStrict
 
 Extract using a distinct assigned quorum, one epoch and the chain-anchored group key.
@@ -1163,6 +1327,47 @@ declare function ibeExtractRequest(opts: IbeExtractRequestOpts): Promise<Uint8Ar
 | ` opts ` | ` IbeExtractRequestOpts ` | - Authorization context, keeper endpoints and requested identity. |
 
 Returns: ` Promise<Uint8Array> `.
+
+### initializeExecutionSession
+
+Authorize one client-built creation body, including a locally generated owner bearer.
+Retain the body, proof and signer privately until expiry: retrying the identical POST uses
+the hash of these typed data as its session ID and cannot replace the original ECDH key.
+This function neither reserves funds nor starts or pays an operator.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L401)
+
+Import: `import {initializeExecutionSession} from 'tasra-sdk/committee'`
+
+```ts
+declare function initializeExecutionSession(options: {
+    payment: PaymentIntentWire;
+    certificate: ExecutionCertificate;
+    signer: ClientExecutionSigner;
+    policy: ExecutionConsentPolicy;
+    expected: ExpectedInitialization;
+    expires: number;
+}): Promise<SessionInitialization>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` options ` | See detailed type below. | Original payment, certified client signer and independently approved create intent. |
+
+**` options ` type**
+
+```ts
+{
+    payment: PaymentIntentWire;
+    certificate: ExecutionCertificate;
+    signer: ClientExecutionSigner;
+    policy: ExecutionConsentPolicy;
+    expected: ExpectedInitialization;
+    expires: number;
+}
+```
+
+Returns: ` Promise<SessionInitialization> `.
 
 ### keeperAssignmentCommitment
 
@@ -1679,7 +1884,7 @@ Throws: If any binding, freshness, signer or quorum check fails.
 Verify creator consent, stage/operator/body binding and the strict local client signature.
 The caller must independently authenticate the operator assignment and fresh payment backing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L282)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L310)
 
 Import: `import {verifyExecutionAuthorization} from 'tasra-sdk/committee'`
 
@@ -1738,12 +1943,35 @@ declare function verifyOperationReceipt(receipt: OperationReceipt | undefined, e
 
 Returns: ` boolean `.
 
+### verifySessionInitialization
+
+Verify fresh client consent before creating or retrying a registered agent session.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L380)
+
+Import: `import {verifySessionInitialization} from 'tasra-sdk/committee'`
+
+```ts
+declare function verifySessionInitialization(options: {
+    payment: PaymentIntentWire;
+    policy: ExecutionConsentPolicy;
+    expected: ExpectedInitialization;
+    initialization: SessionInitialization;
+}): Promise<void>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` options ` | ` { payment: PaymentIntentWire; policy: ExecutionConsentPolicy; expected: ExpectedInitialization; initialization: SessionInitialization; } ` | Independently selected profile/body/policy, original payment and untrusted proof. |
+
+Returns: ` Promise<void> `.
+
 ## Types
 
 Options, data structures and return types.
 
 <details>
-<summary>Browse 46 types</summary>
+<summary>Browse 48 types</summary>
 
 - [ClientExecutionSigner](#clientexecutionsigner)
 - [CommitteeAuthorizeBody](#committeeauthorizebody)
@@ -1771,6 +1999,7 @@ Options, data structures and return types.
 - [ExecutionProposal](#executionproposal)
 - [ExecutionStage](#executionstage)
 - [ExpectedExecution](#expectedexecution)
+- [ExpectedInitialization](#expectedinitialization)
 - [ExtractionEvidence](#extractionevidence)
 - [ExtractionKeeper](#extractionkeeper)
 - [GatherCommitteeTokenOpts](#gathercommitteetokenopts)
@@ -1784,6 +2013,7 @@ Options, data structures and return types.
 - [PaymentIntentWire](#paymentintentwire)
 - [ReceiptExpectation](#receiptexpectation)
 - [RequestCommitteeTokenOpts](#requestcommitteetokenopts)
+- [SessionInitialization](#sessioninitialization)
 - [StrictExtractionOptions](#strictextractionoptions)
 - [StrictExtractionResult](#strictextractionresult)
 - [TokenType](#tokentype)
@@ -1798,7 +2028,7 @@ Options, data structures and return types.
 
 Local Ed25519 signing capability; implementations must keep their key on the client.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L86)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L110)
 
 ```ts
 export interface ClientExecutionSigner {
@@ -2400,7 +2630,7 @@ Fields:
 
 Client signature authorizing one exact body, stage and assigned operator.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L30)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L32)
 
 ```ts
 export interface ExecutionAuthorization {
@@ -2426,7 +2656,7 @@ Fields:
 
 Creator certificate for one payment and a client-owned Ed25519 public key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L20)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L22)
 
 ```ts
 export interface ExecutionCertificate {
@@ -2446,7 +2676,7 @@ Fields:
 
 Independently selected deployment, creator and exact reserved payment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L46)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L70)
 
 ```ts
 export interface ExecutionConsentPolicy {
@@ -2474,7 +2704,7 @@ Fields:
 
 Creator wallet capable of signing the separate execution certificate.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L164)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L192)
 
 ```ts
 export interface ExecutionCreatorSigner {
@@ -2492,7 +2722,7 @@ Fields:
 
 Untrusted agent proposal. An opaque body hash is deliberately not accepted.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L74)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L98)
 
 ```ts
 export interface ExecutionProposal {
@@ -2514,7 +2744,7 @@ Fields:
 
 Stable stage names and ordinals from the shared execution report protocol.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L16)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L18)
 
 ```ts
 export type ExecutionStage = 'coordinator' | 'contributor' | 'presentation_sign' | 'presentation_attest' | 'credential';
@@ -2524,7 +2754,7 @@ export type ExecutionStage = 'coordinator' | 'contributor' | 'presentation_sign'
 
 Client-built complete unsigned body and independently selected destination.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L64)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L88)
 
 ```ts
 export interface ExpectedExecution {
@@ -2539,6 +2769,24 @@ Fields:
 - **` stage `**: Stage the application intends to authorize.
 - **` operatorKey `**: Key from authenticated slot assignment or verifier snapshot/draw.
 - **` body `**: Complete body reconstructed by the application, including optional field shape.
+
+### ExpectedInitialization
+
+Independent client intent for a registered agent session.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L62)
+
+```ts
+export interface ExpectedInitialization {
+    serviceProfile: Record<string, unknown>;
+    body: Record<string, unknown>;
+}
+```
+
+Fields:
+
+- **` serviceProfile `**: Previously authenticated and approved agent profile; never copied from its response.
+- **` body `**: Client-built complete create body, excluding execution_initialization.
 
 ### ExtractionEvidence
 
@@ -2729,7 +2977,7 @@ Fields:
 
 Disposable local signer whose private seed never leaves its closure.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L94)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L118)
 
 ```ts
 export interface LocalExecutionSigner extends ClientExecutionSigner {
@@ -2898,6 +3146,30 @@ Fields:
 - **` ttlSecs `**: Token TTL in seconds - default 300.
 - **` nowSecs `**: Override "now" (unix seconds), mainly for tests.
 - **` scopedIdentity `**: Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field.
+
+### SessionInitialization
+
+Client authorization to create a session; this is not a paid operator stage.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L48)
+
+```ts
+export interface SessionInitialization {
+    certificate: ExecutionCertificate;
+    profile_hash: Hex;
+    body_hash: Hex;
+    expires: number;
+    signature: Hex;
+}
+```
+
+Fields:
+
+- **` certificate `**: Public execution key certified by the slot creator.
+- **` profile_hash `**: Hash of the independently approved registered agent profile.
+- **` body_hash `**: Hash of the complete unsigned create body, including the client owner bearer.
+- **` expires `**: Unix expiry bounded by the certificate.
+- **` signature `**: Client Ed25519 signature in a separate initialization domain.
 
 ### StrictExtractionOptions
 
@@ -3075,5 +3347,6 @@ Shared values and contract definitions.
 |---|---|---|
 | `EXECUTION_APPROVAL_DOMAIN` | Client stage approvals bind complete request bodies and assigned operator keys. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L11) |
 | `EXECUTION_CERTIFICATE_DOMAIN` | Separate creator-consent domain; original payment commitments remain unchanged. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L9) |
-| `MAX_EXECUTION_BODY_BYTES` | Maximum complete unsigned request size shared with the Rust verifier. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L13) |
+| `EXECUTION_INITIALIZATION_DOMAIN` | Client consent to one exact session and independently approved registered agent. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L13) |
+| `MAX_EXECUTION_BODY_BYTES` | Maximum complete unsigned request size shared with the Rust verifier. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L15) |
 | `OAUTH_RESPONSE_PATH` | The path an OAuth response is POSTed to - the `htu` a DPoP proof must name. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L17) |

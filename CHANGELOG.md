@@ -9,12 +9,29 @@ never does.
 
 ### Fixed
 
+- Update the root and documentation site locks to `source-map-js` 1.2.2 for
+  GHSA-68fv-2mgg-jv7q; retain the existing native platform dependency metadata.
 - Payment context discovery requires an approved `accountantSet` address and selects
   only a current or previous epoch with both verifier and accountant snapshots. This
   avoids reservation failures while the two role anchors are being published. All
   three registry beacon pointers must agree with the approved deployment.
 
 ### Added
+
+- Add a guarded paid verifier-agent control transport for initialization, approvals
+  and callback continuation, preserving consent/recovery HTTP statuses without
+  automatic POST retries. OAuth artifacts use their own scoped POST and owner header.
+- `prepareRegisteredPaidSession` authenticates the approved provider, checks original
+  mined backing and canonical verifier policy, reconstructs complete client approval
+  bodies and verifies wallet requests and completed quorum tokens. A lost creation
+  reply is reconciled through an owner-authenticated read of the original context.
+  OAuth proof preparation and submission retain the same original artifacts through
+  uncertain outcomes. New source/regression coverage awaits full SDK/native gates.
+
+- Client session initialization signatures bind the approved registered agent profile
+  and complete client-built creation body, including its locally generated owner
+  bearer. An identical request retains its session identity; initialization earns
+  no operator fee and never exposes the private execution key.
 
 - Client-owned execution certificate and stage approval helpers in
   `tasra-sdk/committee`. Creator consent binds a local Ed25519 public key to one

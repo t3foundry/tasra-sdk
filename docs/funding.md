@@ -280,6 +280,22 @@ keeps the Ed25519 private execution key locally. The slot creator signs a separa
 certificate binding its public key to the original payment, deployment, request ID,
 session commitment and expiry. Payment hashes and reservation identities stay unchanged.
 
+Before creating a paid session, call `initializeExecutionSession` with the original
+payment, creator certificate, local signer and an `ExpectedInitialization` built
+from your authenticated, approved agent profile and complete create body. Generate
+`poll_secret` locally as a nonzero 32-byte lowercase hex string and include it in
+that body. Add only the returned `execution_initialization` envelope to the POST.
+The signature binds the bearer, profile, payment, exact field shape and expiry.
+`verifySessionInitialization` rechecks that consent. The hash returned by
+`hashTypedData(executionInitializationTypedData(payment, proof))`, without its
+`0x` prefix, is the expected session ID. Keep the same complete body and proof
+for reconciliation after a lost reply. One original payment request allocates one session; changing
+the body or owner requires a new payment reservation, even with a fresh client
+initialization signature.
+Session initialization is not a paid operator stage. It performs no fee reservation,
+HTTP dispatch or automatic approval. This helper alone does not implement the full
+agent transport, JAR/attest, wallet or keeper orchestration.
+
 For each stage, independently authenticate the destination operator and construct
 the complete unsigned request body from your own operation intent and validated
 presentation. Pass that body as `expected.body` and the agent's complete proposal as
@@ -471,3 +487,68 @@ reserved fee even when the slot's available balance reaches zero.
 
 This error is not automatically retryable. After an uncertain broadcast, reconcile the
 saved reservation rather than submitting it again in response to a balance change.
+
+
+The paid session control transport is `createNodePaidAgentTransport` from
+`tasra-sdk/chain/node`. It preserves HTTP425 consent waits, HTTP503 recovery
+failures, HTTP204 approval acknowledgments and HTTP200 identical-creation
+responses. It permits the owner bearer only on session control routes and never
+follows redirects or retries an unknown POST. A caller must still pin the selected
+registered provider and independently compose/check every approval body; the
+transport does not authenticate a proposal or authorize paid work. Private hosts
+and additional local CA roots must be explicit, with TLS verification retained.
+
+### Registered paid session driver
+
+`prepareRegisteredPaidSession` from `tasra-sdk/chain` takes the independently
+approved agent profile, trusted deployment, every drawn verifier's anchored Merkle
+witness, application-verified rule hash and intended DCQL query. Supply the original
+operation, signed payment, fixed random, creator-certified local execution signer
+and a locally retained owner bearer. Preparation authenticates the provider and
+reads the mined reservation and effective verifier policy before producing the
+initialization signature. It does not submit a reservation or creation request.
+
+Retain the returned object, bearer and local signer before calling `create()`.
+Creation is sent once. If the reply is lost, use `reconcile()` to read the locally
+derived session ID from the same registered provider. The owner-authenticated
+status includes the original public encryption key, state, expiry and complete
+binding. The driver checks these against its own intent and refuses a changed
+context. Provider changes are checked before any owner control request.
+
+For wallet sessions, read `proposals()` and use `approveRequest()` for the assigned
+`presentation_sign` operator and separate drawn `presentation_attest` operators.
+The driver rebuilds each body from the original operation and recovered context;
+it does not sign an agent-supplied digest. Once those stages have completed,
+`requestObject()` verifies the anchored signer's signature, session claims,
+encryption key, query and operation context before returning a QR payload.
+
+Read `presentations()` after the wallet callback. Independently validate and accept
+the complete presentation before calling `resumePresentation()` or
+`approveCredentials()`. Every credential is retained and included in the expected
+verifier body. A changed, truncated or substituted list is refused before signing.
+Each selected verifier is checked against both the original anchored draw and its
+current registered standing. HTTP425 indicates that separate consent is required;
+HTTP503 indicates recovery is needed. Neither triggers an automatic resend.
+`poll()` verifies a completed compound token's signatures, quorum, rule, operation,
+payment, seed and expiry against the client-owned context.
+
+For OAuth sessions, select `kind: 'oauth'`. After creation or reconciliation,
+`oauthContext` supplies the locally derived nonce, DPoP target and chain-specific
+audience. Use `prepareOAuthPresentation(accessToken, dpopSigner)` with the key bound
+by the access token. Retain the returned complete presentation before calling
+`submitOAuthPresentation()` once. The client checks the token's audience and
+issuance time and verifies the DPoP signature, bound key, target, nonce and token
+hash. This does not replace the committee's issuer, rule and holder verification.
+HTTP202 means the callback is retained and still needs client approval. Continue
+through presentation selection and drawn credential approvals. After an uncertain
+submission, inspect the original retained callback; do not mint or resend a proof
+automatically.
+
+The Node paid transport sends OAuth artifacts only to the original session's
+OAuth-response POST, with `Authorization: DPoP`, `DPoP` and a separate
+`X-Poll-Secret`. It preserves HTTP202 and refuses header injection, redirects,
+wrong routes and oversized artifacts.
+
+These new driver sources and regressions still await the complete SDK verification
+gate and native paid-session acceptance. Keeper operation delivery and final fee
+settlement are separate from this authorization flow.

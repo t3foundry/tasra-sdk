@@ -10,6 +10,38 @@ native approval POSTs or signing requests with an uncertain outcome.
 
 # OpenID4VP wallets and the Verifier Agent
 
+## Mandatory prepaid deployments
+
+Slot credit is TASRA. AVAX pays transaction gas and does not fund a slot's work.
+Use the installed `tasra-sdk/chain` declarations and the package's `docs/funding.md`
+for reservation, certificate and execution types. A reservation locks a fixed fee;
+it does not replace credential, holder, rule or keeper authorization.
+
+Use `prepareRegisteredPaidSession` with a provider approved independently through
+the ServiceRegistry, the original mined reservation, complete drawn verifier
+witnesses, the application-verified rule/query and a local execution signer certified
+by the slot creator. Retain the session, signer and owner bearer before `create()`.
+After a lost reply, read the original session using `reconcile()`; do not create a
+new session, payment or proof to resolve an unknown outcome.
+
+For wallet sessions, approve the assigned JAR signer and separate drawn attesters
+with `approveRequest()`. Display the QR only after `requestObject()` verifies the
+anchored signer and original context. Read retained `presentations()`, independently
+accept the complete presentation, then select it with `resumePresentation()` and
+approve each drawn verifier with `approveCredentials()`. Never copy an untrusted
+proposal body into local consent. HTTP425 requires separate consent; HTTP503 requires
+recovery. Neither status authorizes an automatic resend.
+
+For OAuth, use `kind: 'oauth'`, the locally derived `oauthContext` and the access
+token's bound DPoP key. Retain the result of `prepareOAuthPresentation()` before the
+single `submitOAuthPresentation()` call. HTTP202 means the callback is retained;
+continue through presentation selection and credential approvals. The client checks
+DPoP binding; committee issuer, rule and holder verification is still required.
+
+Use `poll()` to verify completed quorum signatures and the original payment, rule
+and operation. This authorization driver does not deliver keeper work or settle
+fees. Native paid-session and full platform acceptance remain separate gates.
+
 The platform speaks the OpenID4VP 1.0 wallet contract (DCQL queries, SD-JWT VC
 with key binding, JARM `direct_post.jwt`, OpenID4VCI pre-authorized issuance).
 `tasra-sdk/oid4vp` implements both sides; `tasra-sdk/verifier-agent` is the thin
