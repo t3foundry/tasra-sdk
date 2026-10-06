@@ -183,7 +183,7 @@ declare class CreationReconciliationRequiredError {
 
 An application operation rejected because its deployment, slot, authorization or result failed validation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L30)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L31)
 
 Import: `import {TasraApplicationError} from 'tasra-sdk/app'`
 
@@ -436,7 +436,7 @@ Configure one application client. Construction does no I/O and holds no wallet c
 Start with `await tasra.slots.ecdsa(slotId)` and `await account.getAddress()`;
 provide an authorizer only when signing or decrypting.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L133)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L136)
 
 Import: `import {createTasra} from 'tasra-sdk/app'`
 
@@ -479,6 +479,7 @@ declare function createTasra(config: TasraApplicationConfig): {
                 quorum: number;
                 credentialGated: boolean;
                 payment?: PaymentIntentWire;
+                execution?: KeeperExecutionClientConsent;
             }): Promise<{
                 create(message: Uint8Array, options?: {
                     signal?: AbortSignal;
@@ -550,6 +551,7 @@ Returns:
                 quorum: number;
                 credentialGated: boolean;
                 payment?: PaymentIntentWire;
+                execution?: KeeperExecutionClientConsent;
             }): Promise<{
                 create(message: Uint8Array, options?: {
                     signal?: AbortSignal;
@@ -1051,7 +1053,7 @@ Fields:
 
 Failure categories for deployment, slot, authorization and result validation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L26)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L27)
 
 ```ts
 export type ApplicationErrorCode = 'CHAIN_MISMATCH' | 'SLOT_NOT_FOUND' | 'SLOT_CANCELLED' | 'WRONG_SLOT_MODE' | 'KEY_NOT_READY' | 'SLOT_CHANGED' | 'INVALID_AUTHORIZATION' | 'INVALID_RESULT';
@@ -1177,7 +1179,7 @@ Fields:
 
 Immutable operation details presented to the application authorizer.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L46)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L47)
 
 ```ts
 export type AuthorizationRequest = Readonly<OperationInput & {
@@ -1207,10 +1209,11 @@ Fields:
 
 Authorization callback, consent description and cancellation controls for a protected operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L59)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L60)
 
 ```ts
 export interface AuthorizedOperationOptions {
+    execution?: KeeperExecutionClientConsent;
     payment?: PaymentIntentWire;
     random?: string;
     authorize: OperationAuthorizer;
@@ -1222,6 +1225,7 @@ export interface AuthorizedOperationOptions {
 
 Fields:
 
+- **` execution `**: Required with payment: original creator certificate and client-only execution signer.
 - **` payment `**: Existing creator-signed reservation intent for this exact operation. Requires random.
 - **` random `**: Fixed presentation random committed before reservation. Requires payment.
 - **` authorize `**: Obtain a fresh holder-bound grant for this exact operation.
@@ -1233,7 +1237,7 @@ Fields:
 
 Identity-based encryption handle with authorized decryption and explicit identity-key extraction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L383)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L398)
 
 ```ts
 export type BlsSlot = Awaited<ReturnType<TasraApplication['slots']['bls']>>;
@@ -1399,7 +1403,7 @@ Fields:
 
 Threshold Ethereum account handle that verifies each signature against the anchored public key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L375)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L390)
 
 ```ts
 export type EcdsaSlot = Awaited<ReturnType<TasraApplication['slots']['ecdsa']>>;
@@ -1415,7 +1419,7 @@ Fields:
 
 Threshold Ed25519 signing handle with optional receipt checks and native approval sessions.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L379)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L394)
 
 ```ts
 export type FrostSlot = Awaited<ReturnType<TasraApplication['slots']['frost']>>;
@@ -1481,7 +1485,7 @@ Fields:
 
 Called once for the exact operation. Applications display the wallet request here.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L55)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L56)
 
 ```ts
 export type OperationAuthorizer = (request: AuthorizationRequest) => Promise<OperationGrant>;
@@ -1491,7 +1495,7 @@ export type OperationAuthorizer = (request: AuthorizationRequest) => Promise<Ope
 
 Holder-bound committee token and verifier membership proofs for one operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L37)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L38)
 
 ```ts
 export interface OperationGrant {
@@ -1695,7 +1699,7 @@ Fields:
 
 Current slot mode, key epoch, threshold and anchored public key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L99)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L102)
 
 ```ts
 export interface SlotMetadata {
@@ -1724,7 +1728,7 @@ Fields:
 
 Application client exposing checked slot operations and deployment readiness probes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L371)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L386)
 
 ```ts
 export type TasraApplication = ReturnType<typeof createTasra>;
@@ -1741,7 +1745,7 @@ Fields:
 
 Deployment, chain reader and transport choices used by the application client.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L84)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L87)
 
 ```ts
 export interface TasraApplicationConfig {

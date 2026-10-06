@@ -10,6 +10,8 @@ import {thresholdRandomBeaconAbi} from './abis/thresholdRandomBeacon.js'
 import {verifierSetRegistryAbi} from './abis/verifierSetRegistry.js'
 import {accountantSetRegistryAbi} from './abis/accountantSetRegistry.js'
 import type {ExecutionConsentPolicy} from '../committee/execution.js'
+import {paidExecutionReportSigningHash, verifyPaidExecutionEvidence,
+  type ExecutionRecoveryTarget, type SignedPaidExecutionReport} from '../committee/recovery.js'
 import {selectVerifierCommittee, verifierLeaf, verifyMerkleProof} from '../committee/token.js'
 import {protocolHex} from '../committee/receipts.js'
 
@@ -186,6 +188,86 @@ export interface PaidKeeperTarget extends PaidKeeperEndpoint {
 export interface PaidKeeperTransportOptions {
   /** Allow an HTTP coordinator only on local chain43112. Never enables HTTP on Fuji. */
   allowLocalHttp?: boolean
+}
+
+/** Original canonical keeper admission authenticated for a completed-result read. */
+export interface KeeperExecutionRecoveryObservation extends PrepaidObservation {
+  /** Financial policy evaluated at the original accepted time, never used to admit fresh work. */
+  policy: ExecutionConsentPolicy
+  /** Eligible assigned keeper and endpoint read at the original canonical block. */
+  keeper: PaidKeeperEndpoint
+  /** Original slot group key, for checking the recovered cryptographic result independently. */
+  groupPublicKey: Hex
+  /** Original slot mode. */
+  mode: number
+}
+
+/**
+ * Authenticate completed keeper evidence using canonical original creator, fee and roster reads.
+ * Every contract call uses the report's original EIP-1898 hash with requireCanonical; missing
+ * history fails closed. Current expiry, ownership or payout never replaces the original state.
+ * This performs no transaction, keeper request or fresh work admission.
+ * @param client Trusted bounded RPC client for the independently approved deployment.
+ * @param deployment Approved chain and contracts, never taken from a received report.
+ * @param payment Original creator payment retained before the operation.
+ * @param expected Independently intended slot, action and digest.
+ * @param target Original client key and independently selected assigned keeper stage/key.
+ * @param execution Untrusted public completed evidence, authenticated against the same history.
+ * @param transport Explicit local HTTP allowance for the historical registered endpoint.
+ */
+export async function readKeeperExecutionRecoveryPolicy(client: PublicClient, deployment: PrepaidDeployment,
+  payment: PaymentIntentWire, expected: ExpectedPaidOperation, target: ExecutionRecoveryTarget,
+  execution: SignedPaidExecutionReport, transport: PaidKeeperTransportOptions = {}): Promise<KeeperExecutionRecoveryObservation> {
+  // Validate the full report before using its block hash as an RPC selector.
+  const hash = paidExecutionReportSigningHash(payment, execution.report)
+  deployment = {...deployment}; payment = structuredClone(payment); expected = {...expected}; target = {...target}
+  execution = structuredClone(execution); transport = {...transport}
+  validateDeployment(deployment)
+  if (payment.chain_id !== deployment.chainId || payment.settlement.toLowerCase() !== deployment.settlement.toLowerCase()
+    || payment.key_registry.toLowerCase() !== deployment.keyRegistry.toLowerCase()) throw new Error('recovery payment deployment mismatch')
+  if (payment.slot.toLowerCase() !== expected.slot.toLowerCase() || payment.action !== expected.action
+    || payment.payload_digest.toLowerCase() !== expected.payloadDigest.toLowerCase()) throw new Error('recovery payment operation mismatch')
+  if ((target.stage !== 'coordinator' && target.stage !== 'contributor') || execution.report.stage !== target.stage
+    || toHex(Uint8Array.from(execution.report.operator_key)).toLowerCase() !== target.operatorKey.toLowerCase()) throw new Error('recovery requires the intended keeper stage')
+  const key = protocolHex(target.operatorKey, 32, 'original keeper key'), point = ed25519.Point.fromHex(key, false)
+  if (point.isSmallOrder() || !point.isTorsionFree()
+    || !ed25519.verify(protocolHex(execution.signature, 64, 'original keeper report signature'), protocolHex(hash, 32, 'report hash'), key,
+      {zip215: false})) throw new Error('invalid original keeper report signature')
+  if (await client.getChainId() !== deployment.chainId) throw new Error('recovery RPC chain mismatch')
+  const blockHash = toHex(Uint8Array.from(execution.report.reservation_block))
+  const block = await client.getBlock({blockHash})
+  const accepted = execution.consent.verified_at
+  if (block.number === null || block.hash?.toLowerCase() !== blockHash.toLowerCase() || block.timestamp < 0n
+    || !Number.isSafeInteger(accepted) || accepted <= 0 || BigInt(accepted) - block.timestamp > MAX_AGE
+    || block.timestamp - BigInt(accepted) > FUTURE_SKEW || BigInt(accepted) > time() + FUTURE_SKEW) throw new Error('original keeper admission block or clock mismatch')
+  const at = {blockNumber: block.number, blockHash, blockTimestamp: block.timestamp}
+  const requestId = prepaidRequestId(payment)
+  const [enabled, cost, settled, refunded, assignmentBlock, directory] = await Promise.all([
+    readAt(client, deployment.settlement, at, 'prepaidEnabled', payment.slot),
+    readAt(client, deployment.settlement, at, 'prepaidCost', payment.slot, requestId),
+    readAt(client, deployment.settlement, at, 'prepaidSettled', payment.slot, requestId),
+    readAt(client, deployment.settlement, at, 'prepaidRefunded', payment.slot, requestId),
+    readAt(client, deployment.settlement, at, 'prepaidAssignmentBlock', payment.slot, requestId),
+    keeperDirectory(client, at, deployment.keyRegistry, payment.slot, BigInt(accepted)),
+  ])
+  if (enabled !== true || settled !== false || refunded !== 0n || typeof cost !== 'bigint' || cost <= 0n || cost > BigInt(payment.max_cost)
+    || cost !== BigInt(toHex(Uint8Array.from(execution.report.cost))) || typeof assignmentBlock !== 'string'
+    || !HEX32.test(assignmentBlock) || assignmentBlock.toLowerCase() === ZERO32) throw new Error('original keeper admission has no valid reserved TASRA backing')
+  const {slot, members} = directory, assignment = payment.keeper_assignment
+  if (slot.epoch !== BigInt(assignment.key_epoch) || slot.committeeVersion !== BigInt(assignment.committee_version)
+    || slot.threshold.k !== assignment.threshold || (slot.expiry !== 0n && slot.expiry <= BigInt(accepted))) throw new Error('original keeper sharing or slot lifetime mismatch')
+  for (const assigned of [assignment.coordinator, ...assignment.contributors]) {
+    if (!members.get(toHex(Uint8Array.from(assigned)))?.eligible) throw new Error('original payment names an ineligible assigned keeper')
+  }
+  const keeper = keeperEndpoint(members, target.operatorKey.toLowerCase() as Hex, deployment.chainId, transport)
+  const policy = {chainId: deployment.chainId, settlement: deployment.settlement, keyRegistry: deployment.keyRegistry,
+    creator: slot.creator, paymentHash: paymentIntentHash(payment), cost, nowSecs: accepted}
+  await verifyPaidExecutionEvidence({payment, policy, target, execution})
+  // Historical freshness is measured at accepted, never against today's latest head.
+  const canonical = await client.getBlock({blockNumber: at.blockNumber})
+  if (canonical.hash?.toLowerCase() !== blockHash.toLowerCase() || canonical.timestamp !== at.blockTimestamp) throw new Error('original keeper history reorganized during recovery')
+  if (BigInt(accepted) > time() + FUTURE_SKEW) throw new Error('original keeper work clock is in the future')
+  return {...at, policy, keeper, groupPublicKey: slot.publicKey, mode: slot.mode}
 }
 
 /** Independently approved deployment used to discover a payment before creator signing. */
@@ -371,13 +453,13 @@ export async function resolvePaidKeeperTarget(
 }
 
 interface KeeperDirectoryMember {key: Hex; id: bigint; operator: Address; url: string; eligible: boolean}
-async function keeperDirectory(client: PublicClient, at: PrepaidObservation, registry: Address, slotId: Hex) {
+async function keeperDirectory(client: PublicClient, at: PrepaidObservation, registry: Address, slotId: Hex, acceptedTime = at.blockTimestamp) {
   const [slot, assigned, nodes] = await Promise.all([
     registryRead(client, at, registry, keyRegistryAbi, 'getKeySlot', [slotId]) as Promise<ReadContractReturnType<typeof keyRegistryAbi, 'getKeySlot'>>,
     registryRead(client, at, registry, keyRegistryAbi, 'assignedNodes', [slotId]) as Promise<readonly Address[]>,
     registryRead(client, at, registry, keyRegistryAbi, 'nodeRegistry') as Promise<Address>,
   ])
-  if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= at.blockTimestamp) || slot.publicKey === '0x') throw new Error('paid slot is inactive or has no published key')
+  if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= acceptedTime) || slot.publicKey === '0x') throw new Error('paid slot is inactive or has no published key')
   if (!ADDRESS.test(nodes) || /^0x0{40}$/i.test(nodes) || assigned.length === 0 || assigned.length > 256
     || assigned.length !== slot.threshold.n || slot.threshold.k === 0 || slot.threshold.k > slot.threshold.n
     || new Set(assigned.map(a => a.toLowerCase())).size !== assigned.length || assigned.some(a => /^0x0{40}$/i.test(a))) throw new Error('invalid assigned keeper roster')

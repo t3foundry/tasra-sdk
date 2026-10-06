@@ -3,6 +3,7 @@ import {didWebUrl} from '../oid4vp/did-web.js'
 import type {RegisteredAgentSession} from './registeredAgent.js'
 import type {AgentTransport} from './registeredAgent.js'
 import type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
+import type {KeeperRecoveryHttpResponse, KeeperRecoveryTransport} from './keeperRecovery.js'
 import type {RelayTransport} from './registeredRelay.js'
 import {lookup} from 'node:dns'
 import {request} from 'node:https'
@@ -91,6 +92,16 @@ export function createNodePaidAgentTransport(policy: ServiceTransportPolicy = {}
 }
 
 /**
+ * Guarded completed-result reads using the same socket-bound destination and verified TLS policy.
+ * Only the two POST evidence/recovery paths are permitted; this transport cannot submit key work.
+ * @param policy Exact client-approved private hosts and additional CA roots.
+ */
+export function createNodeKeeperRecoveryTransport(policy: ServiceTransportPolicy = {}): KeeperRecoveryTransport {
+  const recovery = guardedTransport(policy, 'keeper-recovery')
+  return {keeperRecoveryRequest: (url, options) => recovery.request(url, {...options, method: 'POST', body: options.body.slice()})}
+}
+
+/**
  * Wallet protocol requests restricted to the selected session and approved DID, with socket checks.
  * @param session Authenticated session whose request, response and DID URLs are allowed.
  * @param policy Explicit private-host exceptions and additional trusted certificate roots.
@@ -108,17 +119,19 @@ export function createNodeAgentWalletFetch(session: Pick<RegisteredAgentSession,
     if (!(method === 'GET' && (url === requestUri || url === didUrl)) && !post) throw new Error('Wallet request is outside the approved session')
     if (post && typeof init?.body !== 'string' || !post && init?.body != null) throw new Error('Invalid wallet request body')
     const signal = init?.signal ?? AbortSignal.timeout(30_000)
-    const bytes = await transport.request(url, {body: post ? new TextEncoder().encode(init!.body as string) : undefined, maxBytes: post ? 16_384 : 65_536, signal})
-    return new Response(new TextDecoder('utf-8', {fatal: true}).decode(bytes), {status: 200, headers: {'content-type': url === requestUri ? 'application/oauth-authz-req+jwt' : 'application/json'}})
+    const response = await transport.request(url, {body: post ? new TextEncoder().encode(init!.body as string) : undefined, maxBytes: post ? 16_384 : 65_536, signal})
+    return new Response(new TextDecoder('utf-8', {fatal: true}).decode(response.body), {status: response.status, headers: {'content-type': url === requestUri ? 'application/oauth-authz-req+jwt' : 'application/json'}})
   }
 }
 
 type TransportOptions = {body?: Uint8Array; maxBytes: number; signal: AbortSignal; bearer?: string; method?: 'GET' | 'POST'; oauth?: {accessToken: string; proof: string}}
-function guardedTransport(policy: ServiceTransportPolicy, mode: 'paid-agent'): {request(url: string, options: TransportOptions): Promise<PaidAgentHttpResponse>}
-function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'relay' | 'agent' | 'wallet' | 'status'): {request(url: string, options: TransportOptions): Promise<Uint8Array>}
-function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'relay' | 'agent' | 'wallet' | 'status' | 'paid-agent') {
+function guardedTransport(policy: ServiceTransportPolicy, mode: 'paid-agent' | 'wallet'): {request(url: string, options: TransportOptions): Promise<PaidAgentHttpResponse>}
+function guardedTransport(policy: ServiceTransportPolicy, mode: 'keeper-recovery'): {request(url: string, options: TransportOptions): Promise<KeeperRecoveryHttpResponse>}
+function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'relay' | 'agent' | 'status'): {request(url: string, options: TransportOptions): Promise<Uint8Array>}
+function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'relay' | 'agent' | 'wallet' | 'status' | 'paid-agent' | 'keeper-recovery') {
   const relay = mode === 'relay', agent = mode === 'agent', wallet = mode === 'wallet', status = mode === 'status'
   const paid = mode === 'paid-agent'
+  const recovery = mode === 'keeper-recovery'
 
   const allowed = new Set(policy.allowedPrivateHosts ?? [])
   // Snapshot mutable caller configuration before the first asynchronous request.
@@ -127,7 +140,9 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
   return {
     request(url: string, {body, maxBytes, signal, bearer, method, oauth}: TransportOptions) {
       signal.throwIfAborted()
-      if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > (paid ? 10 * 1024 * 1024 : agent || wallet ? 1_048_576 : relay ? 4_096 : 16_384) || body && body.length > (paid ? 2 * 1024 * 1024 : wallet ? 1_048_576 : agent || relay ? 65_536 : 2_048)) throw new Error('Invalid service HTTP bounds')
+      if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > (recovery ? 16 * 1024 * 1024 : paid ? 10 * 1024 * 1024 : agent || wallet ? 1_048_576 : relay ? 4_096 : 16_384) || body && body.length > (recovery ? 65_536 : paid ? 2 * 1024 * 1024 : wallet ? 1_048_576 : agent || relay ? 65_536 : 2_048)) throw new Error('Invalid service HTTP bounds')
+      const recoverySuffix = url.match(/\/v1\/prepaid\/execution(?:\/recover)?$/)?.[0]
+      if (recovery && (!recoverySuffix || method !== 'POST' || !body || bearer !== undefined || oauth !== undefined)) throw new Error('Invalid keeper recovery path, method or body')
       const paidSuffix = url.match(/(?:\/v1\/request\/[0-9a-f]{64}|\/v1\/sessions(?:\/[0-9a-f]{64}(?:\/(?:oauth-response|execution(?:\/[0-9a-f]{64}(?:\/(?:approve|reject))?)?|presentations(?:\/[0-9a-f]{64}\/resume)?))?)?)$/)?.[0]
       const paidCreate = paid && paidSuffix === '/v1/sessions'
       const paidJar = paid && paidSuffix?.startsWith('/v1/request/') === true
@@ -153,7 +168,7 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
       const contentType = status && statusSuffix === '/readyz' ? 'text/plain' : (paidJar || wallet && !body && !url.endsWith('/did.json')) ? 'application/oauth-authz-req+jwt' : 'application/json'
       const responseTypes = wallet && walletSuffix === '/.well-known/did.json'
         ? ['application/json', 'application/did+json', 'application/did+ld+json'] : paidJar ? [contentType, 'application/json'] : [contentType]
-      const suffix = paid ? paidSuffix : status ? statusSuffix : wallet ? walletSuffix : agent ? agentSuffix : relay ? relaySuffix : [SERVICE_MANIFEST_PATH, SERVICE_IDENTITY_PATH].find(path => url.endsWith(path))
+      const suffix = recovery ? recoverySuffix : paid ? paidSuffix : status ? statusSuffix : wallet ? walletSuffix : agent ? agentSuffix : relay ? relaySuffix : [SERVICE_MANIFEST_PATH, SERVICE_IDENTITY_PATH].find(path => url.endsWith(path))
       validateServiceEndpoint(suffix ? url.slice(0, -suffix.length) : url)
       const parsed = new URL(url)
       const host = parsed.hostname.replace(/^\[|\]$/g, '')
@@ -172,14 +187,15 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
       }
       return new Promise<Uint8Array | PaidAgentHttpResponse>((resolve, reject) => {
         const req = request(parsed, {
-          method: paid ? method : body ? 'POST' : 'GET', agent: false, lookup: checkedLookup,
+          method: paid || recovery ? method : body ? 'POST' : 'GET', agent: false, lookup: checkedLookup,
           ca: ca === undefined ? undefined : [...rootCertificates, ...(Array.isArray(ca) ? ca : [ca])], rejectUnauthorized: true, signal, maxHeaderSize: 8_192,
           headers: {...(bearer ? oauth ? {authorization: `DPoP ${oauth.accessToken}`,dpop: oauth.proof,'x-poll-secret':bearer} : {authorization: `Bearer ${bearer}`} : {}), accept: responseTypes.join(', '), 'accept-encoding': 'identity', ...(body ? {'content-type': wallet ? 'application/x-www-form-urlencoded' : 'application/json', 'content-length': body.length} : {})},
         }, res => {
           const fail = (error: Error) => { reject(error); req.destroy(error) }
           const noContent = paid && res.statusCode === 204
-          const permittedStatus = paid ? [200,201,202,204,400,401,403,404,409,410,413,422,425,429,500,502,503,504].includes(res.statusCode ?? 0)
-            : agent ? res.statusCode === (body ? 201 : 200) : relay ? [200,202,422].includes(res.statusCode ?? 0) : res.statusCode === 200
+          const permittedStatus = paid || recovery ? [200,201,202,204,400,401,403,404,409,410,413,422,425,429,500,502,503,504].includes(res.statusCode ?? 0)
+            : agent ? res.statusCode === (body ? 201 : 200) : relay ? [200,202,422].includes(res.statusCode ?? 0)
+              : wallet && body ? [200,202].includes(res.statusCode ?? 0) : res.statusCode === 200
           const receivedType = res.headers['content-type']?.split(';')[0]?.trim().toLowerCase() ?? ''
           const permittedType = noContent || (paid ? receivedType === (paidJar && res.statusCode === 200 ? 'application/oauth-authz-req+jwt' : 'application/json') : responseTypes.includes(receivedType))
           if (!permittedStatus || !permittedType || res.headers['content-encoding'] && res.headers['content-encoding'] !== 'identity') {
@@ -200,11 +216,11 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
           res.on('end', () => {
             if (noContent && size !== 0) {fail(new Error('Unexpected paid agent response body')); return}
             const bytes = Buffer.concat(chunks,size)
-            resolve(paid ? {status: res.statusCode!, body: bytes} : bytes)
+            resolve(paid || recovery || wallet ? {status: res.statusCode!, body: bytes} : bytes)
           })
         })
         // Absolute request deadline also bounds DNS/TLS and slow trickle responses.
-        const timer = setTimeout(() => req.destroy(new Error('Service HTTP timed out')), paid || agent || wallet ? 30_000 : 5_000)
+        const timer = setTimeout(() => req.destroy(new Error('Service HTTP timed out')), paid || recovery || agent || wallet ? 30_000 : 5_000)
         req.on('close', () => clearTimeout(timer))
         req.on('error', reject)
         req.end(body)

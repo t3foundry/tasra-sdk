@@ -33,6 +33,7 @@ import {
 import {hexToBytes, bytesToHex} from '../crypto/hex.js'
 import {createHolderProof, type HolderSigner} from '../auth/holderProof.js'
 import type {FrostSignResult} from '../signing/frost.js'
+import type {KeeperExecutionApprover} from './keeperExecution.js'
 
 /**
  * Callback that mints a separate holder proof for each verifier.
@@ -334,6 +335,8 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
 /** Operation-specific fields for {@link committeeSignRequest} (everything `committeeSign` needs
  *  except the token, which this resolves). */
 export interface CommitteeSignRequestOpts extends RequestCommitteeTokenOpts {
+  /** Client-owned exact-body approval capability, required when authorization carries payment. */
+  approveExecution?: KeeperExecutionApprover
   /** Keeper HTTP base URL. */
   nodeUrl: string
   /** Raw message bytes to sign. */
@@ -361,12 +364,15 @@ export async function committeeSignRequest(opts: CommitteeSignRequestOpts): Prom
     userSignature: opts.userSignature,
     targetKeykeeper: opts.targetKeykeeper,
     verifierProofs,
+    approveExecution: opts.approveExecution,
   }
   return committeeSign(signOpts)
 }
 
 /** Operation-specific fields for {@link committeeDecryptRequest}. */
 export interface CommitteeDecryptRequestOpts extends RequestCommitteeTokenOpts {
+  /** Client-owned exact-body approval capability, required when authorization carries payment. */
+  approveExecution?: KeeperExecutionApprover
   /** Keeper HTTP base URL. */
   nodeUrl: string
   /** Ciphertext to decrypt. */
@@ -403,6 +409,7 @@ export async function committeeDecryptRequest(opts: CommitteeDecryptRequestOpts)
     ciphertextEpoch: opts.ciphertextEpoch,
     targetKeykeeper: opts.targetKeykeeper,
     verifierProofs,
+    approveExecution: opts.approveExecution,
   }
   return committeeDecrypt(decOpts)
 }
@@ -411,6 +418,8 @@ export async function committeeDecryptRequest(opts: CommitteeDecryptRequestOpts)
 
 /** Operation-specific fields for {@link ibeDecryptRequest} / {@link ibeExtractRequest}. */
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
+  /** Client-owned exact-body approval capability for each paid extraction contributor. */
+  approveExecution?: KeeperExecutionApprover
   /** Base URLs of at least k keeper nodes holding the slot's BLS shards. */
   nodeUrls: string[]
   /** The IBE identity to extract for - becomes the token's `scopedIdentity`, so a quorum
@@ -474,6 +483,7 @@ async function gatherIbePartials(opts: IbeExtractRequestOpts) {
     userSignature: opts.userSignature,
     ciphertextEpoch: opts.ciphertextEpoch,
     verifierProofs,
+    approveExecution: opts.approveExecution,
   })
   return {partials, identityBytes: new TextEncoder().encode(opts.identity)}
 }

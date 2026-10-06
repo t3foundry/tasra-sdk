@@ -78,6 +78,11 @@ export {keeperAssignmentCommitment, paymentIntentTypedData, paymentIntentHash, p
 export type {PaidKeeperAssignment, PaymentIntentWire} from './payment.js'
 export {EXECUTION_CERTIFICATE_DOMAIN, EXECUTION_APPROVAL_DOMAIN, EXECUTION_INITIALIZATION_DOMAIN, MAX_EXECUTION_BODY_BYTES,
   executionCertificateTypedData, executionApprovalTypedData, executionInitializationTypedData, initializeExecutionSession, verifySessionInitialization, executionBodyHash,
-  createExecutionCertificate, approveExecutionRequest, verifyExecutionAuthorization, createLocalExecutionSigner} from './execution.js'
-export type {ExecutionStage, ExecutionCertificate, ExecutionAuthorization, ExecutionConsentPolicy,
+  createExecutionCertificate, approveExecutionRequest, verifyExecutionAuthorization, executionConsentBinding, verifyExecutionConsent, createLocalExecutionSigner} from './execution.js'
+export type {ExecutionStage, ExecutionCertificate, ExecutionAuthorization, ExecutionConsent, ExecutionConsentPolicy,
   ExpectedExecution, ExecutionProposal, SessionInitialization, ExpectedInitialization, ClientExecutionSigner, LocalExecutionSigner, ExecutionCreatorSigner} from './execution.js'
+export {paidExecutionRequest, paidExecutionReportSigningHash, verifyPaidExecutionEvidence, executionRecoverySigningHash,
+  createExecutionRecoveryAuthorization, verifyRecoveredExecutionResult} from './recovery.js'
+export type {PaidExecutionRequest, CompletedPaidExecutionReport, SignedPaidExecutionReport, ExecutionRecoveryAuthorization,
+  ExecutionRecoveryTarget, RecoveredExecutionReply} from './recovery.js'
+export type {KeeperExecutionKind,KeeperExecutionApprovalRequest,KeeperExecutionApprovals,KeeperExecutionApprover} from './keeperExecution.js'

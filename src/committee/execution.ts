@@ -44,6 +44,16 @@ export interface ExecutionAuthorization {
   signature: Hex
 }
 
+/** Public proof of the original client-approved work, without its private request body. */
+export interface ExecutionConsent {
+  /** Creator certificate and original client signature for this stage. */
+  authorization: ExecutionAuthorization
+  /** Worker commitment to its exact accepted inputs; this is not a computation proof. */
+  inputs_commitment: number[]
+  /** Original admission time, checked against canonical historical backing by the reader. */
+  verified_at: number
+}
+
 /** Client authorization to create a session; this is not a paid operator stage. */
 export interface SessionInitialization {
   /** Public execution key certified by the slot creator. */
@@ -319,6 +329,55 @@ export async function verifyExecutionAuthorization(options: {payment: PaymentInt
   keeperTarget(payment, proof.stage, proof.operator_key)
   const hash = protocolHex(hashTypedData(executionApprovalTypedData(payment, proof)), 32, 'execution approval hash')
   if (!ed25519.verify(protocolHex(proof.signature, 64, 'execution signature'), hash, strongKey(proof.certificate.execution_key), {zip215: false})) throw new Error('Invalid client execution signature')
+}
+
+/**
+ * Reconstruct the durable binding shared with the worker and accountant journals.
+ * This is a commitment helper, not permission to execute or evidence of correct computation.
+ * @param payment Original locally retained payment.
+ * @param consent Public original consent; never includes the private request preimage.
+ * @param reservationBlock Canonical block hash at the worker's original admission.
+ */
+export function executionConsentBinding(payment: PaymentIntentWire, consent: ExecutionConsent, reservationBlock: Hex): Hex {
+  exactObject(consent, ['authorization', 'inputs_commitment', 'verified_at'])
+  exactObject(consent.authorization, ['certificate', 'stage', 'operator_key', 'body_hash', 'expires', 'signature'])
+  certificateShape(consent.authorization.certificate)
+  integer(consent.verified_at)
+  const inputs = consent.inputs_commitment
+  jsonShape(inputs, 0, {remaining: 64})
+  // Array.from alone would silently truncate malformed or out-of-range wire bytes.
+  if (!Array.isArray(inputs) || inputs.length !== 32 || inputs.some(n => !Number.isInteger(n) || n < 0 || n > 255)
+    || Object.keys(inputs).length !== 32 || inputs.every(n => n === 0) || consent.verified_at === 0) throw new Error('Invalid durable execution consent')
+  const block = protocolHex(reservationBlock, 32, 'execution reservation block')
+  if (block.every(n => n === 0)) throw new Error('Missing execution reservation block')
+  const clock = new Uint8Array(8)
+  new DataView(clock.buffer).setBigUint64(0, BigInt(consent.verified_at))
+  const approval = protocolHex(hashTypedData(executionApprovalTypedData(payment, consent.authorization)), 32, 'execution approval hash')
+  return keccak256(toHex(new Uint8Array([...new TextEncoder().encode('keykeeper/client-approved-execution-binding/v1'),
+    ...approval, ...inputs, ...clock, ...block])))
+}
+
+/**
+ * Verify public financial consent at its original admission time. The caller must first
+ * authenticate the historical creator, reserved cost, canonical block and operator assignment.
+ * Work admission must continue to use verifyExecutionAuthorization with the complete body.
+ * @param options Independently established history and worker binding, plus untrusted consent.
+ */
+export async function verifyExecutionConsent(options: {payment: PaymentIntentWire; policy: ExecutionConsentPolicy;
+  consent: ExecutionConsent; expected: {stage: ExecutionStage; operatorKey: Hex; reservationBlock: Hex; executionBinding: Hex}}): Promise<void> {
+  const binding = executionConsentBinding(options.payment, options.consent, options.expected.reservationBlock)
+  const payment = structuredClone(options.payment), consent = structuredClone(options.consent)
+  const policy = {...options.policy}, expected = {...options.expected}, proof = consent.authorization
+  stage(expected.stage); strongKey(expected.operatorKey)
+  protocolHex(expected.executionBinding, 32, 'expected execution binding')
+  if (policy.nowSecs !== consent.verified_at || binding.toLowerCase() !== expected.executionBinding.toLowerCase()
+    || proof.stage !== expected.stage || proof.operator_key.toLowerCase() !== expected.operatorKey.toLowerCase()
+    || proof.expires <= policy.nowSecs) throw new Error('Original client consent differs from execution evidence')
+  await paymentConsent(payment, policy); await certified(payment, proof.certificate, policy)
+  keeperTarget(payment, proof.stage, proof.operator_key)
+  const hash = protocolHex(hashTypedData(executionApprovalTypedData(payment, proof)), 32, 'execution approval hash')
+  if (!ed25519.verify(protocolHex(proof.signature, 64, 'execution signature'), hash,
+    strongKey(proof.certificate.execution_key), {zip215: false})) throw new Error('Invalid original client execution signature')
 }
 
 /**

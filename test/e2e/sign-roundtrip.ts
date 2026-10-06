@@ -8,17 +8,15 @@
 // API reachability does not guarantee on-chain eligibility. Request a three-node
 // committee so this test exercises signing when the eligible pool varies.
 //
-// JWT: locally-minted EdDSA (the nodes accept it) — independent of the verifier's
-// signed-VC path. Run: tsx test/e2e/sign-roundtrip.ts
+// Authorization: real issuer-signed credential, reserved TASRA and original client consent.
+// Run: tsx test/e2e/sign-roundtrip.ts
 
 import {randomBytes} from 'node:crypto'
 import {ed25519} from '@noble/curves/ed25519'
-import {parseEther} from 'viem'
 import {Suite} from '../fleet/_assert.ts'
 import {discoverCommittee, gate, loadFleetConfig, mintLocalJwt, provisionRule} from '../fleet/_fleet.ts'
-import {authorizeWallet, WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
-import {createTasraWriteClient, generateClientKey} from '../../src/chain/write.ts'
-import {httpFaucet} from '../../src/slots/faucet.ts'
+import {authorizeWallet, createWalletSlot, WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
+import {committeeSign} from '../../src/committee/client.ts'
 import {hexToBytes} from '../../src/crypto/hex.ts'
 
 const cfg = loadFleetConfig()
@@ -31,18 +29,9 @@ if (!(await gate(s, cfg))) {
 
 // ── sovereign client creates a FROST slot with three eligible keepers ────────
 const N = 3
-const creatorKey = generateClientKey()
-const client = createTasraWriteClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, privateKey: creatorKey, chainId: cfg.chainId})
-try {
-  await httpFaucet(cfg.faucetUrl).fund(client.address)
-} catch {
-  // faucet optional for this suite — fall back to deployer funding
-  const funder = createTasraWriteClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, privateKey: cfg.deployPk as `0x${string}`, chainId: cfg.chainId})
-  await funder.sendEth(client.address, parseEther('1'))
-}
-s.ok('client funded for gas', (await client.ethBalance()) > 0n)
-
-const {slotId, ruleSalt} = await client.createSlotCommitReveal({rule: SLOT_DCQL_RULE, k: 3, n: N, mode: 'frost', tags: ['keykeeper'], onEpoch: (c, t) => s.info(`beacon ${c}→${t}`)})
+const created = await createWalletSlot(cfg, 'frost', 3, N, SLOT_DCQL_RULE)
+const {slotId, ruleSalt, creatorKey} = created
+s.ok('client funded for gas', (await created.writer.ethBalance()) > 0n)
 s.ok('client created a FROST slot (commit-reveal)', /^0x[0-9a-f]{64}$/.test(slotId))
 
 // wait for DKG to anchor an Ed25519 group key
@@ -71,18 +60,12 @@ s.ok('provisioned the rule + salt on the committee', prov.ok, prov.errors.join('
 // ── /v1/sign → verify the Ed25519 signature ──────────────────────────────────
 const messageHex = randomBytes(32).toString('hex')
 const grant = await authorizeWallet(cfg,slotId,creatorKey,{action:'sign',message:Buffer.from(messageHex,'hex')})
-const res = await fetch(`${committee[0]}/v1/committee/sign`, {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({committee_token:grant.compound_token,verifier_proofs:grant.verifier_proofs,message_hex:messageHex}),
-  signal: AbortSignal.timeout(30000),
-})
-const resBody = await res.text()
-// Report the node's own error and stop: every check below reads fields off the
-// reply, so continuing turns a clean red ("/v1/sign returned 403 — rule not
-// provisioned") into a TypeError stack that hides which check actually failed.
-if (!s.ok('/v1/sign returned 200', res.ok, `HTTP ${res.status}: ${resBody.slice(0, 200)}`)) s.done()
-const sig = JSON.parse(resBody) as {signature_r: string; signature_z: string; group_public_key: string; epoch: number}
+const signed = await committeeSign({nodeUrl:grant.coordinatorUrl, committeeToken:grant.compound_token,
+  verifierProofs:grant.verifierProofs, approveExecution:grant.approveExecution, message:Buffer.from(messageHex,'hex')})
+grant.dispose()
+s.ok('/v1/sign returned a paid result', true)
+const sig = {signature_r:Buffer.from(signed.signature.r).toString('hex'), signature_z:Buffer.from(signed.signature.z).toString('hex'),
+  group_public_key:Buffer.from(signed.groupPublicKey).toString('hex'), epoch:signed.epoch}
 s.ok('sign reply carries r + z', !!sig.signature_r && !!sig.signature_z)
 s.eq('sign group key matches /public', (sig.group_public_key ?? '').toLowerCase(), (pub.group_public_key ?? '').toLowerCase())
 

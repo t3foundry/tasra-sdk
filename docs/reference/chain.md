@@ -9,9 +9,10 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 6 classes</summary>
+<summary>Browse 7 classes</summary>
 
 - [AgentSessionCreationUnknownError](#agentsessioncreationunknownerror)
+- [KeeperRecoveryError](#keeperrecoveryerror)
 - [PaidAgentControlError](#paidagentcontrolerror)
 - [PaidReservationUncertainError](#paidreservationuncertainerror)
 - [RelayOutcomeUnknownError](#relayoutcomeunknownerror)
@@ -37,6 +38,30 @@ declare class AgentSessionCreationUnknownError {
 - ` readonly profile: Readonly<ApprovedAgentProfile>; ` — Approved verifier-agent profile whose session creation outcome is unknown.
 
 - ` readonly paymentHash?: string; ` — Retained payment commitment; reconcile it before another paid session attempt.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### KeeperRecoveryError
+
+Safe status error without private result text; no failed read triggers paid work.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L45)
+
+Import: `import {KeeperRecoveryError} from 'tasra-sdk/chain'`
+
+```ts
+declare class KeeperRecoveryError {
+    constructor(httpStatus: number);
+}
+```
+
+- ` readonly httpStatus: number; ` — Observed original keeper response status.
 
 - ` name: string; `
 
@@ -202,7 +227,7 @@ declare class UnderfundedSlotError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 65 functions</summary>
+<summary>Browse 68 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -216,6 +241,7 @@ Operations you can import and call.
 - [awaitRegisteredVerifierAgentResult](#awaitregisteredverifieragentresult)
 - [categoryFor](#categoryfor)
 - [createCommitteeSlotClient](#createcommitteeslotclient)
+- [createKeeperExecutionApprover](#createkeeperexecutionapprover)
 - [createRegisteredAgentClient](#createregisteredagentclient)
 - [createRegisteredRelaySubmitter](#createregisteredrelaysubmitter)
 - [createTasraChainClient](#createtasrachainclient)
@@ -246,10 +272,12 @@ Operations you can import and call.
 - [provisionRuleTypedData](#provisionruletypeddata)
 - [readApprovedServiceRecord](#readapprovedservicerecord)
 - [readClientExecutionPolicy](#readclientexecutionpolicy)
+- [readKeeperExecutionRecoveryPolicy](#readkeeperexecutionrecoverypolicy)
 - [readPaidOperationReceipt](#readpaidoperationreceipt)
 - [readSlotFunding](#readslotfunding)
 - [reconcilePaidReservation](#reconcilepaidreservation)
 - [reconcileRelayAttempt](#reconcilerelayattempt)
+- [recoverKeeperExecution](#recoverkeeperexecution)
 - [requestSlotSeed](#requestslotseed)
 - [requireAddress](#requireaddress)
 - [requireVaultAddress](#requirevaultaddress)
@@ -507,6 +535,27 @@ Returns: ` CommitteeSlotClient `.
 
 Return details: Committee client whose operations each take a slot ID.
 
+### createKeeperExecutionApprover
+
+Create a client-only keeper approver bound to one independently retained payment and operation.
+Before each signing callback, re-read canonical reserved TASRA, creator consent and eligible
+worker sharing. Sign the complete local request for coordinator/contributors, or the one IBE
+contributor being contacted. This helper performs no HTTP dispatch or transaction.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperExecution.ts#L45)
+
+Import: `import {createKeeperExecutionApprover} from 'tasra-sdk/chain'`
+
+```ts
+declare function createKeeperExecutionApprover(options: KeeperExecutionApproverOptions): KeeperExecutionApprover;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` options ` | ` KeeperExecutionApproverOptions ` | Approved deployment, original operation and creator-certified local signer. |
+
+Returns: ` KeeperExecutionApprover `.
+
 ### createRegisteredAgentClient
 
 Selection authenticates public metadata first. Once POSTed, never silently switch providers.
@@ -685,7 +734,7 @@ Discover keeper sharing and verifier policy from one fresh canonical block befor
 Selects the current epoch with both verifier and accountant snapshots, otherwise its immediate predecessor.
 Performs no signing, reservation, service contact or gas/TASRA mutation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L430)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L512)
 
 Import: `import {discoverPaidOperationContext} from 'tasra-sdk/chain'`
 
@@ -1275,7 +1324,7 @@ Read canonical mined credit, creator, beacon and verifier policy before approvin
 All registry calls use the receipt's EIP-1898 block hash; no latest/number fallback.
 A target additionally proves drawn membership and current registered verifier standing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L112)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L114)
 
 Import: `import {readClientExecutionPolicy} from 'tasra-sdk/chain'`
 
@@ -1293,13 +1342,48 @@ declare function readClientExecutionPolicy(client: PublicClient, deployment: Cli
 
 Returns: ` Promise<ClientExecutionObservation> `.
 
+### readKeeperExecutionRecoveryPolicy
+
+Authenticate completed keeper evidence using canonical original creator, fee and roster reads.
+Every contract call uses the report's original EIP-1898 hash with requireCanonical; missing
+history fails closed. Current expiry, ownership or payout never replaces the original state.
+This performs no transaction, keeper request or fresh work admission.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L218)
+
+Import: `import {readKeeperExecutionRecoveryPolicy} from 'tasra-sdk/chain'`
+
+```ts
+declare function readKeeperExecutionRecoveryPolicy(
+    client: PublicClient,
+    deployment: PrepaidDeployment,
+    payment: PaymentIntentWire,
+    expected: ExpectedPaidOperation,
+    target: ExecutionRecoveryTarget,
+    execution: SignedPaidExecutionReport,
+    transport?: PaidKeeperTransportOptions
+): Promise<KeeperExecutionRecoveryObservation>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | Trusted bounded RPC client for the independently approved deployment. |
+| ` deployment ` | ` PrepaidDeployment ` | Approved chain and contracts, never taken from a received report. |
+| ` payment ` | ` PaymentIntentWire ` | Original creator payment retained before the operation. |
+| ` expected ` | ` ExpectedPaidOperation ` | Independently intended slot, action and digest. |
+| ` target ` | ` ExecutionRecoveryTarget ` | Original client key and independently selected assigned keeper stage/key. |
+| ` execution ` | ` SignedPaidExecutionReport ` | Untrusted public completed evidence, authenticated against the same history. |
+| ` transport? ` | ` PaidKeeperTransportOptions ` | Explicit local HTTP allowance for the historical registered endpoint. |
+
+Returns: ` Promise<KeeperExecutionRecoveryObservation> `.
+
 ### readPaidOperationReceipt
 
 Require mined backing for an independently selected operation, without spending or performing it.
 A completed reservation remains inspectable. This result never authorizes another execution;
 the keeper must independently verify the holder, current assignment and durable operation journal.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L319)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L401)
 
 Import: `import {readPaidOperationReceipt} from 'tasra-sdk/chain'`
 
@@ -1320,7 +1404,7 @@ Returns: ` Promise<PaidOperationReceipt> `.
 
 Read available, reserved and total slot TASRA at one fresh canonical block. Performs no transaction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L296)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L378)
 
 Import: `import {readSlotFunding} from 'tasra-sdk/chain'`
 
@@ -1388,6 +1472,27 @@ declare function reconcileRelayAttempt(chain: TasraChainClient, attempt: RelayAt
 | ` timeoutMs? ` | ` number ` | Maximum reconciliation duration in milliseconds; defaults to 30000. |
 
 Returns: ` Promise<RelayReconciliation> `.
+
+### recoverKeeperExecution
+
+Read completed keeper results without resubmitting payment, key work, nonce preparation or closure.
+Authenticate the worker report and original canonical reserved history before requesting a fresh
+client signature. Then independently verify returned evidence and exact result bytes. Missing,
+failed, interrupted, orphaned or unavailable history is a refusal, never an automatic retry of work.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L97)
+
+Import: `import {recoverKeeperExecution} from 'tasra-sdk/chain'`
+
+```ts
+declare function recoverKeeperExecution(options: RecoverKeeperExecutionOptions): Promise<RecoveredKeeperExecution>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` options ` | ` RecoverKeeperExecutionOptions ` | Locally retained original intent, client signer and approved read capabilities. |
+
+Returns: ` Promise<RecoveredKeeperExecution> `.
 
 ### requestSlotSeed
 
@@ -1540,7 +1645,7 @@ Returns: ` ResolvedNetworkProfile `.
 Resolve only the signed coordinator after checking mined backing, creator consent and current sharing.
 Does not contact any keeper, submit a transaction, mint a credential grant or execute work.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L352)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L434)
 
 Import: `import {resolvePaidKeeperTarget} from 'tasra-sdk/chain'`
 
@@ -1848,7 +1953,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 94 types</summary>
+<summary>Browse 101 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -1876,7 +1981,12 @@ Options, data structures and return types.
 - [ExpectedPaidOperation](#expectedpaidoperation)
 - [FetchOpts](#fetchopts)
 - [GetLogsWindowedOpts](#getlogswindowedopts)
+- [KeeperExecutionApproverOptions](#keeperexecutionapproveroptions)
+- [KeeperExecutionClientConsent](#keeperexecutionclientconsent)
+- [KeeperExecutionRecoveryObservation](#keeperexecutionrecoveryobservation)
 - [KeeperProvisionResult](#keeperprovisionresult)
+- [KeeperRecoveryHttpResponse](#keeperrecoveryhttpresponse)
+- [KeeperRecoveryTransport](#keeperrecoverytransport)
 - [KeyListReply](#keylistreply)
 - [KeySlotSummary](#keyslotsummary)
 - [MeteringReply](#meteringreply)
@@ -1905,6 +2015,8 @@ Options, data structures and return types.
 - [PrepaidObservation](#prepaidobservation)
 - [ProvisionRuleArgs](#provisionruleargs)
 - [ProvisionRuleResult](#provisionruleresult)
+- [RecoveredKeeperExecution](#recoveredkeeperexecution)
+- [RecoverKeeperExecutionOptions](#recoverkeeperexecutionoptions)
 - [RegisteredAgentSession](#registeredagentsession)
 - [RegisteredPaidAgentSession](#registeredpaidagentsession)
 - [RegisteredRelayConfig](#registeredrelayconfig)
@@ -2132,7 +2244,7 @@ Fields:
 
 Approved contracts and default verifier policy for client-side execution consent.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L75)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L77)
 
 ```ts
 export interface ClientExecutionDeployment extends PrepaidDeployment {
@@ -2158,7 +2270,7 @@ Fields:
 
 Fresh canonical payment and verifier-policy observation before a client signature.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L97)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L99)
 
 ```ts
 export interface ClientExecutionObservation extends PrepaidObservation {
@@ -2450,7 +2562,7 @@ Fields:
 
 Chain-derived fields safe to copy into the creator's independently bounded payment intent.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L210)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L292)
 
 ```ts
 export type DiscoveredPaymentFields = Pick<PaymentIntentWire,
@@ -2496,7 +2608,7 @@ export type EventCategory = 'node' | 'slot' | 'slashing' | 'tasra' | 'settlement
 
 Explicit expected operation, independent of the supplied payment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L65)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L67)
 
 ```ts
 export interface ExpectedPaidOperation {
@@ -2554,6 +2666,77 @@ Fields:
 - **` windowSize `**: Number of blocks per query; defaults to the client logWindow setting.
 - **` onWindow `**: Called after each window with the last block scanned (progress).
 
+### KeeperExecutionApproverOptions
+
+Independent chain and local client intent used before every keeper stage signature.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperExecution.ts#L16)
+
+```ts
+export interface KeeperExecutionApproverOptions extends KeeperExecutionClientConsent {
+    client: PublicClient;
+    deployment: PrepaidDeployment;
+    payment: PaymentIntentWire;
+    expected: ExpectedPaidOperation;
+    transportPolicy?: PaidKeeperTransportOptions;
+    keeperUrl?: (registeredUrl: string) => string;
+}
+```
+
+Fields:
+
+- **` client `**: Trusted bounded canonical RPC client for the approved chain.
+- **` deployment `**: Independently approved contracts and chain.
+- **` payment `**: Original creator intent retained before its reservation.
+- **` expected `**: Intended slot, paid action and exact operation digest.
+- **` transportPolicy `**: Explicit local HTTP exception; official Fuji still requires HTTPS.
+- **` keeperUrl `**: Caller-approved routing map; never populate it from a service response.
+- **` certificate `**: Original creator certificate; its payment, session and public client key stay fixed.
+- **` signer `**: Original local Ed25519 execution signer; never forward it to a service.
+
+### KeeperExecutionClientConsent
+
+Client-owned certificate and signing capability for the original paid operation.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperExecution.ts#L8)
+
+```ts
+export interface KeeperExecutionClientConsent {
+    certificate: ExecutionCertificate;
+    signer: ClientExecutionSigner;
+}
+```
+
+Fields:
+
+- **` certificate `**: Original creator certificate; its payment, session and public client key stay fixed.
+- **` signer `**: Original local Ed25519 execution signer; never forward it to a service.
+
+### KeeperExecutionRecoveryObservation
+
+Original canonical keeper admission authenticated for a completed-result read.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L194)
+
+```ts
+export interface KeeperExecutionRecoveryObservation extends PrepaidObservation {
+    policy: ExecutionConsentPolicy;
+    keeper: PaidKeeperEndpoint;
+    groupPublicKey: Hex;
+    mode: number;
+}
+```
+
+Fields:
+
+- **` policy `**: Financial policy evaluated at the original accepted time, never used to admit fresh work.
+- **` keeper `**: Eligible assigned keeper and endpoint read at the original canonical block.
+- **` groupPublicKey `**: Original slot group key, for checking the recovered cryptographic result independently.
+- **` mode `**: Original slot mode.
+- **` blockNumber `**: Canonical block number.
+- **` blockHash `**: Exact canonical block used for EIP-1898 calls.
+- **` blockTimestamp `**: Block timestamp in Unix seconds.
+
 ### KeeperProvisionResult
 
 One keeper's answer. `pending` marks a rule stored against a PENDING amendment.
@@ -2581,6 +2764,44 @@ Fields:
 - **` pendingVersion `**: Pending amendment version reported by the keeper.
 - **` status `**: HTTP status when a response was received.
 - **` error `**: Bounded response text or transport error for a failed delivery.
+
+### KeeperRecoveryHttpResponse
+
+Bounded keeper responses; no body text is included in transport errors.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L12)
+
+```ts
+export interface KeeperRecoveryHttpResponse {
+    status: number;
+    body: Uint8Array;
+}
+```
+
+Fields:
+
+- **` status `**: Observed status; a refusal is never permission to execute or reserve again.
+- **` body `**: Exact bounded response bytes. Completed results are private; never log them.
+
+### KeeperRecoveryTransport
+
+Client-approved transport for public evidence and authenticated retained-result reads.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L20)
+
+```ts
+export interface KeeperRecoveryTransport {
+    keeperRecoveryRequest(url: string, options: {
+        body: Uint8Array;
+        maxBytes: number;
+        signal: AbortSignal;
+    }): Promise<KeeperRecoveryHttpResponse>;
+}
+```
+
+Fields:
+
+- **` keeperRecoveryRequest `**: TLS and socket destination policy, no redirects, no automatic resends, bounded cancellation.
 
 ### KeyListReply
 
@@ -2877,7 +3098,7 @@ Fields:
 
 Independently approved deployment used to discover a payment before creator signing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L192)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L274)
 
 ```ts
 export interface PaidContextDeployment extends PrepaidDeployment {
@@ -2900,7 +3121,7 @@ Fields:
 
 Explicit application policy for selecting currently eligible paid workers.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L202)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L284)
 
 ```ts
 export interface PaidContextOptions extends PaidKeeperTransportOptions {
@@ -2922,7 +3143,7 @@ Fields:
 
 Currently eligible registered keeper selected in the creator's paid assignment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L164)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L166)
 
 ```ts
 export interface PaidKeeperEndpoint {
@@ -2942,7 +3163,7 @@ Fields:
 
 The single coordinator and contributor set selected by the creator's paid assignment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L174)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L176)
 
 ```ts
 export interface PaidKeeperTarget extends PaidKeeperEndpoint {
@@ -2967,7 +3188,7 @@ Fields:
 
 Explicit transport allowance for a development chain. HTTPS is otherwise required.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L186)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L188)
 
 ```ts
 export interface PaidKeeperTransportOptions {
@@ -2983,7 +3204,7 @@ Fields:
 
 One canonical pre-signing observation; later reservation and execution must revalidate it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L213)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L295)
 
 ```ts
 export interface PaidOperationContext extends PrepaidObservation {
@@ -3014,7 +3235,7 @@ Fields:
 
 Chain backing for one operation; holder authorization and execution journals remain separate.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L51)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L53)
 
 ```ts
 export interface PaidOperationReceipt extends PrepaidObservation {
@@ -3194,7 +3415,7 @@ Fields:
 
 An anchored drawn verifier identity, supplied with its inclusion proof.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L85)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L87)
 
 ```ts
 export interface PaidVerifierWitness {
@@ -3216,7 +3437,7 @@ Fields:
 
 Deployment independently selected by the application, not taken from a received intent.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L17)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L19)
 
 ```ts
 export interface PrepaidDeployment {
@@ -3236,7 +3457,7 @@ Fields:
 
 Fresh canonical observation shared by every field in a funding or reservation result.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L27)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L29)
 
 ```ts
 export interface PrepaidObservation {
@@ -3304,6 +3525,64 @@ Fields:
 - **` slotId `**: Slot whose authorization rule was delivered.
 - **` ruleCommitment `**: Salted commitment computed from the submitted rule and saved salt.
 - **` results `**: Delivery result for each selected keeper.
+
+### RecoveredKeeperExecution
+
+Result disclosed only after original canonical payment and exact-byte commitment checks.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L33)
+
+```ts
+export interface RecoveredKeeperExecution {
+    observation: KeeperExecutionRecoveryObservation;
+    execution: SignedPaidExecutionReport;
+    encoding: RecoveredExecutionReply['encoding'];
+    resultJson: string;
+}
+```
+
+Fields:
+
+- **` observation `**: Original history; its accepted-time policy grants no fresh execution permission.
+- **` execution `**: Signed original completed work evidence.
+- **` encoding `**: Operation-specific retained result encoding.
+- **` resultJson `**: Exact JSON bytes as a string, authenticated before exposure; may differ from the original HTTP envelope.
+
+### RecoverKeeperExecutionOptions
+
+Immutable local recovery intent and explicitly approved network capabilities.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L55)
+
+```ts
+export interface RecoverKeeperExecutionOptions {
+    client: PublicClient;
+    deployment: PrepaidDeployment;
+    payment: PaymentIntentWire;
+    expected: ExpectedPaidOperation;
+    keeper: PaidKeeperEndpoint;
+    target: Omit<ExecutionRecoveryTarget, 'operatorKey'>;
+    signer: ClientExecutionSigner;
+    transport: KeeperRecoveryTransport;
+    transportPolicy?: PaidKeeperTransportOptions;
+    signal?: AbortSignal;
+    nonce?: Hex;
+}
+```
+
+Fields:
+
+- **` client `**: Trusted bounded EIP-1898 RPC client for the independently selected chain.
+- **` deployment `**: Approved chain and contract addresses.
+- **` payment `**: Original creator payment retained before submission.
+- **` expected `**: Independently intended slot, action and payload digest.
+- **` keeper `**: Original assigned worker endpoint retained at submission, not downloaded from its response.
+- **` target `**: Original paid stage and creator-certified client public key retained before submission.
+- **` signer `**: Original client-only execution signer; its private seed is never sent.
+- **` transport `**: Caller-approved guarded transport; Node applications can use createNodeKeeperRecoveryTransport.
+- **` transportPolicy `**: Explicit local HTTP endpoint policy; never permits HTTP on official Fuji.
+- **` signal `**: Optional cancellation. The complete read, RPC and signature flow also has a 60-second deadline.
+- **` nonce `**: Optional nonzero local correlation nonce for a deterministic authenticated read.
 
 ### RegisteredAgentSession
 
@@ -3939,7 +4218,7 @@ Fields:
 
 Slot TASRA balances at a single canonical block; this does not grant paid admission.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L37)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L39)
 
 ```ts
 export interface SlotFunding extends PrepaidObservation {

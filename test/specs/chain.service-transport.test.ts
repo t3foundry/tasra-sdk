@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs'
 import {createServer, type Server} from 'node:https'
 import {lookup} from 'node:dns'
 import {afterEach, describe, expect, it, vi} from 'vitest'
-import {createNodePaidAgentTransport, createNodeServiceStatusTransport, createNodeAgentWalletFetch, createNodeAgentTransport, createNodeRelayTransport, createNodeServiceDiscoveryTransport, isPublicServiceAddress} from '../../src/chain/node.js'
+import {createNodeKeeperRecoveryTransport, createNodePaidAgentTransport, createNodeServiceStatusTransport, createNodeAgentWalletFetch, createNodeAgentTransport, createNodeRelayTransport, createNodeServiceDiscoveryTransport, isPublicServiceAddress} from '../../src/chain/node.js'
 import {authenticateApprovedService, encodeServiceManifest, serviceChallengeTypedData, type ServiceChallenge, type ServiceManifest} from '../../src/chain/serviceIdentity.js'
 import {createTasraChainClient} from '../../src/chain/client.js'
 import {hashServiceManifest, type ServiceApproval, type ServiceRecord} from '../../src/chain/services.js'
@@ -31,6 +31,35 @@ afterEach(async () => {
 })
 
 describe('service HTTPS destination boundary', () => {
+  it('restricts result recovery to two bounded POST reads with verified TLS and no credential headers', async () => {
+    const hits = vi.fn()
+    const endpoint = await serve((req, res) => {hits(req.url, req.method, req.headers); req.resume()
+      res.writeHead(req.url?.endsWith('/recover') ? 403 : 200, {'content-type':'application/json'}); res.end('{}')})
+    const transport = createNodeKeeperRecoveryTransport({allowedPrivateHosts:['localhost'],ca})
+    const args = {...options(), body:new TextEncoder().encode('{}')}
+    expect(await transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).toMatchObject({status:200})
+    expect(await transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution/recover',args)).toMatchObject({status:403})
+    expect(hits.mock.calls.map(([url, method])=>[url,method])).toEqual([['/v1/prepaid/execution','POST'],['/v1/prepaid/execution/recover','POST']])
+    for(const call of hits.mock.calls){expect(call[2].authorization).toBeUndefined();expect(call[2].cookie).toBeUndefined()}
+    for(const path of ['/v1/prepaid/execution/close','/v1/sign','/v1/relay/forward','/v1/prepaid/execution?redirect=1'])
+      expect(()=>transport.keeperRecoveryRequest(endpoint+path,args)).toThrow(/path/)
+    expect(()=>transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',{...args,body:new Uint8Array(65537)})).toThrow(/bounds/)
+    await expect(createNodeKeeperRecoveryTransport({ca}).keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).rejects.toThrow(/destination policy/)
+    await expect(createNodeKeeperRecoveryTransport({allowedPrivateHosts:['localhost']}).keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).rejects.toThrow()
+    expect(hits).toHaveBeenCalledTimes(2)
+  })
+  it('refuses redirects and oversized recovery replies without a second request', async () => {
+    const hits=vi.fn()
+    const endpoint=await serve((req,res)=>{hits(req.url);req.resume()
+      if(req.url?.endsWith('/recover'))res.writeHead(307,{location:'/v1/sign','content-type':'application/json'})
+      else res.writeHead(200,{'content-type':'application/json'})
+      res.end('{"large":"'+'x'.repeat(200)+'"}')})
+    const transport=createNodeKeeperRecoveryTransport({allowedPrivateHosts:['localhost'],ca})
+    const args={...options(),body:new TextEncoder().encode('{}')}
+    await expect(transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution/recover',args)).rejects.toThrow(/status/)
+    await expect(transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).rejects.toThrow(/large/)
+    expect(hits).toHaveBeenCalledTimes(2)
+  })
   it('measures plaintext readiness and JSON policy only over bounded, approved TLS destinations', async () => {
     const hits = vi.fn()
     const endpoint = await serve((req, res) => {
@@ -169,6 +198,36 @@ describe('agent session HTTPS transport', () => {
 })
 
 describe('registered wallet HTTPS transport', () => {
+  it.each([200, 202])('preserves HTTP %s and the original callback body without resending', async status => {
+    const hits: Array<{path?: string; bearer?: string; body: string}> = []
+    const endpoint = await serve((req, res) => {
+      const chunks: Buffer[] = []
+      req.on('data', (chunk: Buffer) => chunks.push(chunk))
+      req.on('end', () => {
+        hits.push({path: req.url, bearer: req.headers.authorization, body: Buffer.concat(chunks).toString()})
+        res.writeHead(status, {'content-type': 'application/json'})
+        res.end('{"pending":true}')
+      })
+    })
+    const session = {sessionId: 'aa'.repeat(32), profile: {endpoint, clientId: `decentralized_identifier:did:web:localhost%3A${new URL(endpoint).port}`}, requestUri: endpoint + '/v1/request/' + 'aa'.repeat(32)} as RegisteredAgentSession
+    const fetcher = createNodeAgentWalletFetch(session, {ca, allowedPrivateHosts: ['localhost']})
+    const responseUrl = endpoint + '/v1/response?session=' + session.sessionId
+    const response = await fetcher(responseUrl, {method: 'POST', headers: {authorization: 'owner-secret'}, body: 'response=original%2Bencrypted%2Bpresentation'})
+    expect(response.status).toBe(status)
+    expect(await response.json()).toEqual({pending: true})
+    expect(hits).toEqual([{path: '/v1/response?session=' + session.sessionId, bearer: undefined, body: 'response=original%2Bencrypted%2Bpresentation'}])
+  })
+  it('refuses HTTP202 for approved request objects and DID documents', async () => {
+    const endpoint = await serve((req, res) => {
+      req.resume()
+      res.writeHead(202, {'content-type': req.url?.startsWith('/v1/request/') ? 'application/oauth-authz-req+jwt' : 'application/json'})
+      res.end('{}')
+    })
+    const session = {sessionId: 'aa'.repeat(32), profile: {endpoint, clientId: `decentralized_identifier:did:web:localhost%3A${new URL(endpoint).port}`}, requestUri: endpoint + '/v1/request/' + 'aa'.repeat(32)} as RegisteredAgentSession
+    const fetcher = createNodeAgentWalletFetch(session, {ca, allowedPrivateHosts: ['localhost']})
+    await expect(fetcher(session.requestUri)).rejects.toThrow(/status/)
+    await expect(fetcher(endpoint + '/.well-known/did.json')).rejects.toThrow(/status/)
+  })
   it.each(['application/json', 'application/did+json', 'application/did+ld+json'])('accepts %s only for the approved DID document', async type => {
     const endpoint = await serve((req, res) => {req.resume(); res.writeHead(200, {'content-type': type}); res.end('{}')})
     const session = {sessionId: 'aa'.repeat(32), profile: {endpoint, clientId: `decentralized_identifier:did:web:localhost%3A${new URL(endpoint).port}`}, requestUri: endpoint + '/v1/request/' + 'aa'.repeat(32)} as RegisteredAgentSession

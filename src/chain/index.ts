@@ -148,6 +148,12 @@ export {prepareRegisteredPaidSession, PaidAgentControlError} from './registeredP
 export type {RegisteredPaidAgentSession, PaidAgentSessionParams, ClientApprovedPresentation, PaidRetainedPresentation, PaidAgentProposal} from './registeredPaidAgent.js'
 export {readClientExecutionPolicy} from './prepaid.js'
 export type {ClientExecutionDeployment, ClientExecutionObservation, PaidVerifierWitness} from './prepaid.js'
+export {readKeeperExecutionRecoveryPolicy} from './prepaid.js'
+export type {KeeperExecutionRecoveryObservation} from './prepaid.js'
+export {recoverKeeperExecution, KeeperRecoveryError} from './keeperRecovery.js'
+export type {KeeperRecoveryHttpResponse, KeeperRecoveryTransport, RecoveredKeeperExecution, RecoverKeeperExecutionOptions} from './keeperRecovery.js'
+export {createKeeperExecutionApprover} from './keeperExecution.js'
+export type {KeeperExecutionClientConsent,KeeperExecutionApproverOptions} from './keeperExecution.js'
 
 export {parseApplicationServiceProfiles, applicationServiceProfilesDocument} from './serviceProfiles.js'
 export type {ApplicationServiceProfiles, ApprovedServiceProfile} from './serviceProfiles.js'

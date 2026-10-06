@@ -18,6 +18,17 @@ never does.
 
 ### Added
 
+- Add original-client keeper approvals to FROST, ECDSA, group decryption, IBE and
+  paid dual-control creation. Application methods require the original execution
+  certificate and signer; direct clients accept an independent chain approver.
+  Complete outgoing bodies and assigned stage signatures are checked before dispatch.
+  New source and genuine-signature regression cases await full SDK/native validation.
+- Add completed keeper result recovery with a fresh signature by the original
+  creator-certified client. Canonical historical creator, reserved TASRA and keeper
+  roster checks precede signing; worker evidence and exact result commitments precede
+  disclosure. The guarded Node transport permits only evidence and recovery POSTs.
+  Reads neither start work nor submit a transaction, and never retry failed key work.
+  New source and regression cases await the complete SDK and native validation gates.
 - Add a guarded paid verifier-agent control transport for initialization, approvals
   and callback continuation, preserving consent/recovery HTTP statuses without
   automatic POST retries. OAuth artifacts use their own scoped POST and owner header.

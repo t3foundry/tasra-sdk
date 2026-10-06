@@ -11,8 +11,11 @@ import {payloadDigestFor, requestHash} from '../../src/oid4vp/binding.js'
 import type {TasraApplicationConfig} from '../../src/app/client.js'
 import * as prepaid from '../../src/chain/prepaid.js'
 import {paymentIntentHash, type PaymentIntentWire} from '../../src/committee/payment.js'
+import {keeperExecutionFixture} from '../support/keeperExecution.js'
+import type {ClientExecutionSigner, ExecutionAuthorization} from '../../src/committee/execution.js'
 
-afterEach(() => vi.restoreAllMocks())
+const executionSigners: (ClientExecutionSigner & {dispose():void})[] = []
+afterEach(() => { executionSigners.splice(0).forEach(signer=>signer.dispose()); vi.restoreAllMocks() })
 
 const slotId: Hex = `0x${'11'.repeat(32)}`, operator: Hex = `0x${'22'.repeat(20)}`
 const seed = new Uint8Array(32).fill(9), keeperKey = ed25519.getPublicKey(seed)
@@ -48,17 +51,23 @@ function fixture(mode = 2, options: Partial<Pick<TasraApplicationConfig, 'keeper
   return {app, chain, metadata, authorize, fetchImpl}
 }
 
-function paidFixture(mode = 2, options: Parameters<typeof fixture>[1] = {}) {
+async function paidFixture(mode = 2, options: Parameters<typeof fixture>[1] = {}) {
   const f = fixture(mode, options), random: Hex = `0x${'66'.repeat(32)}`, message = new Uint8Array(32).fill(1)
   const action = mode === 1 ? 'ibe-extract' : 'sign'
   const digest = payloadDigestFor(action, mode === 1 ? {identity: vector.identity} : {message})
-  const payment: PaymentIntentWire = {chain_id: deployment.chainId, settlement: deployment.addresses.Settlement!, key_registry: deployment.addresses.KeyRegistry!, slot: slotId,
-    action: mode === 2 ? 'eoa-sign' : action, payload_digest: toHex(digest), session_commitment: random, nonce: random, max_cost: '10', expires: Math.floor(Date.now() / 1000) + 120,
-    verification_epoch: 1, verification_seed: random, verification_root: random, verification_registry_size: 3, verification_committee: 3, verification_quorum: 2,
-    keeper_assignment: {key_epoch: 1, committee_version: 1, threshold: 2, coordinator: Array<number>(32).fill(9), contributors: [9, 10].map(n => Array<number>(32).fill(n))}, signature: `0x${'11'.repeat(65)}`}
+  const otherKey = ed25519.getPublicKey(new Uint8Array(32).fill(10))
+  const consent = await keeperExecutionFixture(mode===2?'eoa-sign':action,toHex(digest),{
+    chain_id:deployment.chainId,settlement:deployment.addresses.Settlement!,key_registry:deployment.addresses.KeyRegistry!,slot:slotId,
+    session_commitment:random,nonce:random,verification_epoch:1,verification_seed:random,verification_root:random,
+    verification_registry_size:3,keeper_assignment:{key_epoch:1,committee_version:1,threshold:2,
+      coordinator:[...keeperKey],contributors:[toHex(keeperKey),toHex(otherKey)].sort().map(key=>[...hexToBytes(key)])}})
+  executionSigners.push(consent.signer)
+  const {payment,execution}=consent
   const endpoint = {operator, publicKey: toHex(keeperKey), url: 'https://paid.example'}
-  const target: prepaid.PaidKeeperTarget = {...endpoint, contributors: mode === 1 ? [0, 1].map(i => ({...endpoint, operator: `0x${(i + 1).toString(16).padStart(40, '0')}` as Hex, url: `https://keeper-${i}.example`})) : [endpoint],
-    receipt: {} as prepaid.PaidOperationReceipt, groupPublicKey: f.metadata.publicKey, mode}
+  const contributors=[keeperKey,otherKey].map((key,i)=>({...endpoint,publicKey:toHex(key),
+    operator:`0x${(i+1).toString(16).padStart(40,'0')}` as Hex,url:mode===1?`https://keeper-${i}.example`:i===0?endpoint.url:'https://other-keeper.example'}))
+  const target: prepaid.PaidKeeperTarget = {...endpoint,contributors,receipt:{blockTimestamp:BigInt(Math.floor(Date.now()/1000)),
+    blockNumber:20n,blockHash:random,assignmentBlock:random,requestId:random,cost:9n,refunded:0n,settled:false},groupPublicKey:f.metadata.publicKey,mode}
   // Canonical RPC/creator/roster checks have separate chain.paid-route regressions.
   // Here the boundary is controlled to exercise the app's consent and actual crypto results.
   const resolve = vi.spyOn(prepaid, 'resolvePaidKeeperTarget').mockResolvedValue(target)
@@ -66,19 +75,21 @@ function paidFixture(mode = 2, options: Parameters<typeof fixture>[1] = {}) {
     const grant = await f.authorize(request)
     return {...grant, token: {...grant.token, payment: structuredClone(payment), payment_hash: paymentIntentHash(payment), exp: payment.expires}}
   })
-  return {...f, authorize, unpaidAuthorize: f.authorize, payment, random, message, target, resolve}
+  return {...f, authorize, unpaidAuthorize: f.authorize, payment, random, message, target, resolve,execution}
 }
 
 describe('paid application execution', () => {
   it.each([0, 2])('routes mode %i to the paid coordinator with fixed consent and verifies its signature', async mode => {
-    const f = paidFixture(mode)
-    const options = {authorize: f.authorize, payment: f.payment, random: f.random}
+    const f = await paidFixture(mode)
+    const options = {authorize: f.authorize, payment: f.payment, random: f.random,execution:f.execution}
     if (mode === 2) await (await f.app.slots.ecdsa(slotId)).signDigest(f.message, options)
     else await (await f.app.slots.frost(slotId)).sign(f.message, options)
     expect(f.fetchImpl).toHaveBeenCalledTimes(1)
     expect(String(f.fetchImpl.mock.calls[0]![0])).toMatch(/^https:\/\/paid\.example\//)
     expect(f.chain.readers.keyRegistry.assignedNodes).not.toHaveBeenCalled()
-    expect(f.resolve).toHaveBeenCalledTimes(2)
+    expect(f.resolve).toHaveBeenCalledTimes(3)
+    const sent=JSON.parse(String(f.fetchImpl.mock.calls[0]![1]?.body)) as {execution_authorizations:ExecutionAuthorization[]}
+    expect(sent.execution_authorizations.map(proof=>proof.stage).sort()).toEqual(['contributor','contributor','coordinator'])
     expect(f.resolve.mock.calls[0]![3].action).toBe(mode === 2 ? 'eoa-sign' : 'sign')
     const request = f.authorize.mock.calls[0]![0]
     expect(request.payment).toEqual(f.payment)
@@ -86,25 +97,25 @@ describe('paid application execution', () => {
     expect(request.nowSecs! + request.ttlSecs!).toBe(f.payment.expires)
   })
   it('extracts real IBE shares only from signed contributors', async () => {
-    const f = paidFixture(1), slot = await f.app.slots.bls(slotId)
+    const f = await paidFixture(1), slot = await f.app.slots.bls(slotId)
     const plaintext = new TextEncoder().encode('paid note')
     const ciphertext = await slot.encrypt(vector.identity, plaintext)
-    const result = await slot.decrypt(vector.identity, ciphertext, {authorize: f.authorize, payment: f.payment, random: f.random})
+    const result = await slot.decrypt(vector.identity, ciphertext, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution})
     expect(result.plaintext).toEqual(plaintext)
     expect(f.fetchImpl.mock.calls.map(([url]) => new URL(String(url)).hostname).sort()).toEqual(['keeper-0.example', 'keeper-1.example'])
     expect(f.chain.readers.keyRegistry.assignedNodes).not.toHaveBeenCalled()
   })
   it.each(['unfunded', 'expired', 'mapped-http', 'missing-random'])('refuses %s before credential consent or keeper work', async reason => {
-    const f = paidFixture(2, reason === 'mapped-http' ? {keeperUrl: () => 'http://paid.example'} : {})
+    const f = await paidFixture(2, reason === 'mapped-http' ? {keeperUrl: () => 'http://paid.example'} : {})
     if (reason === 'unfunded') f.resolve.mockRejectedValue(new Error('reservation not funded'))
     if (reason === 'expired') f.payment.expires = 1
     const slot = await f.app.slots.ecdsa(slotId)
-    await expect(slot.signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: reason === 'missing-random' ? undefined : f.random})).rejects.toThrow()
+    await expect(slot.signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: reason === 'missing-random' ? undefined : f.random, execution: f.execution})).rejects.toThrow()
     expect(f.authorize).not.toHaveBeenCalled()
     expect(f.fetchImpl).not.toHaveBeenCalled()
   })
   it.each(['downgrade', 'substitution', 'settlement', 'rotation'])('refuses %s during wallet authorization before keeper work', async reason => {
-    const f = paidFixture(), slot = await f.app.slots.ecdsa(slotId)
+    const f = await paidFixture(), slot = await f.app.slots.ecdsa(slotId)
     const authorize: OperationAuthorizer = async request => {
       const grant = await f.authorize(request)
       if (reason === 'downgrade') {delete grant.token.payment; delete grant.token.payment_hash}
@@ -116,12 +127,12 @@ describe('paid application execution', () => {
       if (reason === 'rotation') f.metadata.epoch++
       return grant
     }
-    await expect(slot.signDigest(f.message, {authorize, payment: f.payment, random: f.random})).rejects.toThrow()
+    await expect(slot.signDigest(f.message, {authorize, payment: f.payment, random: f.random, execution: f.execution})).rejects.toThrow()
     expect(f.fetchImpl).not.toHaveBeenCalled()
   })
   it('keeps the original payment if a consent callback mutates its copy', async () => {
-    const f = paidFixture(), slot = await f.app.slots.ecdsa(slotId), original = structuredClone(f.payment)
-    await slot.signDigest(f.message, {payment: f.payment, random: f.random, authorize: async request => {
+    const f = await paidFixture(), slot = await f.app.slots.ecdsa(slotId), original = structuredClone(f.payment)
+    await slot.signDigest(f.message, {payment: f.payment, random: f.random, execution: f.execution, authorize: async request => {
       const grant = await f.authorize(request)
       request.payment!.max_cost = '99'
       f.payment.max_cost = '88'
@@ -132,15 +143,15 @@ describe('paid application execution', () => {
     expect(body.committee_token.payment).toEqual(original)
   })
   it('never fails over to an unpaid coordinator after a paid attempt fails', async () => {
-    const f = paidFixture(), slot = await f.app.slots.ecdsa(slotId)
+    const f = await paidFixture(), slot = await f.app.slots.ecdsa(slotId)
     f.fetchImpl.mockRejectedValue(new Error('connection lost'))
-    await expect(slot.signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random})).rejects.toThrow()
+    await expect(slot.signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution})).rejects.toThrow()
     expect(f.fetchImpl).toHaveBeenCalledTimes(1)
     expect(f.chain.readers.keyRegistry.assignedNodes).not.toHaveBeenCalled()
   })
   it('allows mapped local HTTP only with the explicit local transport option', async () => {
-    const f = paidFixture(2, {keeperUrl: () => 'http://127.0.0.1:18080', allowLocalPaidHttp: true})
-    await (await f.app.slots.ecdsa(slotId)).signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random})
+    const f = await paidFixture(2, {keeperUrl: url => url==='https://paid.example'?'http://127.0.0.1:18080':'http://127.0.0.1:18081', allowLocalPaidHttp: true})
+    await (await f.app.slots.ecdsa(slotId)).signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution})
     expect(String(f.fetchImpl.mock.calls[0]![0])).toMatch(/^http:\/\/127\.0\.0\.1:18080\//)
   })
 })

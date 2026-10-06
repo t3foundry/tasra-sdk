@@ -1,5 +1,5 @@
 import {readFileSync} from 'node:fs'
-import {describe, expect, it, vi} from 'vitest'
+import {afterEach,describe, expect, it, vi} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
 import {sha256} from '@noble/hashes/sha256'
 import {bytesToHex} from '@noble/hashes/utils'
@@ -10,6 +10,11 @@ import {decryptIdentityStrict, extractIdentityStrict, type StrictExtractionOptio
 import {compoundTokenHash, decodeCompoundToken, opAttestationHash, type CompoundTokenWire} from '../../src/committee/token.js'
 import {committeeSign} from '../../src/committee/client.js'
 import {requestHash} from '../../src/oid4vp/binding.js'
+import {keeperExecutionFixture} from '../support/keeperExecution.js'
+import type {LocalExecutionSigner} from '../../src/committee/execution.js'
+
+const executionSigners:LocalExecutionSigner[]=[]
+afterEach(()=>executionSigners.splice(0).forEach(signer=>signer.dispose()))
 
 const slotId = '0x' + '11'.repeat(32), message = new TextEncoder().encode('Approve invoice 42')
 const seed = new Uint8Array(32).fill(9), key = ed25519.getPublicKey(seed)
@@ -273,9 +278,9 @@ it('rejects malformed status JSON and a failed read without recreating a request
   await expect(createDualSignClient({...config, fetchImpl: vi.fn(async () => {throw new Error('offline')})}).resume('r', message).status()).rejects.toThrow('offline')
 })
 
-function paidDualFixture() {
+function paidDualFixture(signedPayment?:PaymentIntentWire) {
   const h = (n: number, size = 32) => ('0x' + n.toString(16).padStart(2, '0').repeat(size)) as `0x${string}`
-  const payment: PaymentIntentWire = {
+  const payment: PaymentIntentWire = signedPayment ?? {
     chain_id: 43112, settlement: h(1, 20), key_registry: h(2, 20), slot: slotId as `0x${string}`, action: 'sign',
     payload_digest: hex(sha256(message)) as `0x${string}`, session_commitment: h(5), nonce: h(6), max_cost: '100', expires: 9999999999,
     verification_epoch: 7, verification_seed: h(8), verification_root: h(9), verification_registry_size: 3, verification_committee: 2, verification_quorum: 2,
@@ -299,6 +304,13 @@ function paidDualFixture() {
   return {payment, id, payload, config: {...config, fetchImpl}, signer, fetchImpl}
 }
 
+async function paidDualExecutionFixture(){
+  const consent=await keeperExecutionFixture('sign',hex(sha256(message)) as `0x${string}`,{slot:slotId as `0x${string}`})
+  executionSigners.push(consent.signer)
+  const fixture=paidDualFixture(consent.payment)
+  return {...fixture,config:{...fixture.config,approveExecution:consent.approveExecution}}
+}
+
 describe('paid native dual-control', () => {
   it('matches the keeper paid approval byte vector', () => {
     const f = paidDualFixture()
@@ -308,7 +320,7 @@ describe('paid native dual-control', () => {
     expect(hex(sha256(f.payload))).toBe('0xa51f08dcecce04013c17c1b4fc36bbb447d1c6ab4867bdb84e9c409edd4039e1')
   })
   it('requires a separately bound credential approval payment before asking for an approval signature', async () => {
-    const f = paidDualFixture()
+    const f = await paidDualExecutionFixture()
     const request = createDualSignClient({...f.config, credentialGated: true}).resume(f.id, message, {payment: f.payment})
     const sign = vi.fn(f.signer.sign), signer = {...f.signer, sign}
     const approval: PaymentIntentWire = {...f.payment, action: 'dual-approve', payload_digest: hex(sha256(f.payload)) as `0x${string}`}
@@ -326,7 +338,7 @@ describe('paid native dual-control', () => {
     expect(sign).toHaveBeenCalledTimes(1)
   })
   it('binds and snapshots the final payment through creation, approval and resume', async () => {
-    const f = paidDualFixture(), client = createDualSignClient(f.config)
+    const f = await paidDualExecutionFixture(), client = createDualSignClient(f.config)
     const request = await client.create(message, {payment: f.payment})
     expect(request.requestId).toBe(f.id)
     expect(request.payment).toEqual(f.payment)
@@ -338,7 +350,7 @@ describe('paid native dual-control', () => {
     expect(() => client.resume('wrong', message, {payment: f.payment})).toThrow('final payment')
   })
   it('refuses substituted intent inputs and never signs in the unpaid domain', async () => {
-    const f = paidDualFixture(), sig = await f.signer.sign(f.payload)
+    const f = await paidDualExecutionFixture(), sig = await f.signer.sign(f.payload)
     expect(ed25519.verify(sig, dualSignApprovalPayload(slotId, message, f.id), key, {zip215: false})).toBe(false)
     const changed = {...f.payment, nonce: ('0x' + 'aa'.repeat(32)) as `0x${string}`}
     expect(ed25519.verify(sig, paidDualSignApprovalPayload(43112, slotId, message, f.id, changed), key, {zip215: false})).toBe(false)
@@ -349,13 +361,13 @@ describe('paid native dual-control', () => {
     expect(f.fetchImpl).not.toHaveBeenCalled()
   })
   it('reports the stable reservation ID after an ambiguous creation response', async () => {
-    const f = paidDualFixture(), fetchImpl = vi.fn(async () => { throw new Error('response lost') })
+    const f = await paidDualExecutionFixture(), fetchImpl = vi.fn(async () => { throw new Error('response lost') })
     await expect(createDualSignClient({...f.config, fetchImpl}).create(message, {payment: f.payment}))
       .rejects.toMatchObject({operation: 'dual-create', requestId: f.id})
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
   it('retains the independently routed payment and rejects per-call replacements', async () => {
-    const f = paidDualFixture(), payment = structuredClone(f.payment)
+    const f = await paidDualExecutionFixture(), payment = structuredClone(f.payment)
     const client = createDualSignClient({...f.config, payment})
     payment.nonce = ('0x' + 'aa'.repeat(32)) as `0x${string}`
     await expect(client.create(message, {payment})).rejects.toThrow('replace the pinned')
@@ -365,7 +377,7 @@ describe('paid native dual-control', () => {
     expect(client.resume(f.id, message).payment).toEqual(f.payment)
   })
   it('refuses a keeper-substituted paid approval payload', async () => {
-    const f = paidDualFixture(), {pending} = dualFixture()
+    const f = await paidDualExecutionFixture(), {pending} = dualFixture()
     const fetchImpl = vi.fn(async () => json({...pending(), request_id: f.id, credential_gated: false,
       approval_payload: hex(new Uint8Array(f.payload.length))}, 201))
     await expect(createDualSignClient({...f.config, fetchImpl}).create(message, {payment: f.payment}))

@@ -25,6 +25,7 @@ import type {Ciphertext} from '../crypto/kem.js'
 import type {FrostSignResult} from '../signing/frost.js'
 import type {BlsPeer} from '../decryption/client.js'
 import {decodeOperationReceipt, type OperationReceipt} from './receipts.js'
+import {withKeeperExecutionApprovals, type KeeperExecutionApprover} from './keeperExecution.js'
 
 const strip0x = (s: string): string => (s.startsWith('0x') ? s.slice(2) : s)
 const base = (u: string): string => u.replace(/\/$/, '')
@@ -408,6 +409,8 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
 
 /** Committee-authorized FROST signing request and optional verifier membership proofs. */
 export interface CommitteeSignOpts {
+  /** Required for a paid token: client-only exact-body stage approval capability. */
+  approveExecution?: KeeperExecutionApprover
   /** Optional signal that cancels the request. */
   signal?: AbortSignal
   /** HTTP transport override; defaults to the global fetch implementation. */
@@ -434,7 +437,8 @@ export interface CommitteeSignOpts {
  * @param opts - Keeper endpoint, compound authorization and message to sign.
  */
 export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignResult> {
-  const body: Record<string, unknown> = {
+  opts={...opts,committeeToken:structuredClone(opts.committeeToken)}
+  let body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
     message_hex: bareHex(opts.message),
   }
@@ -443,12 +447,15 @@ export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignR
   if (opts.targetKeykeeper) body.target_keykeeper = strip0x(opts.targetKeykeeper)
   if (opts.verifierProofs) body.verifier_proofs = proofsToWire(opts.verifierProofs)
 
+  body = await withKeeperExecutionApprovals({body,kind:'committee-sign',nodeUrl:opts.nodeUrl,payment:opts.committeeToken.payment,
+    approveExecution:opts.approveExecution,signal:opts.signal})
   const url = `${base(opts.nodeUrl)}/v1/committee/sign`
   const res = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
     signal: opts.signal,
+    ...(opts.committeeToken.payment ? {redirect:'error' as const,credentials:'omit' as const} : {}),
   })
   if (!res.ok) throw await httpError(res, url, 'committee/sign')
   const d = (await res.json()) as {
@@ -474,6 +481,12 @@ export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignR
 
 /** Committee-authorized group decryption request and optional verifier membership proofs. */
 export interface CommitteeDecryptOpts {
+  /** Required for a paid token: client-only exact-body stage approval capability. */
+  approveExecution?: KeeperExecutionApprover
+  /** Caller cancellation for canonical approval and keeper work. */
+  signal?: AbortSignal
+  /** Caller-approved HTTP implementation. */
+  fetchImpl?: typeof fetch
   /** Keeper HTTP base URL. */
   nodeUrl: string
   /** Compound token authorizing this operation. */
@@ -502,7 +515,8 @@ export interface CommitteeDecryptOpts {
  * @param opts - Keeper endpoint, compound authorization, ciphertext and associated data.
  */
 export async function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint8Array> {
-  const body: Record<string, unknown> = {
+  opts={...opts,committeeToken:structuredClone(opts.committeeToken)}
+  let body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
     ciphertext: ctToWire(opts.ciphertext),
     identity: new TextDecoder().decode(opts.identity),
@@ -514,11 +528,15 @@ export async function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint
   if (opts.targetKeykeeper) body.target_keykeeper = strip0x(opts.targetKeykeeper)
   if (opts.verifierProofs) body.verifier_proofs = proofsToWire(opts.verifierProofs)
 
+  body = await withKeeperExecutionApprovals({body,kind:'committee-decrypt',nodeUrl:opts.nodeUrl,payment:opts.committeeToken.payment,
+    approveExecution:opts.approveExecution,signal:opts.signal})
   const url = `${base(opts.nodeUrl)}/v1/committee/decrypt`
-  const res = await fetch(url, {
+  const res = await (opts.fetchImpl??fetch)(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
+    signal:opts.signal,
+    ...(opts.committeeToken.payment ? {redirect:'error' as const,credentials:'omit' as const} : {}),
   })
   if (!res.ok) throw await httpError(res, url, 'committee/decrypt')
   const d = (await res.json()) as {plaintext: string}
@@ -547,6 +565,8 @@ export interface IbeExtractionPartial {
 
 /** Committee authorization and keeper endpoints for extracting shares of one IBE identity key. */
 export interface IbeExtractOpts {
+  /** Required for paid extraction: approve only the exact targeted assigned contributor. */
+  approveExecution?: KeeperExecutionApprover
   /** Optional signal that cancels the request. */
   signal?: AbortSignal
   /** HTTP transport override; defaults to the global fetch implementation. */
@@ -567,19 +587,22 @@ export interface IbeExtractOpts {
 }
 
 async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<IbeExtractionPartial> {
-  const body: Record<string, unknown> = {
+  let body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
     identity: opts.identity,
   }
   if (opts.userSignature) body.user_signature = bareHex(opts.userSignature)
   if (opts.ciphertextEpoch !== undefined) body.ciphertext_epoch = opts.ciphertextEpoch
   if (opts.verifierProofs) body.verifier_proofs = proofsToWire(opts.verifierProofs)
+  body = await withKeeperExecutionApprovals({body,kind:'ibe-extract',nodeUrl,payment:opts.committeeToken.payment,
+    approveExecution:opts.approveExecution,signal:opts.signal})
   const url = `${base(nodeUrl)}/v1/shards/ibe/extract`
   const res = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
     signal: opts.signal,
+    ...(opts.committeeToken.payment ? {redirect:'error' as const,credentials:'omit' as const} : {}),
   })
   if (!res.ok) throw await httpError(res, url, 'shards/ibe/extract')
   const d = (await res.json()) as {
@@ -617,6 +640,8 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
 export async function requestIbeExtractionPartials(
   opts: IbeExtractOpts,
 ): Promise<IbeExtractionPartial[]> {
+  opts={...opts,nodeUrls:[...opts.nodeUrls],committeeToken:structuredClone(opts.committeeToken),
+    verifierProofs:opts.verifierProofs&&structuredClone(opts.verifierProofs),userSignature:opts.userSignature?.slice()}
   if (opts.nodeUrls.length === 0) throw new Error('requestIbeExtractionPartials: no node URLs')
   const settled = await Promise.allSettled(opts.nodeUrls.map(u => ibeExtractOne(u, opts)))
   const partials = settled

@@ -10,6 +10,7 @@ import type {VerifierProof} from './client.js'
 import {decodeOperationReceipt, protocolHex} from './receipts.js'
 import {requestHash} from '../oid4vp/binding.js'
 import {assertPaymentIntentWire, paymentIntentHash, prepaidRequestId, type PaymentIntentWire} from './payment.js'
+import {withKeeperExecutionApprovals,type KeeperExecutionApprover} from './keeperExecution.js'
 
 /** A signing request may have been accepted despite a transport or response failure. Reconcile before resubmitting. */
 export class OperationOutcomeUnknownError extends TasraError {
@@ -70,6 +71,8 @@ export function paidDualSignApprovalPayload(chainId: number, slotId: string, mes
 
 /** Trusted slot key, keeper endpoint and approver policy for a native signing request. */
 export interface DualSignConfig {
+  /** Required for paid creation: original client's complete final-work approvals. */
+  approveExecution?:KeeperExecutionApprover
   /** Optional pinned final Sign payment for this coordinator; per-call replacements are refused. */
   payment?: PaymentIntentWire
   /** EVM chain identifier. */
@@ -161,6 +164,7 @@ export function createDualSignClient(input: DualSignConfig): {
   if (key.length !== 32 || !Number.isSafeInteger(input.quorum) || input.quorum < 1 || !Number.isSafeInteger(input.chainId) || input.chainId <= 0) throw new TasraError('Invalid dual-sign chain, key or quorum')
   const nodeUrl = input.nodeUrl.replace(/\/$/, ''), slotId = '0x' + bytesToHex(slot)
   const quorum = input.quorum, chainId = input.chainId, credentialed = input.credentialGated, fetchImpl = input.fetchImpl ?? fetch
+  const approveExecution=input.approveExecution
   const timeoutMs = input.timeoutMs ?? 30_000
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new TasraError('Invalid request timeout')
   const pinnedPayment = input.payment && structuredClone(input.payment)
@@ -176,7 +180,7 @@ export function createDualSignClient(input: DualSignConfig): {
     const deadline = AbortSignal.timeout(timeoutMs)
     let response: Response
     try {
-      response = await fetchImpl(nodeUrl + path, {method: body === undefined ? 'GET' : 'POST',
+      response = await fetchImpl(nodeUrl + path, {method: body === undefined ? 'GET' : 'POST',redirect:'error',credentials:'omit',
         signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
         headers: {'Content-Type': 'application/json'}, body: body === undefined ? undefined : JSON.stringify(body)})
     } catch (cause) {
@@ -296,13 +300,16 @@ export function createDualSignClient(input: DualSignConfig): {
   return {
     async create(message, options = {}) {
       const original = message.slice()
+      const signal=options.signal
       const payment = selectedPayment(options.payment)
       const expectedId = payment && prepaidRequestId(payment).slice(2)
       const payload = payment && paidDualSignApprovalPayload(chainId, slotId, original, expectedId!, payment)
       if (payment && payment.expires <= Math.floor(Date.now() / 1000)) throw new TasraError('Dual-sign payment expired')
+      const creationBody=await withKeeperExecutionApprovals({body:{key_slot_id:slotId,message_hex:bytesToHex(original),...(payment?{payment}:{})},
+        kind:'dual-sign',nodeUrl,payment,approveExecution,signal})
       let d: Record<string, unknown>
       try {
-        d = await http('/v1/dual-sign', options.signal, {key_slot_id: slotId, message_hex: bytesToHex(original), ...(payment ? {payment} : {})})
+        d = await http('/v1/dual-sign', signal, creationBody)
       } catch (cause) {
         if (cause instanceof OperationOutcomeUnknownError && expectedId) throw new OperationOutcomeUnknownError('dual-create', expectedId, cause)
         throw cause

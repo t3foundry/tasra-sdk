@@ -253,13 +253,58 @@ create a replacement reservation automatically, or treat an HTTP timeout as proo
 no work occurred. Keep the payment and operation identity for reconciliation.
 
 The application ECDSA `signDigest`, FROST `sign`, and BLS `extractIdentity` / `decrypt`
-methods accept `{authorize, payment, random}` for an already reserved operation. They
+methods accept `{authorize, payment, random, execution}` for an already reserved operation. They
 check canonical backing and current assignment before requesting credentials and again
 after authorization. The authorization callback receives a defensive payment copy and
 the original expiry through `nowSecs` / `ttlSecs`; registered wallet and credential
 authorizers forward these to session creation. A changed or missing payment in the grant
 is refused before contacting a keeper. Signatures use the paid coordinator; IBE extraction
 uses only the signed contributors. Results are still cryptographically verified.
+`execution` contains the original creator-certified client certificate and its local
+Ed25519 signer. Paid work without this capability is refused before a keeper request.
+Keep the signer in the client; a verifier-agent does not receive its private seed.
+
+```ts
+const signature = await frostSlot.sign(message, {
+  authorize,
+  payment,
+  random,
+  execution: {certificate: originalCertificate, signer: originalExecutionSigner},
+})
+```
+
+For direct keeper clients, supply `approveExecution` from
+`createKeeperExecutionApprover` in `tasra-sdk/chain`. Retain the original signed payment
+and independently computed operation digest, approved deployment and local execution
+certificate. The approver re-reads canonical reserved TASRA, original creator and current
+eligible sharing before each signing callback. It signs the complete client-built body
+for the assigned coordinator and every signed contributor; IBE requests approve only
+the contributor being contacted. A changed ciphertext nonce, participant selection,
+credential token or optional field changes this body commitment.
+
+```ts
+const approveExecution = createKeeperExecutionApprover({
+  client,
+  deployment,
+  payment,
+  expected: {slot: slotId, action: 'sign', payloadDigest},
+  certificate: originalCertificate,
+  signer: originalExecutionSigner,
+})
+const result = await committeeSign({
+  nodeUrl: assignedCoordinator.url,
+  committeeToken: grant.token,
+  verifierProofs: grant.verifierProofs,
+  message,
+  approveExecution,
+})
+```
+
+The same capability is accepted by `committeeSignEoaDigest`, `committeeDecrypt`,
+`requestIbeExtractionPartials` and paid `createDualSignClient`. The transport verifies
+returned client signatures against the exact body before dispatch, refuses missing or
+duplicate assigned stage approvals, and rechecks expiry. These source changes and
+their regression cases still require the complete SDK and native deployment gates.
 Custom `keeperUrl` mappings must preserve HTTPS. Local HTTP additionally requires
 `allowLocalPaidHttp: true` on the application client and chain43112. The application does
 not fail over a paid attempt or submit a replacement reservation. Each operation needs
@@ -318,6 +363,60 @@ orchestration are separate integrations. Never copy an untrusted proposal into
 `expected.body` without checking every field against your own intent. Never send the
 private seed or signing capability to the agent. Call the local signer's `dispose()`
 when its session finishes; persisted seed copies remain the application's responsibility.
+
+### Read a completed keeper result
+
+Keep the original payment, operation digest, assigned worker endpoint, creator
+certificate and local execution signer privately until the result has been received
+and verified. `recoverKeeperExecution` reads completed work from that original worker;
+it does not reserve funds, prepare a nonce, repeat signing or close an unused stage.
+It remains a read after the payment or original work approval expires.
+
+```ts
+import {recoverKeeperExecution} from 'tasra-sdk/chain'
+import {createNodeKeeperRecoveryTransport} from 'tasra-sdk/chain/node'
+
+const recovered = await recoverKeeperExecution({
+  client,
+  deployment,
+  payment,
+  expected: {slot: slotId, action, payloadDigest},
+  keeper: originalAssignedKeeper,
+  target: {stage: originalStage, executionKey: originalCertificate.execution_key},
+  signer: originalLocalExecutionSigner,
+  transport: createNodeKeeperRecoveryTransport(approvedTransportPolicy),
+})
+// Decode the operation's retained internal result, then verify its cryptographic
+// signature/share using recovered.observation.groupPublicKey before using it.
+const internalResult = JSON.parse(recovered.resultJson)
+```
+
+Use an independently approved RPC deployment and the worker/client identities retained
+before submission. The helper authenticates the worker report, then reads creator,
+reserved TASRA and eligible keeper assignment at its original canonical block hash.
+Every contract call requires EIP-1898 canonicality. Missing or orphaned history is
+refused; it never falls back to latest state. The reserved fee and the original client
+approval must match before the helper asks the local signer for a fresh read signature.
+The current slot owner, remaining balance or payout status does not replace that history.
+
+The helper checks the returned signed evidence and the exact retained result commitment
+before exposing `resultJson`. This authenticates retained bytes; applications still
+verify the result's cryptographic meaning. The internal format may differ from the
+original HTTP response and exclude later audit metadata. IBE results use their existing
+share commitment; added audit metadata is not part of that commitment.
+
+The Node transport allows only the public evidence and private recovery POSTs, with
+verified TLS, connection-time destination checks, bounded responses and no redirects.
+Set explicit private hosts and additional CA roots through `approvedTransportPolicy`.
+Browser applications supply an equivalently guarded `KeeperRecoveryTransport`.
+Recovery never automatically retries key work. Missing, failed or interrupted stages,
+HTTP refusals and unavailable history remain errors to reconcile against the original
+payment. `KeeperRecoveryError.httpStatus` preserves HTTP refusals without private body
+text. A lost read reply can be read again with fresh client authentication; the original
+payment cannot be reused to start another operation.
+
+These new recovery sources and regression cases still require the full SDK and native
+deployment validation gates. Complete final fee orchestration remains unfinished work.
 
 ## 1. Fund the creator with AVAX
 
@@ -435,10 +534,15 @@ if its following purchase or deposit fails.
 ### Paid dual-control signatures
 
 Reserve a final `sign` payment for SHA-256 of the exact message. Pass it as
-`payment` to `frostSlot.approvals({quorum, credentialGated, payment})`. This resolves
+`payment` and the original `{certificate, signer}` as `execution` to
+`frostSlot.approvals({quorum, credentialGated, payment, execution})`. This resolves
 and pins the assigned coordinator from chain. Then call `create(message)` on the
 returned client. The lower-level `createDualSignClient` also accepts a pinned
 `payment`, or `create(message, {payment})` when you already verified its coordinator.
+Paid creation also requires its local `approveExecution` capability. Its complete-body
+client approvals remain bound to the final Sign payment while credentialed approvers
+use their separate payments. A local client-signing refusal occurs before dispatch and
+does not become an unknown network outcome.
 
 The request ID is the reservation ID without its `0x` prefix. Every approval signs
 `paidDualSignApprovalPayload(chainId, slotId, message, requestId, payment)`, binding

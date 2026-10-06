@@ -107,7 +107,7 @@ Distinct from a generic HTTP error because the committee flow polls several
 verifiers and tolerates individual refusals as long as a quorum co-signs - see
 [ThresholdNotMetError](#thresholdnotmeterror) for the failure that means the quorum was missed.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L72)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L73)
 
 Import: `import {CommitteeAuthorizeError} from 'tasra-sdk'`
 
@@ -1369,7 +1369,7 @@ Returns: ` Promise<Uint8Array> `.
 One-call identity-scoped decrypt (the read path): token to extraction fan-out
 to verify each partial to combine to decrypt. The intermediate `sk_ID` never surfaces.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L452)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L461)
 
 Import: `import {ibeDecryptRequest} from 'tasra-sdk'`
 
@@ -1437,7 +1437,7 @@ compressed G1).
 ciphertext to this identity. Prefer [ibeDecryptRequest](#ibedecryptrequest), which combines,
 decrypts and drops it. Zeroize the returned bytes when done.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L436)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L445)
 
 Import: `import {ibeExtractRequest} from 'tasra-sdk'`
 
@@ -1861,7 +1861,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L617)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L640)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk'`
 
@@ -3112,7 +3112,7 @@ Fields:
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L531)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L549)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -3140,10 +3140,11 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L549)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L567)
 
 ```ts
 export interface IbeExtractOpts {
+    approveExecution?: KeeperExecutionApprover;
     signal?: AbortSignal;
     fetchImpl?: typeof fetch;
     nodeUrls: string[];
@@ -3157,6 +3158,7 @@ export interface IbeExtractOpts {
 
 Fields:
 
+- **` approveExecution `**: Required for paid extraction: approve only the exact targeted assigned contributor.
 - **` signal `**: Optional signal that cancels the request.
 - **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
 - **` nodeUrls `**: Base URLs of at least k keeper nodes holding the slot's BLS shards.
@@ -3170,10 +3172,11 @@ Fields:
 
 Operation-specific fields for [ibeDecryptRequest](#ibedecryptrequest) / [ibeExtractRequest](#ibeextractrequest).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L413)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L420)
 
 ```ts
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
+    approveExecution?: KeeperExecutionApprover;
     nodeUrls: string[];
     identity: string;
     userSignature?: Uint8Array;
@@ -3183,6 +3186,7 @@ export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
 
 Fields:
 
+- **` approveExecution `**: Client-owned exact-body approval capability for each paid extraction contributor.
 - **` nodeUrls `**: Base URLs of at least k keeper nodes holding the slot's BLS shards.
 - **` identity `**: The IBE identity to extract for - becomes the token's `scopedIdentity`, so a quorum attests exactly this identity and the keepers enforce the hash binding.
 - **` userSignature `**: Owner signature over the identity-bound extract marker, when the slot has one.

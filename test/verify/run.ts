@@ -89,8 +89,8 @@ const haveForge = await have('forge')
 if (DO_BRINGUP) {
   results.push(...(await bringUp()))
   const healthy = results.find(r => r.name.startsWith('stack healthy'))
-  if (healthy && healthy.status === 'fail') {
-    log('\n✗ stack did not come up healthy — aborting before tests. See report.')
+  if (!healthy || healthy.status !== 'pass' || results.some(r => r.phase === 'bringup' && r.status === 'fail')) {
+    log('\n✗ stack bring-up or paid configuration failed — aborting before tests. See report.')
     await finish(true)
   }
 }

@@ -22,7 +22,8 @@ import {fileURLToPath} from 'node:url'
 import {createPublicClient, http, type Hex} from 'viem'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.ts'
 import {explorerRpcUrl, fleetChain} from './_explorerRpc.ts'
-import {banner, chainEnvPath, explorerDir, fleetConfig, have, log, networkDir, runStep, sh, type StepResult} from './_run.ts'
+import {configurePaidWalletFleet} from './_paid-wallet-config.ts'
+import {banner, chainEnvPath, explorerDir, fleetConfig, have, log, networkDir, sdkRoot, runStep, sh, type StepResult} from './_run.ts'
 
 const FLEET_NETWORK = process.env.KK_FLEET_NETWORK ?? 'keykeeper-swarm_default'
 const ACCOUNTANT_URLS = process.env.KK_ACCOUNTANT_URLS ?? '' // accountant is a polling daemon (no HTTP listener)
@@ -101,6 +102,7 @@ export async function bringUp(): Promise<StepResult[]> {
     log('[skip] cargo not found — signed-VC operate step will be skipped')
     results.push({phase, name: 'build tasra-cli (release)', status: 'skip', ms: 0, metrics: [], detail: 'cargo not installed'})
   }
+  if (results.some(r => r.status === 'fail')) return results
 
   // 2. fleet up (threshold mode, prod verifier profile is the default).
   // The demo fault injection (byzantine accountants/verifier for the slashing
@@ -116,12 +118,27 @@ export async function bringUp(): Promise<StepResult[]> {
   // "verify against a clean fleet + clean Besu" path; default is resume (fast).
   if (process.env.KK_VERIFY_WIPE === '1' || process.env.KK_VERIFY_WIPE === 'true') {
     results.push(await runStep(phase, {name: 'make fleet-wipe (clean slate — fresh chain)', cmd: 'make', args: ['fleet-wipe'], cwd: networkDir, timeoutMs: 300_000}))
+    if (results.at(-1)?.status === 'fail') return results
   }
   if (process.env.KK_CHAIN_ID === '43112') {
     results.push(await runStep(phase,{name:'local Avalanche block ticker',cmd:'docker',
       args:['compose','-f','lab/docker-compose.yml','--profile','avalanche','up','-d','--no-deps','avalanche-ticker'],cwd:networkDir}))
+    if (results.at(-1)?.status === 'fail') return results
   }
   results.push(await runStep(phase, {name:'make fleet-up (production threshold fleet)', cmd: 'make', args: ['fleet-up'], cwd: networkDir, env: fleetEnv, timeoutMs: 900_000}))
+  if (results.at(-1)?.status === 'fail') return results
+
+  const configuredAt = Date.now()
+  try {
+    const env = await configurePaidWalletFleet(fleetConfig(), networkDir, sdkRoot)
+    Object.assign(process.env, env)
+    results.push({phase, name: 'retain original paid wallet deployment configuration', status: 'pass', ms: Date.now() - configuredAt,
+      metrics: [], detail: `Original private deployment evidence: ${env.KK_PREPAID_EVIDENCE_DIR}`})
+  } catch (error) {
+    results.push({phase, name: 'retain original paid wallet deployment configuration', status: 'fail', ms: Date.now() - configuredAt,
+      metrics: [], detail: error instanceof Error ? error.message : 'Paid wallet configuration failed'})
+    return results
+  }
 
   // 3. explorer attached to the fleet network
   // `chainEnvPath` comes from _run.ts: the SDK's FleetConfig moved to a TASRA_* env-var model
@@ -136,6 +153,8 @@ export async function bringUp(): Promise<StepResult[]> {
     await sh('docker', ['compose', '-f', 'docker-compose.fleet.yml', 'down', '-v'], {cwd: explorerDir, timeoutMs: 120_000, quiet: true})
     results.push(await runStep(phase, {name: 'explorer docker compose up (fresh index)', cmd: 'docker', args: ['compose', '-f', 'docker-compose.fleet.yml', 'up', '-d', '--build'], cwd: explorerDir, timeoutMs: 600_000}))
   }
+
+  if (results.some(r => r.status === 'fail')) return results
 
   // 4. health gate
   banner(`${phase} · health gate`)

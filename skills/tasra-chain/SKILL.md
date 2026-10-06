@@ -67,7 +67,25 @@ slots/deployments on the same chain. An uncertain preparation holds that payer u
 journal or clear a claim based on age. It does not coordinate external wallet transactions
 or submit cancellations. See `docs/funding.md` for the complete recovery contract.
 
-Paid dual-control uses `frostSlot.approvals({quorum, credentialGated, payment})` to
+Completed keeper result recovery uses `recoverKeeperExecution` with the original
+payment, independently retained assigned worker and creator-certified local execution
+signer. It reads canonical original creator, TASRA backing and eligible roster before
+requesting a fresh client read signature, then verifies the worker evidence and exact
+result commitment. Missing history, failed or interrupted work is refused. Never turn
+a recovery refusal into another key operation or a replacement payment. The Node
+`createNodeKeeperRecoveryTransport` permits only the two evidence/recovery POST paths
+with verified TLS and socket destination checks; private results must not be logged.
+Verify recovered cryptographic results against the original group key before use.
+
+Paid application key operations require `execution: {certificate, signer}` from the
+original creator-certified client, alongside the already reserved `payment` and fixed
+presentation `random`. For direct keeper clients, construct `approveExecution` with
+`createKeeperExecutionApprover` using independently selected contracts, expected payload
+digest and original local signer. It rechecks canonical backing and current eligible
+sharing before signing the complete body for assigned stages. Never forward the
+execution seed to an agent or keeper, and never copy the expected digest from a proposal.
+
+Paid dual-control uses `frostSlot.approvals({quorum, credentialGated, payment, execution})` to
 pin the final Sign reservation and its assigned keeper. Each credential approval
 needs a separate `dual-approve` payment and fixed presentation random; it binds the
 paid approval bytes, including the final Sign commitment. Resume uncertain requests
