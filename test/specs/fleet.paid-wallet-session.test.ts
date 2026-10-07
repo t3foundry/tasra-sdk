@@ -56,6 +56,32 @@ it('retains each write before sending and completes the original paid stages aft
   expect([...f.records.values()].every(v => (v as {phase: string}).phase === 'confirmed')).toBe(true)
 })
 
+it('awaits authenticated request observation before disclosing credentials or approving their work', async () => {
+  const f = fixture(), observed: string[] = []
+  await expect(drivePaidWalletSession({...f.options, observeRequest: async () => {
+    await Promise.resolve()
+    observed.push('checked')
+    throw Error('Resolved did:web key differs from the original anchored member')
+  }})).rejects.toThrow(/Resolved did:web/)
+  expect(observed).toEqual(['checked'])
+  expect(f.options.makePresentation).not.toHaveBeenCalled()
+  expect(f.options.submit).not.toHaveBeenCalled()
+  expect(f.session.approveCredentials).not.toHaveBeenCalled()
+})
+
+it('isolates a conformance observer from the original signed request and consent', async () => {
+  const f = fixture()
+  const makePresentation = vi.fn((request: VerifiedRequestObject) => {
+    expect(request.claims.nonce).toBe('original-nonce')
+    return structuredClone(f.presentation)
+  })
+  expect((await drivePaidWalletSession({...f.options, makePresentation, observeRequest: request => {
+    request.claims.nonce = 'changed by observer'
+  }})).status).toBe('done')
+  expect(makePresentation).toHaveBeenCalledTimes(1)
+  expect(f.calls).toEqual(['create', 'jar-approval', 'presentation', 'resume', 'credential-approval', 'resume'])
+})
+
 it.each(['create', 'approveRequest', 'approveCredentials', 'resumePresentation'] as const)('retains unknown %s outcomes and refuses all automatic redelivery', async method => {
   const f = fixture()
   vi.mocked(f.session[method]).mockRejectedValueOnce(new Error('lost original response'))

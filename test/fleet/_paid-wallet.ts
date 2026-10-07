@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict'
 import {constants, readSync, openSync, fstatSync, closeSync} from 'node:fs'
 import {randomBytes} from 'node:crypto'
+import {setTimeout as delay} from 'node:timers/promises'
 import {createWalletClient, hexToBytes, http, keccak256, toHex, type Address, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {createFileStore} from '../../src/app/node.ts'
@@ -24,8 +25,9 @@ import {canonicalize} from '../../src/auth/oid4vp.ts'
 import type {FleetConfig} from './_fleet.ts'
 import {localPrepaidSettings} from './_prepaid-funding.ts'
 import {drawnVerifierWitnesses} from './_paid-policy.ts'
-import {drivePaidWalletSession} from './_paid-wallet-session.ts'
+import {drivePaidWalletSession, waitForPaidSnapshot} from './_paid-wallet-session.ts'
 import {withDedicatedPayer} from './_payer-queue.ts'
+import type {VerifiedRequestObject} from '../../src/oid4vp/request-object.ts'
 
 export function readPaidConfigFile(file: string, cap: number): string {
   const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
@@ -87,6 +89,7 @@ export function paidWalletSettings(cfg: FleetConfig) {
   assert(new Set(map.values()).size === map.size, 'Keeper route map aliases independent operator identities')
   return {...local, profile, transportPolicy: {ca, allowedPrivateHosts: privateHosts}, accountantUrls,
     defaultVerificationPolicy: {committee, quorum}, maxCost, maxGas, maxGasPrice,
+    keeperUrls: [...map.values()],
     keeperUrl: (registered: string) => map.get(registered.replace(/\/$/, '')) ?? registered}
 }
 
@@ -131,7 +134,8 @@ export async function paidWalletCoordinator(cfg: FleetConfig, slot: Hex, entry: 
 
 export async function authorizePaidWallet(cfg: FleetConfig, slot: Hex, creatorKey: Hex,
   input: Pick<OperationInput, 'action' | 'message' | 'payloadDigest' | 'identity' | 'ttlSecs'>,
-  wallet: {holder: HolderKey; sdJwt: string}, forcePresentation: boolean, coordinator?: Address) {
+  wallet: {holder: HolderKey; sdJwt: string}, forcePresentation: boolean, coordinator?: Address,
+  observeRequest?: (request: VerifiedRequestObject, fetcher: typeof fetch) => void | Promise<void>) {
   input = structuredClone(input)
   wallet = structuredClone(wallet)
   const settings = paidWalletSettings(cfg), creator = privateKeyToAccount(creatorKey)
@@ -146,8 +150,12 @@ export async function authorizePaidWallet(cfg: FleetConfig, slot: Hex, creatorKe
     'Paid wallet requires the original confirmed funding, rule, salt and sovereign creator')
   const writer = createTasraWriteClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, privateKey: creatorKey, chainId: 43112})
   const chain = createTasraChainClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, chainId: 43112, multicall3: false})
-  const context = await discoverPaidOperationContext(writer.pub, deployment, slot,
-    {allowLocalHttp: true, defaultVerificationPolicy: settings.defaultVerificationPolicy, coordinator})
+  const snapshotWaitSecs = Number(cfg.raw.KK_SNAPSHOT_WAIT_SECS ?? '180')
+  assert(Number.isSafeInteger(snapshotWaitSecs) && snapshotWaitSecs > 0 && snapshotWaitSecs <= 300, 'Snapshot readiness wait must be bounded')
+  const readiness = AbortSignal.timeout(snapshotWaitSecs * 1000)
+  const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(writer.pub, deployment, slot,
+    {allowLocalHttp: true, defaultVerificationPolicy: settings.defaultVerificationPolicy, coordinator}), readiness,
+    () => delay(1000, undefined, {signal: readiness}))
   assert.equal(context.creator.toLowerCase(), creator.address.toLowerCase(), 'Paid creator changed')
   const originalSlot = await writer.pub.readContract({address: deployment.keyRegistry, abi: keyRegistryAbi,
     functionName: 'getKeySlot', args: [slot], blockNumber: context.blockNumber})
@@ -198,7 +206,7 @@ export async function authorizePaidWallet(cfg: FleetConfig, slot: Hex, creatorKe
       const timer = setTimeout(() => {signal.removeEventListener('abort', abort); resolve()}, 1000)
       signal.addEventListener('abort', abort, {once: true})
     })
-  }, makePresentation: request => {
+  }, observeRequest: request => observeRequest?.(request, fetcher), makePresentation: request => {
     const plan = planPresentation(request, [{sdJwt: wallet.sdJwt}]), parsed = parseSdJwt(wallet.sdJwt)
     const candidate = forcePresentation ? {held: {sdJwt: wallet.sdJwt}, parsed, view: sdJwtCredentialView(parsed), queryId: request.claims.dcql_query.credentials[0]!.id} : plan.chosen
     assert(candidate, 'Held credential does not answer the original client-approved request')

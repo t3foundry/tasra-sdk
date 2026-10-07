@@ -9,6 +9,11 @@ never does.
 
 ### Fixed
 
+- Local Hovi-profile certification now uses confirmed TASRA funding, registered
+  paid sessions and original keeper approvals. P-256 credentials carry a status
+  list signed by their issuer, with a separate durable allocation ledger. Snapshot
+  readiness retries only absent-anchor reads; paid writes are never redelivered.
+
 - OAuth DPoP proofs now bind the exact session response URL. `dpopHtu` requires
   the session ID; the explicit `legacyDpopHtu` helper retains the old target for
   pre-remediation integrations. Paid sessions refuse a legacy or different-session

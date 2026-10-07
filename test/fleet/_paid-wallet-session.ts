@@ -18,9 +18,26 @@ export interface PaidWalletDriverOptions {
   members: readonly PaidVerifierWitness[]
   store: ApplicationStore
   signal: AbortSignal
+  observeRequest?(request: VerifiedRequestObject): void | Promise<void>
   makePresentation(request: VerifiedRequestObject): PaidWalletPresentation
   submit(request: VerifiedRequestObject, presentation: PaidWalletPresentation): Promise<void>
   wait(): Promise<void>
+}
+
+// Snapshot readiness is a read-only precondition. Retry only the two explicit
+// absent-anchor outcomes, before any reservation, client consent or delivery.
+export async function waitForPaidSnapshot<T>(read: () => Promise<T>, signal: AbortSignal,
+  wait: () => Promise<void>): Promise<T> {
+  for (;;) {
+    signal.throwIfAborted()
+    try {return await read()}
+    catch (error) {
+      signal.throwIfAborted()
+      if (!(error instanceof Error) || !['no anchored verifier and accountant snapshots',
+        'no current or previous anchored verifier and accountant snapshots'].includes(error.message)) throw error
+      await wait()
+    }
+  }
 }
 
 export async function drivePaidWalletSession(options: PaidWalletDriverOptions): Promise<SessionStatusResult> {
@@ -102,6 +119,10 @@ export async function drivePaidWalletSession(options: PaidWalletDriverOptions): 
       await wait()
     }
   }
+  // An optional conformance observation completes before credential disclosure.
+  // Give it a detached copy so it cannot alter the original client consent.
+  await options.observeRequest?.(structuredClone(request))
+  signal.throwIfAborted()
   const presentation = structuredClone(options.makePresentation(request))
   // Validate canonical plain JSON before persisting or disclosing credentials.
   executionBodyHash(presentation.approved as unknown as Record<string, unknown>)
