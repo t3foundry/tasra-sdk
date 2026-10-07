@@ -1066,7 +1066,7 @@ Returns: ` NetworkManifest `.
 
 Parse finite numeric Prometheus samples into a map keyed by metric name and labels. Ignore comment lines and nonnumeric values; histogram buckets remain separate samples.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L200)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L202)
 
 Import: `import {parsePrometheus} from 'tasra-sdk/chain'`
 
@@ -2807,7 +2807,7 @@ Fields:
 
 Slot summaries returned by a keeper key-list endpoint.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L100)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L102)
 
 ```ts
 export interface KeyListReply {
@@ -2824,7 +2824,7 @@ Fields:
 
 Keeper-reported slot threshold, key epoch and optional rule or activity metadata.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L75)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L77)
 
 ```ts
 export interface KeySlotSummary {
@@ -2857,7 +2857,7 @@ Fields:
 
 Keeper-reported operation counts for a slot and optional subject breakdown.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L124)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L126)
 
 ```ts
 export interface MeteringReply {
@@ -2990,6 +2990,7 @@ export interface NodeInfo {
     connected_peers?: number | null;
     rate_limit_enabled?: boolean;
     admin_scope_enabled?: boolean;
+    admin_auth?: 'separate' | 'unconfigured';
     [k: string]: unknown;
 }
 ```
@@ -3004,6 +3005,7 @@ Fields:
 - **` connected_peers `**: Reported connected-peer count, or null when unavailable.
 - **` rate_limit_enabled `**: Whether the keeper reports rate limiting as enabled.
 - **` admin_scope_enabled `**: Whether the keeper reports administrative scope checks as enabled.
+- **` admin_auth `**: Separate admin-key verification, or administrative routes awaiting operator configuration. Missing on older keepers.
 
 ### PaidAgentHttpResponse
 
@@ -4137,7 +4139,7 @@ export type ServiceType = (typeof SERVICE_TYPES)[keyof typeof SERVICE_TYPES];
 
 Operator heartbeat carrying an epoch, public key and signature; reading it does not verify it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L109)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L111)
 
 ```ts
 export interface SignedHeartbeat {
@@ -4524,7 +4526,7 @@ export type VaultTranche = (typeof VAULT_TRANCHES)[number];
 
 Verifier-reported runtime settings and token lifetime.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L172)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L174)
 
 ```ts
 export interface VerifierInfo {
@@ -4627,7 +4629,7 @@ Shared values and contract definitions.
 | `livenessRegistryAbi` | LivenessRegistry contract interface for registered operator liveness observations. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/livenessRegistry.ts#L5) |
 | `mockEurcAbi` | MockEurc contract interface for test-token balances, transfers, approvals and minting. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/mockEurc.ts#L5) |
 | `NETWORKS` | Built-in network defaults; use a tasra-releases manifest for deployed contract addresses. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L39) |
-| `nodeApi` | Direct keeper HTTP reads for status, keys, public keys, heartbeats and metering. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L143) |
+| `nodeApi` | Direct keeper HTTP reads for status, keys, public keys, heartbeats and metering. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L145) |
 | `nodeRegistryAbi` | NodeRegistry contract interface for operator registration, role tags, stake and activity. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/nodeRegistry.ts#L5) |
 | `platformExecutorAbi` | PlatformExecutor contract interface for platform-authorized contract execution. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/platformExecutor.ts#L5) |
 | `prevrandaoSaltBeaconAbi` | PrevrandaoSaltBeacon contract interface for chain-randomness-derived committee seeds. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/prevrandaoSaltBeacon.ts#L5) |
@@ -4650,5 +4652,5 @@ Shared values and contract definitions.
 | `treasuryAbi` | Treasury contract interface for treasury balances, authorized withdrawals and refunds. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/treasury.ts#L5) |
 | `VAULT_TRANCHES` | The vesting tranches Deploy.s.sol creates, in the order it creates them. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L67) |
 | `VERIFIER_TAG` | The on-chain role tag verifier operators register under: `keccak256("verifier")`. The same tag the accountants use to build the settlement split, and the CLI to resolve a tagged operator set. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L28) |
-| `verifierApi` | Direct verifier HTTP reads for status and Prometheus metrics. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L187) |
+| `verifierApi` | Direct verifier HTTP reads for status and Prometheus metrics. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L189) |
 | `verifierSetRegistryAbi` | VerifierSetRegistry contract interface for verifier-set snapshots and membership roots. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/verifierSetRegistry.ts#L5) |

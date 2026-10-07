@@ -148,6 +148,26 @@ lower-level flow therefore accepts a proof **per verifier**: pass
 `tasra-sdk/committee`) as `holderProof` to `requestCommitteeToken` / `ibeDecryptRequest`
 and each drawn verifier is asked for its own nonce.
 
+## Keeper administrative capability
+
+`nodeApi.info(keeperUrl)` reports the keeper's optional `admin_auth` field:
+
+| Value | Keeper-reported capability |
+|---|---|
+| `separate` | Administrative tokens use an independent operator issuer key. |
+| `unconfigured` | Administrative routes await operator configuration. |
+| absent | The keeper did not report this capability. |
+
+This is service metadata; reading it does not authenticate the keeper or grant
+authority. Provisioning, rotation and governance require an administrative token
+with the keeper's configured issuer, audience and `kk-admin+jwt` type. Obtain that
+token from the operator; its signing seed belongs on the operator's system.
+
+An unconfigured administrative route returns HTTP 503 with
+`admin authentication not configured` in the response body. The SDK preserves
+that diagnostic in `TasraHttpError.body` and the status in `TasraHttpError.status`.
+The operator must configure the administrative issuer before retrying the action.
+
 ---
 
 [Back to the README](../README.md) · [Documentation index](README.md)

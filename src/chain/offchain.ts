@@ -66,6 +66,8 @@ export interface NodeInfo {
   rate_limit_enabled?: boolean
   /** Whether the keeper reports administrative scope checks as enabled. */
   admin_scope_enabled?: boolean
+  /** Separate admin-key verification, or administrative routes awaiting operator configuration. Missing on older keepers. */
+  admin_auth?: 'separate' | 'unconfigured'
   [k: string]: unknown
 }
 

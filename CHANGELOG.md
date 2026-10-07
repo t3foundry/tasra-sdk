@@ -29,6 +29,10 @@ never does.
 
 ### Added
 
+- Expose the keeper's optional `NodeInfo.admin_auth` capability. `separate`
+  reports an independent administrative issuer; `unconfigured` reports that
+  administrative routes await operator configuration. An absent field is unknown.
+
 - Add original-client keeper approvals to FROST, ECDSA, group decryption, IBE and
   paid dual-control creation. Application methods require the original execution
   certificate and signer; direct clients accept an independent chain approver.
