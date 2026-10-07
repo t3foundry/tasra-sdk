@@ -123,4 +123,25 @@ describe('client approvals on outgoing keeper requests',()=>{
       expect(f.fetchImpl).toHaveBeenCalledTimes(1)
     }finally{f.signer.dispose()}
   })
+
+  it('an extraction deadline never dispatches an approval that finishes late',async()=>{
+    const f=await operation('ibe-extract')
+    let release!:()=>void,asked!:()=>void,finished!:()=>void
+    const delayed=new Promise<void>(resolve=>{release=resolve})
+    const ready=new Promise<void>(resolve=>{asked=resolve})
+    const complete=new Promise<void>(resolve=>{finished=resolve})
+    try{
+      const running=requestIbeExtractionPartials({nodeUrls:['https://keeper.example'],committeeToken:f.token,
+        identity,ciphertextEpoch:1,timeoutMs:20,fetchImpl:f.fetchImpl,approveExecution:async request=>{
+          asked();await delayed
+          try{return await f.approveExecution(request)}finally{finished()}
+        }})
+      const rejected=expect(running).rejects.toThrow('deadline exceeded')
+      await ready;await rejected
+      expect(f.fetchImpl).not.toHaveBeenCalled()
+      release();await complete
+      await new Promise<void>(resolve=>{setTimeout(resolve,0)})
+      expect(f.fetchImpl).not.toHaveBeenCalled()
+    }finally{release();f.signer.dispose()}
+  })
 })

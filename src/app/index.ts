@@ -1,7 +1,7 @@
 /** Application API. safe to import in browsers. */
 export {createTasra, TasraApplicationError} from './client.js'
 export type {TasraApplication, TasraApplicationConfig, ApplicationErrorCode, SlotMetadata, OperationGrant,
-  AuthorizationRequest, OperationAuthorizer, AuthorizedOperationOptions, EcdsaSlot, FrostSlot, BlsSlot} from './client.js'
+  AuthorizationRequest, OperationAuthorizer, AuthorizedOperationOptions, IdentityExtractionOptions, EcdsaSlot, FrostSlot, BlsSlot} from './client.js'
 export {defineDeployment} from './deployment.js'
 export type {TasraDeployment} from './deployment.js'
 export {toViemAccount} from './viem.js'

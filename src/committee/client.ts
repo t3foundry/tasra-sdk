@@ -26,6 +26,7 @@ import type {FrostSignResult} from '../signing/frost.js'
 import type {BlsPeer} from '../decryption/client.js'
 import {decodeOperationReceipt, type OperationReceipt} from './receipts.js'
 import {withKeeperExecutionApprovals, type KeeperExecutionApprover} from './keeperExecution.js'
+import {ibeVerifyShare} from '../crypto/ibe.js'
 
 const strip0x = (s: string): string => (s.startsWith('0x') ? s.slice(2) : s)
 const base = (u: string): string => u.replace(/\/$/, '')
@@ -296,7 +297,6 @@ export async function committeeAuthorize(
   }
 }
 
-// coordinator: gather a quorum + assemble the token
 
 /** Verifier requests and quorum configuration for assembling a compound token. */
 export interface GatherCommitteeTokenOpts {
@@ -312,6 +312,8 @@ export interface GatherCommitteeTokenOpts {
   /** Mint a separate holder proof for each verifier, overriding authorize.holderProof. Called concurrently; a rejection excludes that verifier while other requests continue. */
   holderProofFor?: (verifier: {index: number; url: string}) => Promise<string> | string
 }
+
+// coordinator: gather a quorum + assemble the token
 
 /**
  * Fan out to the candidate verifiers, collect signatures from the drawn committee
@@ -565,6 +567,13 @@ export interface IbeExtractionPartial {
 
 /** Committee authorization and keeper endpoints for extracting shares of one IBE identity key. */
 export interface IbeExtractOpts {
+  /** Stop after this many distinct, pairing-verified shares. Without this option,
+   * collect every successful reply. The low-level check uses returned verifying
+   * shares; use extractIdentityStrict for independently pinned keeper provenance. */
+  threshold?: number
+  /** Deadline for the complete fan-out, including approvals and response bodies.
+   * Default 10000 ms. Cancellation cannot undo work a keeper already started. */
+  timeoutMs?: number
   /** Required for paid extraction: approve only the exact targeted assigned contributor. */
   approveExecution?: KeeperExecutionApprover
   /** Optional signal that cancels the request. */
@@ -596,6 +605,8 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
   if (opts.verifierProofs) body.verifier_proofs = proofsToWire(opts.verifierProofs)
   body = await withKeeperExecutionApprovals({body,kind:'ibe-extract',nodeUrl,payment:opts.committeeToken.payment,
     approveExecution:opts.approveExecution,signal:opts.signal})
+  // An approver may ignore cancellation. Never dispatch its late authorization.
+  opts.signal?.throwIfAborted()
   const url = `${base(nodeUrl)}/v1/shards/ibe/extract`
   const res = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST',
@@ -604,8 +615,10 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
     signal: opts.signal,
     ...(opts.committeeToken.payment ? {redirect:'error' as const,credentials:'omit' as const} : {}),
   })
-  if (!res.ok) throw await httpError(res, url, 'shards/ibe/extract')
-  const d = (await res.json()) as {
+  const text = await readIbeReply(res, opts.signal)
+  opts.signal?.throwIfAborted()
+  if (!res.ok) throw await httpError(new Response(text, {status: res.status}), url, 'shards/ibe/extract')
+  const d = JSON.parse(text) as {
     identifier: number
     extraction_share: string
     verifying_share: string
@@ -615,10 +628,10 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
     token_hash?: unknown
     op_attestation?: unknown
   }
-  const vs = base64Decode(d.verifying_share)
+  const vs = base64Decode(d.verifying_share), receipt = decodeOperationReceipt(d)
   return {
     ...(d.key_slot_id !== undefined ? {keySlotId: d.key_slot_id} : {}),
-    ...(decodeOperationReceipt(d) ? {receipt: decodeOperationReceipt(d)} : {}),
+    ...(receipt ? {receipt} : {}),
     identifier: Number(d.identifier),
     value: base64Decode(d.extraction_share),
     // The reply is the 144-byte dual-group encoding (96B G2 || 48B G1); the IBE pairing
@@ -626,6 +639,38 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
     verifyingShareG2: vs.slice(0, 96),
     epoch: Number(d.epoch),
     nodeUrl,
+  }
+}
+
+async function readIbeReply(response: Response, signal?: AbortSignal): Promise<string> {
+  const cap = 16 * 1024
+  if (Number(response.headers.get('content-length')) > cap) {
+    void response.body?.cancel().catch(() => {})
+    throw new Error('Extraction reply exceeds 16 KiB')
+  }
+  const reader = response.body?.getReader()
+  if (!reader) return ''
+  let bytes = 0, text = ''
+  const decoder = new TextDecoder()
+  const cancelled = () => { void reader.cancel().catch(() => {}) }
+  signal?.addEventListener('abort', cancelled, {once: true})
+  try {
+    if (signal?.aborted) cancelled()
+    signal?.throwIfAborted()
+    for (;;) {
+      const {done, value} = await reader.read()
+      signal?.throwIfAborted()
+      if (done) break
+      bytes += value.length
+      if (bytes > cap) throw new Error('Extraction reply exceeds 16 KiB')
+      text += decoder.decode(value, {stream: true})
+    }
+    return text + decoder.decode()
+  } finally {
+    // Includes a streaming cap refusal. Do not wait for a hostile body's cancel hook.
+    void reader.cancel().catch(() => {})
+    reader.releaseLock()
+    signal?.removeEventListener('abort', cancelled)
   }
 }
 
@@ -640,23 +685,93 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
 export async function requestIbeExtractionPartials(
   opts: IbeExtractOpts,
 ): Promise<IbeExtractionPartial[]> {
+  opts = {...opts}
+  const identity = new TextEncoder().encode(opts.identity)
+  return collectIbeExtractionPartials(opts, opts.threshold === undefined ? undefined : p => {
+    if (!Number.isSafeInteger(p.identifier) || p.identifier < 1 || p.identifier > 65535 ||
+      p.value.length !== 48 || p.verifyingShareG2.length !== 96 ||
+      !Number.isSafeInteger(p.epoch) || p.epoch < 0 ||
+      p.keySlotId !== undefined && strip0x(p.keySlotId).toLowerCase() !== strip0x(opts.committeeToken.slot_id).toLowerCase() ||
+      opts.ciphertextEpoch !== undefined && p.epoch !== opts.ciphertextEpoch) {
+      throw new Error('Invalid extraction identifier, encoding or epoch')
+    }
+    ibeVerifyShare(new Map([[p.identifier, p.verifyingShareG2]]), identity, p)
+  })
+}
+
+/** @internal The strict helper supplies its independent keeper/receipt admission check. */
+export async function collectIbeExtractionPartials(
+  opts: IbeExtractOpts,
+  validate?: (partial: IbeExtractionPartial) => void,
+): Promise<IbeExtractionPartial[]> {
   opts={...opts,nodeUrls:[...opts.nodeUrls],committeeToken:structuredClone(opts.committeeToken),
     verifierProofs:opts.verifierProofs&&structuredClone(opts.verifierProofs),userSignature:opts.userSignature?.slice()}
   if (opts.nodeUrls.length === 0) throw new Error('requestIbeExtractionPartials: no node URLs')
-  const settled = await Promise.allSettled(opts.nodeUrls.map(u => ibeExtractOne(u, opts)))
-  const partials = settled
-    .filter((r): r is PromiseFulfilledResult<IbeExtractionPartial> => r.status === 'fulfilled')
-    .map(r => r.value)
-  if (partials.length === 0) {
-    const why = settled
-      .map((r, i) => {
-        if (r.status === 'fulfilled') return null
-        const e = r.reason as {message?: string}
-        return `${opts.nodeUrls[i]}: ${e?.message ?? String(r.reason)}`
-      })
-      .filter(Boolean)
-      .join('; ')
-    throw new Error(`requestIbeExtractionPartials: no node served an extraction — ${why}`)
+  const threshold = opts.threshold, timeoutMs = opts.timeoutMs ?? 10_000
+  if (threshold !== undefined && (!Number.isSafeInteger(threshold) || threshold < 1 || threshold > opts.nodeUrls.length)) {
+    throw new Error('Invalid extraction threshold')
   }
-  return partials
+  if (threshold !== undefined && new Set(opts.nodeUrls.map(base)).size !== opts.nodeUrls.length) {
+    throw new Error('Duplicate extraction endpoint')
+  }
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) {
+    throw new Error('Invalid extraction timeout')
+  }
+  opts.signal?.throwIfAborted()
+  const controller = new AbortController()
+  const requests = {...opts, signal: controller.signal}
+  return new Promise((resolve, reject) => {
+    const partials: IbeExtractionPartial[] = [], ids = new Set<number>()
+    const accepted = new Map<number, IbeExtractionPartial>()
+    const failures = new Map<number, string>()
+    const pending = new Set(opts.nodeUrls.map((_, i) => i))
+    let done = false
+    const failure = () => threshold === undefined
+      ? new Error(`requestIbeExtractionPartials: no node served an extraction — ${[...failures.values()].join('; ')}`)
+      : new ThresholdNotMetError({got: partials.length, need: threshold, reasons: [...failures.values()]})
+    const finish = (error?: unknown) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      opts.signal?.removeEventListener('abort', cancelled)
+      // Abort first, including bodies/approval calls still awaiting a response. A
+      // transport ignoring abort may resolve later; that handler clears its partial.
+      controller.abort()
+      if (error !== undefined) {
+        for (const p of partials) p.value.fill(0)
+        reject(error)
+      } else resolve(threshold === undefined ? [...accepted].sort(([a], [b]) => a - b).map(([, p]) => p) : partials)
+    }
+    const cancelled = () => finish(opts.signal ? opts.signal.reason : new DOMException('Aborted', 'AbortError'))
+    const timer = setTimeout(() => {
+      for (const i of pending) failures.set(i, `${opts.nodeUrls[i]}: extraction deadline exceeded`)
+      finish(threshold === undefined && partials.length > 0 ? undefined : failure())
+    }, timeoutMs)
+    opts.signal?.addEventListener('abort', cancelled, {once: true})
+    // Registration follows the early check; this also closes a custom signal's race.
+    if (opts.signal?.aborted) { cancelled(); return }
+    for (const [i, url] of opts.nodeUrls.entries()) {
+      void ibeExtractOne(url, requests).then(p => {
+        if (done) { p.value.fill(0); return }
+        try {
+          if (threshold !== undefined && ids.has(p.identifier)) throw new Error('Duplicate extraction identifier')
+          validate?.(p)
+          ids.add(p.identifier)
+          partials.push(p)
+          accepted.set(i, p)
+          if (threshold !== undefined && partials.length >= threshold) finish()
+        } catch (error) {
+          p.value.fill(0)
+          failures.set(i, `${url}: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }, (error: unknown) => {
+        failures.set(i, `${url}: ${error instanceof Error ? error.message : String(error)}`)
+      }).finally(() => {
+        pending.delete(i)
+        if (done) return
+        if (pending.size === 0) finish(partials.length > 0 && threshold === undefined ? undefined : failure())
+        else if (threshold !== undefined && partials.length + pending.size < threshold) finish(failure())
+      })
+    }
+  })
 }

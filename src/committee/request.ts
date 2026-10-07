@@ -418,6 +418,15 @@ export async function committeeDecryptRequest(opts: CommitteeDecryptRequestOpts)
 
 /** Operation-specific fields for {@link ibeDecryptRequest} / {@link ibeExtractRequest}. */
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
+  /** Keeper threshold from independently read slot metadata. When supplied,
+   * finish after that many distinct pairing-verified shares, cancelling the rest. */
+  threshold?: number
+  /** Keeper extraction deadline in milliseconds; default 10000. */
+  timeoutMs?: number
+  /** Cancel the extraction fan-out. Does not undo already started keeper work. */
+  signal?: AbortSignal
+  /** HTTP transport override for keeper extraction requests. */
+  fetchImpl?: typeof fetch
   /** Client-owned exact-body approval capability for each paid extraction contributor. */
   approveExecution?: KeeperExecutionApprover
   /** Base URLs of at least k keeper nodes holding the slot's BLS shards. */
@@ -444,12 +453,14 @@ export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
  */
 export async function ibeExtractRequest(opts: IbeExtractRequestOpts): Promise<Uint8Array> {
   const {partials, identityBytes} = await gatherIbePartials(opts)
-  const vsMap = new Map(partials.map(p => [p.identifier, p.verifyingShareG2]))
-  return ibeCombineExtract(
-    vsMap,
-    partials.map(p => ({identifier: p.identifier, value: p.value})),
-    identityBytes,
-  )
+  try {
+    const vsMap = new Map(partials.map(p => [p.identifier, p.verifyingShareG2]))
+    return ibeCombineExtract(
+      vsMap,
+      partials.map(p => ({identifier: p.identifier, value: p.value})),
+      identityBytes,
+    )
+  } finally { for (const p of partials) p.value.fill(0) }
 }
 
 /**
@@ -462,16 +473,19 @@ export async function ibeDecryptRequest(
   opts: IbeExtractRequestOpts & {ciphertext: IbeCiphertext},
 ): Promise<Uint8Array> {
   const {partials, identityBytes} = await gatherIbePartials(opts)
-  const vsMap = new Map(partials.map(p => [p.identifier, p.verifyingShareG2]))
-  return ibeCombineDecrypt(
-    vsMap,
-    partials.map(p => ({identifier: p.identifier, value: p.value})),
-    opts.ciphertext,
-    identityBytes,
-  )
+  try {
+    const vsMap = new Map(partials.map(p => [p.identifier, p.verifyingShareG2]))
+    return ibeCombineDecrypt(
+      vsMap,
+      partials.map(p => ({identifier: p.identifier, value: p.value})),
+      opts.ciphertext,
+      identityBytes,
+    )
+  } finally { for (const p of partials) p.value.fill(0) }
 }
 
 async function gatherIbePartials(opts: IbeExtractRequestOpts) {
+  opts.signal?.throwIfAborted()
   const {token, verifierProofs} = await requestCommitteeToken({
     ...opts,
     scopedIdentity: opts.identity,
@@ -484,6 +498,10 @@ async function gatherIbePartials(opts: IbeExtractRequestOpts) {
     ciphertextEpoch: opts.ciphertextEpoch,
     verifierProofs,
     approveExecution: opts.approveExecution,
+    threshold: opts.threshold,
+    timeoutMs: opts.timeoutMs,
+    signal: opts.signal,
+    fetchImpl: opts.fetchImpl,
   })
   return {partials, identityBytes: new TextEncoder().encode(opts.identity)}
 }

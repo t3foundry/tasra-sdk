@@ -354,11 +354,7 @@ const bareHex = (b: Uint8Array): string => Array.from(b).map(x => x.toString(16)
     if (u.includes('/v1/committee/decrypt')) {
       return {ok: true, status: 200, json: async () => ({plaintext: 'AAAA'})} as unknown as Response
     }
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({identifier: 1, extraction_share: 'AAAA', verifying_share: 'AAAA', epoch: 4}),
-    } as unknown as Response
+    return Response.json({identifier: 1, extraction_share: 'AAAA', verifying_share: 'AAAA', epoch: 4})
   }) as typeof globalThis.fetch
 
   try {

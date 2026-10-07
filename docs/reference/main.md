@@ -107,7 +107,7 @@ Distinct from a generic HTTP error because the committee flow polls several
 verifiers and tolerates individual refusals as long as a quorum co-signs - see
 [ThresholdNotMetError](#thresholdnotmeterror) for the failure that means the quorum was missed.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L73)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L74)
 
 Import: `import {CommitteeAuthorizeError} from 'tasra-sdk'`
 
@@ -1369,7 +1369,7 @@ Returns: ` Promise<Uint8Array> `.
 One-call identity-scoped decrypt (the read path): token to extraction fan-out
 to verify each partial to combine to decrypt. The intermediate `sk_ID` never surfaces.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L461)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L472)
 
 Import: `import {ibeDecryptRequest} from 'tasra-sdk'`
 
@@ -1437,7 +1437,7 @@ compressed G1).
 ciphertext to this identity. Prefer [ibeDecryptRequest](#ibedecryptrequest), which combines,
 decrypts and drops it. Zeroize the returned bytes when done.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L445)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L454)
 
 Import: `import {ibeExtractRequest} from 'tasra-sdk'`
 
@@ -1861,7 +1861,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L640)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L685)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk'`
 
@@ -3112,7 +3112,7 @@ Fields:
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L549)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L551)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -3140,10 +3140,12 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L567)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L569)
 
 ```ts
 export interface IbeExtractOpts {
+    threshold?: number;
+    timeoutMs?: number;
     approveExecution?: KeeperExecutionApprover;
     signal?: AbortSignal;
     fetchImpl?: typeof fetch;
@@ -3158,6 +3160,8 @@ export interface IbeExtractOpts {
 
 Fields:
 
+- **` threshold `**: Stop after this many distinct, pairing-verified shares. Without this option, collect every successful reply. The low-level check uses returned verifying shares; use extractIdentityStrict for independently pinned keeper provenance.
+- **` timeoutMs `**: Deadline for the complete fan-out, including approvals and response bodies. Default 10000 ms. Cancellation cannot undo work a keeper already started.
 - **` approveExecution `**: Required for paid extraction: approve only the exact targeted assigned contributor.
 - **` signal `**: Optional signal that cancels the request.
 - **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
@@ -3176,6 +3180,10 @@ Operation-specific fields for [ibeDecryptRequest](#ibedecryptrequest) / [ibeExtr
 
 ```ts
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
+    threshold?: number;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    fetchImpl?: typeof fetch;
     approveExecution?: KeeperExecutionApprover;
     nodeUrls: string[];
     identity: string;
@@ -3186,6 +3194,10 @@ export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
 
 Fields:
 
+- **` threshold `**: Keeper threshold from independently read slot metadata. When supplied, finish after that many distinct pairing-verified shares, cancelling the rest.
+- **` timeoutMs `**: Keeper extraction deadline in milliseconds; default 10000.
+- **` signal `**: Cancel the extraction fan-out. Does not undo already started keeper work.
+- **` fetchImpl `**: HTTP transport override for keeper extraction requests.
 - **` approveExecution `**: Client-owned exact-body approval capability for each paid extraction contributor.
 - **` nodeUrls `**: Base URLs of at least k keeper nodes holding the slot's BLS shards.
 - **` identity `**: The IBE identity to extract for - becomes the token's `scopedIdentity`, so a quorum attests exactly this identity and the keepers enforce the hash binding.

@@ -8,7 +8,7 @@ import {createDualSignClient, dualSignApprovalPayload, paidDualSignApprovalPaylo
 import {paymentIntentHash, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {decryptIdentityStrict, extractIdentityStrict, type StrictExtractionOptions} from '../../src/committee/extraction.js'
 import {compoundTokenHash, decodeCompoundToken, opAttestationHash, type CompoundTokenWire} from '../../src/committee/token.js'
-import {committeeSign} from '../../src/committee/client.js'
+import {collectIbeExtractionPartials, committeeSign, requestIbeExtractionPartials, type IbeExtractionPartial} from '../../src/committee/client.js'
 import {requestHash} from '../../src/oid4vp/binding.js'
 import {keeperExecutionFixture} from '../support/keeperExecution.js'
 import type {LocalExecutionSigner} from '../../src/committee/execution.js'
@@ -118,6 +118,8 @@ describe('strict identity extraction', () => {
       if (field === 'receipt') row.op_attestation = '00'.repeat(64)
       if (field === 'missing-receipt') { delete row.op_id; delete row.token_hash; delete row.op_attestation }
     })
+    // One invalid member in a two-member draw cannot form the required quorum.
+    opts.keepers = opts.keepers.slice(0, vector.threshold.k)
     await expect(extractIdentityStrict(opts)).rejects.toThrow()
   })
   it('requires the configured quorum even if some servers returned valid responses', async () => {
@@ -142,6 +144,223 @@ describe('strict identity extraction', () => {
     const result = await extractIdentityStrict(opts)
     expect(result.evidence.every(e => e.receiptStatus === 'unverified')).toBe(true)
     result.key.fill(0)
+  })
+
+  it('finishes with two verified members while the third fetch ignores cancellation', async () => {
+    // Freeze the deadline: this must complete from the verified quorum itself,
+    // never by waiting for a timer to give up on the third keeper.
+    vi.useFakeTimers()
+    try {
+    const opts = extraction(), original = opts.fetchImpl!
+    let stalledSignal: AbortSignal | undefined
+    opts.fetchImpl = vi.fn((url, init) => {
+      if (String(url).includes('keeper-2.')) {
+        stalledSignal = init?.signal ?? undefined
+        return new Promise<Response>(() => {})
+      }
+      return original(url, init)
+    })
+    const result = await extractIdentityStrict({...opts, timeoutMs: 500})
+    expect(result.evidence.map(e => e.identifier)).toEqual(vector.shares.slice(0, 2).map(p => p.identifier))
+    expect(stalledSignal?.aborted).toBe(true)
+    result.key.fill(0)
+    } finally { vi.useRealTimers() }
+  }, 2_000)
+
+  it.each(['slot', 'receipt', 'pairing'])('skips an invalid %s reply without consuming quorum capacity', async field => {
+    const opts = extraction({}, (row, index) => {
+      if (index !== 0) return
+      if (field === 'slot') row.key_slot_id = 'ff'.repeat(32)
+      if (field === 'receipt') row.op_attestation = '00'.repeat(64)
+      if (field === 'pairing') row.extraction_share = b64(vector.shares[1]!.d_i)
+    })
+    const result = await extractIdentityStrict(opts)
+    expect(result.evidence.map(e => e.identifier)).toEqual(vector.shares.slice(1).map(p => p.identifier))
+    result.key.fill(0)
+  })
+
+  it('counts a duplicated share identifier only once under anchored-group trust', async () => {
+    const opts = extraction({shareTrust: 'anchored-group', requireReceipts: false}, (row, index) => {
+      if (index !== 1) return
+      row.identifier = vector.shares[0]!.identifier
+      row.extraction_share = b64(vector.shares[0]!.d_i)
+      row.verifying_share = Buffer.concat([unhex(vector.verifying_shares[0]!.g2), unhex(vector.verifying_shares[0]!.g1)]).toString('base64')
+    })
+    opts.keepers = opts.keepers.map(({identifier: _, verifyingShareG2: __, ...k}) => k)
+    const result = await extractIdentityStrict(opts)
+    expect(result.evidence.map(e => e.identifier)).toEqual([vector.shares[0]!.identifier, vector.shares[2]!.identifier])
+    result.key.fill(0)
+  })
+
+  it('cancels stalled response bodies when another verified quorum completes', async () => {
+    const opts = extraction(), original = opts.fetchImpl!
+    const cancelled = vi.fn()
+    opts.fetchImpl = vi.fn((url, init) => String(url).includes('keeper-2.')
+      ? Promise.resolve(new Response(new ReadableStream<Uint8Array>({start(c) { c.enqueue(new TextEncoder().encode('{')) }, cancel: cancelled})))
+      : original(url, init))
+    const result = await extractIdentityStrict(opts)
+    expect(result.evidence).toHaveLength(2)
+    expect(cancelled).toHaveBeenCalledOnce()
+    result.key.fill(0)
+  })
+
+  it.each(['declared', 'streamed'])('refuses %s oversized reply before it can count', async kind => {
+    const opts = extraction(), original = opts.fetchImpl!
+    opts.keepers = opts.keepers.slice(0, 2)
+    opts.fetchImpl = vi.fn((url, init) => String(url).includes('keeper-0.')
+      ? Promise.resolve(new Response('x'.repeat(16 * 1024 + 1), kind === 'declared' ? {headers: {'content-length': String(16 * 1024 + 1)}} : undefined))
+      : original(url, init))
+    await expect(extractIdentityStrict(opts)).rejects.toThrow(/16 KiB/)
+  })
+})
+
+describe('extraction collection lifecycle', () => {
+  const lowLevel = () => {
+    const opts = extraction()
+    return {...opts, nodeUrls: opts.keepers.map(k => k.nodeUrl), ciphertextEpoch: opts.epoch}
+  }
+
+  it('preserves collect-all input order while a quorum collects only distinct valid shares', async () => {
+    const opts = lowLevel(), original = opts.fetchImpl!, {threshold: _, ...allOpts} = opts
+    const all = await requestIbeExtractionPartials(allOpts)
+    expect(all.map(p => p.identifier)).toEqual(vector.shares.map(p => p.identifier))
+    all.forEach(p => p.value.fill(0))
+    opts.fetchImpl = vi.fn((url, init) => String(url).includes('keeper-2.') ? new Promise<Response>(() => {}) : original(url, init))
+    const quorum = await requestIbeExtractionPartials(opts)
+    expect(quorum).toHaveLength(vector.threshold.k)
+    quorum.forEach(p => p.value.fill(0))
+  })
+
+  it.each([0, -1, 1.5, 4])('refuses invalid threshold %s before any HTTP request', async threshold => {
+    const opts = lowLevel()
+    await expect(requestIbeExtractionPartials({...opts, threshold})).rejects.toThrow('threshold')
+    expect(opts.fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it.each([0, -1, 1.5, 2_147_483_648])('refuses invalid deadline %s before any HTTP request', async timeoutMs => {
+    const opts = lowLevel()
+    await expect(requestIbeExtractionPartials({...opts, timeoutMs})).rejects.toThrow('timeout')
+    expect(opts.fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('refuses duplicate endpoints before any HTTP request', async () => {
+    const opts = lowLevel()
+    await expect(requestIbeExtractionPartials({...opts, nodeUrls: [opts.nodeUrls[0]!, opts.nodeUrls[0]! + '/']})).rejects.toThrow('Duplicate')
+    expect(opts.fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('propagates an already cancelled caller without starting requests', async () => {
+    const opts = lowLevel(), controller = new AbortController(), reason = new Error('caller cancelled')
+    controller.abort(reason)
+    await expect(extractIdentityStrict({...opts, signal: controller.signal})).rejects.toBe(reason)
+    expect(opts.fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('propagates caller cancellation and clears already accepted partials', async () => {
+    const opts = lowLevel(), original = opts.fetchImpl!, controller = new AbortController()
+    const reason = new Error('caller cancelled'), accepted: IbeExtractionPartial[] = []
+    let received!: () => void
+    const ready = new Promise<void>(resolve => {received = resolve})
+    opts.fetchImpl = vi.fn((url, init) => String(url).includes('keeper-0.') ? original(url, init) : new Promise<Response>(() => {}))
+    const running = collectIbeExtractionPartials({...opts, signal: controller.signal}, p => { accepted.push(p); received() })
+    const rejected = expect(running).rejects.toBe(reason)
+    await ready
+    controller.abort(reason)
+    await rejected
+    expect(accepted).toHaveLength(1)
+    expect(accepted[0]!.value.every(b => b === 0)).toBe(true)
+  })
+
+  it('deadline clears accepted partials and refuses an incomplete quorum', async () => {
+    const opts = lowLevel(), original = opts.fetchImpl!, accepted: IbeExtractionPartial[] = []
+    opts.fetchImpl = vi.fn((url, init) => String(url).includes('keeper-0.') ? original(url, init) : new Promise<Response>(() => {}))
+    await expect(collectIbeExtractionPartials({...opts, timeoutMs: 30}, p => { accepted.push(p) })).rejects.toMatchObject({got: 1, need: 2})
+    expect(accepted[0]!.value.every(b => b === 0)).toBe(true)
+  })
+
+  it('clears rejected partials while preserving the successful caller-owned quorum', async () => {
+    const opts = lowLevel(), rejected: IbeExtractionPartial[] = []
+    const accepted = await collectIbeExtractionPartials(opts, p => {
+      if (p.nodeUrl === opts.nodeUrls[0]) { rejected.push(p); throw new Error('independently refused') }
+    })
+    expect(rejected[0]!.value.every(b => b === 0)).toBe(true)
+    expect(accepted).toHaveLength(2)
+    expect(accepted.every(p => p.value.some(b => b !== 0))).toBe(true)
+    accepted.forEach(p => p.value.fill(0))
+  })
+
+  it('ignores a late fetch result, cancels its body and preserves the returned quorum', async () => {
+    const opts = lowLevel(), original = opts.fetchImpl!, checked: IbeExtractionPartial[] = []
+    let release!: (response: Response) => void
+    opts.fetchImpl = vi.fn((url, init) => String(url).includes('keeper-2.')
+      ? new Promise<Response>(resolve => { release = resolve }) : original(url, init))
+    const result = await collectIbeExtractionPartials(opts, p => { checked.push(p) })
+    const copies = result.map(p => p.value.slice()), cancel = vi.fn()
+    release(new Response(new ReadableStream<Uint8Array>({
+      start(c) { c.enqueue(new TextEncoder().encode('{}')) }, cancel,
+    })))
+    // Let the ignored fetch's body reader run; no network timer or retry is needed.
+    await new Promise<void>(resolve => {setTimeout(resolve, 0)})
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(checked).toHaveLength(2)
+    expect(result.map(p => p.value)).toEqual(copies)
+    result.forEach(p => p.value.fill(0))
+  })
+
+  it('a collect-all deadline returns completed replies in input order', async () => {
+    const opts = lowLevel(), original = opts.fetchImpl!, {threshold: _, ...allOpts} = opts
+    allOpts.fetchImpl = vi.fn((url, init) => String(url).includes('keeper-0.') ? original(url, init) : new Promise<Response>(() => {}))
+    const result = await requestIbeExtractionPartials({...allOpts, timeoutMs: 30})
+    expect(result.map(p => p.identifier)).toEqual([vector.shares[0]!.identifier])
+    result.forEach(p => p.value.fill(0))
+  })
+
+  it('collect-all preserves input order when two replies finish before the first', async () => {
+    const opts = lowLevel(), original = opts.fetchImpl!, {threshold: _, ...allOpts} = opts
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    allOpts.fetchImpl = vi.fn(async (url, init) => {
+      if (String(url).includes('keeper-0.')) await gate
+      return original(url, init)
+    })
+    const order: number[] = []
+    const result = await collectIbeExtractionPartials(allOpts, p => {
+      order.push(p.identifier)
+      if (order.length === 2) release()
+    })
+    expect(order).toEqual([...vector.shares.slice(1), vector.shares[0]!].map(p => p.identifier))
+    expect(result.map(p => p.identifier)).toEqual(vector.shares.map(p => p.identifier))
+    result.forEach(p => p.value.fill(0))
+  })
+
+  it('a collect-all deadline refuses when no keeper finishes', async () => {
+    const opts = lowLevel(), {threshold: _, ...allOpts} = opts
+    const fetchImpl = vi.fn((_url: Parameters<typeof fetch>[0], _init?: RequestInit) => new Promise<Response>(() => {}))
+    allOpts.fetchImpl = fetchImpl
+    await expect(requestIbeExtractionPartials({...allOpts, timeoutMs: 20})).rejects.toThrow('deadline exceeded')
+    expect(fetchImpl.mock.calls.every(([, init]) => init?.signal?.aborted)).toBe(true)
+  })
+
+  it('preserves a caller-supplied null cancellation reason', async () => {
+    const opts = lowLevel(), controller = new AbortController()
+    opts.fetchImpl = vi.fn(() => new Promise<Response>(() => {}))
+    const rejected = expect(requestIbeExtractionPartials({...opts, signal: controller.signal})).rejects.toBe(null)
+    controller.abort(null)
+    await rejected
+  })
+
+  it.each(['identifier', 'encoding', 'epoch', 'slot', 'pairing'])('low-level quorum skips invalid %s replies', async field => {
+    const opts = extraction({}, (row, index) => {
+      if (index !== 0) return
+      if (field === 'identifier') row.identifier = 0
+      if (field === 'encoding') row.extraction_share = 'AA=='
+      if (field === 'epoch') row.epoch = 2
+      if (field === 'slot') row.key_slot_id = 'ff'.repeat(32)
+      if (field === 'pairing') row.extraction_share = b64(vector.shares[1]!.d_i)
+    })
+    const result = await requestIbeExtractionPartials({...opts, nodeUrls: opts.keepers.map(k => k.nodeUrl), ciphertextEpoch: 1})
+    expect(result.map(p => p.identifier)).toEqual(vector.shares.slice(1).map(p => p.identifier))
+    result.forEach(p => p.value.fill(0))
   })
 })
 

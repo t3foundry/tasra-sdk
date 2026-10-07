@@ -436,7 +436,7 @@ Configure one application client. Construction does no I/O and holds no wallet c
 Start with `await tasra.slots.ecdsa(slotId)` and `await account.getAddress()`;
 provide an authorizer only when signing or decrypting.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L136)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L145)
 
 Import: `import {createTasra} from 'tasra-sdk/app'`
 
@@ -493,14 +493,10 @@ declare function createTasra(config: TasraApplicationConfig): {
         bls(slotId: Hex): Promise<{
             slotId: `0x${string}`;
             encrypt(identity: string, plaintext: Uint8Array): Promise<IbeCiphertext>;
-            decrypt(identity: string, ciphertext: IbeCiphertext, options: AuthorizedOperationOptions & {
-                requireReceipts?: boolean;
-            }): Promise<Omit<StrictExtractionResult, "key"> & {
+            decrypt(identity: string, ciphertext: IbeCiphertext, options: IdentityExtractionOptions): Promise<Omit<StrictExtractionResult, "key"> & {
                 plaintext: Uint8Array;
             }>;
-            extractIdentity(identity: string, options: AuthorizedOperationOptions & {
-                requireReceipts?: boolean;
-            }): Promise<StrictExtractionResult>;
+            extractIdentity(identity: string, options: IdentityExtractionOptions): Promise<StrictExtractionResult>;
         }>;
     };
 };
@@ -565,14 +561,10 @@ Returns:
         bls(slotId: Hex): Promise<{
             slotId: `0x${string}`;
             encrypt(identity: string, plaintext: Uint8Array): Promise<IbeCiphertext>;
-            decrypt(identity: string, ciphertext: IbeCiphertext, options: AuthorizedOperationOptions & {
-                requireReceipts?: boolean;
-            }): Promise<Omit<StrictExtractionResult, "key"> & {
+            decrypt(identity: string, ciphertext: IbeCiphertext, options: IdentityExtractionOptions): Promise<Omit<StrictExtractionResult, "key"> & {
                 plaintext: Uint8Array;
             }>;
-            extractIdentity(identity: string, options: AuthorizedOperationOptions & {
-                requireReceipts?: boolean;
-            }): Promise<StrictExtractionResult>;
+            extractIdentity(identity: string, options: IdentityExtractionOptions): Promise<StrictExtractionResult>;
         }>;
     };
 }
@@ -979,7 +971,7 @@ Return details: Verified disclosed claims; issuer trust depends on the supplied 
 Options, data structures and return types.
 
 <details>
-<summary>Browse 40 types</summary>
+<summary>Browse 41 types</summary>
 
 - [ApplicationDeployment](#applicationdeployment)
 - [ApplicationErrorCode](#applicationerrorcode)
@@ -999,6 +991,7 @@ Options, data structures and return types.
 - [CredentialPolicyOptions](#credentialpolicyoptions)
 - [EcdsaSlot](#ecdsaslot)
 - [FrostSlot](#frostslot)
+- [IdentityExtractionOptions](#identityextractionoptions)
 - [IssueCredentialOptions](#issuecredentialoptions)
 - [LoadApplicationManifestOptions](#loadapplicationmanifestoptions)
 - [OperationAuthorizer](#operationauthorizer)
@@ -1237,7 +1230,7 @@ Fields:
 
 Identity-based encryption handle with authorized decryption and explicit identity-key extraction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L398)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L407)
 
 ```ts
 export type BlsSlot = Awaited<ReturnType<TasraApplication['slots']['bls']>>;
@@ -1403,7 +1396,7 @@ Fields:
 
 Threshold Ethereum account handle that verifies each signature against the anchored public key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L390)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L399)
 
 ```ts
 export type EcdsaSlot = Awaited<ReturnType<TasraApplication['slots']['ecdsa']>>;
@@ -1419,7 +1412,7 @@ Fields:
 
 Threshold Ed25519 signing handle with optional receipt checks and native approval sessions.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L394)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L403)
 
 ```ts
 export type FrostSlot = Awaited<ReturnType<TasraApplication['slots']['frost']>>;
@@ -1430,6 +1423,31 @@ Fields:
 - **` slotId `**: Identifier of the FROST signing slot.
 - **` sign `**: Authorize the exact message and verify the returned signature, epoch and optional receipt.
 - **` approvals `**: Quorum and approval mode must come from the application's independently pinned policy.
+
+### IdentityExtractionOptions
+
+Authorization, receipt requirements and fan-out deadline for a BLS identity operation.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L86)
+
+```ts
+export interface IdentityExtractionOptions extends AuthorizedOperationOptions {
+    requireReceipts?: boolean;
+    timeoutMs?: number;
+}
+```
+
+Fields:
+
+- **` requireReceipts `**: Require an authenticated receipt from every extraction share used. Default false.
+- **` timeoutMs `**: Complete keeper extraction deadline in milliseconds, including approvals and response bodies. Default 10000. Does not cover the preceding wallet authorization.
+- **` execution `**: Required with payment: original creator certificate and client-only execution signer.
+- **` payment `**: Existing creator-signed reservation intent for this exact operation. Requires random.
+- **` random `**: Fixed presentation random committed before reservation. Requires payment.
+- **` authorize `**: Obtain a fresh holder-bound grant for this exact operation.
+- **` description `**: Human-readable consent text attached to the authorization request.
+- **` signal `**: Cancel pending authorization or network work.
+- **` userSignature `**: Optional holder signature forwarded to the keeper operation.
 
 ### IssueCredentialOptions
 
@@ -1699,7 +1717,7 @@ Fields:
 
 Current slot mode, key epoch, threshold and anchored public key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L102)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L111)
 
 ```ts
 export interface SlotMetadata {
@@ -1728,7 +1746,7 @@ Fields:
 
 Application client exposing checked slot operations and deployment readiness probes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L386)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L395)
 
 ```ts
 export type TasraApplication = ReturnType<typeof createTasra>;
@@ -1745,7 +1763,7 @@ Fields:
 
 Deployment, chain reader and transport choices used by the application client.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L87)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L96)
 
 ```ts
 export interface TasraApplicationConfig {

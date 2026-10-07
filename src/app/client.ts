@@ -81,6 +81,15 @@ export interface AuthorizedOperationOptions {
    */
   userSignature?: Uint8Array
 }
+
+/** Authorization, receipt requirements and fan-out deadline for a BLS identity operation. */
+export interface IdentityExtractionOptions extends AuthorizedOperationOptions {
+  /** Require an authenticated receipt from every extraction share used. Default false. */
+  requireReceipts?: boolean
+  /** Complete keeper extraction deadline in milliseconds, including approvals and
+   * response bodies. Default 10000. Does not cover the preceding wallet authorization. */
+  timeoutMs?: number
+}
 /**
  * Deployment, chain reader and transport choices used by the application client.
  */
@@ -349,11 +358,11 @@ export function createTasra(config: TasraApplicationConfig) {
           if (![194, 290].includes(s.publicKey.length)) throw new TasraError('Invalid anchored BLS public key')
           return protocolHex(s.publicKey, (s.publicKey.length - 2) / 2, 'BLS public key').slice(0, 96)
         }
-        const extraction = async (identity: string, options: AuthorizedOperationOptions & {requireReceipts?: boolean}) => {
+        const extraction = async (identity: string, options: IdentityExtractionOptions) => {
           const s = await ready(slotId, 1), grant = await authorize(s, 'ibe-extract', {identity}, options)
           const opts: StrictExtractionOptions = {chainId: deployment.chainId, slotId, threshold: s.threshold.k, epoch: s.epoch,
             groupPublicKey: groupKey(s), keepers: grant.paidTarget ? grant.paidTarget.contributors.map(paidNode) : await keepers(slotId), shareTrust: 'anchored-group', committeeToken: grant.token,
-            verifierProofs: grant.verifierProofs, identity, userSignature: options.userSignature, signal: options.signal, fetchImpl, requireReceipts: options.requireReceipts,approveExecution:grant.approveExecution}
+            verifierProofs: grant.verifierProofs, identity, userSignature: options.userSignature, signal: options.signal, fetchImpl, requireReceipts: options.requireReceipts,approveExecution:grant.approveExecution, timeoutMs: options.timeoutMs}
           return opts
         }
         return {
@@ -367,11 +376,11 @@ export function createTasra(config: TasraApplicationConfig) {
            * @param ciphertext Encrypted payload bound to that identity.
            * @param options Fresh authorization and optional verified-receipt requirement.
            */
-          async decrypt(identity: string, ciphertext: IbeCiphertext, options: AuthorizedOperationOptions & {requireReceipts?: boolean}) {
+          async decrypt(identity: string, ciphertext: IbeCiphertext, options: IdentityExtractionOptions) {
             return decryptIdentityStrict({...await extraction(identity, options), ciphertext})
           },
           /** Explicit custody: the returned identity key persists independently of token expiry. */
-          async extractIdentity(identity: string, options: AuthorizedOperationOptions & {requireReceipts?: boolean}) {
+          async extractIdentity(identity: string, options: IdentityExtractionOptions) {
             return extractIdentityStrict(await extraction(identity, options))
           },
         }

@@ -9,6 +9,12 @@ never does.
 
 ### Fixed
 
+- Identity extraction completes after the first distinct, verified quorum and
+  cancels unused requests. Invalid replies do not consume quorum capacity; failed
+  and late decoded shares are cleared. The fan-out has a configurable 10-second
+  default deadline and a 16 KiB response cap. Low-level collectors retain their
+  collect-all behavior unless `threshold` is supplied; one-call IBE clients expose
+  the same threshold, deadline, cancellation and keeper transport options.
 - Update the root and documentation site locks to `source-map-js` 1.2.2 for
   GHSA-68fv-2mgg-jv7q; retain the existing native platform dependency metadata.
 - Payment context discovery requires an approved `accountantSet` address and selects

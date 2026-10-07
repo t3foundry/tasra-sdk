@@ -260,6 +260,13 @@ assigned keeper quorum, one epoch, valid shares and a combined identity key matc
 the chain-anchored group key. Temporary extraction shares and the intermediate
 identity key are cleared. The returned plaintext belongs to your app.
 
+Extraction completes after the first verified quorum and cancels remaining keeper
+requests. Invalid replies and duplicate share identifiers do not count. A stalled
+fetch, approval or response body cannot hold the fan-out past its deadline (10 seconds
+by default; pass `timeoutMs` in the identity operation options to change it).
+This deadline starts after wallet authorization. Replies are limited to 16 KiB.
+Cancelling a request does not undo paid work a keeper already started.
+
 Use a fresh identity for every immutable document version. An extracted identity
 key is a durable capability: token expiry does not revoke it. `extractIdentity`
 returns that capability only when your app explicitly needs custody.

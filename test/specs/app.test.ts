@@ -249,6 +249,13 @@ describe('application API', () => {
     metadata.publicKey = '0x12'
     await expect(slot.encrypt(vector.identity, plaintext)).rejects.toThrow('BLS')
   })
+  it('passes the application extraction deadline through to a stalled keeper fan-out', async () => {
+    const f = fixture(1), slot = await f.app.slots.bls(slotId), original = f.fetchImpl.getMockImplementation()!
+    f.fetchImpl.mockImplementation((url, init) => String(url).includes('keeper-0.')
+      ? original(url, init) : new Promise<Response>(() => {}))
+    await expect(slot.extractIdentity(vector.identity, {authorize: f.authorize, timeoutMs: 500})).rejects.toThrow(/deadline|threshold/i)
+    expect(f.fetchImpl.mock.calls.every(([, init]) => init?.signal?.aborted)).toBe(true)
+  })
   it('handles raw digest and typed-data signing through viem', async () => {
     const {app, authorize} = fixture(), account = await toViemAccount(await app.slots.ecdsa(slotId), {authorize})
     expect(await account.sign!({hash: '0x' + '01'.repeat(32) as Hex})).toMatch(/^0x[0-9a-f]{130}$/i)

@@ -193,19 +193,15 @@ globalThis.fetch = (async (url: string, init?: RequestInit) => {
     const i = Number(km[1])
     if (u.includes('/v1/shards/ibe/extract')) {
       if (keeperBehaviour.get(i) === 'refuse') {
-        return {ok: false, status: 503, text: async () => `keeper ${i} unavailable`} as unknown as Response
+        return new Response(`keeper ${i} unavailable`, {status: 503})
       }
       const identity = String(body.identity)
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return Response.json({
           identifier: i,
           extraction_share: extractionShare(i, identity),
           verifying_share: verifyingShareWire(i),
           epoch,
-        }),
-      } as unknown as Response
+        })
     }
     if (u.includes('/v1/committee/sign')) {
       return {
