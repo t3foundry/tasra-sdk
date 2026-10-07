@@ -399,8 +399,11 @@ export interface RegoEngine {
   unpack(envelope: string): UnpackedEnvelope
   /** Schema + gate report and admissibility; throws {@link RegoEnvelopeError} when malformed. */
   lint(envelope: string): EnvelopeLint
-  /** Evaluate the policy against a presentation. Never throws for a refusal. */
-  evaluate(rule: string, presentation: OauthPresentation): EnvelopeVerdict
+  /**
+   * Evaluate the policy against a presentation (an object, or its JSON text verbatim - the
+   * lossless form for claims holding integers beyond 2^53). Never throws for a refusal.
+   */
+  evaluate(rule: string, presentation: OauthPresentation | string): EnvelopeVerdict
   /** The builtin allow-list this build enforces. */
   allowlistV1(): string[]
 }
@@ -518,7 +521,8 @@ function wrap(glue: Glue): RegoEngine {
       }
     },
     evaluate(rule, presentation) {
-      const r = call(() => glue.evaluate(rule, JSON.stringify(presentation)))
+      const text = typeof presentation === 'string' ? presentation : JSON.stringify(presentation)
+      const r = call(() => glue.evaluate(rule, text))
       return r.ok ? {allow: true} : {allow: false, kind: r.kind, message: r.message}
     },
     allowlistV1() {
@@ -568,8 +572,9 @@ export async function lintEnvelope(envelope: string): Promise<EnvelopeLint> {
  * its age and audience before any policy runs, which this does not.
  *
  * @param rule - Envelope rule text.
- * @param presentation - Holder and the verified claims of each presented token.
+ * @param presentation - Holder and the verified claims of each presented token, or its JSON
+ *   text passed verbatim (keeps integers beyond 2^53 exact, as the network reads them).
  */
-export async function evaluateEnvelope(rule: string, presentation: OauthPresentation): Promise<EnvelopeVerdict> {
+export async function evaluateEnvelope(rule: string, presentation: OauthPresentation | string): Promise<EnvelopeVerdict> {
   return (await loadRego()).evaluate(rule, presentation)
 }
