@@ -516,7 +516,7 @@ Return details: Client that opens and tracks managed slot sessions.
 
 Create an account-bound client for slot lifecycle, settlement and token transactions. Use deployed addresses and the chain ID from a tasra-releases network manifest.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L348)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L390)
 
 Import: `import {createTasraWriteClient} from 'tasra-sdk/chain'`
 
@@ -688,7 +688,7 @@ Returns: ` string `.
 
 Fresh 0x-prefixed 32-byte private key for a new sovereign client account.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L315)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L357)
 
 Import: `import {generateClientKey} from 'tasra-sdk/chain'`
 
@@ -1264,9 +1264,9 @@ Return details: Verifier endpoints, public keys and snapshot indices.
 
 ### ruleCommitment
 
-Compute the salted rule commitment. OID4VP and OAuth rules use canonical JSON; other rule formats retain their exact bytes.
+Compute the salted rule commitment. OID4VP queries and `kk_oauth` policy envelopes use canonical JSON; other rule formats retain their exact bytes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L291)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L331)
 
 Import: `import {ruleCommitment} from 'tasra-sdk/chain'`
 
@@ -1277,7 +1277,7 @@ declare function ruleCommitment(ruleSalt: Hex, rule: string): Hex;
 | Parameter | Type | Description |
 |---|---|---|
 | ` ruleSalt ` | ` Hex ` | Private 32-byte salt saved with the slot creation intent. |
-| ` rule ` | ` string ` | Clear authorization rule; OID4VP and OAuth rules are canonicalized before hashing. |
+| ` rule ` | ` string ` | Clear authorization rule; OID4VP queries and policy envelopes are canonicalized before hashing. |
 
 Returns: ` Hex `.
 
@@ -1428,7 +1428,7 @@ Returns: ` string `.
 
 Return whether the disclosed rule and salt reproduce the on-chain commitment. Invalid inputs and mismatches return false.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L302)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L344)
 
 Import: `import {verifyRuleCommitment} from 'tasra-sdk/chain'`
 
@@ -1490,7 +1490,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 67 types</summary>
+<summary>Browse 68 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -1509,6 +1509,7 @@ Options, data structures and return types.
 - [ContractObservation](#contractobservation)
 - [ContractRecord](#contractrecord)
 - [CreateSlotArgs](#createslotargs)
+- [CreateSlotFromPolicyArgs](#createslotfrompolicyargs)
 - [DecodedEvent](#decodedevent)
 - [EventCategory](#eventcategory)
 - [FetchOpts](#fetchopts)
@@ -1720,7 +1721,7 @@ Fields:
 
 Recovery and timing controls for commit-reveal creation. Accountant seed discovery is attempted first; unavailable seeds fall back to a beacon epoch wait.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L164)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L165)
 
 ```ts
 export interface CommitRevealOptions {
@@ -1926,7 +1927,7 @@ Fields:
 
 Slot key mode, keeper threshold, private authorization rule and creation policies.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L198)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L199)
 
 ```ts
 export interface CreateSlotArgs extends RuleInput {
@@ -1956,6 +1957,37 @@ Fields:
 - **` rulePolicy `**: Install amendment authority in the creation transaction. Omission makes the rule immutable. A later policy transaction can lose the race with key generation.
 - **` exportable `**: Allow raw share export, permitting a holder with enough shares to retain the reconstructed key permanently. Revocation cannot remove an exported key. Disabled by default and incompatible with rulePolicy.
 - **` rule `**: Clear rule. OAuth and wallet policies share the DCQL grammar.
+
+### CreateSlotFromPolicyArgs
+
+Slot creation from an authored Rego policy instead of a rule string. The SDK packs
+`oauthPolicy` into the canonical `kk_oauth` envelope with the network's own engine, refuses
+it when a keeper would not store it, and commits the envelope. Requires `authType: 'oauth'`.
+The packed envelope is returned as `rule`: provision exactly that string.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L249)
+
+```ts
+export type CreateSlotFromPolicyArgs = Omit<CreateSlotArgs, 'rule'> & {
+    rule?: undefined;
+    oauthPolicy: OauthPolicyInput;
+};
+```
+
+Fields:
+
+- **` tags `**: Committee-draw filter tags; default `["keykeeper"]`.
+- **` n `**: Total keeper shares assigned to the slot.
+- **` slotId `**: Explicit 32-byte slot identifier, generated when omitted.
+- **` k `**: Minimum participating keeper shares required for an operation.
+- **` mode `**: Key algorithm and threshold operation family.
+- **` salt `**: 32-byte committee-selection salt, generated when omitted.
+- **` rulePolicy `**: Install amendment authority in the creation transaction. Omission makes the rule immutable. A later policy transaction can lose the race with key generation.
+- **` ruleSalt `**: Private 32-byte authorization-rule salt, generated when omitted. Distinct from the committee-selection salt.
+- **` authType `**: `KeyRegistry.AuthType` for this slot - how a holder authorises against the rule. Defaults to `'unspecified'` (ordinal 0), which declares nothing and is what every slot predating the field reads as. Set it when the rule is an OID4VP-DCQL query (`'oid4vp'`) or an OAuth/OIDC token rule (`'oauth'`).
+- **` exportable `**: Allow raw share export, permitting a holder with enough shares to retain the reconstructed key permanently. Revocation cannot remove an exported key. Disabled by default and incompatible with rulePolicy.
+- **` rule `**: Must be omitted: the rule is the packed envelope.
+- **` oauthPolicy `**: Rego policy source, token specifications and optional entrypoint.
 
 ### DecodedEvent
 
@@ -2446,7 +2478,7 @@ Fields:
 
 Approved relay configuration for gas-sponsored sender-bound contract calls. The creator signs the forward request; the relayer pays gas. ERC-20 approvals still require direct transactions.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L123)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L124)
 
 ```ts
 export type RelayConfig = RegisteredRelayConfig;
@@ -2807,7 +2839,7 @@ Fields:
 
 Authorization family recorded at creation. The default unspecified value declares no family. This label is not included in the committee-selection commitment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L105)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L106)
 
 ```ts
 export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth';
@@ -2889,7 +2921,7 @@ The slot's key type, mirroring `KeyRegistry.Mode` on-chain:
 `bls-bn254`, and `tecdsa-p256` (ES256). A deployment need not run keepers for
 every mode; creating a slot the network cannot key leaves it without a group key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L92)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L93)
 
 ```ts
 export type SlotMode = 'frost' | 'bls' | 'tecdsa' | 'bls-bn254' | 'tecdsa-p256';
@@ -3029,7 +3061,7 @@ Fields:
 
 Account-bound operations for slot creation, lifecycle management, settlement funding and token transactions.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L995)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L1037)
 
 ```ts
 export interface TasraWriteClient {
@@ -3037,18 +3069,20 @@ export interface TasraWriteClient {
     address: Address;
     wallet: WalletClient<Transport, Chain, Account>;
     pub: PublicClient;
-    createSlot(args: CreateSlotArgs): Promise<{
+    createSlot(args: CreateSlotArgs | CreateSlotFromPolicyArgs): Promise<{
         slotId: Hex;
         txHash: Hex;
         ruleSalt: Hex;
+        rule: string;
         relay?: RelayReceipt;
     }>;
-    createSlotCommitReveal(args: CreateSlotArgs & CommitRevealOptions): Promise<{
+    createSlotCommitReveal(args: (CreateSlotArgs | CreateSlotFromPolicyArgs) & CommitRevealOptions): Promise<{
         slotId: Hex;
         commitTx: Hex;
         revealTx: Hex;
         targetEpoch: number;
         ruleSalt: Hex;
+        rule: string;
         seeded: boolean;
     }>;
     fundSlot(slotId: Hex, amount: bigint): Promise<{
@@ -3100,8 +3134,8 @@ Fields:
 - **` address `**: Convenience alias for `account.address`.
 - **` wallet `**: The underlying wallet client.
 - **` pub `**: A read client on the same RPC, used for receipts and balance reads.
-- **` createSlot `**: Create a slot directly. Persist the generated slot ID and rule salt; provisioning requires the saved salt. Use prepared creation to persist the intent before submission.
-- **` createSlotCommitReveal `**: Create a slot using commit-reveal, trying an accountant seed before waiting for a beacon epoch. Persist the slot ID and rule salt; prepared creation preserves them before submission.
+- **` createSlot `**: Create a slot directly. Persist the generated slot ID and rule salt; provisioning requires the saved salt. Use prepared creation to persist the intent before submission. A `kk_oauth` policy envelope (as `rule`, or authored as `oauthPolicy`) requires `authType: 'oauth'` and must pass the network's gate; both are checked before any chain call. `rule` in the result is the exact string committed.
+- **` createSlotCommitReveal `**: Create a slot using commit-reveal, trying an accountant seed before waiting for a beacon epoch. Persist the slot ID and rule salt; prepared creation preserves them before submission. Policy envelopes are checked as for `createSlot`; `rule` in the result is the exact string committed.
 - **` fundSlot `**: Approve TSRA and fund the slot settlement balance in token base units.
 - **` sendEth `**: Send native currency in base units and wait for a successful receipt.
 - **` transferTsra `**: Transfer TSRA in token base units and wait for confirmation.
@@ -3167,7 +3201,7 @@ Fields:
 
 Either a private-key signer or an account-bound wallet with network write configuration.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L159)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L160)
 
 ```ts
 export type WriteClientConfig = WriteClientKeyConfig | WriteClientWalletConfig;
@@ -3186,7 +3220,7 @@ Fields:
 
 Sovereign-key variant: the SDK owns the account and signs with `privateKey`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L139)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L140)
 
 ```ts
 export interface WriteClientKeyConfig extends WriteClientConfigBase {
@@ -3208,7 +3242,7 @@ Fields:
 
 Account-bound and chain-bound viem wallet used for signing without exposing its private key. Reads and receipt polling use the separately configured RPC.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L149)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/write.ts#L150)
 
 ```ts
 export interface WriteClientWalletConfig extends WriteClientConfigBase {

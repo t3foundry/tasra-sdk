@@ -241,7 +241,7 @@ export interface CreateSlotArgs extends RuleInput {
 }
 
 /**
- * Slot creation from an authored Rego policy instead of a rule string (ADR-0078). The SDK packs
+ * Slot creation from an authored Rego policy instead of a rule string. The SDK packs
  * `oauthPolicy` into the canonical `kk_oauth` envelope with the network's own engine, refuses
  * it when a keeper would not store it, and commits the envelope. Requires `authType: 'oauth'`.
  * The packed envelope is returned as `rule`: provision exactly that string.

@@ -9,6 +9,18 @@ never does.
 
 ### Added
 
+- OAuth policy envelopes (`kk_oauth`): a slot whose holders sign in with their
+  organization's identity provider can commit a Rego policy over the DPoP-bound access
+  token's claims. `packEnvelope`, `unpackEnvelope`, `lintEnvelope` and `evaluateEnvelope`
+  run the network's own policy engine, shipped as a pinned WebAssembly module that is
+  loaded on first use and SHA-256-checked before instantiation; `isOauthEnvelope` is pure
+  TypeScript. `createSlot` / `createSlotCommitReveal` accept `oauthPolicy: {policy, tokens,
+  entrypoint?}`, require `authType: 'oauth'` for an envelope, refuse one keepers would not
+  store before any transaction, and return the committed string as `rule`.
+  `ruleCommitment` commits an envelope in canonical (RFC 8785) form. Package size: the
+  module adds 965,157 bytes unpacked (about 328 KB compressed); applications that never
+  call the engine do not load it. Third-party notices for the compiled engine are in
+  `NOTICE`.
 - Additive `tasra-sdk/app` entry for typed slot operations, public EVM address lookup,
   exact-operation authorization, a registered wallet adapter and viem accounts.
 - Durable prepared creation journals with known-transaction recovery and explicit
@@ -29,6 +41,8 @@ and services selected through a verified tasra-releases manifest.
 
 ### Changed
 
+- `RecipientStore.satisfies` and `validateRule` refuse a `kk_oauth` policy envelope by
+  name: held credentials cannot satisfy it (`canAccess` returns `false`).
 - All 11 application-building skills lead with the current task workflow;
   specialized and compatibility details are available in supporting references.
 - The shared-account tutorial always demonstrates durable prepared creation.

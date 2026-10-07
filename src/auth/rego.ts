@@ -378,8 +378,18 @@ export interface OauthPresentation {
  * audience) refused this presentation. `malformed`: the rule itself is unusable.
  */
 export type EnvelopeVerdict =
-  | {allow: true}
-  | {allow: false; kind: 'reject' | 'malformed'; message: string}
+  | {
+      /** The policy allows this presentation. */
+      allow: true
+    }
+  | {
+      /** The policy does not allow this presentation. */
+      allow: false
+      /** `reject` for a refused presentation, `malformed` for an unusable rule or input. */
+      kind: 'reject' | 'malformed'
+      /** The network's refusal text; a policy refusal is the generic {@link REGO_POLICY_REFUSED}. */
+      message: string
+    }
 
 /** A refused envelope operation: the rule or its authored parts are malformed. */
 export class RegoEnvelopeError extends TasraError {

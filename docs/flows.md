@@ -269,6 +269,16 @@ Create a slot with `authType: 'oauth'` and an OAuth policy using the
 `oauth+access-token+dpop` query format. The creation flow validates the authorization
 family, commits the rule and provisions the slot, just as for credential policies.
 
+When a claim test is more than a value list (a role in a nested array, an organization
+plus an authentication method, a helper rule), write the policy in Rego instead.
+`packEnvelope(policy, tokens)` produces a `kk_oauth` policy envelope that is committed and
+provisioned like any rule; `createSlot` and `createSlotCommitReveal` from
+`tasra-sdk/chain` also take `oauthPolicy: {policy, tokens}` directly and require
+`authType: 'oauth'`. `lintEnvelope` reports whether keepers would store it, and
+`evaluateEnvelope` previews a decision over a token's claims with the network's own
+engine. A refused holder sees only `kk_oauth policy refused`; the policy itself is
+confidential to the network operators.
+
 IdP sign-in is still an application integration. Obtain the IdP token and its bound
 DPoP signer, then use `createOauthSession`, `submitOauthResponse` and
 `waitForSession` from `tasra-sdk/verifier-agent` inside an `OperationAuthorizer`.

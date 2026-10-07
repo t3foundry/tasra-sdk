@@ -9,13 +9,14 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 10 classes</summary>
+<summary>Browse 11 classes</summary>
 
 - [RecipientStore](#recipientstore)
 - [AuthDeniedError](#authdeniederror)
 - [CommitteeAuthorizeError](#committeeauthorizeerror)
 - [DcqlMalformedError](#dcqlmalformederror)
 - [NodeUnreachableError](#nodeunreachableerror)
+- [RegoEnvelopeError](#regoenvelopeerror)
 - [SlotRotatedError](#slotrotatederror)
 - [TasraError](#tasraerror)
 - [TasraHttpError](#tasrahttperror)
@@ -33,7 +34,7 @@ credential signatures or establish issuer trust.
 Everything here is in-memory and synchronous: deciding access reveals nothing
 to the platform.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/recipient/store.ts#L27)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/recipient/store.ts#L41)
 
 Import: `import {RecipientStore} from 'tasra-sdk'`
 
@@ -181,6 +182,32 @@ declare class NodeUnreachableError {
 ```
 
 - ` readonly url: string; ` — Endpoint that could not be reached.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### RegoEnvelopeError
+
+A refused envelope operation: the rule or its authored parts are malformed.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L395)
+
+Import: `import {RegoEnvelopeError} from 'tasra-sdk'`
+
+```ts
+declare class RegoEnvelopeError {
+    constructor(kind: 'malformed' | 'reject', message: string);
+}
+```
+
+- ` readonly kind: 'malformed' | 'reject'; ` — `malformed` for a schema or gate failure; `reject` never reaches this class.
 
 - ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
@@ -375,7 +402,7 @@ declare class VerifierAgentSessionError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 80 functions</summary>
+<summary>Browse 86 functions</summary>
 
 - [accessTokenHash](#accesstokenhash)
 - [addressFromEoaPubkey](#addressfromeoapubkey)
@@ -401,6 +428,7 @@ Operations you can import and call.
 - [encryptEnvelope](#encryptenvelope)
 - [ethSignatureV](#ethsignaturev)
 - [evaluateDcql](#evaluatedcql)
+- [evaluateEnvelope](#evaluateenvelope)
 - [evaluateIdentityScoped](#evaluateidentityscoped)
 - [fetchAndAssembleKey](#fetchandassemblekey)
 - [fetchHolderNonce](#fetchholdernonce)
@@ -426,6 +454,7 @@ Operations you can import and call.
 - [isAuthDenied](#isauthdenied)
 - [isHeaderSafeNonce](#isheadersafenonce)
 - [isJwtExpiringSoon](#isjwtexpiringsoon)
+- [isOauthEnvelope](#isoauthenvelope)
 - [isOid4vpRule](#isoid4vprule)
 - [isRetryable](#isretryable)
 - [issueAdminCredential](#issueadmincredential)
@@ -433,6 +462,9 @@ Operations you can import and call.
 - [jsonCredential](#jsoncredential)
 - [jwkThumbprint](#jwkthumbprint)
 - [jwtExpMs](#jwtexpms)
+- [lintEnvelope](#lintenvelope)
+- [loadRego](#loadrego)
+- [packEnvelope](#packenvelope)
 - [parseTasraPost](#parsetasrapost)
 - [payloadDigest](#payloaddigest)
 - [pollOid4vpSession](#polloid4vpsession)
@@ -449,6 +481,7 @@ Operations you can import and call.
 - [signWithShardDelivery](#signwithsharddelivery)
 - [submitOauthResponse](#submitoauthresponse)
 - [toBytes](#tobytes)
+- [unpackEnvelope](#unpackenvelope)
 - [userSignaturePayload](#usersignaturepayload)
 - [validateDcql](#validatedcql)
 - [validateRecipientRule](#validaterecipientrule)
@@ -598,7 +631,7 @@ Accepts a [RecipientStore](#recipientstore) or a bare [HeldCredential](#heldcred
 Unlike ` RecipientStore.satisfies `, a malformed rule returns `false`
 (fail-closed) rather than throwing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/recipient/store.ts#L92)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/recipient/store.ts#L108)
 
 Import: `import {canAccess} from 'tasra-sdk'`
 
@@ -999,6 +1032,27 @@ declare function evaluateDcql(rule: string, credentials: readonly CredentialView
 | ` credentials ` | ` readonly CredentialView[] ` | - Credential views whose signatures and trust were already validated. |
 
 Returns: ` boolean `.
+
+### evaluateEnvelope
+
+Evaluate an envelope against a presentation locally - the same gate and evaluator the
+network's verifiers run. Advisory: the network still verifies the token, its DPoP proof,
+its age and audience before any policy runs, which this does not.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L588)
+
+Import: `import {evaluateEnvelope} from 'tasra-sdk'`
+
+```ts
+declare function evaluateEnvelope(rule: string, presentation: OauthPresentation | string): Promise<EnvelopeVerdict>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` rule ` | ` string ` | - Envelope rule text. |
+| ` presentation ` | ` OauthPresentation \| string ` | - Holder and the verified claims of each presented token, or its JSON text passed verbatim (keeps integers beyond 2^53 exact, as the network reads them). |
+
+Returns: ` Promise<EnvelopeVerdict> `.
 
 ### evaluateIdentityScoped
 
@@ -1560,6 +1614,30 @@ declare function isJwtExpiringSoon(jwt: string, skewMs?: number): boolean;
 
 Returns: ` boolean `.
 
+### isOauthEnvelope
+
+Whether `rule` is a `kk_oauth` policy envelope: a JSON object whose only member is
+`kk_oauth`. Structural only - the envelope's contents are not validated (use
+[lintEnvelope](#lintenvelope)). Total: never throws.
+
+Matches the network's grammar dispatch exactly, so the SDK commits an envelope the same way
+every keeper and verifier re-derives it. A duplicated `kk_oauth` member is not an envelope,
+and neither is anything longer than `MAX_RULE_LEN` UTF-8 bytes.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L59)
+
+Import: `import {isOauthEnvelope} from 'tasra-sdk'`
+
+```ts
+declare function isOauthEnvelope(rule: string): boolean;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` rule ` | ` string ` | - Clear rule text to classify. |
+
+Returns: ` boolean `.
+
 ### isOid4vpRule
 
 True when `rule` parses as a supported OID4VP-DCQL query.
@@ -1710,6 +1788,72 @@ declare function jwtExpMs(jwt: string): number | null;
 | ` jwt ` | ` string ` | - Compact JWT whose expiration claim will be inspected without verification. |
 
 Returns: ` number | null `.
+
+### lintEnvelope
+
+Run the schema and static gate and report whether a keeper would store the envelope today.
+Throws [RegoEnvelopeError](#regoenvelopeerror) when the envelope is malformed; an envelope valid in a later
+phase but not admissible now returns `admissible: false` with the reason.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L575)
+
+Import: `import {lintEnvelope} from 'tasra-sdk'`
+
+```ts
+declare function lintEnvelope(envelope: string): Promise<EnvelopeLint>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` envelope ` | ` string ` | - Envelope rule text. |
+
+Returns: ` Promise<EnvelopeLint> `.
+
+### loadRego
+
+Load the policy engine once and reuse it. The module's SHA-256 is verified before it is
+instantiated; a mismatch refuses to load. Concurrent callers share one load.
+
+In a bundler that does not emit assets referenced through `new URL(..., import.meta.url)`,
+pass `wasm` explicitly (bytes or a URL).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L453)
+
+Import: `import {loadRego} from 'tasra-sdk'`
+
+```ts
+declare function loadRego(opts?: LoadRegoOptions): Promise<RegoEngine>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` opts? ` | ` LoadRegoOptions ` | - Optional module source and HTTP implementation. |
+
+Returns: ` Promise<RegoEngine> `.
+
+### packEnvelope
+
+Pack a Rego policy and its token specifications into the canonical (RFC 8785) envelope a
+slot commits to. The policy source is committed byte for byte - reformatting it is an
+amendment. Refuses (with [RegoEnvelopeError](#regoenvelopeerror)) anything the static gate refuses.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L554)
+
+Import: `import {packEnvelope} from 'tasra-sdk'`
+
+```ts
+declare function packEnvelope(policy: string, tokens: OauthTokens | string, entrypoint?: string): Promise<string>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` policy ` | ` string ` | - Rego v1 module source. |
+| ` tokens ` | ` OauthTokens \| string ` | - Token specifications (object or JSON text). Duplicate keys in JSON text are refused. |
+| ` entrypoint? ` | ` string ` | - Rule to evaluate; defaults to ` DEFAULT_REGO_ENTRYPOINT `. |
+
+Returns: ` Promise<string> `.
+
+Return details: The envelope string to pass as the slot's rule.
 
 ### parseTasraPost
 
@@ -2073,6 +2217,25 @@ declare function toBytes(env: GroupEnvelope): Uint8Array;
 
 Returns: ` Uint8Array `.
 
+### unpackEnvelope
+
+Take an envelope apart into its exact policy source, tokens and entrypoint.
+`packEnvelope(unpacked.policy, unpacked.tokens, unpacked.entrypoint)` reproduces it.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L564)
+
+Import: `import {unpackEnvelope} from 'tasra-sdk'`
+
+```ts
+declare function unpackEnvelope(envelope: string): Promise<UnpackedEnvelope>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` envelope ` | ` string ` | - Envelope rule text. |
+
+Returns: ` Promise<UnpackedEnvelope> `.
+
 ### userSignaturePayload
 
 The canonical payload the node verifies for a user-gated sign:
@@ -2119,7 +2282,7 @@ Returns: ` Query `.
 Explicitly validate a slot's rule client-side: returns normally if well-formed,
 throws [DcqlMalformedError](#dcqlmalformederror) otherwise.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/recipient/store.ts#L108)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/recipient/store.ts#L124)
 
 Import: `import {validateRecipientRule} from 'tasra-sdk'`
 
@@ -2263,7 +2426,7 @@ Returns: ` Promise<SessionStatusResult> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 58 types</summary>
+<summary>Browse 68 types</summary>
 
 - [BlsPeer](#blspeer)
 - [BuildHolderProofOpts](#buildholderproofopts)
@@ -2283,6 +2446,9 @@ Options, data structures and return types.
 - [DecryptShare](#decryptshare)
 - [DpopKey](#dpopkey)
 - [DpopSigner](#dpopsigner)
+- [EnvelopeGateReport](#envelopegatereport)
+- [EnvelopeLint](#envelopelint)
+- [EnvelopeVerdict](#envelopeverdict)
 - [EoaSignature](#eoasignature)
 - [EoaSignOpts](#eoasignopts)
 - [Faucet](#faucet)
@@ -2305,10 +2471,16 @@ Options, data structures and return types.
 - [IbeVerifyingShares](#ibeverifyingshares)
 - [IssuedToken](#issuedtoken)
 - [JwtClaims](#jwtclaims)
+- [LoadRegoOptions](#loadregooptions)
+- [OauthPolicyInput](#oauthpolicyinput)
+- [OauthPresentation](#oauthpresentation)
+- [OauthTokens](#oauthtokens)
+- [OauthTokenSpec](#oauthtokenspec)
 - [OpenSessionOpts](#opensessionopts)
 - [PresentationDelegation](#presentationdelegation)
 - [PresentationOperation](#presentationoperation)
 - [RedemptionGrant](#redemptiongrant)
+- [RegoEngine](#regoengine)
 - [RenewalGrant](#renewalgrant)
 - [ScopeNamespace](#scopenamespace)
 - [SealedBlob](#sealedblob)
@@ -2321,6 +2493,7 @@ Options, data structures and return types.
 - [SignOpts](#signopts)
 - [TasraClient](#tasraclient)
 - [TasraClientConfig](#tasraclientconfig)
+- [UnpackedEnvelope](#unpackedenvelope)
 - [VerifierAgentSessionErrorKind](#verifieragentsessionerrorkind)
 - [VpJwtAuth](#vpjwtauth)
 
@@ -2726,6 +2899,73 @@ Fields:
 
 - **` proof `**: Mint a proof over `(htm, htu)`, with `nonce` and `ath` (from `accessToken`) when given. RFC 9449 decides which claims a proof carries, and the two requests differ: a proof PRESENTING a token carries `ath` (and our agent always demands a `nonce`); a proof REQUESTING a token cannot carry `ath` — there is no token yet — and carries `nonce` only when the authorization server has challenged for one. An implementation omits each claim whose argument is absent, never sends it empty. An implementation MUST sign with the key the access token is bound to; a proof under any other key is refused by every drawn verifier with `DPoP proof jwk is not the key the access token is bound to`.
 
+### EnvelopeGateReport
+
+What the static gate found in a policy.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L336)
+
+```ts
+export interface EnvelopeGateReport {
+    package: string;
+    rules: number;
+    functions: string[];
+    builtins: string[];
+    tokensRead: string[];
+    maxIterDepth: number;
+}
+```
+
+Fields:
+
+- **` package `**: The module's package.
+- **` rules `**: Number of rules defined.
+- **` functions `**: User-defined function names.
+- **` builtins `**: Builtins the policy calls (all from the allow-list).
+- **` tokensRead `**: Token ids the policy reads.
+- **` maxIterDepth `**: Deepest iteration nesting.
+
+### EnvelopeLint
+
+Result of [lintEnvelope](#lintenvelope).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L352)
+
+```ts
+export interface EnvelopeLint {
+    report: EnvelopeGateReport;
+    admissible: boolean;
+    admissionError?: string;
+}
+```
+
+Fields:
+
+- **` report `**: The gate's report.
+- **` admissible `**: Whether a keeper would store this envelope today (current phase limits included).
+- **` admissionError `**: Why it is not admissible, when it is not.
+
+### EnvelopeVerdict
+
+A local evaluation verdict. `reject`: the policy (or a platform pin such as issuer or
+audience) refused this presentation. `malformed`: the rule itself is unusable.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L380)
+
+```ts
+export type EnvelopeVerdict = {
+    allow: true;
+} | {
+    allow: false;
+    kind: 'reject' | 'malformed';
+    message: string;
+};
+```
+
+Fields:
+
+- **` allow `**: The policy allows this presentation. The policy does not allow this presentation.
+
 ### EoaSignature
 
 Threshold ECDSA signature components, recovery identifier and signing public key.
@@ -2921,7 +3161,7 @@ Fields:
 One credential the recipient holds, described as a structured credential view.
 Build these from your own store of verifiable credentials / verifier JWTs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/recipient/store.ts#L10)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/recipient/store.ts#L24)
 
 ```ts
 export interface HeldCredential {
@@ -3243,6 +3483,100 @@ Fields:
 - **` iat `**: Unverified issue time in Unix seconds.
 - **` scope `**: Unverified scope claim.
 
+### LoadRegoOptions
+
+Where [loadRego](#loadrego) reads the module from.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L422)
+
+```ts
+export interface LoadRegoOptions {
+    wasm?: BufferSource | URL | string;
+    fetchImpl?: typeof fetch;
+}
+```
+
+Fields:
+
+- **` wasm `**: The .wasm bytes, or a URL to fetch them from. Defaults to the module shipped beside this file. Whatever the source, the bytes must hash to ` REGO_WASM_SHA256 `.
+- **` fetchImpl `**: HTTP implementation used for a non-`file:` URL.
+
+### OauthPolicyInput
+
+The authored parts of an envelope.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L316)
+
+```ts
+export interface OauthPolicyInput {
+    policy: string;
+    tokens: OauthTokens | string;
+    entrypoint?: string;
+}
+```
+
+Fields:
+
+- **` policy `**: Rego v1 module source, committed byte for byte.
+- **` tokens `**: Token specifications, as an object or as the JSON text of one.
+- **` entrypoint `**: Rule to evaluate; defaults to ` DEFAULT_REGO_ENTRYPOINT `.
+
+### OauthPresentation
+
+The presentation an envelope is evaluated against: the verified claims of each token.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L362)
+
+```ts
+export interface OauthPresentation {
+    holder: string;
+    credentials: {
+        format: string;
+        issuer: string;
+        claims: Record<string, unknown>;
+    }[];
+}
+```
+
+Fields:
+
+- **` holder `**: Stable holder identity (`{iss}#{sub}` on the network).
+- **` credentials `**: One entry per presented token.
+
+### OauthTokens
+
+The envelope's token map: token id (`^[a-z][a-z0-9_]{0,31}$`) to its specification.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L313)
+
+```ts
+export type OauthTokens = Record<string, OauthTokenSpec>;
+```
+
+### OauthTokenSpec
+
+One token an envelope trusts: its format, issuers, audiences and freshness bound.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L299)
+
+```ts
+export interface OauthTokenSpec {
+    format: string;
+    iss: string[];
+    aud: string[];
+    max_age_secs: number;
+    ci_claims?: string[];
+}
+```
+
+Fields:
+
+- **` format `**: Token format; phase 1 admits `oauth+access-token+dpop` only.
+- **` iss `**: Accepted issuers, each byte-equal to the IdP's discovery `issuer`.
+- **` aud `**: Audiences the token must carry (the platform audience the tenant registered).
+- **` max_age_secs `**: Maximum token age in seconds (1..=86400).
+- **` ci_claims `**: Top-level claim names also exposed lower-cased under `claims_ci`.
+
 ### OpenSessionOpts
 
 Associated data and token refresh skew for a managed slot session.
@@ -3332,6 +3666,30 @@ Fields:
 
 - **` redemptionToken `**: Single-use token to exchange for a JWT via redeemCredential().
 - **` expiresAt `**: Expiry of the redemption token, Unix seconds.
+
+### RegoEngine
+
+The loaded engine. Every method is synchronous once loaded.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L405)
+
+```ts
+export interface RegoEngine {
+    pack(input: OauthPolicyInput): string;
+    unpack(envelope: string): UnpackedEnvelope;
+    lint(envelope: string): EnvelopeLint;
+    evaluate(rule: string, presentation: OauthPresentation | string): EnvelopeVerdict;
+    allowlistV1(): string[];
+}
+```
+
+Fields:
+
+- **` pack `**: Pack authored parts into the canonical envelope; throws [RegoEnvelopeError](#regoenvelopeerror).
+- **` unpack `**: Take an envelope apart; throws [RegoEnvelopeError](#regoenvelopeerror).
+- **` lint `**: Schema + gate report and admissibility; throws [RegoEnvelopeError](#regoenvelopeerror) when malformed.
+- **` evaluate `**: Evaluate the policy against a presentation (an object, or its JSON text verbatim - the lossless form for claims holding integers beyond 2^53). Never throws for a refusal.
+- **` allowlistV1 `**: The builtin allow-list this build enforces.
 
 ### RenewalGrant
 
@@ -3642,6 +4000,26 @@ Fields:
 - **` verifier `**: Verifier base URL - required for renewalToken / redemptionToken / vpJwt auth.
 - **` identity `**: This holder's DID - recipient_did / holder for credential & vp-jwt auth.
 
+### UnpackedEnvelope
+
+An envelope taken apart: the exact policy source, its tokens and its entrypoint.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L326)
+
+```ts
+export interface UnpackedEnvelope {
+    policy: string;
+    tokens: OauthTokens;
+    entrypoint: string;
+}
+```
+
+Fields:
+
+- **` policy `**: Rego source exactly as committed.
+- **` tokens `**: Token specifications.
+- **` entrypoint `**: Entrypoint rule.
+
 ### VerifierAgentSessionErrorKind
 
 Why a session did not yield a token - the class the UI explains, with a NON-SECRET
@@ -3680,7 +4058,11 @@ Shared values and contract definitions.
 | Export | Description | Definition |
 |---|---|---|
 | `DCQL_MAX_RULE_LEN` | Cap on a rule, in BYTES, before parsing.   Deliberately the same 4096 as the legacy grammar for now, and it is not yet a justified number: 4096 was chosen against a terse five-clause language and an OID4VP-DCQL query expressing the same policy is several times larger. The keeper re-parses the rule on every request, so this bounds real per-request work. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L66) |
+| `DEFAULT_REGO_ENTRYPOINT` | Entrypoint the network's example policies use (`package tasra.slot`). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L31) |
 | `FORMAT_JWT_VC_JSON` | W3C JWT-VC JSON credential format. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/oid4vp.ts#L27) |
 | `IBE_BLOB_DEFAULT_CHUNK` | Default chunk: 1 MiB of plaintext (+16-byte tag on the wire). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/ibe-blob.ts#L32) |
 | `MAX_IDENTITY_LEN` | Max BYTE length of a scope grant or an identity (the reference implementation's cap). Anything longer fails closed - a grant or identity this large is a bug or an attack, not a real subject path. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/identityScope.ts#L31) |
 | `MAX_PLAINTEXT_LEN` | Largest plaintext one envelope carries: the AEAD ciphertext cap minus the 16-byte tag. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/crypto/envelope.ts#L310) |
+| `OAUTH_ENVELOPE_KEY` | The single top-level member that marks a rule as an OAuth policy envelope. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L28) |
+| `REGO_POLICY_REFUSED` | The refusal text a holder sees when an envelope's policy denies. Deliberately generic: rule contents are confidential to the operator set, so a refusal never names a claim or clause. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L37) |
+| `REGO_WASM_SHA256` | SHA-256 of the vendored `keykeeper_rego_wasm_bg.wasm`, as recorded in its PINS.json. `scripts/check-rego-pins.mjs` asserts the two agree, so this constant cannot drift from the pinned build. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L44) |
