@@ -15,7 +15,7 @@ function fixture() {
     raw: {KK_PREPAID_EVIDENCE_DIR: directory, KK_STATUS_LIST_DIR: directory, KK_STATUS_LIST_URL: 'https://localhost:19444/status/hr/employee.jwt'},
     issuerKey: key.toString('base64url'), issuerDid: 'did:web:hr.acmecorp.example', nodeUrls: [], verifierUrls: [], explorerApi: '',
     slotId: '0x', governanceSlotId: '0x', ruleSalt: '', governanceRule: '', governanceRuleSalt: '', adminSecret: '', deployPk: '',
-    deployAddr: '', faucetUrl: '', jwtSigningKey: '', jwtIss: '', jwtAud: ''}
+    deployAddr: '', faucetUrl: '', jwtSigningKey: '', jwtIss: '', jwtAud: '', adminJwtSigningKey: '', adminJwtIss: '', adminJwtAud: ''}
   const list = () => {
     const jwt = readFileSync(join(directory, 'employee.jwt'), 'utf8').trim(), parts = jwt.split('.')
     expect(ed25519.verify(Buffer.from(parts[2]!, 'base64url'), new TextEncoder().encode(parts[0] + '.' + parts[1]), ed25519.getPublicKey(key))).toBe(true)

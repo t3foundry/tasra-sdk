@@ -22,7 +22,7 @@
 
 import {keccak256, toHex} from 'viem'
 import {Suite} from '../fleet/_assert.ts'
-import {discoverCommittee, gate, loadFleetConfig, mintLocalJwt, provisionRule} from '../fleet/_fleet.ts'
+import {discoverCommittee, gate, loadFleetConfig, mintAdminJwt, provisionRule} from '../fleet/_fleet.ts'
 
 const cfg = loadFleetConfig()
 const s = new Suite('e2e: governance partial-sign')
@@ -60,7 +60,7 @@ if (committee.length === 0) s.done()
 // no bearer JWT satisfies, and partial-sign is JWT-authorized. Without the salt the keeper cannot
 // reproduce ruleCommitment and refuses the rule, and the node then fails partial-sign closed — so an
 // unprovisioned rule is reported HERE, not as an unexplained 403 below.
-const adminJwt = mintLocalJwt(cfg)
+const adminJwt = mintAdminJwt(cfg)
 if (cfg.governanceRule && cfg.governanceRuleSalt) {
   const prov = await provisionRule(committee, slotId, cfg.governanceRule, cfg.governanceRuleSalt, adminJwt)
   s.ok('governance slot rule + salt provisioned on the committee', prov.ok, prov.errors.join('; '))
@@ -72,7 +72,7 @@ if (cfg.governanceRule && cfg.governanceRuleSalt) {
 const digest = keccak256(toHex('keykeeper-governance-action: setParam(quorumBps, 6000)'))
 
 // ── partial-sign with the governance:sign scope ───────────────────────────────
-const jwt = mintLocalJwt(cfg, {scope: ['governance:sign', 'EmployeeOf:dept=Engineering']})
+const jwt = mintAdminJwt(cfg, {scope: ['governance:sign', 'EmployeeOf:dept=Engineering']})
 const partials: Array<{identifier: number; partial: string; epoch: number}> = []
 for (const u of committee) {
   const r = await fetch(`${u}/v1/governance/partial-sign`, {
@@ -128,7 +128,7 @@ if (blsCommittee.length > 0) {
 }
 
 // ── scope gate: a token WITHOUT governance:sign is rejected ───────────────────
-const noGov = mintLocalJwt(cfg, {scope: ['EmployeeOf:dept=Engineering', 'admin']})
+const noGov = mintAdminJwt(cfg, {scope: ['EmployeeOf:dept=Engineering', 'admin']})
 const denied = await fetch(`${committee[0]}/v1/governance/partial-sign`, {
   method: 'POST',
   headers: {'Content-Type': 'application/json', Authorization: `Bearer ${noGov}`},

@@ -79,7 +79,7 @@ async function fixture(kind:'wallet'|'oauth'='wallet') {
       context={binding_preimage:binding,state,enc_public_jwk:key,expires_at:1030}
       return {status:201,body:bytes({session_id:sessionId,poll_secret:owner,service_profile:pin,execution_context:context,
         request_uri:kind==='wallet'?endpoint+'/v1/request/'+sessionId:null,qr_payload:null,nonce:kind==='oauth'?nonce:null,
-        dpop_htu:kind==='oauth'?endpoint+'/v1/sessions/oauth-response':null,platform_audience:kind==='oauth'?endpoint+'/authz/43112':null})}
+        dpop_htu:kind==='oauth'?endpoint+'/v1/sessions/'+sessionId+'/oauth-response':null,platform_audience:kind==='oauth'?endpoint+'/authz/43112':null})}
     }
     if(url===endpoint+'/v1/sessions/'+sessionId)return {status:200,body:bytes({status:'pending',phase:'awaiting_wallet',execution_context:context,binding_preimage:context?.binding_preimage})}
     return {status:204,body:new Uint8Array()}
@@ -153,6 +153,40 @@ it('rebuilds every client-accepted credential without copying the agent proposal
   const authorization=(JSON.parse(new TextDecoder().decode(sent[1].body)) as {authorization:Parameters<typeof verifyExecutionAuthorization>[0]['authorization']}).authorization
   expect(authorization.body_hash).toBe(executionBodyHash(body))
   await verifyExecutionAuthorization({payment:f.payment,policy:f.policy,expected:{stage:'credential',operatorKey:f.members[0]!.publicKey,body},authorization})
+})
+
+it('binds OAuth credential consent to the original session ID and refuses an omitted or substituted ID',async()=>{
+  const f=await fixture('oauth');await f.session.create();const http=vi.spyOn(f.transport,'paidAgentRequest')
+  const key=await createDpopKey(),token=signCompactJws({typ:'at+jwt'},{iss:'https://idp.example',sub:'holder',iat:1000,exp:1060,
+    aud:f.session.oauthContext.platformAudience,cnf:{jkt:await key.thumbprint()}},{alg:'ES256',privateKey:new Uint8Array(32).fill(5)})
+  const approved=await f.session.prepareOAuthPresentation(token,key.signer)
+  const body={payment:f.payment,holder:'',credentials:[],oauth:approved.oauth,session_id:f.session.sessionId,token_type:'JWT',
+    seed:f.payment.verification_seed,epoch:7,slot_id:f.payment.slot,registry_size:2,committee:2,quorum:2,iat:1000,exp:1030,
+    chain_id:43112,action:'sign',payload_digest:f.payment.payload_digest,random:f.params.random,client_id:f.profile.clientId,
+    description:f.params.operation.description,operation_exp:1060,operation_sig:f.params.operationSig}
+  const proposal:PaidAgentProposal={id:proposalId,stage:'credential',operator_key:f.members[0]!.publicKey,unsigned_body:body,expires:1030}
+  f.sign.mockClear();http.mockClear()
+  const missing:Record<string,unknown>={...body};delete missing.session_id
+  for(const unsigned_body of [missing,{...body,session_id:'another-session'}]){
+    await expect(f.session.approveCredentials({...proposal,unsigned_body},f.members[0]!,approved)).rejects.toThrow(/client-built intent/)
+  }
+  expect(f.sign).not.toHaveBeenCalled();expect(http).not.toHaveBeenCalled()
+  await f.session.approveCredentials(proposal,f.members[0]!,approved)
+  const sent=http.mock.calls[0]!
+  const {authorization}=JSON.parse(new TextDecoder().decode(sent[1].body)) as {authorization:Parameters<typeof verifyExecutionAuthorization>[0]['authorization']}
+  await verifyExecutionAuthorization({payment:f.payment,policy:f.policy,expected:{stage:'credential',operatorKey:f.members[0]!.publicKey,body},authorization})
+})
+
+it('refuses legacy and different-session OAuth targets in the original creation reply',async()=>{
+  for(const target of ['/v1/sessions/oauth-response','/v1/sessions/another-session/oauth-response']){
+    const f=await fixture('oauth'),http=vi.spyOn(f.transport,'paidAgentRequest'),original=http.getMockImplementation()!
+    http.mockImplementationOnce(async(...args)=>{
+      const result=await original(...args),reply=JSON.parse(new TextDecoder().decode(result.body)) as Record<string,unknown>
+      return {...result,body:bytes({...reply,dpop_htu:f.profile.endpoint+target})}
+    })
+    await expect(f.session.create()).rejects.toThrow(/nonce or audience/)
+    expect(http).toHaveBeenCalledTimes(1)
+  }
 })
 
 it('pins the provider before disclosing owner control and bounds ignored RPC cancellation',async()=>{
@@ -229,7 +263,7 @@ it('matches retained callback identities to every original credential and never 
 
 it('derives OAuth challenge and audience locally and retains a genuine DPoP presentation before its only submission',async()=>{
   const f=await fixture('oauth');await f.session.create()
-  expect(f.session.oauthContext).toEqual({nonce:f.nonce,dpopHtu:f.profile.endpoint+'/v1/sessions/oauth-response',platformAudience:f.profile.endpoint+'/authz/43112'})
+  expect(f.session.oauthContext).toEqual({nonce:f.nonce,dpopHtu:f.profile.endpoint+'/v1/sessions/'+f.session.sessionId+'/oauth-response',platformAudience:f.profile.endpoint+'/authz/43112'})
   const key=await createDpopKey(), token=signCompactJws({typ:'at+jwt'},{iss:'https://idp.example',sub:'holder',iat:1000,exp:1060,
     aud:f.session.oauthContext.platformAudience,cnf:{jkt:await key.thumbprint()}},{alg:'ES256',privateKey:new Uint8Array(32).fill(5)})
   const approved=await f.session.prepareOAuthPresentation(token,key.signer)

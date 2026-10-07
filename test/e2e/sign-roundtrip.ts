@@ -14,7 +14,7 @@
 import {randomBytes} from 'node:crypto'
 import {ed25519} from '@noble/curves/ed25519'
 import {Suite} from '../fleet/_assert.ts'
-import {discoverCommittee, gate, loadFleetConfig, mintLocalJwt, provisionRule} from '../fleet/_fleet.ts'
+import {discoverCommittee, gate, loadFleetConfig, mintAdminJwt, provisionRule} from '../fleet/_fleet.ts'
 import {authorizeWallet, createWalletSlot, WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
 import {committeeSign} from '../../src/committee/client.ts'
 import {hexToBytes} from '../../src/crypto/hex.ts'
@@ -53,7 +53,7 @@ s.eq('slot mode is frost', pub.mode ?? '', 'frost')
 s.ok('FROST group key is a 32-byte Ed25519 point', /^[0-9a-f]{64}$/i.test(pub.group_public_key ?? ''))
 
 // provision the clear DCQL rule + its salt so /v1/sign is authorized
-const adminJwt = mintLocalJwt(cfg)
+const adminJwt = mintAdminJwt(cfg)
 const prov = await provisionRule(committee, slotId, SLOT_DCQL_RULE, ruleSalt, adminJwt)
 s.ok('provisioned the rule + salt on the committee', prov.ok, prov.errors.join('; '))
 

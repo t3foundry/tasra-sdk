@@ -127,7 +127,7 @@ describe('paid session transport', () => {
     it(`${kind} carries approval payment without permitting it for a final signature`, async () => {
       const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(kind === 'wallet'
         ? {session_id: 'id', poll_secret: 'secret', qr_payload: 'openid4vp://test', request_uri: 'https://test/request'}
-        : {session_id: 'id', poll_secret: 'secret', nonce: 'nonce', dpop_htu: 'https://test/response', platform_audience: 'test'}))
+        : {session_id: 'id', poll_secret: 'secret', nonce: 'nonce', dpop_htu: 'https://test/v1/sessions/id/oauth-response', platform_audience: 'https://test/authz/43112'}))
       vi.stubGlobal('fetch', fetch)
       const create = kind === 'wallet' ? createOid4vpSession : createOauthSession
       const request = params()
@@ -147,7 +147,7 @@ describe('paid session transport', () => {
     it(`${kind} sends the fixed payment/random once and omits them from legacy sessions`, async () => {
       const fetch = vi.fn(async () => Response.json(kind === 'wallet'
         ? {session_id: 'id', poll_secret: 'secret', qr_payload: 'openid4vp://test', request_uri: 'https://test/request'}
-        : {session_id: 'id', poll_secret: 'secret', nonce: 'nonce', dpop_htu: 'https://test/response', platform_audience: 'test'}))
+        : {session_id: 'id', poll_secret: 'secret', nonce: 'nonce', dpop_htu: 'https://test/v1/sessions/id/oauth-response', platform_audience: 'https://test/authz/43112'}))
       vi.stubGlobal('fetch', fetch)
       const create = kind === 'wallet' ? createOid4vpSession : createOauthSession
       await create('https://test', params())

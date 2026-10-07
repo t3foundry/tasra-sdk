@@ -10,7 +10,7 @@
 import {randomBytes} from 'node:crypto'
 import {committeeSign} from '../../src/committee/client.ts'
 import {Suite} from '../fleet/_assert.ts'
-import {discoverCommittee, gate, keeperSlotN, loadFleetConfig, mintLocalJwt, provisionRule} from '../fleet/_fleet.ts'
+import {discoverCommittee, gate, keeperSlotN, loadFleetConfig, mintLocalJwt, mintAdminJwt, provisionRule} from '../fleet/_fleet.ts'
 import {authorizeWallet,createWalletSlot, WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
 
 const cfg = loadFleetConfig()
@@ -55,12 +55,12 @@ for (let i = 0; i < 45 && !ready; i++) {
 }
 s.ok('committee DKG anchored the key', ready, `committee=${committee.length}`)
 
-const adminJwt = mintLocalJwt(cfg)
+const adminJwt = mintAdminJwt(cfg)
 const prov = await provisionRule(committee, slotId, SLOT_DCQL_RULE, ruleSalt, adminJwt)
 s.ok('provisioned the rule + salt on the committee', prov.ok, prov.errors.join('; '))
 
 // JWT carries the sign scope + audit:read, under a known subject
-const jwt = mintLocalJwt(cfg, {sub: SUBJECT, scope: ['admin', 'audit:read', 'EmployeeOf:dept=Engineering']})
+const jwt = mintLocalJwt(cfg, {sub: SUBJECT, scope: ['audit:read']})
 const subjects = new Set<string>()
 let coord = ''
 for (let i = 0; i < N; i++) {

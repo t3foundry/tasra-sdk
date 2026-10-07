@@ -9,6 +9,11 @@ never does.
 
 ### Fixed
 
+- OAuth DPoP proofs now bind the exact session response URL. `dpopHtu` requires
+  the session ID; the explicit `legacyDpopHtu` helper retains the old target for
+  pre-remediation integrations. Paid sessions refuse a legacy or different-session
+  target and include the original session ID in verifier credential approval.
+
 - Identity extraction completes after the first distinct, verified quorum and
   cancels unused requests. Invalid replies do not consume quorum capacity; failed
   and late decoded shares are cleared. The fan-out has a configurable 10-second

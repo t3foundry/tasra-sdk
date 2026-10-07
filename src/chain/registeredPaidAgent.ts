@@ -9,6 +9,7 @@ import {approveExecutionRequest, executionBodyHash, executionInitializationTyped
   type ExecutionProposal, type SessionInitialization} from '../committee/execution.js'
 import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 import {protocolHex} from '../committee/receipts.js'
+import {dpopHtu, platformAudience} from '../committee/oauth.js'
 import {BINDING_HOLDER_KEY, decodeCompoundToken, selectVerifierCommittee, verifierLeaf, verifyCompoundToken, verifyMerkleProof, type CompoundTokenWire} from '../committee/token.js'
 import {derivedNonce, requestHash, type CommitteeAction} from '../oid4vp/binding.js'
 import {b64urlDecode, decodeJson} from '../oid4vp/jose.js'
@@ -325,7 +326,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   }
   const callbackId = (approved:ClientApprovedPresentation) => keccak256(concatBytes(new TextEncoder().encode('keykeeper/retained-presentation/v1'),
     epochBytes(sessionId.length),new TextEncoder().encode(sessionId),protocolHex(executionBodyHash(approved as unknown as Record<string,unknown>),32,'presentation hash'),epochBytes(ready().expires))).slice(2)
-  const oauthContext=Object.freeze({nonce,dpopHtu:profile.endpoint+'/v1/sessions/oauth-response',platformAudience:profile.endpoint+'/authz/'+payment.chain_id})
+  const oauthContext=Object.freeze({nonce,dpopHtu:dpopHtu(profile.endpoint,sessionId),platformAudience:platformAudience(profile.endpoint,payment.chain_id)})
   const oauthClaims=(accessToken:string):Record<string,unknown>=>{
     if(typeof accessToken!=='string'||accessToken.length>16*1024||! /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(accessToken))throw new Error('Invalid original OAuth access token')
     let claims:Record<string,unknown>
@@ -451,7 +452,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
       const exp=Math.min(approved.iat+3600,c.expires,params.operation.exp)
       if(!Number.isSafeInteger(exp)||exp<=Math.floor(Date.now()/1000))throw new Error('Original credential presentation expired')
       const body={payment,holder:approved.holder,credentials:approved.credentials,
-        ...(approved.holder_proof!==null?{holder_proof:approved.holder_proof}:{}),...(approved.oauth!==null?{oauth:approved.oauth}:{}),token_type:'JWT',
+        ...(approved.holder_proof!==null?{holder_proof:approved.holder_proof}:{}),...(approved.oauth!==null?{oauth:approved.oauth,session_id:sessionId}:{}),token_type:'JWT',
         seed:payment.verification_seed.toLowerCase(),epoch:payment.verification_epoch,slot_id:params.operation.slot_id,registry_size:payment.verification_registry_size,
         committee:payment.verification_committee,quorum:payment.verification_quorum,iat:approved.iat,exp,...(identity!==null?{identity}:{}),
         chain_id:payment.chain_id,action:params.operation.action,payload_digest:payment.payload_digest.toLowerCase(),random:params.random.toLowerCase(),client_id:profile.clientId,

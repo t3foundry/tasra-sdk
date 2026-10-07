@@ -236,7 +236,7 @@ import {verifyCompoundToken, selectVerifierCommittee} from 'tasra-sdk/committee'
 ```
 
 It also carries the derivations `platformAudience(origin, chainId)` and
-`dpopHtu(origin)` (+ `normalizeOrigin`, `OAUTH_RESPONSE_PATH`). Use these helpers
+`dpopHtu(origin, sessionId)` (+ `normalizeOrigin`, `OAUTH_RESPONSE_PATH`). Use these helpers
 to preserve the deployment protocol's exact audience and URI binding.
 
 **Most consumers never need it.** Typed slots on `TasraClient` handle these

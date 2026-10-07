@@ -13,7 +13,7 @@
 /** Path segment identifying the platform's authorization API, under the agent origin. */
 const AUDIENCE_PATH = 'authz'
 
-/** The path an OAuth response is POSTed to - the `htu` a DPoP proof must name. */
+/** Legacy session-independent response path. New sessions use dpopHtu(origin, sessionId). */
 export const OAUTH_RESPONSE_PATH = '/v1/sessions/oauth-response'
 
 /**
@@ -57,15 +57,25 @@ export function platformAudience(origin: string, chainId: number | bigint): stri
 
 /**
  * The `htu` (RFC 9449) a DPoP proof for an OAuth response must carry:
- * `{origin}/v1/sessions/oauth-response`.
- *
- * Session-INDEPENDENT, deliberately: RFC 9449 defines `htu` as the request URI WITHOUT query
- * or fragment, and a client library that derives it from the URL it is about to call - which
- * every conformant one does - produces this string, not one carrying a session id. The
- * session is already bound by the `nonce`.
+ * `{origin}/v1/sessions/{sessionId}/oauth-response`, the exact POST target.
+ * A session ID is one ASCII path segment; separators and encoded path characters are refused.
  *
  * @param origin - Platform origin used to derive the OAuth response target.
+ * @param sessionId - Original session identifier, 1 to 128 ASCII letters, digits, underscores or hyphens.
  */
-export function dpopHtu(origin: string): string {
+export function dpopHtu(origin: string, sessionId: string): string {
+  if (typeof sessionId !== 'string' || sessionId.length < 1 || sessionId.length > 128
+      || /[^A-Za-z0-9_-]/.test(sessionId)) {
+    throw new Error('OAuth sessionId must be 1 to 128 characters of [A-Za-z0-9_-]')
+  }
+  return `${normalizeOrigin(origin)}/v1/sessions/${sessionId}/oauth-response`
+}
+
+/**
+ * Pre-remediation proof target for an agent that supplies no session identity.
+ * New paid sessions never accept this target as a fallback.
+ * @param origin - Original platform origin.
+ */
+export function legacyDpopHtu(origin: string): string {
   return `${normalizeOrigin(origin)}${OAUTH_RESPONSE_PATH}`
 }

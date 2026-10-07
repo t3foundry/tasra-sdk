@@ -91,6 +91,7 @@ authorization failure.
 | `TASRA_DEPLOY_PK`, `TASRA_DEPLOY_ADDR` | — | A funded key with the rights the suite needs |
 | `TASRA_ISSUER_KEY`, `TASRA_ISSUER_DID` | — | The credential issuer. Must be one the target verifier's anchor trusts |
 | `TASRA_JWT_SIGNING_KEY`, `TASRA_JWT_ISS`, `TASRA_JWT_AUD` | — | The deployment's Ed25519 JWT issuer seed and its `iss`/`aud` |
+| `TASRA_ADMIN_JWT_SIGNING_KEY`, `TASRA_ADMIN_JWT_ISS`, `TASRA_ADMIN_JWT_AUD` | — | Independent operator issuer for rule provisioning and governance; no fallback to the verifier issuer |
 | `TASRA_ADMIN_SECRET` | — | Verifier admin secret, where a suite needs an admin route |
 | `TASRA_FAUCET` | `http://localhost:8552` | Faucet base URL |
 | `TASRA_FLEET_REQUIRED` | _(unset)_ | `1` ⇒ fail rather than skip when unreachable |

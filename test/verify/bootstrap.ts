@@ -23,7 +23,7 @@ import {Suite, bytesEq, metric} from '../fleet/_assert.ts'
 import {
   discoverCommittee,
   gate,
-  mintLocalJwt,
+  mintAdminJwt,
   provisionRule,
 } from '../fleet/_fleet.ts'
 import {assertLocalPrepaidFleet, fundFreshWalletSlot} from '../fleet/_prepaid-funding.ts'
@@ -129,7 +129,7 @@ if (!mpkHex) {
 }
 
 // ── 6. provision the clear DCQL rule (ADR-0025) + prepay the slot with TSRA ────
-const adminJwt = mintLocalJwt(cfg)
+const adminJwt = mintAdminJwt(cfg)
 const prov = await provisionRule(committee, slotId, SLOT_DCQL_RULE, ruleSalt, adminJwt)
 s.ok('provisioned the rule + salt on the committee', prov.ok, prov.errors.join('; '))
 const settleBefore = await client.settlementBalance(slotId)

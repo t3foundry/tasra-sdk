@@ -9,7 +9,7 @@
 // Run: tsx test/e2e/decrypt-server.ts
 
 import {Suite, bytesEq} from '../fleet/_assert.ts'
-import {discoverCommittee, gate, loadFleetConfig, mintLocalJwt, provisionRule} from '../fleet/_fleet.ts'
+import {discoverCommittee, gate, loadFleetConfig, mintAdminJwt, provisionRule} from '../fleet/_fleet.ts'
 import {authorizeWallet,createWalletSlot, WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
 import {decryptPayloadDigest} from '../../src/oid4vp/index.ts'
 import {encryptEnvelope} from '../../src/crypto/envelope.ts'
@@ -45,7 +45,7 @@ for (let i = 0; i < 45 && !mpkHex; i++) {
 }
 s.ok('committee DKG anchored the BLS key', /^[0-9a-f]{192}$/i.test(mpkHex), `committee=${committee.length}`)
 
-const adminJwt = mintLocalJwt(cfg)
+const adminJwt = mintAdminJwt(cfg)
 const prov = await provisionRule(committee, slotId, SLOT_DCQL_RULE, ruleSalt, adminJwt)
 s.ok('provisioned the rule + salt on the committee', prov.ok, prov.errors.join('; '))
 

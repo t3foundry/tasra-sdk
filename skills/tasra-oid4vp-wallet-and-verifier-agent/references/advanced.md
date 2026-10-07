@@ -150,10 +150,10 @@ Four things that bite:
   `auth0DpopSigner((args) => auth0.generateDpopProof(args))`, which is the only way an
   Auth0 app produces a proof whose `jkt` matches its token's `cnf.jkt`.
 
-`dpopHtu` is session-independent by RFC 9449 (`htu` excludes query and fragment), which
-is why any conformant client library derives the same string from the URL it is about to
-call. `accessTokenHash`, `jwkThumbprint` and `isHeaderSafeNonce` are exported if you are
-building a proof by hand; `platformAudience(origin, chainId)` and `dpopHtu(origin)` from
+`dpopHtu(origin, sessionId)` names the exact session response URL,
+`{origin}/v1/sessions/{sessionId}/oauth-response`, without query or fragment.
+The session identifier must be a single ASCII path segment; invalid identifiers are refused. `accessTokenHash`, `jwkThumbprint` and `isHeaderSafeNonce` are exported if you are
+building a proof by hand; `platformAudience(origin, chainId)` and `dpopHtu(origin, sessionId)` from
 `tasra-sdk/committee` derive the two strings rather than hardcoding them.
 
 Errors are the same `VerifierAgentSessionError` kinds. A verifier-agent too old for this

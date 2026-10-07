@@ -14,6 +14,7 @@
 import {sha256} from '@noble/hashes/sha256'
 import {bytesToHex} from '@noble/hashes/utils'
 import {TasraError} from '../errors.js'
+import {dpopHtu, platformAudience} from '../committee/oauth.js'
 import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 import {sessionPaymentFields} from './payment.js'
 
@@ -308,12 +309,16 @@ export async function createOauthSession(
         'predates and does not support the oauth session kind',
     )
   }
+  if (data.dpop_htu !== dpopHtu(verifierAgentUrl, data.session_id as string)
+      || data.platform_audience !== platformAudience(verifierAgentUrl, params.operation.chain_id)) {
+    throw new Error('createOauthSession: reply changed the original session target or audience')
+  }
   return {
     sessionId: data.session_id as string,
     pollSecret: data.poll_secret as string,
     nonce: data.nonce as string,
-    dpopHtu: data.dpop_htu as string,
-    platformAudience: data.platform_audience as string,
+    dpopHtu: data.dpop_htu,
+    platformAudience: data.platform_audience,
   }
 }
 

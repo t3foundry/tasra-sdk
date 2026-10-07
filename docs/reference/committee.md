@@ -88,7 +88,7 @@ declare class OperationOutcomeUnknownError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 61 functions</summary>
+<summary>Browse 62 functions</summary>
 
 - [approveExecutionRequest](#approveexecutionrequest)
 - [assembleCompoundToken](#assemblecompoundtoken)
@@ -127,6 +127,7 @@ Operations you can import and call.
 - [ibeExtractRequest](#ibeextractrequest)
 - [initializeExecutionSession](#initializeexecutionsession)
 - [keeperAssignmentCommitment](#keeperassignmentcommitment)
+- [legacyDpopHtu](#legacydpophtu)
 - [merkleProof](#merkleproof)
 - [merkleRoot](#merkleroot)
 - [normalizeOrigin](#normalizeorigin)
@@ -709,24 +710,21 @@ Promise<Omit<StrictExtractionResult, 'key'> & {
 ### dpopHtu
 
 The `htu` (RFC 9449) a DPoP proof for an OAuth response must carry:
-`{origin}/v1/sessions/oauth-response`.
+`{origin}/v1/sessions/{sessionId}/oauth-response`, the exact POST target.
+A session ID is one ASCII path segment; separators and encoded path characters are refused.
 
-Session-INDEPENDENT, deliberately: RFC 9449 defines `htu` as the request URI WITHOUT query
-or fragment, and a client library that derives it from the URL it is about to call - which
-every conformant one does - produces this string, not one carrying a session id. The
-session is already bound by the `nonce`.
-
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L69)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L66)
 
 Import: `import {dpopHtu} from 'tasra-sdk/committee'`
 
 ```ts
-declare function dpopHtu(origin: string): string;
+declare function dpopHtu(origin: string, sessionId: string): string;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` origin ` | ` string ` | - Platform origin used to derive the OAuth response target. |
+| ` sessionId ` | ` string ` | - Original session identifier, 1 to 128 ASCII letters, digits, underscores or hyphens. |
 
 Returns: ` string `.
 
@@ -1475,6 +1473,25 @@ declare function keeperAssignmentCommitment(a: PaidKeeperAssignment): Hex;
 | ` a ` | ` PaidKeeperAssignment ` | - Fixed sharing and registered keeper keys from independent discovery. |
 
 Returns: ` Hex `.
+
+### legacyDpopHtu
+
+Pre-remediation proof target for an agent that supplies no session identity.
+New paid sessions never accept this target as a fallback.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L79)
+
+Import: `import {legacyDpopHtu} from 'tasra-sdk/committee'`
+
+```ts
+declare function legacyDpopHtu(origin: string): string;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` origin ` | ` string ` | - Original platform origin. |
+
+Returns: ` string `.
 
 ### merkleProof
 
@@ -3854,4 +3871,4 @@ Shared values and contract definitions.
 | `EXECUTION_CERTIFICATE_DOMAIN` | Separate creator-consent domain; original payment commitments remain unchanged. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L9) |
 | `EXECUTION_INITIALIZATION_DOMAIN` | Client consent to one exact session and independently approved registered agent. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L13) |
 | `MAX_EXECUTION_BODY_BYTES` | Maximum complete unsigned request size shared with the Rust verifier. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L15) |
-| `OAUTH_RESPONSE_PATH` | The path an OAuth response is POSTed to - the `htu` a DPoP proof must name. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L17) |
+| `OAUTH_RESPONSE_PATH` | Legacy session-independent response path. New sessions use dpopHtu(origin, sessionId). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L17) |
