@@ -4,6 +4,7 @@ import type {EoaSignature} from '../signing/ecdsa.js'
 import type {CompoundTokenWire} from './token.js'
 import type {VerifierProof} from './client.js'
 import {withKeeperExecutionApprovals,type KeeperExecutionApprover} from './keeperExecution.js'
+import {withNetworkDeadline} from '../internal/network.js'
 
 /** Compound authorization, keeper endpoint and digest for threshold ECDSA signing. */
 export interface CommitteeEoaSignOpts {
@@ -37,10 +38,16 @@ export interface CommitteeEoaSignOpts {
  * @returns Ethereum signature components and the secp256k1 group public key.
  * @throws On malformed input/response, network failure, or keeper rejection.
  * HTTP 401/403 is an authorization denial; do not retry it as a network failure.
+ * Approvals, HTTP and response decoding have one 15-second deadline. A timeout
+ * requires reconciliation of the original operation, not a new paid attempt.
  *
  * @param opts - Compound authorization, keeper endpoint and 32-byte ECDSA digest.
  */
 export async function committeeSignEoaDigest(opts: CommitteeEoaSignOpts): Promise<EoaSignature> {
+  return withNetworkDeadline(signal => signWithinDeadline({...opts, signal}), opts.signal)
+}
+
+async function signWithinDeadline(opts: CommitteeEoaSignOpts): Promise<EoaSignature> {
   opts={...opts,committeeToken:structuredClone(opts.committeeToken)}
   if (opts.digest.length !== 32) throw new Error('committeeSignEoaDigest: digest must be 32 bytes')
   if (opts.userSignature && opts.userSignature.length !== 64) throw new Error('userSignature must be 64 bytes')

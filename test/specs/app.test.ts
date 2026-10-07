@@ -15,7 +15,7 @@ import {keeperExecutionFixture} from '../support/keeperExecution.js'
 import type {ClientExecutionSigner, ExecutionAuthorization} from '../../src/committee/execution.js'
 
 const executionSigners: (ClientExecutionSigner & {dispose():void})[] = []
-afterEach(() => { executionSigners.splice(0).forEach(signer=>signer.dispose()); vi.restoreAllMocks() })
+afterEach(() => { executionSigners.splice(0).forEach(signer=>signer.dispose()); vi.restoreAllMocks(); vi.useRealTimers() })
 
 const slotId: Hex = `0x${'11'.repeat(32)}`, operator: Hex = `0x${'22'.repeat(20)}`
 const seed = new Uint8Array(32).fill(9), keeperKey = ed25519.getPublicKey(seed)
@@ -28,7 +28,7 @@ function fixture(mode = 2, options: Partial<Pick<TasraApplicationConfig, 'keeper
   const metadata = {exists: true, cancelled: false, mode, epoch: 1, threshold: {k: 2, n: 3}, publicKey: toHex(publicKey)}
   const chain = {addresses: {...deployment.addresses}, client: {getChainId: vi.fn(async () => 43112), getCode: vi.fn(async () => '0x01')},
     readers: {keyRegistry: {getKeySlot: vi.fn(async () => metadata), assignedNodes: vi.fn(async () => mode === 1 ? vector.shares.map((_, i) => `0x${(i + 1).toString(16).padStart(40, '0')}` as Hex) : [operator])},
-      nodeRegistry: {nodeOf: vi.fn(async (op: string) => ({url: mode === 1 ? `https://keeper-${parseInt(op.slice(-2), 16) - 1}.example` : 'https://keeper.example', pubkey: toHex(keeperKey)})), operatorIdOf: vi.fn(async () => 1n)}}}
+      nodeRegistry: {nodeOf: vi.fn(async (op: string) => ({url: mode === 1 ? `https://keeper-${parseInt(op.slice(-2), 16) - 1}.example` : 'https://keeper.example', pubkey: toHex(keeperKey)})), operatorIdOf: vi.fn(async (_op: string) => 1n)}}}
   const authorize = vi.fn<OperationAuthorizer>(async request => ({token: {token_type: 'JWT', slot_id: slotId, seed: '22'.repeat(32), epoch: 1,
     vp_hash: '33'.repeat(32), holder_hash: '44'.repeat(32), rule_hash: '55'.repeat(32), verifier_indexes: [0], iat: 1, exp: 9999999999,
     binding: 'holder_key', ...(request.identity ? {identity_hash: toHex(keccak_256(new TextEncoder().encode(request.identity)))} : {}), request_hash: toHex(requestHash(43112, hexToBytes(slotId), request.action, payloadDigestFor(request.action, request))), signatures: []},
@@ -153,6 +153,82 @@ describe('paid application execution', () => {
     const f = await paidFixture(2, {keeperUrl: url => url==='https://paid.example'?'http://127.0.0.1:18080':'http://127.0.0.1:18081', allowLocalPaidHttp: true})
     await (await f.app.slots.ecdsa(slotId)).signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution})
     expect(String(f.fetchImpl.mock.calls[0]![0])).toMatch(/^http:\/\/127\.0\.0\.1:18080\//)
+  })
+})
+
+describe('bounded keeper discovery and operations', () => {
+  it.each(['lowest-operator-id', 'assigned-first'] as const)('bounds registry calls at eight and preserves %s selection across out-of-order replies', async coordinator => {
+    const f = fixture(0)
+    const app = createTasra({deployment: {...deployment, coordinator}, chain: f.chain as unknown as TasraChainClient, fetchImpl: f.fetchImpl})
+    const members = Array.from({length: 20}, (_, i) => `0x${(i + 1).toString(16).padStart(40, '0')}` as Hex)
+    f.chain.readers.keyRegistry.assignedNodes.mockResolvedValue(members)
+    let inFlight = 0, peak = 0
+    const delayed = async <T,>(op: string, result: T): Promise<T> => {
+      inFlight++
+      peak = Math.max(peak, inFlight)
+      await new Promise(resolve => setTimeout(resolve, 5 - parseInt(op.slice(-2), 16) % 4))
+      inFlight--
+      return result
+    }
+    f.chain.readers.nodeRegistry.nodeOf.mockImplementation(op => delayed(op, {url: `https://keeper-${op.slice(-2)}.example`, pubkey: toHex(keeperKey)}))
+    f.chain.readers.nodeRegistry.operatorIdOf.mockImplementation(op => delayed(op, BigInt(21 - parseInt(op.slice(-2), 16))))
+    await (await app.slots.frost(slotId)).sign(new Uint8Array([1]), {authorize: f.authorize})
+    expect(peak).toBe(8)
+    expect(inFlight).toBe(0)
+    expect(f.chain.readers.nodeRegistry.nodeOf).toHaveBeenCalledTimes(20)
+    expect(f.chain.readers.nodeRegistry.operatorIdOf).toHaveBeenCalledTimes(20)
+    expect(String(f.fetchImpl.mock.calls[0]![0])).toContain(`keeper-${coordinator === 'assigned-first' ? '01' : '14'}.example`)
+    expect(JSON.parse(String(f.fetchImpl.mock.calls[0]![1]?.body))).not.toHaveProperty('signing_set')
+  })
+  it('refuses a partial roster before requesting keeper work', async () => {
+    const f = fixture(0)
+    f.chain.readers.nodeRegistry.nodeOf.mockRejectedValue(new Error('registry unavailable'))
+    await expect((await f.app.slots.frost(slotId)).sign(new Uint8Array([1]), {authorize: f.authorize})).rejects.toThrow('registry unavailable')
+    expect(f.fetchImpl).not.toHaveBeenCalled()
+  })
+  it('times out stalled assignment discovery without dispatching work', async () => {
+    vi.useFakeTimers()
+    const f = fixture(0)
+    f.chain.readers.keyRegistry.assignedNodes.mockImplementation(() => new Promise(() => {}))
+    const pending = (await f.app.slots.frost(slotId)).sign(new Uint8Array([1]), {authorize: f.authorize})
+    const outcome = pending.catch(error => error as Error)
+    await vi.waitFor(() => expect(f.chain.readers.keyRegistry.assignedNodes).toHaveBeenCalledTimes(1))
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(await outcome).toMatchObject({name: 'TimeoutError'})
+    expect(f.chain.readers.nodeRegistry.nodeOf).not.toHaveBeenCalled()
+    expect(f.fetchImpl).not.toHaveBeenCalled()
+  })
+  it.each([0, 2])('bounds mode %i HTTP work and response decoding without retrying', async mode => {
+    for (const stuckBody of [false, true]) {
+      vi.useFakeTimers()
+      const f = fixture(mode)
+      f.fetchImpl.mockImplementation(async () => stuckBody
+        ? {ok: true, json: () => new Promise(() => {})} as Response
+        : new Promise(() => {}))
+      const options = {authorize: f.authorize}
+      const pending = mode === 0 ? (await f.app.slots.frost(slotId)).sign(new Uint8Array([1]), options)
+        : (await f.app.slots.ecdsa(slotId)).signDigest(new Uint8Array(32), options)
+      const outcome = pending.catch(error => error as Error)
+      await vi.waitFor(() => expect(f.fetchImpl).toHaveBeenCalledTimes(1))
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(await outcome).toMatchObject({name: 'TimeoutError'})
+      expect(f.fetchImpl.mock.calls[0]![1]?.signal?.aborted).toBe(true)
+      expect(f.fetchImpl).toHaveBeenCalledTimes(1)
+      expect(vi.getTimerCount()).toBe(0)
+      vi.useRealTimers()
+    }
+  })
+  it.each([0, 2])('honors mode %i caller cancellation even if the transport ignores its signal', async mode => {
+    const f = fixture(mode), controller = new AbortController(), reason = new Error('caller cancelled')
+    f.fetchImpl.mockImplementation(() => new Promise(() => {}))
+    const options = {authorize: f.authorize, signal: controller.signal}
+    const pending = mode === 0 ? (await f.app.slots.frost(slotId)).sign(new Uint8Array([1]), options)
+      : (await f.app.slots.ecdsa(slotId)).signDigest(new Uint8Array(32), options)
+    const outcome = pending.catch(error => error as Error)
+    await vi.waitFor(() => expect(f.fetchImpl).toHaveBeenCalledTimes(1))
+    controller.abort(reason)
+    expect(await outcome).toBe(reason)
+    expect(f.fetchImpl).toHaveBeenCalledTimes(1)
   })
 })
 

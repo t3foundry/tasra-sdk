@@ -107,7 +107,7 @@ Distinct from a generic HTTP error because the committee flow polls several
 verifiers and tolerates individual refusals as long as a quorum co-signs - see
 [ThresholdNotMetError](#thresholdnotmeterror) for the failure that means the quorum was missed.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L74)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L75)
 
 Import: `import {CommitteeAuthorizeError} from 'tasra-sdk'`
 
@@ -1861,7 +1861,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L685)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L698)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk'`
 
@@ -3112,7 +3112,7 @@ Fields:
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L551)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L564)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -3140,7 +3140,7 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L569)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L582)
 
 ```ts
 export interface IbeExtractOpts {
@@ -3596,7 +3596,7 @@ Fields:
 - **` jwt `**: Compact bearer JWT authorizing the request.
 - **` slotId `**: 0x-prefixed (or bare) bytes32 slot id.
 - **` message `**: Raw message bytes to sign.
-- **` signingSet `**: Explicit signer set (u16 ids). Omit to node uses 1..k. Passing MORE than k ids makes the node use the robust ROAST coordinator.
+- **` signingSet `**: Explicit signer set (u16 ids). Omit to let the keeper select responsive eligible signers. Passing MORE than k ids makes the node use the robust ROAST coordinator.
 - **` userSignature `**: 64-byte Ed25519 user signature - required iff the slot has a registered owner pubkey. Build with signUserRequest().
 - **` targetKeykeeper `**: 20-byte operator address to pin (anti-Sybil).
 - **` requestId `**: Idempotency key. Required when userSignature is set.

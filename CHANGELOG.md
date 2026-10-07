@@ -9,6 +9,13 @@ never does.
 
 ### Fixed
 
+- Keeper discovery uses at most eight concurrent registry reads and fails if the
+  complete roster is unavailable within 15 seconds. Committee signing and
+  decryption bound approvals, HTTP and response decoding to one 15-second
+  deadline, honor caller cancellation and never repeat a timed-out write.
+  Omitted FROST signer sets leave participant selection to the keeper; paid
+  operations retain their assigned coordinator.
+
 - Local Hovi-profile certification now uses confirmed TASRA funding, registered
   paid sessions and original keeper approvals. P-256 credentials carry a status
   list signed by their issuer, with a separate durable allocation ledger. Snapshot

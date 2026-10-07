@@ -20,6 +20,7 @@ import {defineDeployment, type TasraDeployment} from './deployment.js'
 import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 import {resolvePaidKeeperTarget, type PaidKeeperEndpoint, type PaidKeeperTarget} from '../chain/prepaid.js'
 import {createKeeperExecutionApprover,type KeeperExecutionClientConsent} from '../chain/keeperExecution.js'
+import {resolveKeeperMembers, withNetworkDeadline} from '../internal/network.js'
 
 /**
  * Failure categories for deployment, slot, authorization and result validation.
@@ -178,15 +179,17 @@ export function createTasra(config: TasraApplicationConfig) {
       throw new TasraApplicationError('SLOT_CHANGED', 'Slot changed while authorization was pending; authorize a new operation')
     }
   }
-  async function keepers(slotId: Hex) {
-    const assigned = await chain.readers.keyRegistry.assignedNodes(slotId)
-    const nodes = await Promise.all(assigned.map(async operator => {
-      const [node, id] = await Promise.all([chain.readers.nodeRegistry.nodeOf(operator), chain.readers.nodeRegistry.operatorIdOf(operator)])
-      return {operator, nodeUrl: route(node.url), publicKey: protocolHex(node.pubkey, 32, 'keeper identity key'), id}
-    }))
-    if (!nodes.length) throw new TasraError('Slot has no assigned keepers')
-    if (deployment.coordinator === 'lowest-operator-id') nodes.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-    return nodes
+  async function keepers(slotId: Hex, caller?: AbortSignal) {
+    return withNetworkDeadline(async signal => {
+      const assigned = await chain.readers.keyRegistry.assignedNodes(slotId)
+      const nodes = await resolveKeeperMembers(assigned, async operator => {
+        const [node, id] = await Promise.all([chain.readers.nodeRegistry.nodeOf(operator), chain.readers.nodeRegistry.operatorIdOf(operator)])
+        return {operator, nodeUrl: route(node.url), publicKey: protocolHex(node.pubkey, 32, 'keeper identity key'), id}
+      }, signal)
+      if (!nodes.length) throw new TasraError('Slot has no assigned keepers')
+      if (deployment.coordinator === 'lowest-operator-id') nodes.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      return nodes
+    }, caller)
   }
   function paidNode(member: PaidKeeperEndpoint) {
     const url = new URL(route(member.url))
@@ -282,7 +285,7 @@ export function createTasra(config: TasraApplicationConfig) {
           async signDigest(input: Uint8Array, options: AuthorizedOperationOptions): Promise<EoaSignature> {
             if (input.length !== 32) throw new TasraError('Ethereum digest must be exactly 32 bytes')
             const digest = input.slice(), s = await ready(slotId, 2)
-            const grant = await authorize(s, 'sign', {message: digest}, options), node = grant.paidTarget ? paidNode(grant.paidTarget) : (await keepers(slotId))[0]!
+            const grant = await authorize(s, 'sign', {message: digest}, options), node = grant.paidTarget ? paidNode(grant.paidTarget) : (await keepers(slotId, options.signal))[0]!
             options.signal?.throwIfAborted()
             const result = await committeeSignEoaDigest({nodeUrl: node.nodeUrl, committeeToken: grant.token, verifierProofs: grant.verifierProofs,
               digest, userSignature: options.userSignature, targetKeykeeper: node.operator, signal: options.signal, fetchImpl,approveExecution:grant.approveExecution})
@@ -309,7 +312,7 @@ export function createTasra(config: TasraApplicationConfig) {
            */
           async sign(input: Uint8Array, options: AuthorizedOperationOptions & {requireReceipt?: boolean}) {
             const message = input.slice(), s = await ready(slotId, 0)
-            const grant = await authorize(s, 'sign', {message}, options), node = grant.paidTarget ? paidNode(grant.paidTarget) : (await keepers(slotId))[0]!
+            const grant = await authorize(s, 'sign', {message}, options), node = grant.paidTarget ? paidNode(grant.paidTarget) : (await keepers(slotId, options.signal))[0]!
             options.signal?.throwIfAborted()
             const result = await committeeSign({nodeUrl: node.nodeUrl, committeeToken: grant.token, message, verifierProofs: grant.verifierProofs,
               targetKeykeeper: node.operator, userSignature: options.userSignature, signal: options.signal, fetchImpl,approveExecution:grant.approveExecution})
@@ -361,7 +364,7 @@ export function createTasra(config: TasraApplicationConfig) {
         const extraction = async (identity: string, options: IdentityExtractionOptions) => {
           const s = await ready(slotId, 1), grant = await authorize(s, 'ibe-extract', {identity}, options)
           const opts: StrictExtractionOptions = {chainId: deployment.chainId, slotId, threshold: s.threshold.k, epoch: s.epoch,
-            groupPublicKey: groupKey(s), keepers: grant.paidTarget ? grant.paidTarget.contributors.map(paidNode) : await keepers(slotId), shareTrust: 'anchored-group', committeeToken: grant.token,
+            groupPublicKey: groupKey(s), keepers: grant.paidTarget ? grant.paidTarget.contributors.map(paidNode) : await keepers(slotId, options.signal), shareTrust: 'anchored-group', committeeToken: grant.token,
             verifierProofs: grant.verifierProofs, identity, userSignature: options.userSignature, signal: options.signal, fetchImpl, requireReceipts: options.requireReceipts,approveExecution:grant.approveExecution, timeoutMs: options.timeoutMs}
           return opts
         }

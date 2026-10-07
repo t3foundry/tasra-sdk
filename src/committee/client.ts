@@ -27,6 +27,7 @@ import type {BlsPeer} from '../decryption/client.js'
 import {decodeOperationReceipt, type OperationReceipt} from './receipts.js'
 import {withKeeperExecutionApprovals, type KeeperExecutionApprover} from './keeperExecution.js'
 import {ibeVerifyShare} from '../crypto/ibe.js'
+import {withNetworkDeadline} from '../internal/network.js'
 
 const strip0x = (s: string): string => (s.startsWith('0x') ? s.slice(2) : s)
 const base = (u: string): string => u.replace(/\/$/, '')
@@ -435,10 +436,16 @@ export interface CommitteeSignOpts {
 
 /**
  * Sign via committee authorization. The slot id is taken from the token.
+ * Approvals, HTTP and response decoding share a 15-second deadline. A timeout
+ * is an uncertain outcome; reconcile the original paid operation before resubmitting.
  *
  * @param opts - Keeper endpoint, compound authorization and message to sign.
  */
 export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignResult> {
+  return withNetworkDeadline(signal => signWithinDeadline({...opts, signal}), opts.signal)
+}
+
+async function signWithinDeadline(opts: CommitteeSignOpts): Promise<FrostSignResult> {
   opts={...opts,committeeToken:structuredClone(opts.committeeToken)}
   let body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
@@ -513,10 +520,16 @@ export interface CommitteeDecryptOpts {
 
 /**
  * Decrypt via committee authorization. The slot id is taken from the token.
+ * Approvals, HTTP and response decoding share a 15-second deadline. A timeout
+ * does not prove that the keeper performed no work and never triggers a retry.
  *
  * @param opts - Keeper endpoint, compound authorization, ciphertext and associated data.
  */
 export async function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint8Array> {
+  return withNetworkDeadline(signal => decryptWithinDeadline({...opts, signal}), opts.signal)
+}
+
+async function decryptWithinDeadline(opts: CommitteeDecryptOpts): Promise<Uint8Array> {
   opts={...opts,committeeToken:structuredClone(opts.committeeToken)}
   let body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
