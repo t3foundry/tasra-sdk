@@ -73,6 +73,7 @@ export type {ProvisionRuleArgs, ProvisionRuleResult, KeeperProvisionResult} from
 export type {RuleInput} from './ruleInput.js'
 export type {
   CreateSlotArgs,
+  CreateSlotFromPolicyArgs,
   CommitRevealOptions,
   RelayConfig,
   RelayReceipt,

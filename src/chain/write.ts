@@ -39,6 +39,7 @@ import {createRegisteredRelaySubmitter, type RegisteredRelayConfig, type RelayRe
 import {describeRevert} from './revertReason.js'
 export type {RelayReceipt} from './registeredRelay.js'
 import {canonicalize, isOid4vpRule} from '../auth/oid4vp.js'
+import {isOauthEnvelope, loadRego, type OauthPolicyInput} from '../auth/rego.js'
 import {TasraError} from '../errors.js'
 import {keyRegistryAbi} from './abis/keyRegistry.js'
 import {nodeRegistryAbi} from './abis/nodeRegistry.js'
@@ -239,6 +240,45 @@ export interface CreateSlotArgs extends RuleInput {
   exportable?: boolean
 }
 
+/**
+ * Slot creation from an authored Rego policy instead of a rule string (ADR-0078). The SDK packs
+ * `oauthPolicy` into the canonical `kk_oauth` envelope with the network's own engine, refuses
+ * it when a keeper would not store it, and commits the envelope. Requires `authType: 'oauth'`.
+ * The packed envelope is returned as `rule`: provision exactly that string.
+ */
+export type CreateSlotFromPolicyArgs = Omit<CreateSlotArgs, 'rule'> & {
+  /** Must be omitted: the rule is the packed envelope. */
+  rule?: undefined
+  /** Rego policy source, token specifications and optional entrypoint. */
+  oauthPolicy: OauthPolicyInput
+}
+
+/**
+ * Resolve the rule a creation commits to, and refuse - before any chain call - an envelope the
+ * network would strand: one on a slot not declared `authType: 'oauth'`, or one no keeper would
+ * store. An OID4VP rule on an `oauth` slot stays allowed (the restriction is one-directional).
+ */
+async function creationRule(args: CreateSlotArgs | CreateSlotFromPolicyArgs, what: string): Promise<string> {
+  let rule: string
+  const policy = (args as {oauthPolicy?: OauthPolicyInput}).oauthPolicy
+  if (policy !== undefined) {
+    if ((args as {rule?: unknown}).rule !== undefined) throw new TasraError(`${what}: pass either \`rule\` or \`oauthPolicy\`, not both`)
+    if (args.authType !== 'oauth') throw new TasraError(`${what}: an \`oauthPolicy\` slot requires authType: 'oauth'`)
+    rule = (await loadRego()).pack(policy)
+  } else {
+    rule = requireRule(args as CreateSlotArgs)
+  }
+  if (!isOauthEnvelope(rule)) return rule
+  if (args.authType !== 'oauth') {
+    throw new TasraError(
+      `${what}: a kk_oauth policy envelope requires authType: 'oauth' — keepers refuse an envelope on any other slot`,
+    )
+  }
+  const lint = (await loadRego()).lint(rule)
+  if (!lint.admissible) throw new TasraError(`${what}: keepers would not store this envelope: ${lint.admissionError ?? 'not admissible'}`)
+  return rule
+}
+
 /** Who may amend a slot's authorization rule, and how slowly. */
 export interface RulePolicyArgs {
   /**
@@ -284,12 +324,14 @@ async function confirmed(
 }
 
 /**
- * Compute the salted rule commitment. OID4VP and OAuth rules use canonical JSON; other rule formats retain their exact bytes.
+ * Compute the salted rule commitment. OID4VP queries and `kk_oauth` policy envelopes use canonical JSON; other rule formats retain their exact bytes.
  * @param ruleSalt Private 32-byte salt saved with the slot creation intent.
- * @param rule Clear authorization rule; OID4VP and OAuth rules are canonicalized before hashing.
+ * @param rule Clear authorization rule; OID4VP queries and policy envelopes are canonicalized before hashing.
  */
 export function ruleCommitment(ruleSalt: Hex, rule: string): Hex {
-  const body = isOid4vpRule(rule) ? canonicalize(rule) : rule
+  // Envelope test first, like the network's grammar dispatch; both JSON grammars commit their
+  // RFC 8785 form, anything else its exact bytes.
+  const body = isOauthEnvelope(rule) || isOid4vpRule(rule) ? canonicalize(rule) : rule
   return keccak256(concat([toHex('keykeeper/rule-commitment/v1'), ruleSalt, toHex(body)]))
 }
 
@@ -337,7 +379,7 @@ function isLoopbackRpc(rpcUrl: string): boolean {
 
 function random32(): Hex {
   const b = new Uint8Array(32)
-  ;(globalThis.crypto as Crypto).getRandomValues(b)
+  ;(globalThis.crypto).getRandomValues(b)
   return `0x${Array.from(b, x => x.toString(16).padStart(2, '0')).join('')}`
 }
 
@@ -523,7 +565,7 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
         functionName: 'drawActive',
         // minStake 0: this counts TAG MEMBERSHIP, not who could be drawn today. Folding stake
         // in would turn a funding problem into a message about tags.
-        args: [tagHashes, 0n, 1, `0x${'00'.repeat(32)}` as Hex],
+        args: [tagHashes, 0n, 1, `0x${'00'.repeat(32)}`],
       })
       const candidates = Array.isArray(probe) ? (probe[1] as unknown) : undefined
       return typeof candidates === 'bigint' ? candidates : null
@@ -559,10 +601,10 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     const keyRegistry = requireAddress(addr, 'KeyRegistry')
     const nodeRegistry =
       addr.NodeRegistry ??
-      (await pub.readContract({address: keyRegistry, abi: keyRegistryAbi, functionName: 'nodeRegistry'}) as Address)
+      (await pub.readContract({address: keyRegistry, abi: keyRegistryAbi, functionName: 'nodeRegistry'}))
     const active = (await pub.readContract({
       address: nodeRegistry, abi: nodeRegistryAbi, functionName: 'activeCount',
-    })) as bigint
+    }))
     const tagged = await candidatesFor([keccak256(toHex('keykeeper'))])
     // Unreadable here is NOT best-effort: on this branch the count IS the safety judgement, so
     // declining to judge means declining to send. (Before the shared helper existed this path
@@ -581,8 +623,8 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
   }
 
   /** Self-sign createKeySlotFiltered. Returns the slot id once the tx is mined. */
-  async function createSlot(args: CreateSlotArgs): Promise<{slotId: Hex; txHash: Hex; ruleSalt: Hex; relay?: RelayReceipt}> {
-    const rule = requireRule(args)
+  async function createSlot(args: CreateSlotArgs | CreateSlotFromPolicyArgs): Promise<{slotId: Hex; txHash: Hex; ruleSalt: Hex; rule: string; relay?: RelayReceipt}> {
+    const rule = await creationRule(args, 'createSlot')
     const slotId = args.slotId ?? random32()
     const salt = args.salt ?? random32()
     const ruleSalt = args.ruleSalt ?? random32()
@@ -612,7 +654,7 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     await confirmed(pub, txHash, 'createKeySlotFiltered')
     // ruleSalt is returned because it exists NOWHERE else: without it the rule
     // can never be provisioned to a keeper.
-    return {slotId, txHash, ruleSalt, relay: lastRelay?.txHash === txHash ? lastRelay : undefined}
+    return {slotId, txHash, ruleSalt, rule, relay: lastRelay?.txHash === txHash ? lastRelay : undefined}
   }
 
   /**
@@ -623,13 +665,13 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
    * `onEpoch` reports fallback wait progress; `seeded` identifies the completed path.
    */
   async function createSlotCommitReveal(
-    args: CreateSlotArgs & CommitRevealOptions,
-  ): Promise<{slotId: Hex; commitTx: Hex; revealTx: Hex; targetEpoch: number; ruleSalt: Hex; seeded: boolean}> {
+    args: (CreateSlotArgs | CreateSlotFromPolicyArgs) & CommitRevealOptions,
+  ): Promise<{slotId: Hex; commitTx: Hex; revealTx: Hex; targetEpoch: number; ruleSalt: Hex; rule: string; seeded: boolean}> {
     const maxWaitMs = args.maxWaitMs ?? 180_000
     args.signal?.throwIfAborted()
     if (!Number.isSafeInteger(maxWaitMs) || maxWaitMs < 1 || maxWaitMs > 2_147_483_647) throw new Error('Invalid commit-reveal wait')
     if (args.exportable) throw new Error('Commit-reveal does not support raw-export slots')
-    const rule = requireRule(args)
+    const rule = await creationRule(args, 'createSlotCommitReveal')
     const slotId = args.slotId ?? random32()
     const salt = args.salt ?? random32()
     const ruleSalt = args.ruleSalt ?? random32()
@@ -655,9 +697,9 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
       abi: keyRegistryAbi,
       functionName: 'computeCommitment',
       args: [slotId, ruleCommitmentHash, args.k, args.n, mode, salt, tags, account.address],
-    })) as Hex
+    }))
     const keyReg = requireAddress(addr, 'KeyRegistry')
-    const beaconEpoch = () => pub.readContract({address: beacon, abi: thresholdRandomBeaconAbi, functionName: 'epoch'}) as Promise<bigint>
+    const beaconEpoch = () => pub.readContract({address: beacon, abi: thresholdRandomBeaconAbi, functionName: 'epoch'})
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
     const transact = async (step: 'commit' | 'reveal', name: string, values: readonly unknown[], seeded?: boolean): Promise<Hex> => {
@@ -683,7 +725,7 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
         const completed = await pub.readContract({address: keyReg, abi: keyRegistryAbi, functionName: 'slotCommits', args: [commitment]})
         if (!completed[3]) throw new TasraError('Saved reveal did not consume this commitment')
         await args.recovery.onTransaction({step: 'reveal', phase: 'confirmed', hash: args.recovery.revealTx, seeded: args.recovery.seeded})
-        return {slotId, commitTx, revealTx: args.recovery.revealTx, targetEpoch, ruleSalt, seeded: args.recovery.seeded ?? false}
+        return {slotId, commitTx, revealTx: args.recovery.revealTx, targetEpoch, ruleSalt, rule, seeded: args.recovery.seeded ?? false}
       }
       if (commit[3]) throw new TasraError('Commitment already consumed; reconcile the reveal hash before continuing')
     }
@@ -720,7 +762,7 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
           : await transact('reveal', 'revealKeySlotWithSeed', [slotId, ruleCommitmentHash, args.k, args.n, mode, auth, salt, tags, seed.signature], true)
         await confirmed(pub, seededTx, 'revealKeySlotWithSeed')
         await args.recovery?.onTransaction({step: 'reveal', phase: 'confirmed', hash: seededTx, seeded: true})
-        return {slotId, commitTx, revealTx: seededTx, targetEpoch, ruleSalt, seeded: true}
+        return {slotId, commitTx, revealTx: seededTx, targetEpoch, ruleSalt, rule, seeded: true}
       } catch (e) {
         // Under a relay this must rethrow. The relay submitter owns the retries of the one
         //   request it signed, and falling through would start a second signed request against the
@@ -785,7 +827,7 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
         await sleep(3000)
       }
     }
-    return {slotId, commitTx, revealTx, targetEpoch, ruleSalt, seeded: false}
+    return {slotId, commitTx, revealTx, targetEpoch, ruleSalt, rule, seeded: false}
   }
 
   /** Prepay a slot's metered usage: approve TSRA then Settlement.fund(slot, amount). */
@@ -815,7 +857,7 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
 
   /** EURC the curve prices in (the real Circle token, or the demo mock on a dev/test chain). */
   async function eurcBalance(a: Address): Promise<bigint> {
-    return (await pub.readContract({address: requireAddress(addr, 'MockEurc'), abi: mockEurcAbi, functionName: 'balanceOf', args: [a]})) as bigint
+    return (await pub.readContract({address: requireAddress(addr, 'MockEurc'), abi: mockEurcAbi, functionName: 'balanceOf', args: [a]}))
   }
   /** Approve EURC to the bonding curve - an ERC-20 approve, always from the local key. */
   async function approveEurcForCurve(amount: bigint): Promise<Hex> {
@@ -914,9 +956,9 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     return h
   }
   const spotPrice = () =>
-    pub.readContract({address: requireAddress(addr, 'BondingCurve'), abi: bondingCurveAbi, functionName: 'spotPrice'}) as Promise<bigint>
+    pub.readContract({address: requireAddress(addr, 'BondingCurve'), abi: bondingCurveAbi, functionName: 'spotPrice'})
   const priceAt = (sold: bigint) =>
-    pub.readContract({address: requireAddress(addr, 'BondingCurve'), abi: bondingCurveAbi, functionName: 'priceAt', args: [sold]}) as Promise<bigint>
+    pub.readContract({address: requireAddress(addr, 'BondingCurve'), abi: bondingCurveAbi, functionName: 'priceAt', args: [sold]})
 
   //  treasury / vault (owner / refunder gated)
   async function treasuryWithdraw(to: Address, amount: bigint): Promise<Hex> {
@@ -937,10 +979,10 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
   }
 
   const tsraBalance = (of?: Address) =>
-    pub.readContract({address: requireAddress(addr, 'TasraToken'), abi: tasraTokenAbi, functionName: 'balanceOf', args: [of ?? account.address]}) as Promise<bigint>
+    pub.readContract({address: requireAddress(addr, 'TasraToken'), abi: tasraTokenAbi, functionName: 'balanceOf', args: [of ?? account.address]})
   const ethBalance = (of?: Address) => pub.getBalance({address: of ?? account.address})
   const settlementBalance = (slotId: Hex) =>
-    pub.readContract({address: requireAddress(addr, 'Settlement'), abi: settlementAbi, functionName: 'balanceOf', args: [slotId]}) as Promise<bigint>
+    pub.readContract({address: requireAddress(addr, 'Settlement'), abi: settlementAbi, functionName: 'balanceOf', args: [slotId]})
 
   return {
     account,
@@ -1004,14 +1046,16 @@ export interface TasraWriteClient {
 
   /**
    * Create a slot directly. Persist the generated slot ID and rule salt; provisioning requires the saved salt. Use prepared creation to persist the intent before submission.
+   * A `kk_oauth` policy envelope (as `rule`, or authored as `oauthPolicy`) requires `authType: 'oauth'` and must pass the network's gate; both are checked before any chain call. `rule` in the result is the exact string committed.
    */
-  createSlot(args: CreateSlotArgs): Promise<{slotId: Hex; txHash: Hex; ruleSalt: Hex; relay?: RelayReceipt}>
+  createSlot(args: CreateSlotArgs | CreateSlotFromPolicyArgs): Promise<{slotId: Hex; txHash: Hex; ruleSalt: Hex; rule: string; relay?: RelayReceipt}>
   /**
    * Create a slot using commit-reveal, trying an accountant seed before waiting for a beacon epoch. Persist the slot ID and rule salt; prepared creation preserves them before submission.
+   * Policy envelopes are checked as for `createSlot`; `rule` in the result is the exact string committed.
    */
   createSlotCommitReveal(
-    args: CreateSlotArgs & CommitRevealOptions,
-  ): Promise<{slotId: Hex; commitTx: Hex; revealTx: Hex; targetEpoch: number; ruleSalt: Hex; seeded: boolean}>
+    args: (CreateSlotArgs | CreateSlotFromPolicyArgs) & CommitRevealOptions,
+  ): Promise<{slotId: Hex; commitTx: Hex; revealTx: Hex; targetEpoch: number; ruleSalt: Hex; rule: string; seeded: boolean}>
   /**
    * Approve TSRA and fund the slot settlement balance in token base units.
    */
