@@ -68,3 +68,31 @@ export type {DpopSigner, DpopKey} from './dpop.js'
 
 // identity-scope matcher
 export {scopeCovers, MAX_IDENTITY_LEN} from './identityScope.js'
+
+// OAuth policy envelopes (`kk_oauth`, ADR-0078): Rego over an organization's own access token.
+// The grammar test is pure; pack/unpack/lint/evaluate run the network's engine (WebAssembly).
+export {
+  isOauthEnvelope,
+  loadRego,
+  packEnvelope,
+  unpackEnvelope,
+  lintEnvelope,
+  evaluateEnvelope,
+  RegoEnvelopeError,
+  OAUTH_ENVELOPE_KEY,
+  DEFAULT_REGO_ENTRYPOINT,
+  REGO_POLICY_REFUSED,
+  REGO_WASM_SHA256,
+} from './rego.js'
+export type {
+  OauthTokenSpec,
+  OauthTokens,
+  OauthPolicyInput,
+  UnpackedEnvelope,
+  EnvelopeGateReport,
+  EnvelopeLint,
+  OauthPresentation,
+  EnvelopeVerdict,
+  RegoEngine,
+  LoadRegoOptions,
+} from './rego.js'
