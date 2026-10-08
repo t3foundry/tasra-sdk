@@ -9,12 +9,13 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 8 classes</summary>
+<summary>Browse 9 classes</summary>
 
 - [AgentSessionCreationUnknownError](#agentsessioncreationunknownerror)
 - [BillingModeError](#billingmodeerror)
 - [KeeperRecoveryError](#keeperrecoveryerror)
 - [PaidAgentControlError](#paidagentcontrolerror)
+- [PaidReservationAbortedError](#paidreservationabortederror)
 - [PaidReservationUncertainError](#paidreservationuncertainerror)
 - [RelayOutcomeUnknownError](#relayoutcomeunknownerror)
 - [SlotCommitmentExpiredError](#slotcommitmentexpirederror)
@@ -134,11 +135,37 @@ declare class PaidAgentControlError {
 
 - ` cause?: unknown; `
 
+### PaidReservationAbortedError
+
+The caller aborted before anything was prepared or broadcast; nothing was sent or journaled. Reserving again is safe.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L111)
+
+Import: `import {PaidReservationAbortedError} from 'tasra-sdk/chain'`
+
+```ts
+declare class PaidReservationAbortedError {
+    constructor(requestId: Hex, cause: unknown);
+}
+```
+
+- ` readonly code: "aborted"; ` — Stable machine-readable reason.
+
+- ` readonly requestId: Hex; ` — Request ID that was not reserved.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ### PaidReservationUncertainError
 
 Reservation submission may have happened; inspect the saved identity before further spending.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L104)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L124)
 
 Import: `import {PaidReservationUncertainError} from 'tasra-sdk/chain'`
 
@@ -147,6 +174,8 @@ declare class PaidReservationUncertainError {
     constructor(requestId: Hex, transactionHash: Hex | undefined, cause: unknown);
 }
 ```
+
+- ` readonly code: "reservation-uncertain"; ` — Stable machine-readable reason.
 
 - ` readonly requestId: Hex; ` — Original request ID for readPaidOperationReceipt and durable journal lookup.
 
@@ -1708,7 +1737,7 @@ Expired intents remain recoverable. Missing transactions, unavailable historical
 and insufficient confirmations fail closed; none prove that the operation was never submitted.
 A reverted result proves only this transaction's failure, not absence of another reservation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L197)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L219)
 
 Import: `import {reconcilePaidReservation} from 'tasra-sdk/chain'`
 
@@ -1865,7 +1894,7 @@ Reserve TASRA for a fixed creator-signed operation using an accountant threshold
 Does not create an intent, approve tokens, activate a slot, authorize credentials or do keeper
 work. One broadcast attempt only; no replacement, coordinator failover or implicit gas funding.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L316)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L349)
 
 Import: `import {reservePaidOperation} from 'tasra-sdk/chain'`
 
@@ -3802,7 +3831,7 @@ Fields:
 
 Canonical transaction outcome retained for recovery; this never authorizes another operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L151)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L173)
 
 ```ts
 export type PaidReservationResolution = {
@@ -4434,6 +4463,7 @@ export interface ReservePaidOperationOptions {
     requestTimeoutMs?: number;
     receiptTimeoutMs?: number;
     confirmations?: number;
+    signal?: AbortSignal;
     persist: (checkpoint: PaidReservationCheckpoint) => Promise<void>;
 }
 ```
@@ -4447,6 +4477,7 @@ Fields:
 - **` requestTimeoutMs `**: Per-accountant request timeout, 1..85000 ms (default 85000).
 - **` receiptTimeoutMs `**: Receipt timeout, 1..120000 ms (default 60000).
 - **` confirmations `**: Required confirmations, 1..64 (default 1).
+- **` signal `**: Optional cancellation. Before the durable `prepared` checkpoint (nothing sent) an abort refuses with [PaidReservationAbortedError](#paidreservationabortederror). From that checkpoint the one broadcast proceeds and every journal write completes; an abort then only ends the receipt wait, as [PaidReservationUncertainError](#paidreservationuncertainerror): a broadcast transaction cannot be cancelled.
 - **` persist `**: Await durable storage before resolving. The prepared checkpoint MUST atomically create a unique requestId record, refuse every existing record, and survive process loss. Retain it on every later failure. Subsequent checkpoints update that record without deleting it. A callback failure before preparation completes prevents broadcast. The SDK cannot prove an application's persistence guarantees; an in-memory callback is not safe for production.
 
 ### ResolvedEndpoints

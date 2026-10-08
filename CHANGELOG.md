@@ -52,6 +52,14 @@ never does.
 
 ### Added
 
+- `reservePaidOperation`, `reserveApplicationPayment` and `paidOperation`'s reservation step
+  take the caller's `signal`. An abort before the durable preparation refuses with the new
+  `PaidReservationAbortedError` (`code: 'aborted'`, `tasra-sdk/chain`; nothing journaled,
+  claimed or sent; `paidOperation` reports it as a resumable `aborted`). After it the broadcast
+  is never cancelled and every journal checkpoint completes; an abort only ends the receipt
+  wait as `PaidReservationUncertainError` (now carrying `code: 'reservation-uncertain'`) with
+  the payer still claimed.
+
 - `createNodeKeeperRecoveryTransport({allowLocalHttp: true})` (`tasra-sdk/chain/node`)
   reads local development keepers over plain HTTP, like the browser transport: only to
   loopback names, private IP literals and `allowedPrivateHosts`, only when every DNS answer

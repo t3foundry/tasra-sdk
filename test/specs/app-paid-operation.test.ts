@@ -34,6 +34,7 @@ import {drivePaidSession, PaidSessionRecoveryError} from '../../src/app/paid-ses
 import {PaidAgentControlError} from '../../src/chain/registeredPaidAgent.js'
 import {VerifierAgentSessionError} from '../../src/verifier-agent/index.js'
 import {UnderfundedSlotError} from '../../src/errors.js'
+import {PaidReservationAbortedError, PaidReservationUncertainError} from '../../src/chain/reservation.js'
 import {verifierAgentResult} from '../../src/oid4vp/verifier-agent.js'
 import {createExecutionCertificate} from '../../src/committee/execution.js'
 import {recoverKeeperExecution} from '../../src/chain/keeperRecovery.js'
@@ -652,6 +653,26 @@ describe('paid operation abort classification', () => {
     expect(reserveApplicationPayment).not.toHaveBeenCalled()
     await resumePaidOperation(f.config, error.requestId, {holder: f.holder})
     expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+  })
+
+  it('hands its signal to the reservation: a refused unsent one is aborted, a broadcast one stays uncertain with the payer locked', async () => {
+    const f = setup(), controller = new AbortController(), reason = new Error('stop')
+    vi.mocked(reserveApplicationPayment).mockImplementationOnce(async (_c, _w, _d, payment, _e, options) => {
+      expect(options.signal).toBe(controller.signal)
+      controller.abort(reason)
+      throw new PaidReservationAbortedError(prepaidRequestId(payment), reason)
+    })
+    const error = await paidOperation(f.config, {...f.request, signal: controller.signal}).catch((e: unknown) => e) as PaidOperationRecoveryError
+    expect(error).toMatchObject({phase: 'reservation', code: 'aborted', resumable: true, cause: reason})
+    expect((await listPaidOperations(f.store))[0]).toMatchObject({phase: 'reserving'})
+    await resumePaidOperation(f.config, error.requestId, {holder: f.holder})
+    const g = setup(), late = new AbortController()
+    vi.mocked(reserveApplicationPayment).mockImplementationOnce(async (_c, _w, _d, payment) => {
+      late.abort(reason)
+      throw new PaidReservationUncertainError(prepaidRequestId(payment), h(50), reason)
+    })
+    vi.mocked(loadPaidReservationJournal).mockResolvedValueOnce({phase: 'submitted'} as Awaited<ReturnType<typeof loadPaidReservationJournal>>)
+    expect(await paidOperation(g.config, {...g.request, signal: late.signal}).catch((e: unknown) => e)).toMatchObject({phase: 'reservation', code: 'reservation-uncertain', resumable: true})
   })
 
   it('rethrows an abort before anything is journaled', async () => {

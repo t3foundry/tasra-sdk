@@ -1,6 +1,6 @@
 import {decodeFunctionResult, encodeFunctionData, type Account, type Address, type Chain, type Hex, type PublicClient, type Transport, type WalletClient} from 'viem'
 import {settlementAbi} from '../chain/abis/settlement.js'
-import {reservePaidOperation, reconcilePaidReservation, type ReservePaidOperationOptions, type PaidReservationResolution} from '../chain/reservation.js'
+import {reservePaidOperation, reconcilePaidReservation, PaidReservationAbortedError, type ReservePaidOperationOptions, type PaidReservationResolution} from '../chain/reservation.js'
 import type {ExpectedPaidOperation, PrepaidDeployment} from '../chain/prepaid.js'
 import {prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
 import {createPaidReservationJournal, loadPaidReservationJournal, type PaidReservationSession} from './paid-journal.js'
@@ -52,6 +52,10 @@ async function loadPayer(store: ApplicationStore, chainId: number, payer: Addres
  * The same private store must cover all reservation callers, including different deployments
  * on one chain. Use a dedicated payer: unrelated wallet/CLI transactions are not coordinated.
  * Any uncertainty after preparation retains a durable payer claim; elapsed time never clears it.
+ * An `options.signal` abort before the durable preparation refuses with
+ * `PaidReservationAbortedError` (code `aborted`; no journal, no payer claim, nothing sent).
+ * After it the broadcast cannot be cancelled: an abort ends only the receipt wait, as
+ * `PaidReservationUncertainError`, and the payer stays claimed until reconciled.
  * @param client - Trusted bounded RPC client; submission retries disabled.
  * @param wallet - Dedicated account-bound gas payer.
  * @param deployment - Independently approved prepaid deployment.
@@ -67,8 +71,11 @@ export async function reserveApplicationPayment(
   const payerWallet = {...wallet, account: {...wallet.account}, chain: {...wallet.chain}}
   const {store, session, ...limits} = {...options, session: structuredClone(options.session), accountantUrls: [...options.accountantUrls]}
   const payer = payerWallet.account.address, name = payerKey(d.chainId, payer)
-  const journal = createPaidReservationJournal(store, payment, session)
+  const journal = createPaidReservationJournal(store, payment, session), signal = limits.signal
+  const refuseIfAborted = () => { if (signal?.aborted) throw new PaidReservationAbortedError(journal.requestId, signal.reason) }
+  refuseIfAborted()
   return store.withLock(name, async () => {
+    refuseIfAborted()
     const state = await loadPayer(store, d.chainId, payer)
     if (state.pending) throw new ApplicationPayerRecoveryError(state.pending.requestId)
     if (await journal.load()) throw new Error('reservation already journaled; reconcile the original attempt')

@@ -394,7 +394,7 @@ async function reserve(config: PaidOperationConfig, record: OperationRecord, sig
       if ((await config.store.load<OperationRecord>(key))?.phase !== 'reserving') throw new NoLongerReserving()
       await withDedicatedPayer(`${d.chainId}-${config.gasPayer.account.address.toLowerCase()}`, () => reserveApplicationPayment(config.chain.client, config.gasPayer, d,
         record.payment, record.expected, {store: config.store, session: {random: record.params.random, audience: config.agent.profile.clientId},
-          accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, maxGas: config.limits.maxGas, maxGasPrice: config.limits.maxGasPrice}))
+          accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, maxGas: config.limits.maxGas, maxGasPrice: config.limits.maxGasPrice, signal}))
     })
   } catch (error) {
     if (error instanceof NoLongerReserving) throw new TasraError('Paid operation was closed before its reservation; it is not reserved again')

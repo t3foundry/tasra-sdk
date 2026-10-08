@@ -91,6 +91,13 @@ export interface ReservePaidOperationOptions {
   /** Required confirmations, 1..64 (default 1). */
   confirmations?: number
   /**
+   * Optional cancellation. Before the durable `prepared` checkpoint (nothing sent) an abort
+   * refuses with {@link PaidReservationAbortedError}. From that checkpoint the one broadcast
+   * proceeds and every journal write completes; an abort then only ends the receipt wait, as
+   * {@link PaidReservationUncertainError}: a broadcast transaction cannot be cancelled.
+   */
+  signal?: AbortSignal
+  /**
    * Await durable storage before resolving. The prepared checkpoint MUST atomically create a
    * unique requestId record, refuse every existing record, and survive process loss. Retain
    * it on every later failure. Subsequent checkpoints update that record without deleting it.
@@ -100,8 +107,23 @@ export interface ReservePaidOperationOptions {
   persist: (checkpoint: PaidReservationCheckpoint) => Promise<void>
 }
 
+/** The caller aborted before anything was prepared or broadcast; nothing was sent or journaled. Reserving again is safe. */
+export class PaidReservationAbortedError extends Error {
+  /** Stable machine-readable reason. */
+  readonly code = 'aborted' as const
+  /** Request ID that was not reserved. */
+  readonly requestId: Hex
+  constructor(requestId: Hex, cause: unknown) {
+    super('reservation aborted before preparation; nothing was sent', {cause})
+    this.name = 'PaidReservationAbortedError'
+    this.requestId = requestId
+  }
+}
+
 /** Reservation submission may have happened; inspect the saved identity before further spending. */
 export class PaidReservationUncertainError extends Error {
+  /** Stable machine-readable reason. */
+  readonly code = 'reservation-uncertain' as const
   /** Original request ID for readPaidOperationReceipt and durable journal lookup. */
   readonly requestId: Hex
   /** Transaction hash when received; absence does not establish that no transaction was sent. */
@@ -269,9 +291,20 @@ function endpoints(options: ReservePaidOperationOptions, chainId: number): strin
   if (new Set(urls).size !== urls.length) throw new Error('duplicate accountant endpoints')
   return urls
 }
-async function ask(endpoint: string, method: 'prepare' | 'authorize', payment: PaymentIntentWire, block: Hex | null, timeout: number): Promise<PaidReservationQuote> {
+/** Settle with `work`, or reject with the abort reason as soon as `signal` aborts (work keeps running). */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return work
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason)
+    if (signal.aborted) { work.catch(() => {}); abort(); return }
+    signal.addEventListener('abort', abort, {once: true})
+    work.then(value => {signal.removeEventListener('abort', abort); resolve(value)}, (error: unknown) => {signal.removeEventListener('abort', abort); reject(error)})
+  })
+}
+async function ask(endpoint: string, method: 'prepare' | 'authorize', payment: PaymentIntentWire, block: Hex | null, timeout: number, signal?: AbortSignal): Promise<PaidReservationQuote> {
+  const deadline = AbortSignal.timeout(timeout)
   const response = await fetch(`${endpoint}/v1/prepaid/reservations/${method}`, {method: 'POST', redirect: 'error',
-    headers: {'content-type': 'application/json'}, body: JSON.stringify({intents: [payment], quote_block: block}), signal: AbortSignal.timeout(timeout)})
+    headers: {'content-type': 'application/json'}, body: JSON.stringify({intents: [payment], quote_block: block}), signal: signal ? AbortSignal.any([signal, deadline]) : deadline})
   if (!response.ok) {
     void response.body?.cancel().catch(() => {})
     if (response.status === 402) throw new UnderfundedSlotError({slotId: payment.slot, status: 402,
@@ -317,9 +350,22 @@ export async function reservePaidOperation(
   client: PublicClient, wallet: WalletClient<Transport, Chain, Account>, deployment: PrepaidDeployment,
   original: PaymentIntentWire, expected: ExpectedPaidOperation, options: ReservePaidOperationOptions,
 ): Promise<{transactionHash: Hex; receipt: PaidOperationReceipt}> {
+  const signal = options.signal, progress: {requestId?: Hex; preparing: boolean} = {preparing: false}
+  try { return await reserveOnce(client, wallet, deployment, original, expected, options, progress) }
+  catch (error) {
+    // Before the durable preparation nothing was journaled or sent: the abort is a clean refusal.
+    if (!progress.preparing && progress.requestId && signal?.aborted && !(error instanceof PaidReservationUncertainError)) throw new PaidReservationAbortedError(progress.requestId, signal.reason ?? error)
+    throw error
+  }
+}
+
+async function reserveOnce(
+  client: PublicClient, wallet: WalletClient<Transport, Chain, Account>, deployment: PrepaidDeployment,
+  original: PaymentIntentWire, expected: ExpectedPaidOperation, options: ReservePaidOperationOptions, progress: {requestId?: Hex; preparing: boolean},
+): Promise<{transactionHash: Hex; receipt: PaidOperationReceipt}> {
   // Snapshot caller-owned inputs before the first await; storage receives its own copy too.
   const payment = structuredClone(original), d = {...deployment}, operation = {...expected}
-  const opts = {...options, accountantUrls: [...options.accountantUrls]}
+  const opts = {...options, accountantUrls: [...options.accountantUrls]}, signal = opts.signal
   const payer = {...wallet.account}, payerChain = {...wallet.chain}
   assertPaymentIntentWire(payment)
   if (!Number.isSafeInteger(d.chainId) || d.chainId <= 0 || payment.chain_id !== d.chainId
@@ -331,13 +377,15 @@ export async function reservePaidOperation(
     || !Number.isSafeInteger(receiptTimeout) || receiptTimeout < 1 || receiptTimeout > 120000
     || !Number.isSafeInteger(confirmations) || confirmations < 1 || confirmations > 64) throw new Error('invalid reservation timeout or confirmations')
   live(payment)
+  progress.requestId = prepaidRequestId(payment)
+  signal?.throwIfAborted()
   const urls = endpoints(opts, d.chainId)
   if (payer.type !== 'local' && payer.type !== 'json-rpc') throw new Error('reservation requires an EOA gas payer')
   if (payerChain.id !== d.chainId || await wallet.getChainId() !== d.chainId || await client.getChainId() !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
-  const quote = await ask(urls[0]!, 'prepare', payment, null, requestTimeout)
-  const preparations = await Promise.all(urls.slice(1).map(url => ask(url, 'prepare', payment, quote.quote_block, requestTimeout)))
+  const quote = await ask(urls[0]!, 'prepare', payment, null, requestTimeout, signal)
+  const preparations = await Promise.all(urls.slice(1).map(url => ask(url, 'prepare', payment, quote.quote_block, requestTimeout, signal)))
   if (preparations.some(q => unsigned(q) !== unsigned(quote))) throw new Error('accountants disagree on reservation')
-  const authorized = await ask(urls[0]!, 'authorize', payment, quote.quote_block, requestTimeout)
+  const authorized = await ask(urls[0]!, 'authorize', payment, quote.quote_block, requestTimeout, signal)
   if (unsigned(authorized) !== unsigned(quote)) throw new Error('authorization changed the prepared reservation')
   const requestId = prepaidRequestId(payment)
   const args = [payment.slot, BigInt(quote.legacy_nonce), quote.quote_block, [requestId], [BigInt(quote.costs[0]!)], BigInt(quote.deadline)] as const
@@ -371,6 +419,7 @@ export async function reservePaidOperation(
     client.getTransactionCount({address: payer.address, blockTag: 'pending'}),
   ])
   if (gas <= 0n || gas > opts.maxGas || gasPrice <= 0n || gasPrice > opts.maxGasPrice) throw new Error('reservation exceeds native gas budget')
+  signal?.throwIfAborted()
   if (block.number === null) throw new Error('reservation quote has no block number')
   const canonical = await client.getBlock({blockNumber: block.number})
   if (canonical.hash === null || !same(canonical.hash, quote.quote_block)) throw new Error('reservation quote reorganized')
@@ -391,6 +440,10 @@ export async function reservePaidOperation(
     transactionHash = keccak256(raw)
     fresh()
   }
+  // The last point an abort is honoured: from the durable preparation on, the single broadcast
+  // proceeds and every checkpoint is written in full, so the journal is never left half-written.
+  signal?.throwIfAborted()
+  progress.preparing = true
   await opts.persist({phase: 'prepared', record: structuredClone(record), ...(transactionHash ? {transactionHash} : {})})
   try {
     fresh()
@@ -406,16 +459,18 @@ export async function reservePaidOperation(
     }
     if (typeof transactionHash !== 'string' || !HEX32.test(transactionHash) || /^0x0{64}$/i.test(transactionHash)) throw new Error('invalid reservation transaction hash')
     await opts.persist({phase: 'submitted', requestId, transactionHash})
-    const mined = await client.waitForTransactionReceipt({hash: transactionHash, confirmations, timeout: receiptTimeout, pollingInterval: 1000, retryCount: 0})
+    // A broadcast transaction cannot be cancelled: an abort only ends this wait, as uncertain.
+    const sent = transactionHash
+    const mined = await untilAborted(client.waitForTransactionReceipt({hash: sent, confirmations, timeout: receiptTimeout, pollingInterval: 1000, retryCount: 0}), signal)
     if (!same(mined.transactionHash, transactionHash) || mined.status !== 'success') throw new Error('reservation transaction reverted or was replaced')
-    const transaction = await client.getTransaction({hash: transactionHash})
+    const transaction = await untilAborted(client.getTransaction({hash: sent}), signal)
     if (transaction.to === null || !same(transaction.to, d.settlement) || !same(transaction.from, record.transaction.from)
       || !same(transaction.input, data) || transaction.value !== 0n || transaction.nonce !== nonce
       || transaction.type !== 'legacy' || transaction.gas !== gas || transaction.gasPrice !== gasPrice || transaction.chainId !== d.chainId
       || transaction.blockHash === null || !same(transaction.blockHash, mined.blockHash)) throw new Error('mined transaction differs from the durable reservation')
-    const receipt = await readPaidOperationReceipt(client, d, payment, operation)
+    const receipt = await untilAborted(readPaidOperationReceipt(client, d, payment, operation), signal)
     if (receipt.blockNumber < mined.blockNumber || receipt.cost !== BigInt(quote.costs[0]!) || !same(receipt.assignmentBlock, quote.quote_block)) throw new Error('mined reservation differs from the saved quote')
-    const minedBlock = await client.getBlock({blockNumber: mined.blockNumber})
+    const minedBlock = await untilAborted(client.getBlock({blockNumber: mined.blockNumber}), signal)
     if (minedBlock.hash === null || !same(minedBlock.hash, mined.blockHash)) throw new Error('reservation receipt reorganized')
     await opts.persist({phase: 'confirmed', requestId, transactionHash, blockHash: mined.blockHash})
     return {transactionHash, receipt}

@@ -303,6 +303,13 @@ before further spending. Absence of a hash or an HTTP response does not prove th
 the transaction was never sent. Other uses of the gas-payer account must coordinate
 nonces with this application.
 
+Both helpers (and `paidOperation`'s reservation step) accept a `signal`. An abort before the
+durable preparation refuses with `PaidReservationAbortedError` (`code: 'aborted'`): nothing
+was journaled, claimed or sent, so reserving again is safe. From the preparation on, the one
+broadcast proceeds and every journal checkpoint is written in full; a sent transaction cannot
+be cancelled, so a later abort only ends the receipt wait as `PaidReservationUncertainError`
+(`code: 'reservation-uncertain'`) and the payer stays claimed until reconciled.
+
 For a local signer, it also decodes the returned signed bytes and recovers their sender before
 broadcast, checking every saved transaction field and rechecking expiry after signing.
 A lost or incorrect RPC reply leaves the locally computed hash in the uncertainty error;

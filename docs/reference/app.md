@@ -1011,7 +1011,7 @@ Release an application's pending gas payer only after verifying the original min
 Success and revert both consume the nonce. Missing/replaced/reorganized transactions retain
 the claim. This does not resubmit, delete the original journal or authorize keeper work.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L106)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L113)
 
 Import: `import {reconcileApplicationPayment} from 'tasra-sdk/app'`
 
@@ -1056,7 +1056,7 @@ The payer claim is released only when the journaled nonce is consumed on chain, 
 attempt is provably dead and no transaction at that nonce is known to the RPC (the floor then
 stays at that nonce). Every other case keeps the payer locked.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L206)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L213)
 
 Import: `import {reconcileApplicationReservation} from 'tasra-sdk/app'`
 
@@ -1176,8 +1176,12 @@ Reserve one operation while exclusively coordinating its gas payer across the ap
 The same private store must cover all reservation callers, including different deployments
 on one chain. Use a dedicated payer: unrelated wallet/CLI transactions are not coordinated.
 Any uncertainty after preparation retains a durable payer claim; elapsed time never clears it.
+An `options.signal` abort before the durable preparation refuses with
+`PaidReservationAbortedError` (code `aborted`; no journal, no payer claim, nothing sent).
+After it the broadcast cannot be cancelled: an abort ends only the receipt wait, as
+`PaidReservationUncertainError`, and the payer stays claimed until reconciled.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L62)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L66)
 
 Import: `import {reserveApplicationPayment} from 'tasra-sdk/app'`
 
@@ -1272,7 +1276,7 @@ spread fairly. Returns undefined when every payer holds a claim. Selection is ad
 payer claimed meanwhile still refuses safely (`ApplicationPayerRecoveryError`). With
 `resume`, the payer recorded by that operation's journal is returned instead.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L277)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L284)
 
 Import: `import {selectApplicationGasPayer} from 'tasra-sdk/app'`
 
@@ -1594,12 +1598,13 @@ Fields:
 - **` requestTimeoutMs `**: Per-accountant request timeout, 1..85000 ms (default 85000).
 - **` receiptTimeoutMs `**: Receipt timeout, 1..120000 ms (default 60000).
 - **` confirmations `**: Required confirmations, 1..64 (default 1).
+- **` signal `**: Optional cancellation. Before the durable `prepared` checkpoint (nothing sent) an abort refuses with ` PaidReservationAbortedError `. From that checkpoint the one broadcast proceeds and every journal write completes; an abort then only ends the receipt wait, as ` PaidReservationUncertainError `: a broadcast transaction cannot be cancelled.
 
 ### ApplicationReservationState
 
 Where an application reservation stands, from the journal, the payer claim and the chain.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L128)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L135)
 
 ```ts
 export type ApplicationReservationState = 'none' | 'reserved' | 'not-reserved' | 'uncertain';
@@ -1609,7 +1614,7 @@ export type ApplicationReservationState = 'none' | 'reserved' | 'not-reserved' |
 
 Outcome of [reconcileApplicationReservation](#reconcileapplicationreservation).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L139)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L146)
 
 ```ts
 export interface ApplicationReservationStatus {
@@ -2541,7 +2546,7 @@ Fields:
 
 Options for [reconcileApplicationReservation](#reconcileapplicationreservation).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L155)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L162)
 
 ```ts
 export interface ReconcileApplicationReservationOptions {
@@ -2686,7 +2691,7 @@ Fields:
 
 Options for [selectApplicationGasPayer](#selectapplicationgaspayer).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L256)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-reservation.ts#L263)
 
 ```ts
 export interface SelectApplicationGasPayerOptions {

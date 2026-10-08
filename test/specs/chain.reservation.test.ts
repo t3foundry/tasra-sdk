@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createPublicClient, createWalletClient, custom, decodeFunctionData, defineChain, encodeAbiParameters, encodeFunctionData, encodeFunctionResult, keccak256, parseTransaction, toHex, type Abi, type Hex, type TransactionSerialized} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {PaidReservationUncertainError, reservePaidOperation, reconcilePaidReservation, type PaidReservationRecord, type PaidReservationCheckpoint, type PaidReservationQuote, type ReservePaidOperationOptions} from '../../src/chain/reservation.js'
+import {PaidReservationAbortedError, PaidReservationUncertainError, reservePaidOperation, reconcilePaidReservation, type PaidReservationRecord, type PaidReservationCheckpoint, type PaidReservationQuote, type ReservePaidOperationOptions} from '../../src/chain/reservation.js'
 import {paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {createFileStore} from '../../src/app/node.js'
 import {createPaidReservationJournal} from '../../src/app/paid-journal.js'
@@ -463,6 +463,40 @@ it('never submits if payer persistence fails after its durable write and never c
   } finally {await f.cleanup()}
 })
 
+it('an application abort before preparation leaves no journal or payer claim; after broadcast the payer stays claimed', async () => {
+  const f = await applicationFixture({receiptMissing: true})
+  try {
+    const controller = new AbortController()
+    controller.abort(new Error('stop'))
+    const refused = await reserveApplicationPayment(f.client, f.wallet, deployment, f.payment, expected, {...f.limits, store: f.store, session: f.session, signal: controller.signal}).catch((e: unknown) => e)
+    expect(refused).toMatchObject({name: 'PaidReservationAbortedError', code: 'aborted', requestId: prepaidRequestId(f.payment)})
+    const during = new AbortController()
+    const quoting = await fixture({applicationJournal: true, session: f.session, quote: (_q, method) => { if (method === 'authorize') during.abort(new Error('stop')) }})
+    await expect(reserveApplicationPayment(quoting.client, quoting.wallet, deployment, quoting.payment, expected, {...f.limits, store: f.store, session: f.session, signal: during.signal}))
+      .rejects.toMatchObject({code: 'aborted'})
+    expect(quoting.transactions).toHaveLength(0)
+    expect(await loadPaidReservationJournal(f.store, prepaidRequestId(f.payment))).toBeUndefined()
+    expect(await f.store.load(f.payerKey)).toBeUndefined()
+    // Aborted while acquiring the payer lock: checked again once it is held.
+    const queued = new AbortController()
+    const locking: ApplicationStore = {...f.store, withLock: (key, operation) => f.store.withLock(key, async () => { queued.abort(new Error('stop')); return operation() })}
+    expect(await reserveApplicationPayment(f.client, f.wallet, deployment, f.payment, expected, {...f.limits, store: locking, session: f.session, signal: queued.signal}).catch((e: unknown) => e))
+      .toMatchObject({code: 'aborted'})
+    expect(f.transactions).toHaveLength(0)
+    // After broadcast: the abort ends the wait as uncertain, with the journal complete and the payer claimed.
+    const late = new AbortController(), journalKey = `prepaid-${prepaidRequestId(f.payment).toLowerCase()}`
+    const store: ApplicationStore = {...f.store, save: async (key, value) => {
+      await f.store.save(key, value)
+      if (key === journalKey && (value as {phase?: string}).phase === 'submitted') late.abort(new Error('stop'))
+    }}
+    const error = await reserveApplicationPayment(f.client, f.wallet, deployment, f.payment, expected, {...f.limits, receiptTimeoutMs: 1000, store, session: f.session, signal: late.signal}).catch((e: unknown) => e)
+    expect(error).toMatchObject({name: 'PaidReservationUncertainError', code: 'reservation-uncertain'})
+    expect(f.transactions).toHaveLength(1)
+    expect(await loadPaidReservationJournal(f.store, prepaidRequestId(f.payment))).toMatchObject({phase: 'submitted', transactionHash: h(77)})
+    expect(await f.store.load(f.payerKey)).toMatchObject({pending: {requestId: prepaidRequestId(f.payment), nonce: 4}})
+  } finally {await f.cleanup()}
+})
+
 it('refuses corrupt payer state and repeated operation journals before any network calls', async () => {
   const f = await applicationFixture()
   try {
@@ -476,6 +510,52 @@ it('refuses corrupt payer state and repeated operation journals before any netwo
     expect(f.trace).toHaveLength(before)
     await expect(f.recover()).rejects.toThrow(/does not own/)
   } finally {await f.cleanup()}
+})
+
+it('an abort before the durable preparation refuses as aborted with nothing journaled or sent', async () => {
+  const reason = new Error('stop')
+  const early = await fixture(), controller = new AbortController()
+  controller.abort(reason)
+  const refused = await early.run({signal: controller.signal}).catch((e: unknown) => e)
+  expect(refused).toBeInstanceOf(PaidReservationAbortedError)
+  expect(refused).toMatchObject({code: 'aborted', requestId: prepaidRequestId(early.payment), cause: reason})
+  expect(early.fetcher).not.toHaveBeenCalled()
+  for (const at of ['prepare', 'authorize']) {
+    const second = new AbortController()
+    const f = await fixture({quote: (_q, method) => { if (method === at) second.abort(reason) }})
+    await expect(f.run({signal: second.signal})).rejects.toMatchObject({name: 'PaidReservationAbortedError', code: 'aborted'})
+    expect(f.checkpoints).toEqual([])
+    expect(f.transactions).toHaveLength(0)
+    expect(f.trace).not.toContain('eth_sendTransaction')
+  }
+  // A refusal that is not caused by the abort keeps its own error.
+  const third = new AbortController()
+  const g = await fixture({simulateFailure: true, quote: (_q, method) => { if (method === 'authorize') third.abort(reason) }})
+  await expect(g.run({signal: third.signal})).rejects.toBeInstanceOf(PaidReservationAbortedError)
+  // An untouched signal changes nothing.
+  const h0 = await fixture()
+  expect(await h0.run({signal: new AbortController().signal})).toMatchObject({transactionHash: h(77)})
+})
+
+it('an abort after the durable preparation cannot cancel the broadcast: the journal completes and the wait ends uncertain', async () => {
+  for (const at of ['prepared', 'submitted'] as const) {
+    const controller = new AbortController(), reason = new Error('stop')
+    const f = await fixture({receiptMissing: true})
+    const error = await f.run({receiptTimeoutMs: 20, signal: controller.signal, persist: async checkpoint => {
+      await f.options.persist(checkpoint)
+      if (checkpoint.phase === at) controller.abort(reason)
+    }}).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(PaidReservationUncertainError)
+    expect(error).toMatchObject({code: 'reservation-uncertain', requestId: prepaidRequestId(f.payment), transactionHash: h(77), cause: reason})
+    expect(f.transactions).toHaveLength(1)
+    expect(f.checkpoints.map(c => c.phase)).toEqual(['prepared', 'submitted'])
+    // The abandoned wait still settles on its own, without an unhandled rejection.
+    await new Promise(resolve => setTimeout(resolve, 60))
+  }
+  // Without an abort, the wait's own timeout is still reported as uncertain.
+  const quiet = await fixture({receiptMissing: true})
+  await expect(quiet.run({receiptTimeoutMs: 20, signal: new AbortController().signal})).rejects.toMatchObject({code: 'reservation-uncertain', transactionHash: h(77)})
+  expect(quiet.transactions).toHaveLength(1)
 })
 
 it('journals the locally signed transaction hash before broadcasting it', async () => {
