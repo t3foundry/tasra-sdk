@@ -645,6 +645,18 @@ the claim command independently checks its proofs against the canonical chain ro
 Claiming credits an operator's reward balance, and withdrawing that balance is a separate
 transaction. Neither operation resumes keeper work or changes the saved reservation.
 
+## Report a prepaid payout fault
+
+When signed evidence shows a settled batch paid the wrong workers, hand it to an
+accountant's fault witness with `submitPrepaidFaultClaim(accountantUrl, bundle)` from
+`tasra-sdk/chain`. HTTP 202 means the claim was authenticated against the mined batch
+and stored; 400, 403 and 413 are final, 408, 429 and 503 can be sent again later (the
+error carries `retryAfterMs`). `readPrepaidFaultStatus` reports whether a witness can
+adjudicate. The accountant set threshold-signs a verdict; anyone can relay it with
+`contestPrepaidFault` (simulated first, so an oracle refusal such as `WrongEpoch()` or
+`AlreadyResolved()` is named and nothing is sent). `readPrepaidFaultResolution` shows
+whether the offender was already punished for that batch. None of these calls retries.
+
 ## Handle depleted slot credit
 
 Catch `UnderfundedSlotError` from `tasra-sdk/chain` when discovering or reserving a new

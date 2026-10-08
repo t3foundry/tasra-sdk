@@ -10,6 +10,9 @@ export {UnderfundedSlotError} from '../errors.js'
 export {readSlotFunding, readPaidOperationReceipt, resolvePaidKeeperTarget, discoverPaidOperationContext} from './prepaid.js'
 export {readBillingMode, createBillingModeDetector, requirePrepaidSlot, BillingModeError} from './billing.js'
 export {drawnVerifierWitnesses, fetchDrawnVerifierWitnesses} from './verifierSnapshot.js'
+export {encodePrepaidFaultContest, contestPrepaidFault, readPrepaidFaultResolution, submitPrepaidFaultClaim, readPrepaidFaultStatus,
+  PREPAID_FAULT_KINDS, MAX_PREPAID_FAULT_BUNDLE_BYTES} from './prepaidFault.js'
+export type {PrepaidFaultKind, PrepaidFaultVerdict, PrepaidFaultHttpOptions} from './prepaidFault.js'
 export type {OriginalVerifierPolicy} from './verifierSnapshot.js'
 export type {BillingMode, BillingModeObservation, BillingDeployment, BillingModeDetector} from './billing.js'
 export type {PrepaidDeployment, PrepaidObservation, SlotFunding, PaidOperationReceipt, ExpectedPaidOperation, PaidKeeperEndpoint, PaidKeeperTarget, PaidKeeperTransportOptions,

@@ -264,7 +264,7 @@ declare class UnderfundedSlotError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 74 functions</summary>
+<summary>Browse 79 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -277,6 +277,7 @@ Operations you can import and call.
 - [authenticateApprovedService](#authenticateapprovedservice)
 - [awaitRegisteredVerifierAgentResult](#awaitregisteredverifieragentresult)
 - [categoryFor](#categoryfor)
+- [contestPrepaidFault](#contestprepaidfault)
 - [createBillingModeDetector](#createbillingmodedetector)
 - [createCommitteeSlotClient](#createcommitteeslotclient)
 - [createKeeperExecutionApprover](#createkeeperexecutionapprover)
@@ -289,6 +290,7 @@ Operations you can import and call.
 - [deriveServiceId](#deriveserviceid)
 - [discoverPaidOperationContext](#discoverpaidoperationcontext)
 - [drawnVerifierWitnesses](#drawnverifierwitnesses)
+- [encodePrepaidFaultContest](#encodeprepaidfaultcontest)
 - [encodeServiceChallenge](#encodeservicechallenge)
 - [encodeServiceManifest](#encodeservicemanifest)
 - [eventNamesOf](#eventnamesof)
@@ -316,6 +318,8 @@ Operations you can import and call.
 - [readClientExecutionPolicy](#readclientexecutionpolicy)
 - [readKeeperExecutionRecoveryPolicy](#readkeeperexecutionrecoverypolicy)
 - [readPaidOperationReceipt](#readpaidoperationreceipt)
+- [readPrepaidFaultResolution](#readprepaidfaultresolution)
+- [readPrepaidFaultStatus](#readprepaidfaultstatus)
 - [readSlotFunding](#readslotfunding)
 - [reconcilePaidReservation](#reconcilepaidreservation)
 - [reconcileRelayAttempt](#reconcilerelayattempt)
@@ -333,6 +337,7 @@ Operations you can import and call.
 - [resolveVerifierDirectory](#resolveverifierdirectory)
 - [ruleCommitment](#rulecommitment)
 - [serviceChallengeTypedData](#servicechallengetypeddata)
+- [submitPrepaidFaultClaim](#submitprepaidfaultclaim)
 - [truncateHex](#truncatehex)
 - [validateServiceChallenge](#validateservicechallenge)
 - [validateServiceEndpoint](#validateserviceendpoint)
@@ -557,6 +562,31 @@ declare function categoryFor(contract: ContractName, eventName: string): EventCa
 | ` eventName ` | ` string ` | Decoded event name used for category overrides. |
 
 Returns: ` EventCategory `.
+
+### contestPrepaidFault
+
+Relay a threshold-signed verdict to the oracle. The call is simulated first, so an oracle
+refusal (WrongEpoch, AlreadyResolved, BadSignature, ...) is named and nothing is sent; the
+transaction is then sent once and its hash returned. Reconcile an unknown outcome with
+[readPrepaidFaultResolution](#readprepaidfaultresolution); never resend blindly.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L107)
+
+Import: `import {contestPrepaidFault} from 'tasra-sdk/chain'`
+
+```ts
+declare function contestPrepaidFault(client: PublicClient, wallet: WalletClient<Transport, Chain, Account>, oracle: Address, verdict: PrepaidFaultVerdict, signature: Hex): Promise<Hex>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | Trusted RPC client. |
+| ` wallet ` | ` WalletClient<Transport, Chain, Account> ` | Account- and chain-bound sender (any account: contest is permissionless). |
+| ` oracle ` | ` Address ` | Independently approved PrepaidFaultOracle. |
+| ` verdict ` | ` PrepaidFaultVerdict ` | Threshold-signed verdict. |
+| ` signature ` | ` Hex ` | BN254 threshold signature over the verdict digest. |
+
+Returns: ` Promise<Hex> `.
 
 ### createBillingModeDetector
 
@@ -840,6 +870,28 @@ declare function drawnVerifierWitnesses(value: unknown, original: OriginalVerifi
 | ` registry ` | ` Address ` | Independently approved VerifierSetRegistry address. |
 
 Returns: ` PaidVerifierWitness[] `.
+
+### encodePrepaidFaultContest
+
+Calldata for `PrepaidFaultOracle.contest`, after the oracle's local preconditions
+(nonzero subject, beneficiary rule, a deadline within 120 s). Chain-dependent checks
+(current epoch, settled request and batch, signature) stay with the oracle.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L77)
+
+Import: `import {encodePrepaidFaultContest} from 'tasra-sdk/chain'`
+
+```ts
+declare function encodePrepaidFaultContest(verdict: PrepaidFaultVerdict, signature: Hex, nowSecs?: bigint): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` verdict ` | ` PrepaidFaultVerdict ` | Threshold-signed verdict. |
+| ` signature ` | ` Hex ` | BN254 threshold signature over the verdict digest. |
+| ` nowSecs? ` | ` bigint ` | Current time in Unix seconds (default: now). |
+
+Returns: ` Hex `.
 
 ### encodeServiceChallenge
 
@@ -1574,6 +1626,61 @@ declare function readPaidOperationReceipt(client: PublicClient, deployment: Prep
 
 Returns: ` Promise<PaidOperationReceipt> `.
 
+### readPrepaidFaultResolution
+
+Whether the oracle already punished this offender for this batch (one resolution per
+offender and batch, whatever the kind or evidence).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L88)
+
+Import: `import {readPrepaidFaultResolution} from 'tasra-sdk/chain'`
+
+```ts
+declare function readPrepaidFaultResolution(client: PublicClient, oracle: Address, subject: {
+    slotId: Hex;
+    batchId: Hex;
+    offender: Address;
+}): Promise<{
+    resolutionId: Hex;
+    resolved: boolean;
+}>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | Trusted RPC client. |
+| ` oracle ` | ` Address ` | Independently approved PrepaidFaultOracle. |
+| ` subject ` | ` { slotId: Hex; batchId: Hex; offender: Address; } ` | Slot, batch and offender. |
+
+Returns:
+
+```ts
+Promise<{
+    resolutionId: Hex;
+    resolved: boolean;
+}>
+```
+
+### readPrepaidFaultStatus
+
+Read an accountant fault witness's adjudication health (`GET /v1/prepaid-fault/status`).
+The body is returned as parsed JSON, bounded to 64 KiB; it is a monitoring view, not evidence.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L168)
+
+Import: `import {readPrepaidFaultStatus} from 'tasra-sdk/chain'`
+
+```ts
+declare function readPrepaidFaultStatus(base: string, options?: PrepaidFaultHttpOptions): Promise<Record<string, unknown>>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` base ` | ` string ` | Approved accountant origin. |
+| ` options? ` | ` PrepaidFaultHttpOptions ` | Fetch, cancellation, deadline and local HTTP allowance. |
+
+Returns: ` Promise<Record<string, unknown>> `.
+
 ### readSlotFunding
 
 Read available, reserved and total slot TASRA at one fresh canonical block. Performs no transaction.
@@ -2005,6 +2112,37 @@ Returns:
 }
 ```
 
+### submitPrepaidFaultClaim
+
+Hand a proof bundle to an accountant's fault witness (`POST /v1/prepaid-fault/claim`).
+Resolves on HTTP 202 (authenticated and durably stored). Any other status throws a
+TasraHttpError with the service's `Retry-After`: 400 malformed, 403 nothing authenticated,
+413 too large are final; 408, 429 and 503 may be sent again later. Never re-sent here.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L149)
+
+Import: `import {submitPrepaidFaultClaim} from 'tasra-sdk/chain'`
+
+```ts
+declare function submitPrepaidFaultClaim(base: string, bundle: Record<string, unknown>, options?: PrepaidFaultHttpOptions): Promise<{
+    status: 202;
+}>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` base ` | ` string ` | Approved accountant origin. |
+| ` bundle ` | ` Record<string, unknown> ` | Proof bundle (`version` 1, `slot`, `batch_id`, `reconcile_block`, signed records). |
+| ` options? ` | ` PrepaidFaultHttpOptions ` | Fetch, cancellation, deadline and local HTTP allowance. |
+
+Returns:
+
+```ts
+Promise<{
+    status: 202;
+}>
+```
+
 ### truncateHex
 
 Abbreviate an address or hash by retaining its leading and trailing digits.
@@ -2148,7 +2286,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 107 types</summary>
+<summary>Browse 110 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -2212,6 +2350,9 @@ Options, data structures and return types.
 - [PaidRetainedPresentation](#paidretainedpresentation)
 - [PaidVerifierWitness](#paidverifierwitness)
 - [PrepaidDeployment](#prepaiddeployment)
+- [PrepaidFaultHttpOptions](#prepaidfaulthttpoptions)
+- [PrepaidFaultKind](#prepaidfaultkind)
+- [PrepaidFaultVerdict](#prepaidfaultverdict)
 - [PrepaidObservation](#prepaidobservation)
 - [ProvisionRuleArgs](#provisionruleargs)
 - [ProvisionRuleResult](#provisionruleresult)
@@ -3759,6 +3900,70 @@ Fields:
 - **` settlement `**: Expected Settlement proxy.
 - **` keyRegistry `**: Expected KeyRegistry proxy.
 
+### PrepaidFaultHttpOptions
+
+Options for the accountant fault endpoints.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L117)
+
+```ts
+export interface PrepaidFaultHttpOptions {
+    fetch?: typeof fetch;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    allowLocalHttp?: boolean;
+}
+```
+
+Fields:
+
+- **` fetch `**: Fetch implementation (default global fetch).
+- **` signal `**: Cancellation.
+- **` timeoutMs `**: Per-request deadline in ms (default 30000).
+- **` allowLocalHttp `**: Permit plain HTTP to a loopback accountant (local development only).
+
+### PrepaidFaultKind
+
+A prepaid payout fault kind.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L18)
+
+```ts
+export type PrepaidFaultKind = (typeof PREPAID_FAULT_KINDS)[number];
+```
+
+### PrepaidFaultVerdict
+
+The verdict the accountant set threshold-signs and the oracle executes.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L21)
+
+```ts
+export interface PrepaidFaultVerdict {
+    slotId: Hex;
+    requestId: Hex;
+    batchId: Hex;
+    evidenceHash: Hex;
+    offender: Address;
+    beneficiary: Address;
+    kind: PrepaidFaultKind;
+    epoch: bigint;
+    deadline: bigint;
+}
+```
+
+Fields:
+
+- **` slotId `**: Slot of the settled request.
+- **` requestId `**: Settled prepaid request.
+- **` batchId `**: Mined batch that settled it.
+- **` evidenceHash `**: Commitment to the adjudicated evidence.
+- **` offender `**: Operator to slash.
+- **` beneficiary `**: Under-credited worker paid the bounty; zero for every other kind.
+- **` kind `**: Fault kind.
+- **` epoch `**: Beacon epoch the verdict was signed at; must be current when executed.
+- **` deadline `**: Unix deadline, at most 120 s after execution time.
+
 ### PrepaidObservation
 
 Fresh canonical observation shared by every field in a funding or reservation result.
@@ -4962,11 +5167,13 @@ Shared values and contract definitions.
 | `keeperShareRegistryAbi` | KeeperShareRegistry contract interface for anchored keeper verifying-share commitments. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/keeperShareRegistry.ts#L5) |
 | `keyRegistryAbi` | KeyRegistry contract interface for slot creation, key epochs and authorization policies. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/keyRegistry.ts#L5) |
 | `livenessRegistryAbi` | LivenessRegistry contract interface for registered operator liveness observations. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/livenessRegistry.ts#L5) |
+| `MAX_PREPAID_FAULT_BUNDLE_BYTES` | Accountant claim intake byte limit (the witness's own bundle maximum). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L43) |
 | `mockEurcAbi` | MockEurc contract interface for test-token balances, transfers, approvals and minting. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/mockEurc.ts#L5) |
 | `NETWORKS` | Built-in network defaults; use a tasra-releases manifest for deployed contract addresses. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L39) |
 | `nodeApi` | Direct keeper HTTP reads for status, keys, public keys, heartbeats and metering. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L145) |
 | `nodeRegistryAbi` | NodeRegistry contract interface for operator registration, role tags, stake and activity. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/nodeRegistry.ts#L5) |
 | `platformExecutorAbi` | PlatformExecutor contract interface for platform-authorized contract execution. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/platformExecutor.ts#L5) |
+| `PREPAID_FAULT_KINDS` | Fault kinds in the oracle's enum order. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L16) |
 | `prepaidFaultOracleAbi` | PrepaidFaultOracle contract interface for threshold-signed prepaid fault verdicts and their slashing resolutions. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/prepaidFaultOracle.ts#L5) |
 | `prevrandaoSaltBeaconAbi` | PrevrandaoSaltBeacon contract interface for chain-randomness-derived committee seeds. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/prevrandaoSaltBeacon.ts#L5) |
 | `PROVISION_RULE_ACTION` | Action identifier accepted by the creator-authorized rule provisioning endpoint. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/provisionRule.ts#L33) |

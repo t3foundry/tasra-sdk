@@ -41,6 +41,12 @@ never does.
 
 ### Added
 
+- Prepaid fault clients (`tasra-sdk/chain`): `submitPrepaidFaultClaim` and
+  `readPrepaidFaultStatus` for an accountant's fault witness, and
+  `encodePrepaidFaultContest`, `contestPrepaidFault` (simulate, then send once) and
+  `readPrepaidFaultResolution` for `PrepaidFaultOracle`. Local checks mirror the
+  oracle's preconditions; nothing is retried.
+
 - `tasra-sdk/app/browser`: `createIndexedDbStore`, an `ApplicationStore` over IndexedDB
   (strict-durability commits, plain-data values) with Web Locks shared across tabs and
   extension service workers, and fetch transports `createBrowserPaidAgentTransport`,
