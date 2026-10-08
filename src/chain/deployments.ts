@@ -229,6 +229,8 @@ const ENV_ALIASES: Record<string, ContractName> = {
   VERIFIER_SET_REGISTRY: 'VerifierSetRegistry',
   ACCOUNTANT_SET_REGISTRY: 'AccountantSetRegistry',
   KEEPER_SHARE_REGISTRY: 'KeeperShareRegistry',
+  // Separate immutable slasher for prepaid payout faults (not an AccountantSlashing alias).
+  PREPAID_FAULT_ORACLE: 'PrepaidFaultOracle',
   PLATFORM_EXECUTOR: 'PlatformExecutor',
   PRICE_ORACLE: 'FixedTasraPriceOracle',
   EURC: 'MockEurc',

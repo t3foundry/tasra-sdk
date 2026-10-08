@@ -20,6 +20,7 @@ import {livenessRegistryAbi} from './livenessRegistry.js'
 import {verifierSetRegistryAbi} from './verifierSetRegistry.js'
 import {accountantSetRegistryAbi} from './accountantSetRegistry.js'
 import {keeperShareRegistryAbi} from './keeperShareRegistry.js'
+import {prepaidFaultOracleAbi} from './prepaidFaultOracle.js'
 
 export {nodeRegistryAbi} from './nodeRegistry.js'
 export {keyRegistryAbi} from './keyRegistry.js'
@@ -41,6 +42,7 @@ export {livenessRegistryAbi} from './livenessRegistry.js'
 export {verifierSetRegistryAbi} from './verifierSetRegistry.js'
 export {accountantSetRegistryAbi} from './accountantSetRegistry.js'
 export {keeperShareRegistryAbi} from './keeperShareRegistry.js'
+export {prepaidFaultOracleAbi} from './prepaidFaultOracle.js'
 
 /** Contract name to ABI. Keys match Foundry artifact names. */
 export const CONTRACT_ABIS = {
@@ -64,6 +66,7 @@ export const CONTRACT_ABIS = {
   VerifierSetRegistry: verifierSetRegistryAbi,
   AccountantSetRegistry: accountantSetRegistryAbi,
   KeeperShareRegistry: keeperShareRegistryAbi,
+  PrepaidFaultOracle: prepaidFaultOracleAbi,
 } as const
 
 /** Canonical contract names supported by the bundled ABI registry. */

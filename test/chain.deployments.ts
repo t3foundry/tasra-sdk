@@ -126,6 +126,7 @@ const here = dirname(fileURLToPath(import.meta.url))
     'export RANDOM_BEACON=0xa513e6e4b8f2a923d98304ec87f64353c4d5c853',
     'VERIFIER_SET_REGISTRY=0xbf921f94fd9ef1738be25d8cecfdfe2c822c81b0',
     'KEEPER_SHARE_REGISTRY=0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE',
+    'PREPAID_FAULT_ORACLE=0x00000000000000000000000000000000000000aB',
     'GARBAGE=not-an-address',
   ].join('\n')
   const book = addressBookFromEnv(env)
@@ -135,6 +136,8 @@ const here = dirname(fileURLToPath(import.meta.url))
   // Aliases added for the slot-driven committee flow (trustless snapshot).
   ok('env: VERIFIER_SET_REGISTRY → VerifierSetRegistry', book.VerifierSetRegistry === '0xbf921f94fd9ef1738be25d8cecfdfe2c822c81b0')
   ok('env: KEEPER_SHARE_REGISTRY → KeeperShareRegistry', book.KeeperShareRegistry === '0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae')
+  // A separate immutable slasher; it must never collapse into the AccountantSlashing hub.
+  ok('env: PREPAID_FAULT_ORACLE → PrepaidFaultOracle', book.PrepaidFaultOracle === '0x00000000000000000000000000000000000000ab' && book.AccountantSlashing === undefined)
   ok('env: raw key kept too', book.NODE_REGISTRY === book.NodeRegistry)
   ok('env: non-address skipped', book.GARBAGE === undefined)
 }

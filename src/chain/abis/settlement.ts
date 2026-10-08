@@ -518,6 +518,29 @@ export const settlementAbi = [
   },
   {
     "type": "function",
+    "name": "initializePrepaid",
+    "inputs": [
+      {
+        "name": "token_",
+        "type": "address",
+        "internalType": "contract TasraToken"
+      },
+      {
+        "name": "nodeRegistry_",
+        "type": "address",
+        "internalType": "contract NodeRegistry"
+      },
+      {
+        "name": "owner_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "isTrustedForwarder",
     "inputs": [
       {
@@ -632,6 +655,30 @@ export const settlementAbi = [
   },
   {
     "type": "function",
+    "name": "prepaidBatch",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "prepaidCost",
     "inputs": [
       {
@@ -664,6 +711,19 @@ export const settlementAbi = [
         "internalType": "bytes32"
       }
     ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "prepaidFromGenesis",
+    "inputs": [],
     "outputs": [
       {
         "name": "",
@@ -3121,6 +3181,11 @@ export const settlementAbi = [
   {
     "type": "error",
     "name": "ZeroAmount",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroBatchId",
     "inputs": []
   },
   {

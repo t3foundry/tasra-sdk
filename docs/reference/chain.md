@@ -325,7 +325,7 @@ Returns: ` AddressBook `.
 
 Parse supported deployment environment keys or a KEY=VALUE text blob into contract addresses. Empty values and entries that are not valid addresses are ignored. Prefer deployment addresses from a tasra-releases network manifest.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L266)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L268)
 
 Import: `import {addressBookFromEnv} from 'tasra-sdk/chain'`
 
@@ -363,7 +363,7 @@ Returns: ` AddressBook `.
 
 Normalise an explicit object into an AddressBook (validates addresses).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L290)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L292)
 
 Import: `import {addressBookFromObject} from 'tasra-sdk/chain'`
 
@@ -500,7 +500,7 @@ Returns: ` Promise<VerifierAgentResult> `.
 
 Choose the event category, including event-specific overrides for a contract.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L70)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L72)
 
 Import: `import {categoryFor} from 'tasra-sdk/chain'`
 
@@ -691,7 +691,7 @@ Decode raw logs (already filtered to `address`) against `contract`'s ABI.
 Non-matching / anonymous logs are skipped. `strict:false` tolerates logs
 whose indexed topics can't be fully decoded.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L132)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L134)
 
 Import: `import {decodeContractLogs} from 'tasra-sdk/chain'`
 
@@ -791,7 +791,7 @@ Returns: ` Uint8Array `.
 
 The set of event names declared by a contract's ABI.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L84)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L86)
 
 Import: `import {eventNamesOf} from 'tasra-sdk/chain'`
 
@@ -899,7 +899,7 @@ Returns: ` Hex `.
 Recursively convert bigints to strings so a decoded event can be JSON
 serialized / stored. Leaves everything else intact.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L168)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L170)
 
 Import: `import {jsonSafe} from 'tasra-sdk/chain'`
 
@@ -1521,7 +1521,7 @@ Return details: A seed response, or null when no accountant returns an acceptabl
 
 Resolve a contract address, throwing a clear error if missing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L327)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L329)
 
 Import: `import {requireAddress} from 'tasra-sdk/chain'`
 
@@ -1540,7 +1540,7 @@ Returns: ` Address `.
 
 Resolve the named vesting allocation. The unqualified vault address is accepted as a fallback; callers aggregating allocations must deduplicate resolved addresses.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L307)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L309)
 
 Import: `import {requireVaultAddress} from 'tasra-sdk/chain'`
 
@@ -2416,7 +2416,7 @@ Fields:
 
 Canonical contract names supported by the bundled ABI registry.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/index.ts#L70)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/index.ts#L73)
 
 ```ts
 export type ContractName = keyof typeof CONTRACT_ABIS;
@@ -2528,7 +2528,7 @@ Fields:
 
 A normalized, storage-ready decoded log.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L91)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L93)
 
 ```ts
 export interface DecodedEvent {
@@ -4618,7 +4618,7 @@ Shared values and contract definitions.
 | `accountantSetRegistryAbi` | AccountantSetRegistry contract interface for accountant-set snapshots and membership evidence. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/accountantSetRegistry.ts#L5) |
 | `accountantSlashingAbi` | AccountantSlashing contract interface for accountant penalties and related evidence. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/accountantSlashing.ts#L5) |
 | `bondingCurveAbi` | BondingCurve contract interface for TSRA purchases, redemptions and pricing. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/bondingCurve.ts#L5) |
-| `CONTRACT_ABIS` | Contract name to ABI. Keys match Foundry artifact names. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/index.ts#L46) |
+| `CONTRACT_ABIS` | Contract name to ABI. Keys match Foundry artifact names. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/index.ts#L48) |
 | `CONTRACT_CATEGORY` | Default category per contract (the global event feed groups by this). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/events.ts#L23) |
 | `DEFAULT_CHAIN_ID` | Fallback chain ID retained for explicitly configured loopback connections. Set the chain ID from the downloaded tasra-releases network manifest for deployment access. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L64) |
 | `equivocationSlasherAbi` | EquivocationSlasher contract interface for submitting conflicting-signature evidence. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/equivocationSlasher.ts#L5) |
@@ -4632,6 +4632,7 @@ Shared values and contract definitions.
 | `nodeApi` | Direct keeper HTTP reads for status, keys, public keys, heartbeats and metering. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L145) |
 | `nodeRegistryAbi` | NodeRegistry contract interface for operator registration, role tags, stake and activity. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/nodeRegistry.ts#L5) |
 | `platformExecutorAbi` | PlatformExecutor contract interface for platform-authorized contract execution. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/platformExecutor.ts#L5) |
+| `prepaidFaultOracleAbi` | PrepaidFaultOracle contract interface for threshold-signed prepaid fault verdicts and their slashing resolutions. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/prepaidFaultOracle.ts#L5) |
 | `prevrandaoSaltBeaconAbi` | PrevrandaoSaltBeacon contract interface for chain-randomness-derived committee seeds. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/prevrandaoSaltBeacon.ts#L5) |
 | `PROVISION_RULE_ACTION` | Action identifier accepted by the creator-authorized rule provisioning endpoint. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/provisionRule.ts#L33) |
 | `SERVICE_CHALLENGE_LIFETIME_SECONDS` | Challenge lifetime in seconds, leaving room for clock differences. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L29) |

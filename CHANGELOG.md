@@ -41,6 +41,12 @@ never does.
 
 ### Added
 
+- Refresh the Settlement ABI from the current contract build: `initializePrepaid`,
+  `prepaidBatch`, `prepaidFromGenesis` and `ZeroBatchId()` are additive. Add the
+  `PrepaidFaultOracle` ABI (`prepaidFaultOracleAbi`, `CONTRACT_ABIS.PrepaidFaultOracle`)
+  with its `PrepaidFaultResolved` event in the `slashing` category, and resolve the
+  `PREPAID_FAULT_ORACLE` deployment key to it. Existing exports are unchanged.
+
 - Expose the keeper's optional `NodeInfo.admin_auth` capability. `separate`
   reports an independent administrative issuer; `unconfigured` reports that
   administrative routes await operator configuration. An absent field is unknown.
