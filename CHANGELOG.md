@@ -41,6 +41,17 @@ never does.
 
 ### Added
 
+- `paidOperation` (`tasra-sdk/app`) runs one paid operation end to end: billing
+  guard, discovery, creator-signed operation and intent, verified drawn witnesses
+  (`fetchDrawnVerifierWitnesses`, `tasra-sdk/chain`), reservation with a caller gas
+  payer, execution certificate, registered session (`drivePaidSession`, local or
+  external wallet), verified grant and a once-only `execute` with keeper result
+  `recover`. Every billable step is journaled before sending; an uncertain one throws
+  `PaidOperationRecoveryError` and `resumePaidOperation` continues from the journal
+  (on-chain reconciliation, never a second reservation, session or execution).
+  `createMemoryStore` is an in-process store for tests. The fleet test driver now uses
+  these APIs.
+
 - Detect a slot's billing from the chain: `readBillingMode`, the per-slot caching
   `createBillingModeDetector` and `requirePrepaidSlot` (`tasra-sdk/chain`) read
   `Settlement.version()` and, on version 2, `prepaidEnabled(slot)` and

@@ -2,31 +2,18 @@
 // client consent. No CLI, shell helper or service-selected signing body is used.
 import assert from 'node:assert/strict'
 import {constants, readSync, openSync, fstatSync, closeSync} from 'node:fs'
-import {randomBytes} from 'node:crypto'
-import {setTimeout as delay} from 'node:timers/promises'
-import {createWalletClient, hexToBytes, http, keccak256, toHex, type Address, type Hex} from 'viem'
+import {createWalletClient, http, type Address, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {createFileStore} from '../../src/app/node.ts'
-import {reserveApplicationPayment} from '../../src/app/paid-reservation.ts'
+import {paidOperation} from '../../src/app/paid-operation.ts'
 import {createTasraChainClient} from '../../src/chain/client.ts'
-import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.ts'
-import {createTasraWriteClient, ruleCommitment} from '../../src/chain/write.ts'
+import {createTasraWriteClient} from '../../src/chain/write.ts'
 import {parseApplicationServiceProfiles} from '../../src/chain/serviceProfiles.ts'
 import {createNodeAgentWalletFetch, createNodePaidAgentTransport} from '../../src/chain/node.ts'
-import {discoverPaidOperationContext, readClientExecutionPolicy, type PaidContextDeployment} from '../../src/chain/prepaid.ts'
-import {createKeeperExecutionApprover} from '../../src/chain/keeperExecution.ts'
-import {prepareRegisteredPaidSession} from '../../src/chain/registeredPaidAgent.ts'
-import {createExecutionCertificate, createLocalExecutionSigner} from '../../src/committee/execution.ts'
-import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.ts'
+import {discoverPaidOperationContext, type PaidContextDeployment} from '../../src/chain/prepaid.ts'
 import {buildResponse, parseSdJwt, planPresentation, sdJwtCredentialView, submitResponse, type HolderKey, type OperationInput} from '../../src/oid4vp/index.ts'
-import {presentationOperationTypedData, verifierAgentResult} from '../../src/oid4vp/verifier-agent.ts'
-import {requestHash} from '../../src/oid4vp/binding.ts'
-import {canonicalize} from '../../src/auth/oid4vp.ts'
 import type {FleetConfig} from './_fleet.ts'
 import {localPrepaidSettings} from './_prepaid-funding.ts'
-import {drawnVerifierWitnesses} from './_paid-policy.ts'
-import {drivePaidWalletSession, waitForPaidSnapshot} from './_paid-wallet-session.ts'
-import {withDedicatedPayer} from './_payer-queue.ts'
 import type {VerifiedRequestObject} from '../../src/oid4vp/request-object.ts'
 
 export function readPaidConfigFile(file: string, cap: number): string {
@@ -93,34 +80,6 @@ export function paidWalletSettings(cfg: FleetConfig) {
     keeperUrl: (registered: string) => map.get(registered.replace(/\/$/, '')) ?? registered}
 }
 
-async function snapshotArtifact(hosts: string[], epoch: number, signal: AbortSignal): Promise<unknown> {
-  for (const host of hosts) {
-    signal.throwIfAborted()
-    try {
-      const response = await fetch(host.replace(/\/$/, '') + '/v1/verifier-set/' + epoch,
-        {redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]), headers: {'accept': 'application/json', 'accept-encoding': 'identity'}})
-      assert(response.status === 200 && response.headers.get('content-type')?.split(';')[0] === 'application/json'
-        && (!response.headers.get('content-encoding') || response.headers.get('content-encoding') === 'identity'), 'Snapshot HTTP response refused')
-      assert(response.body, 'Snapshot body is missing')
-      const reader = response.body.getReader(), chunks: Uint8Array[] = []
-      let length = 0
-      try {
-        for (;;) {
-          const {done, value} = await reader.read()
-          if (done) break
-          length += value.length
-          assert(length <= 8 * 1024 * 1024, 'Snapshot exceeds the read-only artifact bound')
-          chunks.push(value)
-        }
-      } finally { await reader.cancel() }
-      const bytes = new Uint8Array(length); let offset = 0
-      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
-      return JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes)) as unknown
-    } catch { signal.throwIfAborted() }
-  }
-  throw new Error('No explicitly approved accountant served the original verifier snapshot')
-}
-
 export async function paidWalletCoordinator(cfg: FleetConfig, slot: Hex, entry: number): Promise<Address> {
   const settings = paidWalletSettings(cfg)
   assert(Number.isSafeInteger(entry) && entry >= 0, 'Invalid original coordinator selection')
@@ -143,7 +102,6 @@ export async function authorizePaidWallet(cfg: FleetConfig, slot: Hex, creatorKe
     'Paid wallet requires independently configured settlement and anchored role registries')
   const deployment: PaidContextDeployment = {chainId: 43112, settlement: cfg.book.Settlement, keyRegistry: cfg.book.KeyRegistry,
     verifierSet: cfg.book.VerifierSetRegistry, accountantSet: cfg.book.AccountantSetRegistry, beacon: cfg.book.ThresholdRandomBeacon}
-  const executionDeployment = {...deployment, defaultVerificationPolicy: settings.defaultVerificationPolicy}
   const store = createFileStore(settings.directory)
   const funding = await store.load<{phase: string; creator: Address; rule: string; ruleSalt: Hex}>(`funding-43112-${slot.slice(2)}`)
   assert(funding?.phase === 'confirmed' && funding.creator.toLowerCase() === creator.address.toLowerCase(),
@@ -152,78 +110,35 @@ export async function authorizePaidWallet(cfg: FleetConfig, slot: Hex, creatorKe
   const chain = createTasraChainClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, chainId: 43112, multicall3: false})
   const snapshotWaitSecs = Number(cfg.raw.KK_SNAPSHOT_WAIT_SECS ?? '180')
   assert(Number.isSafeInteger(snapshotWaitSecs) && snapshotWaitSecs > 0 && snapshotWaitSecs <= 300, 'Snapshot readiness wait must be bounded')
-  const readiness = AbortSignal.timeout(snapshotWaitSecs * 1000)
-  const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(writer.pub, deployment, slot,
-    {allowLocalHttp: true, defaultVerificationPolicy: settings.defaultVerificationPolicy, coordinator}), readiness,
-    () => delay(1000, undefined, {signal: readiness}))
-  assert.equal(context.creator.toLowerCase(), creator.address.toLowerCase(), 'Paid creator changed')
-  const originalSlot = await writer.pub.readContract({address: deployment.keyRegistry, abi: keyRegistryAbi,
-    functionName: 'getKeySlot', args: [slot], blockNumber: context.blockNumber})
-  assert.equal(originalSlot.ruleCommitment.toLowerCase(), ruleCommitment(funding.ruleSalt, funding.rule).toLowerCase(), 'Original salted rule changed')
-  assert.equal((await writer.pub.getBlock({blockNumber: context.blockNumber})).hash, context.blockHash, 'Original rule observation reorganized')
-  const canonicalRule = canonicalize(funding.rule), query = JSON.parse(canonicalRule) as Record<string, unknown>
-  const nowSecs = Math.floor(Date.now() / 1000), ttlSecs = input.ttlSecs ?? 600
+  const ttlSecs = input.ttlSecs ?? 600
   assert(Number.isSafeInteger(ttlSecs) && ttlSecs > 0 && ttlSecs <= 3600, 'Original payment expiry must be bounded')
-  const operation = presentationOperationTypedData({...input, chainId: 43112, keyRegistry: deployment.keyRegistry, slotId: slot,
-    description: 'Local test operation', nowSecs, ttlSecs})
-  const random = toHex(randomBytes(32)), operationSig = await creator.signTypedData(operation.typedData)
-  const unsigned = {...context.intentFields, action: input.action === 'sign' && context.mode === 2 ? 'eoa-sign' as const : input.action,
-    payload_digest: toHex(operation.payloadDigest), session_commitment: paymentSessionCommitment(random, settings.profile.clientId, operation.operation.exp),
-    nonce: toHex(randomBytes(32)), max_cost: settings.maxCost.toString(), expires: operation.operation.exp}
-  const payment: PaymentIntentWire = {...unsigned, signature: await creator.signTypedData(paymentIntentTypedData(unsigned))}
-  const expected = {slot, action: payment.action, payloadDigest: payment.payload_digest}
-  const signal = AbortSignal.timeout(Math.min(150_000, ttlSecs * 1000))
-  const artifact = await snapshotArtifact(settings.accountantUrls, payment.verification_epoch, signal)
-  const members = drawnVerifierWitnesses(artifact, payment, deployment.verifierSet)
-  const gasWallet = createWalletClient({account: creator, chain: writer.wallet.chain,
-    transport: http(cfg.rpcUrl, {retryCount: 0, timeout: 15_000, fetchOptions: {redirect: 'error'}})})
   // Each slot's creator is its dedicated reservation gas payer. The store refuses
   // an unresolved nonce instead of silently retrying/replacing the transaction.
-  await withDedicatedPayer('43112-' + creator.address.toLowerCase(), () => reserveApplicationPayment(writer.pub, gasWallet, deployment, payment, expected,
-    {store, session: {random, audience: settings.profile.clientId}, accountantUrls: settings.accountantUrls,
-      allowLocalHttp: true, maxGas: settings.maxGas, maxGasPrice: settings.maxGasPrice}))
-  const {policy} = await readClientExecutionPolicy(writer.pub, executionDeployment, payment, expected)
-  const seed = randomBytes(32), signer = createLocalExecutionSigner(seed), pollSecret = toHex(randomBytes(32)).slice(2)
-  try {
-  const certificate = await createExecutionCertificate({payment, policy, publicKey: signer.publicKey, expires: payment.expires, creator})
-  const params = {operation: operation.operation, operationSig, messageHex: operation.messageHex, payment, random}
-  const privateName = 'wallet-original-' + prepaidRequestId(payment).slice(2)
-  await store.withLock(privateName, async () => {
-    assert.equal(await store.load(privateName), undefined, 'Original paid client already retained; reconcile it')
-    await store.save(privateName, {schema: 1, deployment: executionDeployment, payment, expected, seed: new Uint8Array(seed), certificate,
-      profile: settings.profile, params, pollSecret, members, rule: canonicalRule, ruleSalt: funding.ruleSalt, artifact})
+  const gasWallet = createWalletClient({account: creator, chain: writer.wallet.chain,
+    transport: http(cfg.rpcUrl, {retryCount: 0, timeout: 15_000, fetchOptions: {redirect: 'error'}})})
+  // The SDK verified the request object's response URI against the session it derived.
+  const fetcherFor = (request: VerifiedRequestObject) => {
+    const sessionId = new URL(String(request.claims.response_uri)).searchParams.get('session') ?? ''
+    return createNodeAgentWalletFetch({profile: settings.profile, requestUri: settings.profile.endpoint + '/v1/request/' + sessionId, sessionId}, settings.transportPolicy)
+  }
+  const operation = await paidOperation({chain, deployment: {...deployment, defaultVerificationPolicy: settings.defaultVerificationPolicy},
+    creator, gasPayer: gasWallet, store, agent: {profile: settings.profile, transport: createNodePaidAgentTransport(settings.transportPolicy)},
+    accountantUrls: settings.accountantUrls, limits: {maxCost: settings.maxCost, maxGas: settings.maxGas, maxGasPrice: settings.maxGasPrice},
+    allowLocalHttp: true, keeperUrl: settings.keeperUrl, snapshotWaitMs: snapshotWaitSecs * 1000}, {
+    slot, operation: {...input, ttlSecs, description: 'Local test operation'}, rule: {rule: funding.rule, salt: funding.ruleSalt}, coordinator,
+    signal: AbortSignal.timeout(Math.min(150_000, ttlSecs * 1000) + snapshotWaitSecs * 1000),
+    observeRequest: request => observeRequest?.(request, fetcherFor(request)),
+    holder: {kind: 'local', makePresentation: request => {
+      const plan = planPresentation(request, [{sdJwt: wallet.sdJwt}]), parsed = parseSdJwt(wallet.sdJwt)
+      const candidate = forcePresentation ? {held: {sdJwt: wallet.sdJwt}, parsed, view: sdJwtCredentialView(parsed), queryId: request.claims.dcql_query.credentials[0]!.id} : plan.chosen
+      assert(candidate, 'Held credential does not answer the original client-approved request')
+      const iat = Math.floor(Date.now() / 1000), built = buildResponse({ro: request, candidate, holder: wallet.holder, disclose: 'all', nowSecs: iat})
+      assert(built.encrypted && built.form.response, 'Original SDK presentation must be encrypted')
+      const holder = typeof parsed.payload.sub === 'string' ? parsed.payload.sub : wallet.holder.did
+      return {approved: {holder, credentials: [built.presentation], holder_proof: null, oauth: null, iat}, form: built.form}
+    }, submit: (request, presentation) => submitResponse(request, presentation, fetcherFor(request)).then(() => {})},
   })
-  seed.fill(0)
-  const session = await prepareRegisteredPaidSession(chain, {profile: settings.profile, deployment: executionDeployment,
-    transport: createNodePaidAgentTransport(settings.transportPolicy), members, ruleHash: keccak256(toHex(canonicalRule)), dcqlQuery: query}, params,
-    {certificate, signer, pollSecret, signal})
-  const fetcher = createNodeAgentWalletFetch({profile: settings.profile, requestUri: settings.profile.endpoint + '/v1/request/' + session.sessionId,
-    sessionId: session.sessionId}, settings.transportPolicy)
-  const result = await drivePaidWalletSession({session, members, store, signal, wait: async () => {
-    await new Promise<void>((resolve, reject) => {
-      signal.throwIfAborted()
-      const abort = () => {clearTimeout(timer); reject(signal.reason)}
-      const timer = setTimeout(() => {signal.removeEventListener('abort', abort); resolve()}, 1000)
-      signal.addEventListener('abort', abort, {once: true})
-    })
-  }, observeRequest: request => observeRequest?.(request, fetcher), makePresentation: request => {
-    const plan = planPresentation(request, [{sdJwt: wallet.sdJwt}]), parsed = parseSdJwt(wallet.sdJwt)
-    const candidate = forcePresentation ? {held: {sdJwt: wallet.sdJwt}, parsed, view: sdJwtCredentialView(parsed), queryId: request.claims.dcql_query.credentials[0]!.id} : plan.chosen
-    assert(candidate, 'Held credential does not answer the original client-approved request')
-    const iat = Math.floor(Date.now() / 1000), built = buildResponse({ro: request, candidate, holder: wallet.holder, disclose: 'all', nowSecs: iat})
-    assert(built.encrypted && built.form.response, 'Original SDK presentation must be encrypted')
-    const holder = typeof parsed.payload.sub === 'string' ? parsed.payload.sub : wallet.holder.did
-    return {approved: {holder, credentials: [built.presentation], holder_proof: null, oauth: null, iat}, form: built.form}
-  }, submit: (request, presentation) => submitResponse(request, presentation, fetcher).then(() => {})})
-  const grant = verifierAgentResult({sessionId: session.sessionId, paymentHash: paymentIntentHash(payment),
-    requestHash: requestHash(43112, hexToBytes(slot), input.action, operation.payloadDigest)}, result)
-  assert(grant.verifierProofs?.length, 'Paid token must carry original anchored verifier proofs')
-  const approveExecution = createKeeperExecutionApprover({client: writer.pub, deployment, payment, expected, certificate, signer,
-    keeperUrl: settings.keeperUrl, transportPolicy: {allowLocalHttp: true}})
-  return {compound_token: grant.token, verifierProofs: grant.verifierProofs,
-    verifier_proofs: grant.verifierProofs.map(p => ({verifier_index: p.verifierIndex, operator: p.operator, pubkey: p.pubkey, proof: p.proof})),
-    approveExecution, coordinatorUrl: settings.keeperUrl(context.coordinator.url), payment, originalRequestId: prepaidRequestId(payment),
-    dispose: () => signer.dispose()}
-  } catch (error) { signer.dispose(); throw error }
-  finally { seed.fill(0) }
+  return {compound_token: operation.compound_token, verifierProofs: operation.verifierProofs, verifier_proofs: operation.verifier_proofs,
+    approveExecution: operation.approveExecution, coordinatorUrl: operation.coordinatorUrl, payment: operation.payment,
+    originalRequestId: operation.requestId, operation, dispose: () => operation.dispose()}
 }

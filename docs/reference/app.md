@@ -9,12 +9,14 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 5 classes</summary>
+<summary>Browse 7 classes</summary>
 
 - [TasraClient](#tasraclient)
 - [ApplicationPayerRecoveryError](#applicationpayerrecoveryerror)
 - [ApplicationSlotRecoveryError](#applicationslotrecoveryerror)
 - [CreationReconciliationRequiredError](#creationreconciliationrequirederror)
+- [PaidOperationRecoveryError](#paidoperationrecoveryerror)
+- [PaidSessionRecoveryError](#paidsessionrecoveryerror)
 - [TasraApplicationError](#tasraapplicationerror)
 
 </details>
@@ -179,6 +181,58 @@ declare class CreationReconciliationRequiredError {
 
 - ` cause?: unknown; `
 
+### PaidOperationRecoveryError
+
+The operation stopped where repeating a step could pay or execute twice; resume or recover it.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L121)
+
+Import: `import {PaidOperationRecoveryError} from 'tasra-sdk/app'`
+
+```ts
+declare class PaidOperationRecoveryError {
+    constructor(requestId: Hex, phase: PaidOperationPhase, cause: unknown);
+}
+```
+
+- ` readonly requestId: Hex; ` — Reservation identity to resume with.
+
+- ` readonly phase: PaidOperationPhase; ` — Step whose outcome is uncertain.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PaidSessionRecoveryError
+
+A retained write's outcome is unknown, or a resumed write differs from its original.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L71)
+
+Import: `import {PaidSessionRecoveryError} from 'tasra-sdk/app'`
+
+```ts
+declare class PaidSessionRecoveryError {
+    constructor(key: string, message: string);
+}
+```
+
+- ` readonly key: string; ` — Journal entry that blocks the drive.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ### TasraApplicationError
 
 An application operation rejected because its deployment, slot, authorization or result failed validation.
@@ -210,13 +264,14 @@ declare class TasraApplicationError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 25 functions</summary>
+<summary>Browse 31 functions</summary>
 
 - [approveWithCredential](#approvewithcredential)
 - [connectWallet](#connectwallet)
 - [createApplicationSlot](#createapplicationslot)
 - [createIdentity](#createidentity)
 - [createLocalWallet](#createlocalwallet)
+- [createMemoryStore](#creatememorystore)
 - [createPaidReservationJournal](#createpaidreservationjournal)
 - [createPreparedSlot](#createpreparedslot)
 - [createSlotWallet](#createslotwallet)
@@ -224,19 +279,24 @@ Operations you can import and call.
 - [credentialAuthorization](#credentialauthorization)
 - [credentialPolicy](#credentialpolicy)
 - [defineDeployment](#definedeployment)
+- [drivePaidSession](#drivepaidsession)
 - [identityApprover](#identityapprover)
 - [issueCredential](#issuecredential)
 - [loadApplicationManifest](#loadapplicationmanifest)
 - [loadPaidReservationJournal](#loadpaidreservationjournal)
+- [paidOperation](#paidoperation)
+- [paidOperationPhase](#paidoperationphase)
 - [prepareSlot](#prepareslot)
 - [presentCredentials](#presentcredentials)
 - [reconcileApplicationPayment](#reconcileapplicationpayment)
 - [registeredWalletAuthorization](#registeredwalletauthorization)
 - [reserveApplicationPayment](#reserveapplicationpayment)
 - [resolveApplicationManifest](#resolveapplicationmanifest)
+- [resumePaidOperation](#resumepaidoperation)
 - [setApprovalPolicy](#setapprovalpolicy)
 - [toViemAccount](#toviemaccount)
 - [verifyCredential](#verifycredential)
+- [waitForPaidSnapshot](#waitforpaidsnapshot)
 
 </details>
 
@@ -362,6 +422,22 @@ TasraWallet & {
 ```
 
 Return details: Chain-bound wallet with an explicit private-key export function.
+
+### createMemoryStore
+
+Create a process-local store. Values are deep-copied on save and load (like a durable store,
+a caller mutating its object never changes saved state), and `withLock` serializes work per
+key by waiting, in call order.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/memory-store.ts#L17)
+
+Import: `import {createMemoryStore} from 'tasra-sdk/app'`
+
+```ts
+declare function createMemoryStore(): ApplicationStore;
+```
+
+Returns: ` ApplicationStore `.
 
 ### createPaidReservationJournal
 
@@ -628,6 +704,26 @@ declare function defineDeployment(value: TasraDeployment): Readonly<TasraDeploym
 
 Returns: ` Readonly<TasraDeployment> `.
 
+### drivePaidSession
+
+Drive one prepared paid session to a completed, verified committee token.
+Creation, request-object approval, presentation, continuation and credential approvals are
+each journaled before sending; an unknown outcome is never redelivered.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L111)
+
+Import: `import {drivePaidSession} from 'tasra-sdk/app'`
+
+```ts
+declare function drivePaidSession(options: PaidSessionDriverOptions): Promise<SessionStatusResult>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` options ` | ` PaidSessionDriverOptions ` | Session, anchored witnesses, store, holder strategy and pacing. |
+
+Returns: ` Promise<SessionStatusResult> `.
+
 ### identityApprover
 
 Adapt an SDK Ed25519 identity to native approval signatures without exporting its key.
@@ -708,6 +804,47 @@ declare function loadPaidReservationJournal(store: ApplicationStore, requestId: 
 | ` requestId ` | ` Hex ` | - Original operation identity, never a replacement nonce. |
 
 Returns: ` Promise<ApplicationReservationJournal | undefined> `.
+
+### paidOperation
+
+Authorize one paid committee operation. Returns a handle whose `execute` runs the keeper
+operation once. Throws PaidOperationRecoveryError when a reservation, session write or the
+execution outcome is uncertain; continue with [resumePaidOperation](#resumepaidoperation), never by calling
+this again (that would be a second payment).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L188)
+
+Import: `import {paidOperation} from 'tasra-sdk/app'`
+
+```ts
+declare function paidOperation(config: PaidOperationConfig, request: PaidOperationRequest): Promise<PaidOperation>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` config ` | ` PaidOperationConfig ` | Approved deployment, creator, gas payer, store, agent, accountants and limits. |
+| ` request ` | ` PaidOperationRequest ` | Slot, operation, original rule, holder strategy and cancellation. |
+
+Returns: ` Promise<PaidOperation> `.
+
+### paidOperationPhase
+
+Read the journaled phase of a paid operation, for deciding between resume and recovery.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L372)
+
+Import: `import {paidOperationPhase} from 'tasra-sdk/app'`
+
+```ts
+declare function paidOperationPhase(store: ApplicationStore, requestId: Hex): Promise<Phase | undefined>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` store ` | ` ApplicationStore ` | Store the operation was journaled in. |
+| ` requestId ` | ` Hex ` | Reservation identity. |
+
+Returns: ` Promise<Phase | undefined> `.
 
 ### prepareSlot
 
@@ -896,6 +1033,34 @@ Returns: ` ResolvedApplicationManifest `.
 
 Return details: Validated deployment and optional routing without a network request.
 
+### resumePaidOperation
+
+Continue a paid operation from its journal after a PaidOperationRecoveryError or a restart.
+An unresolved reservation is reconciled on chain from its saved (or supplied) transaction hash
+and never resubmitted; a session is re-read, skipping confirmed writes; an authorized or
+executing operation returns its handle (use `recover` for an uncertain execution).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L342)
+
+Import: `import {resumePaidOperation} from 'tasra-sdk/app'`
+
+```ts
+declare function resumePaidOperation(config: PaidOperationConfig, requestId: Hex, options?: {
+    holder?: PaidSessionHolder;
+    transactionHash?: Hex;
+    signal?: AbortSignal;
+    observeRequest?(request: VerifiedRequestObject): void | Promise<void>;
+}): Promise<PaidOperation>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` config ` | ` PaidOperationConfig ` | The same configuration the operation started with. |
+| ` requestId ` | ` Hex ` | Reservation identity from the error or the journal. |
+| ` options? ` | ` { holder?: PaidSessionHolder; transactionHash?: Hex; signal?: AbortSignal; observeRequest?(request: VerifiedRequestObject): void \| Promise<void>; } ` | Holder strategy (needed while the session is unfinished), a located reservation transaction hash when none was saved, cancellation and request observation. |
+
+Returns: ` Promise<PaidOperation> `.
+
 ### setApprovalPolicy
 
 Install an explicit native FROST approval policy using a durable named transaction.
@@ -966,12 +1131,34 @@ Returns: ` Record<string, unknown> `.
 
 Return details: Verified disclosed claims; issuer trust depends on the supplied application pins.
 
+### waitForPaidSnapshot
+
+Retry a read-only discovery while the verifier and accountant snapshots for the current epoch
+are not yet anchored. Only those two explicit outcomes are retried, before any reservation,
+consent or delivery; every other failure is final.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L88)
+
+Import: `import {waitForPaidSnapshot} from 'tasra-sdk/app'`
+
+```ts
+declare function waitForPaidSnapshot<T>(read: () => Promise<T>, signal: AbortSignal, wait: () => Promise<void>): Promise<T>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` read ` | ` () => Promise<T> ` | Discovery to run. |
+| ` signal ` | ` AbortSignal ` | Bounds the total wait. |
+| ` wait ` | ` () => Promise<void> ` | Delay between attempts. |
+
+Returns: ` Promise<T> `.
+
 ## Types
 
 Options, data structures and return types.
 
 <details>
-<summary>Browse 41 types</summary>
+<summary>Browse 48 types</summary>
 
 - [ApplicationDeployment](#applicationdeployment)
 - [ApplicationErrorCode](#applicationerrorcode)
@@ -996,8 +1183,15 @@ Options, data structures and return types.
 - [LoadApplicationManifestOptions](#loadapplicationmanifestoptions)
 - [OperationAuthorizer](#operationauthorizer)
 - [OperationGrant](#operationgrant)
+- [PaidOperation](#paidoperation-1)
+- [PaidOperationConfig](#paidoperationconfig)
+- [PaidOperationPhase](#paidoperationphase-1)
+- [PaidOperationRequest](#paidoperationrequest)
 - [PaidReservationJournal](#paidreservationjournal)
 - [PaidReservationSession](#paidreservationsession)
+- [PaidSessionDriverOptions](#paidsessiondriveroptions)
+- [PaidSessionHolder](#paidsessionholder)
+- [PaidWalletPresentation](#paidwalletpresentation)
 - [PresentCredentialsOptions](#presentcredentialsoptions)
 - [ReadySlotJournal](#readyslotjournal)
 - [ResolveApplicationManifestOptions](#resolveapplicationmanifestoptions)
@@ -1527,6 +1721,151 @@ Fields:
 - **` token `**: Fresh compound verifier token bound to the holder and exact operation.
 - **` verifierProofs `**: Membership proofs for the verifiers that authorized the operation.
 
+### PaidOperation
+
+A verified, paid committee authorization for exactly one keeper execution.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L94)
+
+```ts
+export interface PaidOperation {
+    readonly requestId: Hex;
+    readonly payment: PaymentIntentWire;
+    readonly coordinatorUrl: string;
+    readonly compound_token: CompoundTokenWire;
+    readonly verifierProofs: VerifierProof[];
+    readonly verifier_proofs: {
+        verifier_index: number;
+        operator: string;
+        pubkey: string;
+        proof: string[];
+    }[];
+    readonly approveExecution: KeeperExecutionApprover;
+    execute<R>(work: (operation: PaidOperation) => Promise<R>): Promise<R>;
+    recover(options: {
+        transport: KeeperRecoveryTransport;
+        stage?: Extract<ExecutionStage, 'coordinator' | 'contributor'>;
+        signal?: AbortSignal;
+    }): Promise<RecoveredKeeperExecution>;
+    dispose(): void;
+}
+```
+
+Fields:
+
+- **` requestId `**: Reservation identity (`prepaid-request/v1`), the key for resume and recovery.
+- **` payment `**: Original creator-signed payment intent.
+- **` coordinatorUrl `**: The assigned coordinator keeper's reachable URL (after the approved route map).
+- **` compound_token `**: Verified compound token carrying the payment.
+- **` verifierProofs `**: Anchored verifier witnesses, for keeper calls.
+- **` verifier_proofs `**: The same witnesses in wire form.
+- **` approveExecution `**: Client approver for keeper stage signatures; pass as `approveExecution` to committee clients.
+- **` execute `**: Run the keeper operation exactly once. A failure is journaled and never retried; use `recover`.
+- **` recover `**: Read the keeper's retained result after an uncertain execution. Performs no new work.
+- **` dispose `**: Erase the local execution signer.
+
+### PaidOperationConfig
+
+Approved deployment, signers, services and spending limits shared by paid operations.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L44)
+
+```ts
+export interface PaidOperationConfig {
+    chain: TasraChainClient;
+    deployment: PaidContextDeployment & {
+        defaultVerificationPolicy?: {
+            committee: number;
+            quorum: number;
+        };
+    };
+    creator: Pick<LocalAccount, 'address' | 'signTypedData'>;
+    gasPayer: WalletClient<Transport, Chain, Account>;
+    store: ApplicationStore;
+    agent: {
+        profile: ApprovedAgentProfile;
+        transport: PaidAgentTransport;
+    };
+    accountantUrls: readonly string[];
+    limits: {
+        maxCost: bigint;
+        maxGas: bigint;
+        maxGasPrice: bigint;
+    };
+    allowLocalHttp?: boolean;
+    keeperUrl?: (registeredUrl: string) => string;
+    billing?: BillingModeDetector;
+    fetch?: typeof fetch;
+    snapshotWaitMs?: number;
+    pollIntervalMs?: number;
+}
+```
+
+Fields:
+
+- **` chain `**: Trusted chain client; its ServiceRegistry address must match the approved agent profile.
+- **` deployment `**: Independently approved contracts, with the deployment default verifier policy.
+- **` creator `**: Slot creator: signs the operation, the payment intent and the execution certificate.
+- **` gasPayer `**: Dedicated reservation gas payer (account- and chain-bound). Never shared with unrelated sends.
+- **` store `**: Private durable store with exclusive locks shared by every process or tab using this payer.
+- **` agent `**: Independently approved verifier-agent and its guarded transport.
+- **` accountantUrls `**: Approved accountant origins: reservation quotes and verifier snapshot artifacts.
+- **` limits `**: Finite spending limits: TASRA per operation, gas units and gas price for the reservation.
+- **` allowLocalHttp `**: Permit HTTP on the local development chain (43112) only.
+- **` keeperUrl `**: Caller-approved keeper route map (registered URL → reachable URL).
+- **` billing `**: Cached billing detector for this deployment; a fresh read is used when absent.
+- **` fetch `**: Fetch used for verifier snapshot artifacts (defaults to global fetch).
+- **` snapshotWaitMs `**: Longest wait for the current epoch's snapshots to be anchored, ms (default 180000, max 300000).
+- **` pollIntervalMs `**: Poll interval while waiting on the agent, ms (default 1000). Agent Retry-After hints take precedence.
+
+### PaidOperationPhase
+
+Where a paid operation stopped with an uncertain or unfinished outcome.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L118)
+
+```ts
+export type PaidOperationPhase = 'reservation' | 'session' | 'execution';
+```
+
+### PaidOperationRequest
+
+The one operation to authorize and how its holder presents.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L76)
+
+```ts
+export interface PaidOperationRequest {
+    slot: Hex;
+    operation: {
+        action: CommitteeAction;
+        message?: Uint8Array;
+        identity?: string;
+        payloadDigest?: Uint8Array;
+        ttlSecs?: number;
+        description?: string;
+    };
+    rule: {
+        rule: string;
+        salt: Hex;
+    };
+    holder: PaidSessionHolder;
+    coordinator?: Address;
+    signal?: AbortSignal;
+    observeRequest?(request: VerifiedRequestObject): void | Promise<void>;
+}
+```
+
+Fields:
+
+- **` slot `**: Slot to operate on.
+- **` operation `**: Committee action and payload: `message` for sign, `identity` for ibe-extract, `payloadDigest` for decrypt/dual-approve.
+- **` rule `**: The slot's original DCQL rule and salt; checked against its on-chain commitment.
+- **` holder `**: Holder strategy: the SDK wallet presents itself, or an external wallet scans the request.
+- **` coordinator `**: Pin the coordinator keeper (operator address); otherwise the first eligible keeper.
+- **` signal `**: Cancellation for the authorization (reservation, session, grant).
+- **` observeRequest `**: Inspect the verified request object before any credential is disclosed.
+
 ### PaidReservationJournal
 
 Persistent callback adapter for reservePaidOperation, with immutable recovery identity.
@@ -1564,6 +1903,82 @@ Fields:
 
 - **` random `**: Fixed 32-byte presentation random committed before reservation.
 - **` audience `**: Independently approved verifier-agent audience committed before reservation.
+
+### PaidSessionDriverOptions
+
+Inputs to [drivePaidSession](#drivepaidsession).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L45)
+
+```ts
+export interface PaidSessionDriverOptions {
+    session: RegisteredPaidAgentSession;
+    members: readonly PaidVerifierWitness[];
+    store: ApplicationStore;
+    signal: AbortSignal;
+    holder: PaidSessionHolder;
+    wait(retryAfterMs?: number): Promise<void>;
+    observeRequest?(request: VerifiedRequestObject): void | Promise<void>;
+    resume?: boolean;
+    journalPrefix?: string;
+}
+```
+
+Fields:
+
+- **` session `**: Prepared session from prepareRegisteredPaidSession.
+- **` members `**: Anchored drawn verifier witnesses the session was prepared with.
+- **` store `**: Private durable store with exclusive locks.
+- **` signal `**: Cancellation for the whole drive.
+- **` holder `**: Holder strategy.
+- **` wait `**: Wait between polls; receives the agent's Retry-After hint when it sent one.
+- **` observeRequest `**: Observe the verified request before any credential is disclosed (receives a detached copy).
+- **` resume `**: Resume a previous drive from the store: confirmed writes are skipped (creation is reconciled by an authenticated read), unknown ones still refuse. Default false: any retained write refuses, so a first drive can never collide with an earlier attempt.
+- **` journalPrefix `**: Journal key prefix; default `wallet-` (compatible with records written by earlier drivers).
+
+### PaidSessionHolder
+
+How the holder answers the session's request object.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L26)
+
+```ts
+export type PaidSessionHolder = {
+    kind: 'local';
+    makePresentation(request: VerifiedRequestObject): PaidWalletPresentation | Promise<PaidWalletPresentation>;
+    submit(request: VerifiedRequestObject, presentation: PaidWalletPresentation): Promise<void>;
+} | {
+    kind: 'external';
+    present(request: {
+        request: VerifiedRequestObject;
+        requestUri: string;
+        qrPayload: string;
+    }): void | Promise<void>;
+    accept(candidate: PaidRetainedPresentation, request: VerifiedRequestObject): boolean | Promise<boolean>;
+};
+```
+
+Fields:
+
+- **` kind `**: The client holds the credential and posts the presentation itself (SDK wallet). An external wallet (phone, Hovi) scans the request; the client approves what the agent retained.
+
+### PaidWalletPresentation
+
+A presentation the client's own wallet built: the approved body and the encrypted form it posts.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L18)
+
+```ts
+export interface PaidWalletPresentation {
+    approved: ClientApprovedPresentation;
+    form: Record<string, string>;
+}
+```
+
+Fields:
+
+- **` approved `**: Complete presentation the client accepts for credential verification.
+- **` form `**: Encrypted `direct_post.jwt` form fields; must carry `response`.
 
 ### PresentCredentialsOptions
 

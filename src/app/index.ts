@@ -26,3 +26,8 @@ export {createPaidReservationJournal, loadPaidReservationJournal} from './paid-j
 export type {PaidReservationJournal, PaidReservationSession, ApplicationReservationJournal} from './paid-journal.js'
 export {reserveApplicationPayment, reconcileApplicationPayment, ApplicationPayerRecoveryError} from './paid-reservation.js'
 export type {ApplicationReservationOptions} from './paid-reservation.js'
+export {paidOperation, resumePaidOperation, paidOperationPhase, PaidOperationRecoveryError} from './paid-operation.js'
+export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PaidOperationPhase} from './paid-operation.js'
+export {drivePaidSession, waitForPaidSnapshot, PaidSessionRecoveryError} from './paid-session.js'
+export type {PaidSessionDriverOptions, PaidSessionHolder, PaidWalletPresentation} from './paid-session.js'
+export {createMemoryStore} from './memory-store.js'

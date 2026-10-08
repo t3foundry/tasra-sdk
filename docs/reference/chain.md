@@ -264,7 +264,7 @@ declare class UnderfundedSlotError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 72 functions</summary>
+<summary>Browse 74 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -288,9 +288,11 @@ Operations you can import and call.
 - [decodeContractLogs](#decodecontractlogs)
 - [deriveServiceId](#deriveserviceid)
 - [discoverPaidOperationContext](#discoverpaidoperationcontext)
+- [drawnVerifierWitnesses](#drawnverifierwitnesses)
 - [encodeServiceChallenge](#encodeservicechallenge)
 - [encodeServiceManifest](#encodeservicemanifest)
 - [eventNamesOf](#eventnamesof)
+- [fetchDrawnVerifierWitnesses](#fetchdrawnverifierwitnesses)
 - [formatBps](#formatbps)
 - [formatUnits](#formatunits)
 - [formatWad](#formatwad)
@@ -817,6 +819,28 @@ declare function discoverPaidOperationContext(client: PublicClient, deployment: 
 
 Returns: ` Promise<PaidOperationContext> `.
 
+### drawnVerifierWitnesses
+
+Verify a snapshot artifact against the original payment and return the drawn members with
+Merkle proofs. Every leaf is checked against the anchored root, operators are strictly
+ordered and keys distinct; the draw is recomputed locally from the payment's seed.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/verifierSnapshot.ts#L43)
+
+Import: `import {drawnVerifierWitnesses} from 'tasra-sdk/chain'`
+
+```ts
+declare function drawnVerifierWitnesses(value: unknown, original: OriginalVerifierPolicy, registry: Address): PaidVerifierWitness[];
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` value ` | ` unknown ` | Parsed artifact JSON from an approved host; untrusted. |
+| ` original ` | ` OriginalVerifierPolicy ` | The payment's anchored verifier policy. |
+| ` registry ` | ` Address ` | Independently approved VerifierSetRegistry address. |
+
+Returns: ` PaidVerifierWitness[] `.
+
 ### encodeServiceChallenge
 
 Canonical wire encoding accepted by both responder implementations.
@@ -870,6 +894,45 @@ declare function eventNamesOf(contract: ContractName): string[];
 | ` contract ` | ` ContractName ` | Contract whose vendored ABI supplies the event definitions. |
 
 Returns: ` string[] `.
+
+### fetchDrawnVerifierWitnesses
+
+Fetch an epoch's verifier snapshot from the first approved accountant that serves a bounded,
+identity-encoded JSON body (no redirects), and return the drawn witnesses for the payment.
+A host whose artifact does not verify is skipped; the call fails if none does.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/verifierSnapshot.ts#L88)
+
+Import: `import {fetchDrawnVerifierWitnesses} from 'tasra-sdk/chain'`
+
+```ts
+declare function fetchDrawnVerifierWitnesses(hosts: readonly string[], original: OriginalVerifierPolicy, registry: Address, options?: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    fetch?: typeof fetch;
+}): Promise<{
+    witnesses: PaidVerifierWitness[];
+    artifact: unknown;
+    host: string;
+}>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` hosts ` | ` readonly string[] ` | Independently approved accountant origins, in preference order. |
+| ` original ` | ` OriginalVerifierPolicy ` | The payment's anchored verifier policy. |
+| ` registry ` | ` Address ` | Independently approved VerifierSetRegistry address. |
+| ` options? ` | ` { signal?: AbortSignal; timeoutMs?: number; fetch?: typeof fetch; } ` | Cancellation, per-host timeout (default 15000 ms) and a fetch implementation. |
+
+Returns:
+
+```ts
+Promise<{
+    witnesses: PaidVerifierWitness[];
+    artifact: unknown;
+    host: string;
+}>
+```
 
 ### formatBps
 
@@ -2085,7 +2148,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 106 types</summary>
+<summary>Browse 107 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -2130,6 +2193,7 @@ Options, data structures and return types.
 - [NetworkName](#networkname)
 - [NetworkPreset](#networkpreset)
 - [NodeInfo](#nodeinfo)
+- [OriginalVerifierPolicy](#originalverifierpolicy)
 - [PaidAgentHttpResponse](#paidagenthttpresponse)
 - [PaidAgentProposal](#paidagentproposal)
 - [PaidAgentSessionParams](#paidagentsessionparams)
@@ -3223,6 +3287,27 @@ Fields:
 - **` rate_limit_enabled `**: Whether the keeper reports rate limiting as enabled.
 - **` admin_scope_enabled `**: Whether the keeper reports administrative scope checks as enabled.
 - **` admin_auth `**: Separate admin-key verification, or administrative routes awaiting operator configuration. Missing on older keepers.
+
+### OriginalVerifierPolicy
+
+The anchored verifier policy fields of an original payment intent.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/verifierSnapshot.ts#L15)
+
+```ts
+export type OriginalVerifierPolicy = Pick<PaymentIntentWire, 'chain_id' | 'slot' | 'verification_epoch' | 'verification_seed' | 'verification_root' | 'verification_registry_size' | 'verification_committee' | 'verification_quorum'>;
+```
+
+Fields:
+
+- **` slot `**: Slot identifier.
+- **` chain_id `**: EVM chain identifier.
+- **` verification_epoch `**: Pinned verification epoch.
+- **` verification_seed `**: Pinned beacon seed.
+- **` verification_root `**: Pinned verifier snapshot root.
+- **` verification_registry_size `**: Pinned verifier registry size.
+- **` verification_committee `**: Pinned verifier committee size.
+- **` verification_quorum `**: Pinned verifier quorum.
 
 ### PaidAgentHttpResponse
 

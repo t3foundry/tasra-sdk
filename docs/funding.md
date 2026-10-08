@@ -39,8 +39,46 @@ Settlement reports the balance with `enabled: false`, `reserved: 0n` and
 `settlementVersion: '1'`.
 
 The certification deployment requires a mined TASRA reservation before verification or
-keeper work. Depositing funds alone does not create that reservation. The SDK's existing
-one-call application helpers do not yet orchestrate this complete lifecycle.
+keeper work. Depositing funds alone does not create that reservation. `paidOperation`
+from `tasra-sdk/app` runs the complete lifecycle for one operation; the primitives below
+remain available for applications that compose it themselves.
+
+### One paid operation
+
+```ts
+import {paidOperation, resumePaidOperation, PaidOperationRecoveryError} from 'tasra-sdk/app'
+import {createFileStore} from 'tasra-sdk/app/node'
+import {createNodePaidAgentTransport} from 'tasra-sdk/chain/node'
+
+const config = {chain, deployment, creator, gasPayer, store: createFileStore(stateDir),
+  agent: {profile, transport: createNodePaidAgentTransport()}, accountantUrls,
+  limits: {maxCost, maxGas, maxGasPrice}}
+const op = await paidOperation(config, {slot, operation: {action: 'sign', message},
+  rule: {rule, salt}, holder})
+const signature = await op.execute(() => committeeSign({nodeUrl: op.coordinatorUrl,
+  committeeToken: op.compound_token, message, verifierProofs: op.verifierProofs,
+  approveExecution: op.approveExecution}))
+op.dispose()
+```
+
+It refuses a legacy or unreadable slot (`BillingModeError`), checks the creator and the
+slot's salted rule commitment, signs the operation and payment intent, verifies the drawn
+verifier witnesses from an approved accountant's snapshot, reserves through
+`reserveApplicationPayment` with the caller's dedicated gas payer, certifies a local
+execution key, drives the registered session (`drivePaidSession`) and verifies the grant.
+`holder` is `{kind: 'local', makePresentation, submit}` when the SDK wallet presents, or
+`{kind: 'external', present, accept}` when a phone wallet scans `qrPayload` and the
+application accepts the complete retained presentation.
+
+Each billable step is journaled in the store before it is sent. When an outcome is
+uncertain the call throws `PaidOperationRecoveryError` (`requestId`, `phase`:
+`reservation`, `session` or `execution`). Never call `paidOperation` again for that
+work, which would pay twice. Call `resumePaidOperation(config, requestId, {holder})`: it
+reconciles a saved reservation transaction on chain (pass `transactionHash` if none was
+saved), keeps the gas payer locked until then, re-reads the session and skips confirmed
+writes, and refuses any write whose outcome is unknown. `execute` runs once; after an
+uncertain execution use `op.recover({transport: createNodeKeeperRecoveryTransport()})`
+to read the keeper's retained result. `createMemoryStore` suits tests only.
 
 For clients integrating with an independently verified reservation service,
 `tasra-sdk/committee` exports `PaymentIntentWire`, `paymentIntentTypedData`,
