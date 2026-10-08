@@ -429,7 +429,7 @@ describe('paid operation observability', () => {
     const f = setup(), seen: Hex[] = []
     vi.mocked(fetchDrawnVerifierWitnesses).mockImplementationOnce(async () => {
       expect(seen).toHaveLength(1)
-      return {witnesses, artifact: {}, host: 'http://127.0.0.1:9000'} as Awaited<ReturnType<typeof fetchDrawnVerifierWitnesses>>
+      return {witnesses, artifact: {}, host: 'http://127.0.0.1:9000'}
     })
     const op = await paidOperation(f.config, {...f.request, onRequestId: id => { seen.push(id) }})
     expect(seen).toEqual([op.requestId])

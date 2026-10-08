@@ -66,7 +66,9 @@ slot's salted rule commitment, signs the operation and payment intent, verifies 
 verifier witnesses from an approved accountant's snapshot, reserves through
 `reserveApplicationPayment` with the caller's dedicated gas payer, certifies a local
 execution key, drives the registered session (`drivePaidSession`) and verifies the grant.
-`holder` is `{kind: 'local', makePresentation, submit}` when the SDK wallet presents, or
+`holder` is `{kind: 'local', makePresentation, submit}` when the SDK wallet presents
+(`makePresentation(request, {requestUri, qrPayload})`, plus an optional `present` hook with
+the same link, so applications never rebuild the request URI), or
 `{kind: 'external', present, accept}` when a phone wallet scans `qrPayload` and the
 application accepts the complete retained presentation.
 

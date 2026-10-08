@@ -220,7 +220,7 @@ declare class PaidOperationRecoveryError {
 
 A retained write's outcome is unknown, or a resumed write differs from its original.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L71)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L81)
 
 Import: `import {PaidSessionRecoveryError} from 'tasra-sdk/app'`
 
@@ -720,7 +720,7 @@ Drive one prepared paid session to a completed, verified committee token.
 Creation, request-object approval, presentation, continuation and credential approvals are
 each journaled before sending; an unknown outcome is never redelivered.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L111)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L121)
 
 Import: `import {drivePaidSession} from 'tasra-sdk/app'`
 
@@ -1247,7 +1247,7 @@ Retry a read-only discovery while the verifier and accountant snapshots for the 
 are not yet anchored. Only those two explicit outcomes are retried, before any reservation,
 consent or delivery; every other failure is final.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L88)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L98)
 
 Import: `import {waitForPaidSnapshot} from 'tasra-sdk/app'`
 
@@ -1268,7 +1268,7 @@ Returns: ` Promise<T> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 57 types</summary>
+<summary>Browse 58 types</summary>
 
 - [ApplicationDeployment](#applicationdeployment)
 - [ApplicationErrorCode](#applicationerrorcode)
@@ -1308,6 +1308,7 @@ Options, data structures and return types.
 - [PaidReservationSession](#paidreservationsession)
 - [PaidSessionDriverOptions](#paidsessiondriveroptions)
 - [PaidSessionHolder](#paidsessionholder)
+- [PaidSessionRequestLink](#paidsessionrequestlink)
 - [PaidWalletPresentation](#paidwalletpresentation)
 - [PresentCredentialsOptions](#presentcredentialsoptions)
 - [ReadySlotJournal](#readyslotjournal)
@@ -2164,7 +2165,7 @@ Fields:
 
 Inputs to [drivePaidSession](#drivepaidsession).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L45)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L55)
 
 ```ts
 export interface PaidSessionDriverOptions {
@@ -2196,12 +2197,15 @@ Fields:
 
 How the holder answers the session's request object.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L26)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L34)
 
 ```ts
 export type PaidSessionHolder = {
     kind: 'local';
-    makePresentation(request: VerifiedRequestObject): PaidWalletPresentation | Promise<PaidWalletPresentation>;
+    present?(request: {
+        request: VerifiedRequestObject;
+    } & PaidSessionRequestLink): void | Promise<void>;
+    makePresentation(request: VerifiedRequestObject, link: PaidSessionRequestLink): PaidWalletPresentation | Promise<PaidWalletPresentation>;
     submit(request: VerifiedRequestObject, presentation: PaidWalletPresentation): Promise<void>;
 } | {
     kind: 'external';
@@ -2217,6 +2221,25 @@ export type PaidSessionHolder = {
 Fields:
 
 - **` kind `**: The client holds the credential and posts the presentation itself (SDK wallet). An external wallet (phone, Hovi) scans the request; the client approves what the agent retained.
+- **` present `**: Observe the verified request and its link (e.g. to log or hand off); not billable, shown again on resume. Show the verified request to the holder (render `qrPayload`). Called once.
+
+### PaidSessionRequestLink
+
+Where a holder fetches the session's request object: the request URI and its `openid4vp://` QR/deep-link payload.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L26)
+
+```ts
+export interface PaidSessionRequestLink {
+    requestUri: string;
+    qrPayload: string;
+}
+```
+
+Fields:
+
+- **` requestUri `**: Agent-hosted request URI (`<endpoint>/v1/request/<session>`).
+- **` qrPayload `**: `openid4vp://?client_id=…&request_uri=…`, for a QR code or deep link.
 
 ### PaidWalletPresentation
 

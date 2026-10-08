@@ -67,3 +67,14 @@ it('never resumes past a write whose outcome is unknown', async () => {
   expect(error).toBeInstanceOf(PaidSessionRecoveryError)
   expect(holder.submit).toHaveBeenCalledTimes(1)
 })
+
+it('gives a local holder the request URI and QR payload instead of making it rebuild them', async () => {
+  const f = fixture()
+  const present = vi.fn()
+  const holder = {kind: 'local' as const, present, makePresentation: vi.fn(() => structuredClone(f.presentation)), submit: vi.fn(async () => { f.wallet() })}
+  expect((await drivePaidSession({...f.base, holder})).status).toBe('done')
+  const link = {requestUri: 'https://agent.example/v1/request/' + f.id, qrPayload: 'openid4vp://?x'}
+  expect(holder.makePresentation).toHaveBeenCalledWith(expect.objectContaining({claims: {nonce: 'original-nonce'}}), link)
+  expect(present).toHaveBeenCalledWith(expect.objectContaining(link))
+  expect(present.mock.invocationCallOrder[0]).toBeLessThan(holder.makePresentation.mock.invocationCallOrder[0]!)
+})

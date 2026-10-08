@@ -52,6 +52,11 @@ never does.
 
 ### Added
 
+- A local paid-session holder receives the session's `{requestUri, qrPayload}` as the second
+  argument of `makePresentation` and through an optional `present` hook
+  (`PaidSessionRequestLink`), so applications no longer rebuild
+  `${endpoint}/v1/request/${session}`.
+
 - `paidOperation` accepts `onRequestId`, called with the reservation identity as soon as
   it is derived (before witnesses or reservation). `listPaidOperations(store, {phase})`
   (`tasra-sdk/app`) lists journaled operations by phase from a store index, without

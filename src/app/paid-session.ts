@@ -22,13 +22,23 @@ export interface PaidWalletPresentation {
   form: Record<string, string>
 }
 
+/** Where a holder fetches the session's request object: the request URI and its `openid4vp://` QR/deep-link payload. */
+export interface PaidSessionRequestLink {
+  /** Agent-hosted request URI (`<endpoint>/v1/request/<session>`). */
+  requestUri: string
+  /** `openid4vp://?client_id=…&request_uri=…`, for a QR code or deep link. */
+  qrPayload: string
+}
+
 /** How the holder answers the session's request object. */
 export type PaidSessionHolder =
   | {
     /** The client holds the credential and posts the presentation itself (SDK wallet). */
     kind: 'local'
-    /** Build the presentation for the verified request; called once, before anything is disclosed. */
-    makePresentation(request: VerifiedRequestObject): PaidWalletPresentation | Promise<PaidWalletPresentation>
+    /** Observe the verified request and its link (e.g. to log or hand off); not billable, shown again on resume. */
+    present?(request: {request: VerifiedRequestObject} & PaidSessionRequestLink): void | Promise<void>
+    /** Build the presentation for the verified request; called once, before anything is disclosed. Receives the request link too. */
+    makePresentation(request: VerifiedRequestObject, link: PaidSessionRequestLink): PaidWalletPresentation | Promise<PaidWalletPresentation>
     /** Post the encrypted presentation to the agent's response URI. Called once; never repeated. */
     submit(request: VerifiedRequestObject, presentation: PaidWalletPresentation): Promise<void>
   }
@@ -206,7 +216,9 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
   signal.throwIfAborted()
 
   let accepted: ClientApprovedPresentation | undefined
+  const link: PaidSessionRequestLink = {requestUri: opened.requestUri, qrPayload: opened.qrPayload}
   if (holder.kind === 'local') {
+    await holder.present?.({request: structuredClone(request), ...link})
     const retained = await store.load<{original: {presentation: PaidWalletPresentation}; phase: string}>(prefix + '-presentation')
     if (retained !== undefined && resume) {
       // Never build or post a second presentation; continue with the original once it is confirmed.
@@ -215,7 +227,7 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
     }
   }
   if (holder.kind === 'local' && !accepted) {
-    const presentation = structuredClone(await holder.makePresentation(structuredClone(request)))
+    const presentation = structuredClone(await holder.makePresentation(structuredClone(request), {...link}))
     // Validate canonical plain JSON before persisting or disclosing credentials.
     executionBodyHash(presentation.approved as unknown as Record<string, unknown>)
     const keys = Object.keys(presentation.approved).sort()
