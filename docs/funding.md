@@ -14,6 +14,30 @@ AVAX when it sends Ethereum transactions. Its account balance is not usage credi
 
 ## Prepaid deployment protocol
 
+### Detect the billing mode first
+
+A deployment bills either by metering (legacy, `Settlement.version()` is `"1"`, for example
+`tasra.fuji.v1`) or per operation from a prepaid reservation (`"2"`). Nothing off-chain
+reports which, so read it from the Settlement contract before choosing a flow:
+
+```ts
+import {createBillingModeDetector} from 'tasra-sdk/chain'
+
+const billing = createBillingModeDetector(publicClient, {chainId, settlement})
+const {mode} = await billing.mode(slotId) // 'legacy' | 'prepaid' | 'unknown'
+```
+
+Version `"2"` is prepaid for a slot once `prepaidEnabled(slot)` is set, and for every slot of a
+prepaid-from-genesis deployment (its first funding enables it). An upgraded deployment keeps
+a slot on legacy billing until its cutover. Any other version, a failed read, a chain mismatch
+or a reorganized block is `unknown`: start neither flow. The detector caches `prepaid`
+(one-way per slot) until `invalidate`, `legacy` for `legacyTtlMs` (default 60 s), and
+never `unknown`. Paid entry points such as `discoverPaidOperationContext` throw
+`BillingModeError` (`mode`, `settlementVersion`) on a legacy or unreadable slot;
+`requirePrepaidSlot` is the same guard on its own. `readSlotFunding` on a version `"1"`
+Settlement reports the balance with `enabled: false`, `reserved: 0n` and
+`settlementVersion: '1'`.
+
 The certification deployment requires a mined TASRA reservation before verification or
 keeper work. Depositing funds alone does not create that reservation. The SDK's existing
 one-call application helpers do not yet orchestrate this complete lifecycle.

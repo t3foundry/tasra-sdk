@@ -14,6 +14,7 @@ import {paidExecutionReportSigningHash, verifyPaidExecutionEvidence,
   type ExecutionRecoveryTarget, type SignedPaidExecutionReport} from '../committee/recovery.js'
 import {selectVerifierCommittee, verifierLeaf, verifyMerkleProof} from '../committee/token.js'
 import {protocolHex} from '../committee/receipts.js'
+import {BillingModeError, readBillingMode} from './billing.js'
 
 /** Deployment independently selected by the application, not taken from a received intent. */
 export interface PrepaidDeployment {
@@ -47,6 +48,8 @@ export interface SlotFunding extends PrepaidObservation {
   reserved: bigint
   /** Available plus reserved TASRA base units. */
   total: bigint
+  /** `'1'` when read from a legacy Settlement (no prepaid getters: `enabled` false, `reserved` 0). Absent on a prepaid deployment. */
+  settlementVersion?: '1'
 }
 
 /** Chain backing for one operation; holder authorization and execution journals remain separate. */
@@ -354,6 +357,20 @@ async function readAt(client: PublicClient, settlement: Address, at: PrepaidObse
   return decodeFunctionResult({abi: settlementAbi, functionName: name, data: result.data})
 }
 
+async function legacyVersionAt(client: PublicClient, settlement: Address, at: PrepaidObservation): Promise<boolean> {
+  try {
+    const data = encodeFunctionData({abi: settlementAbi, functionName: 'version'})
+    const result = await client.call({to: settlement, data, blockHash: at.blockHash, requireCanonical: true, batch: false})
+    return result.data !== undefined && decodeFunctionResult({abi: settlementAbi, functionName: 'version', data: result.data}) === '1'
+  } catch { return false }
+}
+
+/** Refuse a paid operation on a slot that is not prepaid, naming the detected billing. */
+async function refuseUnlessPrepaid(client: PublicClient, deployment: PrepaidDeployment, slot: Hex): Promise<void> {
+  const observed = await readBillingMode(client, deployment, slot)
+  if (observed.mode !== 'prepaid') throw new BillingModeError({...observed, mode: observed.mode})
+}
+
 async function finishObservation(client: PublicClient, at: PrepaidObservation): Promise<void> {
   // Recheck canonicality after all calls as well as requiring it on each individual call.
   // Never fall back to latest or a block number when EIP-1898 is unsupported.
@@ -379,11 +396,22 @@ export async function readSlotFunding(client: PublicClient, deployment: PrepaidD
   deployment = {...deployment}
   if (!HEX32.test(slot)) throw new Error('invalid funding slot')
   const at = await observe(client, deployment)
-  const [enabled, available, reserved] = await Promise.all([
-    readAt(client, deployment.settlement, at, 'prepaidEnabled', slot),
-    readAt(client, deployment.settlement, at, 'balanceOf', slot),
-    readAt(client, deployment.settlement, at, 'reservedBalanceOf', slot),
-  ])
+  let enabled: unknown, available: unknown, reserved: unknown
+  try {
+    ;[enabled, available, reserved] = await Promise.all([
+      readAt(client, deployment.settlement, at, 'prepaidEnabled', slot),
+      readAt(client, deployment.settlement, at, 'balanceOf', slot),
+      readAt(client, deployment.settlement, at, 'reservedBalanceOf', slot),
+    ])
+  } catch (error) {
+    // A legacy (version 1) Settlement has no prepaid getters. Report its balance only when the
+    // same block positively reads version "1"; any other failure stays a failure.
+    if (await legacyVersionAt(client, deployment.settlement, at) !== true) throw error
+    const balance = await readAt(client, deployment.settlement, at, 'balanceOf', slot)
+    if (typeof balance !== 'bigint') throw new Error('invalid slot funding response', {cause: error})
+    await finishObservation(client, at)
+    return {...at, slot, enabled: false, available: balance, reserved: 0n, total: balance, settlementVersion: '1'}
+  }
   if (typeof enabled !== 'boolean' || typeof available !== 'bigint' || typeof reserved !== 'bigint') throw new Error('invalid slot funding response')
   await finishObservation(client, at)
   return {...at, slot, enabled, available, reserved, total: available + reserved}
@@ -517,7 +545,7 @@ export async function discoverPaidOperationContext(
   if (!HEX32.test(slotId) || [deployment.verifierSet, deployment.accountantSet, deployment.beacon, ...(options.coordinator ? [options.coordinator] : [])]
     .some(address => !ADDRESS.test(address) || /^0x0{40}$/i.test(address))) throw new Error('invalid payment discovery identity')
   const at = await observe(client, deployment)
-  const [keyBeacon, snapshotBeacon, accountantBeacon, latest, policy, enabled, available, directory] = await Promise.all([
+  const reads = Promise.all([
     registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'randomBeacon') as Promise<Address>,
     registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'beacon') as Promise<Address>,
     registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'beacon') as Promise<Address>,
@@ -527,6 +555,17 @@ export async function discoverPaidOperationContext(
     readAt(client, deployment.settlement, at, 'balanceOf', slotId),
     keeperDirectory(client, at, deployment.keyRegistry, slotId),
   ])
+  // On a failed read, a legacy or unreadable billing mode is the clearer refusal.
+  const [keyBeacon, snapshotBeacon, accountantBeacon, latest, policy, enabled, available, directory] = await reads.catch(async (error: unknown) => {
+    await refuseUnlessPrepaid(client, deployment, slotId)
+    throw error
+  })
+  if (enabled !== true) {
+    await refuseUnlessPrepaid(client, deployment, slotId)
+    // Prepaid from genesis but never funded: the first funding activates it.
+    if (available === 0n) throw new UnderfundedSlotError({slotId, availableTasraUnits: 0n,
+      message: 'payment discovery requires an activated TASRA-funded slot'})
+  }
   if ([keyBeacon, snapshotBeacon, accountantBeacon].some(pointer => pointer.toLowerCase() !== deployment.beacon.toLowerCase())) throw new Error('payment discovery beacon pointers differ')
   if (enabled !== true || typeof available !== 'bigint' || available < 0n) throw new Error('payment discovery requires an activated TASRA-funded slot')
   if (available === 0n) throw new UnderfundedSlotError({slotId, availableTasraUnits: available,

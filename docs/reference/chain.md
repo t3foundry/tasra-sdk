@@ -9,9 +9,10 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 7 classes</summary>
+<summary>Browse 8 classes</summary>
 
 - [AgentSessionCreationUnknownError](#agentsessioncreationunknownerror)
+- [BillingModeError](#billingmodeerror)
 - [KeeperRecoveryError](#keeperrecoveryerror)
 - [PaidAgentControlError](#paidagentcontrolerror)
 - [PaidReservationUncertainError](#paidreservationuncertainerror)
@@ -38,6 +39,38 @@ declare class AgentSessionCreationUnknownError {
 - ` readonly profile: Readonly<ApprovedAgentProfile>; ` — Approved verifier-agent profile whose session creation outcome is unknown.
 
 - ` readonly paymentHash?: string; ` — Retained payment commitment; reconcile it before another paid session attempt.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### BillingModeError
+
+A paid entry point was asked to act on a slot that is not (or not knowably) prepaid.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L49)
+
+Import: `import {BillingModeError} from 'tasra-sdk/chain'`
+
+```ts
+declare class BillingModeError {
+    constructor(observation: BillingModeObservation & {
+        mode: Exclude<BillingMode, 'prepaid'>;
+    });
+}
+```
+
+- ` readonly slotId: Hex; ` — Slot the paid operation was refused for.
+
+- ` readonly mode: Exclude<BillingMode, 'prepaid'>; ` — Detected mode: `legacy` (use the unpaid flow) or `unknown` (resolve the chain read first).
+
+- ` readonly settlementVersion?: string; ` — Settlement implementation version, when read.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
 - ` name: string; `
 
@@ -231,7 +264,7 @@ declare class UnderfundedSlotError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 69 functions</summary>
+<summary>Browse 72 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -244,6 +277,7 @@ Operations you can import and call.
 - [authenticateApprovedService](#authenticateapprovedservice)
 - [awaitRegisteredVerifierAgentResult](#awaitregisteredverifieragentresult)
 - [categoryFor](#categoryfor)
+- [createBillingModeDetector](#createbillingmodedetector)
 - [createCommitteeSlotClient](#createcommitteeslotclient)
 - [createKeeperExecutionApprover](#createkeeperexecutionapprover)
 - [createRegisteredAgentClient](#createregisteredagentclient)
@@ -276,6 +310,7 @@ Operations you can import and call.
 - [provisionRule](#provisionrule)
 - [provisionRuleTypedData](#provisionruletypeddata)
 - [readApprovedServiceRecord](#readapprovedservicerecord)
+- [readBillingMode](#readbillingmode)
 - [readClientExecutionPolicy](#readclientexecutionpolicy)
 - [readKeeperExecutionRecoveryPolicy](#readkeeperexecutionrecoverypolicy)
 - [readPaidOperationReceipt](#readpaidoperationreceipt)
@@ -285,6 +320,7 @@ Operations you can import and call.
 - [recoverKeeperExecution](#recoverkeeperexecution)
 - [requestSlotSeed](#requestslotseed)
 - [requireAddress](#requireaddress)
+- [requirePrepaidSlot](#requireprepaidslot)
 - [requireVaultAddress](#requirevaultaddress)
 - [reservePaidOperation](#reservepaidoperation)
 - [resolveAccountantUrls](#resolveaccountanturls)
@@ -520,6 +556,31 @@ declare function categoryFor(contract: ContractName, eventName: string): EventCa
 
 Returns: ` EventCategory `.
 
+### createBillingModeDetector
+
+Cache billing per slot for one deployment. Prepaid is one-way for a slot (`prepaidEnabled` is
+never cleared), so it is cached until invalidated; legacy can become prepaid at a funding or
+cutover, so it expires after `legacyTtlMs`. Concurrent lookups for a slot share one read.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L161)
+
+Import: `import {createBillingModeDetector} from 'tasra-sdk/chain'`
+
+```ts
+declare function createBillingModeDetector(client: PublicClient, deployment: BillingDeployment, options?: {
+    legacyTtlMs?: number;
+    now?: () => number;
+}): BillingModeDetector;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | Trusted RPC client for the deployment. |
+| ` deployment ` | ` BillingDeployment ` | Approved chain ID and Settlement proxy. |
+| ` options? ` | ` { legacyTtlMs?: number; now?: () => number; } ` | Legacy cache lifetime in ms (default 60000, 0 disables) and a clock for tests. |
+
+Returns: ` BillingModeDetector `.
+
 ### createCommitteeSlotClient
 
 Create registry-discovered threshold signing, encryption and decryption operations. Signing and decryption require holder credentials and proofs against an anchored verifier snapshot. Encryption needs only the public group key read from the chain. The master key is not reconstructed by these threshold operations.
@@ -739,7 +800,7 @@ Discover keeper sharing and verifier policy from one fresh canonical block befor
 Selects the current epoch with both verifier and accountant snapshots, otherwise its immediate predecessor.
 Performs no signing, reservation, service contact or gas/TASRA mutation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L512)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L540)
 
 Import: `import {discoverPaidOperationContext} from 'tasra-sdk/chain'`
 
@@ -1344,13 +1405,37 @@ Promise<{
 }>
 ```
 
+### readBillingMode
+
+Read a slot's billing mode at one block: version "1" is legacy; version "2" is prepaid when
+`prepaidEnabled(slot)` or `prepaidFromGenesis()` holds (an unfunded slot on a prepaid-from-genesis
+deployment becomes prepaid at its first funding, and legacy settlement refuses it), otherwise
+legacy until cutover. Any other version, a failed read, a chain mismatch or a reorganized block
+is `unknown`. Never throws for a chain failure; throws only for invalid arguments.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L100)
+
+Import: `import {readBillingMode} from 'tasra-sdk/chain'`
+
+```ts
+declare function readBillingMode(client: PublicClient, deployment: BillingDeployment, slot: Hex): Promise<BillingModeObservation>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | Trusted RPC client for the independently selected deployment. |
+| ` deployment ` | ` BillingDeployment ` | Approved chain ID and Settlement proxy. |
+| ` slot ` | ` Hex ` | Slot whose billing is required. |
+
+Returns: ` Promise<BillingModeObservation> `.
+
 ### readClientExecutionPolicy
 
 Read canonical mined credit, creator, beacon and verifier policy before approving work.
 All registry calls use the receipt's EIP-1898 block hash; no latest/number fallback.
 A target additionally proves drawn membership and current registered verifier standing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L114)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L117)
 
 Import: `import {readClientExecutionPolicy} from 'tasra-sdk/chain'`
 
@@ -1375,7 +1460,7 @@ Every contract call uses the report's original EIP-1898 hash with requireCanonic
 history fails closed. Current expiry, ownership or payout never replaces the original state.
 This performs no transaction, keeper request or fresh work admission.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L218)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L221)
 
 Import: `import {readKeeperExecutionRecoveryPolicy} from 'tasra-sdk/chain'`
 
@@ -1409,7 +1494,7 @@ Require mined backing for an independently selected operation, without spending 
 A completed reservation remains inspectable. This result never authorizes another execution;
 the keeper must independently verify the holder, current assignment and durable operation journal.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L401)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L429)
 
 Import: `import {readPaidOperationReceipt} from 'tasra-sdk/chain'`
 
@@ -1430,7 +1515,7 @@ Returns: ` Promise<PaidOperationReceipt> `.
 
 Read available, reserved and total slot TASRA at one fresh canonical block. Performs no transaction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L378)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L395)
 
 Import: `import {readSlotFunding} from 'tasra-sdk/chain'`
 
@@ -1562,6 +1647,27 @@ declare function requireAddress(book: AddressBook, name: ContractName): Address;
 
 Returns: ` Address `.
 
+### requirePrepaidSlot
+
+One-shot guard for a paid entry point: resolve the slot's mode and throw
+[BillingModeError](#billingmodeerror) unless it is prepaid.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L201)
+
+Import: `import {requirePrepaidSlot} from 'tasra-sdk/chain'`
+
+```ts
+declare function requirePrepaidSlot(client: PublicClient, deployment: BillingDeployment, slot: Hex): Promise<BillingModeObservation>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | Trusted RPC client for the deployment. |
+| ` deployment ` | ` BillingDeployment ` | Approved chain ID and Settlement proxy. |
+| ` slot ` | ` Hex ` | Slot about to be charged. |
+
+Returns: ` Promise<BillingModeObservation> `.
+
 ### requireVaultAddress
 
 Resolve the named vesting allocation. The unqualified vault address is accepted as a fallback; callers aggregating allocations must deduplicate resolved addresses.
@@ -1671,7 +1777,7 @@ Returns: ` ResolvedNetworkProfile `.
 Resolve only the signed coordinator after checking mined backing, creator consent and current sharing.
 Does not contact any keeper, submit a transaction, mint a credential grant or execute work.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L434)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L462)
 
 Import: `import {resolvePaidKeeperTarget} from 'tasra-sdk/chain'`
 
@@ -1979,7 +2085,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 102 types</summary>
+<summary>Browse 106 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -1988,6 +2094,10 @@ Options, data structures and return types.
 - [ApprovedAgentProfile](#approvedagentprofile)
 - [ApprovedServiceProfile](#approvedserviceprofile)
 - [AuthenticatedService](#authenticatedservice)
+- [BillingDeployment](#billingdeployment)
+- [BillingMode](#billingmode)
+- [BillingModeDetector](#billingmodedetector)
+- [BillingModeObservation](#billingmodeobservation)
 - [ChainClientConfig](#chainclientconfig)
 - [ClientApprovedPresentation](#clientapprovedpresentation)
 - [ClientExecutionDeployment](#clientexecutiondeployment)
@@ -2216,6 +2326,84 @@ Fields:
 - **` blockNumber `**: Chain block used for the final registry record check.
 - **` expiresAt `**: Expiration of the endpoint authentication challenge in Unix seconds.
 
+### BillingDeployment
+
+Chain and Settlement proxy whose billing is detected; independently approved by the application.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L41)
+
+```ts
+export interface BillingDeployment {
+    chainId: number;
+    settlement: Address;
+}
+```
+
+Fields:
+
+- **` chainId `**: Expected EVM chain ID.
+- **` settlement `**: Expected Settlement proxy.
+
+### BillingMode
+
+Billing a slot uses; `unknown` means the chain could not be read consistently.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L18)
+
+```ts
+export type BillingMode = 'legacy' | 'prepaid' | 'unknown';
+```
+
+### BillingModeDetector
+
+Per-slot cached billing detection for one deployment.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L144)
+
+```ts
+export interface BillingModeDetector {
+    mode(slot: Hex): Promise<BillingModeObservation>;
+    requirePrepaid(slot: Hex): Promise<BillingModeObservation>;
+    invalidate(slot?: Hex): void;
+}
+```
+
+Fields:
+
+- **` mode `**: Current mode, from cache when fresh. `unknown` is never cached.
+- **` requirePrepaid `**: Resolve the mode and return it only when prepaid; otherwise throw [BillingModeError](#billingmodeerror).
+- **` invalidate `**: Forget one slot, or every slot, e.g. after an operator announces a Settlement upgrade.
+
+### BillingModeObservation
+
+One consistent observation of a slot's billing mode.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L21)
+
+```ts
+export interface BillingModeObservation {
+    slot: Hex;
+    mode: BillingMode;
+    settlementVersion?: string;
+    prepaidEnabled?: boolean;
+    prepaidFromGenesis?: boolean;
+    blockNumber?: bigint;
+    blockHash?: Hex;
+    reason?: string;
+}
+```
+
+Fields:
+
+- **` slot `**: Slot identifier.
+- **` mode `**: Detected billing. `unknown` never authorizes either flow.
+- **` settlementVersion `**: `Settlement.version()` when read.
+- **` prepaidEnabled `**: `prepaidEnabled(slot)` when read (version 2 only).
+- **` prepaidFromGenesis `**: `prepaidFromGenesis()` when read (version 2 only).
+- **` blockNumber `**: Block every value was read at, when the read completed.
+- **` blockHash `**: Hash of that block, rechecked after all reads.
+- **` reason `**: Why the mode is unknown; safe for logs (no response bodies).
+
 ### ChainClientConfig
 
 RPC and contract configuration for read-only network access.
@@ -2271,7 +2459,7 @@ Fields:
 
 Approved contracts and default verifier policy for client-side execution consent.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L77)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L80)
 
 ```ts
 export interface ClientExecutionDeployment extends PrepaidDeployment {
@@ -2297,7 +2485,7 @@ Fields:
 
 Fresh canonical payment and verifier-policy observation before a client signature.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L99)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L102)
 
 ```ts
 export interface ClientExecutionObservation extends PrepaidObservation {
@@ -2589,7 +2777,7 @@ Fields:
 
 Chain-derived fields safe to copy into the creator's independently bounded payment intent.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L292)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L295)
 
 ```ts
 export type DiscoveredPaymentFields = Pick<PaymentIntentWire,
@@ -2635,7 +2823,7 @@ export type EventCategory = 'node' | 'slot' | 'slashing' | 'tasra' | 'settlement
 
 Explicit expected operation, independent of the supplied payment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L67)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L70)
 
 ```ts
 export interface ExpectedPaidOperation {
@@ -2743,7 +2931,7 @@ Fields:
 
 Original canonical keeper admission authenticated for a completed-result read.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L194)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L197)
 
 ```ts
 export interface KeeperExecutionRecoveryObservation extends PrepaidObservation {
@@ -3131,7 +3319,7 @@ Fields:
 
 Independently approved deployment used to discover a payment before creator signing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L274)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L277)
 
 ```ts
 export interface PaidContextDeployment extends PrepaidDeployment {
@@ -3154,7 +3342,7 @@ Fields:
 
 Explicit application policy for selecting currently eligible paid workers.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L284)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L287)
 
 ```ts
 export interface PaidContextOptions extends PaidKeeperTransportOptions {
@@ -3176,7 +3364,7 @@ Fields:
 
 Currently eligible registered keeper selected in the creator's paid assignment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L166)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L169)
 
 ```ts
 export interface PaidKeeperEndpoint {
@@ -3196,7 +3384,7 @@ Fields:
 
 The single coordinator and contributor set selected by the creator's paid assignment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L176)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L179)
 
 ```ts
 export interface PaidKeeperTarget extends PaidKeeperEndpoint {
@@ -3221,7 +3409,7 @@ Fields:
 
 Explicit transport allowance for a development chain. HTTPS is otherwise required.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L188)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L191)
 
 ```ts
 export interface PaidKeeperTransportOptions {
@@ -3237,7 +3425,7 @@ Fields:
 
 One canonical pre-signing observation; later reservation and execution must revalidate it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L295)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L298)
 
 ```ts
 export interface PaidOperationContext extends PrepaidObservation {
@@ -3268,7 +3456,7 @@ Fields:
 
 Chain backing for one operation; holder authorization and execution journals remain separate.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L53)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L56)
 
 ```ts
 export interface PaidOperationReceipt extends PrepaidObservation {
@@ -3448,7 +3636,7 @@ Fields:
 
 An anchored drawn verifier identity, supplied with its inclusion proof.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L87)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L90)
 
 ```ts
 export interface PaidVerifierWitness {
@@ -3470,7 +3658,7 @@ Fields:
 
 Deployment independently selected by the application, not taken from a received intent.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L19)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L20)
 
 ```ts
 export interface PrepaidDeployment {
@@ -3490,7 +3678,7 @@ Fields:
 
 Fresh canonical observation shared by every field in a funding or reservation result.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L29)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L30)
 
 ```ts
 export interface PrepaidObservation {
@@ -4280,7 +4468,7 @@ Fields:
 
 Slot TASRA balances at a single canonical block; this does not grant paid admission.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L39)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L40)
 
 ```ts
 export interface SlotFunding extends PrepaidObservation {
@@ -4289,6 +4477,7 @@ export interface SlotFunding extends PrepaidObservation {
     available: bigint;
     reserved: bigint;
     total: bigint;
+    settlementVersion?: '1';
 }
 ```
 
@@ -4299,6 +4488,7 @@ Fields:
 - **` available `**: Unreserved TASRA base units.
 - **` reserved `**: TASRA base units held by unsettled reservations.
 - **` total `**: Available plus reserved TASRA base units.
+- **` settlementVersion `**: `'1'` when read from a legacy Settlement (no prepaid getters: `enabled` false, `reserved` 0). Absent on a prepaid deployment.
 - **` blockNumber `**: Canonical block number.
 - **` blockHash `**: Exact canonical block used for EIP-1898 calls.
 - **` blockTimestamp `**: Block timestamp in Unix seconds.

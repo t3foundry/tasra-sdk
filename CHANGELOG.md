@@ -41,6 +41,15 @@ never does.
 
 ### Added
 
+- Detect a slot's billing from the chain: `readBillingMode`, the per-slot caching
+  `createBillingModeDetector` and `requirePrepaidSlot` (`tasra-sdk/chain`) read
+  `Settlement.version()` and, on version 2, `prepaidEnabled(slot)` and
+  `prepaidFromGenesis()` at one canonical block, answering `legacy`, `prepaid` or
+  `unknown` (never a guess). `discoverPaidOperationContext` refuses a legacy or
+  unreadable slot with `BillingModeError`, and an unfunded prepaid-from-genesis slot
+  with `UnderfundedSlotError`. `readSlotFunding` works against a version 1
+  Settlement (`settlementVersion: '1'`, no reservation). Legacy paths are unchanged.
+
 - Honor `Retry-After`. `TasraHttpError.retryAfterMs` carries the parsed header;
   425 is retryable, and so is a 409/410/422 that sends the header. New
   `retryIdempotent` waits the service-requested time plus bounded jitter (never

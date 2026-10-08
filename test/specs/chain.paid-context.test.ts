@@ -4,6 +4,7 @@ import {createPublicClient, custom, decodeFunctionData, encodeFunctionResult, ge
 import {privateKeyToAccount} from 'viem/accounts'
 import {discoverPaidOperationContext, readClientExecutionPolicy, type PaidContextOptions} from '../../src/chain/prepaid.js'
 import {UnderfundedSlotError} from '../../src/errors.js'
+import {BillingModeError} from '../../src/chain/billing.js'
 import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {verifierLeaf} from '../../src/committee/token.js'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.js'
@@ -22,6 +23,7 @@ interface Changes {
   enabled?: boolean; available?: bigint; cancelled?: boolean; noKey?: boolean; age?: number; orphan?: boolean
   chain?: number; unsupported?: boolean; url?: string; chainId?: number; onChainId?: () => void
   reserved?: bigint; settled?: boolean; refunded?: bigint; root?: Hex; tagged?: boolean; creator?: Hex; registeredKey?: Hex
+  legacy?: boolean; genesis?: boolean
 }
 function fixture(change: Changes = {}) {
   const deployment = {chainId: change.chainId ?? 43112, settlement: h(1, 20), keyRegistry: h(2, 20), verifierSet: h(5, 20), accountantSet: h(8, 20), beacon: h(6, 20)}
@@ -43,11 +45,14 @@ function fixture(change: Changes = {}) {
         : call.to === approved.accountantSet ? accountantSetRegistryAbi : settlementAbi
     const {functionName: name, args} = decodeFunctionData({abi, data: call.data})
     calls[calls.length - 1] = {method, name, args}
+    // A legacy Settlement (version 1) has none of the prepaid getters: they revert.
+    if (change.legacy && abi === settlementAbi && name !== 'version' && name !== 'balanceOf') throw new Error('execution reverted')
     const index = operators.findIndex(op => op.toLowerCase() === String(args?.[0]).toLowerCase())
     const previous = args?.[0] !== (change.epoch ?? 7n)
     const accountant = call.to === approved.accountantSet
     const values: Record<string, unknown> = {
       prepaidEnabled: change.enabled ?? true, balanceOf: change.available ?? 100n,
+      version: change.legacy ? '1' : '2', prepaidFromGenesis: change.genesis ?? false,
       prepaidCost: change.reserved ?? 5n, prepaidSettled: change.settled ?? false,
       prepaidRefunded: change.refunded ?? 0n, prepaidAssignmentBlock: h(19),
       randomBeacon: change.beaconMismatch === 'key' ? h(99, 20) : approved.beacon,
@@ -70,6 +75,20 @@ function fixture(change: Changes = {}) {
 }
 afterEach(() => vi.restoreAllMocks())
 const now = () => vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+
+it('refuses a legacy Settlement or a slot not cut over with a typed billing refusal', async () => {
+  now()
+  const legacy: unknown = await fixture({legacy: true}).run().catch((error: unknown) => error)
+  expect(legacy).toBeInstanceOf(BillingModeError)
+  expect(legacy).toMatchObject({mode: 'legacy', settlementVersion: '1', retryable: false})
+  const upgraded: unknown = await fixture({enabled: false}).run().catch((error: unknown) => error)
+  expect(upgraded).toMatchObject({name: 'BillingModeError', mode: 'legacy', settlementVersion: '2'})
+  // Prepaid from genesis but never funded: prepaid billing, so the refusal is the funding one.
+  const unfunded: unknown = await fixture({enabled: false, genesis: true, available: 0n}).run().catch((error: unknown) => error)
+  expect(unfunded).toBeInstanceOf(UnderfundedSlotError)
+  // When nothing can be read, billing is unknown: refused, retryable, never guessed.
+  await expect(fixture({unsupported: true}).run()).rejects.toMatchObject({name: 'BillingModeError', mode: 'unknown', retryable: true})
+})
 
 it('identifies an exhausted activated slot without inventing an HTTP response or starting payment work', async () => {
   now(); const f = fixture({available: 0n})

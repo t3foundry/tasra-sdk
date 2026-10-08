@@ -8,6 +8,8 @@
 export * from './abis/index.js'
 export {UnderfundedSlotError} from '../errors.js'
 export {readSlotFunding, readPaidOperationReceipt, resolvePaidKeeperTarget, discoverPaidOperationContext} from './prepaid.js'
+export {readBillingMode, createBillingModeDetector, requirePrepaidSlot, BillingModeError} from './billing.js'
+export type {BillingMode, BillingModeObservation, BillingDeployment, BillingModeDetector} from './billing.js'
 export type {PrepaidDeployment, PrepaidObservation, SlotFunding, PaidOperationReceipt, ExpectedPaidOperation, PaidKeeperEndpoint, PaidKeeperTarget, PaidKeeperTransportOptions,
   PaidContextDeployment, PaidContextOptions, DiscoveredPaymentFields, PaidOperationContext} from './prepaid.js'
 export {reservePaidOperation, reconcilePaidReservation, PaidReservationUncertainError} from './reservation.js'
