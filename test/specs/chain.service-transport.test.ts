@@ -1,5 +1,6 @@
 import {readFileSync} from 'node:fs'
 import {createServer, type Server} from 'node:https'
+import {createServer as createPlainServer, type Server as PlainServer} from 'node:http'
 import {lookup} from 'node:dns'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 import {createNodeKeeperRecoveryTransport, createNodePaidAgentTransport, createNodeServiceStatusTransport, createNodeAgentWalletFetch, createNodeAgentTransport, createNodeRelayTransport, createNodeServiceDiscoveryTransport, isPublicServiceAddress} from '../../src/chain/node.js'
@@ -47,6 +48,44 @@ describe('service HTTPS destination boundary', () => {
     await expect(createNodeKeeperRecoveryTransport({ca}).keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).rejects.toThrow(/destination policy/)
     await expect(createNodeKeeperRecoveryTransport({allowedPrivateHosts:['localhost']}).keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).rejects.toThrow()
     expect(hits).toHaveBeenCalledTimes(2)
+  })
+  it('permits plain local-development HTTP only when enabled, only to loopback/private hosts, with the HTTPS route checks', async () => {
+    const hits = vi.fn()
+    const plain: PlainServer = createPlainServer((req, res) => {hits(req.url, req.method, req.headers); req.resume()
+      res.writeHead(200, {'content-type':'application/json'}); res.end('{"ok":true}')})
+    await new Promise<void>(resolve => plain.listen(0, '127.0.0.1', resolve))
+    try {
+      const port = (plain.address() as {port: number}).port
+      const args = {...options(), body:new TextEncoder().encode('{}')}
+      const local = createNodeKeeperRecoveryTransport({allowLocalHttp:true})
+      for (const base of [`http://127.0.0.1:${port}`, `http://localhost:${port}`]) {
+        const reply = await local.keeperRecoveryRequest(base+'/v1/prepaid/execution', args)
+        expect(reply.status).toBe(200); expect(new TextDecoder().decode(reply.body)).toBe('{"ok":true}')
+      }
+      // An approved private host name resolving to a non-public address is also permitted.
+      vi.mocked(lookup).mockImplementationOnce(((_host: string, _o: unknown, callback: (e: null, a: {address: string; family: number}[]) => void) =>
+        callback(null, [{address:'127.0.0.1', family:4}])) as unknown as typeof lookup)
+      expect(await createNodeKeeperRecoveryTransport({allowLocalHttp:true, allowedPrivateHosts:['keeper.internal']})
+        .keeperRecoveryRequest(`http://keeper.internal:${port}/v1/prepaid/execution/recover`, args)).toMatchObject({status:200})
+      expect(hits.mock.calls.map(([url, method])=>[url,method])).toEqual([['/v1/prepaid/execution','POST'],['/v1/prepaid/execution','POST'],['/v1/prepaid/execution/recover','POST']])
+      for (const call of hits.mock.calls) {expect(call[2].authorization).toBeUndefined(); expect(call[2].cookie).toBeUndefined()}
+      // Same route checks as HTTPS.
+      for (const path of ['/v1/prepaid/execution/close','/v1/sign','/v1/prepaid/execution?x=1'])
+        expect(()=>local.keeperRecoveryRequest(`http://127.0.0.1:${port}`+path,args)).toThrow(/path/)
+      // Off by default, and never to a public host name or literal.
+      expect(()=>createNodeKeeperRecoveryTransport().keeperRecoveryRequest(`http://127.0.0.1:${port}/v1/prepaid/execution`,args)).toThrow()
+      expect(()=>createNodeKeeperRecoveryTransport({allowedPrivateHosts:['127.0.0.1']}).keeperRecoveryRequest(`http://127.0.0.1:${port}/v1/prepaid/execution`,args)).toThrow()
+      expect(()=>local.keeperRecoveryRequest('http://8.8.8.8/v1/prepaid/execution',args)).toThrow(/HTTPS/)
+      expect(()=>local.keeperRecoveryRequest('http://keeper.example.com/v1/prepaid/execution',args)).toThrow(/HTTPS/)
+      expect(()=>local.keeperRecoveryRequest('http://[2606:4700::1111]/v1/prepaid/execution',args)).toThrow(/HTTPS/)
+      expect(()=>local.keeperRecoveryRequest(`ftp://127.0.0.1:${port}/v1/prepaid/execution`,args)).toThrow()
+      // An approved name whose DNS answer is public is refused for plaintext.
+      vi.mocked(lookup).mockImplementationOnce(((_host: string, _o: unknown, callback: (e: null, a: {address: string; family: number}[]) => void) =>
+        callback(null, [{address:'8.8.8.8', family:4}])) as unknown as typeof lookup)
+      await expect(createNodeKeeperRecoveryTransport({allowLocalHttp:true, allowedPrivateHosts:['keeper.internal']})
+        .keeperRecoveryRequest(`http://keeper.internal:${port}/v1/prepaid/execution`, args)).rejects.toThrow(/DNS answer/)
+      expect(hits).toHaveBeenCalledTimes(3)
+    } finally { plain.closeAllConnections(); await new Promise<void>(resolve => plain.close(() => resolve())) }
   })
   it('refuses redirects and oversized recovery replies without a second request', async () => {
     const hits=vi.fn()

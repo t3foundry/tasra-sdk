@@ -52,6 +52,11 @@ never does.
 
 ### Added
 
+- `createNodeKeeperRecoveryTransport({allowLocalHttp: true})` (`tasra-sdk/chain/node`)
+  reads local development keepers over plain HTTP, like the browser transport: only to
+  loopback names, private IP literals and `allowedPrivateHosts`, only when every DNS answer
+  is non-public, with the same route checks as HTTPS. Default off.
+
 - `abandonPaidOperation(store, requestId, {reason})` (`tasra-sdk/app`) closes a paid
   operation (phase `abandoned`) only when nothing can still land under it: an unsent
   reservation, a `failed` or `executed` operation, or an unfinished one after payment

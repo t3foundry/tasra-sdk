@@ -131,8 +131,10 @@ to read the keeper's retained result. An identity extraction fans out to every a
 contributor; after a lost reply, `op.recoverIbePartials({transport})` reads each
 contributor's retained, commitment-verified partial (bounded concurrency, stopping at the
 payment's keeper threshold) and returns them in the shape the IBE combine helpers accept,
-never re-sending an extraction. In a browser, `createBrowserKeeperRecoveryTransport({allowLocalHttp:
-true})` reads local development keepers over HTTP (loopback and private hosts only).
+never re-sending an extraction. For local development keepers over HTTP, pass
+`{allowLocalHttp: true}` to `createNodeKeeperRecoveryTransport` (Node) or
+`createBrowserKeeperRecoveryTransport` (browser); both permit loopback and private hosts only
+and are off by default.
 `createMemoryStore` suits tests only.
 
 For clients integrating with an independently verified reservation service,
