@@ -379,9 +379,7 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
               busySends++
               await budget.run(() => new Promise(resolve => setTimeout(resolve, Math.min(1_000, Math.max(1, until - Date.now())))))
               await post()
-              continue
-            }
-            if (['failed', 'rejected', 'unknown'].includes(status.state)) break
+            } else if (['failed', 'rejected', 'unknown'].includes(status.state)) break
           } catch { budget.signal.throwIfAborted(); break }
           const result = await reconcile(chain, attempt, budget)
           if (result.receipt) { pending = undefined; return result.receipt }

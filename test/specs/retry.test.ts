@@ -135,3 +135,18 @@ describe('verifier capacity refusals (SP-11)', () => {
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('retry argument guards', () => {
+  it('refuses invalid random sources, attempt state and Retry-After values', () => {
+    expect(() => retryDelayMs(0, undefined, {random: 5 as unknown as () => number})).toThrow(/random/)
+    expect(() => retryDelayMs(-1, undefined)).toThrow(/state/)
+    expect(() => retryDelayMs(0, undefined, {}, -5)).toThrow(/state/)
+    expect(() => retryDelayMs(0, 1.5)).toThrow(/Retry-After/)
+    expect(retryDelayMs(0, undefined, {random: top, baseDelayMs: 5000, maxTotalWaitMs: 100})).toBeUndefined()
+  })
+  it('validates the policy before the first send', async () => {
+    const work = vi.fn(async () => 1)
+    await expect(retryIdempotent(work, {policy: {maxAttempts: 99}})).rejects.toThrow(/retry policy/)
+    expect(work).not.toHaveBeenCalled()
+  })
+})

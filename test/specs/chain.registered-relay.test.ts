@@ -224,3 +224,24 @@ describe('relayer busy refusals', () => {
     expect(() => h.submitter({busyRetries: -1})).toThrow('Invalid registered')
   })
 })
+
+describe('relayer busy status', () => {
+  it('re-sends the identical request when the status reports a busy refusal', async () => {
+    const h = harness()
+    let posts = 0, statuses = 0
+    h.transport.relayExchange = vi.fn(async (_url: string, {body}: {body?: Uint8Array}) => {
+      posts++; h.setRequest(body!)
+      if (posts === 2) h.setNonce(1n)
+      return {status: 202, body: encode({id: 'x', state: 'queued'})}
+    })
+    const relay = h.submitter({attemptMs: 5_000})
+    vi.mocked(h.transport.relayRequest).mockImplementation(async () => {
+      statuses++
+      return encode({id: relay.pendingAttempt()!.id, state: 'rejected', reason: BUSY[0]})
+    })
+    expect((await relay.submit(target, '0x12345678')).txHash).toBe(txHash)
+    expect(posts).toBe(2)
+    expect(statuses).toBeGreaterThanOrEqual(1)
+    expect(new Set(h.bodies.map(b => new TextDecoder().decode(b))).size).toBe(1)
+  })
+})
