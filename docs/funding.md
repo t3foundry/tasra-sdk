@@ -74,9 +74,22 @@ Each billable step is journaled in the store before it is sent. When an outcome 
 uncertain the call throws `PaidOperationRecoveryError` (`requestId`, `phase`:
 `reservation`, `session` or `execution`). Never call `paidOperation` again for that
 work, which would pay twice. Call `resumePaidOperation(config, requestId, {holder})`: it
-reconciles a saved reservation transaction on chain (pass `transactionHash` if none was
-saved), keeps the gas payer locked until then, re-reads the session and skips confirmed
-writes, and refuses any write whose outcome is unknown. `execute` runs once; after an
+re-reads the session and skips confirmed writes, and refuses any write whose outcome is
+unknown.
+
+A reservation still in flight is reconciled on chain first, by the deterministic request ID
+and the gas payer's nonce, so no transaction hash is needed (a local signer's hash is
+journaled before broadcast anyway; pass `transactionHash` to prove a mined original
+sooner). The chain holding the reservation advances the operation. A quote deadline passed
+without one marks it `failed`: it is never reserved again. Anything else stays
+`reserving`, the call throws and the gas payer stays locked. Resume makes a first
+reservation only when nothing was ever prepared for the request (no journal, no payer
+claim, nothing on chain). To inspect without any billable or keeper work, use
+`reconcilePaidOperation(config, requestId)` (or `resumePaidOperation` with
+`reconcileOnly: true`); it returns `{phase, reservation, payerLocked, next}`, where
+`next` is `reserve`, `resume`, `wait`, `recover`, `done` or `abandon`.
+`reconcileApplicationReservation` is the same proof for applications composing
+`reserveApplicationPayment` themselves. `execute` runs once; after an
 uncertain execution use `op.recover({transport: createNodeKeeperRecoveryTransport()})`
 to read the keeper's retained result. `createMemoryStore` suits tests only.
 

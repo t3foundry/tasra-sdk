@@ -25,7 +25,8 @@ import {createKeeperExecutionApprover} from '../chain/keeperExecution.js'
 import {recoverKeeperExecution, type KeeperRecoveryTransport, type RecoveredKeeperExecution} from '../chain/keeperRecovery.js'
 import {ruleCommitment} from '../chain/write.js'
 import {loadPaidReservationJournal} from './paid-journal.js'
-import {reserveApplicationPayment, reconcileApplicationPayment, ApplicationPayerRecoveryError} from './paid-reservation.js'
+import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, ApplicationPayerRecoveryError,
+  type ApplicationReservationState} from './paid-reservation.js'
 import {drivePaidSession, waitForPaidSnapshot, type PaidSessionHolder} from './paid-session.js'
 import type {ApplicationStore} from './ready-slot.js'
 import {withDedicatedPayer} from './payer-queue.js'
@@ -128,10 +129,16 @@ export class PaidOperationRecoveryError extends TasraError {
   }
 }
 
-type Phase = 'reserving' | 'reserved' | 'certified' | 'authorized' | 'executing' | 'executed'
+/**
+ * Journaled progress of one paid operation. `failed` is terminal: the original reservation
+ * provably never happened and the operation must not be reserved again.
+ */
+export type PaidOperationJournalPhase = 'reserving' | 'reserved' | 'certified' | 'authorized' | 'executing' | 'executed' | 'failed'
+type Phase = PaidOperationJournalPhase
 interface OperationRecord {
   schema: 1
   phase: Phase
+  failure?: {reason: string}
   payment: PaymentIntentWire
   expected: ExpectedPaidOperation
   params: {operation: PresentationOperation; operationSig: Hex; messageHex: string; random: Hex}
@@ -329,37 +336,167 @@ function handle(config: PaidOperationConfig, record: OperationRecord, signer: Re
   return Object.freeze(operation)
 }
 
+/** What the application should do next with a reconciled paid operation. */
+export type PaidOperationNextStep =
+  /** Nothing was ever reserved; `resumePaidOperation` makes the first reservation. */
+  | 'reserve'
+  /** Reserved or further; `resumePaidOperation` continues (session needs its holder). */
+  | 'resume'
+  /** The reservation outcome is not provable yet; reconcile again later. Never reserve again. */
+  | 'wait'
+  /** Keeper execution outcome is uncertain; read it with the handle's `recover`. */
+  | 'recover'
+  /** The keeper operation completed. */
+  | 'done'
+  /** The original reservation provably never happened; this operation is finished unpaid. */
+  | 'abandon'
+
+/** Read-only reconciliation result of {@link reconcilePaidOperation}. */
+export interface PaidOperationStatus {
+  /** Reservation identity. */
+  requestId: Hex
+  /** Journaled phase after reconciliation. */
+  phase: PaidOperationJournalPhase
+  /** Reservation state: proven from the chain while `reserving`, implied by the phase afterwards. */
+  reservation: ApplicationReservationState
+  /** Whether this operation still holds its gas payer's durable claim. */
+  payerLocked: boolean
+  /** Next safe step. */
+  next: PaidOperationNextStep
+  /** Why the reservation is `uncertain` or `not-reserved`; safe to log. */
+  reason?: string
+  /** Journaled or reported reservation transaction hash, when known. */
+  transactionHash?: Hex
+}
+
+/** Options shared by {@link resumePaidOperation} and {@link reconcilePaidOperation}. */
+export interface ResumePaidOperationOptions {
+  /** Holder strategy, needed while the session is unfinished. */
+  holder?: PaidSessionHolder
+  /** A located original reservation transaction hash, when none was journaled; speeds a proof before the quote deadline. */
+  transactionHash?: Hex
+  /** Cancellation. */
+  signal?: AbortSignal
+  /** Inspect the verified request object before any credential is disclosed. */
+  observeRequest?(request: VerifiedRequestObject): void | Promise<void>
+  /** Chain observation depth for reservation reconciliation, 1..64 (default 1). */
+  confirmations?: number
+  /**
+   * Only reconcile: never reserve, never drive the session, never execute. Returns the
+   * {@link PaidOperationStatus} instead of a handle. Same as {@link reconcilePaidOperation}.
+   */
+  reconcileOnly?: boolean
+}
+
+function loadRecord(store: ApplicationStore, requestId: Hex): Promise<OperationRecord | undefined> {
+  return store.load<OperationRecord>(recordKey(requestId)).then(record => {
+    if (record === undefined) return undefined
+    if (!record || record.schema !== 1 || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('Paid operation journal does not match its request')
+    return record
+  })
+}
+
+/** Proven reservation state of a `reserving` record, advancing the journal only on proof. */
+async function reconcileReservation(config: PaidOperationConfig, requestId: Hex, record: OperationRecord, options: Pick<ResumePaidOperationOptions, 'transactionHash' | 'confirmations'>) {
+  const d = {...config.deployment}, store = config.store
+  let status = await reconcileApplicationReservation(config.chain.client, store, d, record.payment, record.expected,
+    {payer: config.gasPayer.account.address, confirmations: options.confirmations})
+  if (status.state === 'uncertain' && status.payerLocked) {
+    // A known hash can prove a mined original (success or revert) before the quote deadline.
+    const journal = await loadPaidReservationJournal(store, requestId)
+    const hash = journal?.transactionHash ?? options.transactionHash
+    if (journal && hash) {
+      const resolution = await reconcileApplicationPayment(config.chain.client, store, d, requestId, record.expected, hash, options.confirmations).catch(() => undefined)
+      if (resolution) status = {...status, state: resolution.status === 'success' ? 'reserved' : 'not-reserved', payerLocked: false, transactionHash: hash,
+        reason: resolution.status === 'success' ? undefined : 'the original reservation transaction reverted'}
+    }
+  }
+  let phase: Phase = 'reserving'
+  if (status.state === 'reserved') phase = (await advance(store, requestId, 'reserving', {phase: 'reserved'})).phase
+  else if (status.state === 'not-reserved') phase = (await advance(store, requestId, 'reserving', {phase: 'failed', failure: {reason: status.reason ?? 'reservation never happened'}})).phase
+  return {status, phase}
+}
+
+const NEXT: Record<Phase, PaidOperationNextStep> = {reserving: 'wait', reserved: 'resume', certified: 'resume', authorized: 'resume', executing: 'recover', executed: 'done', failed: 'abandon'}
+
+/**
+ * Reconcile a paid operation without any billable or keeper work: no reservation, no session
+ * write, no execution. A `reserving` operation is checked on chain by its request ID and payer
+ * nonce (no transaction hash needed) and advanced only on proof: `reserved` when the chain holds
+ * it, `failed` when its quote deadline passed without one. Anything else stays `reserving`
+ * with `next: 'wait'` and the payer locked.
+ * @param config The configuration the operation started with.
+ * @param requestId Reservation identity.
+ * @param options Located transaction hash and observation depth.
+ */
+export async function reconcilePaidOperation(config: PaidOperationConfig, requestId: Hex,
+  options: Pick<ResumePaidOperationOptions, 'transactionHash' | 'confirmations'> = {}): Promise<PaidOperationStatus> {
+  validateConfig(config)
+  const record = await loadRecord(config.store, requestId)
+  if (!record) throw new TasraError('No paid operation journal for this request')
+  if (record.phase !== 'reserving') {
+    return {requestId, phase: record.phase, reservation: record.phase === 'failed' ? 'not-reserved' : 'reserved', payerLocked: false, next: NEXT[record.phase],
+      ...(record.failure ? {reason: record.failure.reason} : {})}
+  }
+  const {status, phase} = await reconcileReservation(config, requestId, record, options)
+  return {requestId, phase, reservation: status.state, payerLocked: status.payerLocked,
+    next: status.state === 'none' ? 'reserve' : NEXT[phase],
+    ...(status.reason ? {reason: status.reason} : {}), ...(status.transactionHash ? {transactionHash: status.transactionHash} : {})}
+}
+
 /**
  * Continue a paid operation from its journal after a PaidOperationRecoveryError or a restart.
- * An unresolved reservation is reconciled on chain from its saved (or supplied) transaction hash
- * and never resubmitted; a session is re-read, skipping confirmed writes; an authorized or
- * executing operation returns its handle (use `recover` for an uncertain execution).
+ * A `reserving` operation is first reconciled on chain (see {@link reconcilePaidOperation}); it
+ * is reserved only when nothing was ever prepared for it (no journal, no payer claim, nothing on
+ * chain), and never again after any preparation. An unprovable reservation throws
+ * PaidOperationRecoveryError and keeps the gas payer locked. A session is re-read, skipping
+ * confirmed writes; an authorized or executing operation returns its handle (use `recover` for
+ * an uncertain execution). With `reconcileOnly` it returns the status instead and does no work.
  * @param config The same configuration the operation started with.
  * @param requestId Reservation identity from the error or the journal.
- * @param options Holder strategy (needed while the session is unfinished), a located reservation
- *   transaction hash when none was saved, cancellation and request observation.
+ * @param options Holder strategy, located transaction hash, cancellation, request observation, reconcile-only.
  */
-export async function resumePaidOperation(config: PaidOperationConfig, requestId: Hex, options: {
-  holder?: PaidSessionHolder; transactionHash?: Hex; signal?: AbortSignal; observeRequest?(request: VerifiedRequestObject): void | Promise<void>
-} = {}): Promise<PaidOperation> {
+export async function resumePaidOperation(config: PaidOperationConfig, requestId: Hex, options: ResumePaidOperationOptions & {reconcileOnly: true}): Promise<PaidOperationStatus>
+/**
+ * Continue a paid operation from its journal after a PaidOperationRecoveryError or a restart.
+ * A `reserving` operation is first reconciled on chain (see {@link reconcilePaidOperation}); it
+ * is reserved only when nothing was ever prepared for it (no journal, no payer claim, nothing on
+ * chain), and never again after any preparation. An unprovable reservation throws
+ * PaidOperationRecoveryError and keeps the gas payer locked. A session is re-read, skipping
+ * confirmed writes; an authorized or executing operation returns its handle (use `recover` for
+ * an uncertain execution). With `reconcileOnly` it returns the status instead and does no work.
+ * @param config The same configuration the operation started with.
+ * @param requestId Reservation identity from the error or the journal.
+ * @param options Holder strategy, located transaction hash, cancellation, request observation, reconcile-only.
+ */
+export async function resumePaidOperation(config: PaidOperationConfig, requestId: Hex, options?: ResumePaidOperationOptions & {reconcileOnly?: false}): Promise<PaidOperation>
+/**
+ * Continue a paid operation from its journal after a PaidOperationRecoveryError or a restart.
+ * A `reserving` operation is first reconciled on chain (see {@link reconcilePaidOperation}); it
+ * is reserved only when nothing was ever prepared for it (no journal, no payer claim, nothing on
+ * chain), and never again after any preparation. An unprovable reservation throws
+ * PaidOperationRecoveryError and keeps the gas payer locked. A session is re-read, skipping
+ * confirmed writes; an authorized or executing operation returns its handle (use `recover` for
+ * an uncertain execution). With `reconcileOnly` it returns the status instead and does no work.
+ * @param config The same configuration the operation started with.
+ * @param requestId Reservation identity from the error or the journal.
+ * @param options Holder strategy, located transaction hash, cancellation, request observation, reconcile-only.
+ */
+export async function resumePaidOperation(config: PaidOperationConfig, requestId: Hex, options: ResumePaidOperationOptions = {}): Promise<PaidOperation | PaidOperationStatus> {
+  if (options.reconcileOnly) return reconcilePaidOperation(config, requestId, options)
   validateConfig(config)
   const signal = options.signal ?? new AbortController().signal, store = config.store
-  const record = await store.load<OperationRecord>(recordKey(requestId))
-  if (!record || record.schema !== 1 || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('No paid operation journal for this request')
+  const record = await loadRecord(store, requestId)
+  if (!record) throw new TasraError('No paid operation journal for this request')
+  if (record.phase === 'failed') throw new PaidOperationRecoveryError(requestId, 'reservation', new Error(record.failure?.reason ?? 'reservation never happened'))
   if (record.phase === 'reserving') {
-    const journal = await loadPaidReservationJournal(store, requestId)
-    if (!journal) {
-      // Nothing was prepared for this request: no transaction can exist. Reserve it now, once.
-      await reserve(config, record, signal)
-    } else if (journal.phase === 'confirmed') {
-      await advance(store, requestId, 'reserving', {phase: 'reserved'})
-    } else {
-      const hash = journal.transactionHash ?? options.transactionHash
-      if (!hash) throw new PaidOperationRecoveryError(requestId, 'reservation', new Error('locate the original reservation transaction and pass its hash'))
-      const resolution = await reconcileApplicationPayment(config.chain.client, store, {...config.deployment}, requestId, record.expected, hash)
-      if (resolution.status !== 'success') throw new TasraError('The original reservation transaction reverted; this payment cannot be used')
-      await advance(store, requestId, 'reserving', {phase: 'reserved'})
-    }
+    let reconciled
+    try { reconciled = await reconcileReservation(config, requestId, record, options) }
+    catch (error) { throw new PaidOperationRecoveryError(requestId, 'reservation', error) }
+    const {status} = reconciled
+    if (status.state === 'none') await reserve(config, record, signal)
+    else if (status.state === 'uncertain') throw new PaidOperationRecoveryError(requestId, 'reservation', new Error(status.reason ?? 'reservation outcome is not provable yet'))
+    else if (status.state === 'not-reserved') throw new PaidOperationRecoveryError(requestId, 'reservation', new Error(status.reason ?? 'reservation never happened'))
   }
   return continueOperation(config, requestId, options.holder, signal, options.observeRequest)
 }
@@ -369,7 +506,7 @@ export async function resumePaidOperation(config: PaidOperationConfig, requestId
  * @param store Store the operation was journaled in.
  * @param requestId Reservation identity.
  */
-export async function paidOperationPhase(store: ApplicationStore, requestId: Hex): Promise<Phase | undefined> {
+export async function paidOperationPhase(store: ApplicationStore, requestId: Hex): Promise<PaidOperationJournalPhase | undefined> {
   const record = await store.load<OperationRecord>(recordKey(requestId))
   return record?.phase
 }

@@ -1,7 +1,8 @@
-import type {Account, Address, Chain, Hex, PublicClient, Transport, WalletClient} from 'viem'
+import {decodeFunctionResult, encodeFunctionData, type Account, type Address, type Chain, type Hex, type PublicClient, type Transport, type WalletClient} from 'viem'
+import {settlementAbi} from '../chain/abis/settlement.js'
 import {reservePaidOperation, reconcilePaidReservation, type ReservePaidOperationOptions, type PaidReservationResolution} from '../chain/reservation.js'
 import type {ExpectedPaidOperation, PrepaidDeployment} from '../chain/prepaid.js'
-import type {PaymentIntentWire} from '../committee/payment.js'
+import {prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
 import {createPaidReservationJournal, loadPaidReservationJournal, type PaidReservationSession} from './paid-journal.js'
 import type {ApplicationStore} from './ready-slot.js'
 
@@ -119,4 +120,130 @@ export async function reconcileApplicationPayment(
     await store.save(name, {schema: 1, chainId: d.chainId, payer: tx.from, nextNonce: tx.nonce + 1} satisfies PayerState)
     return resolution
   })
+}
+
+/** Where an application reservation stands, from the journal, the payer claim and the chain. */
+export type ApplicationReservationState =
+  /** Nothing was ever prepared for this request (no journal, no payer claim) and the chain holds no reservation. */
+  | 'none'
+  /** The chain holds a reservation for this request ID (whoever's transaction mined it). */
+  | 'reserved'
+  /** The original prepared attempt can never reserve: its quote deadline has passed on chain without a reservation. Final. */
+  | 'not-reserved'
+  /** The outcome cannot be proven yet; nothing may be reserved again. Reconcile later. */
+  | 'uncertain'
+
+/** Outcome of {@link reconcileApplicationReservation}. */
+export interface ApplicationReservationStatus {
+  /** Proven state; only `none` permits a first reservation. */
+  state: ApplicationReservationState
+  /** Original request identity. */
+  requestId: Hex
+  /** Whether this request still holds its gas payer's durable claim after reconciliation. */
+  payerLocked: boolean
+  /** Hash journaled or reported for the original attempt, when known. */
+  transactionHash?: Hex
+  /** Why the state is `uncertain` or `not-reserved`; safe to log. */
+  reason?: string
+  /** Canonical block the chain observation was made at. */
+  observedAt: {blockNumber: bigint; blockHash: Hex; blockTimestamp: bigint}
+}
+
+/** Options for {@link reconcileApplicationReservation}. */
+export interface ReconcileApplicationReservationOptions {
+  /**
+   * Gas payer the request would use. Needed when no journal exists, to prove the payer holds no
+   * claim for it; with a journal the payer is read from the journaled transaction.
+   */
+  payer?: Address
+  /** Observation depth below the head, 1..64 (default 1). */
+  confirmations?: number
+}
+
+const HEX32 = /^0x[0-9a-f]{64}$/i
+async function observeReservation(client: PublicClient, d: PrepaidDeployment, slot: Hex, requestId: Hex, confirmations: number) {
+  if (await client.getChainId() !== d.chainId) throw new Error('reservation reconciliation chain mismatch')
+  const head = await client.getBlock({blockTag: 'latest'})
+  const now = BigInt(Math.floor(Date.now() / 1000))
+  if (head.number === null || head.hash === null || !HEX32.test(head.hash) || now - head.timestamp > 30n || head.timestamp - now > 2n) throw new Error('reservation reconciliation head is stale or unavailable')
+  const block = confirmations === 1 ? head : await client.getBlock({blockNumber: head.number - BigInt(confirmations - 1)})
+  const blockHash = block.hash
+  if (block.number === null || blockHash === null || !HEX32.test(blockHash)) throw new Error('reservation reconciliation block unavailable')
+  const read = async (functionName: 'prepaidCost' | 'prepaidAssignmentBlock') => {
+    const result = await client.call({to: d.settlement, data: encodeFunctionData({abi: settlementAbi, functionName, args: [slot, requestId]}),
+      blockHash, requireCanonical: true, batch: false})
+    if (result.data === undefined) throw new Error(`empty ${functionName} observation`)
+    return decodeFunctionResult({abi: settlementAbi, functionName, data: result.data})
+  }
+  const [cost, assignment] = await Promise.all([read('prepaidCost'), read('prepaidAssignmentBlock')])
+  return {at: {blockNumber: block.number, blockHash, blockTimestamp: block.timestamp}, cost: cost as bigint, assignment: assignment as Hex}
+}
+
+/**
+ * Reconcile an application reservation by its deterministic request ID and the payer's nonce,
+ * without submitting, replacing or reserving anything. Works without a transaction hash, e.g.
+ * after a crash between broadcast and the `submitted` checkpoint.
+ *
+ * - No journal and no payer claim: `none` (nothing was prepared, so nothing was broadcast),
+ *   unless the chain already holds the reservation (`reserved`).
+ * - Chain holds the reservation: `reserved`.
+ * - Not reserved and a canonical block past the quote deadline: `not-reserved` (the contract
+ *   refuses the original signed quote from then on). Final for this attempt.
+ * - Otherwise `uncertain`; the original transaction may still be mined.
+ *
+ * The payer claim is released only when the journaled nonce is consumed on chain, or when the
+ * attempt is provably dead and no transaction at that nonce is known to the RPC (the floor then
+ * stays at that nonce). Every other case keeps the payer locked.
+ * @param client - Trusted bounded RPC client with canonical reads.
+ * @param store - Same private store used for the reservation.
+ * @param deployment - Independently approved original deployment.
+ * @param payment - Original creator payment intent (its request ID is the reservation key).
+ * @param expected - Independently selected original operation.
+ * @param options - Gas payer for the no-journal case and observation depth.
+ */
+export async function reconcileApplicationReservation(
+  client: PublicClient, store: ApplicationStore, deployment: PrepaidDeployment, payment: PaymentIntentWire,
+  expected: ExpectedPaidOperation, options: ReconcileApplicationReservationOptions = {},
+): Promise<ApplicationReservationStatus> {
+  const d = {...deployment}, original = structuredClone(payment), confirmations = options.confirmations ?? 1
+  if (!Number.isSafeInteger(confirmations) || confirmations < 1 || confirmations > 64) throw new Error('invalid reservation reconciliation confirmations')
+  if (original.chain_id !== d.chainId || !same(original.settlement, d.settlement) || !same(original.slot, expected.slot)
+    || original.action !== expected.action || !same(original.payload_digest, expected.payloadDigest)) throw new Error('reservation reconciliation deployment or operation mismatch')
+  const requestId = prepaidRequestId(original)
+  const payer = (await loadPaidReservationJournal(store, requestId))?.record.transaction.from ?? options.payer
+  const work = async (): Promise<ApplicationReservationStatus> => {
+    // Re-read under the payer lock: a reservation journals and claims the payer under it.
+    const journal = await loadPaidReservationJournal(store, requestId)
+    if (journal && payer && !same(journal.record.transaction.from, payer)) throw new Error('reservation journal names another gas payer')
+    const state = payer ? await loadPayer(store, d.chainId, payer) : undefined
+    const owns = state?.pending !== undefined && same(state.pending.requestId, requestId)
+    const observed = await observeReservation(client, d, original.slot, requestId, confirmations)
+    const reserved = observed.cost !== 0n
+    const base = {requestId, observedAt: observed.at}
+    if (!journal) {
+      // A payer claim is only ever written after the journal; one without it is not explainable.
+      if (owns) return {...base, state: 'uncertain', payerLocked: true, reason: 'gas payer claims this request but no reservation journal exists'}
+      return reserved ? {...base, state: 'reserved', payerLocked: false} : {...base, state: 'none', payerLocked: false}
+    }
+    const tx = journal.record.transaction, deadline = BigInt(journal.record.quote.deadline)
+    const transactionHash = journal.transactionHash
+    let result: ApplicationReservationStatus
+    if (reserved) result = {...base, state: 'reserved', payerLocked: owns}
+    else if (journal.phase === 'confirmed') result = {...base, state: 'uncertain', payerLocked: owns, reason: 'confirmed reservation is no longer observed on the canonical chain'}
+    else if (observed.at.blockTimestamp > deadline) result = {...base, state: 'not-reserved', payerLocked: owns, reason: 'quote deadline passed without a reservation'}
+    else result = {...base, state: 'uncertain', payerLocked: owns, reason: 'original reservation may still be mined until its quote deadline'}
+    if (transactionHash) result.transactionHash = transactionHash
+    if (owns && state?.pending?.nonce === tx.nonce) {
+      const mined = await client.getTransactionCount({address: tx.from, blockNumber: observed.at.blockNumber})
+      let nextNonce: number | undefined
+      if (mined > tx.nonce) nextNonce = tx.nonce + 1
+      else if (result.state === 'not-reserved' && await client.getTransactionCount({address: tx.from, blockTag: 'pending'}) <= tx.nonce) nextNonce = tx.nonce
+      if (nextNonce !== undefined) {
+        await store.save(payerKey(d.chainId, tx.from), {schema: 1, chainId: d.chainId, payer: tx.from, nextNonce} satisfies PayerState)
+        result.payerLocked = false
+      }
+    }
+    return result
+  }
+  return payer ? store.withLock(payerKey(d.chainId, payer), work) : work()
 }

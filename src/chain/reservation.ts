@@ -48,6 +48,12 @@ export type PaidReservationCheckpoint =
     phase: 'prepared'
     /** Exact operation and transaction identity; create exclusively by requestId. */
     record: PaidReservationRecord
+    /**
+     * Hash of the locally signed transaction, journaled BEFORE it is broadcast so a crash
+     * between broadcast and the `submitted` checkpoint still leaves the hash to reconcile.
+     * Absent for a JSON-RPC (remote) signer, whose hash is only known after submission.
+     */
+    transactionHash?: Hex
   }
   | {
     /** A transaction hash was returned; mining is still unproven. */
@@ -371,23 +377,28 @@ export async function reservePaidOperation(
   fresh()
   const record: PaidReservationRecord = {schema: 1, requestId, payment, quote: authorized,
     transaction: {chainId: d.chainId, from: payer.address, to: d.settlement, data, value: '0', nonce, gas: gas.toString(), gasPrice: gasPrice.toString()}}
-  await opts.persist({phase: 'prepared', record: structuredClone(record)})
-  let transactionHash: Hex | undefined
+  // A local signer signs BEFORE the durable preparation, so the exact transaction hash is
+  // journaled before anything can be broadcast. Signing alone sends nothing; a failure here
+  // leaves no preparation and therefore provably no transaction.
+  let raw: Awaited<ReturnType<typeof wallet.signTransaction>> | undefined, transactionHash: Hex | undefined
+  if (payer.type === 'local') {
+    raw = await wallet.signTransaction({account: payer, chain: payerChain,
+      to: d.settlement, data, value: 0n, nonce, gas, gasPrice, type: 'legacy'})
+    const signed = parseTransaction(raw), sender = await recoverTransactionAddress({serializedTransaction: raw})
+    if (signed.type !== 'legacy' || signed.chainId !== d.chainId || !same(sender, payer.address)
+      || !signed.to || !same(signed.to, d.settlement) || !signed.data || !same(signed.data, data)
+      || (signed.value ?? 0n) !== 0n || signed.nonce !== nonce || signed.gas !== gas || signed.gasPrice !== gasPrice) throw new Error('signed transaction differs from the durable reservation')
+    transactionHash = keccak256(raw)
+    fresh()
+  }
+  await opts.persist({phase: 'prepared', record: structuredClone(record), ...(transactionHash ? {transactionHash} : {})})
   try {
     fresh()
     // Viem's generic sendTransaction can retry through wallet_sendTransaction on certain
     // RPC errors. Use exactly one RPC submission, including when the outcome is uncertain.
-    if (payer.type === 'local') {
-      const raw = await wallet.signTransaction({account: payer, chain: payerChain,
-        to: d.settlement, data, value: 0n, nonce, gas, gasPrice, type: 'legacy'})
-      const signed = parseTransaction(raw), sender = await recoverTransactionAddress({serializedTransaction: raw})
-      if (signed.type !== 'legacy' || signed.chainId !== d.chainId || !same(sender, payer.address)
-        || !signed.to || !same(signed.to, d.settlement) || !signed.data || !same(signed.data, data)
-        || (signed.value ?? 0n) !== 0n || signed.nonce !== nonce || signed.gas !== gas || signed.gasPrice !== gasPrice) throw new Error('signed transaction differs from the durable reservation')
-      transactionHash = keccak256(raw)
-      fresh()
+    if (raw !== undefined) {
       const returned = await wallet.request({method: 'eth_sendRawTransaction', params: [raw]}, {retryCount: 0})
-      if (returned === undefined || !same(returned, transactionHash)) throw new Error('RPC returned another signed transaction hash')
+      if (returned === undefined || transactionHash === undefined || !same(returned, transactionHash)) throw new Error('RPC returned another signed transaction hash')
     } else {
       transactionHash = await wallet.request({method: 'eth_sendTransaction', params: [{from: payer.address,
         to: d.settlement, data, value: '0x0', nonce: toHex(nonce), gas: toHex(gas), gasPrice: toHex(gasPrice),

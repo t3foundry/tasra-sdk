@@ -9,6 +9,17 @@ never does.
 
 ### Fixed
 
+- `resumePaidOperation` no longer makes a new reservation for a `reserving` operation
+  without proof that none was ever sent. It reconciles on chain by request ID and payer
+  nonce (`reconcileApplicationReservation`, `tasra-sdk/app`), reserves only when no
+  journal, payer claim or on-chain reservation exists, marks an operation `failed` once its
+  quote deadline passes unreserved, and otherwise throws with the gas payer kept locked.
+  A local gas payer's signed transaction hash is journaled before broadcast, so a crash
+  between broadcast and the `submitted` checkpoint still leaves it to reconcile; signing
+  failures now refuse before any preparation. New `reconcilePaidOperation` (and
+  `resumePaidOperation(..., {reconcileOnly: true})`) reports `{phase, reservation,
+  payerLocked, next}` and never reserves, drives a session or executes.
+
 - Keeper discovery uses at most eight concurrent registry reads and fails if the
   complete roster is unavailable within 15 seconds. Committee signing and
   decryption bound approvals, HTTP and response decoding to one 15-second

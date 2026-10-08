@@ -138,7 +138,7 @@ declare class PaidAgentControlError {
 
 Reservation submission may have happened; inspect the saved identity before further spending.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L98)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L104)
 
 Import: `import {PaidReservationUncertainError} from 'tasra-sdk/chain'`
 
@@ -1708,7 +1708,7 @@ Expired intents remain recoverable. Missing transactions, unavailable historical
 and insufficient confirmations fail closed; none prove that the operation was never submitted.
 A reverted result proves only this transaction's failure, not absence of another reservation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L191)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L197)
 
 Import: `import {reconcilePaidReservation} from 'tasra-sdk/chain'`
 
@@ -1865,7 +1865,7 @@ Reserve TASRA for a fixed creator-signed operation using an accountant threshold
 Does not create an intent, approve tokens, activate a slot, authorize credentials or do keeper
 work. One broadcast attempt only; no replacement, coordinator failover or implicit gas funding.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L310)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L316)
 
 Import: `import {reservePaidOperation} from 'tasra-sdk/chain'`
 
@@ -3715,6 +3715,7 @@ Durable write checkpoints. A timeout after preparation requires observation, nev
 export type PaidReservationCheckpoint = {
     phase: 'prepared';
     record: PaidReservationRecord;
+    transactionHash?: Hex;
 } | {
     phase: 'submitted';
     requestId: Hex;
@@ -3730,6 +3731,7 @@ export type PaidReservationCheckpoint = {
 Fields:
 
 - **` phase `**: Persisted before any transaction submission. A transaction hash was returned; mining is still unproven. The transaction and reservation were observed on the canonical chain.
+- **` transactionHash `**: Hash of the locally signed transaction, journaled BEFORE it is broadcast so a crash between broadcast and the `submitted` checkpoint still leaves the hash to reconcile. Absent for a JSON-RPC (remote) signer, whose hash is only known after submission. Returned transaction hash, retained for recovery. Verified reservation transaction hash.
 
 ### PaidReservationQuote
 
@@ -3800,7 +3802,7 @@ Fields:
 
 Canonical transaction outcome retained for recovery; this never authorizes another operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L145)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L151)
 
 ```ts
 export type PaidReservationResolution = {
@@ -4421,7 +4423,7 @@ Fields:
 
 Explicit limits and durable storage for one direct reservation transaction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L72)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L78)
 
 ```ts
 export interface ReservePaidOperationOptions {

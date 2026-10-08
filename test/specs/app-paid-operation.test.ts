@@ -10,7 +10,7 @@ vi.mock('../../src/chain/prepaid.js', async original => ({...await original<type
   discoverPaidOperationContext: vi.fn(), readClientExecutionPolicy: vi.fn()}))
 vi.mock('../../src/chain/verifierSnapshot.js', () => ({fetchDrawnVerifierWitnesses: vi.fn()}))
 vi.mock('../../src/app/paid-reservation.js', async original => ({...await original<typeof import('../../src/app/paid-reservation.js')>(),
-  reserveApplicationPayment: vi.fn(), reconcileApplicationPayment: vi.fn()}))
+  reserveApplicationPayment: vi.fn(), reconcileApplicationPayment: vi.fn(), reconcileApplicationReservation: vi.fn()}))
 vi.mock('../../src/app/paid-journal.js', async original => ({...await original<typeof import('../../src/app/paid-journal.js')>(), loadPaidReservationJournal: vi.fn()}))
 vi.mock('../../src/chain/registeredPaidAgent.js', async original => ({...await original<typeof import('../../src/chain/registeredPaidAgent.js')>(), prepareRegisteredPaidSession: vi.fn()}))
 vi.mock('../../src/app/paid-session.js', async original => ({...await original<typeof import('../../src/app/paid-session.js')>(), drivePaidSession: vi.fn()}))
@@ -19,12 +19,12 @@ vi.mock('../../src/committee/execution.js', async original => ({...await origina
 vi.mock('../../src/chain/keeperExecution.js', () => ({createKeeperExecutionApprover: vi.fn(() => vi.fn())}))
 vi.mock('../../src/chain/keeperRecovery.js', async original => ({...await original<typeof import('../../src/chain/keeperRecovery.js')>(), recoverKeeperExecution: vi.fn()}))
 
-import {paidOperation, paidOperationPhase, resumePaidOperation, PaidOperationRecoveryError, type PaidOperationConfig} from '../../src/app/paid-operation.js'
+import {paidOperation, paidOperationPhase, resumePaidOperation, reconcilePaidOperation, PaidOperationRecoveryError, type PaidOperationConfig} from '../../src/app/paid-operation.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
 import {BillingModeError, requirePrepaidSlot} from '../../src/chain/billing.js'
 import {discoverPaidOperationContext, readClientExecutionPolicy} from '../../src/chain/prepaid.js'
 import {fetchDrawnVerifierWitnesses} from '../../src/chain/verifierSnapshot.js'
-import {reserveApplicationPayment, reconcileApplicationPayment, ApplicationPayerRecoveryError} from '../../src/app/paid-reservation.js'
+import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, ApplicationPayerRecoveryError, type ApplicationReservationStatus} from '../../src/app/paid-reservation.js'
 import {loadPaidReservationJournal} from '../../src/app/paid-journal.js'
 import {prepareRegisteredPaidSession, type RegisteredPaidAgentSession} from '../../src/chain/registeredPaidAgent.js'
 import {drivePaidSession} from '../../src/app/paid-session.js'
@@ -78,7 +78,14 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(requirePrepaidSlot).mockResolvedValue({slot, mode: 'prepaid'})
   vi.mocked(loadPaidReservationJournal).mockResolvedValue(undefined)
+  reservation('none')
 })
+const observedAt = {blockNumber: 20n, blockHash: h(20), blockTimestamp: 1n}
+function reservation(state: ApplicationReservationStatus['state'], payerLocked = false, once = false) {
+  const value: ApplicationReservationStatus = {state, payerLocked, requestId: h(0), observedAt, ...(state === 'uncertain' || state === 'not-reserved' ? {reason: 'test ' + state} : {})}
+  if (once) vi.mocked(reconcileApplicationReservation).mockResolvedValueOnce(value)
+  else vi.mocked(reconcileApplicationReservation).mockResolvedValue(value)
+}
 
 describe('paidOperation', () => {
   it('reserves once, certifies, drives the session and executes exactly once', async () => {
@@ -136,9 +143,12 @@ describe('paidOperation', () => {
     expect(error.phase).toBe('reservation')
     expect(await paidOperationPhase(f.store, error.requestId)).toBe('reserving')
     vi.mocked(loadPaidReservationJournal).mockResolvedValue({phase: 'submitted', transactionHash: h(60)} as Awaited<ReturnType<typeof loadPaidReservationJournal>>)
+    reservation('uncertain', true)
     vi.mocked(reconcileApplicationPayment).mockResolvedValue({status: 'success'} as Awaited<ReturnType<typeof reconcileApplicationPayment>>)
     const op = await resumePaidOperation(f.config, error.requestId, {holder: f.holder})
-    expect(reconcileApplicationPayment).toHaveBeenCalledWith(f.client, f.store, expect.objectContaining({settlement: deployment.settlement}), error.requestId, expect.anything(), h(60))
+    expect(reconcileApplicationReservation).toHaveBeenCalledWith(f.client, f.store, expect.objectContaining({settlement: deployment.settlement}), op.payment,
+      expect.anything(), {payer: payer.address, confirmations: undefined})
+    expect(reconcileApplicationPayment).toHaveBeenCalledWith(f.client, f.store, expect.objectContaining({settlement: deployment.settlement}), error.requestId, expect.anything(), h(60), undefined)
     expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
     expect(op.requestId).toBe(error.requestId)
     // Resuming an authorized operation returns the same grant without new work.
@@ -152,9 +162,14 @@ describe('paidOperation', () => {
     vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new Error('lost before hash'))
     const {requestId} = await paidOperation(f.config, f.request).catch((e: unknown) => e) as PaidOperationRecoveryError
     vi.mocked(loadPaidReservationJournal).mockResolvedValue({phase: 'prepared'} as Awaited<ReturnType<typeof loadPaidReservationJournal>>)
+    reservation('uncertain', true)
     await expect(resumePaidOperation(f.config, requestId, {holder: f.holder})).rejects.toMatchObject({phase: 'reservation'})
+    expect(reconcileApplicationPayment).not.toHaveBeenCalled()
     vi.mocked(reconcileApplicationPayment).mockResolvedValue({status: 'reverted'} as Awaited<ReturnType<typeof reconcileApplicationPayment>>)
-    await expect(resumePaidOperation(f.config, requestId, {holder: f.holder, transactionHash: h(61)})).rejects.toThrow(/reverted/)
+    const reverted = await resumePaidOperation(f.config, requestId, {holder: f.holder, transactionHash: h(61)}).catch((e: unknown) => e) as PaidOperationRecoveryError
+    expect(reverted).toMatchObject({phase: 'reservation', cause: {message: /reverted/}})
+    expect(await paidOperationPhase(f.store, requestId)).toBe('failed')
+    await expect(resumePaidOperation(f.config, requestId, {holder: f.holder})).rejects.toMatchObject({phase: 'reservation'})
     expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
   })
 
@@ -245,6 +260,7 @@ describe('paidOperation edges', () => {
     vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new ApplicationPayerRecoveryError(h(70)))
     vi.mocked(loadPaidReservationJournal).mockResolvedValueOnce(undefined)
     await expect(paidOperation(f.config, f.request)).rejects.toBeInstanceOf(ApplicationPayerRecoveryError)
+    reservation('none')
     const requestId = prepaidRequestId(vi.mocked(reserveApplicationPayment).mock.calls[0]![3])
     expect(await paidOperationPhase(f.store, requestId)).toBe('reserving')
     await resumePaidOperation(f.config, requestId, {holder: f.holder})
@@ -253,7 +269,7 @@ describe('paidOperation edges', () => {
     const g = setup()
     vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new Error('crash after confirmation'))
     const error = await paidOperation(g.config, g.request).catch((e: unknown) => e) as PaidOperationRecoveryError
-    vi.mocked(loadPaidReservationJournal).mockResolvedValue({phase: 'confirmed'} as Awaited<ReturnType<typeof loadPaidReservationJournal>>)
+    reservation('reserved')
     await resumePaidOperation(g.config, error.requestId, {holder: g.holder})
     expect(reserveApplicationPayment).toHaveBeenCalledTimes(3)
     expect(reconcileApplicationPayment).not.toHaveBeenCalled()
@@ -273,5 +289,69 @@ describe('paidOperation edges', () => {
     const g = setup(), controller = new AbortController()
     vi.mocked(drivePaidSession).mockImplementationOnce(async () => { controller.abort(new Error('user cancelled')); throw new Error('aborted') })
     await expect(paidOperation(g.config, {...g.request, signal: controller.signal})).rejects.toThrow('aborted')
+  })
+})
+
+describe('paid operation reservation safety', () => {
+  async function stuck() {
+    const f = setup()
+    vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new Error('process died after broadcast'))
+    const error = await paidOperation(f.config, f.request).catch((e: unknown) => e) as PaidOperationRecoveryError
+    expect(await paidOperationPhase(f.store, error.requestId)).toBe('reserving')
+    return {...f, requestId: error.requestId}
+  }
+
+  it('never reserves again while the original reservation is unprovable; the payer stays locked', async () => {
+    const f = await stuck()
+    reservation('uncertain', true)
+    const error = await resumePaidOperation(f.config, f.requestId, {holder: f.holder}).catch((e: unknown) => e) as PaidOperationRecoveryError
+    expect(error).toBeInstanceOf(PaidOperationRecoveryError)
+    expect(error.phase).toBe('reservation')
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(await paidOperationPhase(f.store, f.requestId)).toBe('reserving')
+    expect(await reconcilePaidOperation(f.config, f.requestId)).toMatchObject({phase: 'reserving', reservation: 'uncertain', payerLocked: true, next: 'wait', reason: 'test uncertain'})
+    // A failed observation is uncertainty too, never permission to reserve.
+    vi.mocked(reconcileApplicationReservation).mockRejectedValueOnce(new Error('rpc down'))
+    await expect(resumePaidOperation(f.config, f.requestId, {holder: f.holder})).rejects.toMatchObject({phase: 'reservation', cause: {message: 'rpc down'}})
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+  })
+
+  it('reconcileOnly never reserves, drives a session or executes', async () => {
+    const f = await stuck()
+    reservation('none')
+    const status = await resumePaidOperation(f.config, f.requestId, {reconcileOnly: true, holder: f.holder})
+    expect(status).toMatchObject({requestId: f.requestId, phase: 'reserving', reservation: 'none', payerLocked: false, next: 'reserve'})
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    reservation('reserved')
+    expect(await resumePaidOperation(f.config, f.requestId, {reconcileOnly: true, holder: f.holder})).toMatchObject({phase: 'reserved', reservation: 'reserved', next: 'resume'})
+    expect(await paidOperationPhase(f.store, f.requestId)).toBe('reserved')
+    expect(createExecutionCertificate).not.toHaveBeenCalled()
+    expect(prepareRegisteredPaidSession).not.toHaveBeenCalled()
+    expect(drivePaidSession).not.toHaveBeenCalled()
+    // Past reserving, reconciliation only reports the journal.
+    expect(await reconcilePaidOperation(f.config, f.requestId)).toMatchObject({phase: 'reserved', reservation: 'reserved', next: 'resume'})
+    expect(reconcileApplicationReservation).toHaveBeenCalledTimes(2)
+    await expect(reconcilePaidOperation(f.config, h(90))).rejects.toThrow(/No paid operation journal/)
+  })
+
+  it('marks a provably unreserved operation failed, terminal for resume and reconcile', async () => {
+    const f = await stuck()
+    reservation('not-reserved')
+    expect(await reconcilePaidOperation(f.config, f.requestId)).toMatchObject({phase: 'failed', reservation: 'not-reserved', next: 'abandon', reason: 'test not-reserved'})
+    expect(await reconcilePaidOperation(f.config, f.requestId)).toMatchObject({phase: 'failed', reservation: 'not-reserved', next: 'abandon', reason: 'test not-reserved'})
+    await expect(resumePaidOperation(f.config, f.requestId, {holder: f.holder})).rejects.toMatchObject({phase: 'reservation'})
+    reservation('none')
+    await expect(resumePaidOperation(f.config, f.requestId, {holder: f.holder})).rejects.toMatchObject({phase: 'reservation'})
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports later phases: executing needs recover, executed is done', async () => {
+    const f = setup()
+    const op = await paidOperation(f.config, f.request)
+    await op.execute(async () => { throw new Error('lost') }).catch(() => {})
+    expect(await reconcilePaidOperation(f.config, op.requestId)).toMatchObject({phase: 'executing', next: 'recover', payerLocked: false})
+    const g = setup(), done = await paidOperation(g.config, g.request)
+    await done.execute(async () => 1)
+    expect(await reconcilePaidOperation(g.config, done.requestId)).toMatchObject({phase: 'executed', next: 'done'})
   })
 })

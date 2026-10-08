@@ -8,7 +8,8 @@ import {PaidReservationUncertainError, reservePaidOperation, reconcilePaidReserv
 import {paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {createFileStore} from '../../src/app/node.js'
 import {createPaidReservationJournal} from '../../src/app/paid-journal.js'
-import {reserveApplicationPayment, reconcileApplicationPayment, ApplicationPayerRecoveryError} from '../../src/app/paid-reservation.js'
+import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, ApplicationPayerRecoveryError} from '../../src/app/paid-reservation.js'
+import {loadPaidReservationJournal} from '../../src/app/paid-journal.js'
 import type {ApplicationStore} from '../../src/app/ready-slot.js'
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
 import {UnderfundedSlotError} from '../../src/errors.js'
@@ -301,16 +302,16 @@ it('a local signer broadcasts one signed transaction with its pre-recorded nonce
   expect(f.trace.filter(s => /send.*Transaction/.test(s))).toEqual(['eth_sendRawTransaction'])
   expect(f.transactions[0]).toMatchObject({nonce: '0x4', gas: '0x186a0', gasPrice: '0x19', chainId: '0xa868'})
 })
-it('refuses altered locally signed bytes before any broadcast', async () => {
+it('refuses altered locally signed bytes before any preparation or broadcast', async () => {
   for (const edit of [{to: h(88, 20)}, {data: '0xdead' as Hex}, {value: 1n}, {gas: 200001n}, {gasPrice: 51n}, {nonce: 5}, {chainId: 43113}, {}]) {
     const f = await fixture({localSigner: true})
     const data = encodeFunctionData({abi: settlementAbi, functionName: 'reservePrepaidBls', args: [f.payment.slot, 0n, h(19), [prepaidRequestId(f.payment)], [10n], 1060n, h(7, 64)]})
     const signer = privateKeyToAccount(h(Object.keys(edit).length ? 11 : 12))
     const raw = await signer.signTransaction({type: 'legacy', chainId: 43112, to: deployment.settlement, data, value: 0n, nonce: 4, gas: 100000n, gasPrice: 25n, ...edit})
     vi.spyOn(f.wallet, 'signTransaction').mockResolvedValue(raw as TransactionSerialized)
-    await expect(f.run()).rejects.toMatchObject({cause: {message: 'signed transaction differs from the durable reservation'}})
+    await expect(f.run()).rejects.toThrow('signed transaction differs from the durable reservation')
     expect(f.transactions).toHaveLength(0)
-    expect(f.checkpoints.map(c => c.phase)).toEqual(['prepared'])
+    expect(f.checkpoints).toHaveLength(0)
   }
 })
 it('retains the locally computed hash after a lost or false RPC reply and recovers without rebroadcast', async () => {
@@ -337,7 +338,9 @@ it('pins the gas payer before callbacks and checks expiry again after local sign
     vi.spyOn(Date, 'now').mockReturnValue(1_061_000)
     return raw
   })
-  await expect(expired.run()).rejects.toBeInstanceOf(PaidReservationUncertainError)
+  // Signing precedes the durable preparation: an expiry found after signing leaves no journal and no send.
+  await expect(expired.run()).rejects.toThrow(/stale|expired/)
+  expect(expired.checkpoints).toHaveLength(0)
   expect(expired.transactions).toHaveLength(0)
 })
 it('does not fall back to another wallet submission method on ambiguous RPC errors', async () => {
@@ -472,5 +475,77 @@ it('refuses corrupt payer state and repeated operation journals before any netwo
     await expect(f.run()).rejects.toThrow(/already journaled/)
     expect(f.trace).toHaveLength(before)
     await expect(f.recover()).rejects.toThrow(/does not own/)
+  } finally {await f.cleanup()}
+})
+
+it('journals the locally signed transaction hash before broadcasting it', async () => {
+  const f = await fixture({localSigner: true})
+  await f.run()
+  const prepared = f.checkpoints[0]!
+  expect(prepared.phase).toBe('prepared')
+  expect(prepared.phase === 'prepared' && prepared.transactionHash).toMatch(/^0x[0-9a-f]{64}$/)
+  expect(f.trace.indexOf('prepared')).toBeLessThan(f.trace.indexOf('eth_sendRawTransaction'))
+  expect(f.checkpoints.map(c => c.phase === 'prepared' ? c.transactionHash : c.transactionHash)).toEqual(Array(3).fill(prepared.phase === 'prepared' ? prepared.transactionHash : undefined))
+})
+
+it('reconciles a crash between broadcast and its journal by request ID and nonce, never broadcasting again', async () => {
+  for (const localSigner of [true, false]) {
+    const change: Changes = {localSigner}, f = await applicationFixture(change)
+    const journalKey = `prepaid-${prepaidRequestId(f.payment).toLowerCase()}`
+    try {
+      const crashing: ApplicationStore = {...f.store, save: async (key, value) => {
+        if (key === journalKey && (value as {phase: string}).phase === 'submitted') throw new Error('process died after broadcast')
+        await f.store.save(key, value)
+      }}
+      await expect(f.run(crashing)).rejects.toBeInstanceOf(PaidReservationUncertainError)
+      expect(f.transactions).toHaveLength(1)
+      const journal = await loadPaidReservationJournal(f.store, prepaidRequestId(f.payment))
+      expect(journal?.phase).toBe('prepared')
+      // A local signer's hash was journaled before broadcast; a remote signer's never reached the journal.
+      expect(journal?.transactionHash !== undefined).toBe(localSigner)
+      const reconcile = () => reconcileApplicationReservation(f.client, f.store, deployment, f.payment, expected)
+      change.receiptCost = 0n // not mined yet, quote deadline still ahead
+      expect(await reconcile()).toMatchObject({state: 'uncertain', payerLocked: true})
+      expect(await f.store.load(f.payerKey)).toMatchObject({pending: {nonce: 4}})
+      await expect(f.run()).rejects.toBeInstanceOf(ApplicationPayerRecoveryError)
+      change.receiptCost = 10n; change.payerNonce = 5 // mined: reserved and the nonce consumed
+      expect(await reconcile()).toMatchObject({state: 'reserved', payerLocked: false, requestId: prepaidRequestId(f.payment)})
+      expect(await f.store.load(f.payerKey)).toEqual({schema: 1, chainId: 43112, payer: f.wallet.account.address, nextNonce: 5})
+      expect(f.transactions).toHaveLength(1)
+    } finally {await f.cleanup()}
+  }
+})
+
+it('proves a dead attempt only after the quote deadline, and releases the payer only for a consumed or unknown nonce', async () => {
+  const change: Changes = {failSend: true, receiptCost: 0n}, f = await applicationFixture(change)
+  try {
+    await expect(f.run()).rejects.toBeInstanceOf(PaidReservationUncertainError)
+    const reconcile = () => reconcileApplicationReservation(f.client, f.store, deployment, f.payment, expected)
+    expect(await reconcile()).toMatchObject({state: 'uncertain', payerLocked: true})
+    vi.spyOn(Date, 'now').mockReturnValue(1_061_000); change.headNumber = 21; change.headTimestamp = 1061
+    // The deadline passed without a reservation; no transaction is known at nonce 4, so the floor stays 4.
+    expect(await reconcile()).toMatchObject({state: 'not-reserved', payerLocked: false})
+    expect(await f.store.load(f.payerKey)).toEqual({schema: 1, chainId: 43112, payer: f.wallet.account.address, nextNonce: 4})
+    expect(f.transactions).toHaveLength(1)
+  } finally {await f.cleanup()}
+})
+
+it('reports none only without a journal or payer claim, and a chain reservation as reserved', async () => {
+  const change: Changes = {receiptCost: 0n}, f = await applicationFixture(change)
+  try {
+    const payer = f.wallet.account.address
+    const reconcile = () => reconcileApplicationReservation(f.client, f.store, deployment, f.payment, expected, {payer})
+    expect(await reconcile()).toMatchObject({state: 'none', payerLocked: false})
+    await f.store.save(f.payerKey, {schema: 1, chainId: 43112, payer, nextNonce: 4, pending: {requestId: prepaidRequestId(f.payment), nonce: 4}})
+    expect(await reconcile()).toMatchObject({state: 'uncertain', payerLocked: true})
+    await f.store.save(f.payerKey, {schema: 1, chainId: 43112, payer, nextNonce: 4})
+    change.receiptCost = 10n
+    expect(await reconcile()).toMatchObject({state: 'reserved', payerLocked: false})
+    await expect(reconcileApplicationReservation(f.client, f.store, deployment, f.payment, {...expected, payloadDigest: h(9)})).rejects.toThrow(/mismatch/)
+    await expect(reconcileApplicationReservation(f.client, f.store, deployment, f.payment, expected, {confirmations: 0})).rejects.toThrow(/confirmations/)
+    change.stale = true; change.headTimestamp = 900; change.headNumber = 21
+    vi.spyOn(Date, 'now').mockReturnValue(2_000_000)
+    await expect(reconcile()).rejects.toThrow(/stale/)
+    expect(f.transactions).toHaveLength(0)
   } finally {await f.cleanup()}
 })

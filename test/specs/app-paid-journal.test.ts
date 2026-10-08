@@ -116,3 +116,12 @@ it('rejects malformed stored checkpoint evidence instead of exposing a confirmed
   await f.store.save(f.name, journal)
   await expect(loadPaidReservationJournal(f.store, f.requestId)).rejects.toThrow(/checkpoint/)
 })
+it('retains a pre-broadcast signed hash with the preparation and refuses a different submitted hash', async () => {
+  const f = await fixture()
+  await expect(f.journal.persist({phase: 'prepared', record: f.record, transactionHash: h(0)})).rejects.toThrow(/checkpoint/)
+  await f.journal.persist({phase: 'prepared', record: f.record, transactionHash: h(70)})
+  expect(await loadPaidReservationJournal(createFileStore(f.directory), f.requestId)).toMatchObject({phase: 'prepared', transactionHash: h(70)})
+  await expect(f.journal.persist({phase: 'submitted', requestId: f.requestId, transactionHash: h(72)})).rejects.toThrow(/hash changed/)
+  await f.journal.persist({phase: 'submitted', requestId: f.requestId, transactionHash: h(70)})
+  expect(await f.journal.load()).toMatchObject({phase: 'submitted', transactionHash: h(70)})
+})

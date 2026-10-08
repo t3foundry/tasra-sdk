@@ -21,7 +21,7 @@ export interface ApplicationReservationJournal {
   record: PaidReservationRecord
   /** Original random and audience; keep this journal private. */
   session: PaidReservationSession
-  /** RPC-reported hash when known; absence does not prove no submission occurred. */
+  /** Locally signed hash journaled before broadcast, or the RPC-reported hash; absence does not prove no submission occurred. */
   transactionHash?: Hex
   /** Observed inclusion block at confirmation; it may later reorganize. */
   blockHash?: Hex
@@ -71,7 +71,7 @@ function validateJournal(value: unknown, requestId: Hex): ApplicationReservation
     || !hash(quote.quote_block) || !hash(quote.digest) || typeof quote.signature !== 'string' || !/^0x[0-9a-f]{128}$/i.test(quote.signature)
     || quote.mined !== false || !Number.isSafeInteger(quote.legacy_nonce) || quote.legacy_nonce < 0
     || !Number.isSafeInteger(quote.deadline) || quote.deadline <= 0 || quote.deadline > payment.expires) throw new Error('invalid reservation journal transaction/quote')
-  if (journal.phase === 'prepared' ? journal.transactionHash !== undefined || journal.blockHash !== undefined
+  if (journal.phase === 'prepared' ? (journal.transactionHash !== undefined && !hash(journal.transactionHash)) || journal.blockHash !== undefined
     : !hash(journal.transactionHash) || (journal.phase === 'submitted' ? journal.blockHash !== undefined : !hash(journal.blockHash))) throw new Error('invalid reservation journal checkpoint')
   return journal
 }
@@ -113,7 +113,8 @@ export function createPaidReservationJournal(store: ApplicationStore, original: 
       if (checkpoint.phase === 'prepared') {
         // Do not interpret an existing corrupt/partial record as permission to spend again.
         if (await store.load<unknown>(name) !== undefined) throw new Error('reservation already journaled; reconcile the original attempt')
-        const journal: ApplicationReservationJournal = {schemaVersion: 1, phase: 'prepared', record: checkpoint.record, session: structuredClone(session)}
+        const journal: ApplicationReservationJournal = {schemaVersion: 1, phase: 'prepared', record: checkpoint.record, session: structuredClone(session),
+          ...(checkpoint.transactionHash !== undefined ? {transactionHash: checkpoint.transactionHash} : {})}
         validateJournal(journal, requestId)
         if (!same(paymentIntentHash(journal.record.payment), paymentHash) || journal.record.payment.signature !== payment.signature) throw new Error('reservation checkpoint changed creator consent')
         await store.save(name, journal)
