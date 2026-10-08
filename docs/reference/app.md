@@ -185,7 +185,7 @@ declare class CreationReconciliationRequiredError {
 
 The operation stopped where repeating a step could pay or execute twice; resume or recover it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L149)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L188)
 
 Import: `import {PaidOperationRecoveryError} from 'tasra-sdk/app'`
 
@@ -779,7 +779,7 @@ Return details: Serialized holder-bound SD-JWT credential.
 List the paid operations journaled in a store, oldest first, without relying on its key scheme.
 Operations journaled before this index existed are not listed; read them with `paidOperationPhase`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L603)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L678)
 
 Import: `import {listPaidOperations} from 'tasra-sdk/app'`
 
@@ -844,7 +844,7 @@ operation once. Throws PaidOperationRecoveryError when a reservation, session wr
 execution outcome is uncertain; continue with [resumePaidOperation](#resumepaidoperation), never by calling
 this again (that would be a second payment).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L257)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L306)
 
 Import: `import {paidOperation} from 'tasra-sdk/app'`
 
@@ -863,7 +863,7 @@ Returns: ` Promise<PaidOperation> `.
 
 Read the journaled phase of a paid operation, for deciding between resume and recovery.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L578)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L653)
 
 Import: `import {paidOperationPhase} from 'tasra-sdk/app'`
 
@@ -1022,7 +1022,7 @@ nonce (no transaction hash needed) and advanced only on proof: `reserved` when t
 it, `failed` when its quote deadline passed without one. Anything else stays `reserving`
 with `next: 'wait'` and the payer locked.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L501)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L576)
 
 Import: `import {reconcilePaidOperation} from 'tasra-sdk/app'`
 
@@ -1142,7 +1142,7 @@ PaidOperationRecoveryError and keeps the gas payer locked. A session is re-read,
 confirmed writes; an authorized or executing operation returns its handle (use `recover` for
 an uncertain execution). With `reconcileOnly` it returns the status instead and does no work.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L528)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L603)
 
 Import: `import {resumePaidOperation} from 'tasra-sdk/app'`
 
@@ -1268,7 +1268,7 @@ Returns: ` Promise<T> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 58 types</summary>
+<summary>Browse 61 types</summary>
 
 - [ApplicationDeployment](#applicationdeployment)
 - [ApplicationErrorCode](#applicationerrorcode)
@@ -1313,6 +1313,9 @@ Options, data structures and return types.
 - [PresentCredentialsOptions](#presentcredentialsoptions)
 - [ReadySlotJournal](#readyslotjournal)
 - [ReconcileApplicationReservationOptions](#reconcileapplicationreservationoptions)
+- [RecoveredIbePartial](#recoveredibepartial)
+- [RecoveredIbePartials](#recoveredibepartials)
+- [RecoverIbePartialsOptions](#recoveribepartialsoptions)
 - [ResolveApplicationManifestOptions](#resolveapplicationmanifestoptions)
 - [ResolvedApplicationManifest](#resolvedapplicationmanifest)
 - [ResumePaidOperationOptions](#resumepaidoperationoptions)
@@ -1885,7 +1888,7 @@ Fields:
 
 A verified, paid committee authorization for exactly one keeper execution.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L104)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L106)
 
 ```ts
 export interface PaidOperation {
@@ -1907,6 +1910,7 @@ export interface PaidOperation {
         stage?: Extract<ExecutionStage, 'coordinator' | 'contributor'>;
         signal?: AbortSignal;
     }): Promise<RecoveredKeeperExecution>;
+    recoverIbePartials(options: RecoverIbePartialsOptions): Promise<RecoveredIbePartials>;
     dispose(): void;
 }
 ```
@@ -1922,13 +1926,14 @@ Fields:
 - **` approveExecution `**: Client approver for keeper stage signatures; pass as `approveExecution` to committee clients.
 - **` execute `**: Run the keeper operation exactly once. A failure is journaled and never retried; use `recover`.
 - **` recover `**: Read the keeper's retained result after an uncertain execution. Performs no new work.
+- **` recoverIbePartials `**: After an uncertain `ibe-extract` fan-out, read each assigned contributor's retained, commitment-verified partial (stage `contributor`) until the payment's keeper threshold is met. Performs no new work and never re-sends an extraction. Combine the partials with the pairing-verifying IBE combine helpers. Throws when fewer than the threshold are recoverable.
 - **` dispose `**: Erase the local execution signer.
 
 ### PaidOperationConfig
 
 Approved deployment, signers, services and spending limits shared by paid operations.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L47)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L49)
 
 ```ts
 export interface PaidOperationConfig {
@@ -1994,7 +1999,7 @@ Stable reason a paid operation stopped. `resumable` on the error says whether
 - `payment-expired`: the creator-signed payment expired; nothing more can run under it. Final.
 - `execution-uncertain`: the keeper may have run; use the handle's `recover`, never execute again.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L145)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L184)
 
 ```ts
 export type PaidOperationErrorCode = 'reservation-refused' | 'reservation-uncertain' | 'reservation-failed' | 'session-interrupted' | 'session-refused' | 'session-write-uncertain' | 'payment-expired' | 'execution-uncertain';
@@ -2005,7 +2010,7 @@ export type PaidOperationErrorCode = 'reservation-refused' | 'reservation-uncert
 Journaled progress of one paid operation. `failed` is terminal: the original reservation
 provably never happened and the operation must not be reserved again.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L184)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L223)
 
 ```ts
 export type PaidOperationJournalPhase = 'reserving' | 'reserved' | 'certified' | 'authorized' | 'executing' | 'executed' | 'failed';
@@ -2015,7 +2020,7 @@ export type PaidOperationJournalPhase = 'reserving' | 'reserved' | 'certified' |
 
 What the application should do next with a reconciled paid operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L409)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L484)
 
 ```ts
 export type PaidOperationNextStep = 'reserve' | 'resume' | 'wait' | 'recover' | 'done' | 'abandon';
@@ -2025,7 +2030,7 @@ export type PaidOperationNextStep = 'reserve' | 'resume' | 'wait' | 'recover' | 
 
 Where a paid operation stopped with an uncertain or unfinished outcome.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L128)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L167)
 
 ```ts
 export type PaidOperationPhase = 'reservation' | 'session' | 'execution';
@@ -2035,7 +2040,7 @@ export type PaidOperationPhase = 'reservation' | 'session' | 'execution';
 
 The one operation to authorize and how its holder presents.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L79)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L81)
 
 ```ts
 export interface PaidOperationRequest {
@@ -2075,7 +2080,7 @@ Fields:
 
 Read-only reconciliation result of [reconcilePaidOperation](#reconcilepaidoperation).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L424)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L499)
 
 ```ts
 export interface PaidOperationStatus {
@@ -2103,7 +2108,7 @@ Fields:
 
 One journaled paid operation, as listed by [listPaidOperations](#listpaidoperations).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L584)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L659)
 
 ```ts
 export interface PaidOperationSummary {
@@ -2326,6 +2331,69 @@ Fields:
 - **` payer `**: Gas payer the request would use. Needed when no journal exists, to prove the payer holds no claim for it; with a journal the payer is read from the journaled transaction.
 - **` confirmations `**: Observation depth below the head, 1..64 (default 1).
 
+### RecoveredIbePartial
+
+One contributor's recovered extraction partial.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L147)
+
+```ts
+export interface RecoveredIbePartial {
+    keeper: PaidKeeperEndpoint;
+    partial: IbeExtractionPartial;
+    recovered: RecoveredKeeperExecution;
+}
+```
+
+Fields:
+
+- **` keeper `**: Assigned contributor, with its approved (routed) URL.
+- **` partial `**: Decoded partial, in the shape the IBE combine helpers accept.
+- **` recovered `**: Signed execution evidence and exact retained bytes.
+
+### RecoveredIbePartials
+
+Result of ` PaidOperation.recoverIbePartials `.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L157)
+
+```ts
+export interface RecoveredIbePartials {
+    threshold: number;
+    partials: RecoveredIbePartial[];
+    failures: {
+        operator: Address;
+        message: string;
+    }[];
+}
+```
+
+Fields:
+
+- **` threshold `**: Keeper threshold from the payment's assignment.
+- **` partials `**: At least `threshold` recovered partials, from distinct contributors.
+- **` failures `**: Contributors whose retained result could not be read (operator and a safe message).
+
+### RecoverIbePartialsOptions
+
+Options for ` PaidOperation.recoverIbePartials `.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L137)
+
+```ts
+export interface RecoverIbePartialsOptions {
+    transport: KeeperRecoveryTransport;
+    signal?: AbortSignal;
+    concurrency?: number;
+}
+```
+
+Fields:
+
+- **` transport `**: Caller-approved guarded keeper recovery transport.
+- **` signal `**: Cancellation for the whole recovery; each keeper read also has its own 60-second deadline.
+- **` concurrency `**: Contributors read at once, 1..16 (default 4). No new read starts after the threshold is met.
+
 ### ResolveApplicationManifestOptions
 
 Explicit RPC and coordinator choices applied when resolving a network manifest.
@@ -2368,7 +2436,7 @@ Fields:
 
 Options shared by [resumePaidOperation](#resumepaidoperation) and [reconcilePaidOperation](#reconcilepaidoperation).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L442)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L517)
 
 ```ts
 export interface ResumePaidOperationOptions {

@@ -52,6 +52,12 @@ never does.
 
 ### Added
 
+- `PaidOperation.recoverIbePartials` recovers an uncertain `ibe-extract` fan-out: it reads
+  each assigned contributor's retained result (stage `contributor`) with bounded
+  concurrency until the payment's keeper threshold is met, decodes the partials for the
+  IBE combine helpers and reports the contributors that failed. Paid operation journals
+  now retain the assigned contributors.
+
 - A local paid-session holder receives the session's `{requestUri, qrPayload}` as the second
   argument of `makePresentation` and through an optional `present` hook
   (`PaidSessionRequestLink`), so applications no longer rebuild

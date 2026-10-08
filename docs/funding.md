@@ -101,7 +101,11 @@ before anything is reserved, to link an in-flight run to its payment.
 `slot`, `action`, `expires`), e.g. `{phase: ['reserving', 'certified', 'executing']}` at
 startup for work to reconcile, without reading the store's key scheme. `execute` runs once; after an
 uncertain execution use `op.recover({transport: createNodeKeeperRecoveryTransport()})`
-to read the keeper's retained result. `createMemoryStore` suits tests only.
+to read the keeper's retained result. An identity extraction fans out to every assigned
+contributor; after a lost reply, `op.recoverIbePartials({transport})` reads each
+contributor's retained, commitment-verified partial (bounded concurrency, stopping at the
+payment's keeper threshold) and returns them in the shape the IBE combine helpers accept,
+never re-sending an extraction. `createMemoryStore` suits tests only.
 
 For clients integrating with an independently verified reservation service,
 `tasra-sdk/committee` exports `PaymentIntentWire`, `paymentIntentTypedData`,

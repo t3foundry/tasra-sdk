@@ -42,6 +42,8 @@ import {requestHash, type CommitteeAction} from '../oid4vp/binding.js'
 import type {VerifiedRequestObject} from '../oid4vp/request-object.js'
 import type {VerifierProof} from '../committee/client.js'
 import {TasraError} from '../errors.js'
+import {base64Decode} from '../crypto/envelope.js'
+import type {IbeExtractionPartial} from '../committee/client.js'
 
 /** Approved deployment, signers, services and spending limits shared by paid operations. */
 export interface PaidOperationConfig {
@@ -120,8 +122,45 @@ export interface PaidOperation {
   execute<R>(work: (operation: PaidOperation) => Promise<R>): Promise<R>
   /** Read the keeper's retained result after an uncertain execution. Performs no new work. */
   recover(options: {transport: KeeperRecoveryTransport; stage?: Extract<ExecutionStage, 'coordinator' | 'contributor'>; signal?: AbortSignal}): Promise<RecoveredKeeperExecution>
+  /**
+   * After an uncertain `ibe-extract` fan-out, read each assigned contributor's retained,
+   * commitment-verified partial (stage `contributor`) until the payment's keeper threshold is
+   * met. Performs no new work and never re-sends an extraction. Combine the partials with the
+   * pairing-verifying IBE combine helpers. Throws when fewer than the threshold are recoverable.
+   */
+  recoverIbePartials(options: RecoverIbePartialsOptions): Promise<RecoveredIbePartials>
   /** Erase the local execution signer. */
   dispose(): void
+}
+
+/** Options for {@link PaidOperation.recoverIbePartials}. */
+export interface RecoverIbePartialsOptions {
+  /** Caller-approved guarded keeper recovery transport. */
+  transport: KeeperRecoveryTransport
+  /** Cancellation for the whole recovery; each keeper read also has its own 60-second deadline. */
+  signal?: AbortSignal
+  /** Contributors read at once, 1..16 (default 4). No new read starts after the threshold is met. */
+  concurrency?: number
+}
+
+/** One contributor's recovered extraction partial. */
+export interface RecoveredIbePartial {
+  /** Assigned contributor, with its approved (routed) URL. */
+  keeper: PaidKeeperEndpoint
+  /** Decoded partial, in the shape the IBE combine helpers accept. */
+  partial: IbeExtractionPartial
+  /** Signed execution evidence and exact retained bytes. */
+  recovered: RecoveredKeeperExecution
+}
+
+/** Result of {@link PaidOperation.recoverIbePartials}. */
+export interface RecoveredIbePartials {
+  /** Keeper threshold from the payment's assignment. */
+  threshold: number
+  /** At least `threshold` recovered partials, from distinct contributors. */
+  partials: RecoveredIbePartial[]
+  /** Contributors whose retained result could not be read (operator and a safe message). */
+  failures: {operator: Address; message: string}[]
 }
 
 /** Where a paid operation stopped with an uncertain or unfinished outcome. */
@@ -194,6 +233,8 @@ interface OperationRecord {
   rule: string
   ruleSalt: Hex
   coordinator: PaidKeeperEndpoint
+  /** Assigned contributors (absent from journals written before IBE recovery existed). */
+  contributors?: PaidKeeperEndpoint[]
   action: CommitteeAction
   payloadDigest: Hex
   seed?: Uint8Array
@@ -246,6 +287,14 @@ function validateConfig(config: PaidOperationConfig): void {
   if (!Number.isSafeInteger(wait) || wait < 1 || wait > 300_000 || !Number.isSafeInteger(poll) || poll < 10 || poll > 60_000) throw new TasraError('Invalid paid operation timing')
 }
 
+/** Decode a commitment-verified retained IBE result into a combinable partial. */
+function ibePartial(resultJson: string, nodeUrl: string): IbeExtractionPartial {
+  const d = JSON.parse(resultJson) as {identifier: number; extraction_share: string; verifying_share: string; epoch: number; key_slot_id: string}
+  const value = base64Decode(d.extraction_share), verifying = base64Decode(d.verifying_share)
+  if (value.length !== 48 || verifying.length < 96 || !Number.isSafeInteger(d.identifier) || d.identifier < 1 || d.identifier > 65535) throw new Error('Invalid recovered IBE partial encoding')
+  return {keySlotId: d.key_slot_id, identifier: d.identifier, value, verifyingShareG2: verifying.slice(0, 96), epoch: d.epoch, nodeUrl}
+}
+
 /**
  * Authorize one paid committee operation. Returns a handle whose `execute` runs the keeper
  * operation once. Throws PaidOperationRecoveryError when a reservation, session write or the
@@ -288,7 +337,7 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
   const {witnesses} = await fetchDrawnVerifierWitnesses(config.accountantUrls, payment, d.verifierSet,
     {signal: AbortSignal.any([signal, AbortSignal.timeout(Math.min(150_000, ttlSecs * 1000))]), fetch: config.fetch})
   const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: canonicalRule, ruleSalt: request.rule.salt,
-    params: {operation: built.operation, operationSig, messageHex: built.messageHex, random}, coordinator: context.coordinator,
+    params: {operation: built.operation, operationSig, messageHex: built.messageHex, random}, coordinator: context.coordinator, contributors: context.contributors,
     action: request.operation.action, payloadDigest: toHex(built.payloadDigest)}
   const key = recordKey(requestId)
   await config.store.withLock(key, async () => {
@@ -399,6 +448,32 @@ function handle(config: PaidOperationConfig, record: OperationRecord, signer: Re
       return recoverKeeperExecution({client: config.chain.client, deployment: d, payment: record.payment, expected: record.expected,
         keeper: {...record.coordinator, url: route(record.coordinator.url)}, target: {stage: options.stage ?? 'coordinator', executionKey: certificate.execution_key},
         signer, transport: options.transport, transportPolicy: {allowLocalHttp: config.allowLocalHttp}, signal: options.signal})
+    },
+    async recoverIbePartials(options) {
+      if (record.payment.action !== 'ibe-extract') throw new TasraError('IBE partial recovery applies to an ibe-extract operation only')
+      if (!record.contributors?.length) throw new TasraError('Paid operation journal lacks its assigned contributors')
+      const concurrency = options.concurrency ?? 4, threshold = record.payment.keeper_assignment.threshold
+      if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 16) throw new TasraError('IBE partial recovery concurrency must be 1..16')
+      const queue = record.contributors.map(member => ({...member, url: route(member.url)}))
+      const partials: RecoveredIbePartial[] = [], failures: RecoveredIbePartials['failures'] = []
+      const read = async (): Promise<void> => {
+        for (let keeper = queue.shift(); keeper; keeper = queue.shift()) {
+          if (partials.length >= threshold) return
+          options.signal?.throwIfAborted()
+          try {
+            const recovered = await recoverKeeperExecution({client: config.chain.client, deployment: d, payment: record.payment, expected: record.expected,
+              keeper, target: {stage: 'contributor', executionKey: certificate.execution_key}, signer, transport: options.transport,
+              transportPolicy: {allowLocalHttp: config.allowLocalHttp}, signal: options.signal})
+            partials.push({keeper, partial: ibePartial(recovered.resultJson, keeper.url), recovered})
+          } catch (error) {
+            options.signal?.throwIfAborted()
+            failures.push({operator: keeper.operator, message: error instanceof Error ? error.message : 'unreadable retained result'})
+          }
+        }
+      }
+      await Promise.all(Array.from({length: Math.min(concurrency, queue.length)}, read))
+      if (partials.length < threshold) throw new TasraError(`Recovered ${partials.length} of ${threshold} required IBE partials; ${failures.length} contributor(s) failed`)
+      return {threshold, partials: partials.slice(0, threshold), failures}
     },
     dispose: () => signer.dispose(),
   }
