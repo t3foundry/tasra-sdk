@@ -19,7 +19,7 @@ vi.mock('../../src/committee/execution.js', async original => ({...await origina
 vi.mock('../../src/chain/keeperExecution.js', () => ({createKeeperExecutionApprover: vi.fn(() => vi.fn())}))
 vi.mock('../../src/chain/keeperRecovery.js', async original => ({...await original<typeof import('../../src/chain/keeperRecovery.js')>(), recoverKeeperExecution: vi.fn()}))
 
-import {paidOperation, paidOperationPhase, resumePaidOperation, reconcilePaidOperation, PaidOperationRecoveryError, type PaidOperationConfig} from '../../src/app/paid-operation.js'
+import {paidOperation, paidOperationPhase, resumePaidOperation, reconcilePaidOperation, listPaidOperations, PaidOperationRecoveryError, type PaidOperationConfig} from '../../src/app/paid-operation.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
 import {BillingModeError, requirePrepaidSlot} from '../../src/chain/billing.js'
 import {discoverPaidOperationContext, readClientExecutionPolicy} from '../../src/chain/prepaid.js'
@@ -421,5 +421,40 @@ describe('paid operation error classification', () => {
     expect(await resumePaidOperation(f.config, requestId, {holder: f.holder}).catch((e: unknown) => e)).toMatchObject({code: 'reservation-failed', resumable: false})
     const g = setup(), op = await paidOperation(g.config, g.request)
     expect(await op.execute(async () => { throw new Error('reply lost') }).catch((e: unknown) => e)).toMatchObject({phase: 'execution', code: 'execution-uncertain', resumable: false})
+  })
+})
+
+describe('paid operation observability', () => {
+  it('reports the request ID before witnesses or reservation, and a throwing observer stops before spending', async () => {
+    const f = setup(), seen: Hex[] = []
+    vi.mocked(fetchDrawnVerifierWitnesses).mockImplementationOnce(async () => {
+      expect(seen).toHaveLength(1)
+      return {witnesses, artifact: {}, host: 'http://127.0.0.1:9000'} as Awaited<ReturnType<typeof fetchDrawnVerifierWitnesses>>
+    })
+    const op = await paidOperation(f.config, {...f.request, onRequestId: id => { seen.push(id) }})
+    expect(seen).toEqual([op.requestId])
+    const g = setup()
+    await expect(paidOperation(g.config, {...g.request, onRequestId: () => { throw new Error('app refused') }})).rejects.toThrow('app refused')
+    expect(fetchDrawnVerifierWitnesses).toHaveBeenCalledTimes(1)
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(await listPaidOperations(g.store)).toEqual([])
+  })
+
+  it('lists journaled operations by phase without the store key scheme', async () => {
+    const f = setup()
+    const done = await paidOperation(f.config, f.request)
+    await done.execute(async () => 1)
+    vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new Error('lost'))
+    vi.mocked(loadPaidReservationJournal).mockResolvedValueOnce({phase: 'submitted'} as Awaited<ReturnType<typeof loadPaidReservationJournal>>)
+    const stuck = await paidOperation(f.config, f.request).catch((e: unknown) => e) as PaidOperationRecoveryError
+    const all = await listPaidOperations(f.store)
+    expect(all).toEqual([
+      {requestId: done.requestId.toLowerCase(), phase: 'executed', slot, action: 'sign', expires: done.payment.expires},
+      expect.objectContaining({requestId: stuck.requestId.toLowerCase(), phase: 'reserving'}),
+    ])
+    expect((await listPaidOperations(f.store, {phase: 'reserving'})).map(o => o.requestId)).toEqual([stuck.requestId.toLowerCase()])
+    expect(await listPaidOperations(f.store, {phase: ['executing', 'failed']})).toEqual([])
+    await f.store.save('paid-op-index', {schema: 2})
+    await expect(listPaidOperations(f.store)).rejects.toThrow(/index/)
   })
 })

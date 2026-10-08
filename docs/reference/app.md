@@ -185,7 +185,7 @@ declare class CreationReconciliationRequiredError {
 
 The operation stopped where repeating a step could pay or execute twice; resume or recover it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L142)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L149)
 
 Import: `import {PaidOperationRecoveryError} from 'tasra-sdk/app'`
 
@@ -271,7 +271,7 @@ declare class TasraApplicationError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 33 functions</summary>
+<summary>Browse 34 functions</summary>
 
 - [approveWithCredential](#approvewithcredential)
 - [connectWallet](#connectwallet)
@@ -289,6 +289,7 @@ Operations you can import and call.
 - [drivePaidSession](#drivepaidsession)
 - [identityApprover](#identityapprover)
 - [issueCredential](#issuecredential)
+- [listPaidOperations](#listpaidoperations)
 - [loadApplicationManifest](#loadapplicationmanifest)
 - [loadPaidReservationJournal](#loadpaidreservationjournal)
 - [paidOperation](#paidoperation)
@@ -773,6 +774,28 @@ Returns: ` string `.
 
 Return details: Serialized holder-bound SD-JWT credential.
 
+### listPaidOperations
+
+List the paid operations journaled in a store, oldest first, without relying on its key scheme.
+Operations journaled before this index existed are not listed; read them with `paidOperationPhase`.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L603)
+
+Import: `import {listPaidOperations} from 'tasra-sdk/app'`
+
+```ts
+declare function listPaidOperations(store: ApplicationStore, filter?: {
+    phase?: PaidOperationJournalPhase | readonly PaidOperationJournalPhase[];
+}): Promise<PaidOperationSummary[]>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` store ` | ` ApplicationStore ` | Store the operations were journaled in. |
+| ` filter? ` | ` { phase?: PaidOperationJournalPhase \| readonly PaidOperationJournalPhase[]; } ` | Optional phase or phases to keep, e.g. `{phase: ['reserving', 'executing']}` for work needing attention. |
+
+Returns: ` Promise<PaidOperationSummary[]> `.
+
 ### loadApplicationManifest
 
 Fetch a public manifest; an optional trusted pin is checked before parsing any JSON.
@@ -821,7 +844,7 @@ operation once. Throws PaidOperationRecoveryError when a reservation, session wr
 execution outcome is uncertain; continue with [resumePaidOperation](#resumepaidoperation), never by calling
 this again (that would be a second payment).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L236)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L257)
 
 Import: `import {paidOperation} from 'tasra-sdk/app'`
 
@@ -840,7 +863,7 @@ Returns: ` Promise<PaidOperation> `.
 
 Read the journaled phase of a paid operation, for deciding between resume and recovery.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L554)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L578)
 
 Import: `import {paidOperationPhase} from 'tasra-sdk/app'`
 
@@ -999,7 +1022,7 @@ nonce (no transaction hash needed) and advanced only on proof: `reserved` when t
 it, `failed` when its quote deadline passed without one. Anything else stays `reserving`
 with `next: 'wait'` and the payer locked.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L477)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L501)
 
 Import: `import {reconcilePaidOperation} from 'tasra-sdk/app'`
 
@@ -1119,7 +1142,7 @@ PaidOperationRecoveryError and keeps the gas payer locked. A session is re-read,
 confirmed writes; an authorized or executing operation returns its handle (use `recover` for
 an uncertain execution). With `reconcileOnly` it returns the status instead and does no work.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L504)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L528)
 
 Import: `import {resumePaidOperation} from 'tasra-sdk/app'`
 
@@ -1245,7 +1268,7 @@ Returns: ` Promise<T> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 56 types</summary>
+<summary>Browse 57 types</summary>
 
 - [ApplicationDeployment](#applicationdeployment)
 - [ApplicationErrorCode](#applicationerrorcode)
@@ -1280,6 +1303,7 @@ Options, data structures and return types.
 - [PaidOperationPhase](#paidoperationphase-1)
 - [PaidOperationRequest](#paidoperationrequest)
 - [PaidOperationStatus](#paidoperationstatus)
+- [PaidOperationSummary](#paidoperationsummary)
 - [PaidReservationJournal](#paidreservationjournal)
 - [PaidReservationSession](#paidreservationsession)
 - [PaidSessionDriverOptions](#paidsessiondriveroptions)
@@ -1860,7 +1884,7 @@ Fields:
 
 A verified, paid committee authorization for exactly one keeper execution.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L97)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L104)
 
 ```ts
 export interface PaidOperation {
@@ -1969,7 +1993,7 @@ Stable reason a paid operation stopped. `resumable` on the error says whether
 - `payment-expired`: the creator-signed payment expired; nothing more can run under it. Final.
 - `execution-uncertain`: the keeper may have run; use the handle's `recover`, never execute again.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L138)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L145)
 
 ```ts
 export type PaidOperationErrorCode = 'reservation-refused' | 'reservation-uncertain' | 'reservation-failed' | 'session-interrupted' | 'session-refused' | 'session-write-uncertain' | 'payment-expired' | 'execution-uncertain';
@@ -1980,7 +2004,7 @@ export type PaidOperationErrorCode = 'reservation-refused' | 'reservation-uncert
 Journaled progress of one paid operation. `failed` is terminal: the original reservation
 provably never happened and the operation must not be reserved again.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L177)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L184)
 
 ```ts
 export type PaidOperationJournalPhase = 'reserving' | 'reserved' | 'certified' | 'authorized' | 'executing' | 'executed' | 'failed';
@@ -1990,7 +2014,7 @@ export type PaidOperationJournalPhase = 'reserving' | 'reserved' | 'certified' |
 
 What the application should do next with a reconciled paid operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L385)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L409)
 
 ```ts
 export type PaidOperationNextStep = 'reserve' | 'resume' | 'wait' | 'recover' | 'done' | 'abandon';
@@ -2000,7 +2024,7 @@ export type PaidOperationNextStep = 'reserve' | 'resume' | 'wait' | 'recover' | 
 
 Where a paid operation stopped with an uncertain or unfinished outcome.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L121)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L128)
 
 ```ts
 export type PaidOperationPhase = 'reservation' | 'session' | 'execution';
@@ -2031,6 +2055,7 @@ export interface PaidOperationRequest {
     coordinator?: Address;
     signal?: AbortSignal;
     observeRequest?(request: VerifiedRequestObject): void | Promise<void>;
+    onRequestId?(requestId: Hex): void | Promise<void>;
 }
 ```
 
@@ -2043,12 +2068,13 @@ Fields:
 - **` coordinator `**: Pin the coordinator keeper (operator address); otherwise the first eligible keeper.
 - **` signal `**: Cancellation for the authorization (reservation, session, grant).
 - **` observeRequest `**: Inspect the verified request object before any credential is disclosed.
+- **` onRequestId `**: Receive the reservation identity as soon as it is derived, before witnesses are fetched or anything is reserved, to link this run to its payment. A throw stops the operation before any spending. Until the journal is written (just before reservation) `paidOperationPhase` returns undefined for it.
 
 ### PaidOperationStatus
 
 Read-only reconciliation result of [reconcilePaidOperation](#reconcilepaidoperation).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L400)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L424)
 
 ```ts
 export interface PaidOperationStatus {
@@ -2071,6 +2097,30 @@ Fields:
 - **` next `**: Next safe step.
 - **` reason `**: Why the reservation is `uncertain` or `not-reserved`; safe to log.
 - **` transactionHash `**: Journaled or reported reservation transaction hash, when known.
+
+### PaidOperationSummary
+
+One journaled paid operation, as listed by [listPaidOperations](#listpaidoperations).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L584)
+
+```ts
+export interface PaidOperationSummary {
+    requestId: Hex;
+    phase: PaidOperationJournalPhase;
+    slot: Hex;
+    action: PaymentIntentWire['action'];
+    expires: number;
+}
+```
+
+Fields:
+
+- **` requestId `**: Reservation identity (lowercase).
+- **` phase `**: Journaled phase.
+- **` slot `**: Slot the operation runs on.
+- **` action `**: Paid action (`eoa-sign` for a FROST sign on an EOA slot).
+- **` expires `**: Payment expiry, Unix seconds.
 
 ### PaidReservationJournal
 
@@ -2295,7 +2345,7 @@ Fields:
 
 Options shared by [resumePaidOperation](#resumepaidoperation) and [reconcilePaidOperation](#reconcilepaidoperation).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L418)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-operation.ts#L442)
 
 ```ts
 export interface ResumePaidOperationOptions {

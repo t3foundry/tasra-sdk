@@ -91,7 +91,13 @@ claim, nothing on chain). To inspect without any billable or keeper work, use
 `reconcileOnly: true`); it returns `{phase, reservation, payerLocked, next}`, where
 `next` is `reserve`, `resume`, `wait`, `recover`, `done` or `abandon`.
 `reconcileApplicationReservation` is the same proof for applications composing
-`reserveApplicationPayment` themselves. `execute` runs once; after an
+`reserveApplicationPayment` themselves.
+
+Pass `onRequestId` to `paidOperation` to receive the request ID as soon as it is derived,
+before anything is reserved, to link an in-flight run to its payment.
+`listPaidOperations(store, {phase})` lists journaled operations (`requestId`, `phase`,
+`slot`, `action`, `expires`), e.g. `{phase: ['reserving', 'certified', 'executing']}` at
+startup for work to reconcile, without reading the store's key scheme. `execute` runs once; after an
 uncertain execution use `op.recover({transport: createNodeKeeperRecoveryTransport()})`
 to read the keeper's retained result. `createMemoryStore` suits tests only.
 

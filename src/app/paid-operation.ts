@@ -91,6 +91,13 @@ export interface PaidOperationRequest {
   signal?: AbortSignal
   /** Inspect the verified request object before any credential is disclosed. */
   observeRequest?(request: VerifiedRequestObject): void | Promise<void>
+  /**
+   * Receive the reservation identity as soon as it is derived, before witnesses are fetched or
+   * anything is reserved, to link this run to its payment. A throw stops the operation before any
+   * spending. Until the journal is written (just before reservation) `paidOperationPhase` returns
+   * undefined for it.
+   */
+  onRequestId?(requestId: Hex): void | Promise<void>
 }
 
 /** A verified, paid committee authorization for exactly one keeper execution. */
@@ -196,6 +203,20 @@ interface OperationRecord {
 }
 
 const HEX32 = /^0x[0-9a-f]{64}$/i
+const INDEX_KEY = 'paid-op-index'
+interface OperationIndex { schema: 1; ids: Hex[] }
+async function loadIndex(store: ApplicationStore): Promise<Hex[]> {
+  const index = await store.load<OperationIndex>(INDEX_KEY)
+  if (index === undefined) return []
+  if (!index || index.schema !== 1 || !Array.isArray(index.ids) || index.ids.some(id => typeof id !== 'string' || !HEX32.test(id))) throw new TasraError('Invalid paid operation index')
+  return index.ids
+}
+async function indexOperation(store: ApplicationStore, requestId: Hex): Promise<void> {
+  await store.withLock(INDEX_KEY, async () => {
+    const ids = await loadIndex(store), id = requestId.toLowerCase() as Hex
+    if (!ids.includes(id)) await store.save(INDEX_KEY, {schema: 1, ids: [...ids, id]} satisfies OperationIndex)
+  })
+}
 const recordKey = (requestId: Hex) => {
   if (!HEX32.test(requestId)) throw new TasraError('Invalid paid operation request ID')
   return 'paid-op-' + requestId.slice(2).toLowerCase()
@@ -262,6 +283,8 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
   const payment: PaymentIntentWire = {...unsigned, signature: await config.creator.signTypedData(paymentIntentTypedData(unsigned))}
   const expected: ExpectedPaidOperation = {slot, action: payment.action, payloadDigest: payment.payload_digest}
   const requestId = prepaidRequestId(payment)
+  await request.onRequestId?.(requestId)
+  signal.throwIfAborted()
   const {witnesses} = await fetchDrawnVerifierWitnesses(config.accountantUrls, payment, d.verifierSet,
     {signal: AbortSignal.any([signal, AbortSignal.timeout(Math.min(150_000, ttlSecs * 1000))]), fetch: config.fetch})
   const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: canonicalRule, ruleSalt: request.rule.salt,
@@ -272,6 +295,7 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
     if (await config.store.load(key) !== undefined) throw new TasraError('Paid operation already journaled; resume it')
     await config.store.save(key, record)
   })
+  await indexOperation(config.store, requestId)
   await reserve(config, record, signal)
   return continueOperation(config, requestId, request.holder, signal, request.observeRequest)
 }
@@ -554,4 +578,35 @@ export async function resumePaidOperation(config: PaidOperationConfig, requestId
 export async function paidOperationPhase(store: ApplicationStore, requestId: Hex): Promise<PaidOperationJournalPhase | undefined> {
   const record = await store.load<OperationRecord>(recordKey(requestId))
   return record?.phase
+}
+
+/** One journaled paid operation, as listed by {@link listPaidOperations}. */
+export interface PaidOperationSummary {
+  /** Reservation identity (lowercase). */
+  requestId: Hex
+  /** Journaled phase. */
+  phase: PaidOperationJournalPhase
+  /** Slot the operation runs on. */
+  slot: Hex
+  /** Paid action (`eoa-sign` for a FROST sign on an EOA slot). */
+  action: PaymentIntentWire['action']
+  /** Payment expiry, Unix seconds. */
+  expires: number
+}
+
+/**
+ * List the paid operations journaled in a store, oldest first, without relying on its key scheme.
+ * Operations journaled before this index existed are not listed; read them with `paidOperationPhase`.
+ * @param store Store the operations were journaled in.
+ * @param filter Optional phase or phases to keep, e.g. `{phase: ['reserving', 'executing']}` for work needing attention.
+ */
+export async function listPaidOperations(store: ApplicationStore, filter: {phase?: PaidOperationJournalPhase | readonly PaidOperationJournalPhase[]} = {}): Promise<PaidOperationSummary[]> {
+  const phases = filter.phase === undefined ? undefined : typeof filter.phase === 'string' ? [filter.phase] : [...filter.phase]
+  const out: PaidOperationSummary[] = []
+  for (const requestId of await loadIndex(store)) {
+    const record = await loadRecord(store, requestId)
+    if (!record || (phases && !phases.includes(record.phase))) continue
+    out.push({requestId, phase: record.phase, slot: record.payment.slot, action: record.payment.action, expires: record.payment.expires})
+  }
+  return out
 }

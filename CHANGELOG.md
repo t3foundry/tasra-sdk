@@ -52,6 +52,11 @@ never does.
 
 ### Added
 
+- `paidOperation` accepts `onRequestId`, called with the reservation identity as soon as
+  it is derived (before witnesses or reservation). `listPaidOperations(store, {phase})`
+  (`tasra-sdk/app`) lists journaled operations by phase from a store index, without
+  depending on the store's key scheme.
+
 - `PaidOperationRecoveryError` carries a stable `code` (`PaidOperationErrorCode`) and
   `resumable`, so applications can tell a final refusal (committee or wallet refusal,
   HTTP 403/410, a provably failed reservation, an expired payment) from an interruption
