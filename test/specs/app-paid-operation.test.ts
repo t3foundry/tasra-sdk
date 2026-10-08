@@ -27,7 +27,10 @@ import {fetchDrawnVerifierWitnesses} from '../../src/chain/verifierSnapshot.js'
 import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, ApplicationPayerRecoveryError, type ApplicationReservationStatus} from '../../src/app/paid-reservation.js'
 import {loadPaidReservationJournal} from '../../src/app/paid-journal.js'
 import {prepareRegisteredPaidSession, type RegisteredPaidAgentSession} from '../../src/chain/registeredPaidAgent.js'
-import {drivePaidSession} from '../../src/app/paid-session.js'
+import {drivePaidSession, PaidSessionRecoveryError} from '../../src/app/paid-session.js'
+import {PaidAgentControlError} from '../../src/chain/registeredPaidAgent.js'
+import {VerifierAgentSessionError} from '../../src/verifier-agent/index.js'
+import {UnderfundedSlotError} from '../../src/errors.js'
 import {verifierAgentResult} from '../../src/oid4vp/verifier-agent.js'
 import {createExecutionCertificate} from '../../src/committee/execution.js'
 import {recoverKeeperExecution} from '../../src/chain/keeperRecovery.js'
@@ -353,5 +356,70 @@ describe('paid operation reservation safety', () => {
     const g = setup(), done = await paidOperation(g.config, g.request)
     await done.execute(async () => 1)
     expect(await reconcilePaidOperation(g.config, done.requestId)).toMatchObject({phase: 'executed', next: 'done'})
+  })
+})
+
+describe('paid operation error classification', () => {
+  const session = 'ab'.repeat(32)
+  it.each([
+    [new VerifierAgentSessionError('refused', session, 'committee refused'), 'session-refused', false],
+    [new PaidAgentControlError(session, 403), 'session-refused', false],
+    [new PaidAgentControlError(session, 410), 'session-refused', false],
+    [new VerifierAgentSessionError('protocol', session, 'gone', 404), 'session-refused', false],
+    [new PaidSessionRecoveryError('wallet-x-create', 'unknown outcome'), 'session-write-uncertain', false],
+    [new PaidAgentControlError(session, 503), 'session-interrupted', true],
+    [new PaidAgentControlError(session, 429), 'session-interrupted', true],
+    [new PaidAgentControlError(session, 409), 'session-interrupted', true],
+    [new VerifierAgentSessionError('unavailable', session, 'down', 502), 'session-interrupted', true],
+    [new TypeError('fetch failed'), 'session-interrupted', true],
+  ] as const)('classifies a session failure %# as %s', async (cause, code, resumable) => {
+    const f = setup()
+    vi.mocked(drivePaidSession).mockRejectedValueOnce(cause)
+    const error = await paidOperation(f.config, f.request).catch((e: unknown) => e) as PaidOperationRecoveryError
+    expect(error).toBeInstanceOf(PaidOperationRecoveryError)
+    expect(error).toMatchObject({phase: 'session', code, resumable, cause})
+  })
+
+  it('reports an interrupted session after payment expiry as final', async () => {
+    const f = setup()
+    vi.mocked(drivePaidSession).mockImplementationOnce(async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 7_200_000)
+      throw new TypeError('fetch failed')
+    })
+    const error = await paidOperation(f.config, f.request).catch((e: unknown) => e) as PaidOperationRecoveryError
+    vi.restoreAllMocks()
+    expect(error).toMatchObject({code: 'payment-expired', resumable: false})
+  })
+
+  it('separates a refused reservation (nothing sent) from an uncertain one', async () => {
+    const f = setup()
+    vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new UnderfundedSlotError({slotId: slot, status: 402, url: 'https://a', message: 'x'}))
+    expect(await paidOperation(f.config, f.request).catch((e: unknown) => e)).toMatchObject({phase: 'reservation', code: 'reservation-refused', resumable: true})
+    const g = setup()
+    vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new Error('receipt timeout'))
+    vi.mocked(loadPaidReservationJournal).mockResolvedValueOnce({phase: 'submitted'} as Awaited<ReturnType<typeof loadPaidReservationJournal>>)
+    expect(await paidOperation(g.config, g.request).catch((e: unknown) => e)).toMatchObject({code: 'reservation-uncertain', resumable: true})
+    const k = setup()
+    vi.mocked(reserveApplicationPayment).mockImplementationOnce(async () => {
+      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 7_200_000)
+      throw new Error('payment expiry is outside the allowed lifetime')
+    })
+    const expiredError = await paidOperation(k.config, k.request).catch((e: unknown) => e)
+    vi.restoreAllMocks()
+    expect(expiredError).toMatchObject({code: 'reservation-refused', resumable: false})
+  })
+
+  it('codes resume outcomes and execution uncertainty', async () => {
+    const f = setup()
+    vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new Error('lost'))
+    vi.mocked(loadPaidReservationJournal).mockResolvedValueOnce({phase: 'prepared'} as Awaited<ReturnType<typeof loadPaidReservationJournal>>)
+    const {requestId} = await paidOperation(f.config, f.request).catch((e: unknown) => e) as PaidOperationRecoveryError
+    reservation('uncertain', true)
+    expect(await resumePaidOperation(f.config, requestId, {holder: f.holder}).catch((e: unknown) => e)).toMatchObject({code: 'reservation-uncertain', resumable: true})
+    reservation('not-reserved')
+    expect(await resumePaidOperation(f.config, requestId, {holder: f.holder}).catch((e: unknown) => e)).toMatchObject({code: 'reservation-failed', resumable: false})
+    expect(await resumePaidOperation(f.config, requestId, {holder: f.holder}).catch((e: unknown) => e)).toMatchObject({code: 'reservation-failed', resumable: false})
+    const g = setup(), op = await paidOperation(g.config, g.request)
+    expect(await op.execute(async () => { throw new Error('reply lost') }).catch((e: unknown) => e)).toMatchObject({phase: 'execution', code: 'execution-uncertain', resumable: false})
   })
 })

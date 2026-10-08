@@ -52,6 +52,12 @@ never does.
 
 ### Added
 
+- `PaidOperationRecoveryError` carries a stable `code` (`PaidOperationErrorCode`) and
+  `resumable`, so applications can tell a final refusal (committee or wallet refusal,
+  HTTP 403/410, a provably failed reservation, an expired payment) from an interruption
+  that `resumePaidOperation` can continue, without unwrapping causes. A reservation
+  failure with nothing journaled is `reservation-refused` (nothing was sent).
+
 - Prepaid fault clients (`tasra-sdk/chain`): `submitPrepaidFaultClaim` and
   `readPrepaidFaultStatus` for an accountant's fault witness, and
   `encodePrepaidFaultContest`, `contestPrepaidFault` (simulate, then send once) and

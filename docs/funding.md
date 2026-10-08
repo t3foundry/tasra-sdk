@@ -72,7 +72,9 @@ application accepts the complete retained presentation.
 
 Each billable step is journaled in the store before it is sent. When an outcome is
 uncertain the call throws `PaidOperationRecoveryError` (`requestId`, `phase`:
-`reservation`, `session` or `execution`). Never call `paidOperation` again for that
+`reservation`, `session` or `execution`, a stable `code` and `resumable`). `resumable`
+separates a final refusal (`session-refused`, `reservation-failed`, `payment-expired`) and
+steps only reconciliation or `recover` can settle from an interruption worth resuming. Never call `paidOperation` again for that
 work, which would pay twice. Call `resumePaidOperation(config, requestId, {holder})`: it
 re-reads the session and skips confirmed writes, and refuses any write whose outcome is
 unknown.

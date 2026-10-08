@@ -27,7 +27,9 @@ import {ruleCommitment} from '../chain/write.js'
 import {loadPaidReservationJournal} from './paid-journal.js'
 import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, ApplicationPayerRecoveryError,
   type ApplicationReservationState} from './paid-reservation.js'
-import {drivePaidSession, waitForPaidSnapshot, type PaidSessionHolder} from './paid-session.js'
+import {drivePaidSession, waitForPaidSnapshot, PaidSessionRecoveryError, type PaidSessionHolder} from './paid-session.js'
+import {PaidAgentControlError} from '../chain/registeredPaidAgent.js'
+import {VerifierAgentSessionError} from '../verifier-agent/index.js'
 import type {ApplicationStore} from './ready-slot.js'
 import {withDedicatedPayer} from './payer-queue.js'
 import {createExecutionCertificate, createLocalExecutionSigner, type ExecutionCertificate, type ExecutionStage} from '../committee/execution.js'
@@ -118,15 +120,54 @@ export interface PaidOperation {
 /** Where a paid operation stopped with an uncertain or unfinished outcome. */
 export type PaidOperationPhase = 'reservation' | 'session' | 'execution'
 
+/**
+ * Stable reason a paid operation stopped. `resumable` on the error says whether
+ * {@link resumePaidOperation} can still make progress.
+ * - `reservation-refused`: nothing was prepared or sent (e.g. accountant refusal, underfunded
+ *   slot, RPC failure before preparation). Resumable unless the payment expired.
+ * - `reservation-uncertain`: a reservation may have been sent; resume reconciles it, never resends.
+ * - `reservation-failed`: the original reservation provably never happened. Final.
+ * - `session-interrupted`: transport loss, timeout or an unavailable agent; resume continues.
+ * - `session-refused`: the committee, a verifier, the wallet or the agent refused (a failed
+ *   session, HTTP 4xx such as 403/410). Final.
+ * - `session-write-uncertain`: a journaled session write has an unknown outcome; resume refuses
+ *   it until reconciled out of band. Not resumable.
+ * - `payment-expired`: the creator-signed payment expired; nothing more can run under it. Final.
+ * - `execution-uncertain`: the keeper may have run; use the handle's `recover`, never execute again.
+ */
+export type PaidOperationErrorCode = 'reservation-refused' | 'reservation-uncertain' | 'reservation-failed'
+  | 'session-interrupted' | 'session-refused' | 'session-write-uncertain' | 'payment-expired' | 'execution-uncertain'
+
 /** The operation stopped where repeating a step could pay or execute twice; resume or recover it. */
 export class PaidOperationRecoveryError extends TasraError {
+  /** Stable machine-readable reason. */
+  readonly code: PaidOperationErrorCode
+  /** Whether {@link resumePaidOperation} can still make progress; false for a final refusal or a step only `recover` can read. */
+  readonly resumable: boolean
   constructor(
     /** Reservation identity to resume with. */ readonly requestId: Hex,
     /** Step whose outcome is uncertain. */ readonly phase: PaidOperationPhase,
     cause: unknown,
+    /** Classification; defaults to the uncertain outcome of the phase. */
+    detail: {code?: PaidOperationErrorCode; resumable?: boolean} = {},
   ) {
     super(`Paid operation ${requestId.slice(0, 12)}… stopped during ${phase}; resume it from its journal, never start it again`, {retryable: false, cause})
+    this.code = detail.code ?? (phase === 'reservation' ? 'reservation-uncertain' : phase === 'session' ? 'session-interrupted' : 'execution-uncertain')
+    this.resumable = detail.resumable ?? !['reservation-failed', 'session-refused', 'session-write-uncertain', 'payment-expired', 'execution-uncertain'].includes(this.code)
   }
+}
+
+const expired = (payment: PaymentIntentWire) => payment.expires <= Math.floor(Date.now() / 1000)
+/** Final 4xx refusals; 408/409/425/429 are transient or need a status read first. */
+const refusal = (status: number) => status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status)
+function sessionFailure(requestId: Hex, payment: PaymentIntentWire, error: unknown): PaidOperationRecoveryError {
+  let code: PaidOperationErrorCode = 'session-interrupted'
+  if (error instanceof PaidSessionRecoveryError) code = 'session-write-uncertain'
+  else if (error instanceof VerifierAgentSessionError) {
+    if (error.kind === 'refused' || (error.httpStatus !== undefined && refusal(error.httpStatus))) code = 'session-refused'
+  } else if (error instanceof PaidAgentControlError && refusal(error.httpStatus)) code = 'session-refused'
+  if (code !== 'session-refused' && code !== 'session-write-uncertain' && expired(payment)) code = 'payment-expired'
+  return new PaidOperationRecoveryError(requestId, 'session', error, {code})
 }
 
 /**
@@ -243,9 +284,13 @@ async function reserve(config: PaidOperationConfig, record: OperationRecord, sig
       record.payment, record.expected, {store: config.store, session: {random: record.params.random, audience: config.agent.profile.clientId},
         accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, maxGas: config.limits.maxGas, maxGasPrice: config.limits.maxGasPrice}))
   } catch (error) {
+    const journal = await loadPaidReservationJournal(config.store, requestId).catch(() => 'unreadable' as const)
     // Another request holds the payer and this one journaled nothing: refuse without uncertainty.
-    if (error instanceof ApplicationPayerRecoveryError && !await loadPaidReservationJournal(config.store, requestId)) throw error
-    throw new PaidOperationRecoveryError(requestId, 'reservation', error)
+    if (error instanceof ApplicationPayerRecoveryError && journal === undefined) throw error
+    // No preparation was journaled, and none is ever broadcast without one: nothing was sent.
+    if (journal === undefined) throw new PaidOperationRecoveryError(requestId, 'reservation', error,
+      expired(record.payment) ? {code: 'reservation-refused', resumable: false} : {code: 'reservation-refused'})
+    throw new PaidOperationRecoveryError(requestId, 'reservation', error, {code: 'reservation-uncertain'})
   }
   await advance(config.store, requestId, 'reserving', {phase: 'reserved'})
 }
@@ -292,7 +337,7 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
           wait: hint => sleep(Math.min(Math.max(hint ?? interval, 10), 60_000), signal)})
       } catch (error) {
         if (signal.aborted) throw error
-        throw new PaidOperationRecoveryError(requestId, 'session', error)
+        throw sessionFailure(requestId, record.payment, error)
       }
       const grant = verifierAgentResult({sessionId: session.sessionId, paymentHash: paymentIntentHash(record.payment),
         requestHash: requestHash(d.chainId, hexToBytes(record.payment.slot), record.action, hexToBytes(record.payloadDigest))}, result)
@@ -488,7 +533,7 @@ export async function resumePaidOperation(config: PaidOperationConfig, requestId
   const signal = options.signal ?? new AbortController().signal, store = config.store
   const record = await loadRecord(store, requestId)
   if (!record) throw new TasraError('No paid operation journal for this request')
-  if (record.phase === 'failed') throw new PaidOperationRecoveryError(requestId, 'reservation', new Error(record.failure?.reason ?? 'reservation never happened'))
+  if (record.phase === 'failed') throw new PaidOperationRecoveryError(requestId, 'reservation', new Error(record.failure?.reason ?? 'reservation never happened'), {code: 'reservation-failed'})
   if (record.phase === 'reserving') {
     let reconciled
     try { reconciled = await reconcileReservation(config, requestId, record, options) }
@@ -496,7 +541,7 @@ export async function resumePaidOperation(config: PaidOperationConfig, requestId
     const {status} = reconciled
     if (status.state === 'none') await reserve(config, record, signal)
     else if (status.state === 'uncertain') throw new PaidOperationRecoveryError(requestId, 'reservation', new Error(status.reason ?? 'reservation outcome is not provable yet'))
-    else if (status.state === 'not-reserved') throw new PaidOperationRecoveryError(requestId, 'reservation', new Error(status.reason ?? 'reservation never happened'))
+    else if (status.state === 'not-reserved') throw new PaidOperationRecoveryError(requestId, 'reservation', new Error(status.reason ?? 'reservation never happened'), {code: 'reservation-failed'})
   }
   return continueOperation(config, requestId, options.holder, signal, options.observeRequest)
 }

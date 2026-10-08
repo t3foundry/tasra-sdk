@@ -28,7 +28,7 @@ export {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplica
 export type {ApplicationReservationOptions, ApplicationReservationState, ApplicationReservationStatus, ReconcileApplicationReservationOptions} from './paid-reservation.js'
 export {paidOperation, resumePaidOperation, reconcilePaidOperation, paidOperationPhase, PaidOperationRecoveryError} from './paid-operation.js'
 export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PaidOperationPhase, PaidOperationJournalPhase, PaidOperationStatus,
-  PaidOperationNextStep, ResumePaidOperationOptions} from './paid-operation.js'
+  PaidOperationNextStep, ResumePaidOperationOptions, PaidOperationErrorCode} from './paid-operation.js'
 export {drivePaidSession, waitForPaidSnapshot, PaidSessionRecoveryError} from './paid-session.js'
 export type {PaidSessionDriverOptions, PaidSessionHolder, PaidWalletPresentation} from './paid-session.js'
 export {createMemoryStore} from './memory-store.js'
