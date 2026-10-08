@@ -9,6 +9,9 @@ import {createFileStore} from '../../src/app/node.js'
 import {createPaidReservationJournal, loadPaidReservationJournal, type ApplicationReservationJournal} from '../../src/app/paid-journal.js'
 import {paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import type {PaidReservationRecord} from '../../src/chain/reservation.js'
+import {selectApplicationGasPayer} from '../../src/app/paid-reservation.js'
+import {withDedicatedPayer} from '../../src/app/payer-queue.js'
+import {createMemoryStore} from '../../src/app/memory-store.js'
 
 const h = (n: number, length = 32): Hex => `0x${n.toString(16).padStart(2, '0').repeat(length)}`
 const directories: string[] = []
@@ -124,4 +127,24 @@ it('retains a pre-broadcast signed hash with the preparation and refuses a diffe
   await expect(f.journal.persist({phase: 'submitted', requestId: f.requestId, transactionHash: h(72)})).rejects.toThrow(/hash changed/)
   await f.journal.persist({phase: 'submitted', requestId: f.requestId, transactionHash: h(70)})
   expect(await f.journal.load()).toMatchObject({phase: 'submitted', transactionHash: h(70)})
+})
+
+it('selects gas payers round-robin, skipping claimed payers and preferring ones idle in this process', async () => {
+  const store = createMemoryStore()
+  const wallet = (n: number) => ({chain: {id: 43112}, account: {address: h(n, 20)}}) as unknown as Parameters<typeof selectApplicationGasPayer>[1][number]
+  const pool = [wallet(41), wallet(42), wallet(43)]
+  const picks = []
+  for (let i = 0; i < 4; i++) picks.push((await selectApplicationGasPayer(store, pool))!.account.address)
+  expect(picks).toEqual([h(41, 20), h(42, 20), h(43, 20), h(41, 20)])
+  await store.save(`prepaid-payer-43112-${h(42, 20)}`, {schema: 1, chainId: 43112, payer: h(42, 20), nextNonce: 3, pending: {requestId: h(70), nonce: 3}})
+  let release!: () => void
+  const running = withDedicatedPayer(`43112-${h(43, 20)}`, () => new Promise<void>(resolve => { release = resolve }))
+  // 42 is claimed and 43 is busy here: 41 is preferred even though it is not next in rotation.
+  expect((await selectApplicationGasPayer(store, pool))!.account.address).toBe(h(41, 20))
+  release(); await running
+  await store.save(`prepaid-payer-43112-${h(41, 20)}`, {schema: 1, chainId: 43112, payer: h(41, 20), nextNonce: 3, pending: {requestId: h(71), nonce: 3}})
+  await store.save(`prepaid-payer-43112-${h(43, 20)}`, {schema: 1, chainId: 43112, payer: h(43, 20), nextNonce: 3, pending: {requestId: h(72), nonce: 3}})
+  expect(await selectApplicationGasPayer(store, pool)).toBeUndefined()
+  await expect(selectApplicationGasPayer(store, [])).rejects.toThrow(/1\.\.64/)
+  await expect(selectApplicationGasPayer(store, [wallet(41), wallet(41)])).rejects.toThrow(/duplicate/)
 })

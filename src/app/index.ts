@@ -24,7 +24,7 @@ export {setApprovalPolicy, identityApprover, approveWithCredential} from './appr
 export type {ApprovalPolicy} from './approvals.js'
 export {createPaidReservationJournal, loadPaidReservationJournal} from './paid-journal.js'
 export type {PaidReservationJournal, PaidReservationSession, ApplicationReservationJournal} from './paid-journal.js'
-export {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, ApplicationPayerRecoveryError} from './paid-reservation.js'
+export {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, selectApplicationGasPayer, ApplicationPayerRecoveryError} from './paid-reservation.js'
 export type {ApplicationReservationOptions, ApplicationReservationState, ApplicationReservationStatus, ReconcileApplicationReservationOptions} from './paid-reservation.js'
 export {paidOperation, resumePaidOperation, reconcilePaidOperation, paidOperationPhase, listPaidOperations, PaidOperationRecoveryError} from './paid-operation.js'
 export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PaidOperationPhase, PaidOperationJournalPhase, PaidOperationStatus,

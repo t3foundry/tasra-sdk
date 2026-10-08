@@ -52,6 +52,10 @@ never does.
 
 ### Added
 
+- `selectApplicationGasPayer(store, wallets)` (`tasra-sdk/app`) picks a dedicated gas payer
+  from a small pool: payers with an unresolved reservation claim are skipped, payers idle in
+  this process are preferred, and selection rotates round-robin for fairness.
+
 - `PaidOperation.recoverIbePartials` recovers an uncertain `ibe-extract` fan-out: it reads
   each assigned contributor's retained result (stage `contributor`) with bounded
   concurrency until the payment's keeper threshold is met, decodes the partials for the

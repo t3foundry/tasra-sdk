@@ -99,7 +99,13 @@ Pass `onRequestId` to `paidOperation` to receive the request ID as soon as it is
 before anything is reserved, to link an in-flight run to its payment.
 `listPaidOperations(store, {phase})` lists journaled operations (`requestId`, `phase`,
 `slot`, `action`, `expires`), e.g. `{phase: ['reserving', 'certified', 'executing']}` at
-startup for work to reconcile, without reading the store's key scheme. `execute` runs once; after an
+startup for work to reconcile, without reading the store's key scheme.
+
+One gas payer serializes reservations, and an uncertain one keeps it locked until
+reconciled. To spread load, keep a few dedicated payers and pick one per operation with
+`selectApplicationGasPayer(store, wallets)`: it skips payers holding an unresolved claim,
+prefers payers idle in this process and rotates round-robin; `undefined` means every payer
+needs reconciliation. Pass the chosen wallet as that operation's `gasPayer`. `execute` runs once; after an
 uncertain execution use `op.recover({transport: createNodeKeeperRecoveryTransport()})`
 to read the keeper's retained result. An identity extraction fans out to every assigned
 contributor; after a lost reply, `op.recoverIbePartials({transport})` reads each

@@ -5,6 +5,7 @@ import type {ExpectedPaidOperation, PrepaidDeployment} from '../chain/prepaid.js
 import {prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
 import {createPaidReservationJournal, loadPaidReservationJournal, type PaidReservationSession} from './paid-journal.js'
 import type {ApplicationStore} from './ready-slot.js'
+import {dedicatedPayerBusy} from './payer-queue.js'
 
 /** Durable application reservation controls, shared by every use of this gas payer. */
 export interface ApplicationReservationOptions extends Omit<ReservePaidOperationOptions, 'persist'> {
@@ -246,4 +247,32 @@ export async function reconcileApplicationReservation(
     return result
   }
   return payer ? store.withLock(payerKey(d.chainId, payer), work) : work()
+}
+
+const cursors = new Map<string, number>()
+
+/**
+ * Pick a gas payer from a small pool of dedicated payers for the next paid operation.
+ * Payers holding an unresolved durable reservation claim are skipped (reconcile them); among
+ * the rest, ones idle in this process come first, rotating round-robin per pool so work is
+ * spread fairly. Returns undefined when every payer holds a claim. Selection is advisory: a
+ * payer claimed meanwhile still refuses safely (`ApplicationPayerRecoveryError`).
+ * @param store - Private store shared by every process using these payers.
+ * @param wallets - Distinct account- and chain-bound dedicated gas payers (1..64).
+ */
+export async function selectApplicationGasPayer<W extends WalletClient<Transport, Chain, Account>>(store: ApplicationStore, wallets: readonly W[]): Promise<W | undefined> {
+  if (!wallets.length || wallets.length > 64) throw new Error('supply 1..64 dedicated gas payers')
+  const ids = wallets.map(w => `${w.chain.id}-${w.account.address.toLowerCase()}`)
+  if (new Set(ids).size !== ids.length) throw new Error('duplicate gas payer in pool')
+  const pool = ids.slice().sort().join(','), start = cursors.get(pool) ?? 0
+  const free: {wallet: W; index: number; busy: boolean}[] = []
+  for (let i = 0; i < wallets.length; i++) {
+    const index = (start + i) % wallets.length, wallet = wallets[index]!
+    const state = await loadPayer(store, wallet.chain.id, wallet.account.address)
+    if (!state.pending) free.push({wallet, index, busy: dedicatedPayerBusy(ids[index]!)})
+  }
+  const chosen = free.find(c => !c.busy) ?? free[0]
+  if (!chosen) return undefined
+  cursors.set(pool, (chosen.index + 1) % wallets.length)
+  return chosen.wallet
 }

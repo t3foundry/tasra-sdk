@@ -16,3 +16,9 @@ export async function withDedicatedPayer<T>(identity: string, work: () => Promis
   try { return await running }
   finally { if (tails.get(identity) === tail) tails.delete(identity) }
 }
+
+/**
+ * Whether this process has reservation work queued or running for a payer identity.
+ * @param identity Chain and payer, as passed to withDedicatedPayer.
+ */
+export function dedicatedPayerBusy(identity: string): boolean { return tails.has(identity) }
