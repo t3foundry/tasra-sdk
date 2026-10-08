@@ -219,7 +219,7 @@
     "test:slashing": "tsx test/slashing/history.ts",
     "test:destructive": "KK_DESTRUCTIVE=1 tsx test/slashing/node-slash-lifecycle.ts && KK_DESTRUCTIVE=1 tsx test/slashing/verifier-misissue-slash.ts && tsx test/slashing/governance-slash.ts",
     "test:fleet": "npm run test:e2e && npm run test:reconcile && npm run test:slashing",
-    "test:prod": "tsx test/e2e/observability.ts && tsx test/e2e/credentials-prod.ts && tsx test/e2e/renewal-revocation.ts && tsx test/e2e/sign-roundtrip.ts && tsx test/e2e/decrypt-server.ts && tsx test/e2e/committee-authorize.ts && tsx test/e2e/audit-metering.ts && tsx test/e2e/slot-lifecycle.ts && tsx test/e2e/governance.ts && tsx test/economics/curve.ts",
+    "test:prod": "tsx test/e2e/observability.ts && tsx test/e2e/credentials-prod.ts && tsx test/e2e/renewal-revocation.ts && tsx test/e2e/sign-roundtrip.ts && tsx test/e2e/decrypt-server.ts && tsx test/e2e/committee-authorize.ts && tsx test/e2e/audit-metering.ts && tsx test/e2e/slot-lifecycle.ts && tsx test/e2e/governance.ts && tsx test/e2e/rego-slot.ts && tsx test/economics/curve.ts",
     "stress:crypto": "tsx test/stress/crypto-throughput.ts",
     "stress:keyops": "tsx test/stress/keyops.ts",
     "stress:keyops:committees": "tsx test/stress/keyops-committees.ts",
