@@ -9,7 +9,7 @@ const config = ts.readConfigFile(resolve(root, 'tsconfig.json'), (path) => ts.sy
 const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root)
 const program = ts.createProgram(parsed.fileNames, parsed.options)
 const checker = program.getTypeChecker()
-const entries = {app: 'src/app/index.ts', 'app-node': 'src/app/node.ts', main: 'src/index.ts', chain: 'src/chain/index.ts', committee: 'src/committee/index.ts',
+const entries = {app: 'src/app/index.ts', 'app-node': 'src/app/node.ts', 'app-browser': 'src/app/browser.ts', main: 'src/index.ts', chain: 'src/chain/index.ts', committee: 'src/committee/index.ts',
   oid4vp: 'src/oid4vp/index.ts', 'verifier-agent': 'src/verifier-agent/index.ts', 'chain-node': 'src/chain/node.ts'}
 const flags = ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope
 const text = (parts: readonly ts.SymbolDisplayPart[] | undefined) => ts.displayPartsToString(parts ? [...parts] : undefined)
@@ -139,7 +139,7 @@ for (const [name, file] of Object.entries(entries)) {
     anchors.set(title, base + (occurrence ? `-${occurrence}` : ''))
   }
   const documentation = (value: string) => value.replace(/\{@link(?:code|plain)?\s+([^\s|}]+)(?:[\s|]+([^}]*?))?\s*\}/g, (_match, target: string, label: string | undefined) => exportNames.has(target) ? `[${label?.trim() || target}](#${anchors.get(target)})` : inlineCode(label?.trim() || target))
-  const entry = name === 'main' ? 'tasra-sdk' : `tasra-sdk/${name === 'chain-node' ? 'chain/node' : name === 'app-node' ? 'app/node' : name}`
+  const entry = name === 'main' ? 'tasra-sdk' : `tasra-sdk/${name === 'chain-node' ? 'chain/node' : name === 'app-node' ? 'app/node' : name === 'app-browser' ? 'app/browser' : name}`
   let body = `# ${entry}\n\nGenerated from public TypeScript exports.\n\n[SDK reference](README.md) · [Task guides](../README.md) · [Errors](../errors.md)\n\n`
   const sections: {title: string; group: string; start: number}[] = []
   const values: string[] = []
@@ -286,6 +286,7 @@ for (const [name, file] of Object.entries(entries)) {
 const modules: Record<string, {label: string; purpose: string}> = {
   app: {label: 'Application client', purpose: 'Connect, create slots, manage identities and run application workflows.'},
   'app-node': {label: 'Local storage (Node.js)', purpose: 'Persist application state and coordinate local operations.'},
+  'app-browser': {label: 'Browser storage and transports', purpose: 'Durable IndexedDB state with cross-tab locks, and fetch transports for paid flows.'},
   main: {label: 'Core utilities', purpose: 'Signing, encryption, credentials and shared helpers.'},
   chain: {label: 'Chain access', purpose: 'Read contracts, submit transactions, discover services and fund slots.'},
   committee: {label: 'Committee operations', purpose: 'Threshold requests, approvals and operation receipts.'},
@@ -294,7 +295,7 @@ const modules: Record<string, {label: string; purpose: string}> = {
   'chain-node': {label: 'Chain tools (Node.js)', purpose: 'Load chain configuration from Node.js files.'},
 }
 emit('README.md', `# SDK reference\n\nLook up the TypeScript classes, functions, options and return types you use in your code.\nStart with the [learning path](../README.md) if you are building your first TASRA app.\n\n## Choose a module\n\nMost applications start with **tasra-sdk/app**. Open a module, then choose Classes,\nFunctions, Types or Constants from its page navigation. Each group has its own lookup list.\n\n| Module | Import | What you will find |\n|---|---|---|\n${Object.entries(entries).map(([name]) => {
-  const entry = name === 'main' ? 'tasra-sdk' : `tasra-sdk/${name === 'chain-node' ? 'chain/node' : name === 'app-node' ? 'app/node' : name}`
+  const entry = name === 'main' ? 'tasra-sdk' : `tasra-sdk/${name === 'chain-node' ? 'chain/node' : name === 'app-node' ? 'app/node' : name === 'app-browser' ? 'app/browser' : name}`
   return `| [${modules[name]!.label}](${name}.md) | \`${entry}\` | ${modules[name]!.purpose} |`
 }).join('\n')}\n\n## Read a declaration\n\nFunctions show their import, parameters and return value. Classes show constructors,\nproperties and methods. Types describe the data you pass in or receive. Constants\nand contract ABIs link to their definitions. Follow **Source** for the implementation.\n\nThe declarations and descriptions are generated from the SDK source. They describe\nprogramming interfaces; use the [application guides](../README.md) for complete\nrunnable examples and [Errors](../errors.md) for recovery guidance.\n`)
 

@@ -26,7 +26,7 @@ Operations you can import and call.
 
 Session secrets use this same guarded connection and can only travel to a session GET.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L77)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L78)
 
 Import: `import {createNodeAgentTransport} from 'tasra-sdk/chain/node'`
 
@@ -44,7 +44,7 @@ Returns: ` AgentTransport `.
 
 Wallet protocol requests restricted to the selected session and approved DID, with socket checks.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L111)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L112)
 
 Import: `import {createNodeAgentWalletFetch} from 'tasra-sdk/chain/node'`
 
@@ -64,7 +64,7 @@ Returns: ` typeof fetch `.
 Guarded completed-result reads using the same socket-bound destination and verified TLS policy.
 Only the two POST evidence/recovery paths are permitted; this transport cannot submit key work.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L101)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L102)
 
 Import: `import {createNodeKeeperRecoveryTransport} from 'tasra-sdk/chain/node'`
 
@@ -82,7 +82,7 @@ Returns: ` KeeperRecoveryTransport `.
 
 Guarded paid-session creation and owner control, preserving HTTP consent/recovery statuses.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L87)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L88)
 
 Import: `import {createNodePaidAgentTransport} from 'tasra-sdk/chain/node'`
 
@@ -100,7 +100,7 @@ Returns: ` PaidAgentTransport `.
 
 Discovery and relay traffic use the same socket-bound destination and TLS policy.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L66)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L67)
 
 Import: `import {createNodeRelayTransport} from 'tasra-sdk/chain/node'`
 
@@ -118,7 +118,7 @@ Returns: ` RelayTransport `.
 
 Create a bounded HTTPS transport that validates destinations at socket connection time.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L50)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L51)
 
 Import: `import {createNodeServiceDiscoveryTransport} from 'tasra-sdk/chain/node'`
 
@@ -136,7 +136,7 @@ Returns: ` ServiceDiscoveryTransport `.
 
 Public readiness and relay-policy observations, with the same socket/TLS policy.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L58)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L59)
 
 Import: `import {createNodeServiceStatusTransport} from 'tasra-sdk/chain/node'`
 
@@ -154,7 +154,7 @@ Returns: ` ServiceDiscoveryTransport `.
 
 Conservative globally routable destinations; special-purpose exceptions require explicit policy.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L30)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L31)
 
 Import: `import {isPublicServiceAddress} from 'tasra-sdk/chain/node'`
 
@@ -183,7 +183,7 @@ Options, data structures and return types.
 
 Caller-approved destination and certificate policy for Node.js service transports.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L39)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/node.ts#L40)
 
 ```ts
 export interface ServiceTransportPolicy {

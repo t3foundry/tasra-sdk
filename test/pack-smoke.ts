@@ -180,7 +180,7 @@ try {
   // 3. Resolve through the exports map.
   console.log('resolving…')
 
-  for (const subpath of ['', '/app', '/app/node', '/chain', '/chain/node', '/committee', '/oid4vp', '/verifier-agent']) {
+  for (const subpath of ['', '/app', '/app/node', '/app/browser', '/chain', '/chain/node', '/committee', '/oid4vp', '/verifier-agent']) {
     const specifier = `${pkg.name}${subpath}`
     ok(`ESM: ${specifier}`, runInConsumer(consumer, 'mjs', `import * as sdk from '${specifier}'; console.log(Object.keys(sdk).length)`) !== null)
     ok(`CJS: ${specifier}`, runInConsumer(consumer, 'cjs', `console.log(Object.keys(require('${specifier}')).length)`) !== null)

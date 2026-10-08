@@ -41,6 +41,13 @@ never does.
 
 ### Added
 
+- `tasra-sdk/app/browser`: `createIndexedDbStore`, an `ApplicationStore` over IndexedDB
+  (strict-durability commits, plain-data values) with Web Locks shared across tabs and
+  extension service workers, and fetch transports `createBrowserPaidAgentTransport`,
+  `createBrowserKeeperRecoveryTransport` and `createBrowserRelayTransport`. The route,
+  method, bearer, bound and reply checks are now one shared policy used by the Node and
+  browser transports. `StoreLockedError` is also exported from the browser entry.
+
 - `paidOperation` (`tasra-sdk/app`) runs one paid operation end to end: billing
   guard, discovery, creator-signed operation and intent, verified drawn witnesses
   (`fetchDrawnVerifierWitnesses`, `tasra-sdk/chain`), reservation with a caller gas

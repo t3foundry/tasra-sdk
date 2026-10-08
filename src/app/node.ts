@@ -4,6 +4,7 @@ import {mkdir, lstat, open, rename, unlink} from 'node:fs/promises'
 import {resolve, join} from 'node:path'
 import {randomUUID} from 'node:crypto'
 import {TasraError} from '../errors.js'
+import {StoreLockedError} from './store-errors.js'
 
 /**
  * Durable private state storage with exclusive locking for each named operation.
@@ -22,12 +23,7 @@ export interface ApplicationStore {
    */
   withLock<T>(key: string, action: () => Promise<T>): Promise<T>
 }
-/**
- * A state lock is already held and requires reconciliation before manual removal.
- */
-export class StoreLockedError extends TasraError {
-  constructor(/** Store entry whose exclusive lock could not be acquired. */ readonly key: string) { super(`State ${key} is locked; reconcile any interrupted operation before removing its lock`) }
-}
+export {StoreLockedError}
 
 type Encoded = ['null'] | ['undefined'] | ['string', string] | ['number', number] | ['boolean', boolean] | ['bigint', string] | ['bytes', string] | ['array', Encoded[]] | ['object', [string, Encoded][]]
 function encode(value: unknown, seen = new Set<object>()): Encoded {

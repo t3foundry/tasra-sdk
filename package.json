@@ -29,6 +29,9 @@
       ],
       "app/node": [
         "./dist/app/node.d.ts"
+      ],
+      "app/browser": [
+        "./dist/app/browser.d.ts"
       ]
     }
   },
@@ -73,6 +76,11 @@
       "types": "./dist/app/node.d.ts",
       "import": "./dist/app/node.js",
       "default": "./dist/app/node.js"
+    },
+    "./app/browser": {
+      "types": "./dist/app/browser.d.ts",
+      "import": "./dist/app/browser.js",
+      "default": "./dist/app/browser.js"
     }
   },
   "sideEffects": false,
@@ -112,6 +120,7 @@
     "docs/prerequisites.md",
     "docs/read-slot.md",
     "docs/reference/README.md",
+    "docs/reference/app-browser.md",
     "docs/reference/app-node.md",
     "docs/reference/app.md",
     "docs/reference/chain-node.md",

@@ -165,7 +165,16 @@ alongside the intent in the application's session journal.
 `createPaidReservationJournal` from `tasra-sdk/app` supplies this callback for an
 `ApplicationStore`. For Node.js, use `createFileStore` from `tasra-sdk/app/node` in a
 private directory. Browser applications must supply durable storage and exclusive locks
-shared across tabs; an in-memory store does not meet this contract.
+shared across tabs; an in-memory store does not meet this contract. `createIndexedDbStore`
+from `tasra-sdk/app/browser` does: each `save` resolves only after a strict-durability
+IndexedDB commit, and `withLock` takes an exclusive Web Lock shared by every tab, worker
+and extension service worker of the origin (`failIfLocked: true` refuses instead of
+waiting). The same entry provides fetch transports for paid sessions, keeper result
+recovery and relayers. They use the Node transports' route, method, bearer and bound
+checks, require HTTPS, send no cookies, follow no redirects and refuse loopback names and
+private IP literals unless approved. A browser cannot check where a name resolves, so rely
+on its private-network protections; services must allow the origin through CORS and
+expose `Retry-After`.
 
 ```ts
 import {createPaidReservationJournal} from 'tasra-sdk/app'

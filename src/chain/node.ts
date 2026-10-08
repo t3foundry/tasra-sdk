@@ -10,7 +10,8 @@ import {lookup} from 'node:dns'
 import {request} from 'node:https'
 import {rootCertificates} from 'node:tls'
 import {BlockList, isIP, type LookupFunction} from 'node:net'
-import {SERVICE_MANIFEST_PATH, SERVICE_IDENTITY_PATH, validateServiceEndpoint, type ServiceDiscoveryTransport} from './serviceIdentity.js'
+import type {ServiceDiscoveryTransport} from './serviceIdentity.js'
+import {acceptsServiceResponse, serviceRequestShape} from './serviceRequestPolicy.js'
 
 const denied = new BlockList()
 for (const [address, prefix] of [
@@ -133,7 +134,7 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'paid-agent' | '
 function guardedTransport(policy: ServiceTransportPolicy, mode: 'keeper-recovery'): {request(url: string, options: TransportOptions): Promise<KeeperRecoveryHttpResponse>}
 function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'relay' | 'agent' | 'status'): {request(url: string, options: TransportOptions): Promise<Uint8Array>}
 function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'relay' | 'agent' | 'wallet' | 'status' | 'paid-agent' | 'keeper-recovery') {
-  const relay = mode === 'relay', agent = mode === 'agent', wallet = mode === 'wallet', status = mode === 'status'
+  const relay = mode === 'relay', agent = mode === 'agent', wallet = mode === 'wallet'
   const paid = mode === 'paid-agent'
   const recovery = mode === 'keeper-recovery'
 
@@ -144,36 +145,7 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
   return {
     request(url: string, {body, maxBytes, signal, bearer, method, oauth, full}: TransportOptions) {
       signal.throwIfAborted()
-      if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > (recovery ? 16 * 1024 * 1024 : paid ? 10 * 1024 * 1024 : agent || wallet ? 1_048_576 : relay ? 4_096 : 16_384) || body && body.length > (recovery ? 65_536 : paid ? 2 * 1024 * 1024 : wallet ? 1_048_576 : agent || relay ? 65_536 : 2_048)) throw new Error('Invalid service HTTP bounds')
-      const recoverySuffix = url.match(/\/v1\/prepaid\/execution(?:\/recover)?$/)?.[0]
-      if (recovery && (!recoverySuffix || method !== 'POST' || !body || bearer !== undefined || oauth !== undefined)) throw new Error('Invalid keeper recovery path, method or body')
-      const paidSuffix = url.match(/(?:\/v1\/request\/[0-9a-f]{64}|\/v1\/sessions(?:\/[0-9a-f]{64}(?:\/(?:oauth-response|execution(?:\/[0-9a-f]{64}(?:\/(?:approve|reject))?)?|presentations(?:\/[0-9a-f]{64}\/resume)?))?)?)$/)?.[0]
-      const paidCreate = paid && paidSuffix === '/v1/sessions'
-      const paidJar = paid && paidSuffix?.startsWith('/v1/request/') === true
-      const paidOauth = paid && paidSuffix?.endsWith('/oauth-response') === true
-      const paidWrite = paidCreate || paidOauth || /\/(?:approve|reject|resume)$/.test(paidSuffix ?? '')
-      if (oauth !== undefined && (!paidOauth || typeof oauth.accessToken !== 'string' || typeof oauth.proof !== 'string'
-        || oauth.accessToken.length > 16 * 1024 || oauth.proof.length > 4 * 1024
-        || !/^[\x21-\x7e]+$/.test(oauth.accessToken) || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(oauth.proof))) throw new Error('Invalid paid agent OAuth artifacts')
-      if (paid && (!paidSuffix || method !== (paidWrite ? 'POST' : 'GET')
-        || paidOauth && oauth === undefined
-        || (paidCreate || paidJar ? bearer !== undefined : !/^[0-9a-f]{64}$/.test(bearer ?? ''))
-        || (paidCreate || paidSuffix.endsWith('/approve') ? body === undefined : body !== undefined))) throw new Error('Invalid paid agent path, method, body or owner bearer')
-      // The registry's 512-byte limit applies to the base, excluding appended protocol paths.
-      const relaySuffix = url.match(/\/v1\/relay\/(forward|0x[0-9a-f]{64})$/)?.[0]
-      if (relay && (!relaySuffix || Boolean(body) !== relaySuffix.endsWith('/forward'))) throw new Error('Invalid relay path or method')
-      const agentSuffix = url.match(/\/v1\/sessions(?:\/[0-9a-f]{64})?$/)?.[0]
-      if (agent && (!agentSuffix || (body ? agentSuffix !== '/v1/sessions' || bearer !== undefined : agentSuffix === '/v1/sessions' || !/^[0-9a-f]{64}$/.test(bearer ?? '')))) throw new Error('Invalid agent path, method or poll secret')
-      if (!agent && !paid && bearer !== undefined) throw new Error('Bearer is only allowed for agent polling')
-      const walletSuffix = url.match(/(?:\/\.well-known\/did\.json|\/v1\/request\/[0-9a-f]{64}|\/v1\/response\?session=[0-9a-f]{64})$/)?.[0]
-      if (wallet && (!walletSuffix || Boolean(body) !== walletSuffix.startsWith('/v1/response?session='))) throw new Error('Invalid wallet path or method')
-      const statusSuffix = url.match(/(?:\/readyz|\/v1\/relay\/policy)$/)?.[0]
-      if (status && (!statusSuffix || body !== undefined)) throw new Error('Invalid service status path or method')
-      const contentType = status && statusSuffix === '/readyz' ? 'text/plain' : (paidJar || wallet && !body && !url.endsWith('/did.json')) ? 'application/oauth-authz-req+jwt' : 'application/json'
-      const responseTypes = wallet && walletSuffix === '/.well-known/did.json'
-        ? ['application/json', 'application/did+json', 'application/did+ld+json'] : paidJar ? [contentType, 'application/json'] : [contentType]
-      const suffix = recovery ? recoverySuffix : paid ? paidSuffix : status ? statusSuffix : wallet ? walletSuffix : agent ? agentSuffix : relay ? relaySuffix : [SERVICE_MANIFEST_PATH, SERVICE_IDENTITY_PATH].find(path => url.endsWith(path))
-      validateServiceEndpoint(suffix ? url.slice(0, -suffix.length) : url)
+      const shape = serviceRequestShape(mode, url, {body, maxBytes, bearer, method, oauth})
       const parsed = new URL(url)
       const host = parsed.hostname.replace(/^\[|\]$/g, '')
       const permits = (address: string) => allowed.has(host) || isPublicServiceAddress(address)
@@ -191,18 +163,14 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
       }
       return new Promise<Uint8Array | PaidAgentHttpResponse>((resolve, reject) => {
         const req = request(parsed, {
-          method: paid || recovery ? method : body ? 'POST' : 'GET', agent: false, lookup: checkedLookup,
+          method: shape.method, agent: false, lookup: checkedLookup,
           ca: ca === undefined ? undefined : [...rootCertificates, ...(Array.isArray(ca) ? ca : [ca])], rejectUnauthorized: true, signal, maxHeaderSize: 8_192,
-          headers: {...(bearer ? oauth ? {authorization: `DPoP ${oauth.accessToken}`,dpop: oauth.proof,'x-poll-secret':bearer} : {authorization: `Bearer ${bearer}`} : {}), accept: responseTypes.join(', '), 'accept-encoding': 'identity', ...(body ? {'content-type': wallet ? 'application/x-www-form-urlencoded' : 'application/json', 'content-length': body.length} : {})},
+          headers: {...shape.headers, 'accept-encoding': 'identity', ...(body ? {'content-length': body.length} : {})},
         }, res => {
           const fail = (error: Error) => { reject(error); req.destroy(error) }
           const noContent = paid && res.statusCode === 204
-          const permittedStatus = paid || recovery ? [200,201,202,204,400,401,403,404,409,410,413,422,425,429,500,502,503,504].includes(res.statusCode ?? 0)
-            : agent ? res.statusCode === (body ? 201 : 200) : relay ? [200,202,422].includes(res.statusCode ?? 0)
-              : wallet && body ? [200,202].includes(res.statusCode ?? 0) : res.statusCode === 200
           const receivedType = res.headers['content-type']?.split(';')[0]?.trim().toLowerCase() ?? ''
-          const permittedType = noContent || (paid ? receivedType === (paidJar && res.statusCode === 200 ? 'application/oauth-authz-req+jwt' : 'application/json') : responseTypes.includes(receivedType))
-          if (!permittedStatus || !permittedType || res.headers['content-encoding'] && res.headers['content-encoding'] !== 'identity') {
+          if (!acceptsServiceResponse(mode, shape, Boolean(body), res.statusCode ?? 0, receivedType) || res.headers['content-encoding'] && res.headers['content-encoding'] !== 'identity') {
             fail(new Error('Service HTTP status, content type or encoding refused')); return
           }
           const advertised = res.headers['content-length']
