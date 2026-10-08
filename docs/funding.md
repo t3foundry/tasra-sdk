@@ -79,7 +79,11 @@ separates a final refusal (`session-refused`, `reservation-failed`, `payment-exp
 steps only reconciliation or `recover` can settle from an interruption worth resuming. Never call `paidOperation` again for that
 work, which would pay twice. Call `resumePaidOperation(config, requestId, {holder})`: it
 re-reads the session and skips confirmed writes, and refuses any write whose outcome is
-unknown.
+unknown. Cancelling through `signal` after the operation is journaled throws code
+`aborted`, resumable unless the payment expired, when the step sent nothing uncertain; if
+a reservation or session write may have been sent, that step's uncertain code is reported
+instead. An abort before the journal is written rethrows the signal's reason: nothing was
+sent.
 
 A reservation still in flight is reconciled on chain first, by the deterministic request ID
 and the gas payer's nonce, so no transaction hash is needed (a local signer's hash is
@@ -91,27 +95,45 @@ reservation only when nothing was ever prepared for the request (no journal, no 
 claim, nothing on chain). To inspect without any billable or keeper work, use
 `reconcilePaidOperation(config, requestId)` (or `resumePaidOperation` with
 `reconcileOnly: true`); it returns `{phase, reservation, payerLocked, next}`, where
-`next` is `reserve`, `resume`, `wait`, `recover`, `done` or `abandon`.
+`next` is `reserve`, `resume`, `wait`, `recover`, `done`, `abandon` or `closed`.
+For `recover`, `recoverPaidOperation(config, requestId)` opens the read-only `recover` and
+`recoverIbePartials` straight from the journal, without a holder or a full resume.
+Journals written before SDK commit dfafff3 did not record the assigned contributors: they
+support `recover` but not `recoverIbePartials`.
 `reconcileApplicationReservation` is the same proof for applications composing
 `reserveApplicationPayment` themselves.
 
 Pass `onRequestId` to `paidOperation` to receive the request ID as soon as it is derived,
 before anything is reserved, to link an in-flight run to its payment.
 `listPaidOperations(store, {phase})` lists journaled operations (`requestId`, `phase`,
-`slot`, `action`, `expires`), e.g. `{phase: ['reserving', 'certified', 'executing']}` at
-startup for work to reconcile, without reading the store's key scheme.
+`slot`, `action`, `expires`, the recorded gas `payer`), e.g. `{phase: ['reserving',
+'certified', 'executing']}` at startup for work to reconcile, without reading the store's
+key scheme. `{backfill: true}` once indexes journals written before the index existed
+(the built-in stores can list their keys).
+
+`abandonPaidOperation(store, requestId, {reason})` closes an operation for good, only when
+nothing can still land under it: a reservation never prepared, a `failed` or `executed`
+operation, or any other phase once its payment has expired (plus a two-minute skew margin).
+Otherwise it throws `PaidOperationAbandonRefusedError` (`notBefore` says when expiry
+unblocks it); a prepared reservation must be settled by `reconcilePaidOperation` first.
+Abandoned operations are left out of `listPaidOperations` unless `includeAbandoned` (or
+phase `abandoned`) is asked for, and `resumePaidOperation` refuses them.
 
 One gas payer serializes reservations, and an uncertain one keeps it locked until
 reconciled. To spread load, keep a few dedicated payers and pick one per operation with
 `selectApplicationGasPayer(store, wallets)`: it skips payers holding an unresolved claim,
 prefers payers idle in this process and rotates round-robin; `undefined` means every payer
-needs reconciliation. Pass the chosen wallet as that operation's `gasPayer`. `execute` runs once; after an
+needs reconciliation. Pass the chosen wallet as that operation's `gasPayer`. The journal
+records it, and a reserving operation resumes only with that payer; pass `{resume:
+requestId}` to `selectApplicationGasPayer` to get it back from the pool. `execute` runs once; after an
 uncertain execution use `op.recover({transport: createNodeKeeperRecoveryTransport()})`
 to read the keeper's retained result. An identity extraction fans out to every assigned
 contributor; after a lost reply, `op.recoverIbePartials({transport})` reads each
 contributor's retained, commitment-verified partial (bounded concurrency, stopping at the
 payment's keeper threshold) and returns them in the shape the IBE combine helpers accept,
-never re-sending an extraction. `createMemoryStore` suits tests only.
+never re-sending an extraction. In a browser, `createBrowserKeeperRecoveryTransport({allowLocalHttp:
+true})` reads local development keepers over HTTP (loopback and private hosts only).
+`createMemoryStore` suits tests only.
 
 For clients integrating with an independently verified reservation service,
 `tasra-sdk/committee` exports `PaymentIntentWire`, `paymentIntentTypedData`,

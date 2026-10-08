@@ -25,11 +25,13 @@ export type {ApprovalPolicy} from './approvals.js'
 export {createPaidReservationJournal, loadPaidReservationJournal} from './paid-journal.js'
 export type {PaidReservationJournal, PaidReservationSession, ApplicationReservationJournal} from './paid-journal.js'
 export {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, selectApplicationGasPayer, ApplicationPayerRecoveryError} from './paid-reservation.js'
-export type {ApplicationReservationOptions, ApplicationReservationState, ApplicationReservationStatus, ReconcileApplicationReservationOptions} from './paid-reservation.js'
-export {paidOperation, resumePaidOperation, reconcilePaidOperation, paidOperationPhase, listPaidOperations, PaidOperationRecoveryError} from './paid-operation.js'
+export type {ApplicationReservationOptions, ApplicationReservationState, ApplicationReservationStatus, ReconcileApplicationReservationOptions,
+  SelectApplicationGasPayerOptions} from './paid-reservation.js'
+export {paidOperation, resumePaidOperation, reconcilePaidOperation, recoverPaidOperation, abandonPaidOperation, paidOperationPhase, listPaidOperations,
+  PaidOperationRecoveryError, PaidOperationAbandonRefusedError} from './paid-operation.js'
 export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PaidOperationPhase, PaidOperationJournalPhase, PaidOperationStatus,
-  PaidOperationNextStep, ResumePaidOperationOptions, PaidOperationErrorCode, PaidOperationSummary,
-  RecoverIbePartialsOptions, RecoveredIbePartial, RecoveredIbePartials} from './paid-operation.js'
+  PaidOperationNextStep, ResumePaidOperationOptions, PaidOperationErrorCode, PaidOperationSummary, ListPaidOperationsOptions,
+  RecoverIbePartialsOptions, RecoveredIbePartial, RecoveredIbePartials, PaidOperationRecovery, AbandonPaidOperationOptions, AbandonedPaidOperation} from './paid-operation.js'
 export {drivePaidSession, waitForPaidSnapshot, PaidSessionRecoveryError} from './paid-session.js'
 export type {PaidSessionDriverOptions, PaidSessionHolder, PaidWalletPresentation, PaidSessionRequestLink} from './paid-session.js'
 export {createMemoryStore} from './memory-store.js'

@@ -48,6 +48,11 @@ export interface ApplicationStore {
    * Exclusively serialize work for the key across all participating processes or tabs.
    */
   withLock<T>(key: string, operation: () => Promise<T>): Promise<T>
+  /**
+   * Optional: keys starting with `prefix`, in any order. Used only for one-time maintenance
+   * such as backfilling the paid operation index; stores without it still work everywhere else.
+   */
+  list?(prefix: string): Promise<string[]>
 }
 /**
  * Named slot intent with an authorization rule, key threshold and verifier quorum.

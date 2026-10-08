@@ -52,6 +52,30 @@ never does.
 
 ### Added
 
+- `abandonPaidOperation(store, requestId, {reason})` (`tasra-sdk/app`) closes a paid
+  operation (phase `abandoned`) only when nothing can still land under it: an unsent
+  reservation, a `failed` or `executed` operation, or an unfinished one after payment
+  expiry; otherwise it throws `PaidOperationAbandonRefusedError`. Abandoned operations are
+  excluded from `listPaidOperations` unless `includeAbandoned`, refused by resume, and
+  reconcile reports `next: 'closed'`. `listPaidOperations({backfill: true})` once indexes
+  journals written before the index, using the new optional `ApplicationStore.list`
+  (implemented by the memory, file and IndexedDB stores).
+
+- Paid operations journal their gas payer; `listPaidOperations` and
+  `reconcilePaidOperation` report it, reconciliation uses it, and resuming a reserving
+  operation with another payer is refused. `selectApplicationGasPayer(store, wallets,
+  {resume: requestId})` returns the recorded payer from the pool.
+
+- `recoverPaidOperation(config, requestId)` opens the read-only `recover` /
+  `recoverIbePartials` of an `executing` or `executed` operation without a resume or holder.
+
+- `createBrowserKeeperRecoveryTransport({allowLocalHttp: true})` permits plain HTTP to
+  loopback and private hosts for local development (default off).
+
+- `PaidOperationRecoveryError` code `aborted`: a caller abort of a journaled step that sent
+  nothing uncertain is resumable (unless the payment expired); an uncertain step keeps its
+  own code. Aborts during the session previously rethrew the raw reason.
+
 - `selectApplicationGasPayer(store, wallets)` (`tasra-sdk/app`) picks a dedicated gas payer
   from a small pool: payers with an unresolved reservation claim are skipped, payers idle in
   this process are preferred, and selection rotates round-robin for fairness.

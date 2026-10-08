@@ -59,17 +59,17 @@ Operations you can import and call.
 
 Browser transport for reading a keeper's retained paid result (the two POST recovery reads only).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L202)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L221)
 
 Import: `import {createBrowserKeeperRecoveryTransport} from 'tasra-sdk/app/browser'`
 
 ```ts
-declare function createBrowserKeeperRecoveryTransport(options?: BrowserTransportOptions): KeeperRecoveryTransport;
+declare function createBrowserKeeperRecoveryTransport(options?: BrowserKeeperRecoveryTransportOptions): KeeperRecoveryTransport;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` options? ` | ` BrowserTransportOptions ` | Fetch override, approved private hosts and request deadline. |
+| ` options? ` | ` BrowserKeeperRecoveryTransportOptions ` | Fetch override, approved private hosts, local development HTTP and request deadline. |
 
 Returns: ` KeeperRecoveryTransport `.
 
@@ -78,7 +78,7 @@ Returns: ` KeeperRecoveryTransport `.
 Browser transport for registered paid sessions: authenticated discovery plus owner-only
 session control, with the same route, method, bearer and bound checks as the Node transport.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L193)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L201)
 
 Import: `import {createBrowserPaidAgentTransport} from 'tasra-sdk/app/browser'`
 
@@ -97,7 +97,7 @@ Returns: ` PaidAgentTransport `.
 Browser transport for registered relayers: discovery, forward and status, with
 `relayExchange` reporting busy refusals and their `Retry-After`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L212)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L231)
 
 Import: `import {createBrowserRelayTransport} from 'tasra-sdk/app/browser'`
 
@@ -137,9 +137,10 @@ Returns: ` ApplicationStore `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 3 types</summary>
+<summary>Browse 4 types</summary>
 
 - [ApplicationStore](#applicationstore)
+- [BrowserKeeperRecoveryTransportOptions](#browserkeeperrecoverytransportoptions)
 - [BrowserTransportOptions](#browsertransportoptions)
 - [IndexedDbStoreOptions](#indexeddbstoreoptions)
 
@@ -156,6 +157,7 @@ export interface ApplicationStore {
     load<T>(key: string): Promise<T | undefined>;
     save(key: string, value: unknown): Promise<void>;
     withLock<T>(key: string, operation: () => Promise<T>): Promise<T>;
+    list?(prefix: string): Promise<string[]>;
 }
 ```
 
@@ -164,12 +166,32 @@ Fields:
 - **` load `**: Load a saved value, or return undefined when the key does not exist.
 - **` save `**: Atomically persist private state before resolving.
 - **` withLock `**: Exclusively serialize work for the key across all participating processes or tabs.
+- **` list `**: Optional: keys starting with `prefix`, in any order. Used only for one-time maintenance such as backfilling the paid operation index; stores without it still work everywhere else.
+
+### BrowserKeeperRecoveryTransportOptions
+
+Options for [createBrowserKeeperRecoveryTransport](#createbrowserkeeperrecoverytransport).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L207)
+
+```ts
+export interface BrowserKeeperRecoveryTransportOptions extends BrowserTransportOptions {
+    allowLocalHttp?: boolean;
+}
+```
+
+Fields:
+
+- **` allowLocalHttp `**: Local development fleet: also permit plain HTTP to loopback names and private IP literals (and only those), like the keepers of a local chain. Default false: HTTPS only. The recovery reads separately permit HTTP only on the local development chain (43112) with the paid operation's `allowLocalHttp`.
+- **` fetch `**: Fetch implementation (default global fetch).
+- **` allowedPrivateHosts `**: Exact loopback names or private IP literals the application approves (e.g. `localhost` during local development).
+- **` timeoutMs `**: Absolute per-request deadline in ms (default 30000).
 
 ### BrowserTransportOptions
 
 Options shared by the browser transports.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L111)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L116)
 
 ```ts
 export interface BrowserTransportOptions {

@@ -6,6 +6,7 @@ import {prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
 import {createPaidReservationJournal, loadPaidReservationJournal, type PaidReservationSession} from './paid-journal.js'
 import type {ApplicationStore} from './ready-slot.js'
 import {dedicatedPayerBusy} from './payer-queue.js'
+import {recordedPaidOperationPayer} from './paid-keys.js'
 
 /** Durable application reservation controls, shared by every use of this gas payer. */
 export interface ApplicationReservationOptions extends Omit<ReservePaidOperationOptions, 'persist'> {
@@ -251,19 +252,41 @@ export async function reconcileApplicationReservation(
 
 const cursors = new Map<string, number>()
 
+/** Options for {@link selectApplicationGasPayer}. */
+export interface SelectApplicationGasPayerOptions {
+  /**
+   * Resuming this paid operation: return the gas payer its journal recorded, whatever its claim
+   * state (a reserving operation usually holds that payer's claim itself; resume reconciles it).
+   * Throws when the recorded payer is not in the pool. Falls back to normal selection for an
+   * operation journaled before payers were recorded, or with no journal.
+   */
+  resume?: Hex
+}
+
 /**
  * Pick a gas payer from a small pool of dedicated payers for the next paid operation.
  * Payers holding an unresolved durable reservation claim are skipped (reconcile them); among
  * the rest, ones idle in this process come first, rotating round-robin per pool so work is
  * spread fairly. Returns undefined when every payer holds a claim. Selection is advisory: a
- * payer claimed meanwhile still refuses safely (`ApplicationPayerRecoveryError`).
+ * payer claimed meanwhile still refuses safely (`ApplicationPayerRecoveryError`). With
+ * `resume`, the payer recorded by that operation's journal is returned instead.
  * @param store - Private store shared by every process using these payers.
  * @param wallets - Distinct account- and chain-bound dedicated gas payers (1..64).
+ * @param options - Operation being resumed, to honour its recorded payer.
  */
-export async function selectApplicationGasPayer<W extends WalletClient<Transport, Chain, Account>>(store: ApplicationStore, wallets: readonly W[]): Promise<W | undefined> {
+export async function selectApplicationGasPayer<W extends WalletClient<Transport, Chain, Account>>(store: ApplicationStore, wallets: readonly W[],
+  options: SelectApplicationGasPayerOptions = {}): Promise<W | undefined> {
   if (!wallets.length || wallets.length > 64) throw new Error('supply 1..64 dedicated gas payers')
   const ids = wallets.map(w => `${w.chain.id}-${w.account.address.toLowerCase()}`)
   if (new Set(ids).size !== ids.length) throw new Error('duplicate gas payer in pool')
+  if (options.resume !== undefined) {
+    const recorded = await recordedPaidOperationPayer(store, options.resume)
+    if (recorded !== undefined) {
+      const wallet = wallets.find(w => w.chain.id === recorded.chainId && same(w.account.address, recorded.address))
+      if (!wallet) throw new Error('the gas payer this operation recorded is not in the pool')
+      return wallet
+    }
+  }
   const pool = ids.slice().sort().join(','), start = cursors.get(pool) ?? 0
   const free: {wallet: W; index: number; busy: boolean}[] = []
   for (let i = 0; i < wallets.length; i++) {

@@ -7,6 +7,11 @@ const roots: string[] = []
 async function directory() { const dir = await mkdtemp(join(tmpdir(), 'tasra-store-')); roots.push(dir); return dir }
 afterEach(async () => { await Promise.all(roots.splice(0).map(dir => rm(dir, {recursive: true, force: true}))) })
 describe('private application file store', () => {
+  it('lists saved keys by prefix, never temporaries or locks', async () => {
+    const dir = await directory(), store = createFileStore(dir)
+    await store.save('paid-op-1', 1); await store.save('paid-op-index', 2); await store.save('other', 3)
+    expect(await store.withLock('paid-op-2', async () => (await store.list!('paid-op-')).sort())).toEqual(['paid-op-1', 'paid-op-index'])
+  })
   it('durably round trips nested bigint, byte arrays and reserved-looking keys without collisions', async () => {
     const dir = await directory(), store = createFileStore(dir)
     const original = {commit: {amount: 42n, hash: undefined}, bytes: new Uint8Array([0, 255]), list: [null, true, -2.3], value: {type: 'bigint', value: '123'}, __proto__: null}

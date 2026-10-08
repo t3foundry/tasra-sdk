@@ -28,6 +28,11 @@ function fakeIndexedDb(options: {abortCommits?: () => boolean} = {}) {
                 queueMicrotask(() => { r.result = rows.has(key) ? structuredClone(rows.get(key)) : undefined; (r.onsuccess as () => void)() })
                 return r
               },
+              getAllKeys() {
+                const r: Record<string, unknown> = {}
+                queueMicrotask(() => { r.result = [...rows.keys(), 7]; (r.onsuccess as () => void)() })
+                return r
+              },
               put(value: unknown, key: string) {
                 staged.push([key, structuredClone(value)])
                 setTimeout(() => {
@@ -70,6 +75,12 @@ describe('createIndexedDbStore', () => {
     value.seed[0] = 9
     expect(await store.load('paid-op-1')).toEqual({phase: 'prepared', nonce: 7n, seed: new Uint8Array([1, 2]), nested: [{a: null, b: undefined}]})
     expect(await store.load('missing')).toBeUndefined()
+  })
+
+  it('lists keys by prefix for one-time maintenance', async () => {
+    const idb = fakeIndexedDb(), store = createIndexedDbStore({indexedDB: idb.factory, locks: fakeLocks()})
+    await store.save('paid-op-1', 1); await store.save('paid-op-index', 2); await store.save('prepaid-x', 3)
+    expect((await store.list!('paid-op-')).sort()).toEqual(['paid-op-1', 'paid-op-index'])
   })
 
   it('refuses invalid keys and non-plain values before writing', async () => {
@@ -161,6 +172,24 @@ describe('browser transports', () => {
     const result = await recovery.keeperRecoveryRequest('https://keeper.example/v1/prepaid/execution', {body: bytes({}), maxBytes: 100, signal: new AbortController().signal})
     expect(result.status).toBe(200)
     await expect(recovery.keeperRecoveryRequest('https://keeper.example/v1/sign', {body: bytes({}), maxBytes: 100, signal: new AbortController().signal})).rejects.toThrow(/path/)
+  })
+
+  it('reads local development keepers over HTTP only when allowed, and only on loopback or private hosts', async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response('{}', {status: 200, headers: {'content-type': 'application/json'}}))
+    const args = () => ({body: bytes({}), maxBytes: 100, signal: new AbortController().signal})
+    const strict = createBrowserKeeperRecoveryTransport({fetch: fetch as unknown as typeof globalThis.fetch})
+    await expect(strict.keeperRecoveryRequest('http://localhost:4001/v1/prepaid/execution', args())).rejects.toThrow(/HTTPS/)
+    const local = createBrowserKeeperRecoveryTransport({fetch: fetch as unknown as typeof globalThis.fetch, allowLocalHttp: true})
+    for (const url of ['http://localhost:4001/v1/prepaid/execution', 'http://127.0.0.1:4001/v1/prepaid/execution/recover', 'http://192.168.1.9:4001/v1/prepaid/execution', 'http://[::1]:4001/v1/prepaid/execution']) {
+      expect((await local.keeperRecoveryRequest(url, args())).status).toBe(200)
+    }
+    expect(fetch.mock.calls[0]![0]).toBe('http://localhost:4001/v1/prepaid/execution')
+    expect(fetch.mock.calls[0]![1]).toMatchObject({method: 'POST', redirect: 'error', credentials: 'omit'})
+    await expect(local.keeperRecoveryRequest('http://keeper.example/v1/prepaid/execution', args())).rejects.toThrow(/HTTPS/)
+    await expect(local.keeperRecoveryRequest('http://localhost:4001/v1/sign', args())).rejects.toThrow(/path/)
+    // HTTPS to a private host still needs explicit approval.
+    await expect(local.keeperRecoveryRequest('https://localhost:4001/v1/prepaid/execution', args())).rejects.toThrow(/refuses address/)
+    expect(fetch).toHaveBeenCalledTimes(4)
   })
 
   it('exposes relayer busy refusals with their Retry-After', async () => {

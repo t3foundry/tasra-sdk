@@ -97,6 +97,11 @@ export function createIndexedDbStore(options: IndexedDbStoreOptions = {}): Appli
       // Resolve only after the commit: an uncertain write must never look persisted.
       await done
     },
+    async list(prefix: string): Promise<string[]> {
+      const tx = (await db()).transaction('state', 'readonly')
+      const keys = await request(tx.objectStore('state').getAllKeys())
+      return keys.filter((key): key is string => typeof key === 'string' && key.startsWith(prefix))
+    },
     async withLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
       check(key)
       return locks.request(`${name}:${key}`, {mode: 'exclusive', ifAvailable: options.failIfLocked === true}, async lock => {
@@ -131,17 +136,20 @@ function privateLiteral(host: string): boolean {
 
 type FetchOptions = {body?: Uint8Array; maxBytes: number; signal: AbortSignal; bearer?: string; method?: 'GET' | 'POST'; oauth?: {accessToken: string; proof: string}}
 
-function browserTransport(mode: ServiceTransportMode, options: BrowserTransportOptions) {
+function browserTransport(mode: ServiceTransportMode, options: BrowserTransportOptions, localHttp = false) {
   const doFetch = options.fetch ?? globalThis.fetch, timeout = options.timeoutMs ?? 30_000
   const privateHosts = new Set(options.allowedPrivateHosts ?? [])
   if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 120_000) throw new TasraError('Invalid browser transport timeout')
   if (typeof doFetch !== 'function') throw new TasraError('fetch is unavailable')
   return async (url: string, request: FetchOptions): Promise<{status: number; body: Uint8Array; retryAfterMs?: number}> => {
     request.signal.throwIfAborted()
-    const shape = serviceRequestShape(mode, url, request)
     const parsed = new URL(url)
-    if (parsed.protocol !== 'https:') throw new Error('Service destination policy requires HTTPS')
-    if (privateLiteral(parsed.hostname) && !privateHosts.has(parsed.hostname)) throw new Error('Service destination policy refuses address')
+    // Local development HTTP: only to a loopback name or private IP literal, checked with the same
+    // route policy as its HTTPS form. Every other destination still needs HTTPS.
+    const plain = localHttp && parsed.protocol === 'http:' && privateLiteral(parsed.hostname)
+    const shape = serviceRequestShape(mode, plain ? 'https:' + url.slice('http:'.length) : url, request)
+    if (parsed.protocol !== 'https:' && !plain) throw new Error('Service destination policy requires HTTPS')
+    if (privateLiteral(parsed.hostname) && !privateHosts.has(parsed.hostname) && !plain) throw new Error('Service destination policy refuses address')
     const response = await doFetch(url, {method: shape.method, headers: shape.headers, body: request.body?.slice(),
       redirect: 'error', credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer', mode: 'cors',
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(timeout)])})
@@ -195,12 +203,23 @@ export function createBrowserPaidAgentTransport(options: BrowserTransportOptions
   return {...discovery(options), paidAgentRequest: (url, opts): Promise<PaidAgentHttpResponse> => paid(url, opts)}
 }
 
+/** Options for {@link createBrowserKeeperRecoveryTransport}. */
+export interface BrowserKeeperRecoveryTransportOptions extends BrowserTransportOptions {
+  /**
+   * Local development fleet: also permit plain HTTP to loopback names and private IP literals
+   * (and only those), like the keepers of a local chain. Default false: HTTPS only. The recovery
+   * reads separately permit HTTP only on the local development chain (43112) with the paid
+   * operation's `allowLocalHttp`.
+   */
+  allowLocalHttp?: boolean
+}
+
 /**
  * Browser transport for reading a keeper's retained paid result (the two POST recovery reads only).
- * @param options Fetch override, approved private hosts and request deadline.
+ * @param options Fetch override, approved private hosts, local development HTTP and request deadline.
  */
-export function createBrowserKeeperRecoveryTransport(options: BrowserTransportOptions = {}): KeeperRecoveryTransport {
-  const recovery = browserTransport('keeper-recovery', options)
+export function createBrowserKeeperRecoveryTransport(options: BrowserKeeperRecoveryTransportOptions = {}): KeeperRecoveryTransport {
+  const recovery = browserTransport('keeper-recovery', options, options.allowLocalHttp === true)
   return {keeperRecoveryRequest: (url, opts) => recovery(url, {...opts, method: 'POST'})}
 }
 

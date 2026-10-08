@@ -1,6 +1,6 @@
 /** Node-only durable private state. Import from tasra-sdk/app/node. */
 import {constants} from 'node:fs'
-import {mkdir, lstat, open, rename, unlink} from 'node:fs/promises'
+import {mkdir, lstat, open, readdir, rename, unlink} from 'node:fs/promises'
 import {resolve, join} from 'node:path'
 import {randomUUID} from 'node:crypto'
 import {TasraError} from '../errors.js'
@@ -22,6 +22,11 @@ export interface ApplicationStore {
    * Exclusively serialize work for the key across all participating processes or tabs.
    */
   withLock<T>(key: string, action: () => Promise<T>): Promise<T>
+  /**
+   * Optional: keys starting with `prefix`, in any order. Used only for one-time maintenance
+   * such as backfilling the paid operation index; stores without it still work everywhere else.
+   */
+  list?(prefix: string): Promise<string[]>
 }
 export {StoreLockedError}
 
@@ -100,6 +105,12 @@ export function createFileStore(directory: string): ApplicationStore {
         await rename(temporary, target)
         await syncDirectory()
       } finally { await unlink(temporary).catch(error => { if (!missing(error)) throw error }) }
+    },
+    async list(prefix) {
+      await ready()
+      // Saved values are `<key>.json`; temporaries start with a dot and locks end in `.lock`.
+      return (await readdir(root)).filter(name => name.endsWith('.json') && /^[a-zA-Z0-9]/.test(name))
+        .map(name => name.slice(0, -'.json'.length)).filter(key => key.startsWith(prefix))
     },
     async withLock(key, action) {
       const target = path(key, '.lock')

@@ -27,6 +27,9 @@ export function createMemoryStore(): ApplicationStore {
       check(key)
       values.set(key, structuredClone(value))
     },
+    async list(prefix: string): Promise<string[]> {
+      return [...values.keys()].filter(key => key.startsWith(prefix))
+    },
     async withLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
       check(key)
       const previous = tails.get(key) ?? Promise.resolve()

@@ -44,6 +44,7 @@ import type {VerifierProof} from '../committee/client.js'
 import {TasraError} from '../errors.js'
 import {base64Decode} from '../crypto/envelope.js'
 import type {IbeExtractionPartial} from '../committee/client.js'
+import {HEX32, RECORD_KEY, RECORD_PREFIX, paidRecordKey as recordKey} from './paid-keys.js'
 
 /** Approved deployment, signers, services and spending limits shared by paid operations. */
 export interface PaidOperationConfig {
@@ -180,9 +181,14 @@ export type PaidOperationPhase = 'reservation' | 'session' | 'execution'
  *   it until reconciled out of band. Not resumable.
  * - `payment-expired`: the creator-signed payment expired; nothing more can run under it. Final.
  * - `execution-uncertain`: the keeper may have run; use the handle's `recover`, never execute again.
+ * - `aborted`: the caller's signal stopped a journaled operation before anything uncertain was
+ *   sent in this step; resumable unless the payment expired. When the abort left a step uncertain
+ *   (a reservation or session write may have been sent, or an execution), that step's uncertain
+ *   code is reported instead. An abort before the journal is written rethrows the signal's reason:
+ *   nothing was journaled or sent.
  */
 export type PaidOperationErrorCode = 'reservation-refused' | 'reservation-uncertain' | 'reservation-failed'
-  | 'session-interrupted' | 'session-refused' | 'session-write-uncertain' | 'payment-expired' | 'execution-uncertain'
+  | 'session-interrupted' | 'session-refused' | 'session-write-uncertain' | 'payment-expired' | 'execution-uncertain' | 'aborted'
 
 /** The operation stopped where repeating a step could pay or execute twice; resume or recover it. */
 export class PaidOperationRecoveryError extends TasraError {
@@ -215,17 +221,26 @@ function sessionFailure(requestId: Hex, payment: PaymentIntentWire, error: unkno
   if (code !== 'session-refused' && code !== 'session-write-uncertain' && expired(payment)) code = 'payment-expired'
   return new PaidOperationRecoveryError(requestId, 'session', error, {code})
 }
+/** A caller abort in a journaled step that sent nothing uncertain. */
+function abortedError(requestId: Hex, phase: PaidOperationPhase, payment: PaymentIntentWire, signal: AbortSignal, error: unknown): PaidOperationRecoveryError {
+  return new PaidOperationRecoveryError(requestId, phase, signal.reason ?? error, {code: 'aborted', resumable: !expired(payment)})
+}
 
 /**
  * Journaled progress of one paid operation. `failed` is terminal: the original reservation
- * provably never happened and the operation must not be reserved again.
+ * provably never happened and the operation must not be reserved again. `abandoned` is terminal
+ * too: the application closed it with {@link abandonPaidOperation} once nothing could still land.
  */
-export type PaidOperationJournalPhase = 'reserving' | 'reserved' | 'certified' | 'authorized' | 'executing' | 'executed' | 'failed'
+export type PaidOperationJournalPhase = 'reserving' | 'reserved' | 'certified' | 'authorized' | 'executing' | 'executed' | 'failed' | 'abandoned'
 type Phase = PaidOperationJournalPhase
 interface OperationRecord {
   schema: 1
   phase: Phase
   failure?: {reason: string}
+  /** Set with phase `abandoned`: why, when (Unix seconds) and the phase it was abandoned from. */
+  abandoned?: {reason: string; at: number; phase: Exclude<Phase, 'abandoned'>}
+  /** Gas payer the reservation uses (absent from journals written before payers were recorded). */
+  payer?: Address
   payment: PaymentIntentWire
   expected: ExpectedPaidOperation
   params: {operation: PresentationOperation; operationSig: Hex; messageHex: string; random: Hex}
@@ -243,24 +258,43 @@ interface OperationRecord {
   grant?: {compound_token: CompoundTokenWire; verifierProofs: VerifierProof[]}
 }
 
-const HEX32 = /^0x[0-9a-f]{64}$/i
 const INDEX_KEY = 'paid-op-index'
-interface OperationIndex { schema: 1; ids: Hex[] }
-async function loadIndex(store: ApplicationStore): Promise<Hex[]> {
+/** `backfilled` marks a store whose pre-index journals were indexed once. */
+interface OperationIndex { schema: 1; ids: Hex[]; backfilled?: true }
+async function loadIndexRecord(store: ApplicationStore): Promise<OperationIndex> {
   const index = await store.load<OperationIndex>(INDEX_KEY)
-  if (index === undefined) return []
-  if (!index || index.schema !== 1 || !Array.isArray(index.ids) || index.ids.some(id => typeof id !== 'string' || !HEX32.test(id))) throw new TasraError('Invalid paid operation index')
-  return index.ids
+  if (index === undefined) return {schema: 1, ids: []}
+  if (!index || index.schema !== 1 || !Array.isArray(index.ids) || index.ids.some(id => typeof id !== 'string' || !HEX32.test(id))
+    || (index.backfilled !== undefined && index.backfilled !== true)) throw new TasraError('Invalid paid operation index')
+  return index
 }
+const loadIndex = async (store: ApplicationStore) => (await loadIndexRecord(store)).ids
 async function indexOperation(store: ApplicationStore, requestId: Hex): Promise<void> {
   await store.withLock(INDEX_KEY, async () => {
-    const ids = await loadIndex(store), id = requestId.toLowerCase() as Hex
-    if (!ids.includes(id)) await store.save(INDEX_KEY, {schema: 1, ids: [...ids, id]} satisfies OperationIndex)
+    const index = await loadIndexRecord(store), id = requestId.toLowerCase() as Hex
+    if (!index.ids.includes(id)) await store.save(INDEX_KEY, {...index, ids: [...index.ids, id]} satisfies OperationIndex)
   })
 }
-const recordKey = (requestId: Hex) => {
-  if (!HEX32.test(requestId)) throw new TasraError('Invalid paid operation request ID')
-  return 'paid-op-' + requestId.slice(2).toLowerCase()
+/** Index journals written before the index existed, once per store (by payment expiry). */
+async function backfillIndex(store: ApplicationStore): Promise<void> {
+  if ((await loadIndexRecord(store)).backfilled) return
+  if (typeof store.list !== 'function') throw new TasraError('Backfilling the paid operation index needs a store that can list its keys')
+  const list = store.list.bind(store)
+  await store.withLock(INDEX_KEY, async () => {
+    const index = await loadIndexRecord(store)
+    if (index.backfilled) return
+    const found: {id: Hex; expires: number}[] = []
+    for (const key of await list(RECORD_PREFIX)) {
+      if (!RECORD_KEY.test(key)) continue
+      const id = `0x${key.slice(RECORD_PREFIX.length)}` as Hex
+      if (index.ids.includes(id)) continue
+      const record = await loadRecord(store, id)
+      if (record) found.push({id, expires: record.payment.expires})
+    }
+    found.sort((a, b) => a.expires - b.expires)
+    // Unindexed journals predate the index, so they come first.
+    await store.save(INDEX_KEY, {schema: 1, ids: [...found.map(f => f.id), ...index.ids], backfilled: true} satisfies OperationIndex)
+  })
 }
 function random32(): Uint8Array { return globalThis.crypto.getRandomValues(new Uint8Array(32)) }
 function positive(value: bigint, name: string): void { if (typeof value !== 'bigint' || value <= 0n) throw new TasraError(`Paid operation requires a finite positive ${name}`) }
@@ -338,7 +372,7 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
     {signal: AbortSignal.any([signal, AbortSignal.timeout(Math.min(150_000, ttlSecs * 1000))]), fetch: config.fetch})
   const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: canonicalRule, ruleSalt: request.rule.salt,
     params: {operation: built.operation, operationSig, messageHex: built.messageHex, random}, coordinator: context.coordinator, contributors: context.contributors,
-    action: request.operation.action, payloadDigest: toHex(built.payloadDigest)}
+    action: request.operation.action, payloadDigest: toHex(built.payloadDigest), payer: config.gasPayer.account.address}
   const key = recordKey(requestId)
   await config.store.withLock(key, async () => {
     if (await config.store.load(key) !== undefined) throw new TasraError('Paid operation already journaled; resume it')
@@ -349,20 +383,30 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
   return continueOperation(config, requestId, request.holder, signal, request.observeRequest)
 }
 
+class NoLongerReserving extends Error {}
+
 async function reserve(config: PaidOperationConfig, record: OperationRecord, signal: AbortSignal): Promise<void> {
-  const d = {...config.deployment}, requestId = prepaidRequestId(record.payment)
-  signal.throwIfAborted()
+  const d = {...config.deployment}, requestId = prepaidRequestId(record.payment), key = recordKey(requestId)
+  if (signal.aborted) throw abortedError(requestId, 'reservation', record.payment, signal, signal.reason)
   try {
-    await withDedicatedPayer(`${d.chainId}-${config.gasPayer.account.address.toLowerCase()}`, () => reserveApplicationPayment(config.chain.client, config.gasPayer, d,
-      record.payment, record.expected, {store: config.store, session: {random: record.params.random, audience: config.agent.profile.clientId},
-        accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, maxGas: config.limits.maxGas, maxGasPrice: config.limits.maxGasPrice}))
+    // Under the journal's lock, so abandonPaidOperation cannot close it while a reservation runs.
+    await config.store.withLock(key, async () => {
+      if ((await config.store.load<OperationRecord>(key))?.phase !== 'reserving') throw new NoLongerReserving()
+      await withDedicatedPayer(`${d.chainId}-${config.gasPayer.account.address.toLowerCase()}`, () => reserveApplicationPayment(config.chain.client, config.gasPayer, d,
+        record.payment, record.expected, {store: config.store, session: {random: record.params.random, audience: config.agent.profile.clientId},
+          accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, maxGas: config.limits.maxGas, maxGasPrice: config.limits.maxGasPrice}))
+    })
   } catch (error) {
+    if (error instanceof NoLongerReserving) throw new TasraError('Paid operation was closed before its reservation; it is not reserved again')
     const journal = await loadPaidReservationJournal(config.store, requestId).catch(() => 'unreadable' as const)
     // Another request holds the payer and this one journaled nothing: refuse without uncertainty.
     if (error instanceof ApplicationPayerRecoveryError && journal === undefined) throw error
     // No preparation was journaled, and none is ever broadcast without one: nothing was sent.
-    if (journal === undefined) throw new PaidOperationRecoveryError(requestId, 'reservation', error,
-      expired(record.payment) ? {code: 'reservation-refused', resumable: false} : {code: 'reservation-refused'})
+    if (journal === undefined) {
+      if (signal.aborted) throw abortedError(requestId, 'reservation', record.payment, signal, error)
+      throw new PaidOperationRecoveryError(requestId, 'reservation', error,
+        expired(record.payment) ? {code: 'reservation-refused', resumable: false} : {code: 'reservation-refused'})
+    }
     throw new PaidOperationRecoveryError(requestId, 'reservation', error, {code: 'reservation-uncertain'})
   }
   await advance(config.store, requestId, 'reserving', {phase: 'reserved'})
@@ -384,6 +428,7 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
   const d = {...config.deployment}, client = config.chain.client, store = config.store
   let record = await store.load<OperationRecord>(recordKey(requestId))
   if (!record || record.schema !== 1 || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('No paid operation journal for this request')
+  if (signal.aborted && (record.phase === 'reserved' || record.phase === 'certified')) throw abortedError(requestId, 'session', record.payment, signal, signal.reason)
   if (record.phase === 'reserved') {
     const {policy} = await readClientExecutionPolicy(client, {...d, defaultVerificationPolicy: d.defaultVerificationPolicy}, record.payment, record.expected)
     const seed = random32(), signer = createLocalExecutionSigner(seed)
@@ -400,16 +445,23 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
       if (!holder) throw new TasraError('Resuming a paid session requires its holder strategy')
       const params: PaidAgentSessionParams = {operation: record.params.operation, operationSig: record.params.operationSig,
         messageHex: record.params.messageHex, payment: record.payment, random: record.params.random}
-      const session = await prepareRegisteredPaidSession(config.chain, {profile: config.agent.profile, deployment: {...d, defaultVerificationPolicy: d.defaultVerificationPolicy},
-        transport: config.agent.transport, members: record.members, ruleHash: keccak256(toHex(record.rule)), dcqlQuery: JSON.parse(record.rule) as Record<string, unknown>},
-      params, {certificate: record.certificate, signer, pollSecret: record.pollSecret, signal})
+      let session
+      try {
+        session = await prepareRegisteredPaidSession(config.chain, {profile: config.agent.profile, deployment: {...d, defaultVerificationPolicy: d.defaultVerificationPolicy},
+          transport: config.agent.transport, members: record.members, ruleHash: keccak256(toHex(record.rule)), dcqlQuery: JSON.parse(record.rule) as Record<string, unknown>},
+        params, {certificate: record.certificate, signer, pollSecret: record.pollSecret, signal})
+      } catch (error) {
+        if (signal.aborted) throw abortedError(requestId, 'session', record.payment, signal, error)
+        throw error
+      }
       const interval = config.pollIntervalMs ?? 1_000
       let result
       try {
         result = await drivePaidSession({session, members: record.members, store, signal, holder, observeRequest, resume: true,
           wait: hint => sleep(Math.min(Math.max(hint ?? interval, 10), 60_000), signal)})
       } catch (error) {
-        if (signal.aborted) throw error
+        // A journaled session write with an unknown outcome stays uncertain, abort or not.
+        if (signal.aborted && !(error instanceof PaidSessionRecoveryError)) throw abortedError(requestId, 'session', record.payment, signal, error)
         throw sessionFailure(requestId, record.payment, error)
       }
       const grant = verifierAgentResult({sessionId: session.sessionId, paymentHash: paymentIntentHash(record.payment),
@@ -444,6 +496,17 @@ function handle(config: PaidOperationConfig, record: OperationRecord, signer: Re
       await advance(store, requestId, 'executing', {phase: 'executed'})
       return result
     },
+    ...recoveryReads(config, record, certificate, signer),
+    dispose: () => signer.dispose(),
+  }
+  return Object.freeze(operation)
+}
+
+/** The read-only recovery half of a handle: retained keeper results, never new work. */
+function recoveryReads(config: PaidOperationConfig, record: OperationRecord, certificate: ExecutionCertificate,
+  signer: ReturnType<typeof createLocalExecutionSigner>): Pick<PaidOperation, 'recover' | 'recoverIbePartials'> {
+  const d = {...config.deployment}, route = config.keeperUrl ?? ((url: string) => url)
+  return {
     recover(options) {
       return recoverKeeperExecution({client: config.chain.client, deployment: d, payment: record.payment, expected: record.expected,
         keeper: {...record.coordinator, url: route(record.coordinator.url)}, target: {stage: options.stage ?? 'coordinator', executionKey: certificate.execution_key},
@@ -451,6 +514,7 @@ function handle(config: PaidOperationConfig, record: OperationRecord, signer: Re
     },
     async recoverIbePartials(options) {
       if (record.payment.action !== 'ibe-extract') throw new TasraError('IBE partial recovery applies to an ibe-extract operation only')
+      // Journals written before contributors were recorded (SDK before dfafff3) can only use `recover`.
       if (!record.contributors?.length) throw new TasraError('Paid operation journal lacks its assigned contributors')
       const concurrency = options.concurrency ?? 4, threshold = record.payment.keeper_assignment.threshold
       if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 16) throw new TasraError('IBE partial recovery concurrency must be 1..16')
@@ -475,9 +539,45 @@ function handle(config: PaidOperationConfig, record: OperationRecord, signer: Re
       if (partials.length < threshold) throw new TasraError(`Recovered ${partials.length} of ${threshold} required IBE partials; ${failures.length} contributor(s) failed`)
       return {threshold, partials: partials.slice(0, threshold), failures}
     },
-    dispose: () => signer.dispose(),
   }
-  return Object.freeze(operation)
+}
+
+/** Read-only recovery for a paid operation whose keeper work was sent; see {@link recoverPaidOperation}. */
+export interface PaidOperationRecovery {
+  /** Reservation identity. */
+  readonly requestId: Hex
+  /** Original creator-signed payment intent. */
+  readonly payment: PaymentIntentWire
+  /** Journaled phase (`executing` or `executed`, or `abandoned` from one of them). */
+  readonly phase: PaidOperationJournalPhase
+  /** Read the keeper's retained result (coordinator stage by default). Performs no new work. */
+  recover: PaidOperation['recover']
+  /** For `ibe-extract`: read contributors' retained partials up to the threshold. Performs no new work. */
+  recoverIbePartials: PaidOperation['recoverIbePartials']
+  /** Erase the local execution signer. */
+  dispose(): void
+}
+
+/**
+ * Open the read-only recovery reads of a paid operation whose keeper work was sent, straight
+ * from its journal: after {@link reconcilePaidOperation} reports `next: 'recover'` (phase
+ * `executing`), or to re-read an `executed` result. No reservation, session or execution
+ * happens, and no holder is needed. Refused for any other phase. Journals written before the
+ * SDK recorded assigned contributors (before dfafff3) support `recover` but not
+ * `recoverIbePartials`.
+ * @param config The configuration the operation started with.
+ * @param requestId Reservation identity.
+ */
+export async function recoverPaidOperation(config: PaidOperationConfig, requestId: Hex): Promise<PaidOperationRecovery> {
+  validateConfig(config)
+  const record = await loadRecord(config.store, requestId)
+  if (!record) throw new TasraError('No paid operation journal for this request')
+  const sent = record.phase === 'abandoned' ? record.abandoned?.phase : record.phase
+  if (sent !== 'executing' && sent !== 'executed') throw new TasraError('Paid operation recovery applies only after its keeper work was sent (phase executing or executed)')
+  if (!record.seed || !record.certificate) throw new TasraError('Paid operation journal lacks its execution consent')
+  const signer = createLocalExecutionSigner(record.seed)
+  return Object.freeze({requestId: prepaidRequestId(record.payment), payment: structuredClone(record.payment), phase: record.phase,
+    ...recoveryReads(config, record, record.certificate, signer), dispose: () => signer.dispose()})
 }
 
 /** What the application should do next with a reconciled paid operation. */
@@ -494,6 +594,8 @@ export type PaidOperationNextStep =
   | 'done'
   /** The original reservation provably never happened; this operation is finished unpaid. */
   | 'abandon'
+  /** The application closed this operation with {@link abandonPaidOperation}; nothing more to do. */
+  | 'closed'
 
 /** Read-only reconciliation result of {@link reconcilePaidOperation}. */
 export interface PaidOperationStatus {
@@ -501,6 +603,8 @@ export interface PaidOperationStatus {
   requestId: Hex
   /** Journaled phase after reconciliation. */
   phase: PaidOperationJournalPhase
+  /** Gas payer the journal recorded (absent from journals written before payers were recorded). */
+  payer?: Address
   /** Reservation state: proven from the chain while `reserving`, implied by the phase afterwards. */
   reservation: ApplicationReservationState
   /** Whether this operation still holds its gas payer's durable claim. */
@@ -544,7 +648,7 @@ function loadRecord(store: ApplicationStore, requestId: Hex): Promise<OperationR
 async function reconcileReservation(config: PaidOperationConfig, requestId: Hex, record: OperationRecord, options: Pick<ResumePaidOperationOptions, 'transactionHash' | 'confirmations'>) {
   const d = {...config.deployment}, store = config.store
   let status = await reconcileApplicationReservation(config.chain.client, store, d, record.payment, record.expected,
-    {payer: config.gasPayer.account.address, confirmations: options.confirmations})
+    {payer: record.payer ?? config.gasPayer.account.address, confirmations: options.confirmations})
   if (status.state === 'uncertain' && status.payerLocked) {
     // A known hash can prove a mined original (success or revert) before the quote deadline.
     const journal = await loadPaidReservationJournal(store, requestId)
@@ -561,7 +665,12 @@ async function reconcileReservation(config: PaidOperationConfig, requestId: Hex,
   return {status, phase}
 }
 
-const NEXT: Record<Phase, PaidOperationNextStep> = {reserving: 'wait', reserved: 'resume', certified: 'resume', authorized: 'resume', executing: 'recover', executed: 'done', failed: 'abandon'}
+const NEXT: Record<Phase, PaidOperationNextStep> = {reserving: 'wait', reserved: 'resume', certified: 'resume', authorized: 'resume', executing: 'recover', executed: 'done', failed: 'abandon', abandoned: 'closed'}
+/** Reservation state implied by a phase past `reserving` (an abandoned unsent operation was never reserved). */
+function impliedReservation(record: OperationRecord): ApplicationReservationState {
+  const phase = record.phase === 'abandoned' ? record.abandoned?.phase : record.phase
+  return phase === 'failed' ? 'not-reserved' : phase === 'reserving' ? 'none' : 'reserved'
+}
 
 /**
  * Reconcile a paid operation without any billable or keeper work: no reservation, no session
@@ -578,12 +687,13 @@ export async function reconcilePaidOperation(config: PaidOperationConfig, reques
   validateConfig(config)
   const record = await loadRecord(config.store, requestId)
   if (!record) throw new TasraError('No paid operation journal for this request')
+  const payer = record.payer ? {payer: record.payer} : {}
   if (record.phase !== 'reserving') {
-    return {requestId, phase: record.phase, reservation: record.phase === 'failed' ? 'not-reserved' : 'reserved', payerLocked: false, next: NEXT[record.phase],
-      ...(record.failure ? {reason: record.failure.reason} : {})}
+    return {requestId, phase: record.phase, ...payer, reservation: impliedReservation(record), payerLocked: false, next: NEXT[record.phase],
+      ...(record.abandoned ? {reason: record.abandoned.reason} : record.failure ? {reason: record.failure.reason} : {})}
   }
   const {status, phase} = await reconcileReservation(config, requestId, record, options)
-  return {requestId, phase, reservation: status.state, payerLocked: status.payerLocked,
+  return {requestId, phase, ...payer, reservation: status.state, payerLocked: status.payerLocked,
     next: status.state === 'none' ? 'reserve' : NEXT[phase],
     ...(status.reason ? {reason: status.reason} : {}), ...(status.transactionHash ? {transactionHash: status.transactionHash} : {})}
 }
@@ -633,7 +743,12 @@ export async function resumePaidOperation(config: PaidOperationConfig, requestId
   const record = await loadRecord(store, requestId)
   if (!record) throw new TasraError('No paid operation journal for this request')
   if (record.phase === 'failed') throw new PaidOperationRecoveryError(requestId, 'reservation', new Error(record.failure?.reason ?? 'reservation never happened'), {code: 'reservation-failed'})
+  if (record.phase === 'abandoned') throw new TasraError('Paid operation was abandoned; it is never resumed')
   if (record.phase === 'reserving') {
+    // The reservation must use the payer the journal recorded (its claim and nonce live there).
+    if (record.payer && record.payer.toLowerCase() !== config.gasPayer.account.address.toLowerCase()) {
+      throw new TasraError(`Paid operation was journaled with gas payer ${record.payer}; resume it with that payer`)
+    }
     let reconciled
     try { reconciled = await reconcileReservation(config, requestId, record, options) }
     catch (error) { throw new PaidOperationRecoveryError(requestId, 'reservation', error) }
@@ -667,21 +782,122 @@ export interface PaidOperationSummary {
   action: PaymentIntentWire['action']
   /** Payment expiry, Unix seconds. */
   expires: number
+  /** Gas payer the journal recorded (absent from journals written before payers were recorded). */
+  payer?: Address
+  /** Set for an abandoned operation: why and the phase it was abandoned from. */
+  abandoned?: {reason: string; at: number; phase: Exclude<PaidOperationJournalPhase, 'abandoned'>}
+}
+
+/** Options for {@link listPaidOperations}. */
+export interface ListPaidOperationsOptions {
+  /** Phase or phases to keep, e.g. `['reserving', 'executing']` for work needing attention. Naming `abandoned` includes abandoned operations. */
+  phase?: PaidOperationJournalPhase | readonly PaidOperationJournalPhase[]
+  /** Include abandoned operations (default false: they are closed and never need attention). */
+  includeAbandoned?: boolean
+  /**
+   * Once per store, index journals written before the index existed. Needs a store that can
+   * list its keys (`list`); the built-in memory, file and IndexedDB stores can.
+   */
+  backfill?: boolean
 }
 
 /**
  * List the paid operations journaled in a store, oldest first, without relying on its key scheme.
- * Operations journaled before this index existed are not listed; read them with `paidOperationPhase`.
+ * Abandoned operations are left out unless asked for. Operations journaled before this index
+ * existed are listed only after a one-time `backfill`; otherwise read them with `paidOperationPhase`.
  * @param store Store the operations were journaled in.
- * @param filter Optional phase or phases to keep, e.g. `{phase: ['reserving', 'executing']}` for work needing attention.
+ * @param filter Phases to keep, whether to include abandoned operations, and the one-time backfill.
  */
-export async function listPaidOperations(store: ApplicationStore, filter: {phase?: PaidOperationJournalPhase | readonly PaidOperationJournalPhase[]} = {}): Promise<PaidOperationSummary[]> {
+export async function listPaidOperations(store: ApplicationStore, filter: ListPaidOperationsOptions = {}): Promise<PaidOperationSummary[]> {
   const phases = filter.phase === undefined ? undefined : typeof filter.phase === 'string' ? [filter.phase] : [...filter.phase]
+  const abandoned = filter.includeAbandoned === true || phases?.includes('abandoned') === true
+  if (filter.backfill) await backfillIndex(store)
   const out: PaidOperationSummary[] = []
   for (const requestId of await loadIndex(store)) {
     const record = await loadRecord(store, requestId)
-    if (!record || (phases && !phases.includes(record.phase))) continue
-    out.push({requestId, phase: record.phase, slot: record.payment.slot, action: record.payment.action, expires: record.payment.expires})
+    if (!record || (phases && !phases.includes(record.phase)) || (record.phase === 'abandoned' && !abandoned)) continue
+    out.push({requestId, phase: record.phase, slot: record.payment.slot, action: record.payment.action, expires: record.payment.expires,
+      ...(record.payer ? {payer: record.payer} : {}), ...(record.abandoned ? {abandoned: {...record.abandoned}} : {})})
   }
   return out
+}
+
+/** Seconds past payment expiry before an unfinished operation may be abandoned (clock skew between this host, keepers and the chain). */
+const ABANDON_EXPIRY_MARGIN_SECS = 120
+
+/** {@link abandonPaidOperation} refused: something could still land under this operation. */
+export class PaidOperationAbandonRefusedError extends TasraError {
+  constructor(
+    /** Reservation identity. */ readonly requestId: Hex,
+    /** Journaled phase that blocks abandoning. */ readonly phase: PaidOperationJournalPhase,
+    /** Why it cannot be abandoned yet; safe to log. */ reason: string,
+    /** Unix seconds from which abandoning succeeds (payment expiry plus a skew margin), when time alone unblocks it. */ readonly notBefore?: number,
+  ) {
+    super(`Paid operation ${requestId.slice(0, 12)}… cannot be abandoned: ${reason}`, {retryable: notBefore !== undefined})
+  }
+}
+
+/** Options for {@link abandonPaidOperation}. */
+export interface AbandonPaidOperationOptions {
+  /** Why the application closes the operation (1..512 characters); journaled and listed. */
+  reason: string
+}
+
+/** Result of {@link abandonPaidOperation}. */
+export interface AbandonedPaidOperation {
+  /** Reservation identity (lowercase). */
+  requestId: Hex
+  /** Phase the operation was abandoned from. */
+  from: Exclude<PaidOperationJournalPhase, 'abandoned'>
+  /** Journaled reason. */
+  reason: string
+  /** When it was abandoned, Unix seconds. */
+  at: number
+}
+
+/**
+ * Close a paid operation for good, only when nothing can still land under it: no reservation,
+ * session write or keeper work can still be accepted. The journal is kept (phase `abandoned`),
+ * left out of {@link listPaidOperations} by default and refused by {@link resumePaidOperation}.
+ * Abandoning an already abandoned operation returns its original record.
+ *
+ * Allowed when the journal proves it:
+ * - `reserving` with no reservation ever prepared (nothing was sent);
+ * - `failed` (the reservation provably never happened);
+ * - `executed` (completed and recorded);
+ * - `reserved`, `certified`, `authorized` or `executing` once the creator-signed payment has
+ *   expired (plus a skew margin): keepers, verifiers and the agent refuse it from then on.
+ *   Retained results of an `executing` operation stay readable with {@link recoverPaidOperation}.
+ *
+ * Refused (PaidOperationAbandonRefusedError) otherwise. A `reserving` operation whose
+ * reservation was prepared must first be settled by {@link reconcilePaidOperation} (it becomes
+ * `failed` or `reserved`), which also releases the gas payer.
+ * @param store Store the operation was journaled in.
+ * @param requestId Reservation identity.
+ * @param options Reason to journal.
+ */
+export async function abandonPaidOperation(store: ApplicationStore, requestId: Hex, options: AbandonPaidOperationOptions): Promise<AbandonedPaidOperation> {
+  const reason = options?.reason
+  if (typeof reason !== 'string' || !reason.trim() || reason.length > 512) throw new TasraError('Abandoning a paid operation needs a reason of 1..512 characters')
+  const key = recordKey(requestId)
+  return store.withLock(key, async () => {
+    const record = await loadRecord(store, requestId)
+    if (!record) throw new TasraError('No paid operation journal for this request')
+    const id = requestId.toLowerCase() as Hex
+    if (record.phase === 'abandoned' && record.abandoned) return {requestId: id, from: record.abandoned.phase, reason: record.abandoned.reason, at: record.abandoned.at}
+    const from = record.phase as Exclude<Phase, 'abandoned'>, now = Math.floor(Date.now() / 1000)
+    const refuse = (why: string, notBefore?: number) => new PaidOperationAbandonRefusedError(id, from, why, notBefore)
+    if (from === 'reserving') {
+      // Under this lock no reservation can start (reserve() holds it); a prepared one may have been broadcast.
+      if (await loadPaidReservationJournal(store, requestId).catch(() => 'unreadable' as const) !== undefined) {
+        throw refuse('its reservation was prepared and may have been sent; reconcile it first')
+      }
+    } else if (from !== 'failed' && from !== 'executed') {
+      const notBefore = record.payment.expires + ABANDON_EXPIRY_MARGIN_SECS
+      if (now < notBefore) throw refuse('its payment has not expired, so its reservation, session or keeper work can still be accepted', notBefore)
+    }
+    const abandoned = {reason, at: now, phase: from}
+    await store.save(key, {...record, phase: 'abandoned', abandoned} satisfies OperationRecord)
+    return {requestId: id, from, reason, at: now}
+  })
 }
