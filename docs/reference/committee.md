@@ -45,6 +45,8 @@ declare class CommitteeAuthorizeError {
 
 - ` readonly body: string; ` — Response body retained as diagnostic information.
 
+- ` readonly retryAfterMs?: number; ` — Service-requested wait from `Retry-After`, in ms, when one was sent.
+
 - ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
 - ` name: string; `

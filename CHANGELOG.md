@@ -41,6 +41,24 @@ never does.
 
 ### Added
 
+- Honor `Retry-After`. `TasraHttpError.retryAfterMs` carries the parsed header;
+  425 is retryable, and so is a 409/410/422 that sends the header. New
+  `retryIdempotent` waits the service-requested time plus bounded jitter (never
+  less), falls back to full-jitter backoff, and gives up when a wait exceeds the
+  per-wait or total budget. `fetchHolderNonce` and `createRenewal` wait out a
+  verifier capacity refusal (SP-11 429); renewal creation retries nothing else.
+  Paid agent and keeper recovery transports report `retryAfterMs` on their
+  refusals (`PaidAgentControlError.retryAfterMs`, `KeeperRecoveryError.retryAfterMs`)
+  without resending anything.
+- The registered relay submitter treats the relayer's busy refusals (full lane,
+  full journal, unavailable shared budget: 422 `rejected` + `Retry-After`) as
+  "not now": it re-sends the identical signed request to the same provider, at
+  most `busyRetries` times (default 3, 10 s total wait). Nothing is re-signed, and
+  the forwarder nonce still makes a repeat unable to execute twice. Other
+  refusals, including the shared daily cap, are unchanged. `isRelayBusyReason`
+  classifies a reason; `RelayTransport.relayExchange` (optional, implemented by
+  the Node transport) reports status and `Retry-After`.
+
 - Refresh the Settlement ABI from the current contract build: `initializePrepaid`,
   `prepaidBatch`, `prepaidFromGenesis` and `ZeroBatchId()` are additive. Add the
   `PrepaidFaultOracle` ABI (`prepaidFaultOracleAbi`, `CONTRACT_ABIS.PrepaidFaultOracle`)

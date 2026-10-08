@@ -14,6 +14,8 @@ export interface KeeperRecoveryHttpResponse {
   status: number
   /** Exact bounded response bytes. Completed results are private; never log them. */
   body: Uint8Array
+  /** Parsed `Retry-After` in ms, when the keeper sent one. */
+  retryAfterMs?: number
 }
 
 /** Client-approved transport for public evidence and authenticated retained-result reads. */
@@ -45,6 +47,7 @@ export interface RecoveredKeeperExecution {
 export class KeeperRecoveryError extends Error {
   constructor(
     /** Observed original keeper response status. */ readonly httpStatus: number,
+    /** Keeper-requested wait before reading again, in ms, when sent. */ readonly retryAfterMs?: number,
   ) {
     super(`Keeper result recovery returned HTTP ${httpStatus}`)
     this.name = 'KeeperRecoveryError'
@@ -109,7 +112,7 @@ export async function recoverKeeperExecution(options: RecoverKeeperExecutionOpti
     const query = new TextEncoder().encode(JSON.stringify({request, stage: target.stage}))
     const evidence = await transport.keeperRecoveryRequest(base + '/v1/prepaid/execution', {body: query, maxBytes: 65_536, signal: active})
     active.throwIfAborted()
-    if (evidence.status !== 200) throw new KeeperRecoveryError(evidence.status)
+    if (evidence.status !== 200) throw new KeeperRecoveryError(evidence.status, evidence.retryAfterMs)
     const execution = parseExecutionJson(evidence.body, 65_536) as SignedPaidExecutionReport
     const observation = await readKeeperExecutionRecoveryPolicy(client, deployment, payment, expected, target, execution, policy)
     active.throwIfAborted()
@@ -123,7 +126,7 @@ export async function recoverKeeperExecution(options: RecoverKeeperExecutionOpti
     const body = new TextEncoder().encode(JSON.stringify({payment, authorization}))
     const response = await transport.keeperRecoveryRequest(base + '/v1/prepaid/execution/recover', {body, maxBytes: maxReplyBytes, signal: active})
     active.throwIfAborted()
-    if (response.status !== 200) throw new KeeperRecoveryError(response.status)
+    if (response.status !== 200) throw new KeeperRecoveryError(response.status, response.retryAfterMs)
     const reply = parseExecutionJson(response.body, maxReplyBytes) as RecoveredExecutionReply
     const resultJson = await verifyRecoveredExecutionResult({payment, policy: observation.policy, target, expectedExecution: execution, reply})
     active.throwIfAborted()

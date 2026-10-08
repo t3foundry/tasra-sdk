@@ -138,8 +138,8 @@ export type {ServiceType, ServiceStatus, ServiceRecord, ServiceApproval} from '.
 export {SERVICE_MANIFEST_PATH, SERVICE_IDENTITY_PATH, SERVICE_MANIFEST_MAX_BYTES, SERVICE_IDENTITY_MAX_BYTES, SERVICE_CHALLENGE_SECONDS, SERVICE_CHALLENGE_LIFETIME_SECONDS, SERVICE_IDENTITY_PROTOCOL, validateServiceEndpoint, encodeServiceManifest, verifyServiceManifest, serviceChallengeTypedData, encodeServiceChallenge, parseServiceChallenge, validateServiceChallenge, verifyServiceIdentity, authenticateApprovedService} from './serviceIdentity.js'
 export type {ServiceManifest, ServiceChallenge, ServiceDiscoveryTransport, AuthenticatedService} from './serviceIdentity.js'
 
-export {createRegisteredRelaySubmitter, reconcileRelayAttempt, RelayOutcomeUnknownError} from './registeredRelay.js'
-export type {RegisteredRelayConfig, RelayTransport, RelayAttempt, RelayIntent, RelayReconciliation} from './registeredRelay.js'
+export {createRegisteredRelaySubmitter, reconcileRelayAttempt, RelayOutcomeUnknownError, isRelayBusyReason} from './registeredRelay.js'
+export type {RegisteredRelayConfig, RelayTransport, RelayAttempt, RelayIntent, RelayReconciliation, RelayHttpResponse} from './registeredRelay.js'
 
 export {createRegisteredAgentClient, AgentSessionCreationUnknownError} from './registeredAgent.js'
 export type {AgentTransport, ApprovedAgentProfile, RegisteredAgentSession} from './registeredAgent.js'

@@ -3,6 +3,7 @@ import type {TasraChainClient} from './client.js'
 import {authenticateApprovedService, type ServiceDiscoveryTransport} from './serviceIdentity.js'
 import {SERVICE_TYPES, type ServiceApproval} from './services.js'
 import {revertError} from './revertReason.js'
+import {retryDelayMs} from '../retry.js'
 
 /**
  * Guarded discovery and transaction relay transport with bounded response bodies.
@@ -10,6 +11,18 @@ import {revertError} from './revertReason.js'
 export interface RelayTransport extends ServiceDiscoveryTransport {
   /** Guard the socket just like discovery. Accept bounded JSON status bodies for 200/202/422. */
   relayRequest(url: string, options: {body?: Uint8Array; maxBytes: number; signal: AbortSignal}): Promise<Uint8Array>
+  /** Optional: the same guarded request, also reporting status and `Retry-After` for busy refusals. */
+  relayExchange?(url: string, options: {body?: Uint8Array; maxBytes: number; signal: AbortSignal}): Promise<RelayHttpResponse>
+}
+
+/** Bounded relayer reply with the wait it requested, if any. */
+export interface RelayHttpResponse {
+  /** HTTP status: 200/202 accepted or status, 422 a pre-acceptance refusal. */
+  status: number
+  /** Bounded JSON body. */
+  body: Uint8Array
+  /** Parsed `Retry-After` in ms, when sent. */
+  retryAfterMs?: number
 }
 
 /**
@@ -54,6 +67,30 @@ export interface RegisteredRelayConfig {
   maxAttempts?: number
   /** Status polling budget per provider in milliseconds; defaults to 10000 and cannot exceed 30000. */
   attemptMs?: number
+  /** Re-sends of the identical signed request to one provider after a busy refusal, 0..5 (default 3). Waits honor `Retry-After`, at most 10 s in total per provider. */
+  busyRetries?: number
+}
+
+/**
+ * True for a relayer refusal about its own load rather than the request: a full lane, a full
+ * journal or an unavailable shared sponsorship budget. The relayer answers these 422 `rejected`
+ * with `Retry-After` before journaling anything. "shared daily spend cap reached", quota and
+ * policy refusals are not busy.
+ * @param reason The `reason` text of a relayer `rejected` status.
+ */
+export function isRelayBusyReason(reason: unknown): boolean {
+  return typeof reason === 'string' && reason.length <= 512 && reason.startsWith('relayer busy:')
+}
+
+/** Busy-refusal parse of a POST reply; anything else (accepted, other refusals, garbage) is undefined. */
+function busyRefusal(reply: RelayHttpResponse): {retryAfterMs?: number} | undefined {
+  if (reply.status !== 422 || reply.body.length > 4_096) return undefined
+  try {
+    const status = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(reply.body)) as {state?: unknown; reason?: unknown}
+    if (status?.state !== 'rejected' || !isRelayBusyReason(status.reason)) return undefined
+  } catch { return undefined }
+  const after = reply.retryAfterMs
+  return after !== undefined && Number.isSafeInteger(after) && after >= 0 ? {retryAfterMs: after} : {}
 }
 
 /**
@@ -233,12 +270,16 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
   }
   if (!/^0x[0-9a-fA-F]{40}$/.test(config.forwarder) || /^0x0{40}$/.test(config.forwarder)) throw new Error('Invalid pinned relay forwarder')
   const cfg = {...config, approvals: config.approvals.map(a => Object.freeze({...a}))}
-  const timeout = cfg.timeoutMs ?? 120_000, pollMs = cfg.pollMs ?? 1_500, attemptMs = cfg.attemptMs ?? 10_000
+  const timeout = cfg.timeoutMs ?? 120_000, pollMs = cfg.pollMs ?? 1_500, attemptMs = cfg.attemptMs ?? 10_000, busyRetries = cfg.busyRetries ?? 3
   const attempts = cfg.maxAttempts ?? Math.min(3, cfg.approvals.length)
   if (!cfg.approvals.length || cfg.approvals.length > 16 || cfg.approvals.some(a => a.serviceType !== SERVICE_TYPES.gasRelayer) ||
     !Number.isInteger(attempts) || attempts < 1 || attempts > 3 || attempts > cfg.approvals.length ||
     !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 120_000 || !Number.isSafeInteger(pollMs) || pollMs < 10 ||
-    !Number.isSafeInteger(attemptMs) || attemptMs < 1 || attemptMs > 30_000) throw new Error('Invalid registered relayer policy')
+    !Number.isSafeInteger(attemptMs) || attemptMs < 1 || attemptMs > 30_000 || !Number.isSafeInteger(busyRetries) || busyRetries < 0 || busyRetries > 5) throw new Error('Invalid registered relayer policy')
+  const exchange = (url: string, options: {body?: Uint8Array; maxBytes: number; signal: AbortSignal}): Promise<RelayHttpResponse> =>
+    cfg.transport.relayExchange ? cfg.transport.relayExchange(url, options)
+      // A transport without status reporting: a 422 body still names the refusal; assume the relayer's 1 s hint.
+      : cfg.transport.relayRequest(url, options).then(bytes => ({status: 422, body: bytes, retryAfterMs: 1_000}))
   let serial = Promise.resolve()
   let pending: RelayAttempt | undefined
 
@@ -303,9 +344,24 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
         } catch { budget.signal.throwIfAborted(); continue }
         pending = attempt
         contacted = true
-        try {
-          await budget.run(() => cfg.transport.relayRequest(endpoint + '/v1/relay/forward', {body, maxBytes: 4_096, signal: budget.signal}))
-        } catch { budget.signal.throwIfAborted() }
+        // A busy refusal (full lane/journal, unavailable shared budget) is answered before anything
+        // is journaled. Re-send the IDENTICAL signed bytes after the requested wait: the forwarder
+        // spends this nonce once, so a repeat can never execute the call twice. Nothing is re-signed.
+        let busySends = 0, busyWaited = 0
+        const post = async () => {
+          for (;;) {
+            let busy: {retryAfterMs?: number} | undefined
+            try {
+              busy = busyRefusal(await budget.run(() => exchange(endpoint + '/v1/relay/forward', {body, maxBytes: 4_096, signal: budget.signal})))
+            } catch { budget.signal.throwIfAborted() }
+            if (!busy) return
+            const delay = retryDelayMs(busySends, busy.retryAfterMs ?? 1_000, {maxAttempts: busyRetries + 1, maxDelayMs: 10_000, maxTotalWaitMs: 10_000}, busyWaited)
+            if (delay === undefined) return
+            busySends++; busyWaited += delay
+            await budget.run(() => new Promise(resolve => setTimeout(resolve, delay)))
+          }
+        }
+        await post()
         const until = Date.now() + attemptMs
         do {
           // A lost POST response still has a deterministic status ID.
@@ -317,6 +373,13 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
             if (status.state === 'mined' && /^0x[0-9a-fA-F]{64}$/.test(status.tx_hash ?? '')) {
               const receipt = await verifiedReceipt(chain, attempt, status.tx_hash!, budget)
               if (receipt) { pending = undefined; return receipt }
+            }
+            if (status.state === 'rejected' && isRelayBusyReason((status as {reason?: unknown}).reason) && busySends < busyRetries) {
+              // Same identical bytes; counted against the same per-provider busy budget.
+              busySends++
+              await budget.run(() => new Promise(resolve => setTimeout(resolve, Math.min(1_000, Math.max(1, until - Date.now())))))
+              await post()
+              continue
             }
             if (['failed', 'rejected', 'unknown'].includes(status.state)) break
           } catch { budget.signal.throwIfAborted(); break }

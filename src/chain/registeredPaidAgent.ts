@@ -69,6 +69,7 @@ export class PaidAgentControlError extends Error {
   constructor(
     /** Original locally derived session identity. */ readonly sessionId: string,
     /** Observed status; this never authorizes an automatic resend. */ readonly httpStatus: number,
+    /** Agent-requested wait in ms (`Retry-After`), when sent; a polling hint for reads and consent waits. */ readonly retryAfterMs?: number,
   ) {
     super(`Paid session control returned HTTP ${httpStatus} (session ${sessionId.slice(0,12)}…)`)
     this.name = 'PaidAgentControlError'
@@ -304,7 +305,8 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     if (result.body.length > 10*1024*1024) throw new Error('Paid agent response exceeds bound')
     return result
   })
-  const ok = (response:PaidAgentHttpResponse,statuses:number[]) => {if(!statuses.includes(response.status))throw new PaidAgentControlError(sessionId,response.status)}
+  const ok = (response:PaidAgentHttpResponse,statuses:number[]) => {if(!statuses.includes(response.status))throw new PaidAgentControlError(sessionId,response.status,
+    response.retryAfterMs!==undefined&&Number.isSafeInteger(response.retryAfterMs)&&response.retryAfterMs>=0?response.retryAfterMs:undefined)}
   const memberFor = (provided:PaidVerifierWitness) => {
     const member = members.find(m=>m.index===provided.index)
     if (!member || executionBodyHash(member as unknown as Record<string,unknown>) !== executionBodyHash(provided as unknown as Record<string,unknown>)) throw new Error('Approval member differs from independently anchored witnesses')

@@ -26,6 +26,8 @@
 // types: false means the request will fail identically on retry (a denied or
 // expired credential, a malformed rule), true means it might not.
 
+import {parseRetryAfter} from './internal/retryAfter.js'
+
 /**
  * Base class for typed SDK failures with a retryability hint.
  * Some SDK errors extend plain Error, including relay and agent-session
@@ -72,7 +74,8 @@ export class UnderfundedSlotError extends TasraError {
  * truncated to 200 characters - enough to carry the service's own error text
  * without dumping a page of HTML into a log line.
  *
- * 5xx and 429 are marked retryable; other 4xx are not.
+ * 5xx, 429 and 425 are marked retryable; so is a 409, 410 or 422 that carries
+ * `Retry-After`. Other 4xx are not. `retryAfterMs` is the service-requested wait.
  */
 export class TasraHttpError extends TasraError {
   /** HTTP status code returned by the service. */
@@ -81,15 +84,20 @@ export class TasraHttpError extends TasraError {
   readonly url: string
   /** Response body retained as diagnostic information. */
   readonly body: string
+  /** Service-requested wait from `Retry-After`, in ms, when one was sent. */
+  readonly retryAfterMs?: number
 
-  constructor(args: {status: number; url: string; body?: string; message?: string; retryable?: boolean}) {
+  constructor(args: {status: number; url: string; body?: string; message?: string; retryable?: boolean; retryAfterMs?: number}) {
     const body = args.body ?? ''
+    const after = args.retryAfterMs !== undefined && Number.isSafeInteger(args.retryAfterMs) && args.retryAfterMs >= 0 ? args.retryAfterMs : undefined
     super(args.message ?? `${args.url} → HTTP ${args.status}${body ? `: ${body}` : ''}`, {
-      retryable: args.retryable ?? (args.status >= 500 || args.status === 429),
+      retryable: args.retryable ?? (args.status >= 500 || args.status === 429 || args.status === 425
+        || (after !== undefined && [409, 410, 422].includes(args.status))),
     })
     this.status = args.status
     this.url = args.url
     this.body = body
+    if (after !== undefined) this.retryAfterMs = after
   }
 }
 
@@ -187,7 +195,8 @@ export async function httpError(
 ): Promise<TasraHttpError> {
   const body = (await res.text().catch(() => '')).slice(0, 200)
   const message = `${label ?? url} → HTTP ${res.status}${body ? `: ${body}` : ''}`
-  const args = {status: res.status, url, body, message}
+  const retryAfterMs = parseRetryAfter(res.headers?.get('retry-after'))
+  const args = {status: res.status, url, body, message, ...(retryAfterMs !== undefined ? {retryAfterMs} : {})}
   return res.status === 401 || res.status === 403
     ? new AuthDeniedError(args)
     : new TasraHttpError(args)

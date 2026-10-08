@@ -14,6 +14,7 @@
 import {ed25519} from '@noble/curves/ed25519'
 import {sha256} from '@noble/hashes/sha256'
 import {httpError} from '../errors.js'
+import {classifyRefusal, retryIdempotent, type RetryPolicy} from '../retry.js'
 
 function base(url: string): string {
   return url.replace(/\/$/, '')
@@ -67,15 +68,17 @@ export interface HolderNonce {
  */
 export async function fetchHolderNonce(
   verifierUrl: string,
-  opts?: {slotId?: string; action?: string},
+  opts?: {slotId?: string; action?: string
+    /** Waits on a capacity refusal (429/503 + `Retry-After`); `false` fails at once. A refused mint stores nothing. */
+    retry?: RetryPolicy | false},
 ): Promise<HolderNonce> {
   const url = `${base(verifierUrl)}/v1/nonce`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({slot_id: opts?.slotId, action: opts?.action}),
-  })
-  if (!res.ok) throw await httpError(res, url, 'v1/nonce')
+  const body = JSON.stringify({slot_id: opts?.slotId, action: opts?.action})
+  const res = await retryIdempotent(async () => {
+    const response = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body})
+    if (!response.ok) throw await httpError(response, url, 'v1/nonce')
+    return response
+  }, {policy: opts?.retry === false ? {maxAttempts: 1} : opts?.retry, classify: classifyRefusal})
   const b = (await res.json()) as {
     nonce: string
     expires_at: number

@@ -6,6 +6,8 @@ export interface PaidAgentHttpResponse {
   status: number
   /** Exact bounded bytes; never log credentials or bearer-bearing creation bodies. */
   body: Uint8Array
+  /** Parsed `Retry-After` in ms, when the service sent one. A wait hint, never a resend instruction. */
+  retryAfterMs?: number
 }
 
 /** Transport for client-owned session initialization, consent and continuation. */

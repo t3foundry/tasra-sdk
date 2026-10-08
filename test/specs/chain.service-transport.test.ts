@@ -76,6 +76,22 @@ describe('service HTTPS destination boundary', () => {
     expect(hits).toHaveBeenCalledTimes(2)
   })
 
+  it('reports status and Retry-After for relay busy refusals and paid agent waits', async () => {
+    const endpoint = await serve((req, res) => { req.resume()
+      res.writeHead(422, {'content-type': 'application/json', 'retry-after': '3'})
+      res.end('{"id":"","state":"rejected","reason":"relayer busy: the request journal is full; retry shortly or submit directly"}') })
+    const relay = createNodeRelayTransport({allowedPrivateHosts: ['localhost'], ca})
+    const reply = await relay.relayExchange!(endpoint + '/v1/relay/forward', {...options(), maxBytes: 4096, body: new Uint8Array(3)})
+    expect(reply).toMatchObject({status: 422, retryAfterMs: 3000})
+    expect(JSON.parse(new TextDecoder().decode(reply.body))).toMatchObject({state: 'rejected'})
+    // The legacy byte interface is unchanged.
+    expect(await relay.relayRequest(endpoint + '/v1/relay/forward', {...options(), maxBytes: 4096, body: new Uint8Array(3)})).toBeInstanceOf(Uint8Array)
+    const agentEndpoint = await serve((req, res) => { req.resume(); res.writeHead(425, {'content-type': 'application/json', 'retry-after': 'nonsense'}); res.end('{}') })
+    const paid = createNodePaidAgentTransport({allowedPrivateHosts: ['localhost'], ca})
+    const wait = await paid.paidAgentRequest(agentEndpoint + '/v1/sessions/' + 'a'.repeat(64), {method: 'GET', bearer: 'b'.repeat(64), maxBytes: 128, signal: new AbortController().signal})
+    expect(wait.status).toBe(425); expect(wait.retryAfterMs).toBeUndefined()
+  })
+
   it.each([200, 202, 422])('bounds relay JSON separately from discovery (HTTP %s)', async status => {
     const endpoint = await serve((req, res) => { req.resume(); res.writeHead(status, {'content-type': 'application/json'}); res.end('{}') })
     const transport = createNodeRelayTransport({allowedPrivateHosts: ['localhost'], ca})

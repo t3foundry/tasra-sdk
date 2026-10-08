@@ -51,17 +51,19 @@ declare class AgentSessionCreationUnknownError {
 
 Safe status error without private result text; no failed read triggers paid work.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L45)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L47)
 
 Import: `import {KeeperRecoveryError} from 'tasra-sdk/chain'`
 
 ```ts
 declare class KeeperRecoveryError {
-    constructor(httpStatus: number);
+    constructor(httpStatus: number, retryAfterMs?: number);
 }
 ```
 
 - ` readonly httpStatus: number; ` — Observed original keeper response status.
+
+- ` readonly retryAfterMs?: number; ` — Keeper-requested wait before reading again, in ms, when sent.
 
 - ` name: string; `
 
@@ -81,13 +83,15 @@ Import: `import {PaidAgentControlError} from 'tasra-sdk/chain'`
 
 ```ts
 declare class PaidAgentControlError {
-    constructor(sessionId: string, httpStatus: number);
+    constructor(sessionId: string, httpStatus: number, retryAfterMs?: number);
 }
 ```
 
 - ` readonly sessionId: string; ` — Original locally derived session identity.
 
 - ` readonly httpStatus: number; ` — Observed status; this never authorizes an automatic resend.
+
+- ` readonly retryAfterMs?: number; ` — Agent-requested wait in ms (`Retry-After`), when sent; a polling hint for reads and consent waits.
 
 - ` name: string; `
 
@@ -127,7 +131,7 @@ declare class PaidReservationUncertainError {
 
 A relay request has no verified terminal result and must be reconciled before replacement.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L111)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L148)
 
 Import: `import {RelayOutcomeUnknownError} from 'tasra-sdk/chain'`
 
@@ -188,7 +192,7 @@ credit belongs to earlier jobs and is not available for a new reservation.
 Top up and read fresh funding before starting another payment; this error
 never authorizes resubmission of an uncertain transaction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L51)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L53)
 
 Import: `import {UnderfundedSlotError} from 'tasra-sdk/chain'`
 
@@ -227,7 +231,7 @@ declare class UnderfundedSlotError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 68 functions</summary>
+<summary>Browse 69 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -258,6 +262,7 @@ Operations you can import and call.
 - [formatWad](#formatwad)
 - [generateClientKey](#generateclientkey)
 - [hashServiceManifest](#hashservicemanifest)
+- [isRelayBusyReason](#isrelaybusyreason)
 - [jsonSafe](#jsonsafe)
 - [networkNameForChain](#networknameforchain)
 - [observeNetworkManifest](#observenetworkmanifest)
@@ -596,7 +601,7 @@ Returns:
 
 One signer per instance. Serializes nonces and blocks new signatures after an uncertain result.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L229)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L266)
 
 Import: `import {createRegisteredRelaySubmitter} from 'tasra-sdk/chain'`
 
@@ -894,6 +899,27 @@ declare function hashServiceManifest(bytes: Uint8Array): Hex;
 
 Returns: ` Hex `.
 
+### isRelayBusyReason
+
+True for a relayer refusal about its own load rather than the request: a full lane, a full
+journal or an unavailable shared sponsorship budget. The relayer answers these 422 `rejected`
+with `Retry-After` before journaling anything. "shared daily spend cap reached", quota and
+policy refusals are not busy.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L81)
+
+Import: `import {isRelayBusyReason} from 'tasra-sdk/chain'`
+
+```ts
+declare function isRelayBusyReason(reason: unknown): boolean;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` reason ` | ` unknown ` | The `reason` text of a relayer `rejected` status. |
+
+Returns: ` boolean `.
+
 ### jsonSafe
 
 Recursively convert bigints to strings so a decoded event can be JSON
@@ -1104,7 +1130,7 @@ Authenticate one approved provider and prepare complete client-signed initializa
 This function reserves nothing, sends no session POST and keeps the execution signer local.
 The caller must retain the returned object through uncertain creation/delivery outcomes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L193)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L194)
 
 Import: `import {prepareRegisteredPaidSession} from 'tasra-sdk/chain'`
 
@@ -1457,7 +1483,7 @@ Returns: ` Promise<PaidReservationResolution> `.
 
 Recover from a lost HTTP response or process restart using the trusted RPC, without broadcasting.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L216)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L253)
 
 Import: `import {reconcileRelayAttempt} from 'tasra-sdk/chain'`
 
@@ -1480,7 +1506,7 @@ Authenticate the worker report and original canonical reserved history before re
 client signature. Then independently verify returned evidence and exact result bytes. Missing,
 failed, interrupted, orphaned or unavailable history is a refusal, never an automatic retry of work.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L97)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L100)
 
 Import: `import {recoverKeeperExecution} from 'tasra-sdk/chain'`
 
@@ -1953,7 +1979,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 101 types</summary>
+<summary>Browse 102 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -2023,6 +2049,7 @@ Options, data structures and return types.
 - [RegisteredVerifierAgentSession](#registeredverifieragentsession)
 - [RelayAttempt](#relayattempt)
 - [RelayConfig](#relayconfig)
+- [RelayHttpResponse](#relayhttpresponse)
 - [RelayIntent](#relayintent)
 - [RelayReceipt](#relayreceipt)
 - [RelayReconciliation](#relayreconciliation)
@@ -2775,6 +2802,7 @@ Bounded keeper responses; no body text is included in transport errors.
 export interface KeeperRecoveryHttpResponse {
     status: number;
     body: Uint8Array;
+    retryAfterMs?: number;
 }
 ```
 
@@ -2782,12 +2810,13 @@ Fields:
 
 - **` status `**: Observed status; a refusal is never permission to execute or reserve again.
 - **` body `**: Exact bounded response bytes. Completed results are private; never log them.
+- **` retryAfterMs `**: Parsed `Retry-After` in ms, when the keeper sent one.
 
 ### KeeperRecoveryTransport
 
 Client-approved transport for public evidence and authenticated retained-result reads.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L20)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L22)
 
 ```ts
 export interface KeeperRecoveryTransport {
@@ -3017,6 +3046,7 @@ Bounded response from the original approved agent; non-success is never a retry 
 export interface PaidAgentHttpResponse {
     status: number;
     body: Uint8Array;
+    retryAfterMs?: number;
 }
 ```
 
@@ -3024,6 +3054,7 @@ Fields:
 
 - **` status `**: Observed HTTP status, including consent waits and unknown-delivery failures.
 - **` body `**: Exact bounded bytes; never log credentials or bearer-bearing creation bodies.
+- **` retryAfterMs `**: Parsed `Retry-After` in ms, when the service sent one. A wait hint, never a resend instruction.
 
 ### PaidAgentProposal
 
@@ -3073,7 +3104,7 @@ Fields:
 
 Transport for client-owned session initialization, consent and continuation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/paidAgentTransport.ts#L12)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/paidAgentTransport.ts#L14)
 
 ```ts
 export interface PaidAgentTransport extends ServiceDiscoveryTransport {
@@ -3532,7 +3563,7 @@ Fields:
 
 Result disclosed only after original canonical payment and exact-byte commitment checks.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L33)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L35)
 
 ```ts
 export interface RecoveredKeeperExecution {
@@ -3554,7 +3585,7 @@ Fields:
 
 Immutable local recovery intent and explicitly approved network capabilities.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L55)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L58)
 
 ```ts
 export interface RecoverKeeperExecutionOptions {
@@ -3618,7 +3649,7 @@ Fields:
 
 Prepared client-owned session; creation sends once, reconciliation only reads.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L79)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L80)
 
 ```ts
 export interface RegisteredPaidAgentSession {
@@ -3674,7 +3705,7 @@ Fields:
 
 Approved relay providers, pinned forwarder and durable recovery callbacks.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L36)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L49)
 
 ```ts
 export interface RegisteredRelayConfig {
@@ -3688,6 +3719,7 @@ export interface RegisteredRelayConfig {
     timeoutMs?: number;
     maxAttempts?: number;
     attemptMs?: number;
+    busyRetries?: number;
 }
 ```
 
@@ -3703,6 +3735,7 @@ Fields:
 - **` timeoutMs `**: Deadline in milliseconds after a submission leaves the serialization queue; defaults to 120000 and cannot exceed it.
 - **` maxAttempts `**: At most three authenticated providers receive the identical signed request.
 - **` attemptMs `**: Status polling budget per provider in milliseconds; defaults to 10000 and cannot exceed 30000.
+- **` busyRetries `**: Re-sends of the identical signed request to one provider after a busy refusal, 0..5 (default 3). Waits honor `Retry-After`, at most 10 s in total per provider.
 
 ### RegisteredVerifierAgentSession
 
@@ -3737,7 +3770,7 @@ Fields:
 
 JSON-safe reconciliation handle. Persist before POST to resume safely after a client restart.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L95)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L132)
 
 ```ts
 export interface RelayAttempt {
@@ -3789,12 +3822,33 @@ Fields:
 - **` timeoutMs `**: Deadline in milliseconds after a submission leaves the serialization queue; defaults to 120000 and cannot exceed it.
 - **` maxAttempts `**: At most three authenticated providers receive the identical signed request.
 - **` attemptMs `**: Status polling budget per provider in milliseconds; defaults to 10000 and cannot exceed 30000.
+- **` busyRetries `**: Re-sends of the identical signed request to one provider after a busy refusal, 0..5 (default 3). Waits honor `Retry-After`, at most 10 s in total per provider.
+
+### RelayHttpResponse
+
+Bounded relayer reply with the wait it requested, if any.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L19)
+
+```ts
+export interface RelayHttpResponse {
+    status: number;
+    body: Uint8Array;
+    retryAfterMs?: number;
+}
+```
+
+Fields:
+
+- **` status `**: HTTP status: 200/202 accepted or status, 422 a pre-acceptance refusal.
+- **` body `**: Bounded JSON body.
+- **` retryAfterMs `**: Parsed `Retry-After` in ms, when sent.
 
 ### RelayIntent
 
 Chain, forwarder, signer and exact calldata identifying a relay operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L18)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L31)
 
 ```ts
 export interface RelayIntent {
@@ -3820,7 +3874,7 @@ Fields:
 
 Verified forwarded transaction result with optional gas and native-token cost.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L62)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L99)
 
 ```ts
 export interface RelayReceipt {
@@ -3842,7 +3896,7 @@ Fields:
 
 Reconciled relay outcome. A receipt proves execution. Expired means the deadline passed with the nonce unused. Unresolvable means the nonce was consumed beyond the available log window; execution remains unknown and must not be retried as a new operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L167)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L204)
 
 ```ts
 export interface RelayReconciliation {
@@ -3862,7 +3916,7 @@ Fields:
 
 Guarded discovery and transaction relay transport with bounded response bodies.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L10)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L11)
 
 ```ts
 export interface RelayTransport extends ServiceDiscoveryTransport {
@@ -3871,12 +3925,18 @@ export interface RelayTransport extends ServiceDiscoveryTransport {
         maxBytes: number;
         signal: AbortSignal;
     }): Promise<Uint8Array>;
+    relayExchange?(url: string, options: {
+        body?: Uint8Array;
+        maxBytes: number;
+        signal: AbortSignal;
+    }): Promise<RelayHttpResponse>;
 }
 ```
 
 Fields:
 
 - **` relayRequest `**: Guard the socket just like discovery. Accept bounded JSON status bodies for 200/202/422.
+- **` relayExchange `**: Optional: the same guarded request, also reporting status and `Retry-After` for busy refusals.
 - **` request `**: Perform a bounded request using the required destination, TLS and cancellation policy; return response bytes.
 
 ### ReservePaidOperationOptions

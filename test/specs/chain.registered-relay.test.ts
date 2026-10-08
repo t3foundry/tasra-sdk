@@ -3,7 +3,7 @@ import {createWalletClient, defineChain, encodeAbiParameters, encodeEventTopics,
 import {privateKeyToAccount} from 'viem/accounts'
 import type {TasraChainClient} from '../../src/chain/client.js'
 import {authenticateApprovedService} from '../../src/chain/serviceIdentity.js'
-import {createRegisteredRelaySubmitter, reconcileRelayAttempt, relayForwarderAbi, RelayOutcomeUnknownError, type RelayAttempt, type RelayTransport} from '../../src/chain/registeredRelay.js'
+import {createRegisteredRelaySubmitter, isRelayBusyReason, reconcileRelayAttempt, relayForwarderAbi, RelayOutcomeUnknownError, type RelayAttempt, type RelayTransport} from '../../src/chain/registeredRelay.js'
 import type {ServiceApproval} from '../../src/chain/services.js'
 
 vi.mock('../../src/chain/serviceIdentity.js', async original => ({...await original<typeof import('../../src/chain/serviceIdentity.js')>(), authenticateApprovedService: vi.fn()}))
@@ -171,5 +171,56 @@ describe('durable application relay recovery', () => {
     await expect(h.submitter({resumeAttempt: async () => saved}).submit(target, '0x12345678')).rejects.toBeInstanceOf(RelayOutcomeUnknownError)
     expect(h.sign).toHaveBeenCalledTimes(1)
     expect(h.bodies).toHaveLength(1)
+  })
+})
+
+// Reason texts are the relayer's Display strings (keykeeper-relayer policy.rs Reject).
+const BUSY = ['relayer busy: the deferrable queue is full; retry shortly or submit directly',
+  'relayer busy: the request journal is full; retry shortly or submit directly',
+  'relayer busy: the shared sponsorship budget is unavailable; retry shortly or submit directly']
+const rejected = (reason: string) => ({status: 422, body: encode({id: '', state: 'rejected', reason}), retryAfterMs: 0})
+
+describe('relayer busy refusals', () => {
+  it('classifies only load refusals as busy', () => {
+    for (const reason of BUSY) expect(isRelayBusyReason(reason)).toBe(true)
+    for (const reason of ['shared daily spend cap reached', 'daily spend cap reached', 'per-signer gas quota exceeded for this window',
+      'no hot key is above the balance floor', 'duplicate request', 'bad request: relayer busy:', undefined, 7, 'relayer busy:' + 'x'.repeat(600)])
+      expect(isRelayBusyReason(reason)).toBe(false)
+  })
+
+  it.each(BUSY)('re-sends the identical signed request to the same provider after Retry-After (%s)', async reason => {
+    const h = harness()
+    const urls: string[] = []
+    h.transport.relayExchange = vi.fn(async (url: string, {body}: {body?: Uint8Array}) => {
+      urls.push(url); h.setRequest(body!)
+      if (urls.length < 3) return rejected(reason)
+      h.setNonce(1n); return {status: 202, body: encode({id: 'x', state: 'queued'})}
+    })
+    expect((await h.submitter().submit(target, '0x12345678')).txHash).toBe(txHash)
+    expect(h.sign).toHaveBeenCalledTimes(1)
+    expect(h.bodies).toHaveLength(3)
+    expect(h.bodies[1]).toEqual(h.bodies[0]); expect(h.bodies[2]).toEqual(h.bodies[0])
+    expect(new Set(urls)).toEqual(new Set(['https://01.example.com/v1/relay/forward']))
+    expect(authenticateApprovedService).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not re-send after a non-busy refusal and bounds busy re-sends per provider', async () => {
+    const g = harness()
+    const seen: string[] = []
+    g.transport.relayExchange = vi.fn(async (url: string, {body}: {body?: Uint8Array}) => {
+      seen.push(url); g.setRequest(body!)
+      return url.includes('01.') ? rejected('shared daily spend cap reached') : rejected(BUSY[1]!)
+    })
+    await expect(g.submitter({busyRetries: 2, timeoutMs: 2_000}).submit(target, '0x12345678')).rejects.toBeInstanceOf(RelayOutcomeUnknownError)
+    expect(seen.filter(u => u.includes('01.'))).toHaveLength(1)
+    expect(seen.filter(u => u.includes('02.'))).toHaveLength(3)
+    expect(g.sign).toHaveBeenCalledTimes(1)
+    expect(new Set(g.bodies.map(b => new TextDecoder().decode(b))).size).toBe(1)
+  })
+
+  it('refuses an out-of-range busy retry budget', () => {
+    const h = harness()
+    expect(() => h.submitter({busyRetries: 6})).toThrow('Invalid registered')
+    expect(() => h.submitter({busyRetries: -1})).toThrow('Invalid registered')
   })
 })

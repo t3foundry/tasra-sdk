@@ -220,6 +220,16 @@ it('preserves consent wait statuses without exposing error bodies or fetching a 
   expect(vi.mocked(f.transport.paidAgentRequest).mock.calls.at(-1)?.[1].bearer).toBeUndefined()
 })
 
+it('carries an agent Retry-After hint on a refusal without resending',async()=>{
+  const f=await fixture();await f.session.create();vi.mocked(f.transport.paidAgentRequest).mockClear()
+  vi.mocked(f.transport.paidAgentRequest).mockResolvedValueOnce({status:503,body:bytes({error:'busy'}),retryAfterMs:2000})
+  await expect(f.session.poll()).rejects.toMatchObject({name:'PaidAgentControlError',httpStatus:503,retryAfterMs:2000})
+  vi.mocked(f.transport.paidAgentRequest).mockResolvedValueOnce({status:425,body:bytes({}),retryAfterMs:-1})
+  const error=await f.session.poll().catch((e:unknown)=>e) as PaidAgentControlError
+  expect(error.httpStatus).toBe(425);expect(error.retryAfterMs).toBeUndefined()
+  expect(f.transport.paidAgentRequest).toHaveBeenCalledTimes(2)
+})
+
 it('exposes a QR only after checking the anchored signer and all original signed request claims',async()=>{
   const f=await fixture();await f.session.create()
   const context=f.context()!, claims={iss:'did:web:agent.example',client_id:f.profile.clientId,response_type:'vp_token',response_mode:'direct_post.jwt',

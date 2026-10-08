@@ -31,7 +31,7 @@ try {
 | Class | Carries | `retryable` |
 |---|---|---|
 | `TasraError` | base for all of the below | — |
-| `TasraHttpError` | `status`, `url`, `body` (200 chars) | 5xx / 429 |
+| `TasraHttpError` | `status`, `url`, `body` (200 chars), `retryAfterMs?` | 5xx / 429 / 425; 409/410/422 with `Retry-After` |
 | `AuthDeniedError` | as above; 401/403 | **never** |
 | `NodeUnreachableError` | `url` — no HTTP answer at all | yes |
 | `ThresholdNotMetError` | `got`, `need`, `reasons[]` | yes, unless every node denied |
@@ -45,6 +45,12 @@ A `true` result describes a possibly transient failure; it does not prove that
 repeating the operation is safe. Restrict automatic retries to safe reads, with
 an attempt limit, deadline and cancellation. Never automatically repeat a
 transaction, signing request or approval submission after an uncertain outcome.
+For a request that is safe to send again, `retryIdempotent(work, {policy, signal})`
+waits at least the service's `Retry-After` (plus bounded jitter), backs off without
+one, and rethrows the last failure once a wait would exceed `maxDelayMs` or
+`maxTotalWaitMs`. It cannot tell whether a request is safe to repeat; never wrap a
+paid operation, reservation or approval with it.
+
 `isAuthDenied(e)` is keyed on HTTP status rather than class, so it also catches a
 403 from `CommitteeAuthorizeError`.
 

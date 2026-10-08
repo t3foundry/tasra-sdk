@@ -4,7 +4,8 @@ import type {RegisteredAgentSession} from './registeredAgent.js'
 import type {AgentTransport} from './registeredAgent.js'
 import type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
 import type {KeeperRecoveryHttpResponse, KeeperRecoveryTransport} from './keeperRecovery.js'
-import type {RelayTransport} from './registeredRelay.js'
+import type {RelayHttpResponse, RelayTransport} from './registeredRelay.js'
+import {parseRetryAfter} from '../internal/retryAfter.js'
 import {lookup} from 'node:dns'
 import {request} from 'node:https'
 import {rootCertificates} from 'node:tls'
@@ -65,7 +66,8 @@ export function createNodeServiceStatusTransport(policy: ServiceTransportPolicy 
 export function createNodeRelayTransport(policy: ServiceTransportPolicy = {}): RelayTransport {
   const discovery = guardedTransport(policy, 'discovery')
   const relay = guardedTransport(policy, 'relay')
-  return {...discovery, relayRequest: relay.request}
+  return {...discovery, relayRequest: relay.request,
+    relayExchange: (url, options) => relay.request(url, {...options, full: true}) as unknown as Promise<RelayHttpResponse>}
 }
 
 /**
@@ -124,7 +126,9 @@ export function createNodeAgentWalletFetch(session: Pick<RegisteredAgentSession,
   }
 }
 
-type TransportOptions = {body?: Uint8Array; maxBytes: number; signal: AbortSignal; bearer?: string; method?: 'GET' | 'POST'; oauth?: {accessToken: string; proof: string}}
+type TransportOptions = {body?: Uint8Array; maxBytes: number; signal: AbortSignal; bearer?: string; method?: 'GET' | 'POST'; oauth?: {accessToken: string; proof: string}
+  /** Internal: return status and Retry-After with the bytes (relay busy handling). */
+  full?: boolean}
 function guardedTransport(policy: ServiceTransportPolicy, mode: 'paid-agent' | 'wallet'): {request(url: string, options: TransportOptions): Promise<PaidAgentHttpResponse>}
 function guardedTransport(policy: ServiceTransportPolicy, mode: 'keeper-recovery'): {request(url: string, options: TransportOptions): Promise<KeeperRecoveryHttpResponse>}
 function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'relay' | 'agent' | 'status'): {request(url: string, options: TransportOptions): Promise<Uint8Array>}
@@ -138,7 +142,7 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
   const ca = Array.isArray(policy.ca) ? policy.ca.map(c => typeof c === 'string' ? c : Buffer.from(c))
     : typeof policy.ca === 'string' || policy.ca === undefined ? policy.ca : Buffer.from(policy.ca)
   return {
-    request(url: string, {body, maxBytes, signal, bearer, method, oauth}: TransportOptions) {
+    request(url: string, {body, maxBytes, signal, bearer, method, oauth, full}: TransportOptions) {
       signal.throwIfAborted()
       if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > (recovery ? 16 * 1024 * 1024 : paid ? 10 * 1024 * 1024 : agent || wallet ? 1_048_576 : relay ? 4_096 : 16_384) || body && body.length > (recovery ? 65_536 : paid ? 2 * 1024 * 1024 : wallet ? 1_048_576 : agent || relay ? 65_536 : 2_048)) throw new Error('Invalid service HTTP bounds')
       const recoverySuffix = url.match(/\/v1\/prepaid\/execution(?:\/recover)?$/)?.[0]
@@ -216,7 +220,8 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
           res.on('end', () => {
             if (noContent && size !== 0) {fail(new Error('Unexpected paid agent response body')); return}
             const bytes = Buffer.concat(chunks,size)
-            resolve(paid || recovery || wallet ? {status: res.statusCode!, body: bytes} : bytes)
+            const header = res.headers['retry-after'], retryAfterMs = parseRetryAfter(Array.isArray(header) ? undefined : header)
+            resolve(paid || recovery || wallet || (relay && full) ? {status: res.statusCode!, body: bytes, ...(retryAfterMs !== undefined ? {retryAfterMs} : {})} : bytes)
           })
         })
         // Absolute request deadline also bounds DNS/TLS and slow trickle responses.
