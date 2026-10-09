@@ -23,6 +23,8 @@ export {
   statusAttestationHash,
   verifyStatusAttestation,
   verifyStatusAttestations,
+  requireStatusAttestations,
+  signersThatVerify,
   assertStatusAttestationsWire,
   STATUS_ATTESTATION_DOMAIN,
   REVOCATION_BOUND_SECS,
@@ -33,6 +35,7 @@ export {
   MAX_STATUS_ATTESTATIONS,
   STATUS_STALE_CODE,
   STATUS_MISSING_CODE,
+  STATUS_INVALID_CODE,
 } from './token.js'
 export type {
   TokenType,
@@ -46,6 +49,8 @@ export type {
   StatusAttestation,
   StatusAttestationWire,
   VerifyStatusAttestationsOptions,
+  RequireStatusAttestationsOptions,
+  StatusFreshness,
 } from './token.js'
 export {
   committeeAuthorize,

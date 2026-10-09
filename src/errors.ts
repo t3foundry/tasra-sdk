@@ -137,6 +137,50 @@ export class RevocationStatusError extends TasraHttpError {
   }
 }
 
+/** Stable code of a local revocation-status preflight refusal. */
+export type RevocationStatusPreflightCode = 'revocation_status_missing' | 'revocation_status_stale' | 'revocation_status_invalid'
+
+/**
+ * A committee grant was refused LOCALLY, before any keeper call, by the same rule a keeper in
+ * production posture applies: its revocation-status attestations
+ * (`keykeeper/committee-status-attestation/v1`) are missing (`revocation_status_missing`: absent,
+ * `null` or empty), fewer than a quorum are valid and fresh (`revocation_status_stale`), or the
+ * list is malformed, duplicated or carries a bad signature from a counted verifier
+ * (`revocation_status_invalid`).
+ *
+ * Unlike {@link RevocationStatusError} (a keeper's reply after a send), nothing was sent: a paid
+ * operation refused here stays in its pre-execution journal phase. Not retryable with this grant
+ * and never a reason to start a new session or payment automatically: present again for a fresh
+ * grant. `allowMissingStatusAttestations` (migration window only) waives `revocation_status_missing`
+ * and nothing else.
+ */
+export class RevocationStatusPreflightError extends TasraError {
+  /** Stable refusal code. */
+  readonly code: RevocationStatusPreflightCode
+  /** Always false: no keeper received the grant. */
+  readonly sent = false as const
+  /** Always true: a fresh grant needs a new presentation. */
+  readonly presentAgain = true as const
+  /** Paid operation identity, when the refusal stopped a journaled paid operation. */
+  readonly requestId?: string
+
+  constructor(args: {code: RevocationStatusPreflightCode; message: string; requestId?: string; cause?: unknown}) {
+    super(args.message, {retryable: false, cause: args.cause})
+    this.code = args.code
+    if (args.requestId !== undefined) this.requestId = args.requestId
+  }
+}
+
+/**
+ * True when a grant was refused locally for missing, stale or invalid revocation-status
+ * attestations before anything was sent.
+ *
+ * @param e - Caught value to classify.
+ */
+export function isRevocationStatusPreflightRefusal(e: unknown): e is RevocationStatusPreflightError {
+  return e instanceof RevocationStatusPreflightError
+}
+
 /**
  * The stable revocation-status refusal code in a keeper's 403 body, if any.
  *

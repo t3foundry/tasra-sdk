@@ -111,7 +111,7 @@ declare class KeeperRecoveryError {
 
 HTTP refusal or consent/recovery wait, with no credential-bearing response text.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L68)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L69)
 
 Import: `import {PaidAgentControlError} from 'tasra-sdk/chain'`
 
@@ -1335,7 +1335,7 @@ Authenticate one approved provider and prepare complete client-signed initializa
 This function reserves nothing, sends no session POST and keeps the execution signer local.
 The caller must retain the returned object through uncertain creation/delivery outcomes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L194)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L195)
 
 Import: `import {prepareRegisteredPaidSession} from 'tasra-sdk/chain'`
 
@@ -1347,6 +1347,7 @@ declare function prepareRegisteredPaidSession(chain: TasraChainClient, config: {
     members: readonly PaidVerifierWitness[];
     ruleHash: Hex;
     dcqlQuery: Record<string, unknown>;
+    allowMissingStatusAttestations?: boolean;
 }, params: PaidAgentSessionParams, consent: {
     certificate: ExecutionCertificate;
     signer: ClientExecutionSigner;
@@ -1373,6 +1374,7 @@ declare function prepareRegisteredPaidSession(chain: TasraChainClient, config: {
     members: readonly PaidVerifierWitness[];
     ruleHash: Hex;
     dcqlQuery: Record<string, unknown>;
+    allowMissingStatusAttestations?: boolean;
 }
 ```
 
@@ -2666,7 +2668,7 @@ Fields:
 
 Complete presentation explicitly accepted by the client before verifier work.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L36)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L37)
 
 ```ts
 export interface ClientApprovedPresentation {
@@ -3503,7 +3505,7 @@ Fields:
 
 Owner proposal, including its transport correlation identity.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L62)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L63)
 
 ```ts
 export interface PaidAgentProposal extends ExecutionProposal {
@@ -3523,7 +3525,7 @@ Fields:
 
 Client-built original operation and reserved intent. No provider fallback is permitted.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L26)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L27)
 
 ```ts
 export interface PaidAgentSessionParams extends CreateSessionParams {
@@ -3871,7 +3873,7 @@ Fields:
 
 Retained callback is untrusted until the application accepts its complete presentation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L50)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L51)
 
 ```ts
 export interface PaidRetainedPresentation {
@@ -4158,7 +4160,7 @@ Fields:
 
 Prepared client-owned session; creation sends once, reconciliation only reads.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L80)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L81)
 
 ```ts
 export interface RegisteredPaidAgentSession {

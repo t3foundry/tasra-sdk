@@ -2,8 +2,9 @@
 // which steps are never repeated, and how resume continues. Protocol crypto, RPC canonicality,
 // reservation and session bodies have their own suites; here they are replaced by spies.
 import {beforeEach, describe, expect, it, vi} from 'vitest'
-import {defineChain, type Address, type Hex} from 'viem'
+import {defineChain, hexToBytes, toHex, type Address, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
+import {ed25519} from '@noble/curves/ed25519'
 
 vi.mock('../../src/chain/billing.js', async original => ({...await original<typeof import('../../src/chain/billing.js')>(), requirePrepaidSlot: vi.fn()}))
 vi.mock('../../src/chain/prepaid.js', async original => ({...await original<typeof import('../../src/chain/prepaid.js')>(),
@@ -33,7 +34,8 @@ import {prepareRegisteredPaidSession, type RegisteredPaidAgentSession} from '../
 import {drivePaidSession, PaidSessionRecoveryError} from '../../src/app/paid-session.js'
 import {PaidAgentControlError} from '../../src/chain/registeredPaidAgent.js'
 import {VerifierAgentSessionError} from '../../src/verifier-agent/index.js'
-import {UnderfundedSlotError} from '../../src/errors.js'
+import {RevocationStatusPreflightError, UnderfundedSlotError} from '../../src/errors.js'
+import {assembleCompoundToken, compoundTokenHash, selectVerifierCommittee, statusAttestationHash, type CompoundTokenPayload} from '../../src/committee/token.js'
 import {PaidReservationAbortedError, PaidReservationUncertainError} from '../../src/chain/reservation.js'
 import {verifierAgentResult} from '../../src/oid4vp/verifier-agent.js'
 import {createExecutionCertificate} from '../../src/committee/execution.js'
@@ -47,7 +49,24 @@ const slot = h(3), salt = h(4), rule = JSON.stringify({credentials: [{id: 'a', f
 const chainDef = defineChain({id: 43112, name: 'local', nativeCurrency: {name: 'AVAX', symbol: 'AVAX', decimals: 18}, rpcUrls: {default: {http: ['http://localhost:1']}}})
 const deployment = {chainId: 43112, settlement: h(1, 20), keyRegistry: h(2, 20), verifierSet: h(5, 20), accountantSet: h(6, 20), beacon: h(9, 20)}
 const coordinator = {operator: h(11, 20), publicKey: h(12), url: 'http://127.0.0.1:4001'}
-const witnesses = [{index: 0, operator: h(13, 20), publicKey: h(14), proof: []}]
+// One drawn verifier (committee 1, quorum 1) with a real key: execute() re-checks the journaled
+// grant's revocation-status attestations against these anchored witnesses before any send.
+const verifierSeed = new Uint8Array(32).fill(15)
+const drawnIndex = selectVerifierCommittee(hexToBytes(slot), 7, hexToBytes(h(41)), 3, 1)[0]!
+const witnesses = [{index: drawnIndex, operator: h(13, 20), publicKey: toHex(ed25519.getPublicKey(verifierSeed)), proof: []}]
+/** Status attestation mode of the grant the mocked agent result returns. */
+type StatusMode = 'fresh' | 'stale' | 'missing' | 'forged'
+let statusMode: StatusMode = 'fresh'
+function grantToken(expected: {requestHash: Uint8Array; paymentHash?: string}, mode: StatusMode) {
+  const now = Math.floor(Date.now() / 1000)
+  const payload: CompoundTokenPayload = {tokenType: 'JWT', seed: hexToBytes(h(41)), epoch: 7, slotId: hexToBytes(slot), vpHash: hexToBytes(h(43)),
+    holderHash: hexToBytes(h(44)), ruleHash: hexToBytes(h(45)), requestHash: expected.requestHash, paymentHash: hexToBytes(expected.paymentHash as Hex),
+    binding: 1, verifierIndexes: [drawnIndex], iat: now, exp: now + 600}
+  const hash = compoundTokenHash(payload), until = mode === 'stale' ? now - 60 : now + 30
+  const attestation = {verifierIndex: drawnIndex, statusUntil: until, signature: ed25519.sign(statusAttestationHash(hash, drawnIndex, until), verifierSeed)}
+  if (mode === 'forged') attestation.statusUntil = now + 3_600
+  return assembleCompoundToken(payload, [{verifierIndex: drawnIndex, signature: ed25519.sign(hash, verifierSeed)}], mode === 'missing' ? undefined : [attestation])
+}
 
 function setup(change: {creator?: Address; ruleCommitment?: Hex; reorg?: boolean} = {}) {
   const store = createMemoryStore()
@@ -75,7 +94,9 @@ function setup(change: {creator?: Address; ruleCommitment?: Hex; reorg?: boolean
   vi.mocked(createExecutionCertificate).mockImplementation(async ({publicKey, expires}) => ({execution_key: `0x${Buffer.from(publicKey).toString('hex')}`, expires, creator_signature: h(51, 65)}))
   vi.mocked(prepareRegisteredPaidSession).mockResolvedValue({sessionId: 'ab'.repeat(32)} as RegisteredPaidAgentSession)
   vi.mocked(drivePaidSession).mockResolvedValue({status: 'done', phase: 'done'} as Awaited<ReturnType<typeof drivePaidSession>>)
-  vi.mocked(verifierAgentResult).mockReturnValue({token: {binding: 'holder_key'} as never, verifierProofs: [{verifierIndex: 0, operator: '13'.repeat(20), pubkey: '14'.repeat(32), proof: []}]})
+  statusMode = 'fresh'
+  vi.mocked(verifierAgentResult).mockImplementation(expected => ({token: grantToken(expected, statusMode),
+    verifierProofs: [{verifierIndex: drawnIndex, operator: '13'.repeat(20), pubkey: witnesses[0]!.publicKey.slice(2), proof: []}]}))
   const holder = {kind: 'local' as const, makePresentation: vi.fn(), submit: vi.fn()}
   const request = {slot, operation: {action: 'sign' as const, message: new TextEncoder().encode('hello')}, rule: {rule, salt}, holder}
   return {store, client, config, request, holder}
@@ -769,5 +790,65 @@ describe('paid operation index backfill', () => {
     const store: ApplicationStore = {load: inner.load.bind(inner), save: inner.save.bind(inner), withLock: inner.withLock.bind(inner)}
     await expect(listPaidOperations(store, {backfill: true})).rejects.toThrow(/list its keys/)
     expect(await listPaidOperations(store)).toEqual([])
+  })
+})
+
+describe('revocation-status preflight', () => {
+  // The keeper's rule, applied to the journaled grant before the `executing` checkpoint: a refusal
+  // sends nothing, so the journal stays `authorized` and the keeper work never runs.
+  it.each([
+    ['missing', 'revocation_status_missing'],
+    ['stale', 'revocation_status_stale'],
+    ['forged', 'revocation_status_invalid'],
+  ] as const)('refuses a %s grant before execution and leaves the journal authorized', async (mode, code) => {
+    const f = setup()
+    statusMode = mode
+    const op = await paidOperation(f.config, f.request)
+    expect(await paidOperationPhase(f.store, op.requestId)).toBe('authorized')
+    const work = vi.fn(async () => 'signature')
+    const error = await op.execute(work).catch((e: unknown) => e) as RevocationStatusPreflightError
+    expect(error).toBeInstanceOf(RevocationStatusPreflightError)
+    expect(error).not.toBeInstanceOf(PaidOperationRecoveryError)
+    expect(error).toMatchObject({code, sent: false, presentAgain: true, retryable: false, requestId: op.requestId})
+    expect(work).not.toHaveBeenCalled()
+    expect(await paidOperationPhase(f.store, op.requestId)).toBe('authorized')
+    // Nothing is retried, reserved or presented again automatically.
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(drivePaidSession).toHaveBeenCalledTimes(1)
+    op.dispose()
+  })
+
+  it('accepts a missing list only under the explicit migration opt-out, never a stale or forged one', async () => {
+    const f = setup()
+    const config = {...f.config, allowMissingStatusAttestations: true}
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    statusMode = 'missing'
+    const op = await paidOperation(config, f.request)
+    expect(vi.mocked(prepareRegisteredPaidSession).mock.calls[0]![1]).toMatchObject({allowMissingStatusAttestations: true})
+    expect(await op.execute(async () => 'signature')).toBe('signature')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('revocation_status_missing'))
+    expect(await paidOperationPhase(f.store, op.requestId)).toBe('executed')
+    for (const mode of ['stale', 'forged'] as const) {
+      const g = setup()
+      statusMode = mode
+      const refused = await paidOperation({...g.config, allowMissingStatusAttestations: true}, g.request)
+      const work = vi.fn(async () => 1)
+      await expect(refused.execute(work)).rejects.toBeInstanceOf(RevocationStatusPreflightError)
+      expect(work).not.toHaveBeenCalled()
+      expect(await paidOperationPhase(g.store, refused.requestId)).toBe('authorized')
+    }
+    warn.mockRestore()
+  })
+
+  it('passes the default (required) setting to the session and surfaces its completion refusal typed, journal certified', async () => {
+    const f = setup()
+    vi.mocked(drivePaidSession).mockRejectedValueOnce(new RevocationStatusPreflightError({code: 'revocation_status_missing', message: 'missing'}))
+    let requestId: Hex | undefined
+    const error = await paidOperation(f.config, {...f.request, onRequestId: id => { requestId = id }}).catch((e: unknown) => e)
+    expect(vi.mocked(prepareRegisteredPaidSession).mock.calls[0]![1]).toMatchObject({allowMissingStatusAttestations: false})
+    expect(error).toBeInstanceOf(RevocationStatusPreflightError)
+    expect(error).toMatchObject({code: 'revocation_status_missing', sent: false, requestId})
+    expect(await paidOperationPhase(f.store, requestId!)).toBe('certified')
+    expect(verifierAgentResult).not.toHaveBeenCalled()
   })
 })

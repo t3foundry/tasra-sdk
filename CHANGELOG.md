@@ -23,6 +23,27 @@ never does.
   `revocation_status_stale` or `revocation_status_missing` is a non-retryable "present the
   credential again" refusal, not an `AuthDeniedError`; resending the same grant cannot succeed.
   It is not proof that no keeper worked: a paid operation keeps its execution uncertain.
+- `RevocationStatusPreflightError` (`isRevocationStatusPreflightRefusal`, code
+  `revocation_status_missing` | `revocation_status_stale` | `revocation_status_invalid`,
+  `sent: false`): a grant refused locally, before any keeper call, by the keeper's own rule.
+  New in `tasra-sdk/committee`: `requireStatusAttestations`, `signersThatVerify`,
+  `STATUS_INVALID_CODE`. `verifyStatusAttestations` and `assertStatusAttestationsWire` now throw
+  this class (messages unchanged; still an `Error`).
+
+### Changed
+
+- **Paid operations REQUIRE revocation-status attestations.** A completed registered paid session
+  (`prepareRegisteredPaidSession(...).poll`) and `PaidOperation.execute` (before its `executing`
+  checkpoint) refuse a grant whose `status_attestations` are absent, `null` or empty
+  (`revocation_status_missing`, as a keeper reads them; `[]` was previously reported as stale),
+  stale for the quorum (`revocation_status_stale`) or malformed/forged
+  (`revocation_status_invalid`). Nothing is sent, so the journal stays `certified` or
+  `authorized`; `paidOperation`/`resumePaidOperation` rethrow the refusal with its `requestId`
+  instead of a `PaidOperationRecoveryError`. No new session or payment is started automatically,
+  and keeper refusals after a send remain uncertain execution evidence. For a deployment still
+  inside the keepers' documented migration window, `allowMissingStatusAttestations: true` (on
+  `PaidOperationConfig` or the `prepareRegisteredPaidSession` config; default false) accepts a
+  missing list with a `console.warn`; stale or invalid lists are always refused.
 
 ### Fixed
 

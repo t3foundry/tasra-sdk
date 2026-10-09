@@ -35,13 +35,13 @@ import {withDedicatedPayer} from './payer-queue.js'
 import {createExecutionCertificate, createLocalExecutionSigner, type ExecutionCertificate, type ExecutionStage} from '../committee/execution.js'
 import type {KeeperExecutionApprover} from '../committee/keeperExecution.js'
 import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
-import type {CompoundTokenWire} from '../committee/token.js'
+import {compoundTokenHash, decodeCompoundToken, requireStatusAttestations, signersThatVerify, type CompoundTokenWire} from '../committee/token.js'
 import {canonicalize} from '../auth/oid4vp.js'
 import {presentationOperationTypedData, verifierAgentResult, type PresentationOperation} from '../oid4vp/verifier-agent.js'
 import {requestHash, type CommitteeAction} from '../oid4vp/binding.js'
 import type {VerifiedRequestObject} from '../oid4vp/request-object.js'
 import type {VerifierProof} from '../committee/client.js'
-import {TasraError} from '../errors.js'
+import {RevocationStatusPreflightError, TasraError} from '../errors.js'
 import {base64Decode} from '../crypto/envelope.js'
 import type {IbeExtractionPartial} from '../committee/client.js'
 import {HEX32, RECORD_KEY, RECORD_PREFIX, paidRecordKey as recordKey} from './paid-keys.js'
@@ -76,6 +76,13 @@ export interface PaidOperationConfig {
   snapshotWaitMs?: number
   /** Poll interval while waiting on the agent, ms (default 1000). Agent Retry-After hints take precedence. */
   pollIntervalMs?: number
+  /**
+   * Accept a grant WITHOUT revocation-status attestations (with a warning), only for a deployment
+   * still inside the keepers' documented status-freshness migration window. Default false: the
+   * grant is refused with `revocation_status_missing` before execution. Stale or invalid
+   * attestations are always refused.
+   */
+  allowMissingStatusAttestations?: boolean
 }
 
 /** The one operation to authorize and how its holder presents. */
@@ -220,6 +227,18 @@ function sessionFailure(requestId: Hex, payment: PaymentIntentWire, error: unkno
   } else if (error instanceof PaidAgentControlError && refusal(error.httpStatus)) code = 'session-refused'
   if (code !== 'session-refused' && code !== 'session-write-uncertain' && expired(payment)) code = 'payment-expired'
   return new PaidOperationRecoveryError(requestId, 'session', error, {code})
+}
+/** The preflight refusal, tagged with the paid operation it stopped before execution. */
+function statusRefusal(requestId: Hex, error: RevocationStatusPreflightError): RevocationStatusPreflightError {
+  return new RevocationStatusPreflightError({code: error.code, message: error.message, requestId, cause: error})
+}
+/** The keeper's revocation-status rule over a journaled grant, against its anchored witnesses. */
+function statusPreflight(config: PaidOperationConfig, record: OperationRecord, wire: CompoundTokenWire): void {
+  const token = decodeCompoundToken(wire)
+  const set = {registrySize: record.payment.verification_registry_size,
+    pubkeys: new Map<number, Uint8Array>(record.members.map(m => [m.index, hexToBytes(m.publicKey)]))}
+  requireStatusAttestations({tokenHash: compoundTokenHash(token), attestations: token.statusAttestations, counted: signersThatVerify(token, set),
+    set, quorum: record.payment.verification_quorum, now: Math.floor(Date.now() / 1000), allowMissing: config.allowMissingStatusAttestations === true})
 }
 /** A caller abort in a journaled step that sent nothing uncertain. */
 function abortedError(requestId: Hex, phase: PaidOperationPhase, payment: PaymentIntentWire, signal: AbortSignal, error: unknown): PaidOperationRecoveryError {
@@ -448,7 +467,8 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
       let session
       try {
         session = await prepareRegisteredPaidSession(config.chain, {profile: config.agent.profile, deployment: {...d, defaultVerificationPolicy: d.defaultVerificationPolicy},
-          transport: config.agent.transport, members: record.members, ruleHash: keccak256(toHex(record.rule)), dcqlQuery: JSON.parse(record.rule) as Record<string, unknown>},
+          transport: config.agent.transport, members: record.members, ruleHash: keccak256(toHex(record.rule)), dcqlQuery: JSON.parse(record.rule) as Record<string, unknown>,
+          allowMissingStatusAttestations: config.allowMissingStatusAttestations === true},
         params, {certificate: record.certificate, signer, pollSecret: record.pollSecret, signal})
       } catch (error) {
         if (signal.aborted) throw abortedError(requestId, 'session', record.payment, signal, error)
@@ -460,6 +480,9 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
         result = await drivePaidSession({session, members: record.members, store, signal, holder, observeRequest, resume: true,
           wait: hint => sleep(Math.min(Math.max(hint ?? interval, 10), 60_000), signal)})
       } catch (error) {
+        // The completed grant failed the revocation-status preflight: nothing reached a keeper and
+        // the journal stays `certified`. Never a new session or payment automatically.
+        if (error instanceof RevocationStatusPreflightError) throw statusRefusal(requestId, error)
         // A journaled session write with an unknown outcome stays uncertain, abort or not.
         if (signal.aborted && !(error instanceof PaidSessionRecoveryError)) throw abortedError(requestId, 'session', record.payment, signal, error)
         throw sessionFailure(requestId, record.payment, error)
@@ -486,6 +509,14 @@ function handle(config: PaidOperationConfig, record: OperationRecord, signer: Re
     verifier_proofs: grant.verifierProofs.map(p => ({verifier_index: p.verifierIndex, operator: p.operator, pubkey: p.pubkey, proof: [...p.proof]})),
     approveExecution,
     async execute<R>(work: (operation: PaidOperation) => Promise<R>): Promise<R> {
+      // Revocation-status preflight on the journaled grant, BEFORE the `executing` checkpoint:
+      // a refusal sends nothing and leaves the journal `authorized`. After the send, a keeper's
+      // refusal stays an uncertain execution like any other.
+      try { statusPreflight(config, record, grant.compound_token) }
+      catch (error) {
+        if (error instanceof RevocationStatusPreflightError) throw statusRefusal(requestId, error)
+        throw error
+      }
       // Journal before sending: a lost reply leaves `executing`, which only recovery may read.
       await advance(store, requestId, 'authorized', {phase: 'executing'}).catch((error: unknown) => {
         throw new PaidOperationRecoveryError(requestId, 'execution', error)

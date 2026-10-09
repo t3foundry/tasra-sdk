@@ -15,6 +15,7 @@ import {concatBytes} from '@noble/hashes/utils'
 import {ed25519} from '@noble/curves/ed25519'
 
 import {bytesToHex, hexToBytes} from '../crypto/hex.js'
+import {RevocationStatusPreflightError} from '../errors.js'
 import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from './payment.js'
 
 // Domain separators (must equal the reference constants verbatim)
@@ -600,6 +601,13 @@ export const MAX_STATUS_ATTESTATIONS = 64
 export const STATUS_STALE_CODE = 'revocation_status_stale'
 /** Stable keeper refusal code: the keeper requires attestations and the grant carries none. */
 export const STATUS_MISSING_CODE = 'revocation_status_missing'
+/**
+ * Stable client preflight code: attestations are present but malformed, duplicated, over the cap
+ * or carry a bad signature from a counted verifier (a keeper refuses these without a stable code).
+ */
+export const STATUS_INVALID_CODE = 'revocation_status_invalid'
+
+const invalidStatus = (message: string) => new RevocationStatusPreflightError({code: STATUS_INVALID_CODE, message})
 
 /** One decoded status-freshness attestation. */
 export interface StatusAttestation {
@@ -697,14 +705,14 @@ export interface VerifyStatusAttestationsOptions {
  */
 export function verifyStatusAttestations(opts: VerifyStatusAttestationsOptions): number {
   const {tokenHash, attestations, counted, set, quorum, now} = opts
-  if (attestations.length > MAX_STATUS_ATTESTATIONS) throw new Error(`more than ${MAX_STATUS_ATTESTATIONS} status attestations`)
+  if (attestations.length > MAX_STATUS_ATTESTATIONS) throw invalidStatus(`more than ${MAX_STATUS_ATTESTATIONS} status attestations`)
   const seen = new Set<number>(), valid: number[] = []
   for (const a of attestations) {
-    if (seen.has(a.verifierIndex)) throw new Error(`duplicate status attestation from verifier index ${a.verifierIndex}`)
+    if (seen.has(a.verifierIndex)) throw invalidStatus(`duplicate status attestation from verifier index ${a.verifierIndex}`)
     seen.add(a.verifierIndex)
     if (!counted.includes(a.verifierIndex)) continue
     const pk = set.pubkeys.get(a.verifierIndex)
-    if (!pk || !verifyStatusAttestation(pk, tokenHash, a)) throw new Error(`invalid status attestation signature from verifier index ${a.verifierIndex}`)
+    if (!pk || !verifyStatusAttestation(pk, tokenHash, a)) throw invalidStatus(`invalid status attestation signature from verifier index ${a.verifierIndex}`)
     valid.push(a.statusUntil)
   }
   valid.sort((a, b) => b - a)
@@ -712,7 +720,72 @@ export function verifyStatusAttestations(opts: VerifyStatusAttestationsOptions):
   const deadline = valid[needed - 1]
   if (deadline !== undefined && now <= deadline + STATUS_SKEW_SECS) return deadline
   const fresh = valid.filter(until => now <= until + STATUS_SKEW_SECS).length
-  throw new Error(`revocation status freshness (${STATUS_STALE_CODE}): ${fresh} of the token's verifiers attest the holder's credential status fresh at ${now}, need ${quorum}; present again for a fresh grant`)
+  throw new RevocationStatusPreflightError({code: STATUS_STALE_CODE,
+    message: `revocation status freshness (${STATUS_STALE_CODE}): ${fresh} of the token's verifiers attest the holder's credential status fresh at ${now}, need ${quorum}; present again for a fresh grant`})
+}
+
+/**
+ * The registry indexes whose Ed25519 signature over the token's own canonical hash verifies under
+ * `set` (strict), distinct and drawn. Mirrors the reference `signers_that_verify`: no rule, draw,
+ * lifetime or quorum check - only "which signatures are real", for counting status attestations.
+ *
+ * @param token - Decoded token (payload + signatures).
+ * @param set - Anchored verifier keys.
+ */
+export function signersThatVerify(token: CompoundTokenPayload & {signatures: CommitteeSignature[]}, set: VerifierSet): number[] {
+  const hash = compoundTokenHash(token), out: number[] = []
+  for (const {verifierIndex, signature} of token.signatures) {
+    const pk = set.pubkeys.get(verifierIndex)
+    if (!pk || out.includes(verifierIndex) || !token.verifierIndexes.includes(verifierIndex)) continue
+    try { if (ed25519.verify(signature, hash, pk, {zip215: false})) out.push(verifierIndex) } catch { /* not counted */ }
+  }
+  return out
+}
+
+/** Inputs of {@link requireStatusAttestations}. */
+export interface RequireStatusAttestationsOptions extends Omit<VerifyStatusAttestationsOptions, 'attestations'> {
+  /** The token's attestations; `undefined` or empty means missing (as a keeper reads it). */
+  attestations: StatusAttestation[] | undefined
+  /**
+   * Accept a grant WITHOUT attestations (warning), for a deployment still inside the keepers'
+   * documented status-freshness migration window. Default false. Present-but-invalid or stale
+   * attestations are refused whatever this says.
+   */
+  allowMissing?: boolean
+}
+
+/** Accepted preflight outcome. */
+export type StatusFreshness =
+  | {
+    /** A quorum attests freshness. */
+    kind: 'fresh'
+    /** Effective status deadline (Unix seconds). */
+    statusUntil: number
+  }
+  | {
+    /** No attestations, accepted only under the migration opt-out. */
+    kind: 'missing-accepted'
+  }
+
+/**
+ * The keeper's status-freshness rule as a REQUIRED client preflight, run before any keeper call:
+ * a missing list throws `revocation_status_missing` (unless `allowMissing`), fewer than `quorum`
+ * fresh counted attestations `revocation_status_stale`, a malformed or forged list
+ * `revocation_status_invalid` - each a {@link RevocationStatusPreflightError}.
+ *
+ * @param opts - Token hash, attestations, counted signers, verifier set, quorum, time and opt-out.
+ */
+export function requireStatusAttestations(opts: RequireStatusAttestationsOptions): StatusFreshness {
+  const {attestations, allowMissing, ...rest} = opts
+  if (attestations === undefined || attestations.length === 0) {
+    if (allowMissing === true) {
+      console.warn(`${STATUS_MISSING_CODE} accepted by allowMissingStatusAttestations; a keeper outside its migration window will refuse this grant`)
+      return {kind: 'missing-accepted'}
+    }
+    throw new RevocationStatusPreflightError({code: STATUS_MISSING_CODE,
+      message: `revocation status freshness (${STATUS_MISSING_CODE}): the grant carries no revocation-status attestations; nothing was sent - present again for a fresh grant`})
+  }
+  return {kind: 'fresh', statusUntil: verifyStatusAttestations({...rest, attestations})}
 }
 
 /**
@@ -725,21 +798,21 @@ export function verifyStatusAttestations(opts: VerifyStatusAttestationsOptions):
  * @param maxEntries - Upper bound, normally the token's committee draw length.
  */
 export function assertStatusAttestationsWire(raw: unknown, maxEntries: number = MAX_STATUS_ATTESTATIONS): StatusAttestationWire[] {
-  if (!Array.isArray(raw)) throw new Error('status_attestations is not an array')
-  if (raw.length > Math.min(maxEntries, MAX_STATUS_ATTESTATIONS)) throw new Error('status_attestations exceeds the committee draw')
+  if (!Array.isArray(raw)) throw invalidStatus('status_attestations is not an array')
+  if (raw.length > Math.min(maxEntries, MAX_STATUS_ATTESTATIONS)) throw invalidStatus('status_attestations exceeds the committee draw')
   const seen = new Set<number>()
   return raw.map((entry: unknown) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('a status attestation is not an object')
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw invalidStatus('a status attestation is not an object')
     const e = entry as Record<string, unknown>
     const keys = Object.keys(e)
     if (keys.length !== 3 || !['verifier_index', 'status_until', 'signature'].every(k => Object.hasOwn(e, k))) {
-      throw new Error('a status attestation is not exactly {verifier_index, status_until, signature}')
+      throw invalidStatus('a status attestation is not exactly {verifier_index, status_until, signature}')
     }
     const index = e.verifier_index, until = e.status_until, signature = e.signature
-    if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0 || index > U32_MAX) throw new Error('status attestation verifier_index is not a u32')
-    if (typeof until !== 'number' || !Number.isSafeInteger(until)) throw new Error('status attestation status_until is not a safe integer')
-    if (typeof signature !== 'string' || !SIGNATURE_HEX.test(signature)) throw new Error('status attestation signature is not 0x + 64 bytes of hex')
-    if (seen.has(index)) throw new Error(`duplicate status attestation from verifier index ${index}`)
+    if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0 || index > U32_MAX) throw invalidStatus('status attestation verifier_index is not a u32')
+    if (typeof until !== 'number' || !Number.isSafeInteger(until)) throw invalidStatus('status attestation status_until is not a safe integer')
+    if (typeof signature !== 'string' || !SIGNATURE_HEX.test(signature)) throw invalidStatus('status attestation signature is not 0x + 64 bytes of hex')
+    if (seen.has(index)) throw invalidStatus(`duplicate status attestation from verifier index ${index}`)
     seen.add(index)
     return {verifier_index: index, status_until: until, signature}
   })

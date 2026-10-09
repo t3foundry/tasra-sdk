@@ -10,7 +10,8 @@ import {approveExecutionRequest, executionBodyHash, executionInitializationTyped
 import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 import {protocolHex} from '../committee/receipts.js'
 import {dpopHtu, platformAudience} from '../committee/oauth.js'
-import {BINDING_HOLDER_KEY, decodeCompoundToken, selectVerifierCommittee, verifierLeaf, verifyCompoundToken, verifyMerkleProof, verifyStatusAttestations, compoundTokenHash, type CompoundTokenWire} from '../committee/token.js'
+import {BINDING_HOLDER_KEY, assertStatusAttestationsWire, decodeCompoundToken, selectVerifierCommittee, verifierLeaf, verifyCompoundToken, verifyMerkleProof,
+  requireStatusAttestations, compoundTokenHash, type CompoundTokenWire} from '../committee/token.js'
 import {derivedNonce, requestHash, type CommitteeAction} from '../oid4vp/binding.js'
 import {b64urlDecode, decodeJson} from '../oid4vp/jose.js'
 import {verifyRequestObject, type VerifiedRequestObject} from '../oid4vp/request-object.js'
@@ -194,6 +195,12 @@ function presented(value: ClientApprovedPresentation): ClientApprovedPresentatio
 export async function prepareRegisteredPaidSession(chain: TasraChainClient, config: {
   profile: ApprovedAgentProfile; deployment: ClientExecutionDeployment; transport: PaidAgentTransport;
   members: readonly PaidVerifierWitness[]; ruleHash: Hex; dcqlQuery: Record<string,unknown>;
+  /**
+   * Accept a completed grant WITHOUT revocation-status attestations (with a warning), only for a
+   * deployment still inside the keepers' documented migration window. Default false: a missing
+   * list is `revocation_status_missing`. Stale or invalid attestations are always refused.
+   */
+  allowMissingStatusAttestations?: boolean;
 }, params: PaidAgentSessionParams, consent: {
   certificate: ExecutionCertificate; signer: ClientExecutionSigner; pollSecret?: string; expires?: number; signal?: AbortSignal;
 }): Promise<RegisteredPaidAgentSession> {
@@ -204,6 +211,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   const members = structuredClone([...config.members]), ruleHash = protocolHex(config.ruleHash,32,'client rule hash')
   executionBodyHash(object(config.dcqlQuery))
   const dcql = structuredClone(config.dcqlQuery), certificate = structuredClone(consent.certificate), signer = consent.signer
+  const allowMissingStatus = config.allowMissingStatusAttestations === true
   const localPublicKey=signer.publicKey.slice(),localSign=signer.sign.bind(signer)
   const activeSigner=(active:AbortSignal):ClientExecutionSigner=>({publicKey:localPublicKey.slice(),sign:async message=>{
     active.throwIfAborted();const signature=await localSign(message);active.throwIfAborted();return signature
@@ -360,6 +368,12 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   const poll = async (signal?:AbortSignal):Promise<SessionStatusResult> => {
     const response = await control('/v1/sessions/'+sessionId,'GET',undefined,signal);ok(response,[200])
     const raw = decode(response.body)
+    // A malformed status list is a typed `revocation_status_invalid` preflight refusal, checked
+    // before the generic protocol parse would fold it into a session error.
+    if (raw.status === 'done' && raw.compound_token && typeof raw.compound_token === 'object') {
+      const ct = raw.compound_token as Record<string,unknown>
+      if (ct.status_attestations != null) assertStatusAttestationsWire(ct.status_attestations,Array.isArray(ct.verifier_indexes)?ct.verifier_indexes.length:undefined)
+    }
     if (raw.execution_context !== undefined) checkContext(raw.execution_context)
     if (raw.binding_preimage !== null && raw.binding_preimage !== undefined && executionBodyHash(object(raw.binding_preimage)) !== executionBodyHash(expectedBinding)) throw new Error('Paid poll operation binding changed')
     const status = parseVerifierAgentSessionStatus(raw,sessionId)
@@ -372,11 +386,13 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
         || (identity===null?token.identityHash!==undefined:!token.identityHash||toHex(token.identityHash)!==keccak256(toHex(identity)))) throw new Error('Paid committee result changed its original operation, holder binding or payment')
       const set={registrySize:payment.verification_registry_size,pubkeys:new Map(members.map(m=>[m.index,protocolHex(m.publicKey,32,'key')]))},now=Math.floor(Date.now()/1000)
       const verified=verifyCompoundToken({token,set,committee:payment.verification_committee,quorum:payment.verification_quorum,now,leeway:0,slotRuleHash:ruleHash})
-      // Revocation-status attestations sit outside the token hash. Check them exactly as a keeper
-      // will (same keys, counted signers and quorum), so a grant every keeper would refuse is
-      // caught here; they are then carried to the keepers unchanged.
-      if(token.statusAttestations)verifyStatusAttestations({tokenHash:compoundTokenHash(token),attestations:token.statusAttestations,
-        counted:verified.verifiedSigners,set,quorum:payment.verification_quorum,now})
+      // Paid preflight: revocation-status attestations sit outside the token hash and are
+      // REQUIRED, checked exactly as a keeper will (same keys, counted signers and quorum), so a
+      // grant every keeper would refuse never reaches one. Missing (absent, null or empty) is
+      // `revocation_status_missing` unless the migration opt-out is set; stale or invalid are
+      // always refused. Accepted attestations are carried to the keepers unchanged.
+      requireStatusAttestations({tokenHash:compoundTokenHash(token),attestations:token.statusAttestations,
+        counted:verified.verifiedSigners,set,quorum:payment.verification_quorum,now,allowMissing:allowMissingStatus})
       // The signed payment hash already matched; carry its own original preimage to keepers.
       status.compoundToken!.payment=structuredClone(payment)
       // Downstream keepers receive the client's anchored witnesses, never unchecked agent proofs.

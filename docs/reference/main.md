@@ -9,7 +9,7 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 12 classes</summary>
+<summary>Browse 13 classes</summary>
 
 - [RecipientStore](#recipientstore)
 - [AuthDeniedError](#authdeniederror)
@@ -17,6 +17,7 @@ Clients, adapters and error classes.
 - [DcqlMalformedError](#dcqlmalformederror)
 - [NodeUnreachableError](#nodeunreachableerror)
 - [RevocationStatusError](#revocationstatuserror)
+- [RevocationStatusPreflightError](#revocationstatuspreflighterror)
 - [SlotRotatedError](#slotrotatederror)
 - [TasraError](#tasraerror)
 - [TasraHttpError](#tasrahttperror)
@@ -172,7 +173,7 @@ declare class DcqlMalformedError {
 The request never got an HTTP answer - DNS failure, connection refused,
 timeout, CORS. Retryable: the service may simply not be up yet.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L167)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L211)
 
 Import: `import {NodeUnreachableError} from 'tasra-sdk'`
 
@@ -252,13 +253,61 @@ declare class RevocationStatusError {
 
 - ` cause?: unknown; `
 
+### RevocationStatusPreflightError
+
+A committee grant was refused LOCALLY, before any keeper call, by the same rule a keeper in
+production posture applies: its revocation-status attestations
+(`keykeeper/committee-status-attestation/v1`) are missing (`revocation_status_missing`: absent,
+`null` or empty), fewer than a quorum are valid and fresh (`revocation_status_stale`), or the
+list is malformed, duplicated or carries a bad signature from a counted verifier
+(`revocation_status_invalid`).
+
+Unlike [RevocationStatusError](#revocationstatuserror) (a keeper's reply after a send), nothing was sent: a paid
+operation refused here stays in its pre-execution journal phase. Not retryable with this grant
+and never a reason to start a new session or payment automatically: present again for a fresh
+grant. `allowMissingStatusAttestations` (migration window only) waives `revocation_status_missing`
+and nothing else.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L157)
+
+Import: `import {RevocationStatusPreflightError} from 'tasra-sdk'`
+
+```ts
+declare class RevocationStatusPreflightError {
+    constructor(args: {
+        code: RevocationStatusPreflightCode;
+        message: string;
+        requestId?: string;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: RevocationStatusPreflightCode; ` — Stable refusal code.
+
+- ` readonly sent: false; ` — Always false: no keeper received the grant.
+
+- ` readonly presentAgain: true; ` — Always true: a fresh grant needs a new presentation.
+
+- ` readonly requestId?: string; ` — Paid operation identity, when the refusal stopped a journaled paid operation.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ### SlotRotatedError
 
 The slot was re-keyed (rotated) since the key in hand was assembled, so that
 key cannot read anything encrypted after the rotation. Retryable: re-assemble
 at the new epoch and try again - the managed [Session](#session) does this for you.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L215)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L259)
 
 Import: `import {SlotRotatedError} from 'tasra-sdk'`
 
@@ -370,7 +419,7 @@ signing set.
 this actionable: previously those were collected and then discarded, so a DNS
 failure and a cold DKG produced the same opaque message.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L186)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L230)
 
 Import: `import {ThresholdNotMetError} from 'tasra-sdk'`
 
@@ -480,7 +529,7 @@ declare class VerifierAgentSessionError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 87 functions</summary>
+<summary>Browse 88 functions</summary>
 
 - [accessTokenHash](#accesstokenhash)
 - [addressFromEoaPubkey](#addressfromeoapubkey)
@@ -536,6 +585,7 @@ Operations you can import and call.
 - [isJwtExpiringSoon](#isjwtexpiringsoon)
 - [isOid4vpRule](#isoid4vprule)
 - [isRetryable](#isretryable)
+- [isRevocationStatusPreflightRefusal](#isrevocationstatuspreflightrefusal)
 - [isRevocationStatusRefusal](#isrevocationstatusrefusal)
 - [issueAdminCredential](#issueadmincredential)
 - [isTasraPost](#istasrapost)
@@ -1683,7 +1733,7 @@ True when `e` is an auth rejection - i.e. retrying is pointless, re-claim
 instead. Keyed on the HTTP status rather than the class, so it also catches
 subclasses that carry their own name (e.g. `CommitteeAuthorizeError`).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L265)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L309)
 
 Import: `import {isAuthDenied} from 'tasra-sdk'`
 
@@ -1760,7 +1810,7 @@ Returns: ` boolean `.
 True when a typed failure may be transient. Errors outside the TasraError
 hierarchy return false. This hint does not make a write safe to repeat.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L275)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L319)
 
 Import: `import {isRetryable} from 'tasra-sdk'`
 
@@ -1774,12 +1824,31 @@ declare function isRetryable(e: unknown): boolean;
 
 Returns: ` boolean `.
 
+### isRevocationStatusPreflightRefusal
+
+True when a grant was refused locally for missing, stale or invalid revocation-status
+attestations before anything was sent.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L180)
+
+Import: `import {isRevocationStatusPreflightRefusal} from 'tasra-sdk'`
+
+```ts
+declare function isRevocationStatusPreflightRefusal(e: unknown): e is RevocationStatusPreflightError;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` e ` | ` unknown ` | - Caught value to classify. |
+
+Returns: ` e is RevocationStatusPreflightError `.
+
 ### isRevocationStatusRefusal
 
 True when a keeper refused a grant only for stale or missing revocation-status attestations:
 present the credential again for a fresh grant and repeat the call.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L159)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L203)
 
 Import: `import {isRevocationStatusRefusal} from 'tasra-sdk'`
 
@@ -2529,7 +2598,7 @@ Returns: ` Promise<SessionStatusResult> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 60 types</summary>
+<summary>Browse 61 types</summary>
 
 - [BlsPeer](#blspeer)
 - [BuildHolderProofOpts](#buildholderproofopts)
@@ -2578,6 +2647,7 @@ Options, data structures and return types.
 - [RenewalGrant](#renewalgrant)
 - [RetryDecision](#retrydecision)
 - [RetryPolicy](#retrypolicy)
+- [RevocationStatusPreflightCode](#revocationstatuspreflightcode)
 - [ScopeNamespace](#scopenamespace)
 - [SealedBlob](#sealedblob)
 - [Session](#session)
@@ -3671,6 +3741,16 @@ Fields:
 - **` maxDelayMs `**: Largest single wait in ms (default 10000). A longer `Retry-After` ends retrying.
 - **` maxTotalWaitMs `**: Largest sum of all waits in ms (default 30000, at most 600000).
 - **` random `**: Source of uniform randomness in [0, 1) for jitter; defaults to Math.random.
+
+### RevocationStatusPreflightCode
+
+Stable code of a local revocation-status preflight refusal.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L141)
+
+```ts
+export type RevocationStatusPreflightCode = 'revocation_status_missing' | 'revocation_status_stale' | 'revocation_status_invalid';
+```
 
 ### ScopeNamespace
 

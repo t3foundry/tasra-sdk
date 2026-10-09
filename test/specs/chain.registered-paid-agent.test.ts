@@ -19,6 +19,7 @@ import type {TasraChainClient} from '../../src/chain/client.js'
 import type {ApprovedAgentProfile} from '../../src/chain/registeredAgent.js'
 import type {PaidAgentTransport} from '../../src/chain/paidAgentTransport.js'
 import type {ServiceRecord} from '../../src/chain/services.js'
+import {RevocationStatusPreflightError} from '../../src/errors.js'
 
 // Policy reads have their own real ABI/RPC regressions in chain.paid-context.test.ts.
 // These tests isolate orchestration while retaining genuine creator/client signatures.
@@ -31,7 +32,7 @@ const cleanups:Array<()=>void>=[]
 beforeEach(()=>{vi.spyOn(Date,'now').mockReturnValue(1_000_000);vi.mocked(authenticateApprovedService).mockReset();vi.mocked(readClientExecutionPolicy).mockReset()})
 afterEach(()=>{cleanups.splice(0).forEach(cleanup=>cleanup());vi.restoreAllMocks();vi.useRealTimers()})
 
-async function fixture(kind:'wallet'|'oauth'='wallet') {
+async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestations?:boolean) {
   const creator=privateKeyToAccount(h(11)), signer=createLocalExecutionSigner(new Uint8Array(32).fill(21))
   cleanups.push(()=>signer.dispose())
   const sign=vi.fn(signer.sign), endpoint='https://agent.example'
@@ -84,7 +85,8 @@ async function fixture(kind:'wallet'|'oauth'='wallet') {
     if(url===endpoint+'/v1/sessions/'+sessionId)return {status:200,body:bytes({status:'pending',phase:'awaiting_wallet',execution_context:context,binding_preimage:context?.binding_preimage})}
     return {status:204,body:new Uint8Array()}
   })}
-  const prepare=(signal?:AbortSignal)=>prepareRegisteredPaidSession(chain,{profile,deployment,transport,members,ruleHash:h(33),dcqlQuery:{credentials:[{id:'all',format:'dc+sd-jwt'}]}},params,
+  const prepare=(signal?:AbortSignal)=>prepareRegisteredPaidSession(chain,{profile,deployment,transport,members,ruleHash:h(33),dcqlQuery:{credentials:[{id:'all',format:'dc+sd-jwt'}]},
+    ...(allowMissingStatusAttestations===undefined?{}:{allowMissingStatusAttestations})},params,
     {certificate,signer:{publicKey:signer.publicKey,sign},pollSecret:owner,expires:1030,signal})
   const session=await prepare();sessionId=session.sessionId
   const requestBody={operation:input.operation,operation_sig:operationSig,delegation:null,
@@ -315,9 +317,11 @@ it('requires genuine drawn quorum signatures and the original payment, rule and 
     requestHash:requestHash(43112,hexToBytes(f.payment.slot),'sign',hexToBytes(f.payment.payload_digest)),
     paymentHash:hexToBytes(paymentIntentHash(f.payment)),payment:f.payment,binding:1,
     verifierIndexes:selectVerifierCommittee(hexToBytes(f.payment.slot),7,hexToBytes(f.payment.verification_seed),2,2),iat:1000,exp:1030}
+  // A production agent relays a fresh quorum of status attestations; the paid preflight requires it.
   const signed=(change:Partial<CompoundTokenPayload>={},signers=[0,1])=>{
-    const token={...payload,...change},hash=compoundTokenHash(token)
-    return assembleCompoundToken(token,signers.map(verifierIndex=>({verifierIndex,signature:ed25519.sign(hash,new Uint8Array(32).fill(verifierIndex+1))})))
+    const token={...payload,...change},hash=compoundTokenHash(token),key=(i:number)=>new Uint8Array(32).fill(i+1)
+    return assembleCompoundToken(token,signers.map(verifierIndex=>({verifierIndex,signature:ed25519.sign(hash,key(verifierIndex))})),
+      signers.map(verifierIndex=>({verifierIndex,statusUntil:1020,signature:ed25519.sign(statusAttestationHash(hash,verifierIndex,1020),key(verifierIndex))})))
   }
   const reply=(compound_token:unknown)=>({status:200,body:bytes({status:'done',phase:'done',compound_token,
     verifier_proofs:[{verifier_index:999,pubkey:'untrusted agent key'}]})})
@@ -432,13 +436,63 @@ it('checks relayed revocation-status attestations exactly as a keeper and carrie
   vi.mocked(f.transport.paidAgentRequest).mockResolvedValueOnce(reply(token(good)))
   const completed=await f.session.poll()
   expect(completed.compoundToken?.status_attestations).toEqual(good)
-  // Absent: still accepted here (the keeper decides whether it requires them).
-  vi.mocked(f.transport.paidAgentRequest).mockResolvedValueOnce(reply(token()))
-  expect((await f.session.poll()).compoundToken).not.toHaveProperty('status_attestations')
   for(const [bad,why] of [[[att(0,1030)],/revocation_status_stale/],[[att(0,990),att(1,990)],/revocation_status_stale/],
     [[att(0,1030,new Uint8Array(32).fill(9)),att(1,1030)],/status attestation signature/],[[att(0,1030),att(0,1030)],/duplicate/],
-    [[{...att(0,1030),extra:1},att(1,1030)],/exactly/],[[],/revocation_status_stale/]] as const){
+    [[{...att(0,1030),extra:1},att(1,1030)],/exactly/]] as const){
     vi.mocked(f.transport.paidAgentRequest).mockResolvedValueOnce(reply(token(bad)))
     await expect(f.session.poll()).rejects.toThrow(why)
+  }
+})
+
+it('REQUIRES status attestations on a completed paid grant: missing, stale and invalid are typed refusals before any keeper call',async()=>{
+  const f=await fixture();await f.session.create()
+  const payload:CompoundTokenPayload={tokenType:'JWT',seed:hexToBytes(f.payment.verification_seed),epoch:7,slotId:hexToBytes(f.payment.slot),
+    vpHash:hexToBytes(h(34)),holderHash:hexToBytes(h(35)),ruleHash:hexToBytes(h(33)),
+    requestHash:requestHash(43112,hexToBytes(f.payment.slot),'sign',hexToBytes(f.payment.payload_digest)),
+    paymentHash:hexToBytes(paymentIntentHash(f.payment)),payment:f.payment,binding:1,
+    verifierIndexes:selectVerifierCommittee(hexToBytes(f.payment.slot),7,hexToBytes(f.payment.verification_seed),2,2),iat:1000,exp:1030}
+  const hash=compoundTokenHash(payload), key=(i:number)=>new Uint8Array(32).fill(i+1)
+  const att=(i:number,until:number)=>({verifier_index:i,status_until:until,signature:toHex(ed25519.sign(statusAttestationHash(hash,i,until),key(i)))})
+  const token=(status_attestations?:unknown)=>({...assembleCompoundToken(payload,[0,1].map(verifierIndex=>({verifierIndex,signature:ed25519.sign(hash,key(verifierIndex))}))),
+    ...(status_attestations===undefined?{}:{status_attestations})})
+  const reply=(compound_token:unknown)=>({status:200,body:bytes({status:'done',phase:'done',compound_token})})
+  const send=vi.mocked(f.transport.paidAgentRequest)
+  // Absent, null and empty are all MISSING, exactly as a keeper reads them.
+  for(const compound_token of [token(),token(null),token([])]){
+    send.mockClear();send.mockResolvedValueOnce(reply(compound_token))
+    const error=await f.session.poll().catch((e:unknown)=>e)
+    expect(error).toBeInstanceOf(RevocationStatusPreflightError)
+    expect(error).toMatchObject({code:'revocation_status_missing',sent:false,presentAgain:true})
+    // The only request was the status read: nothing went to a keeper or another session.
+    expect(send).toHaveBeenCalledTimes(1);expect(send.mock.calls[0]![1].method).toBe('GET')
+  }
+  for(const [bad,code] of [[[att(0,990),att(1,990)],'revocation_status_stale'],[[att(0,1030)],'revocation_status_stale'],
+    [[{...att(0,1030),status_until:1031},att(1,1030)],'revocation_status_invalid'],[[{...att(0,1030),extra:1},att(1,1030)],'revocation_status_invalid']] as const){
+    send.mockResolvedValueOnce(reply(token(bad)))
+    await expect(f.session.poll()).rejects.toMatchObject({name:'RevocationStatusPreflightError',code})
+  }
+  send.mockResolvedValueOnce(reply(token([att(0,1030),att(1,1030)])))
+  expect((await f.session.poll()).status).toBe('done')
+})
+
+it('accepts a missing list only under the migration opt-out, never a stale or forged one',async()=>{
+  const f=await fixture('wallet',true);await f.session.create()
+  const warn=vi.spyOn(console,'warn').mockImplementation(()=>{})
+  const payload:CompoundTokenPayload={tokenType:'JWT',seed:hexToBytes(f.payment.verification_seed),epoch:7,slotId:hexToBytes(f.payment.slot),
+    vpHash:hexToBytes(h(34)),holderHash:hexToBytes(h(35)),ruleHash:hexToBytes(h(33)),
+    requestHash:requestHash(43112,hexToBytes(f.payment.slot),'sign',hexToBytes(f.payment.payload_digest)),
+    paymentHash:hexToBytes(paymentIntentHash(f.payment)),payment:f.payment,binding:1,
+    verifierIndexes:selectVerifierCommittee(hexToBytes(f.payment.slot),7,hexToBytes(f.payment.verification_seed),2,2),iat:1000,exp:1030}
+  const hash=compoundTokenHash(payload), key=(i:number)=>new Uint8Array(32).fill(i+1)
+  const att=(i:number,until:number)=>({verifier_index:i,status_until:until,signature:toHex(ed25519.sign(statusAttestationHash(hash,i,until),key(i)))})
+  const token=(status_attestations?:unknown)=>({...assembleCompoundToken(payload,[0,1].map(verifierIndex=>({verifierIndex,signature:ed25519.sign(hash,key(verifierIndex))}))),
+    ...(status_attestations===undefined?{}:{status_attestations})})
+  const reply=(compound_token:unknown)=>({status:200,body:bytes({status:'done',phase:'done',compound_token})})
+  vi.mocked(f.transport.paidAgentRequest).mockResolvedValueOnce(reply(token()))
+  expect((await f.session.poll()).compoundToken).not.toHaveProperty('status_attestations')
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining('revocation_status_missing'))
+  for(const [bad,code] of [[[att(0,990),att(1,990)],'revocation_status_stale'],[[{...att(0,1030),status_until:1031},att(1,1030)],'revocation_status_invalid']] as const){
+    vi.mocked(f.transport.paidAgentRequest).mockResolvedValueOnce(reply(token(bad)))
+    await expect(f.session.poll()).rejects.toMatchObject({name:'RevocationStatusPreflightError',code})
   }
 })

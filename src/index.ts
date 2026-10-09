@@ -88,10 +88,13 @@ export {
   ThresholdNotMetError,
   SlotRotatedError,
   RevocationStatusError,
+  RevocationStatusPreflightError,
   isAuthDenied,
   isRetryable,
   isRevocationStatusRefusal,
+  isRevocationStatusPreflightRefusal,
 } from './errors.js'
+export type {RevocationStatusPreflightCode} from './errors.js'
 // Bounded waits honoring Retry-After, for requests that are safe to send again.
 // Never wrap a paid flow, reservation or other write whose outcome is uncertain.
 export {retryIdempotent, retryDelayMs, parseRetryAfter, classifyRetry, classifyRefusal, classifyRefusedWrite,
