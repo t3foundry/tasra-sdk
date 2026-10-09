@@ -120,28 +120,46 @@ export function didJwk(jwk: Jwk): string {
   return `did:jwk:${b64url(JSON.stringify(canon))}`
 }
 /**
+ * Copy caller key bytes into a fresh, plain `Uint8Array` that shares no memory with the input.
+ * `slice()` is not enough: on a Node `Buffer` it returns a VIEW of the same memory.
+ */
+function ownedKeyBytes(bytes: Uint8Array): Uint8Array {
+  // Uint8Array.from would silently coerce a string or number array; only real bytes are a key.
+  if (!(bytes instanceof Uint8Array)) throw new Error('Holder key must be a Uint8Array')
+  return Uint8Array.from(bytes)
+}
+/**
  * Construct a holder identity from a 32-byte P-256 private scalar.
  *
- * @param privateKey - 32-byte P-256 private scalar.
+ * @param privateKey - 32-byte P-256 private scalar. Copied: the holder's `privateKey` never
+ *   shares memory with it, so the caller may wipe its bytes once this returns.
  */
 export function p256HolderKey(privateKey: Uint8Array): HolderKey {
   if (privateKey.length !== 32) throw new Error('P-256 private key must be 32 bytes')
-  const publicJwk = p256PublicJwk(privateKey)
-  return {privateKey, publicJwk, did: didJwk(publicJwk)}
+  const owned = ownedKeyBytes(privateKey)
+  try {
+    const publicJwk = p256PublicJwk(owned)
+    return {privateKey: owned, publicJwk, did: didJwk(publicJwk)}
+  } catch (error) { owned.fill(0); throw error }
 }
 /**
  * An Ed25519 holder key from a 32-byte seed - the shape `tasra-cli vc issue-sd-jwt` binds.
  *
- * @param seed - 32-byte Ed25519 secret seed.
+ * @param seed - 32-byte Ed25519 secret seed. Copied: the holder's `privateKey` never shares
+ *   memory with it, so the caller may wipe its bytes once this returns.
  */
 export function ed25519HolderKey(seed: Uint8Array): HolderKey {
-  const publicJwk: OkpJwk = {kty: 'OKP', crv: 'Ed25519', x: b64url(ed25519.getPublicKey(seed))}
-  return {privateKey: seed, publicJwk, did: didJwk(publicJwk)}
+  const owned = ownedKeyBytes(seed)
+  try {
+    const publicJwk: OkpJwk = {kty: 'OKP', crv: 'Ed25519', x: b64url(ed25519.getPublicKey(owned))}
+    return {privateKey: owned, publicJwk, did: didJwk(publicJwk)}
+  } catch (error) { owned.fill(0); throw error }
 }
 
 /** Generate a random P-256 holder key and its did:jwk identifier. */
 export function randomHolderKey(): HolderKey {
-  return p256HolderKey(p256.utils.randomPrivateKey())
+  const scalar = p256.utils.randomPrivateKey()
+  try { return p256HolderKey(scalar) } finally { scalar.fill(0) }
 }
 
 // base58btc (did:key)

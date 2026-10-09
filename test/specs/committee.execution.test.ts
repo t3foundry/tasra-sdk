@@ -257,6 +257,40 @@ describe('local-only execution signer', () => {
     await expect(signer.sign(message)).rejects.toThrow(/disposed/)
     expect(Object.keys(signer)).toEqual(['publicKey', 'sign', 'dispose'])
   })
+  // D5 (native run 20261009T140431Z): Buffer#slice is a VIEW, so `seed.slice()` aliased a Buffer
+  // seed and the caller's wipe zeroed the signer's secret under an unchanged publicKey.
+  it.each([
+    ['a Node Buffer', (raw: Uint8Array) => ({seed: Buffer.from(raw), backing: undefined})],
+    ['a subarray view of a larger Buffer', (raw: Uint8Array) => {
+      const backing = Buffer.alloc(96, 0xa5); backing.set(raw, 40)
+      return {seed: backing.subarray(40, 72), backing}
+    }],
+    ['a Uint8Array view of a larger ArrayBuffer', (raw: Uint8Array) => {
+      const backing = new Uint8Array(96).fill(0x5a); backing.set(raw, 8)
+      return {seed: new Uint8Array(backing.buffer, 8, 32), backing}
+    }],
+  ] as const)('keeps a signer valid after the caller wipes %s seed, and dispose never touches it', async (_label, make) => {
+    const raw = new Uint8Array(32).map((_, i) => i * 7 + 1), {seed, backing} = make(raw)
+    const signer = createLocalExecutionSigner(seed)
+    expect(signer.publicKey).toEqual(ed25519.getPublicKey(raw))
+    seed.fill(0); backing?.fill(0)
+    const message = new Uint8Array(32).fill(7)
+    expect(ed25519.verify(await signer.sign(message), message, signer.publicKey, {zip215: false})).toBe(true)
+    const fresh = Buffer.from(raw), second = createLocalExecutionSigner(fresh)
+    second.dispose()
+    expect(fresh).toEqual(Buffer.from(raw))
+  })
+  it('reproduces D5: the caller wipes its Buffer seed in a finally right after construction', async () => {
+    const message = new Uint8Array(32).fill(7)
+    for (const make of [(b: Uint8Array) => Buffer.from(b), (b: Uint8Array) => new Uint8Array(b)]) {
+      const seed = make(globalThis.crypto.getRandomValues(new Uint8Array(32)))
+      let signer: ReturnType<typeof createLocalExecutionSigner>
+      try { signer = createLocalExecutionSigner(seed) } finally { seed.fill(0) }
+      const signature = await signer.sign(message)
+      expect(ed25519.verify(signature, message, signer.publicKey, {zip215: false})).toBe(true)
+      signer.dispose()
+    }
+  })
   it('generates fresh client keys and refuses malformed seeds without exporting a private seed', () => {
     const first = createLocalExecutionSigner(), second = createLocalExecutionSigner()
     expect(first.publicKey).not.toEqual(second.publicKey)

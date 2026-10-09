@@ -545,7 +545,7 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
     try {
       const certificate = await createExecutionCertificate({payment: record.payment, policy, publicKey: signer.publicKey, expires: record.payment.expires,
         creator: config.creator})
-      record = await advance(store, requestId, 'reserved', {phase: 'certified', seed: seed.slice(), certificate, pollSecret: toHex(random32()).slice(2)})
+      record = await advance(store, requestId, 'reserved', {phase: 'certified', seed: Uint8Array.from(seed), certificate, pollSecret: toHex(random32()).slice(2)})
     } finally { signer.dispose(); seed.fill(0) }
   }
   if (!record.seed || !record.certificate || !record.pollSecret) throw new TasraError('Paid operation journal lacks its execution consent')

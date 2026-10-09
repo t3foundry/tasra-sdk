@@ -45,10 +45,18 @@ export function createIdentity(options: {algorithm?: 'Ed25519' | 'P-256'; seed?:
   const algorithm = options.algorithm ?? 'Ed25519'
   if (algorithm !== 'Ed25519' && algorithm !== 'P-256') throw new Error('Unsupported identity algorithm')
   if (options.seed !== undefined && (!(options.seed instanceof Uint8Array) || options.seed.length !== 32)) throw new Error('Identity seed must contain 32 bytes')
-  const secret = options.seed?.slice() ?? (algorithm === 'P-256' ? randomHolderKey().privateKey : crypto.getRandomValues(new Uint8Array(32)))
+  // The holder constructors take an owned COPY (Uint8Array.from, never slice(): Buffer#slice is a
+  // view), so a caller wiping its seed cannot zero this identity's key; the copy erases itself on
+  // failure. The fresh random seed is wiped here once copied.
   let holder: HolderKey
-  try { holder = algorithm === 'P-256' ? p256HolderKey(secret) : ed25519HolderKey(secret) }
-  catch (error) { secret.fill(0); throw error }
+  if (options.seed !== undefined) holder = algorithm === 'P-256' ? p256HolderKey(options.seed) : ed25519HolderKey(options.seed)
+  else if (algorithm === 'P-256') holder = randomHolderKey()
+  else {
+    const fresh = crypto.getRandomValues(new Uint8Array(32))
+    try { holder = ed25519HolderKey(fresh) } finally { fresh.fill(0) }
+  }
+  // The single SDK-owned copy: destroy() zeroes the holder's key itself.
+  const secret = holder.privateKey
   Object.freeze(holder.publicJwk)
   Object.freeze(holder)
   const issuer = Object.freeze({did: holder.did, kid: `${holder.did}#0`, signer: Object.freeze(holderSigner(holder))})
@@ -58,7 +66,7 @@ export function createIdentity(options: {algorithm?: 'Ed25519' | 'P-256'; seed?:
     did: holder.did, algorithm,
     get holder() { assertLive(); return holder },
     get issuer() { assertLive(); return issuer },
-    exportPrivateKey() { assertLive(); return secret.slice() },
+    exportPrivateKey() { assertLive(); return Uint8Array.from(secret) },
     destroy() { secret.fill(0); destroyed = true },
     toJSON() { return {did: holder.did, algorithm} },
   })

@@ -731,7 +731,7 @@ Return details: A client with read-only checks and authorized slot operations.
 
 Authorize one exact SDK operation: sign its request, present a credential, collect bound proofs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L368)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L376)
 
 Import: `import {credentialAuthorization} from 'tasra-sdk/app'`
 
@@ -749,7 +749,7 @@ Returns: ` OperationAuthorizer `.
 
 Build and validate the policy committed to a slot, with issuer trust pinned explicitly.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L252)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L260)
 
 Import: `import {credentialPolicy} from 'tasra-sdk/app'`
 
@@ -827,7 +827,7 @@ Return details: Approver adapter exposing the public key and signing callback.
 
 Issue a holder-bound SD-JWT credential; protocol claims cannot be replaced by app claims.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L142)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L150)
 
 Import: `import {issueCredential} from 'tasra-sdk/app'`
 
@@ -974,7 +974,7 @@ Present selected, holder-bound credentials to a signed OID4VP request. Passing c
 explicit consent to the default selection; provide `choose` to display a wallet consent screen.
 A local policy mismatch throws locally and is not evidence of a verifier rejection.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L300)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L308)
 
 Import: `import {presentCredentials} from 'tasra-sdk/app'`
 
@@ -1345,7 +1345,7 @@ Verify an SD-JWT issued by a self-certifying did:jwk/did:key, its lifetime and o
 Signature verification proves key control; trust in that issuer must come from the app's policy.
 This does not perform revocation/status checks or resolve did:web issuers.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L193)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L201)
 
 Import: `import {verifyCredential} from 'tasra-sdk/app'`
 
@@ -1863,7 +1863,7 @@ Fields:
 
 Approved verifier-agent endpoint, holder credentials and consent controls for operation authorization.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L327)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L335)
 
 ```ts
 export interface CredentialAuthorizationOptions {
@@ -1895,7 +1895,7 @@ Fields:
 
 Trusted issuer and claim restrictions used to build a credential authorization rule.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L228)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L236)
 
 ```ts
 export interface CredentialPolicyOptions {
@@ -1979,7 +1979,7 @@ Fields:
 
 Issuer, holder and claims for a signed, expiring SD-JWT credential.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L110)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L118)
 
 ```ts
 export interface IssueCredentialOptions {
@@ -2533,7 +2533,7 @@ Fields:
 
 Credential selection, request validation and cancellation controls for OID4VP presentation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L284)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L292)
 
 ```ts
 export interface PresentCredentialsOptions extends PresentOpts {
@@ -3029,7 +3029,7 @@ Fields:
 
 Optional issuer, holder, type and subject pins applied during credential verification.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L162)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L170)
 
 ```ts
 export interface VerifyCredentialOptions {

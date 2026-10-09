@@ -181,7 +181,7 @@ be exactly `{token_hash, status_attestations}`; each attestation is re-verified 
 original roster (the agent is not trusted). A non-200 answer becomes a typed
 ` StatusRefreshError `, with the relay's per-index `reasons` when it sent them.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L603)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L655)
 
 Import: `import {acceptStatusRefreshRelay} from 'tasra-sdk/committee'`
 
@@ -346,7 +346,7 @@ Returns: ` VerifierProof[] | undefined `.
 Classify a non-200 refresh answer by its HTTP status and the stable code in its body. A code
 that does not belong to the status is ignored; an unclassified answer is `status_refresh_http`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L346)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L347)
 
 Import: `import {classifyStatusRefreshResponse} from 'tasra-sdk/committee'`
 
@@ -706,8 +706,10 @@ Returns: ` Promise<ExecutionRecoveryAuthorization> `.
 
 Create a disposable client-only Ed25519 execution signer. The seed is copied or generated
 with Web Crypto, retained only locally and erased by dispose; caller copies remain its responsibility.
+The copy never shares memory with the caller's bytes (a Node `Buffer` or any view of a larger
+buffer included), so the caller may wipe its seed at once and dispose never touches it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L481)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L483)
 
 Import: `import {createLocalExecutionSigner} from 'tasra-sdk/committee'`
 
@@ -727,7 +729,7 @@ Sign one refresh proof. `client_execution` signs the hash with the execution key
 (`0x`-hex Ed25519); `holder_key` signs a compact JWS (`typ: keykeeper-status-refresh+jwt`,
 header `jwk`, payload `{"refresh":"0x<hash>"}`).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L222)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L223)
 
 Import: `import {createStatusRefreshProof} from 'tasra-sdk/committee'`
 
@@ -1755,7 +1757,7 @@ Strictly validate an untrusted verifier refresh reply. Throws ` StatusRefreshErr
 (`status_refresh_invalid_response`). Validates the SHAPE only; the signature is checked against
 the original roster by the refresh functions.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L294)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L295)
 
 Import: `import {parseStatusRefreshReply} from 'tasra-sdk/committee'`
 
@@ -2054,7 +2056,7 @@ Refresh a grant's status directly at its original signers' verifiers
 (`POST /v1/committee/status-refresh`), verify every reply under the original roster, and merge.
 Sends the one proof once per original signer; never retries.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L557)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L605)
 
 Import: `import {refreshStatusDirect} from 'tasra-sdk/committee'`
 
@@ -2077,7 +2079,7 @@ Throws: StatusRefreshError when fewer than a quorum of fresh, valid, capped atte
 Refresh a grant's status through the verifier-agent relay. The agent fans the proof out to the
 original signers; its answer is re-verified here exactly as in [refreshStatusDirect](#refreshstatusdirect).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L665)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L717)
 
 Import: `import {refreshStatusViaAgent} from 'tasra-sdk/committee'`
 
@@ -2229,7 +2231,7 @@ The 32-byte digest a refresh proof signs:
 `keccak256(DOMAIN || chainId(u64 BE) || tokenHash || paymentHash|zero32 || principalKind(u8)
 || seq(u64 BE) || issuedAt(i64 BE))`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L129)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L130)
 
 Import: `import {statusRefreshHash} from 'tasra-sdk/committee'`
 
@@ -2248,7 +2250,7 @@ Returns: ` Uint8Array `.
 A [StatusRefreshHolderSigner](#statusrefreshholdersigner-1) over a local holder key (P-256 → ES256, Ed25519 → EdDSA).
 The returned signer keeps a reference to `holder.privateKey`; the caller owns its lifetime.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L163)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L164)
 
 Import: `import {statusRefreshHolderSigner} from 'tasra-sdk/committee'`
 
@@ -2266,7 +2268,7 @@ Returns: ` StatusRefreshHolderSigner `.
 
 The relay request body `{proof}` (for a caller-owned transport).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L688)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L741)
 
 Import: `import {statusRefreshRelayBody} from 'tasra-sdk/committee'`
 
@@ -2284,7 +2286,7 @@ Returns: ` Uint8Array `.
 
 The exact verifier request body `{chain_id, token_hash, proof}` (≤ 4096 bytes).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L267)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L268)
 
 Import: `import {statusRefreshRequestBody} from 'tasra-sdk/committee'`
 
@@ -2588,7 +2590,7 @@ result: the verifier, answering for this token, said its status statement does n
 (revoked, past a cap, the principal does not verify, its context moved, it cannot read status,
 or the proof replays). Transport, unknown or malformed outcomes withdraw nothing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L392)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L393)
 
 Import: `import {withdrawsOriginal} from 'tasra-sdk/committee'`
 
@@ -3230,7 +3232,7 @@ Fields:
 
 Inputs of [createStatusRefreshProof](#createstatusrefreshproof).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L200)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L201)
 
 ```ts
 export interface CreateStatusRefreshProofOptions {
@@ -4049,7 +4051,7 @@ Fields:
 
 Options of [refreshStatusDirect](#refreshstatusdirect).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L531)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L579)
 
 ```ts
 export interface RefreshStatusDirectOptions extends StatusRefreshGrant {
@@ -4084,7 +4086,7 @@ Fields:
 
 Options of [refreshStatusViaAgent](#refreshstatusviaagent).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L639)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L691)
 
 ```ts
 export interface RefreshStatusViaAgentOptions extends StatusRefreshGrant {
@@ -4282,7 +4284,7 @@ Fields:
 
 The grant a refresh re-attests and the ORIGINAL trust it was verified under.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L353)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L354)
 
 ```ts
 export interface StatusRefreshGrant {
@@ -4304,7 +4306,7 @@ Fields:
 
 Inputs of [statusRefreshHash](#statusrefreshhash): exactly the signed list, nothing else.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L85)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L86)
 
 ```ts
 export interface StatusRefreshHashInput {
@@ -4330,7 +4332,7 @@ Fields:
 
 Holder-key signer for a `holder_key` refresh proof. The key must be the one recorded at issuance.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L144)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L145)
 
 ```ts
 export interface StatusRefreshHolderSigner {
@@ -4350,7 +4352,7 @@ Fields:
 
 A bounded HTTP answer.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L496)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L508)
 
 ```ts
 export interface StatusRefreshHttpResponse {
@@ -4370,7 +4372,7 @@ Fields:
 
 Who proves the refresh: the principal the verifier recorded at issuance.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L81)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L82)
 
 ```ts
 export type StatusRefreshPrincipal = 'holder_key' | 'client_execution';
@@ -4380,7 +4382,7 @@ export type StatusRefreshPrincipal = 'holder_key' | 'client_execution';
 
 One refresh proof on the wire.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L188)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L189)
 
 ```ts
 export interface StatusRefreshProofWire {
@@ -4402,7 +4404,7 @@ Fields:
 
 The principal and signer of one refresh proof.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L173)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L174)
 
 ```ts
 export type StatusRefreshProver = {
@@ -4423,7 +4425,7 @@ Fields:
 
 One verifier's refresh reply - exactly these four keys.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L273)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L274)
 
 ```ts
 export interface StatusRefreshReplyWire {
@@ -4445,7 +4447,7 @@ Fields:
 
 A successful refresh.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L365)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L366)
 
 ```ts
 export interface StatusRefreshResult {
@@ -4675,7 +4677,7 @@ Shared values and contract definitions.
 | `EXECUTION_INITIALIZATION_DOMAIN` | Client consent to one exact session and independently approved registered agent. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L13) |
 | `MAX_EXECUTION_BODY_BYTES` | Maximum complete unsigned request size shared with the Rust verifier. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L15) |
 | `MAX_STATUS_ATTESTATIONS` | Most attestations one token may carry (mirrors the keeper cap). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L599) |
-| `MAX_STATUS_REFRESH_BODY_BYTES` | Largest request body a verifier accepts, in bytes. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L67) |
+| `MAX_STATUS_REFRESH_BODY_BYTES` | Largest request body a verifier accepts, in bytes. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L68) |
 | `MAX_STATUS_WINDOW_SECS` | Longest usable window a verifier may attest (`55 - 10`). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L595) |
 | `OAUTH_RESPONSE_PATH` | Legacy session-independent response path. New sessions use dpopHtu(origin, sessionId). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L17) |
 | `REVOCATION_BOUND_SECS` | Decided revocation bound: no keeper accepts a grant later than `R + 60 s`. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L589) |
@@ -4683,9 +4685,9 @@ Shared values and contract definitions.
 | `STATUS_CACHE_BOUND_SECS` | The verifier's attestation cache bound: `REVOCATION_BOUND_SECS - STATUS_SKEW_SECS`. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L593) |
 | `STATUS_INVALID_CODE` | Stable client preflight code: attestations are present but malformed, duplicated, over the cap or carry a bad signature from a counted verifier (a keeper refuses these without a stable code). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L608) |
 | `STATUS_MISSING_CODE` | Stable keeper refusal code: the keeper requires attestations and the grant carries none. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L603) |
-| `STATUS_REFRESH_DOMAIN` | Domain separator of the status-refresh proof (new name, `/v1`). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L61) |
-| `STATUS_REFRESH_FRESHNESS_SECS` | A verifier accepts `\|issued_at - now\| <= 30 s`. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L69) |
-| `STATUS_REFRESH_JWT_TYP` | JOSE `typ` of a `holder_key` refresh proof. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L63) |
-| `STATUS_REFRESH_PATH` | Verifier route (direct mode). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L65) |
+| `STATUS_REFRESH_DOMAIN` | Domain separator of the status-refresh proof (new name, `/v1`). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L62) |
+| `STATUS_REFRESH_FRESHNESS_SECS` | A verifier accepts `\|issued_at - now\| <= 30 s`. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L70) |
+| `STATUS_REFRESH_JWT_TYP` | JOSE `typ` of a `holder_key` refresh proof. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L64) |
+| `STATUS_REFRESH_PATH` | Verifier route (direct mode). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L66) |
 | `STATUS_SKEW_SECS` | The only skew a keeper allows past `status_until` (reserved inside the 60 s bound). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L591) |
 | `STATUS_STALE_CODE` | Stable keeper refusal code: attestations present but fewer than a quorum valid and fresh. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L601) |

@@ -18,9 +18,10 @@
 //
 // ⚠ NOTHING A REFRESH RETURNS IS TRUSTED UNSIGNED. Every attestation is verified here under the
 // ORIGINAL roster key of a verifier whose signature over the ORIGINAL token verifies; anything
-// else is dropped. A refresh succeeds only with a fresh quorum, each attestation inside every hard
-// cap of the grant minus the keeper skew (`status_until + 5 <= cap`). The merge keeps, per
-// verifier index, the later `status_until`.
+// else is dropped. Each attestation must sit inside every hard cap of the grant minus the keeper
+// skew (`status_until + 5 <= cap`). The merge keeps, per verifier index, the later `status_until`;
+// a refresh succeeds only when the MERGED set (new attestations plus, in direct mode, the
+// still-eligible originals) meets the keeper rule: the quorum-th largest `status_until` is fresh.
 //
 // ⚠ EVERY OUTCOME IS CLASSIFIED BEFORE ANYTHING IS MERGED (the same rule as the verifier-agent
 // relay and the CLI): ANY verifier's `status_refresh_refused` (an explicit, current revocation)
@@ -39,7 +40,7 @@ import {ed25519} from '@noble/curves/ed25519'
 import {p256} from '@noble/curves/p256'
 
 import {bytesToHex, hexToBytes} from '../crypto/hex.js'
-import {StatusRefreshError, type StatusRefreshCode, type StatusRefreshFailure} from '../errors.js'
+import {isStatusRefreshError, StatusRefreshError, type StatusRefreshCode, type StatusRefreshFailure} from '../errors.js'
 import {parseRetryAfter} from '../internal/retryAfter.js'
 import {b64url, type HolderKey, type Jwk, type JwsAlg} from '../oid4vp/jose.js'
 import type {ClientExecutionSigner} from './execution.js'
@@ -440,11 +441,14 @@ function aggregateFailure(failures: StatusRefreshFailure[], got: number, need: n
 }
 
 /**
- * Classify first: any revocation refusal refuses the whole refresh; another typed negative outcome
- * withdraws that verifier's original. Then accept new attestations only from original verified
- * signers, verified under their original keys, fresh and capped; require a fresh quorum of them;
- * merge per index with the still-eligible journaled originals (`mergeExisting`; a relay answer is
- * already the whole set).
+ * The relay's and the CLI's order, exactly: (1) classify - any revocation refusal refuses the whole
+ * refresh, another typed negative outcome withdraws that verifier's original; (2) accept new
+ * attestations only from original verified signers, verified under their original keys, fresh and
+ * capped; (3) merge per index with the still-eligible originals (`mergeExisting`, direct mode: each
+ * original re-verified and capped the same way; a relay answer is already the whole set); (4) judge
+ * the MERGED set by the keeper rule (quorum-th largest `status_until`, fresh at `now`). The number
+ * of NEW attestations alone is never the judge: one fresh reply beside a still-fresh eligible
+ * original can meet the quorum.
  */
 function acceptRefresh(p: PreparedGrant, candidates: StatusAttestation[], failures: StatusRefreshFailure[], now: number,
   mergeExisting: boolean): StatusRefreshResult {
@@ -466,18 +470,23 @@ function acceptRefresh(p: PreparedGrant, candidates: StatusAttestation[], failur
     const prior = accepted.get(index)
     if (!prior || a.statusUntil > prior.statusUntil) accepted.set(index, a)
   }
-  if (accepted.size < p.quorum) throw aggregateFailure(failures, accepted.size, p.quorum)
-
   // The journaled list, filtered to what a keeper would count (a bad counted entry would refuse
-  // the whole grant), then merged per index: the later deadline wins.
+  // the whole grant) and to the grant caps (as the CLI's `authenticate_all`), then merged per
+  // index: the later deadline wins. A stale original stays in the list; the judge below does not
+  // count it.
   const merged = new Map<number, StatusAttestation>()
-  const existing = !mergeExisting || p.wire.status_attestations == null ? []
-    : assertStatusAttestationsWire(p.wire.status_attestations, p.wire.verifier_indexes.length)
+  let existing: StatusAttestationWire[] = []
+  if (mergeExisting && p.wire.status_attestations != null) {
+    try { existing = assertStatusAttestationsWire(p.wire.status_attestations, p.wire.verifier_indexes.length) }
+    catch { existing = [] } // a malformed journaled list contributes nothing (the CLI's `.ok().flatten()`)
+  }
   for (const w of existing) {
     if (ineligible.has(w.verifier_index)) continue // withdrawn by that verifier's own negative outcome
     const a: StatusAttestation = {verifierIndex: w.verifier_index, statusUntil: w.status_until, signature: hexToBytes(w.signature)}
     const pubkey = p.set.pubkeys.get(a.verifierIndex)
-    if (p.counted.includes(a.verifierIndex) && pubkey && verifyStatusAttestation(pubkey, p.tokenHash, a)) merged.set(a.verifierIndex, a)
+    if (!p.counted.includes(a.verifierIndex) || !pubkey || !verifyStatusAttestation(pubkey, p.tokenHash, a)) continue
+    if (a.statusUntil + STATUS_SKEW_SECS > p.cap) continue
+    merged.set(a.verifierIndex, a)
   }
   // A relay's set is its whole answer: every original signer it left out stays out.
   if (!mergeExisting) for (const i of p.counted) if (!accepted.has(i)) ineligible.add(i)
@@ -486,7 +495,10 @@ function acceptRefresh(p: PreparedGrant, candidates: StatusAttestation[], failur
     if (!prior || a.statusUntil > prior.statusUntil) merged.set(index, a)
   }
   const list = [...merged.values()].sort((x, y) => x.verifierIndex - y.verifierIndex)
-  const statusUntil = verifyStatusAttestations({tokenHash: p.tokenHash, attestations: list, counted: p.counted, set: p.set, quorum: p.quorum, now})
+  // The keeper rule on the MERGED set is the only judge; below it, this refresh's quorum is unmet.
+  let statusUntil: number
+  try { statusUntil = verifyStatusAttestations({tokenHash: p.tokenHash, attestations: list, counted: p.counted, set: p.set, quorum: p.quorum, now}) }
+  catch { throw aggregateFailure(failures, list.filter(a => now <= a.statusUntil + STATUS_SKEW_SECS).length, p.quorum) }
   const statusAttestations = list.map(a => ({verifier_index: a.verifierIndex, status_until: a.statusUntil, signature: bytesToHex(a.signature)}))
   return {token: {...structuredClone(p.wire), status_attestations: structuredClone(statusAttestations)}, statusAttestations,
     refreshed: [...accepted.keys()].sort((x, y) => x - y), statusUntil, failures, ineligible: [...ineligible].sort((x, y) => x - y)}
@@ -511,12 +523,48 @@ function failureOf(response: StatusRefreshHttpResponse, verifierIndex?: number):
     message: `HTTP ${response.status}${body ? `: ${body.slice(0, 200)}` : ''}`}
 }
 
+const oversize = (status: number, detail: string) => new StatusRefreshError({code: 'status_refresh_invalid_response', httpStatus: status,
+  message: `status refresh response ${detail} exceeds ${MAX_RESPONSE_BYTES} bytes`})
+
+/**
+ * Read at most {@link MAX_RESPONSE_BYTES} of a response body, whatever its status. An advertised
+ * `Content-Length` over the cap is refused without reading (skipped under a `Content-Encoding`,
+ * where it counts encoded bytes); otherwise the stream is read chunk by chunk and cancelled as soon
+ * as the running total passes the cap, so a lying or absent length never buffers more than one
+ * chunk past it. Throws {@link StatusRefreshError} `status_refresh_invalid_response`.
+ */
+async function readBoundedBody(res: Response): Promise<string> {
+  const advertised = res.headers?.get('content-length')
+  if (advertised && !res.headers.get('content-encoding') && /^\d+$/.test(advertised) && Number(advertised) > MAX_RESPONSE_BYTES) {
+    void res.body?.cancel().catch(() => {})
+    throw oversize(res.status, `Content-Length ${advertised}`)
+  }
+  if (!res.body) return ''
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let size = 0, out = ''
+  try {
+    for (;;) {
+      const {done, value} = await reader.read()
+      if (done) break
+      size += value.length
+      if (size > MAX_RESPONSE_BYTES) throw oversize(res.status, 'body')
+      out += decoder.decode(value, {stream: true})
+    }
+    return out + decoder.decode()
+  } finally {
+    // Also on the cap refusal. Initiate cancellation without waiting on a hostile body's cancel hook.
+    void reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
+}
+
 async function post(fetchImpl: typeof fetch, url: string, body: Uint8Array, signal: AbortSignal, bearer?: string): Promise<StatusRefreshHttpResponse> {
   const res = await fetchImpl(url, {method: 'POST', redirect: 'error', signal, body: new TextDecoder().decode(body),
     headers: {'Content-Type': 'application/json', ...(bearer !== undefined ? {Authorization: `Bearer ${bearer}`} : {})}})
-  const raw = await res.text()
+  const raw = await readBoundedBody(res)
   const retryAfterMs = parseRetryAfter(res.headers?.get('retry-after'))
-  return {status: res.status, body: raw.length > MAX_RESPONSE_BYTES ? raw.slice(0, MAX_RESPONSE_BYTES) : raw, ...(retryAfterMs !== undefined ? {retryAfterMs} : {})}
+  return {status: res.status, body: raw, ...(retryAfterMs !== undefined ? {retryAfterMs} : {})}
 }
 
 function endpoint(url: string, allowHttp: boolean): string {
@@ -576,6 +624,10 @@ export async function refreshStatusDirect(opts: RefreshStatusDirectOptions): Pro
     let response: StatusRefreshHttpResponse
     try { response = await post(fetchImpl, url, body, signal) }
     catch (error) {
+      if (isStatusRefreshError(error)) { // an oversized answer: typed, not a transport failure
+        failures.push({verifierIndex: index, code: error.code, ...(error.httpStatus !== undefined ? {httpStatus: error.httpStatus} : {}), message: error.message.slice(0, 200)})
+        return
+      }
       failures.push({verifierIndex: index, code: 'status_refresh_unreachable', message: error instanceof Error ? error.message.slice(0, 200) : 'no answer'})
       return
     }
@@ -675,6 +727,7 @@ export async function refreshStatusViaAgent(opts: RefreshStatusViaAgentOptions):
   try { response = await post(opts.fetch ?? globalThis.fetch, url, encodeBody({proof: assertProofWire(opts.proof)}), signal, opts.pollSecret) }
   catch (error) {
     opts.signal?.throwIfAborted()
+    if (isStatusRefreshError(error)) throw error // an oversized answer stays `status_refresh_invalid_response`
     throw new StatusRefreshError({code: 'status_refresh_unreachable', message: 'status refresh relay did not answer', cause: error})
   }
   return acceptStatusRefreshRelay(opts, response)

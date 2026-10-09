@@ -229,6 +229,35 @@ describe('paidOperation', () => {
     expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
   })
 
+  // D5 class: a store may hand back the journaled seed as a Buffer view over memory it reuses; the
+  // resumed signer must own its secret, or the store's reuse zeroes it under the certified key.
+  it('resumes with an execution signer that survives the store wiping the Buffer view it returned', async () => {
+    const f = setup()
+    vi.mocked(drivePaidSession).mockRejectedValueOnce(new Error('lost approval reply'))
+    const error = await paidOperation(f.config, f.request).catch((e: unknown) => e) as PaidOperationRecoveryError
+    const pools: Buffer[] = [], load = f.store.load.bind(f.store)
+    f.store.load = (async (key: string) => {
+      const value = await load<Record<string, unknown>>(key)
+      if (value?.seed instanceof Uint8Array) {
+        const pool = Buffer.alloc(64, 0xee); pool.set(value.seed, 16); pools.push(pool)
+        value.seed = pool.subarray(16, 48)
+      }
+      return value
+    }) as typeof f.store.load
+    const message = new Uint8Array(32).fill(5)
+    let signed: {publicKey: Uint8Array; signature: Uint8Array} | undefined
+    vi.mocked(prepareRegisteredPaidSession).mockImplementationOnce(async (_chain, _config, _params, options) => {
+      for (const pool of pools) pool.fill(0)
+      signed = {publicKey: options.signer.publicKey, signature: await options.signer.sign(message)}
+      return {sessionId: 'ab'.repeat(32)} as RegisteredPaidAgentSession
+    })
+    await resumePaidOperation(f.config, error.requestId, {holder: f.holder})
+    expect(pools.length).toBeGreaterThan(0)
+    const certificate = vi.mocked(createExecutionCertificate).mock.calls[0]![0].publicKey
+    expect(signed!.publicKey).toEqual(certificate)
+    expect(ed25519.verify(signed!.signature, message, signed!.publicKey, {zip215: false})).toBe(true)
+  })
+
   it('journals an uncertain execution, never re-runs it, and recovers the retained keeper result', async () => {
     const f = setup()
     const op = await paidOperation(f.config, f.request)

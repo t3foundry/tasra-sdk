@@ -23,8 +23,11 @@ never does.
   `classifyStatusRefreshResponse`, `statusRefreshRequestBody`, `statusRefreshRelayBody` and the
   constants. Every reply is verified under the ORIGINAL roster key of a signer that verified the
   original token; anything else (unsigned, forged, another index or token, past `cap - 5 s`) is
-  dropped, a fresh quorum is required, and the merge keeps the later deadline per verifier index.
-  Never sent or retried automatically.
+  dropped, the merge keeps the later deadline per verifier index, and the MERGED set must meet
+  the keeper rule (quorum-th largest `status_until` fresh). Never sent or retried automatically.
+  Response bodies are read with a real 64 KiB bound: an advertised `Content-Length` over it is
+  refused unread, and a body that streams past it (absent or lying length) is cancelled at the
+  chunk that crosses it; both are `status_refresh_invalid_response`, never `_unreachable`.
 - `StatusRefreshError` (`isStatusRefreshError`, `StatusRefreshCode`, `StatusRefreshFailure`):
   typed `status_refresh_unknown` (404), `_unavailable` / `_replayed` / `_context_changed` (409),
   `_expired` (410), `_unauthenticated` / `_refused` (403), `_unavailable_status` /
@@ -46,7 +49,11 @@ never does.
   fresh quorum or still-fresh original attestations; another typed negative outcome
   (`withdrawsOriginal`: expired, unauthenticated, context changed, unavailable status, replayed)
   keeps THAT verifier's original attestation out of the result (`StatusRefreshResult.ineligible`);
-  a relay's answer is taken as the whole set. A paid operation journals the refusal
+  a relay's answer is taken as the whole set. Direct mode then merges the new attestations with the
+  still-eligible originals (each re-verified and inside the grant caps) and judges THAT set, so one
+  fresh reply beside a still-fresh eligible original can meet the quorum (no longer refused for
+  counting only the new replies); beside a withdrawn original it is `status_refresh_quorum_unmet`.
+  A paid operation journals the refusal
   (`statusRefresh.refused`, grant unchanged) and `execute` then refuses with
   `RevocationStatusPreflightError` code `revocation_status_refused` (nothing sent) until a later
   refresh succeeds.
@@ -89,6 +96,19 @@ never does.
 
 ### Fixed
 
+- Secret key bytes the SDK takes from a caller are now owned COPIES that cannot share memory
+  with the caller's buffer (D5). `Buffer#slice` is a view, so `createLocalExecutionSigner(seed)`
+  with a Node `Buffer` seed kept the caller's memory: a caller wiping its seed after construction
+  (the documented hygiene) zeroed the signer's secret while its `publicKey` still named the
+  original key, and every execution signature failed (`Invalid client execution signature`).
+  The same alias affected `createIdentity({seed})` (a wiped seed zeroed the identity; `destroy()`
+  zeroed the caller's buffer) and `exportPrivateKey()`, which returned a view of the identity's own
+  key, so a caller wiping the export (as `identityApprover` does after each signature) destroyed
+  the identity. `p256HolderKey`, `ed25519HolderKey` and `randomHolderKey` now copy their key
+  bytes too (they used to keep the caller's array by reference); `holder.privateKey` is a plain
+  `Uint8Array` the caller may still erase. `exportPrivateKey()` returns a plain `Uint8Array`
+  copy, never a `Buffer`. A store that returns a journaled paid-operation seed as a reused
+  `Buffer` view no longer invalidates the resumed signer.
 - `resumePaidOperation` no longer makes a new reservation for a `reserving` operation
   without proof that none was ever sent. It reconciles on chain by request ID and payer
   nonce (`reconcileApplicationReservation`, `tasra-sdk/app`), reserves only when no

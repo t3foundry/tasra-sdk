@@ -207,7 +207,7 @@ Returns: ` Uint8Array `.
 
 Decode base58btc text, preserving leading zero bytes and rejecting invalid characters.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L173)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L191)
 
 Import: `import {base58Decode} from 'tasra-sdk/oid4vp'`
 
@@ -225,7 +225,7 @@ Returns: ` Uint8Array `.
 
 Encode bytes as base58btc, preserving leading zero bytes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L154)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L172)
 
 Import: `import {base58Encode} from 'tasra-sdk/oid4vp'`
 
@@ -477,7 +477,7 @@ Returns: ` string `.
 
 `did:key` of an Ed25519 public key (multicodec 0xed01).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L198)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L216)
 
 Import: `import {ed25519DidKey} from 'tasra-sdk/oid4vp'`
 
@@ -495,7 +495,7 @@ Returns: ` string `.
 
 The 32-byte Ed25519 key inside a `did:key:z6Mk...`; throws for any other key type.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L215)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L233)
 
 Import: `import {ed25519FromDidKey} from 'tasra-sdk/oid4vp'`
 
@@ -513,7 +513,7 @@ Returns: ` Uint8Array `.
 
 An Ed25519 holder key from a 32-byte seed - the shape `tasra-cli vc issue-sd-jwt` binds.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L137)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L151)
 
 Import: `import {ed25519HolderKey} from 'tasra-sdk/oid4vp'`
 
@@ -523,7 +523,7 @@ declare function ed25519HolderKey(seed: Uint8Array): HolderKey;
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` seed ` | ` Uint8Array ` | - 32-byte Ed25519 secret seed. |
+| ` seed ` | ` Uint8Array ` | - 32-byte Ed25519 secret seed. Copied: the holder's `privateKey` never shares memory with it, so the caller may wipe its bytes once this returns. |
 
 Returns: ` HolderKey `.
 
@@ -656,7 +656,7 @@ Returns: ` string `.
 
 The public JWK inside a `did:jwk` or a `did:key` (Ed25519 / P-256); a `#fragment` is ignored.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L228)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L246)
 
 Import: `import {jwkFromDid} from 'tasra-sdk/oid4vp'`
 
@@ -714,7 +714,7 @@ Returns: ` Promise<OpenedVerifierAgentSession> `.
 
 `did:key` of a P-256 public key (multicodec 0x1200 to varint `80 24`, compressed point) - Hovi's issuer shape.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L206)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L224)
 
 Import: `import {p256DidKey} from 'tasra-sdk/oid4vp'`
 
@@ -753,7 +753,7 @@ Returns: ` SdJwtIssuer `.
 
 Construct a holder identity from a 32-byte P-256 private scalar.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L127)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L137)
 
 Import: `import {p256HolderKey} from 'tasra-sdk/oid4vp'`
 
@@ -763,7 +763,7 @@ declare function p256HolderKey(privateKey: Uint8Array): HolderKey;
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` privateKey ` | ` Uint8Array ` | - 32-byte P-256 private scalar. |
+| ` privateKey ` | ` Uint8Array ` | - 32-byte P-256 private scalar. Copied: the holder's `privateKey` never shares memory with it, so the caller may wipe its bytes once this returns. |
 
 Returns: ` HolderKey `.
 
@@ -1070,7 +1070,7 @@ Promise<{
 
 Generate a random P-256 holder key and its did:jwk identifier.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L143)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L160)
 
 Import: `import {randomHolderKey} from 'tasra-sdk/oid4vp'`
 
@@ -1235,7 +1235,7 @@ Returns: ` CredentialView `.
 
 Sign a JSON payload as compact JWS. Set the header algorithm from the supplied signer.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L262)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L280)
 
 Import: `import {signCompactJws} from 'tasra-sdk/oid4vp'`
 
@@ -1357,7 +1357,7 @@ Returns: ` VerifierProof[] | undefined `.
 
 Verify a compact JWS under `jwk` and return its decoded payload; throws on any failure.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L277)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L295)
 
 Import: `import {verifyCompactJws} from 'tasra-sdk/oid4vp'`
 
@@ -1869,7 +1869,7 @@ Fields:
 
 Supported compact JWS algorithms: ES256 for P-256 or EdDSA for Ed25519.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L246)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L264)
 
 ```ts
 export type JwsAlg = 'ES256' | 'EdDSA';
@@ -1879,7 +1879,7 @@ export type JwsAlg = 'ES256' | 'EdDSA';
 
 A signer for a compact JWS: a raw private key of the named curve.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L248)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L266)
 
 ```ts
 export interface JwsSigner {

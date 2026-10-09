@@ -476,16 +476,21 @@ export async function initializeExecutionSession(options: {payment: PaymentInten
 /**
  * Create a disposable client-only Ed25519 execution signer. The seed is copied or generated
  * with Web Crypto, retained only locally and erased by dispose; caller copies remain its responsibility.
+ * The copy never shares memory with the caller's bytes (a Node `Buffer` or any view of a larger
+ * buffer included), so the caller may wipe its seed at once and dispose never touches it.
  * @param seed Optional local 32-byte seed, for private persistence or deterministic tests.
  */
 export function createLocalExecutionSigner(seed?: Uint8Array): LocalExecutionSigner {
-  const secret = seed?.slice() ?? globalThis.crypto.getRandomValues(new Uint8Array(32))
+  // Uint8Array.from, never seed.slice(): Buffer#slice is a VIEW, so the caller wiping its seed
+  // would zero this signer's secret while its publicKey still names the original key.
+  if (seed !== undefined && !(seed instanceof Uint8Array)) throw new Error('Execution seed must contain 32 bytes')
+  const secret = seed === undefined ? globalThis.crypto.getRandomValues(new Uint8Array(32)) : Uint8Array.from(seed)
   if (secret.length !== 32) {secret.fill(0); throw new Error('Execution seed must contain 32 bytes')}
   const publicKey = ed25519.getPublicKey(secret)
   let disposed = false
   return {get publicKey() {return publicKey.slice()}, async sign(message) {
     if (disposed) throw new Error('Local execution signer was disposed')
     if (message.length !== 32) throw new Error('Execution signer accepts only reconstructed 32-byte hashes')
-    return ed25519.sign(message.slice(), secret)
+    return ed25519.sign(Uint8Array.from(message), secret)
   }, dispose() {secret.fill(0); disposed = true}}
 }

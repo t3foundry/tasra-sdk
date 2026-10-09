@@ -320,6 +320,53 @@ describe('every outcome is classified before anything is merged', () => {
     expect(whole.statusAttestations.map(a => a.verifier_index)).toEqual([0, 1])
   })
 
+  // Direct mode merges fresh + eligible originals BEFORE judging, as the relay (`merge_and_judge`)
+  // and the CLI (`judge_direct` + `finish`) do: the count of new replies alone is never the judge.
+  it('one fresh reply beside a still-fresh eligible original meets the quorum', async () => {
+    const t = now(), until = t + 30
+    const g = grant({attest: [{index: 1, until: t + 60}]})
+    const fetchImpl = vi.fn<typeof fetch>(async url => indexOf(String(url)) === 0 ? json(200, reply(g.hash, 0, until)) : json(500, 'upstream down'))
+    const out = await refreshStatusDirect({...g, chainId: 43112, proof, verifiers, fetch: fetchImpl})
+    expect(out.refreshed).toEqual([0])
+    expect(out.ineligible).toEqual([])
+    expect(out.statusAttestations.map(a => [a.verifier_index, a.status_until])).toEqual([[0, until], [1, t + 60]])
+    // Keeper rule: the quorum-th (2nd) largest deadline.
+    expect(out.statusUntil).toBe(until)
+  })
+
+  it('one fresh reply beside a WITHDRAWN original is quorum_unmet', async () => {
+    const t = now(), until = t + 30
+    const g = grant({attest: [{index: 1, until: t + 60}]})
+    const fetchImpl = vi.fn<typeof fetch>(async url => {
+      const i = indexOf(String(url))
+      return i === 0 ? json(200, reply(g.hash, 0, until)) : i === 1 ? json(409, {error: 'status_refresh_replayed'}) : json(500, 'upstream down')
+    })
+    const e = (await refreshStatusDirect({...g, chainId: 43112, proof, verifiers, fetch: fetchImpl}).catch((x: unknown) => x)) as StatusRefreshError
+    expect(e).toBeInstanceOf(StatusRefreshError)
+    expect(e.code).toBe('status_refresh_quorum_unmet')
+    expect(e.message).toMatch(/1 of 2/)
+  })
+
+  it('an original past a grant cap does not count toward the merged quorum', async () => {
+    const t = now(), until = t + 30
+    const g = grant({attest: [{index: 1, until: t + 60}]})
+    const fetchImpl = vi.fn<typeof fetch>(async url => indexOf(String(url)) === 0 ? json(200, reply(g.hash, 0, until)) : json(500, 'upstream down'))
+    // Payment expiry t + 40: the reply (+30, +5 skew) fits, the original (+60) does not.
+    await expect(refreshStatusDirect({...g, caps: [t + 40], chainId: 43112, proof, verifiers, fetch: fetchImpl}))
+      .rejects.toMatchObject({code: 'status_refresh_quorum_unmet'})
+  })
+
+  it('a refusal stays final when fresh replies plus eligible originals would meet the quorum', async () => {
+    const t = now(), until = t + 30
+    const g = grant({attest: freshOriginals(t)})
+    const fetchImpl = vi.fn<typeof fetch>(async url => {
+      const i = indexOf(String(url))
+      return i === 0 ? json(200, reply(g.hash, 0, until)) : i === 1 ? refused() : json(500, 'upstream down')
+    })
+    await expect(refreshStatusDirect({...g, chainId: 43112, proof, verifiers, fetch: fetchImpl}))
+      .rejects.toMatchObject({code: 'status_refresh_refused', httpStatus: 403, retryable: false})
+  })
+
   it('an original signer with no endpoint supplied is reported unreachable and withdraws nothing', async () => {
     const t = now(), until = t + 30
     const g = grant({attest: freshOriginals(t)})
@@ -331,6 +378,90 @@ describe('every outcome is classified before anything is merged', () => {
     // Untyped: 2's still-fresh original keeps counting.
     expect(out.ineligible).toEqual([])
     expect(out.statusAttestations.map(a => a.verifier_index)).toEqual([0, 1, 2])
+  })
+})
+
+describe('bounded response read', () => {
+  const CAP = 64 * 1024, CHUNK = 16 * 1024
+  /** An endless body (pull-driven, nothing buffered ahead) that records how much was pulled and whether it was cancelled. */
+  function endless() {
+    const state = {pulled: 0, cancelled: false}
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) { state.pulled += CHUNK; controller.enqueue(new Uint8Array(CHUNK).fill(0x61)) },
+      cancel() { state.cancelled = true },
+    }, {highWaterMark: 0})
+    return {stream, state}
+  }
+
+  it.each([['absent', undefined], ['lying', '10']] as const)('cancels an oversized body mid-stream with a %s Content-Length', async (_label, length) => {
+    const g = grant()
+    const bodies = [0, 1, 2].map(() => endless())
+    const fetchImpl = vi.fn<typeof fetch>(async url => new Response(bodies[indexOf(String(url))]!.stream,
+      {status: 200, headers: {'Content-Type': 'application/json', ...(length !== undefined ? {'Content-Length': length} : {})}}))
+    const e = (await refreshStatusDirect({...g, chainId: 43112, proof, verifiers, fetch: fetchImpl}).catch((x: unknown) => x)) as StatusRefreshError
+    expect(e).toBeInstanceOf(StatusRefreshError)
+    expect(e.code).toBe('status_refresh_invalid_response')
+    expect(e.reasons.map(r => [r.verifierIndex, r.code]).sort()).toEqual([[0, 'status_refresh_invalid_response'], [1, 'status_refresh_invalid_response'], [2, 'status_refresh_invalid_response']])
+    // The endless body was cancelled (an unbounded read would never return) close to the cap.
+    for (const {state} of bodies) {
+      expect(state.cancelled).toBe(true)
+      expect(state.pulled).toBeGreaterThan(CAP)
+      expect(state.pulled).toBeLessThanOrEqual(CAP + 4 * CHUNK)
+    }
+  })
+
+  it('refuses an advertised Content-Length over the cap without reading the body', async () => {
+    const body = endless()
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(body.stream, {status: 200, headers: {'Content-Type': 'application/json', 'Content-Length': String(CAP + 1)}}))
+    const g = grant()
+    await expect(refreshStatusViaAgent({...g, agentUrl: 'https://agent.example', sessionId: 'ab'.repeat(32), pollSecret: 'cd'.repeat(32), proof, fetch: fetchImpl}))
+      .rejects.toMatchObject({code: 'status_refresh_invalid_response', httpStatus: 200})
+    expect(body.state.cancelled).toBe(true)
+    expect(body.state.pulled).toBeLessThanOrEqual(CHUNK)
+  })
+
+  it('a relay body that streams past the cap is a typed invalid response, not unreachable', async () => {
+    const body = endless()
+    const g = grant()
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(body.stream, {status: 200, headers: {'Content-Type': 'application/json'}}))
+    await expect(refreshStatusViaAgent({...g, agentUrl: 'https://agent.example', sessionId: 'ab'.repeat(32), pollSecret: 'cd'.repeat(32), proof, fetch: fetchImpl}))
+      .rejects.toMatchObject({code: 'status_refresh_invalid_response'})
+    expect(body.state.cancelled).toBe(true)
+  })
+
+  // A hostile body whose cancel hook rejects: the read still ends with the typed refusal, and the
+  // rejected cancellation is swallowed (no unhandled rejection), on both the advertised-length and
+  // the streamed path.
+  it.each([['advertised', String(CAP + 1)], ['streamed', undefined]] as const)('a %s oversize whose cancel hook rejects is still a typed refusal', async (_label, length) => {
+    const hooks = {cancelled: 0}
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) { controller.enqueue(new Uint8Array(CHUNK).fill(0x61)) },
+      cancel() { hooks.cancelled++; return Promise.reject(new Error('hostile cancel hook')) },
+    }, {highWaterMark: 0})
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const fetchImpl = vi.fn<typeof fetch>(async () => new Response(stream,
+        {status: 200, headers: {'Content-Type': 'application/json', ...(length !== undefined ? {'Content-Length': length} : {})}}))
+      const g = grant()
+      await expect(refreshStatusViaAgent({...g, agentUrl: 'https://agent.example', sessionId: 'ab'.repeat(32), pollSecret: 'cd'.repeat(32), proof, fetch: fetchImpl}))
+        .rejects.toMatchObject({code: 'status_refresh_invalid_response', httpStatus: 200})
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(hooks.cancelled).toBe(1)
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
+  it('reads a body at exactly the cap', async () => {
+    const until = now() + 30
+    const g = grant()
+    const fetchImpl = vi.fn<typeof fetch>(async url => {
+      const text = JSON.stringify(reply(g.hash, indexOf(String(url)), until))
+      return json(200, text + ' '.repeat(CAP - new TextEncoder().encode(text).length))
+    })
+    expect((await refreshStatusDirect({...g, chainId: 43112, proof, verifiers, fetch: fetchImpl})).refreshed).toEqual([0, 1, 2])
   })
 })
 
