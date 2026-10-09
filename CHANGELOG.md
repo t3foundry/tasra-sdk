@@ -7,6 +7,23 @@ never does.
 
 ## [Unreleased]
 
+### Added
+
+- Revocation-status freshness (`keykeeper/committee-status-attestation/v1`). Compound
+  tokens carry an optional `status_attestations` list (`{verifier_index, status_until,
+  signature}`) beside `signatures`, outside the signed bytes: token hashes and
+  `committee-token-vectors.json` are unchanged. The verifier-agent result validates it
+  strictly and forwards it to keepers unchanged; paid sessions check it exactly as a keeper
+  does. `gatherCommitteeToken` authenticates each verifier's `status_until` /
+  `status_signature` with the verifier's committee key (`pubkey` on the verifier entry) and
+  emits the list only when at least a quorum carry valid ones. New in
+  `tasra-sdk/committee`: `statusAttestationHash`, `verifyStatusAttestation`,
+  `verifyStatusAttestations`, `assertStatusAttestationsWire` and the bound constants.
+- `RevocationStatusError` (`isRevocationStatusRefusal`): a keeper 403 with
+  `revocation_status_stale` or `revocation_status_missing` is a non-retryable "present the
+  credential again" refusal, not an `AuthDeniedError`; resending the same grant cannot succeed.
+  It is not proof that no keeper worked: a paid operation keeps its execution uncertain.
+
 ### Fixed
 
 - `resumePaidOperation` no longer makes a new reservation for a `reserving` operation

@@ -112,6 +112,55 @@ export class AuthDeniedError extends TasraHttpError {
 }
 
 /**
+ * A keeper refused a committee grant because its verifiers' revocation-status attestations
+ * (`keykeeper/committee-status-attestation/v1`) are missing (`revocation_status_missing`) or no
+ * longer fresh for a quorum (`revocation_status_stale`). The credential was NOT judged revoked:
+ * the grant outlived the 60 s revocation bound (or came from a path that does not carry the
+ * attestations).
+ *
+ * NOT retryable, and NOT proof that no keeper worked: another keeper of the committee may already
+ * have started the operation before this one re-checked the grant, and a gateway can blur the
+ * outcome. Never resend this grant, and never treat this error alone as authority to retry, refund
+ * or clear a paid operation (its journal keeps the execution as uncertain until original-stage
+ * evidence settles it). For an UNPAID operation the remedy is a new presentation and a new grant.
+ * Not an {@link AuthDeniedError}, and {@link isAuthDenied} returns false for it.
+ */
+export class RevocationStatusError extends TasraHttpError {
+  /** The keeper's stable refusal code. */
+  readonly code: 'revocation_status_stale' | 'revocation_status_missing'
+  /** Always true: a fresh grant needs a new presentation, never this token. */
+  readonly presentAgain = true as const
+
+  constructor(args: {status: number; url: string; body?: string; message?: string; code: 'revocation_status_stale' | 'revocation_status_missing'; retryAfterMs?: number}) {
+    super({...args, retryable: false})
+    this.code = args.code
+  }
+}
+
+/**
+ * The stable revocation-status refusal code in a keeper's 403 body, if any.
+ *
+ * @param status - HTTP status code.
+ * @param body - Complete (untruncated) response body.
+ */
+export function revocationStatusCode(status: number, body: string): RevocationStatusError['code'] | undefined {
+  if (status !== 403) return undefined
+  if (body.includes('revocation_status_stale')) return 'revocation_status_stale'
+  if (body.includes('revocation_status_missing')) return 'revocation_status_missing'
+  return undefined
+}
+
+/**
+ * True when a keeper refused a grant only for stale or missing revocation-status attestations:
+ * present the credential again for a fresh grant and repeat the call.
+ *
+ * @param e - Caught value to classify.
+ */
+export function isRevocationStatusRefusal(e: unknown): e is RevocationStatusError {
+  return e instanceof RevocationStatusError
+}
+
+/**
  * The request never got an HTTP answer - DNS failure, connection refused,
  * timeout, CORS. Retryable: the service may simply not be up yet.
  */
@@ -193,10 +242,14 @@ export async function httpError(
   url: string,
   label?: string,
 ): Promise<TasraHttpError> {
-  const body = (await res.text().catch(() => '')).slice(0, 200)
+  const full = await res.text().catch(() => '')
+  const body = full.slice(0, 200)
   const message = `${label ?? url} → HTTP ${res.status}${body ? `: ${body}` : ''}`
   const retryAfterMs = parseRetryAfter(res.headers?.get('retry-after'))
   const args = {status: res.status, url, body, message, ...(retryAfterMs !== undefined ? {retryAfterMs} : {})}
+  // Classified on the complete body: the code must not be lost to the 200-character truncation.
+  const code = revocationStatusCode(res.status, full.slice(0, 64 * 1024))
+  if (code !== undefined) return new RevocationStatusError({...args, code})
   return res.status === 401 || res.status === 403
     ? new AuthDeniedError(args)
     : new TasraHttpError(args)
@@ -210,7 +263,7 @@ export async function httpError(
  * @param e - Caught value to classify as an authorization rejection.
  */
 export function isAuthDenied(e: unknown): e is TasraHttpError {
-  return e instanceof TasraHttpError && (e.status === 401 || e.status === 403)
+  return e instanceof TasraHttpError && (e.status === 401 || e.status === 403) && !(e instanceof RevocationStatusError)
 }
 
 /**

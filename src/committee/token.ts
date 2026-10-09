@@ -470,6 +470,12 @@ export interface CompoundTokenWire {
   exp: number
   /** Hexadecimal verifier signatures and their registry indices. */
   signatures: CommitteeSignatureWire[]
+  /**
+   * Revocation-status freshness attestations (`keykeeper/committee-status-attestation/v1`),
+   * one per drawn verifier that vouched. OUTSIDE the signed token bytes: it never moves the
+   * token hash. Keepers in production posture require a quorum of fresh ones.
+   */
+  status_attestations?: StatusAttestationWire[]
 }
 
 /** Assemble the wire compound token from a payload + the gathered quorum signatures. */
@@ -494,9 +500,17 @@ export function bindingFromWire(s: string | undefined): number {
  *
  * @param p - Compound token payload, excluding signatures.
  * @param signatures - Verifier signatures to include in the wire object.
+ * @param statusAttestations - Optional revocation-status attestations, carried beside the signatures and never hashed. Validated strictly; an empty list is omitted.
  */
-export function assembleCompoundToken(p: CompoundTokenPayload, signatures: CommitteeSignature[]): CompoundTokenWire {
+export function assembleCompoundToken(
+  p: CompoundTokenPayload,
+  signatures: CommitteeSignature[],
+  statusAttestations?: StatusAttestation[],
+): CompoundTokenWire {
   compoundTokenCanonicalBytes(p)
+  const attestations = statusAttestations?.length
+    ? assertStatusAttestationsWire(statusAttestations.map(statusAttestationToWire), p.verifierIndexes.length)
+    : undefined
   return {
     token_type: p.tokenType,
     seed: bytesToHex(p.seed),
@@ -514,6 +528,7 @@ export function assembleCompoundToken(p: CompoundTokenPayload, signatures: Commi
     iat: Number(p.iat),
     exp: Number(p.exp),
     signatures: signatures.map(s => ({verifier_index: s.verifierIndex, signature: bytesToHex(s.signature)})),
+    ...(attestations !== undefined ? {status_attestations: attestations} : {}),
   }
 }
 
@@ -522,7 +537,13 @@ export function assembleCompoundToken(p: CompoundTokenPayload, signatures: Commi
  *
  * @param w - Keeper JSON token representation to decode into byte fields.
  */
-export function decodeCompoundToken(w: CompoundTokenWire): CompoundTokenPayload & {signatures: CommitteeSignature[]} {
+export function decodeCompoundToken(
+  w: CompoundTokenWire,
+): CompoundTokenPayload & {signatures: CommitteeSignature[]; statusAttestations?: StatusAttestation[]} {
+  // Validated, never hashed: the attestations sit beside the signed bytes.
+  const attestations = w.status_attestations == null
+    ? undefined
+    : assertStatusAttestationsWire(w.status_attestations, w.verifier_indexes.length).map(statusAttestationFromWire)
   const result = {
     tokenType: w.token_type,
     seed: hexToBytes(w.seed),
@@ -540,7 +561,186 @@ export function decodeCompoundToken(w: CompoundTokenWire): CompoundTokenPayload 
     iat: w.iat,
     exp: w.exp,
     signatures: w.signatures.map(s => ({verifierIndex: s.verifier_index, signature: hexToBytes(s.signature)})),
+    ...(attestations !== undefined ? {statusAttestations: attestations} : {}),
   }
   compoundTokenCanonicalBytes(result)
   return result
+}
+
+// Revocation-status freshness (mirrors `keykeeper_committee::status_attestation`)
+//
+// A drawn verifier signs, beside its token signature, a SEPARATE statement that the holder's
+// credential status it relied on was fresh until `status_until`:
+//
+//   keccak256("keykeeper/committee-status-attestation/v1" || token_hash(32)
+//             || verifier_index(u32 BE) || status_until(i64 BE))
+//
+// with the same Ed25519 committee key. Keepers accept the grant while
+// `now <= status_until + STATUS_SKEW_SECS` for a quorum of counted verifiers. The statement is
+// NOT part of the token payload: the canonical bytes, the token hash and the pinned
+// `committee-token-vectors.json` are unchanged.
+
+const STATUS_ATTESTATION_DOMAIN_BYTES = new TextEncoder().encode('keykeeper/committee-status-attestation/v1')
+
+/** Domain separator of the status-freshness statement (new name, `/v1`). */
+export const STATUS_ATTESTATION_DOMAIN = 'keykeeper/committee-status-attestation/v1'
+/** Decided revocation bound: no keeper accepts a grant later than `R + 60 s`. */
+export const REVOCATION_BOUND_SECS = 60
+/** The only skew a keeper allows past `status_until` (reserved inside the 60 s bound). */
+export const STATUS_SKEW_SECS = 5
+/** The verifier's attestation cache bound: `REVOCATION_BOUND_SECS - STATUS_SKEW_SECS`. */
+export const STATUS_CACHE_BOUND_SECS = REVOCATION_BOUND_SECS - STATUS_SKEW_SECS
+/** Longest usable window a verifier may attest (`55 - 10`). */
+export const MAX_STATUS_WINDOW_SECS = 45
+/** Default attested window (`[committee] status_window_secs`). */
+export const DEFAULT_STATUS_WINDOW_SECS = 30
+/** Most attestations one token may carry (mirrors the keeper cap). */
+export const MAX_STATUS_ATTESTATIONS = 64
+/** Stable keeper refusal code: attestations present but fewer than a quorum valid and fresh. */
+export const STATUS_STALE_CODE = 'revocation_status_stale'
+/** Stable keeper refusal code: the keeper requires attestations and the grant carries none. */
+export const STATUS_MISSING_CODE = 'revocation_status_missing'
+
+/** One decoded status-freshness attestation. */
+export interface StatusAttestation {
+  /** Zero-based verifier registry index (u32). */
+  verifierIndex: number
+  /** Unix seconds until which this verifier vouches for the holder's credential status. */
+  statusUntil: number
+  /** 64-byte Ed25519 signature over {@link statusAttestationHash}. */
+  signature: Uint8Array
+}
+
+/** One status attestation on the wire - exactly these three keys. */
+export interface StatusAttestationWire {
+  /** Zero-based verifier registry index (u32). */
+  verifier_index: number
+  /** Unix seconds (i64, a JavaScript safe integer). */
+  status_until: number
+  /** `0x` + 128 hex characters: the 64-byte Ed25519 signature. */
+  signature: string
+}
+
+const SIGNATURE_HEX = /^0x[0-9a-fA-F]{128}$/
+const U32_MAX = 0xffff_ffff
+
+function statusAttestationToWire(a: StatusAttestation): StatusAttestationWire {
+  return {verifier_index: a.verifierIndex, status_until: a.statusUntil, signature: bytesToHex(a.signature)}
+}
+
+function statusAttestationFromWire(w: StatusAttestationWire): StatusAttestation {
+  return {verifierIndex: w.verifier_index, statusUntil: w.status_until, signature: hexToBytes(w.signature)}
+}
+
+function assertAttestationInputs(tokenHash: Uint8Array, verifierIndex: number, statusUntil: number): void {
+  if (!(tokenHash instanceof Uint8Array) || tokenHash.length !== 32) throw new Error('status attestation token hash must be 32 bytes')
+  if (!Number.isSafeInteger(verifierIndex) || verifierIndex < 0 || verifierIndex > U32_MAX) throw new Error('status attestation verifier_index must be a u32')
+  if (!Number.isSafeInteger(statusUntil)) throw new Error('status attestation status_until must be a safe integer')
+}
+
+/**
+ * The 32-byte digest a drawn verifier signs to attest credential-status freshness for one token:
+ * `keccak256(DOMAIN || tokenHash || verifierIndex(u32 BE) || statusUntil(i64 BE))`.
+ * Byte-identical to the reference `status_attestation_hash`.
+ *
+ * @param tokenHash - 32-byte compound token hash ({@link compoundTokenHash}).
+ * @param verifierIndex - Zero-based verifier registry index.
+ * @param statusUntil - Unix seconds the verifier vouches until.
+ */
+export function statusAttestationHash(tokenHash: Uint8Array, verifierIndex: number, statusUntil: number): Uint8Array {
+  assertAttestationInputs(tokenHash, verifierIndex, statusUntil)
+  return keccak_256(concatBytes(STATUS_ATTESTATION_DOMAIN_BYTES, tokenHash, u32be(verifierIndex), i64be(statusUntil)))
+}
+
+/**
+ * Verify ONE attestation's Ed25519 signature under the verifier's committee key over `tokenHash`
+ * (no freshness, no quorum) - what a relay checks before forwarding it.
+ *
+ * @param pubkey - 32-byte Ed25519 committee public key of `attestation.verifierIndex`.
+ * @param tokenHash - 32-byte compound token hash.
+ * @param attestation - Decoded attestation.
+ * @returns Whether the signature verifies (strict: non-canonical encodings refused).
+ */
+export function verifyStatusAttestation(pubkey: Uint8Array, tokenHash: Uint8Array, attestation: StatusAttestation): boolean {
+  try {
+    if (pubkey.length !== 32 || attestation.signature.length !== 64) return false
+    const digest = statusAttestationHash(tokenHash, attestation.verifierIndex, attestation.statusUntil)
+    return ed25519.verify(attestation.signature, digest, pubkey, {zip215: false})
+  } catch {
+    return false
+  }
+}
+
+/** Inputs of {@link verifyStatusAttestations}, as a keeper checks them. */
+export interface VerifyStatusAttestationsOptions {
+  /** The token's canonical hash (already verified by the caller). */
+  tokenHash: Uint8Array
+  /** The token's attestations. */
+  attestations: StatusAttestation[]
+  /** Verifier indexes whose TOKEN signature verified (and that still stand). Others are ignored. */
+  counted: number[]
+  /** Active verifier set the token signatures were verified against. */
+  set: VerifierSet
+  /** The token's quorum. */
+  quorum: number
+  /** Current time, Unix seconds. */
+  now: number
+}
+
+/**
+ * Verify a token's status attestations exactly as a keeper does and return the effective status
+ * deadline (the quorum-th largest attested `status_until`). Throws on a duplicate index, an
+ * oversize list, a bad signature from a counted verifier, or fewer than `quorum` attestations
+ * fresh at `now` (`now <= status_until + STATUS_SKEW_SECS`; the token leeway is NOT applied).
+ *
+ * @param opts - Token hash, attestations, counted signers, verifier set, quorum and time.
+ */
+export function verifyStatusAttestations(opts: VerifyStatusAttestationsOptions): number {
+  const {tokenHash, attestations, counted, set, quorum, now} = opts
+  if (attestations.length > MAX_STATUS_ATTESTATIONS) throw new Error(`more than ${MAX_STATUS_ATTESTATIONS} status attestations`)
+  const seen = new Set<number>(), valid: number[] = []
+  for (const a of attestations) {
+    if (seen.has(a.verifierIndex)) throw new Error(`duplicate status attestation from verifier index ${a.verifierIndex}`)
+    seen.add(a.verifierIndex)
+    if (!counted.includes(a.verifierIndex)) continue
+    const pk = set.pubkeys.get(a.verifierIndex)
+    if (!pk || !verifyStatusAttestation(pk, tokenHash, a)) throw new Error(`invalid status attestation signature from verifier index ${a.verifierIndex}`)
+    valid.push(a.statusUntil)
+  }
+  valid.sort((a, b) => b - a)
+  const needed = Math.max(1, quorum)
+  const deadline = valid[needed - 1]
+  if (deadline !== undefined && now <= deadline + STATUS_SKEW_SECS) return deadline
+  const fresh = valid.filter(until => now <= until + STATUS_SKEW_SECS).length
+  throw new Error(`revocation status freshness (${STATUS_STALE_CODE}): ${fresh} of the token's verifiers attest the holder's credential status fresh at ${now}, need ${quorum}; present again for a fresh grant`)
+}
+
+/**
+ * Strictly validate an untrusted `status_attestations` value: an array of at most
+ * `maxEntries` (and {@link MAX_STATUS_ATTESTATIONS}) objects with EXACTLY
+ * `{verifier_index: u32, status_until: safe integer, signature: "0x" + 128 hex}` and distinct
+ * indexes. Returns a fresh copy (the value a keeper receives unchanged).
+ *
+ * @param raw - Untrusted wire value.
+ * @param maxEntries - Upper bound, normally the token's committee draw length.
+ */
+export function assertStatusAttestationsWire(raw: unknown, maxEntries: number = MAX_STATUS_ATTESTATIONS): StatusAttestationWire[] {
+  if (!Array.isArray(raw)) throw new Error('status_attestations is not an array')
+  if (raw.length > Math.min(maxEntries, MAX_STATUS_ATTESTATIONS)) throw new Error('status_attestations exceeds the committee draw')
+  const seen = new Set<number>()
+  return raw.map((entry: unknown) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('a status attestation is not an object')
+    const e = entry as Record<string, unknown>
+    const keys = Object.keys(e)
+    if (keys.length !== 3 || !['verifier_index', 'status_until', 'signature'].every(k => Object.hasOwn(e, k))) {
+      throw new Error('a status attestation is not exactly {verifier_index, status_until, signature}')
+    }
+    const index = e.verifier_index, until = e.status_until, signature = e.signature
+    if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0 || index > U32_MAX) throw new Error('status attestation verifier_index is not a u32')
+    if (typeof until !== 'number' || !Number.isSafeInteger(until)) throw new Error('status attestation status_until is not a safe integer')
+    if (typeof signature !== 'string' || !SIGNATURE_HEX.test(signature)) throw new Error('status attestation signature is not 0x + 64 bytes of hex')
+    if (seen.has(index)) throw new Error(`duplicate status attestation from verifier index ${index}`)
+    seen.add(index)
+    return {verifier_index: index, status_until: until, signature}
+  })
 }

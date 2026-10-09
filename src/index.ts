@@ -87,8 +87,10 @@ export {
   NodeUnreachableError,
   ThresholdNotMetError,
   SlotRotatedError,
+  RevocationStatusError,
   isAuthDenied,
   isRetryable,
+  isRevocationStatusRefusal,
 } from './errors.js'
 // Bounded waits honoring Retry-After, for requests that are safe to send again.
 // Never wrap a paid flow, reservation or other write whose outcome is uncertain.

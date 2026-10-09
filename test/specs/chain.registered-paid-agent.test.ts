@@ -10,7 +10,7 @@ import {authenticateApprovedService} from '../../src/chain/serviceIdentity.js'
 import {readClientExecutionPolicy, type PaidVerifierWitness} from '../../src/chain/prepaid.js'
 import {createExecutionCertificate, createLocalExecutionSigner, executionBodyHash, verifyExecutionAuthorization} from '../../src/committee/execution.js'
 import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, type PaymentIntentWire} from '../../src/committee/payment.js'
-import {assembleCompoundToken, compoundTokenHash, selectVerifierCommittee, verifierLeaf, type CompoundTokenPayload} from '../../src/committee/token.js'
+import {assembleCompoundToken, compoundTokenHash, selectVerifierCommittee, statusAttestationHash, verifierLeaf, type CompoundTokenPayload} from '../../src/committee/token.js'
 import {presentationOperationTypedData} from '../../src/oid4vp/verifier-agent.js'
 import {derivedNonce, requestHash} from '../../src/oid4vp/binding.js'
 import {b64url, decodeJson, signCompactJws} from '../../src/oid4vp/jose.js'
@@ -413,4 +413,32 @@ it('refuses empty, malformed or wrong-kind presentations before local signing or
   const oauth=await fixture('oauth');await oauth.session.create()
   await expect(oauth.session.requestObject()).rejects.toThrow(/no wallet request/)
   await expect(oauth.session.approveCredentials(oauth.proposal(),oauth.members[0]!,oauth.approved)).rejects.toThrow(/kind differs/)
+})
+
+it('checks relayed revocation-status attestations exactly as a keeper and carries them unchanged',async()=>{
+  const f=await fixture();await f.session.create()
+  const payload:CompoundTokenPayload={tokenType:'JWT',seed:hexToBytes(f.payment.verification_seed),epoch:7,slotId:hexToBytes(f.payment.slot),
+    vpHash:hexToBytes(h(34)),holderHash:hexToBytes(h(35)),ruleHash:hexToBytes(h(33)),
+    requestHash:requestHash(43112,hexToBytes(f.payment.slot),'sign',hexToBytes(f.payment.payload_digest)),
+    paymentHash:hexToBytes(paymentIntentHash(f.payment)),payment:f.payment,binding:1,
+    verifierIndexes:selectVerifierCommittee(hexToBytes(f.payment.slot),7,hexToBytes(f.payment.verification_seed),2,2),iat:1000,exp:1030}
+  const hash=compoundTokenHash(payload), key=(i:number)=>new Uint8Array(32).fill(i+1)
+  const att=(i:number,until:number,over=hash)=>({verifier_index:i,status_until:until,signature:toHex(ed25519.sign(statusAttestationHash(over,i,until),key(i)))})
+  const token=(status_attestations?:unknown)=>({...assembleCompoundToken(payload,[0,1].map(verifierIndex=>({verifierIndex,signature:ed25519.sign(hash,key(verifierIndex))}))),
+    ...(status_attestations===undefined?{}:{status_attestations})})
+  const reply=(compound_token:unknown)=>({status:200,body:bytes({status:'done',phase:'done',compound_token})})
+  // Date.now is 1_000_000 ms: now = 1000 s.
+  const good=[att(0,1030),att(1,1020)]
+  vi.mocked(f.transport.paidAgentRequest).mockResolvedValueOnce(reply(token(good)))
+  const completed=await f.session.poll()
+  expect(completed.compoundToken?.status_attestations).toEqual(good)
+  // Absent: still accepted here (the keeper decides whether it requires them).
+  vi.mocked(f.transport.paidAgentRequest).mockResolvedValueOnce(reply(token()))
+  expect((await f.session.poll()).compoundToken).not.toHaveProperty('status_attestations')
+  for(const [bad,why] of [[[att(0,1030)],/revocation_status_stale/],[[att(0,990),att(1,990)],/revocation_status_stale/],
+    [[att(0,1030,new Uint8Array(32).fill(9)),att(1,1030)],/status attestation signature/],[[att(0,1030),att(0,1030)],/duplicate/],
+    [[{...att(0,1030),extra:1},att(1,1030)],/exactly/],[[],/revocation_status_stale/]] as const){
+    vi.mocked(f.transport.paidAgentRequest).mockResolvedValueOnce(reply(token(bad)))
+    await expect(f.session.poll()).rejects.toThrow(why)
+  }
 })

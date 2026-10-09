@@ -17,6 +17,7 @@ import {TasraError} from '../errors.js'
 import {dpopHtu, platformAudience} from '../committee/oauth.js'
 import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 import {sessionPaymentFields} from './payment.js'
+import {assertStatusAttestationsWire} from '../committee/token.js'
 
 /** The operation the holder is authorizing - signed by the creator's EIP-712 key. */
 import type {DpopSigner} from '../auth/dpop.js'
@@ -171,7 +172,7 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
   const t = {...raw as Record<string, unknown>}
   // Reference-side optional fields are serialized as null for non-IBE operations. Normalize
   // absence before consumers decode the token; never replace it with a zero hash.
-  for (const key of ['identity_hash', 'request_hash', 'payment_hash', 'payment'] as const) if (t[key] === null) delete t[key]
+  for (const key of ['identity_hash', 'request_hash', 'payment_hash', 'payment', 'status_attestations'] as const) if (t[key] === null) delete t[key]
   for (const k of ['seed', 'slot_id', 'vp_hash', 'holder_hash', 'rule_hash'] as const) {
     if (typeof t[k] !== 'string' || !HEX32.test(t[k] as string)) bad(`${k} is not a 32-byte hex string`)
   }
@@ -196,6 +197,13 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
     const sg = sig as Record<string, unknown> | null
     if (!sg || typeof sg !== 'object' || !Number.isInteger(sg.verifier_index) || typeof sg.signature !== 'string') bad('a signature entry is not {verifier_index, signature}')
     if (!(t.verifier_indexes as number[]).includes(sg.verifier_index as number)) bad('a signature names an index outside the committee')
+  }
+  // Revocation-status freshness attestations travel beside `signatures`, outside the token hash.
+  // Keepers verify them; here the shape is checked strictly and the value carried unchanged.
+  if (t.status_attestations !== undefined) {
+    try {
+      t.status_attestations = assertStatusAttestationsWire(t.status_attestations, (t.verifier_indexes as number[]).length)
+    } catch (e) { bad(e instanceof Error ? e.message : String(e)) }
   }
   return t
 }

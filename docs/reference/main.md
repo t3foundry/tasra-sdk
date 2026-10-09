@@ -9,13 +9,14 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 11 classes</summary>
+<summary>Browse 12 classes</summary>
 
 - [RecipientStore](#recipientstore)
 - [AuthDeniedError](#authdeniederror)
 - [CommitteeAuthorizeError](#committeeauthorizeerror)
 - [DcqlMalformedError](#dcqlmalformederror)
 - [NodeUnreachableError](#nodeunreachableerror)
+- [RevocationStatusError](#revocationstatuserror)
 - [SlotRotatedError](#slotrotatederror)
 - [TasraError](#tasraerror)
 - [TasraHttpError](#tasrahttperror)
@@ -109,7 +110,7 @@ Distinct from a generic HTTP error because the committee flow polls several
 verifiers and tolerates individual refusals as long as a quorum co-signs - see
 [ThresholdNotMetError](#thresholdnotmeterror) for the failure that means the quorum was missed.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L75)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L76)
 
 Import: `import {CommitteeAuthorizeError} from 'tasra-sdk'`
 
@@ -171,7 +172,7 @@ declare class DcqlMalformedError {
 The request never got an HTTP answer - DNS failure, connection refused,
 timeout, CORS. Retryable: the service may simply not be up yet.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L118)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L167)
 
 Import: `import {NodeUnreachableError} from 'tasra-sdk'`
 
@@ -197,13 +198,67 @@ declare class NodeUnreachableError {
 
 - ` cause?: unknown; `
 
+### RevocationStatusError
+
+A keeper refused a committee grant because its verifiers' revocation-status attestations
+(`keykeeper/committee-status-attestation/v1`) are missing (`revocation_status_missing`) or no
+longer fresh for a quorum (`revocation_status_stale`). The credential was NOT judged revoked:
+the grant outlived the 60 s revocation bound (or came from a path that does not carry the
+attestations).
+
+NOT retryable, and NOT proof that no keeper worked: another keeper of the committee may already
+have started the operation before this one re-checked the grant, and a gateway can blur the
+outcome. Never resend this grant, and never treat this error alone as authority to retry, refund
+or clear a paid operation (its journal keeps the execution as uncertain until original-stage
+evidence settles it). For an UNPAID operation the remedy is a new presentation and a new grant.
+Not an [AuthDeniedError](#authdeniederror), and [isAuthDenied](#isauthdenied) returns false for it.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L128)
+
+Import: `import {RevocationStatusError} from 'tasra-sdk'`
+
+```ts
+declare class RevocationStatusError {
+    constructor(args: {
+        status: number;
+        url: string;
+        body?: string;
+        message?: string;
+        code: 'revocation_status_stale' | 'revocation_status_missing';
+        retryAfterMs?: number;
+    });
+}
+```
+
+- ` readonly code: 'revocation_status_stale' | 'revocation_status_missing'; ` — The keeper's stable refusal code.
+
+- ` readonly presentAgain: true; ` — Always true: a fresh grant needs a new presentation, never this token.
+
+- ` readonly status: number; ` — HTTP status code returned by the service.
+
+- ` readonly url: string; ` — Service URL that failed.
+
+- ` readonly body: string; ` — Response body retained as diagnostic information.
+
+- ` readonly retryAfterMs?: number; ` — Service-requested wait from `Retry-After`, in ms, when one was sent.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ### SlotRotatedError
 
 The slot was re-keyed (rotated) since the key in hand was assembled, so that
 key cannot read anything encrypted after the rotation. Retryable: re-assemble
 at the new epoch and try again - the managed [Session](#session) does this for you.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L166)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L215)
 
 Import: `import {SlotRotatedError} from 'tasra-sdk'`
 
@@ -315,7 +370,7 @@ signing set.
 this actionable: previously those were collected and then discarded, so a DNS
 failure and a cold DKG produced the same opaque message.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L137)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L186)
 
 Import: `import {ThresholdNotMetError} from 'tasra-sdk'`
 
@@ -394,7 +449,7 @@ A Verifier Agent session did not produce a compound token. `kind` says why;
 `retryable` is true only for `timeout` and `unavailable` - the session may
 still complete, so poll again. Extends [TasraError](#tasraerror).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L138)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L139)
 
 Import: `import {VerifierAgentSessionError} from 'tasra-sdk'`
 
@@ -425,7 +480,7 @@ declare class VerifierAgentSessionError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 86 functions</summary>
+<summary>Browse 87 functions</summary>
 
 - [accessTokenHash](#accesstokenhash)
 - [addressFromEoaPubkey](#addressfromeoapubkey)
@@ -481,6 +536,7 @@ Operations you can import and call.
 - [isJwtExpiringSoon](#isjwtexpiringsoon)
 - [isOid4vpRule](#isoid4vprule)
 - [isRetryable](#isretryable)
+- [isRevocationStatusRefusal](#isrevocationstatusrefusal)
 - [issueAdminCredential](#issueadmincredential)
 - [isTasraPost](#istasrapost)
 - [jsonCredential](#jsoncredential)
@@ -826,7 +882,7 @@ Open an `oauth` session - same creator authorisation, same committee draw, same
 derived nonce, same poll contract as [createOid4vpSession](#createoid4vpsession). No QR, no Request
 Object, no JWE key: the client presents an access token its own IdP minted.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L276)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L284)
 
 Import: `import {createOauthSession} from 'tasra-sdk'`
 
@@ -849,7 +905,7 @@ The verifier-agent derives a nonce, generates an ECDH key for JWE, and returns a
 payload the wallet scans. The session ID and poll secret are used to poll
 for the result.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L235)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L243)
 
 Import: `import {createOid4vpSession} from 'tasra-sdk'`
 
@@ -1627,7 +1683,7 @@ True when `e` is an auth rejection - i.e. retrying is pointless, re-claim
 instead. Keyed on the HTTP status rather than the class, so it also catches
 subclasses that carry their own name (e.g. `CommitteeAuthorizeError`).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L212)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L265)
 
 Import: `import {isAuthDenied} from 'tasra-sdk'`
 
@@ -1704,7 +1760,7 @@ Returns: ` boolean `.
 True when a typed failure may be transient. Errors outside the TasraError
 hierarchy return false. This hint does not make a write safe to repeat.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L222)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L275)
 
 Import: `import {isRetryable} from 'tasra-sdk'`
 
@@ -1717,6 +1773,25 @@ declare function isRetryable(e: unknown): boolean;
 | ` e ` | ` unknown ` | - Caught value to inspect for a retryable Tasra error. |
 
 Returns: ` boolean `.
+
+### isRevocationStatusRefusal
+
+True when a keeper refused a grant only for stale or missing revocation-status attestations:
+present the credential again for a fresh grant and repeat the call.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L159)
+
+Import: `import {isRevocationStatusRefusal} from 'tasra-sdk'`
+
+```ts
+declare function isRevocationStatusRefusal(e: unknown): e is RevocationStatusError;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` e ` | ` unknown ` | - Caught value to classify. |
+
+Returns: ` e is RevocationStatusError `.
 
 ### issueAdminCredential
 
@@ -1875,7 +1950,7 @@ Compute the `payload_digest` for a given action and message.
 For `sign` and `ibe-extract`, this is `sha256(message_bytes)` as 0x-hex.
 Other actions should supply the digest directly.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L212)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L220)
 
 Import: `import {payloadDigest} from 'tasra-sdk'`
 
@@ -1894,7 +1969,7 @@ Returns: ` string `.
 
 Fetch and validate one authorization session status. Transport failures and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error. The polling secret is sent in the Authorization header.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L384)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L392)
 
 Import: `import {pollOid4vpSession} from 'tasra-sdk'`
 
@@ -1958,7 +2033,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L698)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L744)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk'`
 
@@ -2225,7 +2300,7 @@ Returns: ` Promise<FrostSignature> `.
 
 Submit a DPoP-bound access token and proof to an OAuth session. The signer must use the key bound to that token. Retry once when the server responds with a DPoP nonce challenge.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L331)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L339)
 
 Import: `import {submitOauthResponse} from 'tasra-sdk'`
 
@@ -2430,7 +2505,7 @@ deadline; a `protocol` answer stops at once; the deadline is a `timeout` error; 
 caller's `signal` is a `cancelled` error. A terminal `failed` is RETURNED (the caller
 decides how to explain it) - see `awaitVerifierAgentResult` for the version that throws `refused`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L479)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L487)
 
 Import: `import {waitForSession} from 'tasra-sdk'`
 
@@ -2610,7 +2685,7 @@ Fields:
 
 an `oauth` session - the client brings a DPoP-bound access token.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L87)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L88)
 
 ```ts
 export interface CreateOauthSessionResult {
@@ -2634,7 +2709,7 @@ Fields:
 
 Signed operation, optional delegation and payload submitted to the verifier agent.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L59)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L60)
 
 ```ts
 export interface CreateSessionParams {
@@ -2660,7 +2735,7 @@ Fields:
 
 Wallet presentation link and polling credentials for an opened authorization session.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L75)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L76)
 
 ```ts
 export interface CreateSessionResult {
@@ -3282,7 +3357,7 @@ Fields:
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L564)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L610)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -3310,7 +3385,7 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L582)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L628)
 
 ```ts
 export interface IbeExtractOpts {
@@ -3465,7 +3540,7 @@ Fields:
 
 EIP-712 delegation from the slot creator to a delegate address.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L41)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L42)
 
 ```ts
 export interface PresentationDelegation {
@@ -3493,7 +3568,7 @@ Fields:
 
 Operation details signed by a slot creator or delegate for credential authorization.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L25)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L26)
 
 ```ts
 export interface PresentationOperation {
@@ -3707,7 +3782,7 @@ Fields:
 
 Authorization session progress and optional committee result or failure detail.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L104)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L105)
 
 ```ts
 export interface SessionStatusResult {
@@ -3887,7 +3962,7 @@ Fields:
 Why a session did not yield a token - the class the UI explains, with a NON-SECRET
 correlation reference (the session id; the poll secret is never part of an error).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L121)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L122)
 
 ```ts
 export type VerifierAgentSessionErrorKind = 'timeout' | 'refused' | 'unavailable' | 'protocol' | 'cancelled';

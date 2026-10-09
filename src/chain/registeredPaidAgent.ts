@@ -10,7 +10,7 @@ import {approveExecutionRequest, executionBodyHash, executionInitializationTyped
 import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 import {protocolHex} from '../committee/receipts.js'
 import {dpopHtu, platformAudience} from '../committee/oauth.js'
-import {BINDING_HOLDER_KEY, decodeCompoundToken, selectVerifierCommittee, verifierLeaf, verifyCompoundToken, verifyMerkleProof, type CompoundTokenWire} from '../committee/token.js'
+import {BINDING_HOLDER_KEY, decodeCompoundToken, selectVerifierCommittee, verifierLeaf, verifyCompoundToken, verifyMerkleProof, verifyStatusAttestations, compoundTokenHash, type CompoundTokenWire} from '../committee/token.js'
 import {derivedNonce, requestHash, type CommitteeAction} from '../oid4vp/binding.js'
 import {b64urlDecode, decodeJson} from '../oid4vp/jose.js'
 import {verifyRequestObject, type VerifiedRequestObject} from '../oid4vp/request-object.js'
@@ -370,8 +370,13 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
         || !token.paymentHash || toHex(token.paymentHash)!==paymentHash || token.exp>ready().expires
         || token.exp<=Math.floor(Date.now()/1000)||token.binding!==BINDING_HOLDER_KEY||token.tokenType!=='JWT'
         || (identity===null?token.identityHash!==undefined:!token.identityHash||toHex(token.identityHash)!==keccak256(toHex(identity)))) throw new Error('Paid committee result changed its original operation, holder binding or payment')
-      verifyCompoundToken({token,set:{registrySize:payment.verification_registry_size,pubkeys:new Map(members.map(m=>[m.index,protocolHex(m.publicKey,32,'key')]))},
-        committee:payment.verification_committee,quorum:payment.verification_quorum,now:Math.floor(Date.now()/1000),leeway:0,slotRuleHash:ruleHash})
+      const set={registrySize:payment.verification_registry_size,pubkeys:new Map(members.map(m=>[m.index,protocolHex(m.publicKey,32,'key')]))},now=Math.floor(Date.now()/1000)
+      const verified=verifyCompoundToken({token,set,committee:payment.verification_committee,quorum:payment.verification_quorum,now,leeway:0,slotRuleHash:ruleHash})
+      // Revocation-status attestations sit outside the token hash. Check them exactly as a keeper
+      // will (same keys, counted signers and quorum), so a grant every keeper would refuse is
+      // caught here; they are then carried to the keepers unchanged.
+      if(token.statusAttestations)verifyStatusAttestations({tokenHash:compoundTokenHash(token),attestations:token.statusAttestations,
+        counted:verified.verifiedSigners,set,quorum:payment.verification_quorum,now})
       // The signed payment hash already matched; carry its own original preimage to keepers.
       status.compoundToken!.payment=structuredClone(payment)
       // Downstream keepers receive the client's anchored witnesses, never unchecked agent proofs.

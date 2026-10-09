@@ -304,7 +304,7 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
       ? (v: {index: number; url: string}) => (opts.holderProof as HolderProofPerVerifier)(byIndex.get(v.index) ?? {index: v.index, url: v.url})
       : undefined
   const token = await gatherCommitteeToken({
-    verifiers: opts.verifiers.map(v => ({index: v.index, url: v.url})),
+    verifiers: opts.verifiers.map(v => ({index: v.index, url: v.url, ...(v.pubkey ? {pubkey: v.pubkey} : {})})),
     quorum,
     holderProofFor,
     onReplies: (_all, reference) => {

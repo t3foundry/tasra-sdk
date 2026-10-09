@@ -11,7 +11,7 @@
 
 import {hexToBytes, bytesToHex} from '../crypto/hex.js'
 import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from './payment.js'
-import {httpError, TasraHttpError, ThresholdNotMetError} from '../errors.js'
+import {httpError, RevocationStatusError, TasraHttpError, ThresholdNotMetError} from '../errors.js'
 import {bytesToHex as bareHex} from '@noble/hashes/utils'
 import {
   assembleCompoundToken,
@@ -19,7 +19,8 @@ import {
   type CompoundTokenPayload,
   type CompoundTokenWire,
   type CommitteeSignature,
-  type TokenType, bindingFromWire} from './token.js'
+  type StatusAttestation,
+  type TokenType, bindingFromWire, verifyStatusAttestation} from './token.js'
 import {base64Encode, base64Decode} from '../crypto/envelope.js'
 import type {Ciphertext} from '../crypto/kem.js'
 import type {FrostSignResult} from '../signing/frost.js'
@@ -177,6 +178,12 @@ export interface CommitteeAuthorizeReply {
   paymentHash?: Uint8Array
   /** binding strength byte (`bindingFromWire`); `0x00` when the verifier declared none. */
   binding: number
+  /**
+   * This verifier's revocation-status freshness attestation (`status_until` + `status_signature`
+   * on the wire), when it sent one. Not authenticated here: {@link gatherCommitteeToken} verifies
+   * it under the verifier's committee key before relaying it.
+   */
+  statusAttestation?: {statusUntil: number; signature: Uint8Array}
 }
 
 function authorizeWire(b: CommitteeAuthorizeBody): Record<string, unknown> {
@@ -279,6 +286,9 @@ export async function committeeAuthorize(
     request_hash?: string
     payment_hash?: string
     binding?: string
+    /** Revocation-status freshness attestation: both or neither. */
+    status_until?: number | null
+    status_signature?: string | null
   }
   const expectedPayment = body.payment ? paymentIntentHash(body.payment) : undefined
   if ((d.payment_hash ?? undefined)?.toLowerCase() !== expectedPayment?.toLowerCase()) throw new Error('verifier changed or omitted the payment commitment')
@@ -295,7 +305,18 @@ export async function committeeAuthorize(
     signature: hexToBytes(d.signature),
     committeeIndexes: d.committee_indexes,
     ruleVersion: typeof d.rule_version === 'number' ? d.rule_version : undefined,
+    ...statusAttestationField(d.status_until, d.status_signature),
   }
+}
+
+// A reply carries both halves of a status attestation or neither. Half of one, or a malformed
+// one, makes the whole reply invalid (the verifier-agent refuses such a reply the same way).
+function statusAttestationField(until: unknown, signature: unknown): {statusAttestation?: {statusUntil: number; signature: Uint8Array}} {
+  if (until == null && signature == null) return {}
+  if (typeof until !== 'number' || !Number.isSafeInteger(until) || typeof signature !== 'string' || !/^(?:0x)?[0-9a-fA-F]{128}$/.test(signature)) {
+    throw new Error('verifier reply carries a malformed or partial status attestation')
+  }
+  return {statusAttestation: {statusUntil: until, signature: hexToBytes(signature)}}
 }
 
 
@@ -303,7 +324,7 @@ export async function committeeAuthorize(
 export interface GatherCommitteeTokenOpts {
   /** Candidate verifiers to ask (index to base URL). Asking the whole registry is
    *  fine - non-drawn verifiers reply 403 and are skipped. */
-  verifiers: Array<{index: number; url: string}>
+  verifiers: Array<{index: number; url: string; pubkey?: string | Uint8Array}>
   /** Authorization input shared across requests to the selected verifiers. */
   authorize: CommitteeAuthorizeBody
   /** The slot's verifierPolicy quorum (minimum distinct committee signatures). */
@@ -331,7 +352,22 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
       const body = opts.holderProofFor
         ? {...opts.authorize, holderProof: await opts.holderProofFor(v)}
         : opts.authorize
-      return committeeAuthorize(v.url, body)
+      const reply = await committeeAuthorize(v.url, body)
+      // Revocation-status freshness: authenticate the reply's attestation under this verifier's
+      // committee key (the key its token signature is checked against) before it may be relayed.
+      // A forged one refuses the reply, as the verifier-agent does. Without a known key it is
+      // dropped, never relayed unauthenticated.
+      if (reply.statusAttestation) {
+        const pubkey = typeof v.pubkey === 'string' ? hexToBytes(v.pubkey) : v.pubkey
+        if (!pubkey) {
+          const {statusAttestation: _dropped, ...rest} = reply
+          return rest
+        }
+        if (reply.verifierIndex !== v.index || !verifyStatusAttestation(pubkey, reply.tokenHash, {verifierIndex: reply.verifierIndex, ...reply.statusAttestation})) {
+          throw new Error(`verifier #${v.index} status attestation does not verify`)
+        }
+      }
+      return reply
     }),
   )
   const replies = settled
@@ -405,7 +441,17 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
   if (replies.some(r => !bytesEqual(canonicalHash, r.tokenHash))) {
     throw new Error('gatherCommitteeToken: canonical token hash disagrees with the verifier (encoding mismatch)')
   }
-  return assembleCompoundToken(payload, [...sigByIndex.values()])
+  // Revocation-status attestations (already authenticated above) from the signers whose signature
+  // the token carries. Relayed only when at least a quorum carry one: a keeper that sees the field
+  // requires a quorum of them, so a partial list would turn a grant a keeper could accept (field
+  // absent, freshness not yet enforced) into one every keeper refuses.
+  const attestations: StatusAttestation[] = []
+  for (const r of replies) {
+    if (sigByIndex.has(r.verifierIndex) && r.statusAttestation && !attestations.some(a => a.verifierIndex === r.verifierIndex)) {
+      attestations.push({verifierIndex: r.verifierIndex, ...r.statusAttestation})
+    }
+  }
+  return assembleCompoundToken(payload, [...sigByIndex.values()], attestations.length >= opts.quorum ? attestations : undefined)
 }
 
 // keeper: POST /v1/committee/{sign,decrypt} (token in body, no auth header)
@@ -737,9 +783,14 @@ export async function collectIbeExtractionPartials(
     const partials: IbeExtractionPartial[] = [], ids = new Set<number>()
     const accepted = new Map<number, IbeExtractionPartial>()
     const failures = new Map<number, string>()
+    // Keepers that refused only for stale/missing revocation-status attestations: when every
+    // failure is one, surface the typed "present again" error instead of a threshold miss.
+    const revocation = new Map<number, RevocationStatusError>()
     const pending = new Set(opts.nodeUrls.map((_, i) => i))
     let done = false
-    const failure = () => threshold === undefined
+    const failure = () => failures.size > 0 && [...failures.keys()].every(i => revocation.has(i))
+      ? revocation.values().next().value!
+      : threshold === undefined
       ? new Error(`requestIbeExtractionPartials: no node served an extraction — ${[...failures.values()].join('; ')}`)
       : new ThresholdNotMetError({got: partials.length, need: threshold, reasons: [...failures.values()]})
     const finish = (error?: unknown) => {
@@ -778,6 +829,7 @@ export async function collectIbeExtractionPartials(
           failures.set(i, `${url}: ${error instanceof Error ? error.message : String(error)}`)
         }
       }, (error: unknown) => {
+        if (error instanceof RevocationStatusError) revocation.set(i, error)
         failures.set(i, `${url}: ${error instanceof Error ? error.message : String(error)}`)
       }).finally(() => {
         pending.delete(i)

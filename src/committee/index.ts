@@ -20,6 +20,19 @@ export {
   verifyCompoundToken,
   assembleCompoundToken,
   decodeCompoundToken,
+  statusAttestationHash,
+  verifyStatusAttestation,
+  verifyStatusAttestations,
+  assertStatusAttestationsWire,
+  STATUS_ATTESTATION_DOMAIN,
+  REVOCATION_BOUND_SECS,
+  STATUS_SKEW_SECS,
+  STATUS_CACHE_BOUND_SECS,
+  MAX_STATUS_WINDOW_SECS,
+  DEFAULT_STATUS_WINDOW_SECS,
+  MAX_STATUS_ATTESTATIONS,
+  STATUS_STALE_CODE,
+  STATUS_MISSING_CODE,
 } from './token.js'
 export type {
   TokenType,
@@ -30,6 +43,9 @@ export type {
   VerifyCompoundTokenOptions,
   CompoundTokenWire,
   CommitteeSignatureWire,
+  StatusAttestation,
+  StatusAttestationWire,
+  VerifyStatusAttestationsOptions,
 } from './token.js'
 export {
   committeeAuthorize,
