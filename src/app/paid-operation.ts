@@ -35,13 +35,16 @@ import {withDedicatedPayer} from './payer-queue.js'
 import {createExecutionCertificate, createLocalExecutionSigner, type ExecutionCertificate, type ExecutionStage} from '../committee/execution.js'
 import type {KeeperExecutionApprover} from '../committee/keeperExecution.js'
 import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
-import {compoundTokenHash, decodeCompoundToken, requireStatusAttestations, signersThatVerify, type CompoundTokenWire} from '../committee/token.js'
+import {compoundTokenHash, decodeCompoundToken, requireStatusAttestations, signersThatVerify, verifyStatusAttestation, verifyStatusAttestations, STATUS_SKEW_SECS,
+  type CompoundTokenWire, type StatusAttestationWire} from '../committee/token.js'
+import {acceptStatusRefreshRelay, createStatusRefreshProof, refreshStatusDirect, statusRefreshRelayBody, type StatusRefreshHolderSigner,
+  type StatusRefreshPrincipal, type StatusRefreshResult} from '../committee/status-refresh.js'
 import {canonicalize} from '../auth/oid4vp.js'
 import {presentationOperationTypedData, verifierAgentResult, type PresentationOperation} from '../oid4vp/verifier-agent.js'
 import {requestHash, type CommitteeAction} from '../oid4vp/binding.js'
 import type {VerifiedRequestObject} from '../oid4vp/request-object.js'
 import type {VerifierProof} from '../committee/client.js'
-import {RevocationStatusPreflightError, TasraError} from '../errors.js'
+import {RevocationStatusPreflightError, StatusRefreshError, TasraError, type StatusRefreshCode, type StatusRefreshFailure} from '../errors.js'
 import {base64Decode} from '../crypto/envelope.js'
 import type {IbeExtractionPartial} from '../committee/client.js'
 import {HEX32, RECORD_KEY, RECORD_PREFIX, paidRecordKey as recordKey} from './paid-keys.js'
@@ -128,6 +131,16 @@ export interface PaidOperation {
   readonly approveExecution: KeeperExecutionApprover
   /** Run the keeper operation exactly once. A failure is journaled and never retried; use `recover`. */
   execute<R>(work: (operation: PaidOperation) => Promise<R>): Promise<R>
+  /**
+   * Explicitly refresh the grant's revocation-status attestations
+   * (`keykeeper/committee-status-refresh/v1`) for the SAME token and payment, before `execute`.
+   * Allowed only while the journal is `authorized` (nothing was sent). A new `seq` is journaled
+   * BEFORE the proof is signed or sent and is never reused, even after a crash. On success the
+   * grant's `status_attestations` are replaced in the journal (the original list is kept in its
+   * refresh history) and later `execute` calls and `compound_token` reads use them. Never automatic,
+   * never retried; no new session, payment or keeper work. Throws {@link StatusRefreshError}.
+   */
+  refreshStatus(options?: RefreshPaidStatusOptions): Promise<PaidStatusRefresh>
   /** Read the keeper's retained result after an uncertain execution. Performs no new work. */
   recover(options: {transport: KeeperRecoveryTransport; stage?: Extract<ExecutionStage, 'coordinator' | 'contributor'>; signal?: AbortSignal}): Promise<RecoveredKeeperExecution>
   /**
@@ -149,6 +162,40 @@ export interface RecoverIbePartialsOptions {
   signal?: AbortSignal
   /** Contributors read at once, 1..16 (default 4). No new read starts after the threshold is met. */
   concurrency?: number
+}
+
+/** Options for {@link PaidOperation.refreshStatus} and {@link PaidOperationRecovery.refreshStatus}. */
+export interface RefreshPaidStatusOptions {
+  /**
+   * Route: `'agent'` (default) relays through the original session of the approved verifier-agent
+   * (journals written before the SDK recorded the session id cannot use it); `{verifiers}` calls
+   * the original signers' verifiers directly. Either way every answer is verified here under the
+   * anchored roster keys of the signers that verified the original token.
+   */
+  via?: 'agent' | {verifiers: readonly {index: number; url: string}[]; fetch?: typeof fetch}
+  /**
+   * Prove with the holder key recorded at issuance (`holder_key`) instead of the creator-certified
+   * client execution key (`client_execution`, the default).
+   */
+  holder?: StatusRefreshHolderSigner
+  /** Cancellation. An abort after the `seq` was journaled still consumes it. */
+  signal?: AbortSignal
+}
+
+/** A successful paid status refresh. */
+export interface PaidStatusRefresh {
+  /** Reservation identity. */
+  requestId: Hex
+  /** Journaled sequence number the proof used. */
+  seq: number
+  /** Effective status deadline (quorum-th largest), Unix seconds; keepers accept until `+ 5 s`. */
+  statusUntil: number
+  /** The journaled grant with its merged attestations (signatures and token hash unchanged). */
+  compound_token: CompoundTokenWire
+  /** Verifier indexes whose new attestation was accepted. */
+  refreshed: number[]
+  /** Original signers that contributed nothing, and why. */
+  failures: StatusRefreshFailure[]
 }
 
 /** One contributor's recovered extraction partial. */
@@ -274,8 +321,50 @@ interface OperationRecord {
   seed?: Uint8Array
   certificate?: ExecutionCertificate
   pollSecret?: string
-  grant?: {compound_token: CompoundTokenWire; verifierProofs: VerifierProof[]}
+  /** `sessionId` is absent from journals written before status refresh existed (relay unavailable for them). */
+  grant?: {compound_token: CompoundTokenWire; verifierProofs: VerifierProof[]; sessionId?: string}
+  /** Status refresh history (absent until the first refresh). */
+  statusRefresh?: StatusRefreshJournal
 }
+
+/** Outcome of one journaled refresh attempt. */
+type StatusRefreshOutcome = 'refreshed' | 'journal-changed' | 'aborted' | StatusRefreshCode
+/** One journaled refresh attempt; written (without outcome) before its proof is signed or sent. */
+interface StatusRefreshAttempt {
+  seq: number
+  issuedAt: number
+  via: 'agent' | 'direct'
+  principal: StatusRefreshPrincipal
+  /** Journal phase the refresh was allowed in. */
+  phase: 'authorized' | 'executing'
+  outcome?: StatusRefreshOutcome
+  statusUntil?: number
+}
+/**
+ * A refresh answered `status_refresh_refused`: a verifier attests the holder's credential status is
+ * refused NOW. While journaled, `execute` refuses the grant (whatever its attestations say); only a
+ * later successful refresh clears it.
+ */
+interface StatusRefreshRefusal {
+  seq: number
+  /** Unix seconds the refusal was journaled. */
+  at: number
+  /** Per-verifier reasons as answered. */
+  reasons: StatusRefreshFailure[]
+}
+/** Durable refresh state: the highest `seq` ever allocated is never reused. */
+interface StatusRefreshJournal {
+  seq: number
+  /** The grant's attestations as issued, before the first refresh replaced them (null: none). */
+  original: StatusAttestationWire[] | null
+  attempts: StatusRefreshAttempt[]
+  /** The last refresh's revocation refusal, until a later refresh succeeds. */
+  refused?: StatusRefreshRefusal
+}
+/** Bound on journaled attempts per operation (verifiers cap successful refreshes at 16 per token). */
+const MAX_STATUS_REFRESH_ATTEMPTS = 64
+/** Deadline of one relayed refresh (the agent fans out to the committee). */
+const RELAY_REFRESH_TIMEOUT_MS = 30_000
 
 const INDEX_KEY = 'paid-op-index'
 /** `backfilled` marks a store whose pre-index journals were indexed once. */
@@ -431,11 +520,13 @@ async function reserve(config: PaidOperationConfig, record: OperationRecord, sig
   await advance(config.store, requestId, 'reserving', {phase: 'reserved'})
 }
 
-async function advance(store: ApplicationStore, requestId: Hex, from: Phase | Phase[], patch: Partial<OperationRecord>): Promise<OperationRecord> {
+async function advance(store: ApplicationStore, requestId: Hex, from: Phase | Phase[], patch: Partial<OperationRecord>,
+  guard?: (current: OperationRecord) => void): Promise<OperationRecord> {
   const key = recordKey(requestId)
   return store.withLock(key, async () => {
     const current = await store.load<OperationRecord>(key)
     if (!current || current.schema !== 1 || !(Array.isArray(from) ? from : [from]).includes(current.phase)) throw new TasraError('Paid operation journal changed concurrently')
+    guard?.(current)
     const next = {...current, ...patch}
     await store.save(key, next)
     return next
@@ -490,7 +581,7 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
       const grant = verifierAgentResult({sessionId: session.sessionId, paymentHash: paymentIntentHash(record.payment),
         requestHash: requestHash(d.chainId, hexToBytes(record.payment.slot), record.action, hexToBytes(record.payloadDigest))}, result)
       if (!grant.verifierProofs?.length) throw new TasraError('Paid grant lacks anchored verifier proofs')
-      record = await advance(store, requestId, 'certified', {phase: 'authorized', grant: {compound_token: grant.token, verifierProofs: grant.verifierProofs}})
+      record = await advance(store, requestId, 'certified', {phase: 'authorized', grant: {compound_token: grant.token, verifierProofs: grant.verifierProofs, sessionId: session.sessionId}})
     }
     return handle(config, record, signer)
   } catch (error) { signer.dispose(); throw error }
@@ -503,22 +594,40 @@ function handle(config: PaidOperationConfig, record: OperationRecord, signer: Re
   const approveExecution = createKeeperExecutionApprover({client: config.chain.client, deployment: d, payment: record.payment, expected: record.expected,
     certificate: record.certificate, signer, keeperUrl: config.keeperUrl, transportPolicy: {allowLocalHttp: config.allowLocalHttp}})
   const grant = record.grant, certificate = record.certificate
+  // The latest journaled grant this handle knows: a status refresh replaces its attestations.
+  let current: CompoundTokenWire = structuredClone(grant.compound_token)
+  // A revocation refusal this handle saw, honoured even if journaling it failed.
+  let refusedHere: StatusRefreshRefusal | undefined
   const operation: PaidOperation = {
     requestId, payment: structuredClone(record.payment), coordinatorUrl: route(record.coordinator.url),
-    compound_token: structuredClone(grant.compound_token), verifierProofs: structuredClone(grant.verifierProofs),
+    get compound_token() { return structuredClone(current) },
+    verifierProofs: structuredClone(grant.verifierProofs),
     verifier_proofs: grant.verifierProofs.map(p => ({verifier_index: p.verifierIndex, operator: p.operator, pubkey: p.pubkey, proof: [...p.proof]})),
     approveExecution,
     async execute<R>(work: (operation: PaidOperation) => Promise<R>): Promise<R> {
+      // Pick up a refresh journaled through any handle or process (same token, same payment).
+      // An unreadable journal is left to the checkpoint below, which refuses it as before.
+      const latest = await loadRecord(store, requestId).catch(() => undefined)
+      if (latest?.grant && sameToken(latest.grant.compound_token, current)) current = structuredClone(latest.grant.compound_token)
+      // A refresh that answered a revocation refusal stops the grant, however fresh its
+      // attestations still are: a verifier saying "revoked now" is never outvoted by older ones.
+      const refused = latest ? latest.statusRefresh?.refused : refusedHere
+      if (refused) throw refreshRefusal(requestId, refused)
       // Revocation-status preflight on the journaled grant, BEFORE the `executing` checkpoint:
       // a refusal sends nothing and leaves the journal `authorized`. After the send, a keeper's
-      // refusal stays an uncertain execution like any other.
-      try { statusPreflight(config, record, grant.compound_token) }
+      // refusal stays an uncertain execution like any other. Refreshing is explicit
+      // (`refreshStatus`), never automatic.
+      try { statusPreflight(config, record, current) }
       catch (error) {
         if (error instanceof RevocationStatusPreflightError) throw statusRefusal(requestId, error)
         throw error
       }
       // Journal before sending: a lost reply leaves `executing`, which only recovery may read.
-      await advance(store, requestId, 'authorized', {phase: 'executing'}).catch((error: unknown) => {
+      // The checkpoint re-checks the refusal mark under the journal lock (a refresh may land between).
+      await advance(store, requestId, 'authorized', {phase: 'executing'}, journal => {
+        if (journal.statusRefresh?.refused) throw refreshRefusal(requestId, journal.statusRefresh.refused)
+      }).catch((error: unknown) => {
+        if (error instanceof RevocationStatusPreflightError) throw error
         throw new PaidOperationRecoveryError(requestId, 'execution', error)
       })
       let result: R
@@ -527,10 +636,174 @@ function handle(config: PaidOperationConfig, record: OperationRecord, signer: Re
       await advance(store, requestId, 'executing', {phase: 'executed'})
       return result
     },
+    async refreshStatus(options?: RefreshPaidStatusOptions): Promise<PaidStatusRefresh> {
+      let out: PaidStatusRefresh
+      try { out = await refreshJournaledStatus(config, requestId, signer, 'authorized', options ?? {}) }
+      catch (error) {
+        if (error instanceof StatusRefreshError && error.code === 'status_refresh_refused') {
+          refusedHere = {seq: error.seq ?? 0, at: Math.floor(Date.now() / 1000), reasons: [...error.reasons]}
+        }
+        throw error
+      }
+      refusedHere = undefined
+      current = structuredClone(out.compound_token)
+      return out
+    },
     ...recoveryReads(config, record, certificate, signer),
     dispose: () => signer.dispose(),
   }
   return Object.freeze(operation)
+}
+
+/** `execute` after a refresh answered a revocation refusal: refused locally, nothing sent. */
+function refreshRefusal(requestId: Hex, mark: StatusRefreshRefusal): RevocationStatusPreflightError {
+  const detail = mark.reasons.map(r => `${r.verifierIndex !== undefined ? `#${r.verifierIndex} ` : ''}${r.code}`).join('; ')
+  return new RevocationStatusPreflightError({code: 'revocation_status_refused', requestId,
+    message: `Status refresh seq ${mark.seq} was refused: a verifier attests the holder's credential status is refused now${detail ? ` (${detail})` : ''}; nothing was sent - do not send this grant`})
+}
+
+/** Same token hash (every signed field equal); the attestations beside it may differ. */
+function sameToken(a: CompoundTokenWire, b: CompoundTokenWire): boolean {
+  try {
+    const x = compoundTokenHash(decodeCompoundToken(a)), y = compoundTokenHash(decodeCompoundToken(b))
+    return x.length === y.length && x.every((v, i) => v === y[i])
+  } catch { return false }
+}
+
+/** The original trust a refresh is verified under: the anchored witnesses, quorum and hard caps. */
+function refreshGrant(record: OperationRecord, wire: CompoundTokenWire) {
+  return {token: wire, quorum: record.payment.verification_quorum, caps: [record.payment.expires],
+    set: {registrySize: record.payment.verification_registry_size, pubkeys: new Map<number, Uint8Array>(record.members.map(m => [m.index, hexToBytes(m.publicKey)]))}}
+}
+
+/** Merge two verified attestation lists per verifier index; the later deadline wins. */
+function mergeAttestations(a: readonly StatusAttestationWire[] | undefined, b: readonly StatusAttestationWire[]): StatusAttestationWire[] {
+  const byIndex = new Map<number, StatusAttestationWire>()
+  for (const w of [...(a ?? []), ...b]) {
+    const prior = byIndex.get(w.verifier_index)
+    if (!prior || w.status_until > prior.status_until) byIndex.set(w.verifier_index, {...w})
+  }
+  return [...byIndex.values()].sort((x, y) => x.verifier_index - y.verifier_index)
+}
+
+/**
+ * One explicit status refresh of a journaled paid grant. The `seq` is allocated and journaled
+ * under the journal lock BEFORE anything is signed or sent, so a crash never reuses it; the
+ * outcome is journaled afterwards. The journal phase never changes here.
+ */
+async function refreshJournaledStatus(config: PaidOperationConfig, requestId: Hex, signer: ReturnType<typeof createLocalExecutionSigner>,
+  mode: 'authorized' | 'executing', options: RefreshPaidStatusOptions): Promise<PaidStatusRefresh> {
+  const store = config.store, key = recordKey(requestId), signal = options.signal
+  const via = options.via ?? 'agent'
+  if (via !== 'agent' && (typeof via !== 'object' || !Array.isArray(via.verifiers))) throw new TasraError('Invalid status refresh route')
+  signal?.throwIfAborted()
+  const allocated = await store.withLock(key, async () => {
+    const record = await loadRecord(store, requestId)
+    if (!record) throw new TasraError('No paid operation journal for this request')
+    if (record.phase !== mode) {
+      throw new TasraError(mode === 'authorized'
+        ? `Status refresh is allowed only before execution (journal is ${record.phase}); after a send use recoverPaidOperation(...).refreshStatus({explicitRecovery: true}), which never makes the execution certain`
+        : `Status refresh in explicit recovery applies only to an uncertain execution (journal is ${record.phase})`)
+    }
+    if (!record.grant) throw new TasraError('Paid operation journal lacks its grant')
+    const wire = record.grant.compound_token, token = decodeCompoundToken(wire), now = Math.floor(Date.now() / 1000)
+    const trust = refreshGrant(record, wire)
+    if (signersThatVerify(token, trust.set).length < trust.quorum) throw new TasraError('Journaled grant lacks a verified quorum under its anchored witnesses')
+    if (!token.paymentHash || toHex(token.paymentHash).toLowerCase() !== paymentIntentHash(record.payment).toLowerCase()) throw new TasraError('Journaled grant does not carry this payment')
+    // Nothing usable can come back past a hard cap: refuse locally, nothing sent, no seq consumed.
+    if (Math.min(Number(token.exp), record.payment.expires) - STATUS_SKEW_SECS <= now) {
+      throw new StatusRefreshError({code: 'status_refresh_expired', requestId,
+        message: `Status refresh not sent: the grant or payment expires within the ${STATUS_SKEW_SECS} s keeper skew`})
+    }
+    if (via === 'agent' && (!record.grant.sessionId || !record.pollSecret)) {
+      throw new TasraError('This journal predates recorded agent sessions; refresh it directly with via: {verifiers}')
+    }
+    const prior = record.statusRefresh
+    if ((prior?.attempts.length ?? 0) >= MAX_STATUS_REFRESH_ATTEMPTS) throw new TasraError('Paid operation reached its status refresh attempt bound')
+    const seq = (prior?.seq ?? 0) + 1
+    if (!Number.isSafeInteger(seq)) throw new TasraError('Status refresh sequence exhausted')
+    const attempt: StatusRefreshAttempt = {seq, issuedAt: now, via: via === 'agent' ? 'agent' : 'direct',
+      principal: options.holder ? 'holder_key' : 'client_execution', phase: mode}
+    const next: OperationRecord = {...record, statusRefresh: {seq,
+      original: prior ? prior.original : structuredClone(wire.status_attestations ?? null),
+      attempts: [...(prior?.attempts ?? []), attempt],
+      // A recorded revocation refusal survives every new attempt; only a success lifts it.
+      ...(prior?.refused ? {refused: prior.refused} : {})}}
+    await store.save(key, next)
+    return {record: next, seq, issuedAt: now, trust, tokenHash: compoundTokenHash(token), paymentHash: token.paymentHash,
+      relay: via === 'agent' ? {sessionId: record.grant.sessionId ?? '', bearer: record.pollSecret ?? ''} : undefined}
+  })
+  const {record, seq, issuedAt, trust, relay} = allocated
+  const settle = (outcome: StatusRefreshOutcome, statusUntil?: number, refused?: StatusRefreshRefusal) => store.withLock(key, async () => {
+    const latest = await loadRecord(store, requestId)
+    if (!latest?.statusRefresh) return
+    const attempts = latest.statusRefresh.attempts.map(a => a.seq === seq ? {...a, outcome, ...(statusUntil !== undefined ? {statusUntil} : {})} : a)
+    await store.save(key, {...latest, statusRefresh: {...latest.statusRefresh, attempts, ...(refused ? {refused} : {})}} satisfies OperationRecord)
+  })
+  const fail = async (error: unknown): Promise<never> => {
+    if (signal?.aborted) {
+      await settle('aborted').catch(() => undefined)
+      throw signal.reason ?? error
+    }
+    if (error instanceof StatusRefreshError) {
+      // A revocation refusal is journaled as a mark `execute` honours; the grant stays unchanged.
+      const refused = error.code === 'status_refresh_refused' ? {seq, at: Math.floor(Date.now() / 1000), reasons: [...error.reasons]} : undefined
+      await settle(error.code, undefined, refused).catch(() => undefined)
+      throw new StatusRefreshError({code: error.code, message: error.message, httpStatus: error.httpStatus, retryAfterMs: error.retryAfterMs,
+        reasons: error.reasons, requestId, seq, retryable: error.retryable, cause: error})
+    }
+    await settle('status_refresh_unreachable').catch(() => undefined)
+    throw new StatusRefreshError({code: 'status_refresh_unreachable', message: 'Status refresh got no verified answer', requestId, seq, cause: error})
+  }
+  let result: StatusRefreshResult
+  try {
+    const proof = await createStatusRefreshProof({chainId: record.payment.chain_id, tokenHash: allocated.tokenHash, paymentHash: allocated.paymentHash, seq, issuedAt,
+      prover: options.holder ? {kind: 'holder_key', signer: options.holder} : {kind: 'client_execution', signer}})
+    if (via === 'agent' && relay) {
+      const active = AbortSignal.any([AbortSignal.timeout(RELAY_REFRESH_TIMEOUT_MS), ...(signal ? [signal] : [])])
+      let response
+      try {
+        response = await config.agent.transport.paidAgentRequest(`${config.agent.profile.endpoint}/v1/sessions/${relay.sessionId}/status-refresh`,
+          {method: 'POST', body: statusRefreshRelayBody(proof), bearer: relay.bearer, maxBytes: 64 * 1024, signal: active})
+      } catch (error) {
+        throw new StatusRefreshError({code: 'status_refresh_unreachable', message: 'Status refresh relay did not answer', cause: error})
+      }
+      result = acceptStatusRefreshRelay(trust, {status: response.status, body: response.body,
+        ...(response.retryAfterMs !== undefined ? {retryAfterMs: response.retryAfterMs} : {})})
+    } else if (via !== 'agent') {
+      result = await refreshStatusDirect({...trust, chainId: record.payment.chain_id, proof, verifiers: via.verifiers,
+        ...(via.fetch ? {fetch: via.fetch} : {}), allowHttp: config.allowLocalHttp === true && record.payment.chain_id === 43112, ...(signal ? {signal} : {})})
+    } else throw new TasraError('Invalid status refresh route')
+  } catch (error) { return fail(error) }
+  const done: StatusRefreshResult = result
+  // Apply under the lock, merged with the CURRENT journaled list (a concurrent refresh may have landed).
+  return store.withLock(key, async () => {
+    const latest = await loadRecord(store, requestId)
+    if (!latest?.grant || !latest.statusRefresh) throw new TasraError('Paid operation journal changed concurrently')
+    const applies = latest.phase === mode && sameToken(latest.grant.compound_token, done.token)
+    const attempts = latest.statusRefresh.attempts.map(a => a.seq === seq ? {...a, outcome: applies ? 'refreshed' as const : 'journal-changed' as const, statusUntil: done.statusUntil} : a)
+    if (!applies) {
+      await store.save(key, {...latest, statusRefresh: {...latest.statusRefresh, attempts}} satisfies OperationRecord)
+      throw new TasraError(`Paid operation journal moved to ${latest.phase} while the status refresh was in flight; the refreshed attestations were not applied`)
+    }
+    // Only entries a keeper would count survive from the journal; the refreshed ones were verified above.
+    const counted = signersThatVerify(decodeCompoundToken(latest.grant.compound_token), trust.set)
+    const journaled = (latest.grant.compound_token.status_attestations ?? []).filter(w => {
+      // An original withdrawn by its verifier's negative outcome (or left out of a relay's answer) stays out.
+      if (done.ineligible.includes(w.verifier_index)) return false
+      const pubkey = trust.set.pubkeys.get(w.verifier_index)
+      return pubkey !== undefined && counted.includes(w.verifier_index) && verifyStatusAttestation(pubkey, allocated.tokenHash, {verifierIndex: w.verifier_index, statusUntil: w.status_until, signature: hexToBytes(w.signature as Hex)})
+    })
+    const merged = mergeAttestations(journaled, done.statusAttestations)
+    const compound = {...latest.grant.compound_token, status_attestations: merged}
+    const decoded = decodeCompoundToken(compound)
+    const statusUntil = verifyStatusAttestations({tokenHash: compoundTokenHash(decoded), attestations: decoded.statusAttestations ?? [],
+      counted: signersThatVerify(decoded, trust.set), set: trust.set, quorum: trust.quorum, now: Math.floor(Date.now() / 1000)})
+    // Success: no verifier refuses now, so an earlier refusal mark is lifted.
+    const {refused: _lifted, ...history} = latest.statusRefresh
+    await store.save(key, {...latest, grant: {...latest.grant, compound_token: compound}, statusRefresh: {...history, attempts}} satisfies OperationRecord)
+    return {requestId: prepaidRequestId(record.payment), seq, statusUntil, compound_token: structuredClone(compound), refreshed: done.refreshed, failures: done.failures}
+  })
 }
 
 /** The read-only recovery half of a handle: retained keeper results, never new work. */
@@ -585,6 +858,15 @@ export interface PaidOperationRecovery {
   recover: PaidOperation['recover']
   /** For `ibe-extract`: read contributors' retained partials up to the threshold. Performs no new work. */
   recoverIbePartials: PaidOperation['recoverIbePartials']
+  /**
+   * EXPLICIT RECOVERY ONLY: refresh the grant's revocation-status attestations while the execution
+   * is uncertain (`executing`), for an application that has independently decided to continue the
+   * SAME request (for example after `recover` found no coordinator record). It changes no keeper
+   * state and NOT the journal phase: the execution stays uncertain, `execute` stays refused, and
+   * neither a keeper 403 nor a recovery 404 becomes evidence that no work ran. Same journaled,
+   * never-reused `seq` as {@link PaidOperation.refreshStatus}; requires `explicitRecovery: true`.
+   */
+  refreshStatus(options: RefreshPaidStatusOptions & {explicitRecovery: true}): Promise<PaidStatusRefresh>
   /** Erase the local execution signer. */
   dispose(): void
 }
@@ -608,7 +890,13 @@ export async function recoverPaidOperation(config: PaidOperationConfig, requestI
   if (!record.seed || !record.certificate) throw new TasraError('Paid operation journal lacks its execution consent')
   const signer = createLocalExecutionSigner(record.seed)
   return Object.freeze({requestId: prepaidRequestId(record.payment), payment: structuredClone(record.payment), phase: record.phase,
-    ...recoveryReads(config, record, record.certificate, signer), dispose: () => signer.dispose()})
+    ...recoveryReads(config, record, record.certificate, signer),
+    refreshStatus: (options: RefreshPaidStatusOptions & {explicitRecovery: true}) => {
+      if (options?.explicitRecovery !== true) return Promise.reject(new TasraError('Status refresh after a send requires explicitRecovery: true'))
+      const {explicitRecovery: _explicit, ...rest} = options
+      return refreshJournaledStatus(config, requestId, signer, 'executing', rest)
+    },
+    dispose: () => signer.dispose()})
 }
 
 /** What the application should do next with a reconciled paid operation. */

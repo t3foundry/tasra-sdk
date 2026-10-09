@@ -9,7 +9,7 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 13 classes</summary>
+<summary>Browse 14 classes</summary>
 
 - [RecipientStore](#recipientstore)
 - [AuthDeniedError](#authdeniederror)
@@ -19,6 +19,7 @@ Clients, adapters and error classes.
 - [RevocationStatusError](#revocationstatuserror)
 - [RevocationStatusPreflightError](#revocationstatuspreflighterror)
 - [SlotRotatedError](#slotrotatederror)
+- [StatusRefreshError](#statusrefresherror)
 - [TasraError](#tasraerror)
 - [TasraHttpError](#tasrahttperror)
 - [ThresholdNotMetError](#thresholdnotmeterror)
@@ -173,7 +174,7 @@ declare class DcqlMalformedError {
 The request never got an HTTP answer - DNS failure, connection refused,
 timeout, CORS. Retryable: the service may simply not be up yet.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L211)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L320)
 
 Import: `import {NodeUnreachableError} from 'tasra-sdk'`
 
@@ -260,7 +261,10 @@ production posture applies: its revocation-status attestations
 (`keykeeper/committee-status-attestation/v1`) are missing (`revocation_status_missing`: absent,
 `null` or empty), fewer than a quorum are valid and fresh (`revocation_status_stale`), or the
 list is malformed, duplicated or carries a bad signature from a counted verifier
-(`revocation_status_invalid`).
+(`revocation_status_invalid`), or - for a journaled paid operation - an explicit status refresh
+answered `status_refresh_refused` (`revocation_status_refused`: a verifier attests the holder's
+credential status is refused NOW; the grant is refused however fresh its attestations still are,
+until a later refresh succeeds).
 
 Unlike [RevocationStatusError](#revocationstatuserror) (a keeper's reply after a send), nothing was sent: a paid
 operation refused here stays in its pre-execution journal phase. Not retryable with this grant
@@ -268,7 +272,7 @@ and never a reason to start a new session or payment automatically: present agai
 grant. `allowMissingStatusAttestations` (migration window only) waives `revocation_status_missing`
 and nothing else.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L157)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L161)
 
 Import: `import {RevocationStatusPreflightError} from 'tasra-sdk'`
 
@@ -307,7 +311,7 @@ The slot was re-keyed (rotated) since the key in hand was assembled, so that
 key cannot read anything encrypted after the rotation. Retryable: re-assemble
 at the new epoch and try again - the managed [Session](#session) does this for you.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L259)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L368)
 
 Import: `import {SlotRotatedError} from 'tasra-sdk'`
 
@@ -325,6 +329,59 @@ declare class SlotRotatedError {
 - ` readonly expected: number; ` — The epoch the caller's key/envelope belongs to.
 
 - ` readonly actual: number; ` — The slot's current on-chain/served epoch.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### StatusRefreshError
+
+A status refresh for an already-issued committee grant produced no fresh quorum.
+
+It changes nothing at any keeper and is NEVER evidence about keeper work: for a paid operation
+the journal phase is unchanged (an `authorized` grant was not sent; an `executing` one stays
+uncertain). `retryable` is a coarse hint for 429/503/transport failures only; the SDK never
+retries a refresh automatically, and a new attempt always uses a new, journaled `seq`.
+`status_refresh_refused` means a credential status reference is revoked or no longer
+acceptable: present again (a new grant), never refresh this one.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L274)
+
+Import: `import {StatusRefreshError} from 'tasra-sdk'`
+
+```ts
+declare class StatusRefreshError {
+    constructor(args: {
+        code: StatusRefreshCode;
+        message: string;
+        httpStatus?: number;
+        retryAfterMs?: number;
+        reasons?: readonly StatusRefreshFailure[];
+        requestId?: string;
+        seq?: number;
+        retryable?: boolean;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: StatusRefreshCode; ` — Stable code (for a fan-out, the decisive one; see `reasons` for every verifier).
+
+- ` readonly httpStatus?: number; ` — HTTP status of the decisive answer, when there was one.
+
+- ` readonly retryAfterMs?: number; ` — Longest service-requested wait among the failures, in ms.
+
+- ` readonly reasons: readonly StatusRefreshFailure[]; ` — Per-verifier (or relay) failures.
+
+- ` readonly requestId?: string; ` — Paid operation identity, when the refresh belonged to a journaled paid operation.
+
+- ` readonly seq?: number; ` — The journaled sequence number the failed proof used (never reused).
 
 - ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
@@ -419,7 +476,7 @@ signing set.
 this actionable: previously those were collected and then discarded, so a DNS
 failure and a cold DKG produced the same opaque message.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L230)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L339)
 
 Import: `import {ThresholdNotMetError} from 'tasra-sdk'`
 
@@ -529,7 +586,7 @@ declare class VerifierAgentSessionError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 88 functions</summary>
+<summary>Browse 89 functions</summary>
 
 - [accessTokenHash](#accesstokenhash)
 - [addressFromEoaPubkey](#addressfromeoapubkey)
@@ -587,6 +644,7 @@ Operations you can import and call.
 - [isRetryable](#isretryable)
 - [isRevocationStatusPreflightRefusal](#isrevocationstatuspreflightrefusal)
 - [isRevocationStatusRefusal](#isrevocationstatusrefusal)
+- [isStatusRefreshError](#isstatusrefresherror)
 - [issueAdminCredential](#issueadmincredential)
 - [isTasraPost](#istasrapost)
 - [jsonCredential](#jsoncredential)
@@ -1733,7 +1791,7 @@ True when `e` is an auth rejection - i.e. retrying is pointless, re-claim
 instead. Keyed on the HTTP status rather than the class, so it also catches
 subclasses that carry their own name (e.g. `CommitteeAuthorizeError`).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L309)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L418)
 
 Import: `import {isAuthDenied} from 'tasra-sdk'`
 
@@ -1810,7 +1868,7 @@ Returns: ` boolean `.
 True when a typed failure may be transient. Errors outside the TasraError
 hierarchy return false. This hint does not make a write safe to repeat.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L319)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L428)
 
 Import: `import {isRetryable} from 'tasra-sdk'`
 
@@ -1829,7 +1887,7 @@ Returns: ` boolean `.
 True when a grant was refused locally for missing, stale or invalid revocation-status
 attestations before anything was sent.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L180)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L184)
 
 Import: `import {isRevocationStatusPreflightRefusal} from 'tasra-sdk'`
 
@@ -1848,7 +1906,7 @@ Returns: ` e is RevocationStatusPreflightError `.
 True when a keeper refused a grant only for stale or missing revocation-status attestations:
 present the credential again for a fresh grant and repeat the call.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L203)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L207)
 
 Import: `import {isRevocationStatusRefusal} from 'tasra-sdk'`
 
@@ -1861,6 +1919,24 @@ declare function isRevocationStatusRefusal(e: unknown): e is RevocationStatusErr
 | ` e ` | ` unknown ` | - Caught value to classify. |
 
 Returns: ` e is RevocationStatusError `.
+
+### isStatusRefreshError
+
+True for a [StatusRefreshError](#statusrefresherror).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L312)
+
+Import: `import {isStatusRefreshError} from 'tasra-sdk'`
+
+```ts
+declare function isStatusRefreshError(e: unknown): e is StatusRefreshError;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` e ` | ` unknown ` | - Caught value to classify. |
+
+Returns: ` e is StatusRefreshError `.
 
 ### issueAdminCredential
 
@@ -2598,7 +2674,7 @@ Returns: ` Promise<SessionStatusResult> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 61 types</summary>
+<summary>Browse 63 types</summary>
 
 - [BlsPeer](#blspeer)
 - [BuildHolderProofOpts](#buildholderproofopts)
@@ -2657,6 +2733,8 @@ Options, data structures and return types.
 - [ShardSignOpts](#shardsignopts)
 - [SignCustodyOpts](#signcustodyopts)
 - [SignOpts](#signopts)
+- [StatusRefreshCode](#statusrefreshcode)
+- [StatusRefreshFailure](#statusrefreshfailure)
 - [TasraClient](#tasraclient)
 - [TasraClientConfig](#tasraclientconfig)
 - [VerifierAgentSessionErrorKind](#verifieragentsessionerrorkind)
@@ -3749,7 +3827,7 @@ Stable code of a local revocation-status preflight refusal.
 [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L141)
 
 ```ts
-export type RevocationStatusPreflightCode = 'revocation_status_missing' | 'revocation_status_stale' | 'revocation_status_invalid';
+export type RevocationStatusPreflightCode = 'revocation_status_missing' | 'revocation_status_stale' | 'revocation_status_invalid' | 'revocation_status_refused';
 ```
 
 ### ScopeNamespace
@@ -3989,6 +4067,75 @@ Fields:
 - **` userSignature `**: 64-byte Ed25519 user signature - required iff the slot has an owner key.
 - **` targetKeykeeper `**: 20-byte operator address to pin (anti-Sybil).
 - **` requestId `**: Idempotency key (required when userSignature is set).
+
+### StatusRefreshCode
+
+Stable code of a status-refresh failure (`keykeeper/committee-status-refresh/v1`).
+
+Server codes (verifier `POST /v1/committee/status-refresh`, or the verifier-agent relay
+`POST /v1/sessions/:id/status-refresh`):
+- `status_refresh_unknown` (404): the verifier holds no issuance record for this token.
+- `status_refresh_unavailable` (409): a legacy record without refresh facts; never clean.
+- `status_refresh_replayed` (409): the proof's `seq` is not above the verifier's last one.
+- `status_refresh_context_changed` (409): the verifier's roster index or the slot rule moved.
+- `status_refresh_expired` (410): a hard cap of the grant (minus the 5 s keeper skew) passed.
+- `status_refresh_unauthenticated` (403, or 401 from the relay): the proof does not verify
+  under the principal recorded at issuance, or is not fresh.
+- `status_refresh_refused` (403): a status reference is revoked or no longer acceptable.
+- `status_refresh_unavailable_status` (503): a status list could not be read.
+- `status_refresh_quorum_unmet` (503 from the relay, or local): fewer than the token's quorum of
+  original signers returned a valid, fresh, capped attestation.
+- `status_refresh_rate_limited` (429): per-token interval/cap or principal quota; see `retryAfterMs`.
+
+Client codes:
+- `status_refresh_invalid_response`: a success reply that is malformed, unsigned, forged, from a
+  signer that did not verify the original token, or past a cap. Never trusted.
+- `status_refresh_unreachable`: no HTTP answer (the verifier may still have consumed the `seq`).
+- `status_refresh_http`: any other HTTP status, or a refusal without a recognised code.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L235)
+
+```ts
+export type StatusRefreshCode =
+    | 'status_refresh_unknown'
+    | 'status_refresh_unavailable'
+    | 'status_refresh_replayed'
+    | 'status_refresh_context_changed'
+    | 'status_refresh_expired'
+    | 'status_refresh_unauthenticated'
+    | 'status_refresh_refused'
+    | 'status_refresh_unavailable_status'
+    | 'status_refresh_quorum_unmet'
+    | 'status_refresh_rate_limited'
+    | 'status_refresh_invalid_response'
+    | 'status_refresh_unreachable'
+    | 'status_refresh_http'
+;
+```
+
+### StatusRefreshFailure
+
+Why one verifier (or the relay) did not contribute a fresh attestation.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L251)
+
+```ts
+export interface StatusRefreshFailure {
+    verifierIndex?: number;
+    code: StatusRefreshCode;
+    httpStatus?: number;
+    retryAfterMs?: number;
+    message: string;
+}
+```
+
+Fields:
+
+- **` verifierIndex `**: Verifier registry index, when the failure belongs to one verifier.
+- **` code `**: Stable code.
+- **` httpStatus `**: HTTP status, when an answer arrived.
+- **` retryAfterMs `**: Service-requested wait (`Retry-After`), in ms.
+- **` message `**: Safe-to-log detail (no secrets, at most 200 characters of a service message).
 
 ### TasraClient
 

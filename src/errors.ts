@@ -139,6 +139,7 @@ export class RevocationStatusError extends TasraHttpError {
 
 /** Stable code of a local revocation-status preflight refusal. */
 export type RevocationStatusPreflightCode = 'revocation_status_missing' | 'revocation_status_stale' | 'revocation_status_invalid'
+  | 'revocation_status_refused'
 
 /**
  * A committee grant was refused LOCALLY, before any keeper call, by the same rule a keeper in
@@ -146,7 +147,10 @@ export type RevocationStatusPreflightCode = 'revocation_status_missing' | 'revoc
  * (`keykeeper/committee-status-attestation/v1`) are missing (`revocation_status_missing`: absent,
  * `null` or empty), fewer than a quorum are valid and fresh (`revocation_status_stale`), or the
  * list is malformed, duplicated or carries a bad signature from a counted verifier
- * (`revocation_status_invalid`).
+ * (`revocation_status_invalid`), or - for a journaled paid operation - an explicit status refresh
+ * answered `status_refresh_refused` (`revocation_status_refused`: a verifier attests the holder's
+ * credential status is refused NOW; the grant is refused however fresh its attestations still are,
+ * until a later refresh succeeds).
  *
  * Unlike {@link RevocationStatusError} (a keeper's reply after a send), nothing was sent: a paid
  * operation refused here stays in its pre-execution journal phase. Not retryable with this grant
@@ -202,6 +206,111 @@ export function revocationStatusCode(status: number, body: string): RevocationSt
  */
 export function isRevocationStatusRefusal(e: unknown): e is RevocationStatusError {
   return e instanceof RevocationStatusError
+}
+
+/**
+ * Stable code of a status-refresh failure (`keykeeper/committee-status-refresh/v1`).
+ *
+ * Server codes (verifier `POST /v1/committee/status-refresh`, or the verifier-agent relay
+ * `POST /v1/sessions/:id/status-refresh`):
+ * - `status_refresh_unknown` (404): the verifier holds no issuance record for this token.
+ * - `status_refresh_unavailable` (409): a legacy record without refresh facts; never clean.
+ * - `status_refresh_replayed` (409): the proof's `seq` is not above the verifier's last one.
+ * - `status_refresh_context_changed` (409): the verifier's roster index or the slot rule moved.
+ * - `status_refresh_expired` (410): a hard cap of the grant (minus the 5 s keeper skew) passed.
+ * - `status_refresh_unauthenticated` (403, or 401 from the relay): the proof does not verify
+ *   under the principal recorded at issuance, or is not fresh.
+ * - `status_refresh_refused` (403): a status reference is revoked or no longer acceptable.
+ * - `status_refresh_unavailable_status` (503): a status list could not be read.
+ * - `status_refresh_quorum_unmet` (503 from the relay, or local): fewer than the token's quorum of
+ *   original signers returned a valid, fresh, capped attestation.
+ * - `status_refresh_rate_limited` (429): per-token interval/cap or principal quota; see `retryAfterMs`.
+ *
+ * Client codes:
+ * - `status_refresh_invalid_response`: a success reply that is malformed, unsigned, forged, from a
+ *   signer that did not verify the original token, or past a cap. Never trusted.
+ * - `status_refresh_unreachable`: no HTTP answer (the verifier may still have consumed the `seq`).
+ * - `status_refresh_http`: any other HTTP status, or a refusal without a recognised code.
+ */
+export type StatusRefreshCode =
+  | 'status_refresh_unknown'
+  | 'status_refresh_unavailable'
+  | 'status_refresh_replayed'
+  | 'status_refresh_context_changed'
+  | 'status_refresh_expired'
+  | 'status_refresh_unauthenticated'
+  | 'status_refresh_refused'
+  | 'status_refresh_unavailable_status'
+  | 'status_refresh_quorum_unmet'
+  | 'status_refresh_rate_limited'
+  | 'status_refresh_invalid_response'
+  | 'status_refresh_unreachable'
+  | 'status_refresh_http'
+
+/** Why one verifier (or the relay) did not contribute a fresh attestation. */
+export interface StatusRefreshFailure {
+  /** Verifier registry index, when the failure belongs to one verifier. */
+  verifierIndex?: number
+  /** Stable code. */
+  code: StatusRefreshCode
+  /** HTTP status, when an answer arrived. */
+  httpStatus?: number
+  /** Service-requested wait (`Retry-After`), in ms. */
+  retryAfterMs?: number
+  /** Safe-to-log detail (no secrets, at most 200 characters of a service message). */
+  message: string
+}
+
+/**
+ * A status refresh for an already-issued committee grant produced no fresh quorum.
+ *
+ * It changes nothing at any keeper and is NEVER evidence about keeper work: for a paid operation
+ * the journal phase is unchanged (an `authorized` grant was not sent; an `executing` one stays
+ * uncertain). `retryable` is a coarse hint for 429/503/transport failures only; the SDK never
+ * retries a refresh automatically, and a new attempt always uses a new, journaled `seq`.
+ * `status_refresh_refused` means a credential status reference is revoked or no longer
+ * acceptable: present again (a new grant), never refresh this one.
+ */
+export class StatusRefreshError extends TasraError {
+  /** Stable code (for a fan-out, the decisive one; see `reasons` for every verifier). */
+  readonly code: StatusRefreshCode
+  /** HTTP status of the decisive answer, when there was one. */
+  readonly httpStatus?: number
+  /** Longest service-requested wait among the failures, in ms. */
+  readonly retryAfterMs?: number
+  /** Per-verifier (or relay) failures. */
+  readonly reasons: readonly StatusRefreshFailure[]
+  /** Paid operation identity, when the refresh belonged to a journaled paid operation. */
+  readonly requestId?: string
+  /** The journaled sequence number the failed proof used (never reused). */
+  readonly seq?: number
+
+  constructor(args: {code: StatusRefreshCode; message: string; httpStatus?: number; retryAfterMs?: number; reasons?: readonly StatusRefreshFailure[];
+    requestId?: string; seq?: number; retryable?: boolean; cause?: unknown}) {
+    super(args.message, {retryable: args.retryable ?? statusRefreshRetryable(args.code, args.httpStatus), cause: args.cause})
+    this.code = args.code
+    this.reasons = Object.freeze([...(args.reasons ?? [])])
+    if (args.httpStatus !== undefined) this.httpStatus = args.httpStatus
+    if (args.retryAfterMs !== undefined && Number.isSafeInteger(args.retryAfterMs) && args.retryAfterMs >= 0) this.retryAfterMs = args.retryAfterMs
+    if (args.requestId !== undefined) this.requestId = args.requestId
+    if (args.seq !== undefined) this.seq = args.seq
+  }
+}
+
+/** Coarse retryability of a status-refresh code: capacity, unavailable status and transport only. */
+function statusRefreshRetryable(code: StatusRefreshCode, httpStatus?: number): boolean {
+  if (code === 'status_refresh_rate_limited' || code === 'status_refresh_unavailable_status' || code === 'status_refresh_unreachable'
+    || code === 'status_refresh_quorum_unmet') return true
+  return code === 'status_refresh_http' && httpStatus !== undefined && (httpStatus >= 500 || httpStatus === 429)
+}
+
+/**
+ * True for a {@link StatusRefreshError}.
+ *
+ * @param e - Caught value to classify.
+ */
+export function isStatusRefreshError(e: unknown): e is StatusRefreshError {
+  return e instanceof StatusRefreshError
 }
 
 /**

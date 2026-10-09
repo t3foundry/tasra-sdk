@@ -31,7 +31,8 @@ export {paidOperation, resumePaidOperation, reconcilePaidOperation, recoverPaidO
   PaidOperationRecoveryError, PaidOperationAbandonRefusedError} from './paid-operation.js'
 export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PaidOperationPhase, PaidOperationJournalPhase, PaidOperationStatus,
   PaidOperationNextStep, ResumePaidOperationOptions, PaidOperationErrorCode, PaidOperationSummary, ListPaidOperationsOptions,
-  RecoverIbePartialsOptions, RecoveredIbePartial, RecoveredIbePartials, PaidOperationRecovery, AbandonPaidOperationOptions, AbandonedPaidOperation} from './paid-operation.js'
+  RecoverIbePartialsOptions, RecoveredIbePartial, RecoveredIbePartials, PaidOperationRecovery, AbandonPaidOperationOptions, AbandonedPaidOperation,
+  RefreshPaidStatusOptions, PaidStatusRefresh} from './paid-operation.js'
 export {drivePaidSession, waitForPaidSnapshot, PaidSessionRecoveryError} from './paid-session.js'
 export type {PaidSessionDriverOptions, PaidSessionHolder, PaidWalletPresentation, PaidSessionRequestLink} from './paid-session.js'
 export {createMemoryStore} from './memory-store.js'

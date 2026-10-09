@@ -9,6 +9,48 @@ never does.
 
 ### Added
 
+- Status refresh for an already-issued committee grant (`keykeeper/committee-status-refresh/v1`):
+  a verifier re-attests credential status for the SAME token (new
+  `keykeeper/committee-status-attestation/v1` statement, token hash unchanged), with no new token,
+  session, payment or keeper stage. New in `tasra-sdk/committee`: `statusRefreshHash`
+  (`keccak256(domain || chain_id u64 || token_hash || payment_hash|zero32 || principal u8 ||
+  seq u64 || issued_at i64)`), `createStatusRefreshProof` (`client_execution`: Ed25519 under the
+  original execution key; `holder_key`: compact JWS `typ: keykeeper-status-refresh+jwt`, header
+  `jwk`, payload `{"refresh":"0x<hash>"}`), `statusRefreshHolderSigner`,
+  `refreshStatusDirect` (`POST /v1/committee/status-refresh` at the original signers),
+  `refreshStatusViaAgent` / `acceptStatusRefreshRelay` (`POST /v1/sessions/:id/status-refresh`,
+  success body `{token_hash, status_attestations}`), `parseStatusRefreshReply`,
+  `classifyStatusRefreshResponse`, `statusRefreshRequestBody`, `statusRefreshRelayBody` and the
+  constants. Every reply is verified under the ORIGINAL roster key of a signer that verified the
+  original token; anything else (unsigned, forged, another index or token, past `cap - 5 s`) is
+  dropped, a fresh quorum is required, and the merge keeps the later deadline per verifier index.
+  Never sent or retried automatically.
+- `StatusRefreshError` (`isStatusRefreshError`, `StatusRefreshCode`, `StatusRefreshFailure`):
+  typed `status_refresh_unknown` (404), `_unavailable` / `_replayed` / `_context_changed` (409),
+  `_expired` (410), `_unauthenticated` / `_refused` (403), `_unavailable_status` /
+  `_quorum_unmet` (503), `_rate_limited` (429, `retryAfterMs`), plus client-side
+  `_invalid_response`, `_unreachable` and `_http`, with per-verifier `reasons`. Never evidence
+  about keeper work.
+- `PaidOperation.refreshStatus(options?)`: explicit refresh of a paid grant while its journal is
+  `authorized` (nothing sent), through the original agent session (default) or directly
+  (`via: {verifiers}`), proving with the execution key (or `holder`). The next `seq` is journaled
+  before the proof is signed or sent and is never reused (crash-safe); on success the journaled
+  grant's `status_attestations` are replaced and the original list and every attempt are kept in
+  the journal's refresh history; `execute` and `compound_token` then use the refreshed grant.
+  After a send it is refused; `recoverPaidOperation(...).refreshStatus({explicitRecovery: true})`
+  refreshes an uncertain (`executing`) grant without changing its phase — a keeper 403 or a
+  recovery 404 never becomes "no work". Journals written before this release lack the agent
+  session id and refresh only directly.
+- Status refresh classifies every verifier outcome BEFORE merging (same rule as the verifier-agent
+  relay and `tasra-cli`): ANY `status_refresh_refused` refuses the whole refresh, even beside a
+  fresh quorum or still-fresh original attestations; another typed negative outcome
+  (`withdrawsOriginal`: expired, unauthenticated, context changed, unavailable status, replayed)
+  keeps THAT verifier's original attestation out of the result (`StatusRefreshResult.ineligible`);
+  a relay's answer is taken as the whole set. A paid operation journals the refusal
+  (`statusRefresh.refused`, grant unchanged) and `execute` then refuses with
+  `RevocationStatusPreflightError` code `revocation_status_refused` (nothing sent) until a later
+  refresh succeeds.
+
 - Revocation-status freshness (`keykeeper/committee-status-attestation/v1`). Compound
   tokens carry an optional `status_attestations` list (`{verifier_index, status_until,
   signature}`) beside `signatures`, outside the signed bytes: token hashes and

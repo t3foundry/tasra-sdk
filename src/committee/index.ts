@@ -53,6 +53,38 @@ export type {
   StatusFreshness,
 } from './token.js'
 export {
+  statusRefreshHash,
+  statusRefreshHolderSigner,
+  createStatusRefreshProof,
+  statusRefreshRequestBody,
+  statusRefreshRelayBody,
+  parseStatusRefreshReply,
+  classifyStatusRefreshResponse,
+  refreshStatusDirect,
+  refreshStatusViaAgent,
+  acceptStatusRefreshRelay,
+  withdrawsOriginal,
+  STATUS_REFRESH_DOMAIN,
+  STATUS_REFRESH_JWT_TYP,
+  STATUS_REFRESH_PATH,
+  MAX_STATUS_REFRESH_BODY_BYTES,
+  STATUS_REFRESH_FRESHNESS_SECS,
+} from './status-refresh.js'
+export type {
+  StatusRefreshPrincipal,
+  StatusRefreshHashInput,
+  StatusRefreshHolderSigner,
+  StatusRefreshProver,
+  StatusRefreshProofWire,
+  CreateStatusRefreshProofOptions,
+  StatusRefreshReplyWire,
+  StatusRefreshGrant,
+  StatusRefreshResult,
+  StatusRefreshHttpResponse,
+  RefreshStatusDirectOptions,
+  RefreshStatusViaAgentOptions,
+} from './status-refresh.js'
+export {
   committeeAuthorize,
   gatherCommitteeToken,
   committeeSign,

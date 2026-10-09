@@ -34,14 +34,17 @@ import {prepareRegisteredPaidSession, type RegisteredPaidAgentSession} from '../
 import {drivePaidSession, PaidSessionRecoveryError} from '../../src/app/paid-session.js'
 import {PaidAgentControlError} from '../../src/chain/registeredPaidAgent.js'
 import {VerifierAgentSessionError} from '../../src/verifier-agent/index.js'
-import {RevocationStatusPreflightError, UnderfundedSlotError} from '../../src/errors.js'
-import {assembleCompoundToken, compoundTokenHash, selectVerifierCommittee, statusAttestationHash, type CompoundTokenPayload} from '../../src/committee/token.js'
+import {RevocationStatusPreflightError, StatusRefreshError, UnderfundedSlotError} from '../../src/errors.js'
+import {assembleCompoundToken, compoundTokenHash, decodeCompoundToken, selectVerifierCommittee, statusAttestationHash, type CompoundTokenPayload,
+  type CompoundTokenWire} from '../../src/committee/token.js'
+import {statusRefreshHash, statusRefreshHolderSigner} from '../../src/committee/status-refresh.js'
+import {decodeJson, p256HolderKey, verifyCompactJws, type Jwk} from '../../src/oid4vp/jose.js'
 import {PaidReservationAbortedError, PaidReservationUncertainError} from '../../src/chain/reservation.js'
 import {verifierAgentResult} from '../../src/oid4vp/verifier-agent.js'
 import {createExecutionCertificate} from '../../src/committee/execution.js'
 import {recoverKeeperExecution} from '../../src/chain/keeperRecovery.js'
 import {ruleCommitment} from '../../src/chain/write.js'
-import {prepaidRequestId} from '../../src/committee/payment.js'
+import {paymentIntentHash, prepaidRequestId} from '../../src/committee/payment.js'
 
 const h = (n: number, len = 32): Hex => `0x${n.toString(16).padStart(2, '0').repeat(len)}`
 const creator = privateKeyToAccount(h(7)), payer = privateKeyToAccount(h(8))
@@ -850,5 +853,282 @@ describe('revocation-status preflight', () => {
     expect(error).toMatchObject({code: 'revocation_status_missing', sent: false, requestId})
     expect(await paidOperationPhase(f.store, requestId!)).toBe('certified')
     expect(verifierAgentResult).not.toHaveBeenCalled()
+  })
+})
+
+describe('explicit status refresh of a paid grant', () => {
+  // `keykeeper/committee-status-refresh/v1`: same token, same payment, no new session or payment;
+  // the seq is journaled before anything is sent and never reused; only `authorized` (or explicit
+  // recovery of an uncertain execution) may refresh, and nothing here makes keeper work certain.
+  interface Journal {
+    phase: string; pollSecret: string; certificate: {execution_key: Hex}
+    grant: {compound_token: CompoundTokenWire; sessionId?: string}
+    statusRefresh?: {seq: number; original: unknown; refused?: {seq: number; at: number; reasons: unknown[]}
+      attempts: {seq: number; via: string; principal: string; phase: string; outcome?: string; statusUntil?: number}[]}
+  }
+  interface Proof {kind: string; seq: number; issued_at: number; signature: string}
+  const journalKey = (id: Hex) => `paid-op-${id.slice(2).toLowerCase()}`
+  const journal = async (f: ReturnType<typeof setup>, id: Hex) => (await f.store.load<Journal>(journalKey(id)))!
+  const encode = (body: unknown) => new TextEncoder().encode(typeof body === 'string' ? body : JSON.stringify(body))
+  const tokenHashOf = (wire: CompoundTokenWire) => compoundTokenHash(decodeCompoundToken(wire))
+  const attestation = (wire: CompoundTokenWire, until: number, index = drawnIndex, seed = verifierSeed) =>
+    ({verifier_index: index, status_until: until, signature: toHex(ed25519.sign(statusAttestationHash(tokenHashOf(wire), index, until), seed))})
+  /** A relay answer: the agent's `{token_hash, status_attestations}`, signed by the drawn verifier unless overridden. */
+  const relayOk = (wire: CompoundTokenWire, until = Math.floor(Date.now() / 1000) + 30) =>
+    ({status: 200, body: encode({token_hash: toHex(tokenHashOf(wire)), status_attestations: [attestation(wire, until)]})})
+  /** Install a relay transport; every call records the proof and the seq the journal held at that moment. */
+  function relay(f: ReturnType<typeof setup>, id: Hex, answer: (wire: CompoundTokenWire) => {status: number; body: Uint8Array; retryAfterMs?: number}) {
+    const seen: {url: string; bearer?: string; proof: Proof; journaledSeq?: number}[] = []
+    const paidAgentRequest = vi.fn(async (url: string, opts: {method: string; body?: Uint8Array; bearer?: string}) => {
+      const {proof} = JSON.parse(new TextDecoder().decode(opts.body)) as {proof: Proof}
+      const j = await journal(f, id)
+      seen.push({url, bearer: opts.bearer, proof, journaledSeq: j.statusRefresh?.seq})
+      return answer(j.grant.compound_token)
+    })
+    Object.assign(f.config.agent.transport, {paidAgentRequest})
+    return {paidAgentRequest, seen}
+  }
+
+  it('refreshes a stale authorized grant only when asked, with the original execution key, then executes it once', async () => {
+    const f = setup()
+    statusMode = 'stale'
+    const op = await paidOperation(f.config, f.request)
+    const before = await journal(f, op.requestId)
+    const {paidAgentRequest, seen} = relay(f, op.requestId, wire => relayOk(wire))
+    // execute() never refreshes on its own.
+    await expect(op.execute(vi.fn())).rejects.toBeInstanceOf(RevocationStatusPreflightError)
+    expect(paidAgentRequest).not.toHaveBeenCalled()
+
+    const out = await op.refreshStatus()
+    expect(paidAgentRequest).toHaveBeenCalledTimes(1)
+    expect(seen[0]).toMatchObject({url: `https://agent.example/v1/sessions/${'ab'.repeat(32)}/status-refresh`, bearer: before.pollSecret, journaledSeq: 1})
+    expect(vi.mocked(paidAgentRequest).mock.calls[0]![1]).toMatchObject({method: 'POST'})
+    const proof = seen[0]!.proof
+    expect(proof).toMatchObject({kind: 'client_execution', seq: 1})
+    const digest = statusRefreshHash({chainId: 43112, tokenHash: tokenHashOf(before.grant.compound_token), paymentHash: hexToBytes(paymentIntentHash(op.payment)),
+      principal: 'client_execution', seq: 1, issuedAt: proof.issued_at})
+    expect(ed25519.verify(hexToBytes(proof.signature as Hex), digest, hexToBytes(before.certificate.execution_key))).toBe(true)
+
+    const after = await journal(f, op.requestId)
+    expect(out).toMatchObject({requestId: op.requestId, seq: 1, refreshed: [drawnIndex], failures: []})
+    expect(after.phase).toBe('authorized')
+    expect(after.statusRefresh).toMatchObject({seq: 1, original: before.grant.compound_token.status_attestations,
+      attempts: [{seq: 1, via: 'agent', principal: 'client_execution', phase: 'authorized', outcome: 'refreshed', statusUntil: out.statusUntil}]})
+    expect(after.grant.compound_token.status_attestations).toEqual(out.compound_token.status_attestations)
+    // Same token: signatures and every hashed field unchanged.
+    expect(after.grant.compound_token.signatures).toEqual(before.grant.compound_token.signatures)
+    expect(tokenHashOf(after.grant.compound_token)).toEqual(tokenHashOf(before.grant.compound_token))
+    expect(op.compound_token.status_attestations).toEqual(out.compound_token.status_attestations)
+
+    const work = vi.fn(async (o: {compound_token: CompoundTokenWire}) => o.compound_token)
+    expect((await op.execute(work)).status_attestations).toEqual(out.compound_token.status_attestations)
+    expect(work).toHaveBeenCalledTimes(1)
+    expect(await paidOperationPhase(f.store, op.requestId)).toBe('executed')
+    // No new reservation, session or payment.
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(drivePaidSession).toHaveBeenCalledTimes(1)
+    expect(prepareRegisteredPaidSession).toHaveBeenCalledTimes(1)
+    await expect(op.refreshStatus()).rejects.toThrow(/only before execution/)
+    op.dispose()
+  })
+
+  it('journals the seq before sending and never reuses one across simulated crashes', async () => {
+    const f = setup()
+    const op = await paidOperation(f.config, f.request)
+    let drop = false
+    const {paidAgentRequest, seen} = relay(f, op.requestId, wire => {
+      if (drop) { drop = false; throw new Error('connection reset') }
+      return relayOk(wire)
+    })
+    // Crash 1: the process dies right after the seq is journaled; nothing was signed or sent.
+    const save = f.store.save.bind(f.store)
+    let die = true
+    f.store.save = async (key: string, value: unknown) => {
+      await save(key, value)
+      if (die && (value as Journal).statusRefresh) { die = false; throw new Error('process died') }
+    }
+    await expect(op.refreshStatus()).rejects.toThrow('process died')
+    expect(paidAgentRequest).not.toHaveBeenCalled()
+    expect((await journal(f, op.requestId)).statusRefresh).toMatchObject({seq: 1, attempts: [{seq: 1}]})
+
+    // Restart: a new handle from the journal. Crash 2: the reply is lost after sending.
+    const resumed = await resumePaidOperation(f.config, op.requestId)
+    drop = true
+    const lost = await resumed.refreshStatus().catch((e: unknown) => e)
+    expect(lost).toBeInstanceOf(StatusRefreshError)
+    expect(lost).toMatchObject({code: 'status_refresh_unreachable', seq: 2, requestId: op.requestId, retryable: true})
+    expect(await paidOperationPhase(f.store, op.requestId)).toBe('authorized')
+
+    const ok = await resumed.refreshStatus()
+    expect(ok.seq).toBe(3)
+    expect(seen.map(s => [s.proof.seq, s.journaledSeq])).toEqual([[2, 2], [3, 3]])
+    const j = await journal(f, op.requestId)
+    expect(j.statusRefresh!.seq).toBe(3)
+    expect(j.statusRefresh!.attempts.map(a => [a.seq, a.outcome])).toEqual([[1, undefined], [2, 'status_refresh_unreachable'], [3, 'refreshed']])
+    // The first handle sees the refreshed grant too, and never repeats a seq.
+    expect((await op.refreshStatus()).seq).toBe(4)
+    resumed.dispose(); op.dispose()
+  })
+
+  it('refuses a refresh after the send; explicit recovery refreshes without making the execution certain', async () => {
+    const f = setup()
+    const op = await paidOperation(f.config, f.request)
+    const {paidAgentRequest} = relay(f, op.requestId, wire => relayOk(wire))
+    // A post-send keeper refusal (here a lost or 403 reply) leaves the execution uncertain.
+    await expect(op.execute(async () => { throw new Error('keeper 403 revocation_status_stale') })).rejects.toMatchObject({code: 'execution-uncertain'})
+    expect(await paidOperationPhase(f.store, op.requestId)).toBe('executing')
+    await expect(op.refreshStatus()).rejects.toThrow(/only before execution/)
+    expect(paidAgentRequest).not.toHaveBeenCalled()
+    expect((await journal(f, op.requestId)).statusRefresh).toBeUndefined()
+
+    const recovery = await recoverPaidOperation(f.config, op.requestId)
+    await expect(recovery.refreshStatus({} as never)).rejects.toThrow(/explicitRecovery/)
+    expect(paidAgentRequest).not.toHaveBeenCalled()
+    const out = await recovery.refreshStatus({explicitRecovery: true})
+    expect(out.seq).toBe(1)
+    const j = await journal(f, op.requestId)
+    expect(j.phase).toBe('executing')
+    expect(j.statusRefresh!.attempts[0]).toMatchObject({phase: 'executing', outcome: 'refreshed'})
+    // Still uncertain: never executable again, never "no work", only recovery reads.
+    await expect(op.execute(vi.fn())).rejects.toBeInstanceOf(PaidOperationRecoveryError)
+    expect(await reconcilePaidOperation(f.config, op.requestId)).toMatchObject({phase: 'executing', next: 'recover'})
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(drivePaidSession).toHaveBeenCalledTimes(1)
+    recovery.dispose(); op.dispose()
+  })
+
+  it.each([
+    [404, '{"error":"status_refresh_unknown"}', 'status_refresh_unknown'],
+    [409, '{"error":"status_refresh_unavailable"}', 'status_refresh_unavailable'],
+    [409, '{"error":"status_refresh_replayed"}', 'status_refresh_replayed'],
+    [409, '{"error":"status_refresh_context_changed"}', 'status_refresh_context_changed'],
+    [410, '{"error":"status_refresh_expired"}', 'status_refresh_expired'],
+    [403, '{"error":"status_refresh_unauthenticated"}', 'status_refresh_unauthenticated'],
+    [403, '{"error":"status_refresh_refused"}', 'status_refresh_refused'],
+    [503, '{"error":"status_refresh_unavailable_status"}', 'status_refresh_unavailable_status'],
+    [503, '{"error":"status_refresh_quorum_unmet"}', 'status_refresh_quorum_unmet'],
+    [429, '{"error":"per-token interval"}', 'status_refresh_rate_limited'],
+  ] as const)('surfaces HTTP %i %s as %s once, journaled, nothing retried or reopened', async (status, body, code) => {
+    const f = setup()
+    const op = await paidOperation(f.config, f.request)
+    const before = await journal(f, op.requestId)
+    const {paidAgentRequest} = relay(f, op.requestId, () => ({status, body: encode(body), ...(status === 429 ? {retryAfterMs: 5000} : {})}))
+    const error = await op.refreshStatus().catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(StatusRefreshError)
+    expect(error).toMatchObject({code, httpStatus: status, requestId: op.requestId, seq: 1, ...(status === 429 ? {retryAfterMs: 5000, retryable: true} : {})})
+    expect(paidAgentRequest).toHaveBeenCalledTimes(1)
+    const j = await journal(f, op.requestId)
+    expect(j.phase).toBe('authorized')
+    expect(j.grant.compound_token).toEqual(before.grant.compound_token)
+    expect(j.statusRefresh!.attempts).toMatchObject([{seq: 1, outcome: code}])
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(drivePaidSession).toHaveBeenCalledTimes(1)
+    op.dispose()
+  })
+
+  it('a revocation refusal stops execute although the journaled attestations are still fresh; only a later success lifts it', async () => {
+    const f = setup() // statusMode 'fresh': the journaled ORIGINAL attestations alone pass the keeper's rule
+    const op = await paidOperation(f.config, f.request)
+    const before = await journal(f, op.requestId)
+    const now = Math.floor(Date.now() / 1000)
+    expect(before.grant.compound_token.status_attestations!.every(a => a.status_until > now + 5)).toBe(true)
+    let answer = (_wire: CompoundTokenWire) => ({status: 403,
+      body: encode({error: 'status_refresh_refused', reasons: [{verifier_index: drawnIndex, code: 'status_refresh_refused'}]})})
+    relay(f, op.requestId, wire => answer(wire))
+    const error = await op.refreshStatus().catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(StatusRefreshError)
+    expect(error).toMatchObject({code: 'status_refresh_refused', seq: 1, retryable: false})
+    // Journaled as a refusal; the grant (and its still-fresh attestations) is unchanged.
+    const j = await journal(f, op.requestId)
+    expect(j.grant.compound_token).toEqual(before.grant.compound_token)
+    expect(j.statusRefresh).toMatchObject({seq: 1, refused: {seq: 1}, attempts: [{seq: 1, outcome: 'status_refresh_refused'}]})
+    // execute() refuses it locally - typed, nothing sent, journal still `authorized`.
+    const work = vi.fn(async () => 'ran')
+    const refused = await op.execute(work).catch((e: unknown) => e)
+    expect(refused).toBeInstanceOf(RevocationStatusPreflightError)
+    expect(refused).toMatchObject({code: 'revocation_status_refused', sent: false, requestId: op.requestId})
+    expect(work).not.toHaveBeenCalled()
+    expect(await paidOperationPhase(f.store, op.requestId)).toBe('authorized')
+    // Another handle (another process) honours the journaled mark too.
+    const resumed = await resumePaidOperation(f.config, op.requestId)
+    await expect(resumed.execute(work)).rejects.toMatchObject({code: 'revocation_status_refused'})
+    expect(work).not.toHaveBeenCalled()
+    // A failed later attempt keeps it.
+    answer = () => { throw new Error('connection reset') }
+    await expect(op.refreshStatus()).rejects.toMatchObject({code: 'status_refresh_unreachable', seq: 2})
+    expect((await journal(f, op.requestId)).statusRefresh).toMatchObject({seq: 2, refused: {seq: 1}})
+    await expect(op.execute(work)).rejects.toMatchObject({code: 'revocation_status_refused'})
+    // A later successful refresh (no verifier refuses now) lifts the mark.
+    answer = wire => relayOk(wire)
+    expect((await op.refreshStatus()).seq).toBe(3)
+    expect((await journal(f, op.requestId)).statusRefresh!).not.toHaveProperty('refused')
+    expect(await op.execute(work)).toBe('ran')
+    expect(work).toHaveBeenCalledTimes(1)
+    resumed.dispose(); op.dispose()
+  })
+
+  it('never takes authority from an unsigned or forged relay answer, or from a signer outside the original token', async () => {
+    const other = (drawnIndex + 1) % 3
+    const answers: [string, (wire: CompoundTokenWire) => {status: number; body: Uint8Array}][] = [
+      ['unsigned', wire => ({status: 200, body: encode({token_hash: toHex(tokenHashOf(wire)), status_attestations: [{verifier_index: drawnIndex, status_until: Math.floor(Date.now() / 1000) + 30}]})})],
+      ['bare claim', wire => ({status: 200, body: encode({token_hash: toHex(tokenHashOf(wire)), fresh: true})})],
+      ['forged', wire => ({status: 200, body: encode({token_hash: toHex(tokenHashOf(wire)),
+        status_attestations: [attestation(wire, Math.floor(Date.now() / 1000) + 30, drawnIndex, new Uint8Array(32).fill(16))]})})],
+      ['non-original signer', wire => ({status: 200, body: encode({token_hash: toHex(tokenHashOf(wire)),
+        status_attestations: [attestation(wire, Math.floor(Date.now() / 1000) + 30, other, new Uint8Array(32).fill(16))]})})],
+      ['past the token cap', wire => relayOk(wire, decodeCompoundToken(wire).exp as number)],
+    ]
+    for (const [label, answer] of answers) {
+      const f = setup()
+      statusMode = 'stale'
+      const op = await paidOperation(f.config, f.request)
+      const before = await journal(f, op.requestId)
+      relay(f, op.requestId, answer)
+      const error = await op.refreshStatus().catch((e: unknown) => e)
+      expect(error, label).toBeInstanceOf(StatusRefreshError)
+      expect((error as StatusRefreshError).code, label).toBe('status_refresh_invalid_response')
+      expect((await journal(f, op.requestId)).grant.compound_token, label).toEqual(before.grant.compound_token)
+      await expect(op.execute(vi.fn()), label).rejects.toBeInstanceOf(RevocationStatusPreflightError)
+      op.dispose()
+    }
+  })
+
+  it('proves with the recorded holder key on request, and refreshes directly at the original signers', async () => {
+    const f = setup()
+    const op = await paidOperation(f.config, f.request)
+    const {seen} = relay(f, op.requestId, wire => relayOk(wire))
+    const holder = p256HolderKey(new Uint8Array(32).fill(0x21))
+    await op.refreshStatus({holder: statusRefreshHolderSigner(holder)})
+    const proof = seen[0]!.proof
+    expect(proof.kind).toBe('holder_key')
+    const header = decodeJson<{typ: string; jwk: Jwk}>(proof.signature.split('.')[0]!)
+    expect(header).toMatchObject({typ: 'keykeeper-status-refresh+jwt', jwk: holder.publicJwk})
+    expect(verifyCompactJws<{refresh: string}>(proof.signature, header.jwk).payload.refresh).toMatch(/^0x[0-9a-f]{64}$/)
+    expect((await journal(f, op.requestId)).statusRefresh!.attempts[0]).toMatchObject({principal: 'holder_key', outcome: 'refreshed'})
+
+    const wire = (await journal(f, op.requestId)).grant.compound_token
+    const until = Math.floor(Date.now() / 1000) + 40
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({token_hash: toHex(tokenHashOf(wire)), verifier_index: drawnIndex,
+      status_until: until, status_signature: attestation(wire, until).signature}), {status: 200}))
+    const other = (drawnIndex + 1) % 3
+    const out = await op.refreshStatus({via: {verifiers: [{index: drawnIndex, url: 'https://v.example'}, {index: other, url: 'https://w.example'}], fetch: fetchImpl}})
+    expect(out.seq).toBe(2)
+    expect(fetchImpl).toHaveBeenCalledTimes(1) // the non-signer is never asked
+    expect(String(fetchImpl.mock.calls[0]![0])).toBe('https://v.example/v1/committee/status-refresh')
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]![1]!.body))).toMatchObject({chain_id: 43112, token_hash: toHex(tokenHashOf(wire)), proof: {seq: 2, kind: 'client_execution'}})
+    expect((await journal(f, op.requestId)).statusRefresh!.attempts[1]).toMatchObject({via: 'direct', outcome: 'refreshed'})
+    op.dispose()
+  })
+
+  it('refuses the relay for a journal that predates recorded sessions without consuming a seq', async () => {
+    const f = setup()
+    const op = await paidOperation(f.config, f.request)
+    const key = journalKey(op.requestId), j = await journal(f, op.requestId)
+    await f.store.save(key, {...j, grant: {...j.grant, sessionId: undefined}})
+    const {paidAgentRequest} = relay(f, op.requestId, wire => relayOk(wire))
+    await expect(op.refreshStatus()).rejects.toThrow(/predates recorded agent sessions/)
+    expect(paidAgentRequest).not.toHaveBeenCalled()
+    expect((await journal(f, op.requestId)).statusRefresh).toBeUndefined()
+    op.dispose()
   })
 })
