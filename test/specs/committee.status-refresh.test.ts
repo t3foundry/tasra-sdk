@@ -454,6 +454,52 @@ describe('bounded response read', () => {
     }
   })
 
+  // A FINITE oversize body (12 x 16 KiB = 192 KiB, then close), pull-driven with nothing buffered
+  // ahead. Unlike the endless body, an unbounded read (`res.text()`) of this one terminates - so a
+  // regression to it fails on these assertions (EOF reached, all 192 KiB pulled, no cancel)
+  // instead of hanging the suite.
+  const FINITE_CHUNKS = 12
+  function finite() {
+    const state = {pulled: 0, cancelled: false, eof: false}
+    let sent = 0
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent < FINITE_CHUNKS) { sent++; state.pulled += CHUNK; controller.enqueue(new Uint8Array(CHUNK).fill(0x61)) }
+        if (sent === FINITE_CHUNKS) { state.eof = true; controller.close() }
+      },
+      cancel() { state.cancelled = true },
+    }, {highWaterMark: 0})
+    return {stream, state}
+  }
+  const expectStoppedAtCap = (state: ReturnType<typeof finite>['state']) => {
+    expect(state.cancelled).toBe(true)
+    expect(state.eof).toBe(false)
+    expect(state.pulled).toBeGreaterThan(CAP)
+    // Same read-ahead tolerance as the endless-body test; still well under the 192 KiB total.
+    expect(state.pulled).toBeLessThanOrEqual(CAP + 4 * CHUNK)
+    expect(state.pulled).toBeLessThan(FINITE_CHUNKS * CHUNK)
+  }
+
+  it('stops a finite oversize body at the cap on the direct path (never reads to EOF)', async () => {
+    const g = grant()
+    const bodies = [0, 1, 2].map(() => finite())
+    const fetchImpl = vi.fn<typeof fetch>(async url => new Response(bodies[indexOf(String(url))]!.stream, {status: 200, headers: {'Content-Type': 'application/json'}}))
+    const e = (await refreshStatusDirect({...g, chainId: 43112, proof, verifiers, fetch: fetchImpl}).catch((x: unknown) => x)) as StatusRefreshError
+    expect(e).toBeInstanceOf(StatusRefreshError)
+    expect(e.code).toBe('status_refresh_invalid_response')
+    expect(e.reasons.map(r => [r.verifierIndex, r.code]).sort()).toEqual([[0, 'status_refresh_invalid_response'], [1, 'status_refresh_invalid_response'], [2, 'status_refresh_invalid_response']])
+    for (const {state} of bodies) expectStoppedAtCap(state)
+  })
+
+  it('stops a finite oversize body at the cap on the relay path (never reads to EOF)', async () => {
+    const body = finite()
+    const g = grant()
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(body.stream, {status: 200, headers: {'Content-Type': 'application/json'}}))
+    await expect(refreshStatusViaAgent({...g, agentUrl: 'https://agent.example', sessionId: 'ab'.repeat(32), pollSecret: 'cd'.repeat(32), proof, fetch: fetchImpl}))
+      .rejects.toMatchObject({code: 'status_refresh_invalid_response', httpStatus: 200})
+    expectStoppedAtCap(body.state)
+  })
+
   it('reads a body at exactly the cap', async () => {
     const until = now() + 30
     const g = grant()
