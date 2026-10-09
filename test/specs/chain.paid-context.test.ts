@@ -24,27 +24,37 @@ interface Changes {
   chain?: number; unsupported?: boolean; url?: string; chainId?: number; onChainId?: () => void
   reserved?: bigint; settled?: boolean; refunded?: bigint; root?: Hex; tagged?: boolean; creator?: Hex; registeredKey?: Hex
   legacy?: boolean; genesis?: boolean
+  // D8: the reservation's stored quote block h(19) (block 19), read for the paid epoch only.
+  anchorEpoch?: bigint; anchorReorg?: boolean; anchorPruned?: boolean
 }
 function fixture(change: Changes = {}) {
   const deployment = {chainId: change.chainId ?? 43112, settlement: h(1, 20), keyRegistry: h(2, 20), verifierSet: h(5, 20), accountantSet: h(8, 20), beacon: h(6, 20)}
   const nodes = h(7, 20), approved = {...deployment}, slotId = h(3), creator = privateKeyToAccount(h(11))
   const keys = [1, 2, 3].map(n => toHex(ed25519.getPublicKey(new Uint8Array(32).fill(n))))
   const operators = [11, 12, 13].map(n => h(n, 20)), ids = [30n, 10n, 20n]
-  const calls: {method: string; name?: string; args?: readonly unknown[]}[] = []
+  const calls: {method: string; name?: string; args?: readonly unknown[]; at?: unknown; params?: unknown}[] = []
   let heads = 0
   const client = createPublicClient({transport: custom({request: async ({method, params}: {method: string; params?: unknown}) => {
-    calls.push({method})
+    calls.push({method, params})
     if (method === 'eth_chainId') {change.onChainId?.(); return toHex(change.chain ?? approved.chainId)}
+    if (method === 'eth_getBlockByHash') return (params as [Hex])[0] === h(19) ? {number: '0x13', hash: h(19), timestamp: toHex(990), transactions: []} : null
+    if (method === 'eth_getBlockByNumber' && (params as [string])[0] === '0x13') return {number: '0x13', hash: change.anchorReorg ? h(98) : h(19), timestamp: toHex(990), transactions: []}
     if (method === 'eth_getBlockByNumber') return {number: '0x14', hash: heads++ > 0 && change.orphan ? h(99) : h(20), timestamp: toHex(1000 - (change.age ?? 0)), transactions: []}
     if (method !== 'eth_call') throw new Error(`unexpected RPC ${method}`)
     if (change.unsupported) throw new Error('canonical reads unavailable')
-    const [call, at] = params as [{to: Hex; data: Hex}, unknown]
-    expect(at).toEqual({blockHash: h(20), requireCanonical: true})
+    const [call, at] = params as [{to: Hex; data: Hex}, {blockHash?: Hex}]
+    const anchorRead = at.blockHash === h(19)
+    if (!anchorRead) expect(at).toEqual({blockHash: h(20), requireCanonical: true})
     const abi: Abi = call.to === nodes ? nodeRegistryAbi : call.to === approved.keyRegistry ? keyRegistryAbi
       : call.to === approved.beacon ? thresholdRandomBeaconAbi : call.to === approved.verifierSet ? verifierSetRegistryAbi
         : call.to === approved.accountantSet ? accountantSetRegistryAbi : settlementAbi
     const {functionName: name, args} = decodeFunctionData({abi, data: call.data})
-    calls[calls.length - 1] = {method, name, args}
+    calls[calls.length - 1] = {method, name, args, at, params}
+    if (anchorRead) {
+      if (abi !== thresholdRandomBeaconAbi || name !== 'epoch') throw new Error(`only the beacon epoch is read at the quote block, not ${name}`)
+      if (change.anchorPruned) throw new Error('missing trie node')
+      return encodeFunctionResult({abi, functionName: 'epoch', result: change.anchorEpoch ?? change.epoch ?? 7n})
+    }
     // A legacy Settlement (version 1) has none of the prepaid getters: they revert.
     if (change.legacy && abi === settlementAbi && name !== 'version' && name !== 'balanceOf') throw new Error('execution reverted')
     const index = operators.findIndex(op => op.toLowerCase() === String(args?.[0]).toLowerCase())
@@ -184,7 +194,11 @@ it('reads client consent from the original mined reservation and one canonical r
     paymentHash:paymentIntentHash(payment),cost:5n,nowSecs:1000}})
   expect(f.calls.filter(c=>c.name==='prepaidCost')[0]?.args).toHaveLength(2)
   expect(f.calls.filter(c=>c.name==='snapshotAt').map(c=>c.args)).toEqual([[7n]])
-  expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber'].includes(c.method))).toBe(true)
+  expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber','eth_getBlockByHash'].includes(c.method))).toBe(true)
+  // D8: the paid epoch is read once at the stored quote block, canonically, then rechecked by number.
+  expect(f.calls.filter(c=>c.method==='eth_call'&&(c.at as {blockHash?:Hex}).blockHash===h(19)).map(c=>[c.name,c.at]))
+    .toEqual([['epoch',{blockHash:h(19),requireCanonical:true}]])
+  expect(f.calls.some(c=>c.method==='eth_getBlockByNumber'&&(c.params as unknown[])[0]==='0x13')).toBe(true)
 })
 
 it('refuses new client consent on settled, expired, unavailable or changed canonical context',async()=>{
@@ -195,7 +209,18 @@ it('refuses new client consent on settled, expired, unavailable or changed canon
     {age:31},{orphan:true},{unsupported:true},{chain:43113}]){
     const f=fixture(change)
     await expect(readClientExecutionPolicy(f.client,f.deployment,reservedPayment(),intendedWork)).rejects.toThrow()
-    expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber'].includes(c.method))).toBe(true)
+    expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber','eth_getBlockByHash'].includes(c.method))).toBe(true)
+  }
+  // D8: quote-block failures carry their exact code, so an assertion thrown inside the fake
+  // transport (which would surface as unavailable) cannot pass for a definite refusal.
+  for(const [change,code] of [[{anchorEpoch:9n},'paid_epoch_refused'],[{anchorEpoch:6n},'paid_epoch_refused'],
+    [{anchorReorg:true},'paid_epoch_refused'],[{anchorPruned:true},'paid_epoch_unavailable']] as const){
+    const f=fixture(change)
+    await expect(readClientExecutionPolicy(f.client,f.deployment,reservedPayment(),intendedWork)).rejects
+      .toMatchObject({name:'PaidEpochError',code,retryable:code==='paid_epoch_unavailable'})
+    // The only quote-block read is the canonical beacon epoch call (no fixture assertion fired).
+    expect(f.calls.filter(c=>c.method==='eth_call'&&(c.at as {blockHash?:Hex}).blockHash===h(19)).map(c=>[c.name,c.at]))
+      .toEqual([['epoch',{blockHash:h(19),requireCanonical:true}]])
   }
   const f=fixture()
   await expect(readClientExecutionPolicy(f.client,f.deployment,{...reservedPayment(),expires:1000},intendedWork)).rejects.toThrow(/expiry|expired/)
@@ -208,7 +233,10 @@ it('requires explicit defaults and preserves the reserved previous epoch without
   expect((await readClientExecutionPolicy(f.client,d,reservedPayment(),intendedWork)).policy.cost).toBe(5n)
   const previous={...reservedPayment(),verification_epoch:6,verification_seed:h(8),verification_root:h(17)}
   expect((await readClientExecutionPolicy(f.client,d,previous,intendedWork)).policy.paymentHash).toBe(paymentIntentHash(previous))
-  await expect(readClientExecutionPolicy(f.client,d,{...previous,verification_epoch:5},intendedWork)).rejects.toThrow(/policy/)
+  await expect(readClientExecutionPolicy(f.client,d,{...previous,verification_epoch:5},intendedWork)).rejects.toThrow(/current or previous/)
+  // D8: judged at the quote block (epoch 7), not the later head (9): 6 is still admitted.
+  const crossed=fixture({policy:[0,0],epoch:9n,anchorEpoch:7n})
+  expect((await readClientExecutionPolicy(crossed.client,d,previous,intendedWork)).policy.paymentHash).toBe(paymentIntentHash(previous))
 })
 
 it('requires an anchored drawn key that is still active and tagged before approving its work',async()=>{

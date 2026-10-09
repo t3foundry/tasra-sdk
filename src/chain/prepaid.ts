@@ -15,6 +15,7 @@ import {paidExecutionReportSigningHash, verifyPaidExecutionEvidence,
 import {selectVerifierCommittee, verifierLeaf, verifyMerkleProof} from '../committee/token.js'
 import {protocolHex} from '../committee/receipts.js'
 import {BillingModeError, readBillingMode} from './billing.js'
+import {readAssignmentEpoch, requirePaidEpoch} from './paidEpoch.js'
 
 /** Deployment independently selected by the application, not taken from a received intent. */
 export interface PrepaidDeployment {
@@ -107,6 +108,11 @@ export interface ClientExecutionObservation extends PrepaidObservation {
 /**
  * Read canonical mined credit, creator, beacon and verifier policy before approving work.
  * All registry calls use the receipt's EIP-1898 block hash; no latest/number fallback.
+ * The paid verification epoch alone is judged at the reservation's stored quote block
+ * (`prepaidAssignmentBlock`, EIP-1898 `requireCanonical` plus a by-number recheck): it must be
+ * that block's `{epoch, epoch - 1}`. An unreadable quote block or state rejects with a retryable
+ * `PaidEpochError` (`paid_epoch_unavailable`), never an admission or a live-head fallback; a
+ * reorganised quote block or out-of-window epoch is a definite `paid_epoch_refused`.
  * A target additionally proves drawn membership and current registered verifier standing.
  * @param client Trusted RPC client for the independently selected deployment.
  * @param deployment Approved contracts and explicit default verification policy.
@@ -137,11 +143,13 @@ export async function readClientExecutionPolicy(client: PublicClient, deployment
   if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= at.blockTimestamp)
     || !ADDRESS.test(slot.creator) || /^0x0{40}$/i.test(slot.creator)
     || [keyBeacon,setBeacon].some(pointer => pointer.toLowerCase() !== deployment.beacon.toLowerCase())
-    || (epoch !== latest && !(latest > 0n && epoch === latest - 1n))
     || seed.toLowerCase() !== payment.verification_seed.toLowerCase()
     || snapshot[0].toLowerCase() !== payment.verification_root.toLowerCase()
     || snapshot[1] !== payment.verification_registry_size
     || committee !== payment.verification_committee || quorum !== payment.verification_quorum) throw new Error('payment verification context differs from canonical chain policy')
+  // D8: the epoch window is judged at the reservation's stored quote block, where the
+  // accountant quorum judged it, not at this later observation (which may be past a boundary).
+  requirePaidEpoch(epoch, receipt, await readAssignmentEpoch(client, deployment.beacon, receipt.assignmentBlock), latest)
   if (target) {
     const drawn = selectVerifierCommittee(protocolHex(payment.slot,32,'slot'), payment.verification_epoch,
       protocolHex(payment.verification_seed,32,'seed'), payment.verification_registry_size, payment.verification_committee)

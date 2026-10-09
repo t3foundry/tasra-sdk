@@ -96,6 +96,26 @@ never does.
 
 ### Fixed
 
+- A paid operation is no longer refused because a beacon boundary passed between its quote and
+  its use (D8). `readClientExecutionPolicy` used to re-judge the payment's `verification_epoch`
+  against `{latest, latest - 1}` at its own later observation, so a payment quoted at block 354
+  (epoch 65, selecting 64) and mined at block 355 (epoch 66) failed with "payment verification
+  context differs from canonical chain policy". The epoch is now judged where the accountant
+  quorum judged it: at the reservation's stored quote block (`Settlement.prepaidAssignmentBlock`),
+  read by hash, with `beacon.epoch()` under the EIP-1898 `{blockHash, requireCanonical: true}`
+  parameter and a by-number canonical recheck; the payment must name that block's epoch or the
+  one before. The observation must not precede the quote block and may be at most
+  `MAX_ASSIGNMENT_AGE_SECS` (3632 s = intent lifetime 3600 + quote age 30 + clock skew 2, the
+  same named constants as Rust `keykeeper_eth::paid_epoch`) after it. Seed, snapshot root and
+  size, verifier policy, beacon pointers, slot liveness and the unsettled reservation stay
+  checked at the current observation. Failures are a `PaidEpochError` (extends `TasraError`, `name`
+  `PaidEpochError`, with a `code`; not yet a public export, so branch on `isRetryable(e)`):
+  an unknown quote block, pruned historical state or an unserved height is
+  `paid_epoch_unavailable` (retryable; never an admission and never a fallback to the head), a
+  reorganised or substituted quote block or an out-of-window epoch is `paid_epoch_refused`
+  (definite). A client therefore needs an RPC that serves canonical state up to 3632 s old. An
+  epoch the head would still admit but the quote block did not (n4: 66) is now refused. Unpaid
+  draws (`pinnedDraw`) keep the live window.
 - Secret key bytes the SDK takes from a caller are now owned COPIES that cannot share memory
   with the caller's buffer (D5). `Buffer#slice` is a view, so `createLocalExecutionSigner(seed)`
   with a Node `Buffer` seed kept the caller's memory: a caller wiping its seed after construction
