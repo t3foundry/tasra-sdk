@@ -461,6 +461,100 @@ export class PaidReservationQuotaError extends TasraError {
 }
 
 /**
+ * Stable code of a prepaid timeout-escape refusal (see {@link PrepaidEscapeError}).
+ * - `escape_disabled`: the Settlement escape delay is zero (an upgraded deployment before governance
+ *   enabled it); contract error `EscapeDisabled()`.
+ * - `escape_not_open`: a request's escape opens later, at `opensAt`; contract error
+ *   `EscapeNotOpen(requestId, opensAt)`.
+ * - `reservation_unavailable`: a request was never reserved, or is already complete (reconciled,
+ *   settled or escaped); contract error `ReservationUnavailable(requestId)`.
+ * - `invalid_escape_delay`: contract error `InvalidEscapeDelay(delay)` (governance setter only).
+ * - `too_many_requests`: more than 64 requests in one call; contract error `TooManyCovered`.
+ * - `empty_request`: no request IDs; contract error `EmptyBundle()`.
+ * - `escape_unsupported`: the Settlement has no escape getters (a version before "3").
+ */
+export type PrepaidEscapeCode = 'escape_disabled' | 'escape_not_open' | 'reservation_unavailable' | 'invalid_escape_delay'
+  | 'too_many_requests' | 'empty_request' | 'escape_unsupported'
+
+/**
+ * A prepaid timeout escape was refused before anything was sent for the refused call: by the local
+ * preflight (`local: true`, read at one canonical block) or by the contract's own simulation
+ * (`local: false`). Nothing about the refused call is journaled. In a multi-call escape, calls that
+ * already confirmed are in their journal (`confirmed` checkpoints) and stay final.
+ *
+ * Only `escape_not_open` is retryable: the same call succeeds once chain time reaches `opensAt`.
+ */
+export class PrepaidEscapeError extends TasraError {
+  /** Stable code. */
+  readonly code: PrepaidEscapeCode
+  /** Always false: no transaction was sent for the refused call. */
+  readonly sent = false as const
+  /** True for a local preflight refusal, false for a decoded contract revert. */
+  readonly local: boolean
+  /** Request the refusal names, when it names one. */
+  readonly requestId?: string
+  /** When the named request's escape opens (`escape_not_open`). */
+  readonly opensAt?: Date
+  /** Refused delay in seconds (`invalid_escape_delay`). */
+  readonly delaySeconds?: bigint
+
+  constructor(args: {code: PrepaidEscapeCode; local: boolean; requestId?: string; opensAt?: Date; delaySeconds?: bigint; message?: string; cause?: unknown}) {
+    super(args.message ?? prepaidEscapeMessage(args), {retryable: args.code === 'escape_not_open', cause: args.cause})
+    this.code = args.code
+    this.local = args.local
+    if (args.requestId !== undefined) this.requestId = args.requestId
+    if (args.opensAt !== undefined) this.opensAt = args.opensAt
+    if (args.delaySeconds !== undefined) this.delaySeconds = args.delaySeconds
+  }
+}
+
+function prepaidEscapeMessage(a: {code: PrepaidEscapeCode; requestId?: string; opensAt?: Date; delaySeconds?: bigint}): string {
+  const request = a.requestId !== undefined ? ` for request ${a.requestId}` : ''
+  switch (a.code) {
+    case 'escape_disabled': return 'prepaid timeout escape is disabled on this Settlement; nothing was sent'
+    case 'escape_not_open': return `prepaid timeout escape${request} opens at ${a.opensAt?.toISOString() ?? '?'}; nothing was sent`
+    case 'reservation_unavailable': return `prepaid request${request} is not reserved or is already complete; nothing was sent`
+    case 'invalid_escape_delay': return `invalid prepaid escape delay ${a.delaySeconds ?? '?'} s; nothing was sent`
+    case 'too_many_requests': return 'too many requests in one prepaid escape call; nothing was sent'
+    case 'empty_request': return 'a prepaid escape needs at least one request; nothing was sent'
+    default: return 'this Settlement has no prepaid timeout escape; nothing was sent'
+  }
+}
+
+/**
+ * True for a {@link PrepaidEscapeError}.
+ *
+ * @param e - Caught value to classify.
+ */
+export function isPrepaidEscapeError(e: unknown): e is PrepaidEscapeError {
+  return e instanceof PrepaidEscapeError
+}
+
+/**
+ * A prepaid escape transaction may have been broadcast and its outcome is not proven. Code
+ * `escape_uncertain`. Retain the prepared record and reconcile it by reading chain state
+ * (`reconcileEscape`); never send it again blindly. An escape cannot refund twice (a second one
+ * reverts `ReservationUnavailable`), but a blind resend still spends gas and can collide on the nonce.
+ */
+export class PrepaidEscapeUncertainError extends TasraError {
+  /** Stable code. */
+  readonly code = 'escape_uncertain' as const
+  /** Local journal key of the escape call. */
+  readonly escapeId: string
+  /** Requests the call named. */
+  readonly requestIds: readonly string[]
+  /** Transaction hash when known; absence does not prove that nothing was sent. */
+  readonly transactionHash?: string
+
+  constructor(args: {escapeId: string; requestIds: readonly string[]; transactionHash?: string; cause?: unknown}) {
+    super('prepaid escape outcome needs reconciliation; retain the prepared record and do not resend', {retryable: false, cause: args.cause})
+    this.escapeId = args.escapeId
+    this.requestIds = Object.freeze([...args.requestIds])
+    if (args.transactionHash !== undefined) this.transactionHash = args.transactionHash
+  }
+}
+
+/**
  * The request never got an HTTP answer - DNS failure, connection refused,
  * timeout, CORS. Retryable: the service may simply not be up yet.
  */

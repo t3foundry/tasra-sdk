@@ -9,7 +9,7 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 17 classes</summary>
+<summary>Browse 19 classes</summary>
 
 - [RecipientStore](#recipientstore)
 - [AuthDeniedError](#authdeniederror)
@@ -19,6 +19,8 @@ Clients, adapters and error classes.
 - [PaidApprovalUnresolvedError](#paidapprovalunresolvederror)
 - [PaidBackoffError](#paidbackofferror)
 - [PaidReservationQuotaError](#paidreservationquotaerror)
+- [PrepaidEscapeError](#prepaidescapeerror)
+- [PrepaidEscapeUncertainError](#prepaidescapeuncertainerror)
 - [RevocationStatusError](#revocationstatuserror)
 - [RevocationStatusPreflightError](#revocationstatuspreflighterror)
 - [SlotRotatedError](#slotrotatederror)
@@ -177,7 +179,7 @@ declare class DcqlMalformedError {
 The request never got an HTTP answer - DNS failure, connection refused,
 timeout, CORS. Retryable: the service may simply not be up yet.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L467)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L561)
 
 Import: `import {NodeUnreachableError} from 'tasra-sdk'`
 
@@ -344,6 +346,95 @@ declare class PaidReservationQuotaError {
 
 - ` cause?: unknown; `
 
+### PrepaidEscapeError
+
+A prepaid timeout escape was refused before anything was sent for the refused call: by the local
+preflight (`local: true`, read at one canonical block) or by the contract's own simulation
+(`local: false`). Nothing about the refused call is journaled. In a multi-call escape, calls that
+already confirmed are in their journal (`confirmed` checkpoints) and stay final.
+
+Only `escape_not_open` is retryable: the same call succeeds once chain time reaches `opensAt`.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L487)
+
+Import: `import {PrepaidEscapeError} from 'tasra-sdk'`
+
+```ts
+declare class PrepaidEscapeError {
+    constructor(args: {
+        code: PrepaidEscapeCode;
+        local: boolean;
+        requestId?: string;
+        opensAt?: Date;
+        delaySeconds?: bigint;
+        message?: string;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: PrepaidEscapeCode; ` — Stable code.
+
+- ` readonly sent: false; ` — Always false: no transaction was sent for the refused call.
+
+- ` readonly local: boolean; ` — True for a local preflight refusal, false for a decoded contract revert.
+
+- ` readonly requestId?: string; ` — Request the refusal names, when it names one.
+
+- ` readonly opensAt?: Date; ` — When the named request's escape opens (`escape_not_open`).
+
+- ` readonly delaySeconds?: bigint; ` — Refused delay in seconds (`invalid_escape_delay`).
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PrepaidEscapeUncertainError
+
+A prepaid escape transaction may have been broadcast and its outcome is not proven. Code
+`escape_uncertain`. Retain the prepared record and reconcile it by reading chain state
+(`reconcileEscape`); never send it again blindly. An escape cannot refund twice (a second one
+reverts `ReservationUnavailable`), but a blind resend still spends gas and can collide on the nonce.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L539)
+
+Import: `import {PrepaidEscapeUncertainError} from 'tasra-sdk'`
+
+```ts
+declare class PrepaidEscapeUncertainError {
+    constructor(args: {
+        escapeId: string;
+        requestIds: readonly string[];
+        transactionHash?: string;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: "escape_uncertain"; ` — Stable code.
+
+- ` readonly escapeId: string; ` — Local journal key of the escape call.
+
+- ` readonly requestIds: readonly string[]; ` — Requests the call named.
+
+- ` readonly transactionHash?: string; ` — Transaction hash when known; absence does not prove that nothing was sent.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ### RevocationStatusError
 
 A keeper refused a committee grant because its verifiers' revocation-status attestations
@@ -455,7 +546,7 @@ The slot was re-keyed (rotated) since the key in hand was assembled, so that
 key cannot read anything encrypted after the rotation. Retryable: re-assemble
 at the new epoch and try again - the managed [Session](#session) does this for you.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L515)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L609)
 
 Import: `import {SlotRotatedError} from 'tasra-sdk'`
 
@@ -620,7 +711,7 @@ signing set.
 this actionable: previously those were collected and then discarded, so a DNS
 failure and a cold DKG produced the same opaque message.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L486)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L580)
 
 Import: `import {ThresholdNotMetError} from 'tasra-sdk'`
 
@@ -730,7 +821,7 @@ declare class VerifierAgentSessionError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 91 functions</summary>
+<summary>Browse 92 functions</summary>
 
 - [accessTokenHash](#accesstokenhash)
 - [addressFromEoaPubkey](#addressfromeoapubkey)
@@ -787,6 +878,7 @@ Operations you can import and call.
 - [isOid4vpRule](#isoid4vprule)
 - [isPaidApprovalUnresolved](#ispaidapprovalunresolved)
 - [isPaidBackoffError](#ispaidbackofferror)
+- [isPrepaidEscapeError](#isprepaidescapeerror)
 - [isRetryable](#isretryable)
 - [isRevocationStatusPreflightRefusal](#isrevocationstatuspreflightrefusal)
 - [isRevocationStatusRefusal](#isrevocationstatusrefusal)
@@ -1937,7 +2029,7 @@ True when `e` is an auth rejection - i.e. retrying is pointless, re-claim
 instead. Keyed on the HTTP status rather than the class, so it also catches
 subclasses that carry their own name (e.g. `CommitteeAuthorizeError`).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L565)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L659)
 
 Import: `import {isAuthDenied} from 'tasra-sdk'`
 
@@ -2045,12 +2137,30 @@ declare function isPaidBackoffError(e: unknown): e is PaidBackoffError;
 
 Returns: ` e is PaidBackoffError `.
 
+### isPrepaidEscapeError
+
+True for a [PrepaidEscapeError](#prepaidescapeerror).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L529)
+
+Import: `import {isPrepaidEscapeError} from 'tasra-sdk'`
+
+```ts
+declare function isPrepaidEscapeError(e: unknown): e is PrepaidEscapeError;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` e ` | ` unknown ` | - Caught value to classify. |
+
+Returns: ` e is PrepaidEscapeError `.
+
 ### isRetryable
 
 True when a typed failure may be transient. Errors outside the TasraError
 hierarchy return false. This hint does not make a write safe to repeat.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L575)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L669)
 
 Import: `import {isRetryable} from 'tasra-sdk'`
 
@@ -2856,7 +2966,7 @@ Returns: ` Promise<SessionStatusResult> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 65 types</summary>
+<summary>Browse 66 types</summary>
 
 - [BlsPeer](#blspeer)
 - [BuildHolderProofOpts](#buildholderproofopts)
@@ -2901,6 +3011,7 @@ Options, data structures and return types.
 - [OpenSessionOpts](#opensessionopts)
 - [PaidApprovalUnresolvedReason](#paidapprovalunresolvedreason)
 - [PaidBackoffCode](#paidbackoffcode)
+- [PrepaidEscapeCode](#prepaidescapecode)
 - [PresentationDelegation](#presentationdelegation)
 - [PresentationOperation](#presentationoperation)
 - [RedemptionGrant](#redemptiongrant)
@@ -3901,6 +4012,26 @@ Stable code of a paid backoff refusal (see [PaidBackoffError](#paidbackofferror)
 
 ```ts
 export type PaidBackoffCode = 'deadline_exceeded' | 'server_wait_too_long' | 'no_time_to_send' | 'attempts_exhausted';
+```
+
+### PrepaidEscapeCode
+
+Stable code of a prepaid timeout-escape refusal (see [PrepaidEscapeError](#prepaidescapeerror)).
+- `escape_disabled`: the Settlement escape delay is zero (an upgraded deployment before governance
+  enabled it); contract error `EscapeDisabled()`.
+- `escape_not_open`: a request's escape opens later, at `opensAt`; contract error
+  `EscapeNotOpen(requestId, opensAt)`.
+- `reservation_unavailable`: a request was never reserved, or is already complete (reconciled,
+  settled or escaped); contract error `ReservationUnavailable(requestId)`.
+- `invalid_escape_delay`: contract error `InvalidEscapeDelay(delay)` (governance setter only).
+- `too_many_requests`: more than 64 requests in one call; contract error `TooManyCovered`.
+- `empty_request`: no request IDs; contract error `EmptyBundle()`.
+- `escape_unsupported`: the Settlement has no escape getters (a version before "3").
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L476)
+
+```ts
+export type PrepaidEscapeCode = 'escape_disabled' | 'escape_not_open' | 'reservation_unavailable' | 'invalid_escape_delay' | 'too_many_requests' | 'empty_request' | 'escape_unsupported';
 ```
 
 ### PresentationDelegation

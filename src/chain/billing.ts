@@ -1,8 +1,8 @@
 // Which billing a slot uses, read from the chain and never guessed.
 //
 // A legacy deployment (Settlement.version() == "1", e.g. tasra.fuji.v1) bills by usage
-// metering; the keeper accepts unpaid committee operations. A prepaid deployment ("2")
-// bills each operation from a reservation, and a slot is prepaid once `prepaidEnabled`
+// metering; the keeper accepts unpaid committee operations. A prepaid deployment ("2", or "3"
+// which adds only the payer's timeout escape) bills each operation from a reservation, and a slot is prepaid once `prepaidEnabled`
 // is set: by its first `fund()` on a prepaid-from-genesis deployment, or by a cutover on
 // an upgraded one. Nothing off-chain (keeper /v1/info, the network manifest) reports
 // this, so the only source of truth is the Settlement contract.
@@ -25,9 +25,9 @@ export interface BillingModeObservation {
   mode: BillingMode
   /** `Settlement.version()` when read. */
   settlementVersion?: string
-  /** `prepaidEnabled(slot)` when read (version 2 only). */
+  /** `prepaidEnabled(slot)` when read (prepaid versions "2" and "3" only). */
   prepaidEnabled?: boolean
-  /** `prepaidFromGenesis()` when read (version 2 only). */
+  /** `prepaidFromGenesis()` when read (prepaid versions "2" and "3" only). */
   prepaidFromGenesis?: boolean
   /** Block every value was read at, when the read completed. */
   blockNumber?: bigint
@@ -71,6 +71,8 @@ const probeAbi = parseAbi([
   'function prepaidEnabled(bytes32 slot) view returns (bool)',
   'function prepaidFromGenesis() view returns (bool)',
 ])
+/** Settlement versions with prepaid billing. "3" adds only the payer timeout escape. Any other version is unknown. */
+const PREPAID_SETTLEMENT_VERSIONS: ReadonlySet<string> = new Set(['2', '3'])
 const HEX32 = /^0x[0-9a-f]{64}$/i
 const ADDRESS = /^0x[0-9a-f]{40}$/i
 
@@ -88,7 +90,8 @@ function reasonOf(error: unknown): string {
 }
 
 /**
- * Read a slot's billing mode at one block: version "1" is legacy; version "2" is prepaid when
+ * Read a slot's billing mode at one block: version "1" is legacy; version "2" or "3" (the
+ * same prepaid billing plus the payer timeout escape) is prepaid when
  * `prepaidEnabled(slot)` or `prepaidFromGenesis()` holds (an unfunded slot on a prepaid-from-genesis
  * deployment becomes prepaid at its first funding, and legacy settlement refuses it), otherwise
  * legacy until cutover. Any other version, a failed read, a chain mismatch or a reorganized block
@@ -121,7 +124,7 @@ export async function readBillingMode(client: PublicClient, deployment: BillingD
     if (typeof version !== 'string' || version.length > 32) return unknown(slot, 'invalid Settlement version')
     observed.settlementVersion = version
     if (version === '1') mode = 'legacy'
-    else if (version === '2') {
+    else if (PREPAID_SETTLEMENT_VERSIONS.has(version)) {
       const enabled = await read('prepaidEnabled', [slot])
       if (typeof enabled !== 'boolean') return unknown(slot, 'invalid prepaidEnabled', observed)
       observed.prepaidEnabled = enabled

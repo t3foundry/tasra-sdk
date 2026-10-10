@@ -298,8 +298,12 @@ function endpoints(options: ReservePaidOperationOptions, chainId: number): strin
   if (new Set(urls).size !== urls.length) throw new Error('duplicate accountant endpoints')
   return urls
 }
-/** Settle with `work`, or reject with the abort reason as soon as `signal` aborts (work keeps running). */
-function untilAborted<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+/**
+ * Settle with `work`, or reject with the abort reason as soon as `signal` aborts (work keeps running).
+ * @param work Pending work that is not cancelled by the abort.
+ * @param signal Optional cancellation of the wait only.
+ */
+export function untilAborted<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   if (!signal) return work
   return new Promise<T>((resolve, reject) => {
     const abort = () => reject(signal.reason)

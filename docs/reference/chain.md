@@ -9,7 +9,7 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 12 classes</summary>
+<summary>Browse 14 classes</summary>
 
 - [AgentSessionCreationUnknownError](#agentsessioncreationunknownerror)
 - [BillingModeError](#billingmodeerror)
@@ -20,6 +20,8 @@ Clients, adapters and error classes.
 - [PaidReservationAbortedError](#paidreservationabortederror)
 - [PaidReservationQuotaError](#paidreservationquotaerror)
 - [PaidReservationUncertainError](#paidreservationuncertainerror)
+- [PrepaidEscapeError](#prepaidescapeerror)
+- [PrepaidEscapeUncertainError](#prepaidescapeuncertainerror)
 - [RelayOutcomeUnknownError](#relayoutcomeunknownerror)
 - [SlotCommitmentExpiredError](#slotcommitmentexpirederror)
 - [UnderfundedSlotError](#underfundedsloterror)
@@ -333,6 +335,95 @@ declare class PaidReservationUncertainError {
 
 - ` cause?: unknown; `
 
+### PrepaidEscapeError
+
+A prepaid timeout escape was refused before anything was sent for the refused call: by the local
+preflight (`local: true`, read at one canonical block) or by the contract's own simulation
+(`local: false`). Nothing about the refused call is journaled. In a multi-call escape, calls that
+already confirmed are in their journal (`confirmed` checkpoints) and stay final.
+
+Only `escape_not_open` is retryable: the same call succeeds once chain time reaches `opensAt`.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L487)
+
+Import: `import {PrepaidEscapeError} from 'tasra-sdk/chain'`
+
+```ts
+declare class PrepaidEscapeError {
+    constructor(args: {
+        code: PrepaidEscapeCode;
+        local: boolean;
+        requestId?: string;
+        opensAt?: Date;
+        delaySeconds?: bigint;
+        message?: string;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: PrepaidEscapeCode; ` — Stable code.
+
+- ` readonly sent: false; ` — Always false: no transaction was sent for the refused call.
+
+- ` readonly local: boolean; ` — True for a local preflight refusal, false for a decoded contract revert.
+
+- ` readonly requestId?: string; ` — Request the refusal names, when it names one.
+
+- ` readonly opensAt?: Date; ` — When the named request's escape opens (`escape_not_open`).
+
+- ` readonly delaySeconds?: bigint; ` — Refused delay in seconds (`invalid_escape_delay`).
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PrepaidEscapeUncertainError
+
+A prepaid escape transaction may have been broadcast and its outcome is not proven. Code
+`escape_uncertain`. Retain the prepared record and reconcile it by reading chain state
+(`reconcileEscape`); never send it again blindly. An escape cannot refund twice (a second one
+reverts `ReservationUnavailable`), but a blind resend still spends gas and can collide on the nonce.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L539)
+
+Import: `import {PrepaidEscapeUncertainError} from 'tasra-sdk/chain'`
+
+```ts
+declare class PrepaidEscapeUncertainError {
+    constructor(args: {
+        escapeId: string;
+        requestIds: readonly string[];
+        transactionHash?: string;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: "escape_uncertain"; ` — Stable code.
+
+- ` readonly escapeId: string; ` — Local journal key of the escape call.
+
+- ` readonly requestIds: readonly string[]; ` — Requests the call named.
+
+- ` readonly transactionHash?: string; ` — Transaction hash when known; absence does not prove that nothing was sent.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ### RelayOutcomeUnknownError
 
 A relay request has no verified terminal result and must be reconciled before replacement.
@@ -437,7 +528,7 @@ declare class UnderfundedSlotError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 80 functions</summary>
+<summary>Browse 85 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -454,12 +545,15 @@ Operations you can import and call.
 - [createBillingModeDetector](#createbillingmodedetector)
 - [createCommitteeSlotClient](#createcommitteeslotclient)
 - [createKeeperExecutionApprover](#createkeeperexecutionapprover)
+- [createPrepaidEscapeClient](#createprepaidescapeclient)
 - [createRegisteredAgentClient](#createregisteredagentclient)
 - [createRegisteredRelaySubmitter](#createregisteredrelaysubmitter)
 - [createTasraChainClient](#createtasrachainclient)
 - [createTasraSlotClient](#createtasraslotclient)
 - [createTasraWriteClient](#createtasrawriteclient)
 - [decodeContractLogs](#decodecontractlogs)
+- [decodePrepaidEscapeLogs](#decodeprepaidescapelogs)
+- [decodePrepaidEscapeRevert](#decodeprepaidescaperevert)
 - [deriveServiceId](#deriveserviceid)
 - [discoverPaidOperationContext](#discoverpaidoperationcontext)
 - [drawnVerifierWitnesses](#drawnverifierwitnesses)
@@ -473,6 +567,7 @@ Operations you can import and call.
 - [formatWad](#formatwad)
 - [generateClientKey](#generateclientkey)
 - [hashServiceManifest](#hashservicemanifest)
+- [isPrepaidEscapeError](#isprepaidescapeerror)
 - [isRelayBusyReason](#isrelaybusyreason)
 - [jsonSafe](#jsonsafe)
 - [networkNameForChain](#networknameforchain)
@@ -484,6 +579,7 @@ Operations you can import and call.
 - [parsePinnedNetworkManifest](#parsepinnednetworkmanifest)
 - [parsePrometheus](#parseprometheus)
 - [parseServiceChallenge](#parseservicechallenge)
+- [prepaidEscapeId](#prepaidescapeid)
 - [prepareRegisteredPaidSession](#prepareregisteredpaidsession)
 - [provisionRule](#provisionrule)
 - [provisionRuleTypedData](#provisionruletypeddata)
@@ -768,7 +864,7 @@ Cache billing per slot for one deployment. Prepaid is one-way for a slot (`prepa
 never cleared), so it is cached until invalidated; legacy can become prepaid at a funding or
 cutover, so it expires after `legacyTtlMs`. Concurrent lookups for a slot share one read.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L161)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L164)
 
 Import: `import {createBillingModeDetector} from 'tasra-sdk/chain'`
 
@@ -827,6 +923,26 @@ declare function createKeeperExecutionApprover(options: KeeperExecutionApproverO
 | ` options ` | ` KeeperExecutionApproverOptions ` | Approved deployment, original operation and creator-certified local signer. |
 
 Returns: ` KeeperExecutionApprover `.
+
+### createPrepaidEscapeClient
+
+Bind the payer-side prepaid timeout-escape client to one approved deployment.
+Exposes no governance action: the escape delay is set only by the Settlement owner (timelock).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L608)
+
+Import: `import {createPrepaidEscapeClient} from 'tasra-sdk/chain'`
+
+```ts
+declare function createPrepaidEscapeClient(client: PublicClient, deployment: PrepaidEscapeDeployment): PrepaidEscapeClient;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` client ` | ` PublicClient ` | Trusted bounded public RPC client with canonical EIP-1898 reads; use retryCount: 0. |
+| ` deployment ` | ` PrepaidEscapeDeployment ` | Independently approved chain ID and Settlement proxy. |
+
+Returns: ` PrepaidEscapeClient `.
 
 ### createRegisteredAgentClient
 
@@ -978,6 +1094,45 @@ declare function decodeContractLogs(contract: ContractName, address: Address, lo
 | ` logs ` | ` Log[] ` | Raw logs carrying topics, data and optional block metadata. |
 
 Returns: ` DecodedEvent[] `.
+
+### decodePrepaidEscapeLogs
+
+Decode `PrepaidEscaped` and `PrepaidBatchEscaped` from logs emitted by one Settlement. Logs from
+any other address, and other events, are skipped; a removed (reorganized) log is refused.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L439)
+
+Import: `import {decodePrepaidEscapeLogs} from 'tasra-sdk/chain'`
+
+```ts
+declare function decodePrepaidEscapeLogs(logs: readonly Log[], settlement: Address): PrepaidEscapeEvents;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` logs ` | ` readonly Log[] ` | Receipt logs or a bounded `eth_getLogs` window. |
+| ` settlement ` | ` Address ` | Approved Settlement proxy. |
+
+Returns: ` PrepaidEscapeEvents `.
+
+### decodePrepaidEscapeRevert
+
+Map a Settlement escape revert anywhere in an error's cause chain to a typed
+[PrepaidEscapeError](#prepaidescapeerror) (`local: false`); `undefined` for any other failure.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L411)
+
+Import: `import {decodePrepaidEscapeRevert} from 'tasra-sdk/chain'`
+
+```ts
+declare function decodePrepaidEscapeRevert(error: unknown): PrepaidEscapeError | undefined;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` error ` | ` unknown ` | RPC or viem error from a simulation, gas estimate or relayed call. |
+
+Returns: ` PrepaidEscapeError | undefined `.
 
 ### deriveServiceId
 
@@ -1249,6 +1404,24 @@ declare function hashServiceManifest(bytes: Uint8Array): Hex;
 
 Returns: ` Hex `.
 
+### isPrepaidEscapeError
+
+True for a [PrepaidEscapeError](#prepaidescapeerror).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L529)
+
+Import: `import {isPrepaidEscapeError} from 'tasra-sdk/chain'`
+
+```ts
+declare function isPrepaidEscapeError(e: unknown): e is PrepaidEscapeError;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` e ` | ` unknown ` | - Caught value to classify. |
+
+Returns: ` e is PrepaidEscapeError `.
+
 ### isRelayBusyReason
 
 True for a relayer refusal about its own load rather than the request: a full lane, a full
@@ -1498,6 +1671,27 @@ declare function parseServiceChallenge(bytes: Uint8Array): ServiceChallenge;
 
 Returns: ` ServiceChallenge `.
 
+### prepaidEscapeId
+
+Local journal key of one escape call: keccak256 of a fixed label, chain ID, Settlement, slot and
+the exact ordered request list. Not a wire or on-chain format.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L305)
+
+Import: `import {prepaidEscapeId} from 'tasra-sdk/chain'`
+
+```ts
+declare function prepaidEscapeId(deployment: PrepaidEscapeDeployment, slotId: Hex, requestIds: readonly Hex[]): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` deployment ` | ` PrepaidEscapeDeployment ` | Approved chain and Settlement. |
+| ` slotId ` | ` Hex ` | Slot identifier. |
+| ` requestIds ` | ` readonly Hex[] ` | Exact ordered requests of the call. |
+
+Returns: ` Hex `.
+
 ### prepareRegisteredPaidSession
 
 Authenticate one approved provider and prepare complete client-signed initialization before HTTP.
@@ -1724,13 +1918,14 @@ Promise<{
 
 ### readBillingMode
 
-Read a slot's billing mode at one block: version "1" is legacy; version "2" is prepaid when
+Read a slot's billing mode at one block: version "1" is legacy; version "2" or "3" (the
+same prepaid billing plus the payer timeout escape) is prepaid when
 `prepaidEnabled(slot)` or `prepaidFromGenesis()` holds (an unfunded slot on a prepaid-from-genesis
 deployment becomes prepaid at its first funding, and legacy settlement refuses it), otherwise
 legacy until cutover. Any other version, a failed read, a chain mismatch or a reorganized block
 is `unknown`. Never throws for a chain failure; throws only for invalid arguments.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L100)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L103)
 
 Import: `import {readBillingMode} from 'tasra-sdk/chain'`
 
@@ -2029,7 +2224,7 @@ Returns: ` Address `.
 One-shot guard for a paid entry point: resolve the slot's mode and throw
 [BillingModeError](#billingmodeerror) unless it is prepaid.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L201)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L204)
 
 Import: `import {requirePrepaidSlot} from 'tasra-sdk/chain'`
 
@@ -2072,7 +2267,7 @@ Reserve TASRA for a fixed creator-signed operation using an accountant threshold
 Does not create an intent, approve tokens, activate a slot, authorize credentials or do keeper
 work. One broadcast attempt only; no replacement, coordinator failover or implicit gas funding.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L395)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L399)
 
 Import: `import {reservePaidOperation} from 'tasra-sdk/chain'`
 
@@ -2493,7 +2688,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 114 types</summary>
+<summary>Browse 128 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -2521,6 +2716,7 @@ Options, data structures and return types.
 - [CreateSlotArgs](#createslotargs)
 - [DecodedEvent](#decodedevent)
 - [DiscoveredPaymentFields](#discoveredpaymentfields)
+- [EscapePrepaidArgs](#escapeprepaidargs)
 - [EventCategory](#eventcategory)
 - [ExpectedPaidOperation](#expectedpaidoperation)
 - [FetchOpts](#fetchopts)
@@ -2560,12 +2756,25 @@ Options, data structures and return types.
 - [PaidRetainedPresentation](#paidretainedpresentation)
 - [PaidVerifierWitness](#paidverifierwitness)
 - [PrepaidDeployment](#prepaiddeployment)
+- [PrepaidEscapeCallResult](#prepaidescapecallresult)
+- [PrepaidEscapeCheckpoint](#prepaidescapecheckpoint)
+- [PrepaidEscapeClient](#prepaidescapeclient)
+- [PrepaidEscapeCode](#prepaidescapecode)
+- [PrepaidEscapeDeployment](#prepaidescapedeployment)
+- [PrepaidEscapeEvents](#prepaidescapeevents)
+- [PrepaidEscapeObservation](#prepaidescapeobservation)
+- [PrepaidEscapeRecord](#prepaidescaperecord)
+- [PrepaidEscapeRequestState](#prepaidescaperequeststate)
+- [PrepaidEscapeResolution](#prepaidescaperesolution)
+- [PrepaidEscapeResult](#prepaidescaperesult)
+- [PrepaidEscapeStatus](#prepaidescapestatus)
 - [PrepaidFaultHttpOptions](#prepaidfaulthttpoptions)
 - [PrepaidFaultKind](#prepaidfaultkind)
 - [PrepaidFaultVerdict](#prepaidfaultverdict)
 - [PrepaidObservation](#prepaidobservation)
 - [ProvisionRuleArgs](#provisionruleargs)
 - [ProvisionRuleResult](#provisionruleresult)
+- [ReconcileEscapeArgs](#reconcileescapeargs)
 - [RecoveredKeeperExecution](#recoveredkeeperexecution)
 - [RecoverKeeperExecutionOptions](#recoverkeeperexecutionoptions)
 - [RegisteredAgentSession](#registeredagentsession)
@@ -2774,7 +2983,7 @@ export type BillingMode = 'legacy' | 'prepaid' | 'unknown';
 
 Per-slot cached billing detection for one deployment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L144)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L147)
 
 ```ts
 export interface BillingModeDetector {
@@ -2814,8 +3023,8 @@ Fields:
 - **` slot `**: Slot identifier.
 - **` mode `**: Detected billing. `unknown` never authorizes either flow.
 - **` settlementVersion `**: `Settlement.version()` when read.
-- **` prepaidEnabled `**: `prepaidEnabled(slot)` when read (version 2 only).
-- **` prepaidFromGenesis `**: `prepaidFromGenesis()` when read (version 2 only).
+- **` prepaidEnabled `**: `prepaidEnabled(slot)` when read (prepaid versions "2" and "3" only).
+- **` prepaidFromGenesis `**: `prepaidFromGenesis()` when read (prepaid versions "2" and "3" only).
 - **` blockNumber `**: Block every value was read at, when the read completed.
 - **` blockHash `**: Hash of that block, rechecked after all reads.
 - **` reason `**: Why the mode is unknown; safe for logs (no response bodies).
@@ -3224,6 +3433,38 @@ Fields:
 - **` verification_committee `**: Pinned verifier committee size.
 - **` verification_quorum `**: Pinned verifier quorum.
 - **` keeper_assignment `**: Fixed keeper sharing and execution membership.
+
+### EscapePrepaidArgs
+
+Arguments of ` PrepaidEscapeClient.escapePrepaid `.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L140)
+
+```ts
+export interface EscapePrepaidArgs {
+    slotId: Hex;
+    requestIds: readonly Hex[];
+    signer: WalletClient<Transport, Chain, Account>;
+    maxGas: bigint;
+    maxGasPrice: bigint;
+    persist: (checkpoint: PrepaidEscapeCheckpoint) => Promise<void>;
+    confirmations?: number;
+    receiptTimeoutMs?: number;
+    signal?: AbortSignal;
+}
+```
+
+Fields:
+
+- **` slotId `**: Slot whose reservations are escaped; the refund always returns to this slot's balance.
+- **` requestIds `**: Requests to escape (1..1024, distinct); every one must be `open`.
+- **` signer `**: Account- and chain-bound gas payer (any account: the escape is permissionless).
+- **` maxGas `**: Maximum gas units per transaction.
+- **` maxGasPrice `**: Maximum legacy gas price in wei.
+- **` persist `**: Await durable storage before resolving. `prepared` MUST atomically create a unique record keyed by `escapeId`, refuse an existing one, and survive process loss; later checkpoints update it. A failure before `prepared` completes prevents that call's broadcast.
+- **` confirmations `**: Required confirmations, 1..64 (default 1).
+- **` receiptTimeoutMs `**: Receipt wait per transaction, 1..120000 ms (default 60000).
+- **` signal `**: Cancellation: before a call's `prepared` checkpoint nothing is sent; after it, only the wait ends (uncertain).
 
 ### EventCategory
 
@@ -4178,6 +4419,315 @@ Fields:
 - **` settlement `**: Expected Settlement proxy.
 - **` keyRegistry `**: Expected KeyRegistry proxy.
 
+### PrepaidEscapeCallResult
+
+One confirmed escape transaction.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L166)
+
+```ts
+export interface PrepaidEscapeCallResult {
+    escapeId: Hex;
+    requestIds: Hex[];
+    transactionHash: Hex;
+    blockNumber: bigint;
+    blockHash: Hex;
+    refunded: bigint;
+    refunds: {
+        requestId: Hex;
+        refunded: bigint;
+    }[];
+}
+```
+
+Fields:
+
+- **` escapeId `**: Local journal key.
+- **` requestIds `**: Requests escaped by this transaction, in order.
+- **` transactionHash `**: Transaction hash.
+- **` blockNumber `**: Inclusion block number.
+- **` blockHash `**: Inclusion block hash.
+- **` refunded `**: Total TASRA base units returned to the slot (`PrepaidBatchEscaped.refunded`).
+- **` refunds `**: Per request, from `PrepaidEscaped`.
+
+### PrepaidEscapeCheckpoint
+
+Durable write checkpoints of one escape call. After `prepared`, only reading reconciles it.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L109)
+
+```ts
+export type PrepaidEscapeCheckpoint = {
+    phase: 'prepared';
+    record: PrepaidEscapeRecord;
+    transactionHash?: Hex;
+} | {
+    phase: 'submitted';
+    escapeId: Hex;
+    transactionHash: Hex;
+} | {
+    phase: 'confirmed';
+    escapeId: Hex;
+    transactionHash: Hex;
+    blockHash: Hex;
+    refunded: string;
+};
+```
+
+Fields:
+
+- **` phase `**: Persisted before any submission. Create exclusively by `record.escapeId`. A transaction hash was returned; mining is unproven. The transaction mined successfully and its events matched the call.
+- **` transactionHash `**: Hash of a locally signed transaction, journaled before broadcast; absent for a JSON-RPC signer. Returned transaction hash. Verified transaction hash.
+
+### PrepaidEscapeClient
+
+Payer-side escape client bound to one deployment.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L239)
+
+```ts
+export interface PrepaidEscapeClient {
+    escapableAt(args: {
+        slotId: Hex;
+        requestIds: readonly Hex[];
+    }): Promise<PrepaidEscapeObservation>;
+    escapePrepaid(args: EscapePrepaidArgs): Promise<PrepaidEscapeResult>;
+    reconcileEscape(args: ReconcileEscapeArgs): Promise<PrepaidEscapeResolution>;
+}
+```
+
+Fields:
+
+- **` escapableAt `**: Read each request's escape status at one fresh canonical block. Sends nothing.
+- **` escapePrepaid `**: Escape reserved requests whose timeout has opened. Refuses locally with [PrepaidEscapeError](#prepaidescapeerror) unless every request is `open`; then for each chunk of at most 64: simulate, journal `prepared`, broadcast once, journal `submitted`, wait, verify the events, journal `confirmed`. A failure after `prepared` is [PrepaidEscapeUncertainError](#prepaidescapeuncertainerror).
+- **` reconcileEscape `**: Resolve a journaled escape call by reading `prepaidEscapedAt`, `prepaidSettled`, the receipt and the payer nonce. Never sends.
+
+### PrepaidEscapeCode
+
+Stable code of a prepaid timeout-escape refusal (see [PrepaidEscapeError](#prepaidescapeerror)).
+- `escape_disabled`: the Settlement escape delay is zero (an upgraded deployment before governance
+  enabled it); contract error `EscapeDisabled()`.
+- `escape_not_open`: a request's escape opens later, at `opensAt`; contract error
+  `EscapeNotOpen(requestId, opensAt)`.
+- `reservation_unavailable`: a request was never reserved, or is already complete (reconciled,
+  settled or escaped); contract error `ReservationUnavailable(requestId)`.
+- `invalid_escape_delay`: contract error `InvalidEscapeDelay(delay)` (governance setter only).
+- `too_many_requests`: more than 64 requests in one call; contract error `TooManyCovered`.
+- `empty_request`: no request IDs; contract error `EmptyBundle()`.
+- `escape_unsupported`: the Settlement has no escape getters (a version before "3").
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L476)
+
+```ts
+export type PrepaidEscapeCode = 'escape_disabled' | 'escape_not_open' | 'reservation_unavailable' | 'invalid_escape_delay' | 'too_many_requests' | 'empty_request' | 'escape_unsupported';
+```
+
+### PrepaidEscapeDeployment
+
+Chain and Settlement proxy, independently approved by the application.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L29)
+
+```ts
+export interface PrepaidEscapeDeployment {
+    chainId: number;
+    settlement: Address;
+}
+```
+
+Fields:
+
+- **` chainId `**: Expected EVM chain ID.
+- **` settlement `**: Expected Settlement proxy.
+
+### PrepaidEscapeEvents
+
+Decoded escape events from one receipt or log window.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L231)
+
+```ts
+export interface PrepaidEscapeEvents {
+    escaped: {
+        slotId: Hex;
+        requestId: Hex;
+        refunded: bigint;
+    }[];
+    batches: {
+        slotId: Hex;
+        caller: Address;
+        refunded: bigint;
+        requestCount: bigint;
+    }[];
+}
+```
+
+Fields:
+
+- **` escaped `**: `PrepaidEscaped`, one per request.
+- **` batches `**: `PrepaidBatchEscaped`, one per call.
+
+### PrepaidEscapeObservation
+
+Every requested status, read at one fresh canonical block.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L79)
+
+```ts
+export interface PrepaidEscapeObservation {
+    blockNumber: bigint;
+    blockHash: Hex;
+    blockTimestamp: bigint;
+    escapeDelaySeconds: bigint;
+    slotId: Hex;
+    requests: PrepaidEscapeRequestState[];
+}
+```
+
+Fields:
+
+- **` blockNumber `**: Canonical block number.
+- **` blockHash `**: Block hash every value was read at (EIP-1898, requireCanonical).
+- **` blockTimestamp `**: Block timestamp in Unix seconds; `open` is judged against it, like the contract.
+- **` escapeDelaySeconds `**: Governed escape delay in seconds; 0 means the escape is disabled. Read live, never snapshotted.
+- **` slotId `**: Slot identifier.
+- **` requests `**: Per request, in the caller's order.
+
+### PrepaidEscapeRecord
+
+Immutable identity of one escape transaction, retained before any broadcast; JSON serializable.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L95)
+
+```ts
+export interface PrepaidEscapeRecord {
+    schema: 1;
+    escapeId: Hex;
+    slotId: Hex;
+    requestIds: Hex[];
+    transaction: {
+        chainId: number;
+        from: Address;
+        to: Address;
+        data: Hex;
+        value: '0';
+        nonce: number;
+        gas: string;
+        gasPrice: string;
+    };
+}
+```
+
+Fields:
+
+- **` schema `**: Record format.
+- **` escapeId `**: Local journal key derived from chain, Settlement, slot and the exact ordered request list.
+- **` slotId `**: Slot identifier.
+- **` requestIds `**: Exact ordered requests of this call (at most 64).
+- **` transaction `**: Exact bounded legacy transaction; decimal strings preserve integer precision in storage.
+
+### PrepaidEscapeRequestState
+
+Escape status of one request, read at one canonical block.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L37)
+
+```ts
+export type PrepaidEscapeRequestState = {
+    requestId: Hex;
+    status: 'notReserved';
+} | {
+    requestId: Hex;
+    status: 'settled';
+    escapedAt?: Date;
+} | {
+    requestId: Hex;
+    status: 'disabled';
+} | {
+    requestId: Hex;
+    status: 'notOpen';
+    opensAt: Date;
+} | {
+    requestId: Hex;
+    status: 'open';
+    opensAt: Date;
+};
+```
+
+Fields:
+
+- **` requestId `**: Request identifier.
+- **` status `**: No reservation exists (`prepaidCost == 0`). Already complete: reconciled, paid out or escaped. Final. Reserved and open, but the deployment's escape delay is zero (not enabled). Reserved and open; the escape opens later. Escapable now (chain time at the observed block is at or past `opensAt`).
+
+### PrepaidEscapeResolution
+
+Outcome of one escape call, read without sending anything.
+- `escaped`: this transaction mined successfully at the required depth and escaped every request.
+- `completed`: every request is now complete (escaped by anyone, or reconciled), but this
+  transaction's success is not shown. Nothing is left to do for this call.
+- `reverted`: this transaction mined and reverted; it refunded nothing.
+- `not-escaped`: the payer's nonce is consumed by another or failed transaction and some request
+  is still open; this call can no longer mine. A new attempt (after a fresh preflight) is safe.
+- `uncertain`: the transaction may still mine. Do not resend; read again later.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L213)
+
+```ts
+export interface PrepaidEscapeResolution {
+    state: 'escaped' | 'completed' | 'reverted' | 'not-escaped' | 'uncertain';
+    escapeId: Hex;
+    blockNumber: bigint;
+    blockHash: Hex;
+    requests: {
+        requestId: Hex;
+        settled: boolean;
+        escapedAt?: Date;
+    }[];
+    transactionHash?: Hex;
+    refunded?: bigint;
+}
+```
+
+Fields:
+
+- **` state `**: Outcome.
+- **` escapeId `**: Local journal key.
+- **` blockNumber `**: Block every value was read at (head minus confirmations - 1).
+- **` blockHash `**: Hash of that block.
+- **` requests `**: Per request, in record order.
+- **` transactionHash `**: The checked transaction, when a hash was supplied.
+- **` refunded `**: TASRA returned by this transaction (`escaped` only).
+
+### PrepaidEscapeResult
+
+Result of a fully confirmed escape.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L184)
+
+```ts
+export interface PrepaidEscapeResult {
+    slotId: Hex;
+    refunded: bigint;
+    calls: PrepaidEscapeCallResult[];
+}
+```
+
+Fields:
+
+- **` slotId `**: Slot identifier.
+- **` refunded `**: Total TASRA base units returned to the slot balance (not withdrawn to the payer).
+- **` calls `**: One entry per transaction, in order.
+
+### PrepaidEscapeStatus
+
+One status of `PrepaidEscapeRequestState`.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L76)
+
+```ts
+export type PrepaidEscapeStatus = PrepaidEscapeRequestState['status'];
+```
+
 ### PrepaidFaultHttpOptions
 
 Options for the accountant fault endpoints.
@@ -4314,6 +4864,26 @@ Fields:
 - **` slotId `**: Slot whose authorization rule was delivered.
 - **` ruleCommitment `**: Salted commitment computed from the submitted rule and saved salt.
 - **` results `**: Delivery result for each selected keeper.
+
+### ReconcileEscapeArgs
+
+Arguments of ` PrepaidEscapeClient.reconcileEscape `.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L194)
+
+```ts
+export interface ReconcileEscapeArgs {
+    record: PrepaidEscapeRecord;
+    transactionHash?: Hex;
+    confirmations?: number;
+}
+```
+
+Fields:
+
+- **` record `**: The prepared record, never a rebuilt one.
+- **` transactionHash `**: Journaled or returned hash, when one is known.
+- **` confirmations `**: Required depth for a conclusion, 1..64 (default 1).
 
 ### RecoveredKeeperExecution
 
@@ -5482,6 +6052,8 @@ Shared values and contract definitions.
 | `keeperShareRegistryAbi` | KeeperShareRegistry contract interface for anchored keeper verifying-share commitments. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/keeperShareRegistry.ts#L5) |
 | `keyRegistryAbi` | KeyRegistry contract interface for slot creation, key epochs and authorization policies. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/keyRegistry.ts#L5) |
 | `livenessRegistryAbi` | LivenessRegistry contract interface for registered operator liveness observations. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/livenessRegistry.ts#L5) |
+| `MAX_ESCAPE_PER_CALL` | Most requests one `escapePrepaid` transaction may name (the contract's `MAX_ESCAPE_PER_CALL`). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L24) |
+| `MAX_ESCAPE_REQUESTS` | Most requests one client call accepts; they are sent as sequential transactions of at most 64. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L26) |
 | `MAX_PREPAID_FAULT_BUNDLE_BYTES` | Accountant claim intake byte limit (the witness's own bundle maximum). | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L43) |
 | `mockEurcAbi` | MockEurc contract interface for test-token balances, transfers, approvals and minting. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/mockEurc.ts#L5) |
 | `NETWORKS` | Built-in network defaults; use a tasra-releases manifest for deployed contract addresses. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L39) |
@@ -5502,7 +6074,7 @@ Shared values and contract definitions.
 | `SERVICE_STATUSES` | Registry lifecycle ordinals for active, draining and retired services. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/services.ts#L10) |
 | `SERVICE_TYPES` | Permanent ServiceRegistry ABI ordinals. Registration grants no operator privileges. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/services.ts#L6) |
 | `serviceRegistryAbi` | ServiceRegistry contract interface for provider-owned service records and lifecycle updates. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/serviceRegistry.ts#L5) |
-| `settlementAbi` | Settlement contract interface for prepaid slot balances and operation settlement. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/settlement.ts#L5) |
+| `settlementAbi` | Settlement contract interface for prepaid slot balances and operation settlement. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/settlement.ts#L6) |
 | `systemPacingClock` | Wall clock, timers and `Math.random` jitter. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/paidPacing.ts#L43) |
 | `tasraSwapRouterAbi` | TasraSwapRouter contract interface for routed token exchanges. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/tasraSwapRouter.ts#L5) |
 | `tasraTokenAbi` | TasraToken contract interface for TSRA balances, transfers, approvals and supply. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/tasraToken.ts#L5) |

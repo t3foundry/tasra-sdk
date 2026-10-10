@@ -1,5 +1,6 @@
 // Contract ABI data is refreshed from the contract build artifacts.
 // Source: contracts/out/Settlement.sol/Settlement.json (`abi` field).
+// Omitted on purpose: setPrepaidEscapeDelay (owner/timelock-only governance, not an SDK action).
 
 /** Settlement contract interface for prepaid slot balances and operation settlement. */
 export const settlementAbi = [
@@ -36,6 +37,19 @@ export const settlementAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_ESCAPE_PER_CALL",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_RECIPIENTS",
     "inputs": [],
     "outputs": [
@@ -56,6 +70,45 @@ export const settlementAbi = [
         "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PREPAID_ESCAPE_DELAY_CEILING",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PREPAID_ESCAPE_DELAY_DEFAULT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PREPAID_ESCAPE_DELAY_FLOOR",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
@@ -477,6 +530,24 @@ export const settlementAbi = [
   },
   {
     "type": "function",
+    "name": "escapePrepaid",
+    "inputs": [
+      {
+        "name": "slotId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "requestIds",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "fund",
     "inputs": [
       {
@@ -722,6 +793,80 @@ export const settlementAbi = [
   },
   {
     "type": "function",
+    "name": "prepaidEscapableAt",
+    "inputs": [
+      {
+        "name": "slotId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "requestId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "prepaidEscapeDelay",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "prepaidEscapeSince",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "prepaidEscapedAt",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "prepaidFromGenesis",
     "inputs": [],
     "outputs": [
@@ -729,6 +874,30 @@ export const settlementAbi = [
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "prepaidQuoteMinedAt",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
@@ -2189,6 +2358,37 @@ export const settlementAbi = [
   },
   {
     "type": "event",
+    "name": "PrepaidBatchEscaped",
+    "inputs": [
+      {
+        "name": "slotId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "caller",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "refunded",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "requestCount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "PrepaidBatchReconciled",
     "inputs": [
       {
@@ -2337,6 +2537,50 @@ export const settlementAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PrepaidEscapeDelayChanged",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "next",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PrepaidEscaped",
+    "inputs": [
+      {
+        "name": "slotId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "requestId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "refunded",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -2728,6 +2972,27 @@ export const settlementAbi = [
   },
   {
     "type": "error",
+    "name": "EscapeDisabled",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EscapeNotOpen",
+    "inputs": [
+      {
+        "name": "requestId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "opensAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "Expired",
     "inputs": [
       {
@@ -2770,6 +3035,17 @@ export const settlementAbi = [
         "name": "available",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidEscapeDelay",
+    "inputs": [
+      {
+        "name": "delay",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ]
   },

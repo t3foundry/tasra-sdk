@@ -20,6 +20,12 @@ export type {PrepaidDeployment, PrepaidObservation, SlotFunding, PaidOperationRe
 export {reservePaidOperation, reconcilePaidReservation, PaidReservationUncertainError, PaidReservationAbortedError} from './reservation.js'
 export type {PaidReservationQuote, PaidReservationRecord, PaidReservationCheckpoint, ReservePaidOperationOptions, PaidReservationResolution} from './reservation.js'
 export {SlotCommitmentExpiredError, assertExpiredSlotCommitment} from './commitmentRecovery.js'
+// Payer-side prepaid timeout escape: refund reservations nobody reconciled within the governed delay.
+export {createPrepaidEscapeClient, decodePrepaidEscapeRevert, decodePrepaidEscapeLogs, prepaidEscapeId, MAX_ESCAPE_PER_CALL, MAX_ESCAPE_REQUESTS} from './prepaidEscape.js'
+export type {PrepaidEscapeClient, PrepaidEscapeDeployment, PrepaidEscapeRequestState, PrepaidEscapeStatus, PrepaidEscapeObservation, PrepaidEscapeRecord,
+  PrepaidEscapeCheckpoint, EscapePrepaidArgs, PrepaidEscapeCallResult, PrepaidEscapeResult, ReconcileEscapeArgs, PrepaidEscapeResolution, PrepaidEscapeEvents} from './prepaidEscape.js'
+export {PrepaidEscapeError, PrepaidEscapeUncertainError, isPrepaidEscapeError} from '../errors.js'
+export type {PrepaidEscapeCode} from '../errors.js'
 
 // Deployment address discovery.
 export {

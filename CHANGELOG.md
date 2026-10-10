@@ -78,8 +78,30 @@ never does.
   New in `tasra-sdk/committee`: `requireStatusAttestations`, `signersThatVerify`,
   `STATUS_INVALID_CODE`. `verifyStatusAttestations` and `assertStatusAttestationsWire` now throw
   this class (messages unchanged; still an `Error`).
+- Payer-side client for the Settlement prepaid timeout escape (Settlement version `"3"`), in
+  `tasra-sdk/chain`: `createPrepaidEscapeClient(publicClient, {chainId, settlement})` with
+  `escapableAt({slotId, requestIds})` (per request `notReserved` | `settled` (+`escapedAt`) |
+  `disabled` | `notOpen` (+`opensAt`) | `open`, all read at one canonical block),
+  `escapePrepaid({slotId, requestIds, signer, maxGas, maxGasPrice, persist})` (local preflight,
+  sequential calls of at most `MAX_ESCAPE_PER_CALL` = 64, simulation, durable `prepared` →
+  `submitted` → `confirmed` journal around one broadcast, confirmation from the
+  `PrepaidEscaped`/`PrepaidBatchEscaped` events) and `reconcileEscape({record, transactionHash})`
+  (reads `prepaidEscapedAt`, `prepaidSettled`, the receipt and the payer nonce; never resends).
+  Also `decodePrepaidEscapeRevert`, `decodePrepaidEscapeLogs`, `prepaidEscapeId`,
+  `MAX_ESCAPE_REQUESTS`. Typed errors (both entry points): `PrepaidEscapeError`
+  (`isPrepaidEscapeError`, `sent: false`, `local`, code `escape_disabled` | `escape_not_open`
+  (`opensAt`, the only retryable code) | `reservation_unavailable` | `invalid_escape_delay` |
+  `too_many_requests` | `empty_request` | `escape_unsupported`) and `PrepaidEscapeUncertainError`
+  (code `escape_uncertain`). The Settlement ABI gains the escape getters, constants, events and
+  errors from the contract build; the governance-only `setPrepaidEscapeDelay` is deliberately
+  not included.
 
 ### Changed
+
+- Billing detection accepts Settlement version `"3"` (the timeout escape) exactly like `"2"`:
+  `readBillingMode`, `createBillingModeDetector` and `requirePrepaidSlot` previously answered
+  `unknown` for `"3"`, which would have refused every paid flow after the upgrade. Any other
+  version is still `unknown`.
 
 - **Paid operations REQUIRE revocation-status attestations.** A completed registered paid session
   (`prepareRegisteredPaidSession(...).poll`) and `PaidOperation.execute` (before its `executing`

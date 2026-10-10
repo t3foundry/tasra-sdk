@@ -17,7 +17,8 @@ AVAX when it sends Ethereum transactions. Its account balance is not usage credi
 ### Detect the billing mode first
 
 A deployment bills either by metering (legacy, `Settlement.version()` is `"1"`, for example
-`tasra.fuji.v1`) or per operation from a prepaid reservation (`"2"`). Nothing off-chain
+`tasra.fuji.v1`) or per operation from a prepaid reservation (`"2"`, or `"3"`, which adds only
+the payer timeout escape). Nothing off-chain
 reports which, so read it from the Settlement contract before choosing a flow:
 
 ```ts
@@ -27,7 +28,7 @@ const billing = createBillingModeDetector(publicClient, {chainId, settlement})
 const {mode} = await billing.mode(slotId) // 'legacy' | 'prepaid' | 'unknown'
 ```
 
-Version `"2"` is prepaid for a slot once `prepaidEnabled(slot)` is set, and for every slot of a
+Versions `"2"` and `"3"` are prepaid for a slot once `prepaidEnabled(slot)` is set, and for every slot of a
 prepaid-from-genesis deployment (its first funding enables it). An upgraded deployment keeps
 a slot on legacy billing until its cutover. Any other version, a failed read, a chain mismatch
 or a reorganized block is `unknown`: start neither flow. The detector caches `prepaid`
@@ -741,6 +742,42 @@ adjudicate. The accountant set threshold-signs a verdict; anyone can relay it wi
 `contestPrepaidFault` (simulated first, so an oracle refusal such as `WrongEpoch()` or
 `AlreadyResolved()` is named and nothing is sent). `readPrepaidFaultResolution` shows
 whether the offender was already punished for that batch. None of these calls retries.
+
+## Escape a reservation nobody reconciled
+
+On a Settlement with the prepaid timeout escape (version `"3"`), a reservation that the
+accountant set has not reconciled within the governed escape delay can be released by
+anyone: its full reserved cost returns to the same slot's balance, no operator is paid,
+and the request gets the same permanent settled mark a reconcile writes, so whichever is
+mined first is final. The refund stays in the slot balance; it is not withdrawn to you.
+The delay is set only by governance and is not part of the SDK.
+
+```ts
+import {createPrepaidEscapeClient, isPrepaidEscapeError} from 'tasra-sdk/chain'
+
+const escape = createPrepaidEscapeClient(publicClient, {chainId, settlement})
+const {requests} = await escape.escapableAt({slotId, requestIds})
+// each: 'notReserved' | 'settled' (escapedAt when escaped) | 'disabled' | 'notOpen' (opensAt) | 'open'
+const open = requests.filter(r => r.status === 'open').map(r => r.requestId)
+const result = await escape.escapePrepaid({slotId, requestIds: open, signer: wallet,
+  maxGas: 6_000_000n, maxGasPrice, persist: checkpoint => journal.save(checkpoint)})
+```
+
+Take the request IDs from your own durable record of the intents you signed
+(`prepaidRequestId(payment)`), never from a history scan. `escapePrepaid` reads every
+status at one canonical block first and refuses with `PrepaidEscapeError` unless every
+request is `open`: `escape_not_open` carries `opensAt` and is the only retryable code;
+`escape_disabled`, `reservation_unavailable` and `escape_unsupported` (a Settlement before
+version `"3"`) are final. It then sends sequential transactions of at most 64 requests,
+simulating each (a contract refusal maps to the same codes with `local: false`),
+journaling `prepared` before the single broadcast, then `submitted` and, once the
+`PrepaidEscaped` and `PrepaidBatchEscaped` events match the call, `confirmed`. A failure
+after `prepared` is `PrepaidEscapeUncertainError`: never resend; call
+`escape.reconcileEscape({record, transactionHash})`, which reads `prepaidEscapedAt`,
+`prepaidSettled`, the receipt and the payer nonce and answers `escaped`, `completed`,
+`reverted`, `not-escaped` (the call can no longer mine; a fresh attempt is safe) or
+`uncertain` (read again later). `decodePrepaidEscapeRevert` names an escape refusal from a
+call you submit another way, and `decodePrepaidEscapeLogs` decodes the events.
 
 ## Handle depleted slot credit
 
