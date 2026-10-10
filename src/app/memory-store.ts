@@ -27,6 +27,12 @@ export function createMemoryStore(): ApplicationStore {
       check(key)
       values.set(key, structuredClone(value))
     },
+    async claim(key: string): Promise<boolean> {
+      check(key)
+      if (values.has(key)) return false
+      values.set(key, {claimed: true})
+      return true
+    },
     async list(prefix: string): Promise<string[]> {
       return [...values.keys()].filter(key => key.startsWith(prefix))
     },

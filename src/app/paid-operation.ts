@@ -44,7 +44,7 @@ import {presentationOperationTypedData, verifierAgentResult, type PresentationOp
 import {requestHash, type CommitteeAction} from '../oid4vp/binding.js'
 import type {VerifiedRequestObject} from '../oid4vp/request-object.js'
 import type {VerifierProof} from '../committee/client.js'
-import {RevocationStatusPreflightError, StatusRefreshError, TasraError, type StatusRefreshCode, type StatusRefreshFailure} from '../errors.js'
+import {PaidApprovalUnresolvedError, RevocationStatusPreflightError, StatusRefreshError, TasraError, type StatusRefreshCode, type StatusRefreshFailure} from '../errors.js'
 import {base64Decode} from '../crypto/envelope.js'
 import type {IbeExtractionPartial} from '../committee/client.js'
 import {HEX32, RECORD_KEY, RECORD_PREFIX, paidRecordKey as recordKey} from './paid-keys.js'
@@ -69,7 +69,7 @@ export interface PaidOperationConfig {
   limits: {maxCost: bigint; maxGas: bigint; maxGasPrice: bigint}
   /** Permit HTTP on the local development chain (43112) only. */
   allowLocalHttp?: boolean
-  /** Caller-approved keeper route map (registered URL → reachable URL). */
+  /** Caller-approved keeper route map (registered URL to reachable URL). */
   keeperUrl?: (registeredUrl: string) => string
   /** Cached billing detector for this deployment; a fresh read is used when absent. */
   billing?: BillingModeDetector
@@ -268,7 +268,7 @@ const expired = (payment: PaymentIntentWire) => payment.expires <= Math.floor(Da
 const refusal = (status: number) => status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status)
 function sessionFailure(requestId: Hex, payment: PaymentIntentWire, error: unknown): PaidOperationRecoveryError {
   let code: PaidOperationErrorCode = 'session-interrupted'
-  if (error instanceof PaidSessionRecoveryError) code = 'session-write-uncertain'
+  if (error instanceof PaidSessionRecoveryError || error instanceof PaidApprovalUnresolvedError) code = 'session-write-uncertain'
   else if (error instanceof VerifierAgentSessionError) {
     if (error.kind === 'refused' || (error.httpStatus !== undefined && refusal(error.httpStatus))) code = 'session-refused'
   } else if (error instanceof PaidAgentControlError && refusal(error.httpStatus)) code = 'session-refused'
@@ -575,7 +575,7 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
         // the journal stays `certified`. Never a new session or payment automatically.
         if (error instanceof RevocationStatusPreflightError) throw statusRefusal(requestId, error)
         // A journaled session write with an unknown outcome stays uncertain, abort or not.
-        if (signal.aborted && !(error instanceof PaidSessionRecoveryError)) throw abortedError(requestId, 'session', record.payment, signal, error)
+        if (signal.aborted && !(error instanceof PaidSessionRecoveryError) && !(error instanceof PaidApprovalUnresolvedError)) throw abortedError(requestId, 'session', record.payment, signal, error)
         throw sessionFailure(requestId, record.payment, error)
       }
       const grant = verifierAgentResult({sessionId: session.sessionId, paymentHash: paymentIntentHash(record.payment),

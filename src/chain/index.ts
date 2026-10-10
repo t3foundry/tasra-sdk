@@ -6,7 +6,7 @@
 
 // Contract ABIs (generated from the Foundry artifacts) + nametoabi map.
 export * from './abis/index.js'
-export {UnderfundedSlotError} from '../errors.js'
+export {UnderfundedSlotError, PaidBackoffError, PaidApprovalUnresolvedError, PaidReservationQuotaError} from '../errors.js'
 export {readSlotFunding, readPaidOperationReceipt, resolvePaidKeeperTarget, discoverPaidOperationContext} from './prepaid.js'
 export {readBillingMode, createBillingModeDetector, requirePrepaidSlot, BillingModeError} from './billing.js'
 export {drawnVerifierWitnesses, fetchDrawnVerifierWitnesses} from './verifierSnapshot.js'
@@ -152,7 +152,10 @@ export {createRegisteredAgentClient, AgentSessionCreationUnknownError} from './r
 export type {AgentTransport, ApprovedAgentProfile, RegisteredAgentSession} from './registeredAgent.js'
 export type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
 export {prepareRegisteredPaidSession, PaidAgentControlError} from './registeredPaidAgent.js'
-export type {RegisteredPaidAgentSession, PaidAgentSessionParams, ClientApprovedPresentation, PaidRetainedPresentation, PaidAgentProposal} from './registeredPaidAgent.js'
+export type {RegisteredPaidAgentSession, PaidAgentSessionParams, ClientApprovedPresentation, PaidRetainedPresentation, PaidAgentProposal,
+  PaidPacingOptions, RetainedPaidApproval, PaidApprovalDelivery} from './registeredPaidAgent.js'
+export {paidServerWaitMs, systemPacingClock} from './paidPacing.js'
+export type {PaidPacingClock} from './paidPacing.js'
 export {readClientExecutionPolicy} from './prepaid.js'
 export type {ClientExecutionDeployment, ClientExecutionObservation, PaidVerifierWitness} from './prepaid.js'
 export {readKeeperExecutionRecoveryPolicy} from './prepaid.js'

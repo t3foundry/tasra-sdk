@@ -314,6 +314,153 @@ export function isStatusRefreshError(e: unknown): e is StatusRefreshError {
 }
 
 /**
+ * Stable code of a paid backoff refusal (see {@link PaidBackoffError}).
+ * - `deadline_exceeded`: waiting the server's hint (or the client's own backoff) and then allowing
+ *   one attempt would reach the operation deadline; nothing was slept or sent.
+ * - `server_wait_too_long`: the server asked for longer than the client ever waits (120 s); the
+ *   hint is never shortened, so nothing was slept or sent.
+ * - `no_time_to_send`: re-read immediately before a send (for example after an overrunning sleep),
+ *   too little time was left before the deadline; that send did not happen.
+ * - `attempts_exhausted`: the attempt ceiling was reached inside the deadline.
+ */
+export type PaidBackoffCode = 'deadline_exceeded' | 'server_wait_too_long' | 'no_time_to_send' | 'attempts_exhausted'
+
+/**
+ * A paid request that the service definitely refused before acting on it (HTTP 429 or 503) could
+ * not be repeated inside its existing deadline. Only requests that are safe to repeat are paced: the
+ * paid verifier-agent reads, the byte-identical retained approval, the presentation continuation (429
+ * only) and the accountant reservation `prepare`. The deadline is never extended and a valid
+ * `Retry-After` / `x-ratelimit-after` hint is never shortened.
+ *
+ * Nothing was sent after the refusal this error reports. A retained approval keeps its durable
+ * permit, so a later resume may resend the identical body; never start the paid operation again.
+ */
+export class PaidBackoffError extends TasraError {
+  /** Stable reason. */
+  readonly code: PaidBackoffCode
+  /** Route that was refused, without identifiers (for example `GET /v1/sessions/{id}`). */
+  readonly route: string
+  /** Last refusal status, when one was answered (absent for `no_time_to_send`). */
+  readonly httpStatus?: number
+  /** Server-requested wait (strict integer seconds), in ms, when it sent a valid one. */
+  readonly retryAfterMs?: number
+  /** Time left before the deadline when the decision was made, in ms. */
+  readonly remainingMs?: number
+  /** Time one attempt needs (or wait + attempt), in ms. */
+  readonly neededMs?: number
+  /** Refusals waited out before this decision. */
+  readonly attempts: number
+
+  constructor(args: {code: PaidBackoffCode; route: string; httpStatus?: number; retryAfterMs?: number; remainingMs?: number; neededMs?: number; attempts: number}) {
+    super(paidBackoffMessage(args), {retryable: true})
+    this.code = args.code
+    this.route = args.route
+    this.attempts = args.attempts
+    if (args.httpStatus !== undefined) this.httpStatus = args.httpStatus
+    if (args.retryAfterMs !== undefined) this.retryAfterMs = args.retryAfterMs
+    if (args.remainingMs !== undefined) this.remainingMs = args.remainingMs
+    if (args.neededMs !== undefined) this.neededMs = args.neededMs
+  }
+}
+
+function paidBackoffMessage(a: {code: PaidBackoffCode; route: string; httpStatus?: number; retryAfterMs?: number; remainingMs?: number; neededMs?: number; attempts: number}): string {
+  const status = a.httpStatus !== undefined ? ` (HTTP ${a.httpStatus})` : ''
+  switch (a.code) {
+    case 'deadline_exceeded': return `${a.route} refused${status}; waiting and one more attempt (${a.neededMs} ms) would reach the operation deadline (${a.remainingMs} ms left); retain records and reconcile by reading`
+    case 'server_wait_too_long': return `${a.route} refused${status} and asked for ${a.retryAfterMs} ms, longer than this client ever waits; retain records and reconcile by reading`
+    case 'no_time_to_send': return `${a.route} not sent: ${a.remainingMs} ms left before the operation deadline, ${a.neededMs} ms needed for an attempt; retain records and reconcile by reading`
+    default: return `${a.route} refused${status} after ${a.attempts} attempts; retain records and reconcile by reading`
+  }
+}
+
+/**
+ * True for a {@link PaidBackoffError}.
+ *
+ * @param e - Caught value to classify.
+ */
+export function isPaidBackoffError(e: unknown): e is PaidBackoffError {
+  return e instanceof PaidBackoffError
+}
+
+/**
+ * Why a retained paid approval was not (re)sent (see {@link PaidApprovalUnresolvedError}).
+ * - `claim_lost`: another caller already claimed this send generation.
+ * - `generation_moved`: the durable permit is no longer for this generation.
+ * - `outcome_unknown`: a send had no definite answer (transport error, timeout, abort) or a
+ *   generation is recorded in flight; it is never resent.
+ * - `no_permit`: there is no durable permit (crash before it was written) or the agent no longer
+ *   shows the delivery pending.
+ * - `legacy_state`: the record or permit was written in an older or unknown format.
+ * - `conflict`: the agent answered 409 after a busy refusal and its delivery state is not accepted.
+ */
+export type PaidApprovalUnresolvedReason = 'claim_lost' | 'generation_moved' | 'outcome_unknown' | 'no_permit' | 'legacy_state' | 'conflict'
+
+/**
+ * A retained paid approval's outcome is unresolved, so the SDK will not send it (again).
+ *
+ * Code `approval_outcome_unresolved`. An approval is resent only as the byte-identical retained body
+ * and only under a durable, generation-bound, one-use permit that an exclusive claim consumes before
+ * every send. Anything else (a lost claim, a moved generation, an unknown outcome, a legacy record)
+ * lands here. Not retryable: reconcile the delivery by reading it, never by resending or re-signing.
+ */
+export class PaidApprovalUnresolvedError extends TasraError {
+  /** Stable code. */
+  readonly code = 'approval_outcome_unresolved' as const
+  /** Why nothing was sent. */
+  readonly reason: PaidApprovalUnresolvedReason
+  /** Agent delivery (proposal) identity, when known. */
+  readonly proposalId?: string
+  /** Send generation concerned, when known. */
+  readonly generation?: number
+  /** Application-store journal entry of the approval, when known. */
+  readonly key?: string
+
+  constructor(args: {reason: PaidApprovalUnresolvedReason; proposalId?: string; generation?: number; key?: string; message?: string; cause?: unknown}) {
+    super(args.message ?? `Paid approval outcome unresolved (${args.reason}${args.generation !== undefined ? `, generation ${args.generation}` : ''}); retain records and reconcile before further work`,
+      {retryable: false, cause: args.cause})
+    this.reason = args.reason
+    if (args.proposalId !== undefined) this.proposalId = args.proposalId
+    if (args.generation !== undefined) this.generation = args.generation
+    if (args.key !== undefined) this.key = args.key
+  }
+}
+
+/**
+ * True for a {@link PaidApprovalUnresolvedError}.
+ *
+ * @param e - Caught value to classify.
+ */
+export function isPaidApprovalUnresolved(e: unknown): e is PaidApprovalUnresolvedError {
+  return e instanceof PaidApprovalUnresolvedError
+}
+
+/**
+ * The accountant refused a reservation `prepare` with its per-creator reservation quota (HTTP 429
+ * with a valid `Retry-After` / `x-ratelimit-after`), and the identical prepare could not be repeated
+ * inside its window (at most 150 s and half of the payment's remaining signed lifetime).
+ *
+ * Code `reservation_quota`. Nothing was prepared, signed or put on chain: no reservation transaction
+ * exists for this attempt. `reason` says why waiting stopped; `retryAfterMs` is the last hint.
+ */
+export class PaidReservationQuotaError extends TasraError {
+  /** Stable code. */
+  readonly code = 'reservation_quota' as const
+  /** Why the prepare was not repeated. */
+  readonly reason: PaidBackoffCode
+  /** Accountant endpoint that refused. */
+  readonly url: string
+  /** The accountant's last requested wait, in ms. */
+  readonly retryAfterMs: number
+
+  constructor(args: {reason: PaidBackoffCode; url: string; retryAfterMs: number; cause?: unknown}) {
+    super(`accountant reservation quota refused prepare (429, wait ${args.retryAfterMs} ms): ${args.reason}; nothing was reserved`, {retryable: true, cause: args.cause})
+    this.reason = args.reason
+    this.url = args.url
+    this.retryAfterMs = args.retryAfterMs
+  }
+}
+
+/**
  * The request never got an HTTP answer - DNS failure, connection refused,
  * timeout, CORS. Retryable: the service may simply not be up yet.
  */

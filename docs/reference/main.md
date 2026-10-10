@@ -9,13 +9,16 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 14 classes</summary>
+<summary>Browse 17 classes</summary>
 
 - [RecipientStore](#recipientstore)
 - [AuthDeniedError](#authdeniederror)
 - [CommitteeAuthorizeError](#committeeauthorizeerror)
 - [DcqlMalformedError](#dcqlmalformederror)
 - [NodeUnreachableError](#nodeunreachableerror)
+- [PaidApprovalUnresolvedError](#paidapprovalunresolvederror)
+- [PaidBackoffError](#paidbackofferror)
+- [PaidReservationQuotaError](#paidreservationquotaerror)
 - [RevocationStatusError](#revocationstatuserror)
 - [RevocationStatusPreflightError](#revocationstatuspreflighterror)
 - [SlotRotatedError](#slotrotatederror)
@@ -174,7 +177,7 @@ declare class DcqlMalformedError {
 The request never got an HTTP answer - DNS failure, connection refused,
 timeout, CORS. Retryable: the service may simply not be up yet.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L320)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L467)
 
 Import: `import {NodeUnreachableError} from 'tasra-sdk'`
 
@@ -189,6 +192,147 @@ declare class NodeUnreachableError {
 ```
 
 - ` readonly url: string; ` — Endpoint that could not be reached.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PaidApprovalUnresolvedError
+
+A retained paid approval's outcome is unresolved, so the SDK will not send it (again).
+
+Code `approval_outcome_unresolved`. An approval is resent only as the byte-identical retained body
+and only under a durable, generation-bound, one-use permit that an exclusive claim consumes before
+every send. Anything else (a lost claim, a moved generation, an unknown outcome, a legacy record)
+lands here. Not retryable: reconcile the delivery by reading it, never by resending or re-signing.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L406)
+
+Import: `import {PaidApprovalUnresolvedError} from 'tasra-sdk'`
+
+```ts
+declare class PaidApprovalUnresolvedError {
+    constructor(args: {
+        reason: PaidApprovalUnresolvedReason;
+        proposalId?: string;
+        generation?: number;
+        key?: string;
+        message?: string;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: "approval_outcome_unresolved"; ` — Stable code.
+
+- ` readonly reason: PaidApprovalUnresolvedReason; ` — Why nothing was sent.
+
+- ` readonly proposalId?: string; ` — Agent delivery (proposal) identity, when known.
+
+- ` readonly generation?: number; ` — Send generation concerned, when known.
+
+- ` readonly key?: string; ` — Application-store journal entry of the approval, when known.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PaidBackoffError
+
+A paid request that the service definitely refused before acting on it (HTTP 429 or 503) could
+not be repeated inside its existing deadline. Only requests that are safe to repeat are paced: the
+paid verifier-agent reads, the byte-identical retained approval, the presentation continuation (429
+only) and the accountant reservation `prepare`. The deadline is never extended and a valid
+`Retry-After` / `x-ratelimit-after` hint is never shortened.
+
+Nothing was sent after the refusal this error reports. A retained approval keeps its durable
+permit, so a later resume may resend the identical body; never start the paid operation again.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L338)
+
+Import: `import {PaidBackoffError} from 'tasra-sdk'`
+
+```ts
+declare class PaidBackoffError {
+    constructor(args: {
+        code: PaidBackoffCode;
+        route: string;
+        httpStatus?: number;
+        retryAfterMs?: number;
+        remainingMs?: number;
+        neededMs?: number;
+        attempts: number;
+    });
+}
+```
+
+- ` readonly code: PaidBackoffCode; ` — Stable reason.
+
+- ` readonly route: string; ` — Route that was refused, without identifiers (for example `GET /v1/sessions/{id}`).
+
+- ` readonly httpStatus?: number; ` — Last refusal status, when one was answered (absent for `no_time_to_send`).
+
+- ` readonly retryAfterMs?: number; ` — Server-requested wait (strict integer seconds), in ms, when it sent a valid one.
+
+- ` readonly remainingMs?: number; ` — Time left before the deadline when the decision was made, in ms.
+
+- ` readonly neededMs?: number; ` — Time one attempt needs (or wait + attempt), in ms.
+
+- ` readonly attempts: number; ` — Refusals waited out before this decision.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PaidReservationQuotaError
+
+The accountant refused a reservation `prepare` with its per-creator reservation quota (HTTP 429
+with a valid `Retry-After` / `x-ratelimit-after`), and the identical prepare could not be repeated
+inside its window (at most 150 s and half of the payment's remaining signed lifetime).
+
+Code `reservation_quota`. Nothing was prepared, signed or put on chain: no reservation transaction
+exists for this attempt. `reason` says why waiting stopped; `retryAfterMs` is the last hint.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L445)
+
+Import: `import {PaidReservationQuotaError} from 'tasra-sdk'`
+
+```ts
+declare class PaidReservationQuotaError {
+    constructor(args: {
+        reason: PaidBackoffCode;
+        url: string;
+        retryAfterMs: number;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: "reservation_quota"; ` — Stable code.
+
+- ` readonly reason: PaidBackoffCode; ` — Why the prepare was not repeated.
+
+- ` readonly url: string; ` — Accountant endpoint that refused.
+
+- ` readonly retryAfterMs: number; ` — The accountant's last requested wait, in ms.
 
 - ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
@@ -311,7 +455,7 @@ The slot was re-keyed (rotated) since the key in hand was assembled, so that
 key cannot read anything encrypted after the rotation. Retryable: re-assemble
 at the new epoch and try again - the managed [Session](#session) does this for you.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L368)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L515)
 
 Import: `import {SlotRotatedError} from 'tasra-sdk'`
 
@@ -476,7 +620,7 @@ signing set.
 this actionable: previously those were collected and then discarded, so a DNS
 failure and a cold DKG produced the same opaque message.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L339)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L486)
 
 Import: `import {ThresholdNotMetError} from 'tasra-sdk'`
 
@@ -586,7 +730,7 @@ declare class VerifierAgentSessionError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 89 functions</summary>
+<summary>Browse 91 functions</summary>
 
 - [accessTokenHash](#accesstokenhash)
 - [addressFromEoaPubkey](#addressfromeoapubkey)
@@ -641,6 +785,8 @@ Operations you can import and call.
 - [isHeaderSafeNonce](#isheadersafenonce)
 - [isJwtExpiringSoon](#isjwtexpiringsoon)
 - [isOid4vpRule](#isoid4vprule)
+- [isPaidApprovalUnresolved](#ispaidapprovalunresolved)
+- [isPaidBackoffError](#ispaidbackofferror)
 - [isRetryable](#isretryable)
 - [isRevocationStatusPreflightRefusal](#isrevocationstatuspreflightrefusal)
 - [isRevocationStatusRefusal](#isrevocationstatusrefusal)
@@ -1791,7 +1937,7 @@ True when `e` is an auth rejection - i.e. retrying is pointless, re-claim
 instead. Keyed on the HTTP status rather than the class, so it also catches
 subclasses that carry their own name (e.g. `CommitteeAuthorizeError`).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L418)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L565)
 
 Import: `import {isAuthDenied} from 'tasra-sdk'`
 
@@ -1863,12 +2009,48 @@ declare function isOid4vpRule(rule: string): boolean;
 
 Returns: ` boolean `.
 
+### isPaidApprovalUnresolved
+
+True for a [PaidApprovalUnresolvedError](#paidapprovalunresolvederror).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L433)
+
+Import: `import {isPaidApprovalUnresolved} from 'tasra-sdk'`
+
+```ts
+declare function isPaidApprovalUnresolved(e: unknown): e is PaidApprovalUnresolvedError;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` e ` | ` unknown ` | - Caught value to classify. |
+
+Returns: ` e is PaidApprovalUnresolvedError `.
+
+### isPaidBackoffError
+
+True for a [PaidBackoffError](#paidbackofferror).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L381)
+
+Import: `import {isPaidBackoffError} from 'tasra-sdk'`
+
+```ts
+declare function isPaidBackoffError(e: unknown): e is PaidBackoffError;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` e ` | ` unknown ` | - Caught value to classify. |
+
+Returns: ` e is PaidBackoffError `.
+
 ### isRetryable
 
 True when a typed failure may be transient. Errors outside the TasraError
 hierarchy return false. This hint does not make a write safe to repeat.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L428)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L575)
 
 Import: `import {isRetryable} from 'tasra-sdk'`
 
@@ -2674,7 +2856,7 @@ Returns: ` Promise<SessionStatusResult> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 63 types</summary>
+<summary>Browse 65 types</summary>
 
 - [BlsPeer](#blspeer)
 - [BuildHolderProofOpts](#buildholderproofopts)
@@ -2717,6 +2899,8 @@ Options, data structures and return types.
 - [IssuedToken](#issuedtoken)
 - [JwtClaims](#jwtclaims)
 - [OpenSessionOpts](#opensessionopts)
+- [PaidApprovalUnresolvedReason](#paidapprovalunresolvedreason)
+- [PaidBackoffCode](#paidbackoffcode)
 - [PresentationDelegation](#presentationdelegation)
 - [PresentationOperation](#presentationoperation)
 - [RedemptionGrant](#redemptiongrant)
@@ -3683,6 +3867,41 @@ Fields:
 
 - **` identity `**: AAD for envelopes this session encrypts. Default = the 32-byte slot id.
 - **` skewMs `**: JWT refresh skew (ms) for isJwtExpiringSoon. Default 30_000.
+
+### PaidApprovalUnresolvedReason
+
+Why a retained paid approval was not (re)sent (see [PaidApprovalUnresolvedError](#paidapprovalunresolvederror)).
+- `claim_lost`: another caller already claimed this send generation.
+- `generation_moved`: the durable permit is no longer for this generation.
+- `outcome_unknown`: a send had no definite answer (transport error, timeout, abort) or a
+  generation is recorded in flight; it is never resent.
+- `no_permit`: there is no durable permit (crash before it was written) or the agent no longer
+  shows the delivery pending.
+- `legacy_state`: the record or permit was written in an older or unknown format.
+- `conflict`: the agent answered 409 after a busy refusal and its delivery state is not accepted.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L396)
+
+```ts
+export type PaidApprovalUnresolvedReason = 'claim_lost' | 'generation_moved' | 'outcome_unknown' | 'no_permit' | 'legacy_state' | 'conflict';
+```
+
+### PaidBackoffCode
+
+Stable code of a paid backoff refusal (see [PaidBackoffError](#paidbackofferror)).
+- `deadline_exceeded`: waiting the server's hint (or the client's own backoff) and then allowing
+  one attempt would reach the operation deadline; nothing was slept or sent.
+- `server_wait_too_long`: the server asked for longer than the client ever waits (120 s); the
+  hint is never shortened, so nothing was slept or sent.
+- `no_time_to_send`: re-read immediately before a send (for example after an overrunning sleep),
+  too little time was left before the deadline; that send did not happen.
+- `attempts_exhausted`: the attempt ceiling was reached inside the deadline.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L326)
+
+```ts
+export type PaidBackoffCode = 'deadline_exceeded' | 'server_wait_too_long' | 'no_time_to_send' | 'attempts_exhausted';
+```
 
 ### PresentationDelegation
 

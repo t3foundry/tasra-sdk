@@ -251,7 +251,7 @@ declare class PaidOperationRecoveryError {
 
 A retained write's outcome is unknown, or a resumed write differs from its original.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L81)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L87)
 
 Import: `import {PaidSessionRecoveryError} from 'tasra-sdk/app'`
 
@@ -432,7 +432,7 @@ Return details: Wallet bound to the authorized account and matching chain.
 
 Durable creation, key readiness, rule delivery and explicit verifier policy in one operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L195)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L202)
 
 Import: `import {createApplicationSlot} from 'tasra-sdk/app'`
 
@@ -789,7 +789,7 @@ Drive one prepared paid session to a completed, verified committee token.
 Creation, request-object approval, presentation, continuation and credential approvals are
 each journaled before sending; an unknown outcome is never redelivered.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L121)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L127)
 
 Import: `import {drivePaidSession} from 'tasra-sdk/app'`
 
@@ -1368,7 +1368,7 @@ Retry a read-only discovery while the verifier and accountant snapshots for the 
 are not yet anchored. Only those two explicit outcomes are retried, before any reservation,
 consent or delivery; every other failure is final.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L98)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L104)
 
 Import: `import {waitForPaidSnapshot} from 'tasra-sdk/app'`
 
@@ -1601,6 +1601,7 @@ Fields:
 - **` receiptTimeoutMs `**: Receipt timeout, 1..120000 ms (default 60000).
 - **` confirmations `**: Required confirmations, 1..64 (default 1).
 - **` signal `**: Optional cancellation. Before the durable `prepared` checkpoint (nothing sent) an abort refuses with ` PaidReservationAbortedError `. From that checkpoint the one broadcast proceeds and every journal write completes; an abort then only ends the receipt wait, as ` PaidReservationUncertainError `: a broadcast transaction cannot be cancelled.
+- **` clock `**: Time source for the accountant's reservation-quota wait (a `prepare` answered 429 with a valid `Retry-After` / `x-ratelimit-after` is repeated identically within min(150 s, half the payment's remaining lifetime)); wall-clock ms. Default: the system clock. Inject one in tests.
 
 ### ApplicationReservationState
 
@@ -1664,6 +1665,7 @@ export interface ApplicationStore {
     save(key: string, value: unknown): Promise<void>;
     withLock<T>(key: string, operation: () => Promise<T>): Promise<T>;
     list?(prefix: string): Promise<string[]>;
+    claim?(key: string): Promise<boolean>;
 }
 ```
 
@@ -1673,6 +1675,7 @@ Fields:
 - **` save `**: Atomically persist private state before resolving.
 - **` withLock `**: Exclusively serialize work for the key across all participating processes or tabs.
 - **` list `**: Optional: keys starting with `prefix`, in any order. Used only for one-time maintenance such as backfilling the paid operation index; stores without it still work everywhere else.
+- **` claim `**: Optional: atomically and durably create the record `key` only if it does not exist, across all participating processes or tabs. Resolves true for exactly one caller, false when the key already exists. Paid approvals use it as a one-use, generation-bound send claim; without it a retained approval is sent once and never resent.
 
 ### ApprovalPolicy
 
@@ -1773,7 +1776,7 @@ Fields:
 
 Named slot intent with an authorization rule, key threshold and verifier quorum.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L60)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L67)
 
 ```ts
 export interface CreateApplicationSlot {
@@ -1809,7 +1812,7 @@ Fields:
 
 Creator wallet, durable storage and network controls for creating a ready slot.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L127)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L134)
 
 ```ts
 export interface CreateApplicationSlotOptions {
@@ -2169,7 +2172,7 @@ Fields:
 - **` accountantUrls `**: Approved accountant origins: reservation quotes and verifier snapshot artifacts.
 - **` limits `**: Finite spending limits: TASRA per operation, gas units and gas price for the reservation.
 - **` allowLocalHttp `**: Permit HTTP on the local development chain (43112) only.
-- **` keeperUrl `**: Caller-approved keeper route map (registered URL → reachable URL).
+- **` keeperUrl `**: Caller-approved keeper route map (registered URL to reachable URL).
 - **` billing `**: Cached billing detector for this deployment; a fresh read is used when absent.
 - **` fetch `**: Fetch used for verifier snapshot artifacts (defaults to global fetch).
 - **` snapshotWaitMs `**: Longest wait for the current epoch's snapshots to be anchored, ms (default 180000, max 300000).
@@ -2409,7 +2412,7 @@ Fields:
 
 Inputs to [drivePaidSession](#drivepaidsession).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L55)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L61)
 
 ```ts
 export interface PaidSessionDriverOptions {
@@ -2441,7 +2444,7 @@ Fields:
 
 How the holder answers the session's request object.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L34)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L40)
 
 ```ts
 export type PaidSessionHolder = {
@@ -2471,7 +2474,7 @@ Fields:
 
 Where a holder fetches the session's request object: the request URI and its `openid4vp://` QR/deep-link payload.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L26)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L32)
 
 ```ts
 export interface PaidSessionRequestLink {
@@ -2515,7 +2518,7 @@ Fields:
 
 A presentation the client's own wallet built: the approved body and the encrypted form it posts.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L18)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L24)
 
 ```ts
 export interface PaidWalletPresentation {
@@ -2555,7 +2558,7 @@ Fields:
 
 Private creation journal tracking rule delivery and verifier-policy installation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L91)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L98)
 
 ```ts
 export interface ReadySlotJournal {
@@ -2808,7 +2811,7 @@ Fields:
 
 Public milestone emitted while a named slot is created or resumed.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L114)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L121)
 
 ```ts
 export interface SlotCreationProgress {

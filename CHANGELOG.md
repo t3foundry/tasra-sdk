@@ -96,6 +96,57 @@ never does.
 
 ### Fixed
 
+- A paid request is no longer lost to a definite HTTP 429/503 after its TASRA was reserved.
+  Clients behind one egress address share the verifier-agent's per-client limiter, and the SDK
+  used to turn its refusal into a fatal error (and, for an approval, a journal entry no resume
+  could finish). Now, mirroring `tasra-cli`:
+  - Waits honour `Retry-After` and the limiter's `x-ratelimit-after`, each parsed strictly as
+    integer seconds (at most six digits; the longer wins; anything else is ignored in favour of the
+    client's own backoff, 0.5 s doubling to 8 s). A valid hint is a floor and is never shortened;
+    a hint above 120 s, or a wait that plus one attempt's budget would reach the deadline, fails
+    with `PaidBackoffError` (`server_wait_too_long`, `deadline_exceeded`) without sleeping. The
+    deadline is re-read immediately before every send (`no_time_to_send`), at most 64 attempts
+    (`attempts_exhausted`). Signed expiries and deadlines are never extended.
+  - The paid session's repeatable reads (proposals, Request Object, presentations, session poll,
+    approval state) repeat on 429/503 inside the session's signed expiry; the continuation POST on
+    429 only. Each attempt is cut off at its budget (`pacing.attemptBudgetMs`, default 60 s). Other
+    statuses and transport errors are never repeated.
+  - `drivePaidSession` (and so `paidOperation`/`resumePaidOperation`) signs each operator approval
+    once and retains its exact request body in the application store BEFORE the first send. It is
+    resent only byte-identically, never re-signed, under a durable generation-bound permit: every
+    send of generation g, the first included, first wins the store's exclusive claim
+    `<entry>.claim.<g>`, re-reads `permit(g)` and durably marks `in_flight(g)`; only a 429/503 to
+    that send writes `permit(g+1)`. A transport error, timeout, abort, crash or any other answer
+    leaves the approval unresolved and it is never resent; a resume confirms an approval the agent
+    already holds and resends only one it still shows `pending` under a permit. A lost claim, a
+    moved generation or a record written by an older SDK throws `PaidApprovalUnresolvedError`
+    (`approval_outcome_unresolved`; a paid operation reports `session-write-uncertain`).
+  - `reservePaidOperation`: an accountant `prepare` answered 429 with a valid hint (its
+    per-creator reservation quota, refused before anything is recorded) is repeated identically
+    within min(150 s, half the payment's remaining signed lifetime); a repeat needs 10 s left and
+    its HTTP timeout is cut to the time left. The single reservation transaction still runs once.
+    Other statuses, `authorize` answers and transport errors are unchanged. When waiting stops it
+    throws `PaidReservationQuotaError` (`reservation_quota`, `reason`, `retryAfterMs`).
+  - The Node and browser paid transports accept a 429/503 of any media type (the limiter answers
+    `text/plain`) and report the raw `retryAfter` / `rateLimitAfter` headers. Browser deployments
+    must expose `x-ratelimit-after` through CORS as well as `Retry-After`.
+  - New API: `ApplicationStore.claim?(key)`, an atomic, durable insert-if-absent implemented by
+    `createFileStore` (`O_CREAT | O_EXCL`, file and directory fsynced), `createIndexedDbStore` (a
+    Web Lock plus one strict-durability transaction whose `add` aborts on an existing key) and
+    `createMemoryStore`; a custom store without it keeps the previous behaviour (an approval is
+    sent once and never resent). `RegisteredPaidAgentSession` gains `pacing`,
+    `prepareRequestApproval`, `prepareCredentialApproval` (sign without sending),
+    `sendRetainedApproval` (one send of the exact retained bytes: `accepted` | `busy`) and
+    `approvalState`; `prepareRegisteredPaidSession` takes `pacing: {clock, attemptBudgetMs}` and
+    `reservePaidOperation` takes `clock`. New in `tasra-sdk/chain`: `paidServerWaitMs`,
+    `systemPacingClock`, `PaidPacingClock`, `PaidPacingOptions`, `RetainedPaidApproval`,
+    `PaidApprovalDelivery`. New errors (root and `tasra-sdk/chain`): `PaidBackoffError`
+    (`isPaidBackoffError`, `PaidBackoffCode`), `PaidApprovalUnresolvedError`
+    (`isPaidApprovalUnresolved`, `PaidApprovalUnresolvedReason`), `PaidReservationQuotaError`.
+    `PaidAgentHttpResponse` gains optional `retryAfter` and `rateLimitAfter`.
+  - Behaviour change: a busy owner read that cannot be waited out inside the session expiry now
+    throws `PaidBackoffError` (with the hint) instead of `PaidAgentControlError`.
+
 - A paid operation is no longer refused because a beacon boundary passed between its quote and
   its use (D8). `readClientExecutionPolicy` used to re-judge the payment's `verification_epoch`
   against `{latest, latest - 1}` at its own later observation, so a payment quoted at block 354

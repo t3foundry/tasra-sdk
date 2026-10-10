@@ -5,10 +5,16 @@
 // it is sent and `confirmed` after its reply. A write whose reply was lost stays `prepared`
 // and is never sent again by this driver: the caller reconciles it. Services supply
 // proposals, never client intent; every proposal is checked against the anchored draw.
+//
+// One exception, for operator-stage approvals only, when the store implements `claim`: the signed
+// approval body is retained BEFORE its first send and, after a definite 429/503 (not processed),
+// resent byte-identically under a durable generation-bound permit, inside the approval's signed
+// expiry (paid-approval.ts). Repeatable reads are paced the same way by the session itself.
 
 import {executionBodyHash} from '../committee/execution.js'
 import {PaidAgentControlError, type ClientApprovedPresentation, type PaidAgentProposal,
-  type PaidRetainedPresentation, type RegisteredPaidAgentSession} from '../chain/registeredPaidAgent.js'
+  type PaidRetainedPresentation, type RegisteredPaidAgentSession, type RetainedPaidApproval} from '../chain/registeredPaidAgent.js'
+import {reconcileRetainedApproval, retainAndDeliverApproval, supportsDurableApproval, type ApprovalJournalRecord} from './paid-approval.js'
 import type {PaidVerifierWitness} from '../chain/prepaid.js'
 import type {VerifiedRequestObject} from '../oid4vp/request-object.js'
 import {VerifierAgentSessionError, type SessionStatusResult} from '../verifier-agent/index.js'
@@ -146,6 +152,13 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
       return true
     })
   }
+  /** First durable approval of a stage; refuses, sending nothing, when a record appeared concurrently. */
+  const firstApproval = async (ctx: Parameters<typeof retainAndDeliverApproval>[0], original: unknown, sign: () => Promise<RetainedPaidApproval>) => {
+    signal.throwIfAborted()
+    if (!await retainAndDeliverApproval(ctx, original, sign)) {
+      throw new PaidSessionRecoveryError(ctx.key, 'Original paid write already attempted with an unknown or different outcome; reconcile it without redelivery')
+    }
+  }
   const approve = async (presentation?: ClientApprovedPresentation) => {
     let count = 0
     for (const proposed of await session.proposals(signal)) {
@@ -154,22 +167,36 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
       if (!member) throw new Error('Agent proposed an operator outside the original anchored draw')
       if (!['presentation_sign', 'presentation_attest', 'credential'].includes(proposed.stage)) throw new Error('Invalid agent operator stage')
       const name = proposed.stage + '-' + member.index, key = prefix + '-' + name
-      const retained = await store.load<{original: unknown; phase: string}>(key)
+      const retained = await store.load<ApprovalJournalRecord>(key)
       // A stage belongs to one operator and one original body. A new proposal ID
       // cannot authorize another billable attempt on the same paid stage.
       const original = {stage: proposed.stage, operator_key: member.publicKey, unsigned_body: proposed.unsigned_body}
+      // Durable approvals: the signed body is retained before the first send and resent only
+      // byte-identically under a generation-bound, exclusively claimed permit (see paid-approval.ts).
+      const durable = supportsDurableApproval(store, session, key)
+      const ctx = {store, session, key, signal}
       if (retained) {
         if (!same(retained.original, original)) throw new PaidSessionRecoveryError(key, 'Agent changed an already approved operator stage')
-        if (retained.phase !== 'confirmed') throw new PaidSessionRecoveryError(key, 'Original operator approval outcome is unknown; reconcile it')
+        if (retained.phase === 'confirmed') continue
+        // A retained body may be reconciled on resume: confirmed if the agent already holds it,
+        // resent identically only while the agent shows it pending under a durable permit.
+        // A record without a retained body (an older SDK) or any unknown outcome still refuses.
+        if (!(resume && durable && retained.phase === 'prepared' && retained.approval !== undefined)) {
+          throw new PaidSessionRecoveryError(key, 'Original operator approval outcome is unknown; reconcile it')
+        }
+        await reconcileRetainedApproval(ctx, retained)
+        count++
         continue
       }
       if (proposed.stage === 'credential') {
         if (!presentation) throw new Error('Credential work requires the original locally accepted presentation')
-        await attempt(name, original, () => session.approveCredentials(proposed, member, presentation, signal))
+        if (durable) await firstApproval(ctx, original, () => session.prepareCredentialApproval!(proposed, member, presentation, signal))
+        else await attempt(name, original, () => session.approveCredentials(proposed, member, presentation, signal))
       } else {
         if (presentation) throw new Error('Unexpected new request-signing stage after credential disclosure')
-        await attempt(name, original, () => session.approveRequest(proposed,
-          proposed.stage === 'presentation_sign' ? 'presentation_sign' : 'presentation_attest', member, signal))
+        const stage = proposed.stage === 'presentation_sign' ? 'presentation_sign' : 'presentation_attest'
+        if (durable) await firstApproval(ctx, original, () => session.prepareRequestApproval!(proposed, stage, member, signal))
+        else await attempt(name, original, () => session.approveRequest(proposed, stage, member, signal))
       }
       count++
     }

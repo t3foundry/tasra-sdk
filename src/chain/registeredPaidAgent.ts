@@ -22,6 +22,42 @@ import type {ApprovedAgentProfile} from './registeredAgent.js'
 import {readClientExecutionPolicy, type ClientExecutionDeployment, type PaidVerifierWitness} from './prepaid.js'
 import {authenticateApprovedService, validateServiceEndpoint} from './serviceIdentity.js'
 import type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
+import {PaidBackoff, paidResponseWaitMs, systemPacingClock, type PaidPacingClock} from './paidPacing.js'
+
+/**
+ * Pacing of a paid session's definite 429/503 refusals. Repeatable reads (proposals, Request
+ * Object, presentations, session poll, approval state) and the continuation POST (429 only) are
+ * repeated inside the session's signed expiry; nothing else is.
+ */
+export interface PaidPacingOptions {
+  /** Time source; wall-clock ms. Default: the system clock. */
+  clock?: PaidPacingClock
+  /**
+   * Longest one attempt may take (provider check plus HTTP), 1000..60000 ms (default 60000). Each
+   * attempt is cut off at this bound, and a repeated attempt starts only with this much time left.
+   */
+  attemptBudgetMs?: number
+}
+
+/** A signed approval retained BEFORE its first send; every send uses exactly `body`. */
+export interface RetainedPaidApproval {
+  /** Agent delivery (proposal) identity. */
+  proposalId: string
+  /** Exact JSON request body `{"authorization":…}`; never re-serialized or re-signed. */
+  body: string
+  /** Unix seconds after which the approval may not be sent (proposal and session expiry). */
+  expires: number
+}
+
+/** Outcome of one send of a retained approval. Any other answer throws {@link PaidAgentControlError}. */
+export interface PaidApprovalDelivery {
+  /** `accepted`: HTTP 204, the agent accepted the approval. `busy`: HTTP 429/503, definitely refused before processing. */
+  status: 'accepted' | 'busy'
+  /** Observed status of a `busy` answer. */
+  httpStatus?: 429 | 503
+  /** Strict server hint of a `busy` answer, in ms. */
+  hintMs?: number
+}
 
 /** Client-built original operation and reserved intent. No provider fallback is permitted. */
 export interface PaidAgentSessionParams extends CreateSessionParams {
@@ -113,6 +149,20 @@ export interface RegisteredPaidAgentSession {
   requestObject(signal?: AbortSignal): Promise<{request: VerifiedRequestObject; requestUri: string; qrPayload: string}>
   /** Poll the original provider and verify a completed token against the anchored draw and application's rule hash. */
   poll(signal?: AbortSignal): Promise<SessionStatusResult>
+  /** Pacing this session applies to definite 429/503 refusals (present on sessions from {@link prepareRegisteredPaidSession}). */
+  readonly pacing?: Readonly<{clock: PaidPacingClock; attemptBudgetMs: number}>
+  /** Sign (once) the approval {@link RegisteredPaidAgentSession.approveRequest} would send, without sending it. Retain it durably before the first send. */
+  prepareRequestApproval?(proposal: PaidAgentProposal, stage: 'presentation_sign' | 'presentation_attest', member: PaidVerifierWitness, signal?: AbortSignal): Promise<RetainedPaidApproval>
+  /** Sign (once) the approval {@link RegisteredPaidAgentSession.approveCredentials} would send, without sending it. Retain it durably before the first send. */
+  prepareCredentialApproval?(proposal: PaidAgentProposal, member: PaidVerifierWitness, approved: ClientApprovedPresentation, signal?: AbortSignal): Promise<RetainedPaidApproval>
+  /**
+   * Send a retained approval's exact bytes ONCE. 204 is `accepted`, 429/503 `busy` (not processed);
+   * any other status throws {@link PaidAgentControlError}. Never re-signs; never repeats by itself:
+   * the caller decides a resend under its durable permit.
+   */
+  sendRetainedApproval?(approval: RetainedPaidApproval, signal?: AbortSignal): Promise<PaidApprovalDelivery>
+  /** Read one delivery's state (`pending`, `approved`, `dispatched`, `finished`, …); repeated on 429/503 inside the session expiry. */
+  approvalState?(proposalId: string, signal?: AbortSignal): Promise<string>
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -129,9 +179,9 @@ function decode(bytes: Uint8Array): Record<string,unknown> {
   try {return object(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes)) as unknown)}
   catch {throw new Error('Invalid paid agent reply JSON')}
 }
-async function bounded<T>(signal:AbortSignal|undefined,work:(active:AbortSignal)=>Promise<T>):Promise<T> {
+async function bounded<T>(signal:AbortSignal|undefined,work:(active:AbortSignal)=>Promise<T>,timeoutMs=60_000):Promise<T> {
   const controller=new AbortController(), active=signal?AbortSignal.any([signal,controller.signal]):controller.signal
-  const timer=setTimeout(()=>controller.abort(new Error('Paid agent operation timed out')),60_000)
+  const timer=setTimeout(()=>controller.abort(new Error('Paid agent operation timed out')),timeoutMs)
   let abort=()=>{}
   try {
     active.throwIfAborted()
@@ -201,6 +251,8 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
    * list is `revocation_status_missing`. Stale or invalid attestations are always refused.
    */
   allowMissingStatusAttestations?: boolean;
+  /** Pacing of definite 429/503 refusals on repeatable requests; defaults to the system clock and a 60 s attempt. */
+  pacing?: PaidPacingOptions;
 }, params: PaidAgentSessionParams, consent: {
   certificate: ExecutionCertificate; signer: ClientExecutionSigner; pollSecret?: string; expires?: number; signal?: AbortSignal;
 }): Promise<RegisteredPaidAgentSession> {
@@ -212,6 +264,10 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   executionBodyHash(object(config.dcqlQuery))
   const dcql = structuredClone(config.dcqlQuery), certificate = structuredClone(consent.certificate), signer = consent.signer
   const allowMissingStatus = config.allowMissingStatusAttestations === true
+  const clock = config.pacing?.clock ?? systemPacingClock, attemptBudgetMs = config.pacing?.attemptBudgetMs ?? 60_000
+  if (typeof clock?.now !== 'function' || typeof clock.sleep !== 'function' || typeof clock.jitter !== 'function'
+    || !Number.isSafeInteger(attemptBudgetMs) || attemptBudgetMs < 1_000 || attemptBudgetMs > 60_000) throw new Error('Invalid paid agent pacing')
+  const pacing = Object.freeze({clock, attemptBudgetMs})
   const localPublicKey=signer.publicKey.slice(),localSign=signer.sign.bind(signer)
   const activeSigner=(active:AbortSignal):ClientExecutionSigner=>({publicKey:localPublicKey.slice(),sign:async message=>{
     active.throwIfAborted();const signature=await localSign(message);active.throwIfAborted();return signature
@@ -304,15 +360,37 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
       || current.pendingOwner.toLowerCase() !== record.pendingOwner.toLowerCase() || current.manifestHash.toLowerCase() !== a.manifestHash.toLowerCase()
       || current.endpoint !== profile.endpoint) throw new Error('Original paid agent provider changed')
   }
-  const control = (path:string,method:'GET'|'POST',body?:Record<string,unknown>,signal?:AbortSignal,publicRoute=false,oauth?:{accessToken:string;proof:string}): Promise<PaidAgentHttpResponse> => bounded(signal,async active=>{
+  // One attempt: provider check plus HTTP, cut off at the attempt budget so pacing can count on it.
+  const control = (path:string,method:'GET'|'POST',body?:Record<string,unknown>|Uint8Array,signal?:AbortSignal,publicRoute=false,oauth?:{accessToken:string;proof:string}): Promise<PaidAgentHttpResponse> => bounded(signal,async active=>{
     active.throwIfAborted()
     await checkProvider(active)
-    const result = await paidRequest(profile.endpoint+path,{method,body:body&&new TextEncoder().encode(JSON.stringify(body)),
+    const result = await paidRequest(profile.endpoint+path,{method,body:body instanceof Uint8Array?body.slice():body&&new TextEncoder().encode(JSON.stringify(body)),
       bearer:publicRoute?undefined:pollSecret,oauth,maxBytes:10*1024*1024,signal:active})
     active.throwIfAborted()
     if (result.body.length > 10*1024*1024) throw new Error('Paid agent response exceeds bound')
     return result
-  })
+  },attemptBudgetMs)
+  const BUSY=[429,503], LIMITED=[429]
+  /** The signed session expiry, once the original context is known: the deadline of every paced read. */
+  const sessionDeadline = () => context ? context.expires*1000 : undefined
+  /**
+   * A safely repeatable request: repeated on a status in `retryOn` only while the wait fits before
+   * `deadlineMs`, the deadline re-read before EVERY send. No deadline = one attempt (status quo). Any
+   * other status is returned for the caller's checks; transport errors propagate and are never repeated.
+   */
+  const paced = async (route:string,send:()=>Promise<PaidAgentHttpResponse>,retryOn:number[],deadlineMs:number|undefined,signal?:AbortSignal):Promise<PaidAgentHttpResponse> => {
+    if (deadlineMs === undefined) return send()
+    const backoff = new PaidBackoff(clock,route,deadlineMs,attemptBudgetMs)
+    for (;;) {
+      signal?.throwIfAborted()
+      backoff.readyToSend()
+      const response = await send()
+      if (!retryOn.includes(response.status)) return response
+      await backoff.wait(response.status,paidResponseWaitMs(response),signal)
+    }
+  }
+  const read = (route:string,path:string,signal?:AbortSignal,publicRoute=false) =>
+    paced(route,()=>control(path,'GET',undefined,signal,publicRoute),BUSY,sessionDeadline(),signal)
   const ok = (response:PaidAgentHttpResponse,statuses:number[]) => {if(!statuses.includes(response.status))throw new PaidAgentControlError(sessionId,response.status,
     response.retryAfterMs!==undefined&&Number.isSafeInteger(response.retryAfterMs)&&response.retryAfterMs>=0?response.retryAfterMs:undefined)}
   const memberFor = (provided:PaidVerifierWitness) => {
@@ -320,19 +398,71 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     if (!member || executionBodyHash(member as unknown as Record<string,unknown>) !== executionBodyHash(provided as unknown as Record<string,unknown>)) throw new Error('Approval member differs from independently anchored witnesses')
     return member
   }
-  const approve = async (proposed:PaidAgentProposal,member:PaidVerifierWitness,stage:'presentation_sign'|'presentation_attest'|'credential',body:Record<string,unknown>,signal?:AbortSignal) => {
+  /** Signs the approval ONCE and returns its exact request body; sends nothing. */
+  const signApproval = async (proposed:PaidAgentProposal,member:PaidVerifierWitness,stage:'presentation_sign'|'presentation_attest'|'credential',body:Record<string,unknown>,signal?:AbortSignal):Promise<RetainedPaidApproval> => {
     proposed=structuredClone(proposed);member=memberFor(structuredClone(member));body=structuredClone(body)
     id(proposed.id)
     if(!Number.isSafeInteger(proposed.expires)||proposed.expires<=Math.floor(Date.now()/1000)||proposed.expires>ready().expires)throw new Error('Proposal exceeds the original live session expiry')
     return bounded(signal,async active=>{
-    const {policy} = await readClientExecutionPolicy(chain.client,deployment,payment,expected,member)
-    active.throwIfAborted()
-    const authorization = await approveExecutionRequest({payment,certificate,signer:activeSigner(active),policy,expected:{stage,operatorKey:member.publicKey,body},
-      proposal:{stage:proposed.stage,operator_key:proposed.operator_key,unsigned_body:proposed.unsigned_body,expires:proposed.expires}})
-    active.throwIfAborted()
-    const response = await control('/v1/sessions/'+sessionId+'/execution/'+proposed.id+'/approve','POST',{authorization},active)
-    ok(response,[204]);if(response.body.length)throw new Error('Approval reply unexpectedly contains a body')
+      const {policy} = await readClientExecutionPolicy(chain.client,deployment,payment,expected,member)
+      active.throwIfAborted()
+      const authorization = await approveExecutionRequest({payment,certificate,signer:activeSigner(active),policy,expected:{stage,operatorKey:member.publicKey,body},
+        proposal:{stage:proposed.stage,operator_key:proposed.operator_key,unsigned_body:proposed.unsigned_body,expires:proposed.expires}})
+      active.throwIfAborted()
+      return {proposalId:proposed.id,body:JSON.stringify({authorization}),expires:Math.min(proposed.expires,ready().expires)}
     })
+  }
+  /** Checks a retained approval (possibly loaded from storage) and returns its exact bytes. */
+  const retainedBytes = (approval:RetainedPaidApproval):Uint8Array => {
+    const a=object(approval)
+    exact(a,['proposalId','body','expires'])
+    id(a.proposalId)
+    if(typeof a.body!=='string'||a.body.length>2*1024*1024||!Number.isSafeInteger(a.expires))throw new Error('Invalid retained paid approval')
+    let parsed:Record<string,unknown>
+    try{parsed=object(JSON.parse(a.body) as unknown)}catch{throw new Error('Invalid retained paid approval')}
+    exact(parsed,['authorization']);object(parsed.authorization)
+    if((a.expires as number)<=Math.floor(Date.now()/1000)||(a.expires as number)>ready().expires)throw new Error('Retained approval is outside the original live session expiry')
+    return new TextEncoder().encode(a.body)
+  }
+  /** ONE send of the retained bytes; never re-signed, never repeated here. */
+  const deliver = async (approval:RetainedPaidApproval,signal?:AbortSignal):Promise<PaidAgentHttpResponse> => {
+    const bytes=retainedBytes(approval)
+    const response = await control('/v1/sessions/'+sessionId+'/execution/'+approval.proposalId+'/approve','POST',bytes,signal)
+    if(response.status===204&&response.body.length)throw new Error('Approval reply unexpectedly contains a body')
+    return response
+  }
+  const sendRetainedApproval = async (approval:RetainedPaidApproval,signal?:AbortSignal):Promise<PaidApprovalDelivery> => {
+    const response = await deliver(approval,signal)
+    if(response.status===204)return {status:'accepted'}
+    if(response.status===429||response.status===503){const hintMs=paidResponseWaitMs(response);return {status:'busy',httpStatus:response.status,...(hintMs!==undefined?{hintMs}:{})}}
+    ok(response,[204]);throw new Error('unreachable')
+  }
+  /** The complete body a JAR signer or attester is approved for, built from the original intent. */
+  const requestBody = (stage:'presentation_sign'|'presentation_attest',member:PaidVerifierWitness):Record<string,unknown> => {
+    const c=ready()
+    if(params.kind==='oauth'||(stage==='presentation_sign'?member.index!==jarIndex:member.index===jarIndex))throw new Error('Incorrect JAR signer or attester')
+    return {operation:params.operation,operation_sig:params.operationSig,delegation:params.delegation??null,
+      session:{response_uri:profile.endpoint+'/v1/response?session='+sessionId,enc_jwk:c.key,state:c.state,random:params.random.toLowerCase()},
+      epoch:payment.verification_epoch,seed:payment.verification_seed.toLowerCase(),committee_count:payment.verification_committee,
+      registry_size:payment.verification_registry_size,quorum:payment.verification_quorum,payment}
+  }
+  /** The complete credential body a drawn verifier is approved for, from the separately accepted presentation. */
+  const credentialBody = (accepted:ClientApprovedPresentation):Record<string,unknown> => {
+    const approved=presented(accepted),c=ready()
+    if((params.kind==='oauth')!==(approved.oauth!==null))throw new Error('Presentation kind differs from the original session')
+    const exp=Math.min(approved.iat+3600,c.expires,params.operation.exp)
+    if(!Number.isSafeInteger(exp)||exp<=Math.floor(Date.now()/1000))throw new Error('Original credential presentation expired')
+    return {payment,holder:approved.holder,credentials:approved.credentials,
+      ...(approved.holder_proof!==null?{holder_proof:approved.holder_proof}:{}),...(approved.oauth!==null?{oauth:approved.oauth,session_id:sessionId}:{}),token_type:'JWT',
+      seed:payment.verification_seed.toLowerCase(),epoch:payment.verification_epoch,slot_id:params.operation.slot_id,registry_size:payment.verification_registry_size,
+      committee:payment.verification_committee,quorum:payment.verification_quorum,iat:approved.iat,exp,...(identity!==null?{identity}:{}),
+      chain_id:payment.chain_id,action:params.operation.action,payload_digest:payment.payload_digest.toLowerCase(),random:params.random.toLowerCase(),client_id:profile.clientId,
+      description:params.operation.description,operation_exp:params.operation.exp,operation_sig:params.operationSig,...(params.delegation?{delegation:params.delegation}:{})}
+  }
+  // The direct API keeps its single-attempt behaviour: sign once, send once.
+  const approve = async (proposed:PaidAgentProposal,member:PaidVerifierWitness,stage:'presentation_sign'|'presentation_attest'|'credential',body:Record<string,unknown>,signal?:AbortSignal) => {
+    const approval = await signApproval(proposed,member,stage,body,signal)
+    ok(await deliver(approval,signal),[204])
   }
   const callbackId = (approved:ClientApprovedPresentation) => keccak256(concatBytes(new TextEncoder().encode('keykeeper/retained-presentation/v1'),
     epochBytes(sessionId.length),new TextEncoder().encode(sessionId),protocolHex(executionBodyHash(approved as unknown as Record<string,unknown>),32,'presentation hash'),epochBytes(ready().expires))).slice(2)
@@ -366,7 +496,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   }
   let oauthSubmitted=false
   const poll = async (signal?:AbortSignal):Promise<SessionStatusResult> => {
-    const response = await control('/v1/sessions/'+sessionId,'GET',undefined,signal);ok(response,[200])
+    const response = await read('GET /v1/sessions/{id}','/v1/sessions/'+sessionId,signal);ok(response,[200])
     const raw = decode(response.body)
     // A malformed status list is a typed `revocation_status_invalid` preflight refusal, checked
     // before the generic protocol parse would fold it into a session error.
@@ -403,7 +533,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     }
     return status
   }
-  return Object.freeze({sessionId,profile,paymentHash,get initialization(){return structuredClone(initialization)},
+  return Object.freeze({sessionId,profile,paymentHash,pacing,get initialization(){return structuredClone(initialization)},
     get oauthContext(){ready();if(params.kind!=='oauth')throw new Error('Wallet session has no OAuth context');return oauthContext},
     prepareOAuthPresentation(accessToken:string,oauthSigner:DpopSigner,signal?:AbortSignal){
       ready();if(params.kind!=='oauth')throw new Error('Wallet session cannot submit OAuth credentials')
@@ -441,22 +571,30 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
       checkContext(reply.execution_context)
     },reconcile:poll,poll,
     async proposals(signal?:AbortSignal) {
-      const response=await control('/v1/sessions/'+sessionId+'/execution','GET',undefined,signal);ok(response,[200])
+      const response=await read('GET /v1/sessions/{id}/execution','/v1/sessions/'+sessionId+'/execution',signal);ok(response,[200])
       const values=decode(response.body).proposals
       if(!Array.isArray(values)||values.length>256)throw new Error('Invalid paid proposals')
       return values.map(value=>{const p=object(value);exact(p,['id','stage','operator_key','unsigned_body','expires']);id(p.id);object(p.unsigned_body);return structuredClone(p) as unknown as PaidAgentProposal})
     },
     async approveRequest(proposal:PaidAgentProposal,stage:'presentation_sign'|'presentation_attest',member:PaidVerifierWitness,signal?:AbortSignal) {
-      const c=ready()
-      if(params.kind==='oauth'||(stage==='presentation_sign'?member.index!==jarIndex:member.index===jarIndex))throw new Error('Incorrect JAR signer or attester')
-      const body={operation:params.operation,operation_sig:params.operationSig,delegation:params.delegation??null,
-        session:{response_uri:profile.endpoint+'/v1/response?session='+sessionId,enc_jwk:c.key,state:c.state,random:params.random.toLowerCase()},
-        epoch:payment.verification_epoch,seed:payment.verification_seed.toLowerCase(),committee_count:payment.verification_committee,
-        registry_size:payment.verification_registry_size,quorum:payment.verification_quorum,payment}
-      await approve(proposal,member,stage,body,signal)
+      await approve(proposal,member,stage,requestBody(stage,member),signal)
+    },
+    prepareRequestApproval(proposal:PaidAgentProposal,stage:'presentation_sign'|'presentation_attest',member:PaidVerifierWitness,signal?:AbortSignal) {
+      return signApproval(proposal,member,stage,requestBody(stage,member),signal)
+    },
+    prepareCredentialApproval(proposal:PaidAgentProposal,member:PaidVerifierWitness,approved:ClientApprovedPresentation,signal?:AbortSignal) {
+      return signApproval(proposal,member,'credential',credentialBody(approved),signal)
+    },
+    sendRetainedApproval,
+    async approvalState(proposal:string,signal?:AbortSignal) {
+      id(proposal)
+      const response=await read('GET /v1/sessions/{id}/execution/{delivery}','/v1/sessions/'+sessionId+'/execution/'+proposal,signal);ok(response,[200])
+      const state=decode(response.body)
+      if(state.id!==proposal||typeof state.state!=='string'||!/^[a-z_]{1,32}$/.test(state.state))throw new Error('Invalid paid delivery state')
+      return state.state
     },
     async presentations(signal?:AbortSignal) {
-      const response=await control('/v1/sessions/'+sessionId+'/presentations','GET',undefined,signal);ok(response,[200])
+      const response=await read('GET /v1/sessions/{id}/presentations','/v1/sessions/'+sessionId+'/presentations',signal);ok(response,[200])
       const values=decode(response.body).presentations
       if(!Array.isArray(values)||values.length>16)throw new Error('Invalid retained presentation list')
       return values.map(value=>{const p=object(value);exact(p,['id','presentation','expires','selected']);
@@ -467,20 +605,10 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     async resumePresentation(callback:string,approved:ClientApprovedPresentation,signal?:AbortSignal) {
       approved=presented(approved)
       if(id(callback)!==callbackId(approved)||(params.kind==='oauth')!==(approved.oauth!==null))throw new Error('Callback differs from the client-accepted presentation')
-      const response=await control('/v1/sessions/'+sessionId+'/presentations/'+callback+'/resume','POST',undefined,signal);ok(response,[200])
+      const response=await paced('POST /v1/sessions/{id}/presentations/{callback}/resume',()=>control('/v1/sessions/'+sessionId+'/presentations/'+callback+'/resume','POST',undefined,signal),LIMITED,sessionDeadline(),signal);ok(response,[200])
     },
     async approveCredentials(proposal:PaidAgentProposal,member:PaidVerifierWitness,approved:ClientApprovedPresentation,signal?:AbortSignal) {
-      approved=presented(approved);const c=ready()
-      if((params.kind==='oauth')!==(approved.oauth!==null))throw new Error('Presentation kind differs from the original session')
-      const exp=Math.min(approved.iat+3600,c.expires,params.operation.exp)
-      if(!Number.isSafeInteger(exp)||exp<=Math.floor(Date.now()/1000))throw new Error('Original credential presentation expired')
-      const body={payment,holder:approved.holder,credentials:approved.credentials,
-        ...(approved.holder_proof!==null?{holder_proof:approved.holder_proof}:{}),...(approved.oauth!==null?{oauth:approved.oauth,session_id:sessionId}:{}),token_type:'JWT',
-        seed:payment.verification_seed.toLowerCase(),epoch:payment.verification_epoch,slot_id:params.operation.slot_id,registry_size:payment.verification_registry_size,
-        committee:payment.verification_committee,quorum:payment.verification_quorum,iat:approved.iat,exp,...(identity!==null?{identity}:{}),
-        chain_id:payment.chain_id,action:params.operation.action,payload_digest:payment.payload_digest.toLowerCase(),random:params.random.toLowerCase(),client_id:profile.clientId,
-        description:params.operation.description,operation_exp:params.operation.exp,operation_sig:params.operationSig,...(params.delegation?{delegation:params.delegation}:{})}
-      await approve(proposal,member,'credential',body,signal)
+      await approve(proposal,member,'credential',credentialBody(approved),signal)
     },
     async rejectProposal(proposal:string,signal?:AbortSignal) {
       const response=await control('/v1/sessions/'+sessionId+'/execution/'+id(proposal)+'/reject','POST',undefined,signal);ok(response,[204])
@@ -489,7 +617,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
       const c=ready()
       if(params.kind==='oauth')throw new Error('OAuth sessions have no wallet request object')
       const member=members.find(m=>m.index===jarIndex)!
-      const response=await control('/v1/request/'+sessionId,'GET',undefined,signal,true);ok(response,[200])
+      const response=await read('GET /v1/request/{id}','/v1/request/'+sessionId,signal,true);ok(response,[200])
       const jwt=new TextDecoder('utf-8',{fatal:true}).decode(response.body).trim()
       if(jwt.split('.').length!==3)throw new Error('Invalid compact Request Object')
       const request=await verifyRequestObject(jwt,{nowSecs:Math.floor(Date.now()/1000),leewaySecs:0,

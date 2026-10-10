@@ -156,7 +156,7 @@ function bareJwk(jwk: Jwk): Jwk {
 }
 
 /**
- * A {@link StatusRefreshHolderSigner} over a local holder key (P-256 → ES256, Ed25519 → EdDSA).
+ * A {@link StatusRefreshHolderSigner} over a local holder key (P-256 signs ES256, Ed25519 signs EdDSA).
  * The returned signer keeps a reference to `holder.privateKey`; the caller owns its lifetime.
  *
  * @param holder - Holder key the credential was bound to at issuance.

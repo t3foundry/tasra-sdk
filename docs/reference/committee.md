@@ -2247,7 +2247,7 @@ Returns: ` Uint8Array `.
 
 ### statusRefreshHolderSigner
 
-A [StatusRefreshHolderSigner](#statusrefreshholdersigner-1) over a local holder key (P-256 → ES256, Ed25519 → EdDSA).
+A [StatusRefreshHolderSigner](#statusrefreshholdersigner-1) over a local holder key (P-256 signs ES256, Ed25519 signs EdDSA).
 The returned signer keeps a reference to `holder.privateKey`; the caller owns its lifetime.
 
 [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L164)

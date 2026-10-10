@@ -56,7 +56,7 @@ Operations you can import and call.
 
 The directory is private, trusted application state, not an untrusted shared folder.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/node.ts#L68)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/node.ts#L75)
 
 Import: `import {createFileStore} from 'tasra-sdk/app/node'`
 
@@ -93,6 +93,7 @@ export interface ApplicationStore {
     save<T>(key: string, value: T): Promise<void>;
     withLock<T>(key: string, action: () => Promise<T>): Promise<T>;
     list?(prefix: string): Promise<string[]>;
+    claim?(key: string): Promise<boolean>;
 }
 ```
 
@@ -102,3 +103,4 @@ Fields:
 - **` save `**: Atomically persist private state before resolving.
 - **` withLock `**: Exclusively serialize work for the key across all participating processes or tabs.
 - **` list `**: Optional: keys starting with `prefix`, in any order. Used only for one-time maintenance such as backfilling the paid operation index; stores without it still work everywhere else.
+- **` claim `**: Optional: atomically and durably create the record `key` only if it does not exist, across all participating processes or tabs. Resolves true for exactly one caller, false when the key already exists. Paid approvals use it as a one-use, generation-bound send claim; without it a retained approval is sent once and never resent.

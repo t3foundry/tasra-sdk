@@ -9,13 +9,16 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 9 classes</summary>
+<summary>Browse 12 classes</summary>
 
 - [AgentSessionCreationUnknownError](#agentsessioncreationunknownerror)
 - [BillingModeError](#billingmodeerror)
 - [KeeperRecoveryError](#keeperrecoveryerror)
 - [PaidAgentControlError](#paidagentcontrolerror)
+- [PaidApprovalUnresolvedError](#paidapprovalunresolvederror)
+- [PaidBackoffError](#paidbackofferror)
 - [PaidReservationAbortedError](#paidreservationabortederror)
+- [PaidReservationQuotaError](#paidreservationquotaerror)
 - [PaidReservationUncertainError](#paidreservationuncertainerror)
 - [RelayOutcomeUnknownError](#relayoutcomeunknownerror)
 - [SlotCommitmentExpiredError](#slotcommitmentexpirederror)
@@ -111,7 +114,7 @@ declare class KeeperRecoveryError {
 
 HTTP refusal or consent/recovery wait, with no credential-bearing response text.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L69)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L105)
 
 Import: `import {PaidAgentControlError} from 'tasra-sdk/chain'`
 
@@ -135,11 +138,110 @@ declare class PaidAgentControlError {
 
 - ` cause?: unknown; `
 
+### PaidApprovalUnresolvedError
+
+A retained paid approval's outcome is unresolved, so the SDK will not send it (again).
+
+Code `approval_outcome_unresolved`. An approval is resent only as the byte-identical retained body
+and only under a durable, generation-bound, one-use permit that an exclusive claim consumes before
+every send. Anything else (a lost claim, a moved generation, an unknown outcome, a legacy record)
+lands here. Not retryable: reconcile the delivery by reading it, never by resending or re-signing.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L406)
+
+Import: `import {PaidApprovalUnresolvedError} from 'tasra-sdk/chain'`
+
+```ts
+declare class PaidApprovalUnresolvedError {
+    constructor(args: {
+        reason: PaidApprovalUnresolvedReason;
+        proposalId?: string;
+        generation?: number;
+        key?: string;
+        message?: string;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: "approval_outcome_unresolved"; ` — Stable code.
+
+- ` readonly reason: PaidApprovalUnresolvedReason; ` — Why nothing was sent.
+
+- ` readonly proposalId?: string; ` — Agent delivery (proposal) identity, when known.
+
+- ` readonly generation?: number; ` — Send generation concerned, when known.
+
+- ` readonly key?: string; ` — Application-store journal entry of the approval, when known.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PaidBackoffError
+
+A paid request that the service definitely refused before acting on it (HTTP 429 or 503) could
+not be repeated inside its existing deadline. Only requests that are safe to repeat are paced: the
+paid verifier-agent reads, the byte-identical retained approval, the presentation continuation (429
+only) and the accountant reservation `prepare`. The deadline is never extended and a valid
+`Retry-After` / `x-ratelimit-after` hint is never shortened.
+
+Nothing was sent after the refusal this error reports. A retained approval keeps its durable
+permit, so a later resume may resend the identical body; never start the paid operation again.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L338)
+
+Import: `import {PaidBackoffError} from 'tasra-sdk/chain'`
+
+```ts
+declare class PaidBackoffError {
+    constructor(args: {
+        code: PaidBackoffCode;
+        route: string;
+        httpStatus?: number;
+        retryAfterMs?: number;
+        remainingMs?: number;
+        neededMs?: number;
+        attempts: number;
+    });
+}
+```
+
+- ` readonly code: PaidBackoffCode; ` — Stable reason.
+
+- ` readonly route: string; ` — Route that was refused, without identifiers (for example `GET /v1/sessions/{id}`).
+
+- ` readonly httpStatus?: number; ` — Last refusal status, when one was answered (absent for `no_time_to_send`).
+
+- ` readonly retryAfterMs?: number; ` — Server-requested wait (strict integer seconds), in ms, when it sent a valid one.
+
+- ` readonly remainingMs?: number; ` — Time left before the deadline when the decision was made, in ms.
+
+- ` readonly neededMs?: number; ` — Time one attempt needs (or wait + attempt), in ms.
+
+- ` readonly attempts: number; ` — Refusals waited out before this decision.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ### PaidReservationAbortedError
 
 The caller aborted before anything was prepared or broadcast; nothing was sent or journaled. Reserving again is safe.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L111)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L118)
 
 Import: `import {PaidReservationAbortedError} from 'tasra-sdk/chain'`
 
@@ -161,11 +263,53 @@ declare class PaidReservationAbortedError {
 
 - ` cause?: unknown; `
 
+### PaidReservationQuotaError
+
+The accountant refused a reservation `prepare` with its per-creator reservation quota (HTTP 429
+with a valid `Retry-After` / `x-ratelimit-after`), and the identical prepare could not be repeated
+inside its window (at most 150 s and half of the payment's remaining signed lifetime).
+
+Code `reservation_quota`. Nothing was prepared, signed or put on chain: no reservation transaction
+exists for this attempt. `reason` says why waiting stopped; `retryAfterMs` is the last hint.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L445)
+
+Import: `import {PaidReservationQuotaError} from 'tasra-sdk/chain'`
+
+```ts
+declare class PaidReservationQuotaError {
+    constructor(args: {
+        reason: PaidBackoffCode;
+        url: string;
+        retryAfterMs: number;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: "reservation_quota"; ` — Stable code.
+
+- ` readonly reason: PaidBackoffCode; ` — Why the prepare was not repeated.
+
+- ` readonly url: string; ` — Accountant endpoint that refused.
+
+- ` readonly retryAfterMs: number; ` — The accountant's last requested wait, in ms.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ### PaidReservationUncertainError
 
 Reservation submission may have happened; inspect the saved identity before further spending.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L124)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L131)
 
 Import: `import {PaidReservationUncertainError} from 'tasra-sdk/chain'`
 
@@ -293,7 +437,7 @@ declare class UnderfundedSlotError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 79 functions</summary>
+<summary>Browse 80 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -334,6 +478,7 @@ Operations you can import and call.
 - [networkNameForChain](#networknameforchain)
 - [observeNetworkManifest](#observenetworkmanifest)
 - [openRegisteredVerifierAgentSession](#openregisteredverifieragentsession)
+- [paidServerWaitMs](#paidserverwaitms)
 - [parseApplicationServiceProfiles](#parseapplicationserviceprofiles)
 - [parseNetworkManifest](#parsenetworkmanifest)
 - [parsePinnedNetworkManifest](#parsepinnednetworkmanifest)
@@ -1238,6 +1383,30 @@ OperationInput & {
 
 Returns: ` Promise<RegisteredVerifierAgentSession> `.
 
+### paidServerWaitMs
+
+The server's requested wait from `Retry-After` and/or `x-ratelimit-after` (tower_governor), each
+parsed STRICTLY as one integer-seconds value of at most six digits. When both are valid the longer
+wins. Anything else (absent, repeated and therefore comma-joined, signed, fractional, padded, an
+HTTP-date, oversized) is ignored and the caller's own backoff applies.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/paidPacing.ts#L69)
+
+Import: `import {paidServerWaitMs} from 'tasra-sdk/chain'`
+
+```ts
+declare function paidServerWaitMs(retryAfter?: string | null, rateLimitAfter?: string | null): number | undefined;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` retryAfter? ` | ` string \| null ` | Raw `Retry-After` value, if any. |
+| ` rateLimitAfter? ` | ` string \| null ` | Raw `x-ratelimit-after` value, if any. |
+
+Returns: ` number | undefined `.
+
+Return details: The wait in ms, or undefined.
+
 ### parseApplicationServiceProfiles
 
 Parse the public, JSON-safe deployment approval file. Decimal revisions preserve uint64.
@@ -1335,7 +1504,7 @@ Authenticate one approved provider and prepare complete client-signed initializa
 This function reserves nothing, sends no session POST and keeps the execution signer local.
 The caller must retain the returned object through uncertain creation/delivery outcomes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L195)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L245)
 
 Import: `import {prepareRegisteredPaidSession} from 'tasra-sdk/chain'`
 
@@ -1348,6 +1517,7 @@ declare function prepareRegisteredPaidSession(chain: TasraChainClient, config: {
     ruleHash: Hex;
     dcqlQuery: Record<string, unknown>;
     allowMissingStatusAttestations?: boolean;
+    pacing?: PaidPacingOptions;
 }, params: PaidAgentSessionParams, consent: {
     certificate: ExecutionCertificate;
     signer: ClientExecutionSigner;
@@ -1375,6 +1545,7 @@ declare function prepareRegisteredPaidSession(chain: TasraChainClient, config: {
     ruleHash: Hex;
     dcqlQuery: Record<string, unknown>;
     allowMissingStatusAttestations?: boolean;
+    pacing?: PaidPacingOptions;
 }
 ```
 
@@ -1744,7 +1915,7 @@ Expired intents remain recoverable. Missing transactions, unavailable historical
 and insufficient confirmations fail closed; none prove that the operation was never submitted.
 A reverted result proves only this transaction's failure, not absence of another reservation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L219)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L226)
 
 Import: `import {reconcilePaidReservation} from 'tasra-sdk/chain'`
 
@@ -1901,7 +2072,7 @@ Reserve TASRA for a fixed creator-signed operation using an accountant threshold
 Does not create an intent, approve tokens, activate a slot, authorize credentials or do keeper
 work. One broadcast attempt only; no replacement, coordinator failover or implicit gas funding.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L349)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L395)
 
 Import: `import {reservePaidOperation} from 'tasra-sdk/chain'`
 
@@ -2322,7 +2493,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 110 types</summary>
+<summary>Browse 114 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -2372,6 +2543,7 @@ Options, data structures and return types.
 - [PaidAgentProposal](#paidagentproposal)
 - [PaidAgentSessionParams](#paidagentsessionparams)
 - [PaidAgentTransport](#paidagenttransport)
+- [PaidApprovalDelivery](#paidapprovaldelivery)
 - [PaidContextDeployment](#paidcontextdeployment)
 - [PaidContextOptions](#paidcontextoptions)
 - [PaidKeeperEndpoint](#paidkeeperendpoint)
@@ -2379,6 +2551,8 @@ Options, data structures and return types.
 - [PaidKeeperTransportOptions](#paidkeepertransportoptions)
 - [PaidOperationContext](#paidoperationcontext)
 - [PaidOperationReceipt](#paidoperationreceipt)
+- [PaidPacingClock](#paidpacingclock)
+- [PaidPacingOptions](#paidpacingoptions)
 - [PaidReservationCheckpoint](#paidreservationcheckpoint)
 - [PaidReservationQuote](#paidreservationquote)
 - [PaidReservationRecord](#paidreservationrecord)
@@ -2408,6 +2582,7 @@ Options, data structures and return types.
 - [ReservePaidOperationOptions](#reservepaidoperationoptions)
 - [ResolvedEndpoints](#resolvedendpoints)
 - [ResolvedNetworkProfile](#resolvednetworkprofile)
+- [RetainedPaidApproval](#retainedpaidapproval)
 - [RuleInput](#ruleinput)
 - [ServiceApproval](#serviceapproval)
 - [ServiceChallenge](#servicechallenge)
@@ -2673,7 +2848,7 @@ Fields:
 
 Complete presentation explicitly accepted by the client before verifier work.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L37)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L73)
 
 ```ts
 export interface ClientApprovedPresentation {
@@ -3497,6 +3672,8 @@ export interface PaidAgentHttpResponse {
     status: number;
     body: Uint8Array;
     retryAfterMs?: number;
+    retryAfter?: string;
+    rateLimitAfter?: string;
 }
 ```
 
@@ -3505,12 +3682,14 @@ Fields:
 - **` status `**: Observed HTTP status, including consent waits and unknown-delivery failures.
 - **` body `**: Exact bounded bytes; never log credentials or bearer-bearing creation bodies.
 - **` retryAfterMs `**: Parsed `Retry-After` in ms, when the service sent one. A wait hint, never a resend instruction.
+- **` retryAfter `**: Raw `Retry-After` header value, when sent. With ` PaidAgentHttpResponse.rateLimitAfter ` it is parsed strictly (integer seconds) to pace a definite 429/503 refusal of a repeatable request.
+- **` rateLimitAfter `**: Raw `x-ratelimit-after` header value (the agent's per-client limiter), when sent.
 
 ### PaidAgentProposal
 
 Owner proposal, including its transport correlation identity.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L63)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L99)
 
 ```ts
 export interface PaidAgentProposal extends ExecutionProposal {
@@ -3530,7 +3709,7 @@ Fields:
 
 Client-built original operation and reserved intent. No provider fallback is permitted.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L27)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L63)
 
 ```ts
 export interface PaidAgentSessionParams extends CreateSessionParams {
@@ -3554,7 +3733,7 @@ Fields:
 
 Transport for client-owned session initialization, consent and continuation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/paidAgentTransport.ts#L14)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/paidAgentTransport.ts#L21)
 
 ```ts
 export interface PaidAgentTransport extends ServiceDiscoveryTransport {
@@ -3576,6 +3755,26 @@ Fields:
 
 - **` paidAgentRequest `**: Require verified TLS, connection-time destination checks, no redirects and cancellation.
 - **` request `**: Perform a bounded request using the required destination, TLS and cancellation policy; return response bytes.
+
+### PaidApprovalDelivery
+
+Outcome of one send of a retained approval. Any other answer throws [PaidAgentControlError](#paidagentcontrolerror).
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L53)
+
+```ts
+export interface PaidApprovalDelivery {
+    status: 'accepted' | 'busy';
+    httpStatus?: 429 | 503;
+    hintMs?: number;
+}
+```
+
+Fields:
+
+- **` status `**: `accepted`: HTTP 204, the agent accepted the approval. `busy`: HTTP 429/503, definitely refused before processing.
+- **` httpStatus `**: Observed status of a `busy` answer.
+- **` hintMs `**: Strict server hint of a `busy` answer, in ms.
 
 ### PaidContextDeployment
 
@@ -3741,11 +3940,52 @@ Fields:
 - **` blockHash `**: Exact canonical block used for EIP-1898 calls.
 - **` blockTimestamp `**: Block timestamp in Unix seconds.
 
+### PaidPacingClock
+
+Time source for paced paid requests. `now` is wall-clock milliseconds (the same epoch as
+`Date.now()`), because deadlines derive from signed Unix-second expiries. Inject one in tests.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/paidPacing.ts#L33)
+
+```ts
+export interface PaidPacingClock {
+    now(): number;
+    sleep(ms: number, signal?: AbortSignal): Promise<void>;
+    jitter(baseMs: number): number;
+}
+```
+
+Fields:
+
+- **` now `**: Current wall-clock time in ms.
+- **` sleep `**: Resolve after `ms`; reject with the signal's reason when it aborts.
+- **` jitter `**: Extra wait added ON TOP of `baseMs` (never shortens a hint), in `0..=baseMs/4`.
+
+### PaidPacingOptions
+
+Pacing of a paid session's definite 429/503 refusals. Repeatable reads (proposals, Request
+Object, presentations, session poll, approval state) and the continuation POST (429 only) are
+repeated inside the session's signed expiry; nothing else is.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L32)
+
+```ts
+export interface PaidPacingOptions {
+    clock?: PaidPacingClock;
+    attemptBudgetMs?: number;
+}
+```
+
+Fields:
+
+- **` clock `**: Time source; wall-clock ms. Default: the system clock.
+- **` attemptBudgetMs `**: Longest one attempt may take (provider check plus HTTP), 1000..60000 ms (default 60000). Each attempt is cut off at this bound, and a repeated attempt starts only with this much time left.
+
 ### PaidReservationCheckpoint
 
 Durable write checkpoints. A timeout after preparation requires observation, never a new attempt.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L45)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L46)
 
 ```ts
 export type PaidReservationCheckpoint = {
@@ -3773,7 +4013,7 @@ Fields:
 
 Accountant authorization for a single operation. This is not a mined reservation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L9)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L10)
 
 ```ts
 export interface PaidReservationQuote {
@@ -3805,7 +4045,7 @@ Fields:
 
 Immutable transaction identity retained before any broadcast; JSON serializable.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L31)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L32)
 
 ```ts
 export interface PaidReservationRecord {
@@ -3838,7 +4078,7 @@ Fields:
 
 Canonical transaction outcome retained for recovery; this never authorizes another operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L173)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L180)
 
 ```ts
 export type PaidReservationResolution = {
@@ -3878,7 +4118,7 @@ Fields:
 
 Retained callback is untrusted until the application accepts its complete presentation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L51)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L87)
 
 ```ts
 export interface PaidRetainedPresentation {
@@ -4165,7 +4405,7 @@ Fields:
 
 Prepared client-owned session; creation sends once, reconciliation only reads.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L81)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L117)
 
 ```ts
 export interface RegisteredPaidAgentSession {
@@ -4194,6 +4434,14 @@ export interface RegisteredPaidAgentSession {
         qrPayload: string;
     }>;
     poll(signal?: AbortSignal): Promise<SessionStatusResult>;
+    readonly pacing?: Readonly<{
+        clock: PaidPacingClock;
+        attemptBudgetMs: number;
+    }>;
+    prepareRequestApproval?(proposal: PaidAgentProposal, stage: 'presentation_sign' | 'presentation_attest', member: PaidVerifierWitness, signal?: AbortSignal): Promise<RetainedPaidApproval>;
+    prepareCredentialApproval?(proposal: PaidAgentProposal, member: PaidVerifierWitness, approved: ClientApprovedPresentation, signal?: AbortSignal): Promise<RetainedPaidApproval>;
+    sendRetainedApproval?(approval: RetainedPaidApproval, signal?: AbortSignal): Promise<PaidApprovalDelivery>;
+    approvalState?(proposalId: string, signal?: AbortSignal): Promise<string>;
 }
 ```
 
@@ -4216,6 +4464,11 @@ Fields:
 - **` rejectProposal `**: Record a refusal; never reopens a dispatched operator stage.
 - **` requestObject `**: Fetch and independently verify the drawn signer's JAR and every bound session claim before exposing a QR.
 - **` poll `**: Poll the original provider and verify a completed token against the anchored draw and application's rule hash.
+- **` pacing `**: Pacing this session applies to definite 429/503 refusals (present on sessions from [prepareRegisteredPaidSession](#prepareregisteredpaidsession)).
+- **` prepareRequestApproval `**: Sign (once) the approval ` RegisteredPaidAgentSession.approveRequest ` would send, without sending it. Retain it durably before the first send.
+- **` prepareCredentialApproval `**: Sign (once) the approval ` RegisteredPaidAgentSession.approveCredentials ` would send, without sending it. Retain it durably before the first send.
+- **` sendRetainedApproval `**: Send a retained approval's exact bytes ONCE. 204 is `accepted`, 429/503 `busy` (not processed); any other status throws [PaidAgentControlError](#paidagentcontrolerror). Never re-signs; never repeats by itself: the caller decides a resend under its durable permit.
+- **` approvalState `**: Read one delivery's state (`pending`, `approved`, `dispatched`, `finished`, …); repeated on 429/503 inside the session expiry.
 
 ### RegisteredRelayConfig
 
@@ -4459,7 +4712,7 @@ Fields:
 
 Explicit limits and durable storage for one direct reservation transaction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L78)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L79)
 
 ```ts
 export interface ReservePaidOperationOptions {
@@ -4472,6 +4725,7 @@ export interface ReservePaidOperationOptions {
     confirmations?: number;
     signal?: AbortSignal;
     persist: (checkpoint: PaidReservationCheckpoint) => Promise<void>;
+    clock?: PaidPacingClock;
 }
 ```
 
@@ -4486,6 +4740,7 @@ Fields:
 - **` confirmations `**: Required confirmations, 1..64 (default 1).
 - **` signal `**: Optional cancellation. Before the durable `prepared` checkpoint (nothing sent) an abort refuses with [PaidReservationAbortedError](#paidreservationabortederror). From that checkpoint the one broadcast proceeds and every journal write completes; an abort then only ends the receipt wait, as [PaidReservationUncertainError](#paidreservationuncertainerror): a broadcast transaction cannot be cancelled.
 - **` persist `**: Await durable storage before resolving. The prepared checkpoint MUST atomically create a unique requestId record, refuse every existing record, and survive process loss. Retain it on every later failure. Subsequent checkpoints update that record without deleting it. A callback failure before preparation completes prevents broadcast. The SDK cannot prove an application's persistence guarantees; an in-memory callback is not safe for production.
+- **` clock `**: Time source for the accountant's reservation-quota wait (a `prepare` answered 429 with a valid `Retry-After` / `x-ratelimit-after` is repeated identically within min(150 s, half the payment's remaining lifetime)); wall-clock ms. Default: the system clock. Inject one in tests.
 
 ### ResolvedEndpoints
 
@@ -4534,6 +4789,26 @@ Fields:
 - **` nativeCurrency `**: Native gas-token name, symbol and decimal precision.
 - **` governance `**: Configured governance delay and minimum delay, both in seconds.
 - **` productionPosture `**: Deployment-policy flag carried by the profile; the SDK does not use it to establish network readiness.
+
+### RetainedPaidApproval
+
+A signed approval retained BEFORE its first send; every send uses exactly `body`.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L43)
+
+```ts
+export interface RetainedPaidApproval {
+    proposalId: string;
+    body: string;
+    expires: number;
+}
+```
+
+Fields:
+
+- **` proposalId `**: Agent delivery (proposal) identity.
+- **` body `**: Exact JSON request body `{"authorization":…}`; never re-serialized or re-signed.
+- **` expires `**: Unix seconds after which the approval may not be sent (proposal and session expiry).
 
 ### RuleInput
 
@@ -5228,6 +5503,7 @@ Shared values and contract definitions.
 | `SERVICE_TYPES` | Permanent ServiceRegistry ABI ordinals. Registration grants no operator privileges. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/services.ts#L6) |
 | `serviceRegistryAbi` | ServiceRegistry contract interface for provider-owned service records and lifecycle updates. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/serviceRegistry.ts#L5) |
 | `settlementAbi` | Settlement contract interface for prepaid slot balances and operation settlement. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/settlement.ts#L5) |
+| `systemPacingClock` | Wall clock, timers and `Math.random` jitter. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/paidPacing.ts#L43) |
 | `tasraSwapRouterAbi` | TasraSwapRouter contract interface for routed token exchanges. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/tasraSwapRouter.ts#L5) |
 | `tasraTokenAbi` | TasraToken contract interface for TSRA balances, transfers, approvals and supply. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/tasraToken.ts#L5) |
 | `tasraVestingVaultAbi` | TasraVestingVault contract interface for allocation vesting and token release. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/abis/tasraVestingVault.ts#L5) |

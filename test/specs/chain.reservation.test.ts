@@ -12,7 +12,7 @@ import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplica
 import {loadPaidReservationJournal} from '../../src/app/paid-journal.js'
 import type {ApplicationStore} from '../../src/app/ready-slot.js'
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
-import {UnderfundedSlotError} from '../../src/errors.js'
+import {PaidReservationQuotaError, UnderfundedSlotError} from '../../src/errors.js'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.js'
 
 const h = (n: number, length = 32): Hex => `0x${n.toString(16).padStart(2, '0').repeat(length)}`
@@ -628,4 +628,59 @@ it('reports none only without a journal or payer claim, and a chain reservation 
     await expect(reconcile()).rejects.toThrow(/stale/)
     expect(f.transactions).toHaveLength(0)
   } finally {await f.cleanup()}
+})
+
+// ---- The accountant's reservation quota: a prepare 429 WITH a valid hint is repeated identically ----
+function quotaClock() {
+  const state = {now: 1_000_000, overrun: 0, sleeps: [] as number[]}
+  return {state, clock: {now: () => state.now, sleep: async (ms: number) => { state.sleeps.push(ms); state.now += ms + state.overrun }, jitter: () => 0}}
+}
+const quota = (headers: Record<string, string>, status = 429) => async () => new Response('reservation quota', {status, headers: {'content-type': 'text/plain', ...headers}})
+
+it('repeats a prepare refused 429 with a hint and reserves exactly once', async () => {
+  const f = await fixture(), c = quotaClock(), bodies: string[] = []
+  const real = f.fetcher.getMockImplementation()!
+  f.fetcher.mockImplementationOnce(async (_input, init) => { bodies.push(init?.body as string); return quota({'retry-after': '2'})() })
+    .mockImplementationOnce(async (_input, init) => { bodies.push(init?.body as string); return quota({'x-ratelimit-after': '3'})() })
+    .mockImplementationOnce(async (input, init) => { bodies.push(init?.body as string); return real(input, init) })
+  await f.run({clock: c.clock})
+  expect(c.state.sleeps).toEqual([2000, 3000])
+  expect(new Set(bodies).size).toBe(1) // the identical prepare
+  expect(f.checkpoints.filter(cp => cp.phase === 'prepared')).toHaveLength(1)
+  expect(f.transactions).toHaveLength(1)
+})
+
+it('never repeats a prepare 429 without a valid hint, a 503, a 500/422, or an authorize 429', async () => {
+  for (const [method, response] of [['prepare', quota({})], ['prepare', quota({'retry-after': '1.5'})], ['prepare', quota({'retry-after': '1'}, 503)],
+    ['prepare', quota({'retry-after': '1'}, 500)], ['prepare', quota({'retry-after': '1'}, 422)], ['authorize', quota({'retry-after': '1'})]] as const) {
+    const f = await fixture(), c = quotaClock(), real = f.fetcher.getMockImplementation()!
+    f.fetcher.mockImplementation(async (input, init) => String(input).endsWith('/' + method) ? response() : real(input, init))
+    const error: unknown = await f.run({clock: c.clock}).catch((e: unknown) => e)
+    expect(error, method).toBeInstanceOf(Error)
+    expect(error, method).not.toBeInstanceOf(PaidReservationQuotaError)
+    expect(c.state.sleeps).toEqual([])
+    expect(f.transactions).toHaveLength(0)
+    expect(f.checkpoints).toHaveLength(0)
+  }
+})
+
+it('refuses typed, exposing the hint, when the quota wait does not fit min(150 s, half the signed expiry)', async () => {
+  // 60 s of signed lifetime left: the window is 30 s and a repeat needs 10 s of it.
+  for (const [hint, reason] of [['25', 'deadline_exceeded'], ['121', 'server_wait_too_long']] as const) {
+    const f = await fixture(), c = quotaClock()
+    f.fetcher.mockImplementation(quota({'retry-after': hint}))
+    const error: unknown = await f.run({clock: c.clock}).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(PaidReservationQuotaError)
+    expect(error).toMatchObject({code: 'reservation_quota', reason, retryAfterMs: Number(hint) * 1000, retryable: true,
+      url: 'https://acct0.example/v1/prepaid/reservations/prepare'})
+    expect(c.state.sleeps).toEqual([])
+    expect(f.fetcher).toHaveBeenCalledTimes(1)
+    expect(f.checkpoints).toHaveLength(0)
+  }
+  // An overrunning sleep is re-read before the next prepare: nothing is sent late.
+  const f = await fixture(), c = quotaClock()
+  c.state.overrun = 20_000
+  f.fetcher.mockImplementation(quota({'retry-after': '1'}))
+  await expect(f.run({clock: c.clock})).rejects.toMatchObject({code: 'reservation_quota', reason: 'no_time_to_send', retryAfterMs: 1000})
+  expect(f.fetcher).toHaveBeenCalledTimes(1)
 })

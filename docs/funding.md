@@ -231,7 +231,28 @@ recovery and relayers. They use the Node transports' route, method, bearer and b
 checks, require HTTPS, send no cookies, follow no redirects and refuse loopback names and
 private IP literals unless approved. A browser cannot check where a name resolves, so rely
 on its private-network protections; services must allow the origin through CORS and
-expose `Retry-After`.
+expose `Retry-After` and `x-ratelimit-after`.
+
+### Busy services during a paid operation
+
+Paid clients behind one network address share the verifier-agent's per-client limiter, so a
+burst can see HTTP 429 after the TASRA is already reserved. The SDK waits such a definite refusal
+out instead of losing the paid request, and never extends a signed expiry to do so:
+
+- The session's repeatable reads (proposals, Request Object, presentations, poll, delivery state)
+  repeat on 429/503 inside the session's signed expiry; the continuation repeats on 429 only.
+- Each operator approval is signed once and its exact body is retained in the store before the
+  first send. After a 429/503 it is resent byte-identically under a one-use, generation-bound
+  permit that the store's exclusive `claim` consumes before every send. A send without a definite
+  answer (transport error, timeout, abort, crash) is never resent: a resume reads the delivery and
+  confirms it, or throws `PaidApprovalUnresolvedError`. Stores without `claim` send once.
+- An accountant `prepare` answered 429 with a wait hint (its reservation quota) is repeated
+  identically within min(150 s, half the payment's remaining lifetime); otherwise
+  `PaidReservationQuotaError`. Nothing is reserved before the single reservation transaction.
+
+Waits honour `Retry-After` and `x-ratelimit-after` as integer seconds (a hint is a floor, never
+shortened). A wait that does not fit before the deadline, or a hint over 120 s, throws
+`PaidBackoffError` without sleeping; resume the operation later rather than starting it again.
 
 ```ts
 import {createPaidReservationJournal} from 'tasra-sdk/app'

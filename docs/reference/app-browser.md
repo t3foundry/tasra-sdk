@@ -59,7 +59,7 @@ Operations you can import and call.
 
 Browser transport for reading a keeper's retained paid result (the two POST recovery reads only).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L221)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L243)
 
 Import: `import {createBrowserKeeperRecoveryTransport} from 'tasra-sdk/app/browser'`
 
@@ -78,7 +78,7 @@ Returns: ` KeeperRecoveryTransport `.
 Browser transport for registered paid sessions: authenticated discovery plus owner-only
 session control, with the same route, method, bearer and bound checks as the Node transport.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L201)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L223)
 
 Import: `import {createBrowserPaidAgentTransport} from 'tasra-sdk/app/browser'`
 
@@ -97,7 +97,7 @@ Returns: ` PaidAgentTransport `.
 Browser transport for registered relayers: discovery, forward and status, with
 `relayExchange` reporting busy refusals and their `Retry-After`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L231)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L253)
 
 Import: `import {createBrowserRelayTransport} from 'tasra-sdk/app/browser'`
 
@@ -158,6 +158,7 @@ export interface ApplicationStore {
     save(key: string, value: unknown): Promise<void>;
     withLock<T>(key: string, operation: () => Promise<T>): Promise<T>;
     list?(prefix: string): Promise<string[]>;
+    claim?(key: string): Promise<boolean>;
 }
 ```
 
@@ -167,12 +168,13 @@ Fields:
 - **` save `**: Atomically persist private state before resolving.
 - **` withLock `**: Exclusively serialize work for the key across all participating processes or tabs.
 - **` list `**: Optional: keys starting with `prefix`, in any order. Used only for one-time maintenance such as backfilling the paid operation index; stores without it still work everywhere else.
+- **` claim `**: Optional: atomically and durably create the record `key` only if it does not exist, across all participating processes or tabs. Resolves true for exactly one caller, false when the key already exists. Paid approvals use it as a one-use, generation-bound send claim; without it a retained approval is sent once and never resent.
 
 ### BrowserKeeperRecoveryTransportOptions
 
 Options for [createBrowserKeeperRecoveryTransport](#createbrowserkeeperrecoverytransport).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L207)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L229)
 
 ```ts
 export interface BrowserKeeperRecoveryTransportOptions extends BrowserTransportOptions {
@@ -191,7 +193,7 @@ Fields:
 
 Options shared by the browser transports.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L116)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L135)
 
 ```ts
 export interface BrowserTransportOptions {

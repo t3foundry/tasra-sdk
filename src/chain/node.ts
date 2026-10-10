@@ -211,7 +211,12 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
             if (noContent && size !== 0) {fail(new Error('Unexpected paid agent response body')); return}
             const bytes = Buffer.concat(chunks,size)
             const header = res.headers['retry-after'], retryAfterMs = parseRetryAfter(Array.isArray(header) ? undefined : header)
-            resolve(paid || recovery || wallet || (relay && full) ? {status: res.statusCode!, body: bytes, ...(retryAfterMs !== undefined ? {retryAfterMs} : {})} : bytes)
+            // Paid replies also carry the raw wait headers, parsed strictly by the paid pacer. A
+            // repeated non-standard header arrives comma-joined (or as an array) and is ignored there.
+            const governor = res.headers['x-ratelimit-after']
+            const raw = paid ? {...(typeof header === 'string' ? {retryAfter: header} : {}),
+              ...(governor !== undefined ? {rateLimitAfter: Array.isArray(governor) ? governor.join(', ') : governor} : {})} : {}
+            resolve(paid || recovery || wallet || (relay && full) ? {status: res.statusCode!, body: bytes, ...(retryAfterMs !== undefined ? {retryAfterMs} : {}), ...raw} : bytes)
           })
         }
         // Absolute request deadline also bounds DNS/TLS and slow trickle responses.

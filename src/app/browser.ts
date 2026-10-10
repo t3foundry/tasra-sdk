@@ -109,6 +109,25 @@ export function createIndexedDbStore(options: IndexedDbStoreOptions = {}): Appli
         return operation()
       }) as Promise<T>
     },
+    async claim(key: string): Promise<boolean> {
+      check(key)
+      // An exclusive Web Lock on the claim name (shared by every tab and worker of the origin), and
+      // inside it ONE strict-durability transaction that inserts the record only when absent:
+      // `add` fails with ConstraintError on an existing key, aborting the transaction. Either way
+      // exactly one caller wins; the winner's record is committed before this resolves.
+      return await locks.request(`${name}:claim:${key}`, {mode: 'exclusive'}, async (): Promise<boolean> => {
+        const tx = (await db()).transaction('state', 'readwrite', {durability: 'strict'})
+        let exists = false
+        const done = new Promise<boolean>((resolve, reject) => {
+          tx.oncomplete = () => resolve(true)
+          tx.onerror = () => {}
+          tx.onabort = () => exists ? resolve(false) : reject(tx.error ?? new TasraError('IndexedDB claim aborted'))
+        })
+        const insert = tx.objectStore('state').add({claimed: true}, key)
+        insert.onerror = () => { exists = insert.error?.name === 'ConstraintError' }
+        return await done
+      })
+    },
   }
 }
 
@@ -141,7 +160,7 @@ function browserTransport(mode: ServiceTransportMode, options: BrowserTransportO
   const privateHosts = new Set(options.allowedPrivateHosts ?? [])
   if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 120_000) throw new TasraError('Invalid browser transport timeout')
   if (typeof doFetch !== 'function') throw new TasraError('fetch is unavailable')
-  return async (url: string, request: FetchOptions): Promise<{status: number; body: Uint8Array; retryAfterMs?: number}> => {
+  return async (url: string, request: FetchOptions): Promise<{status: number; body: Uint8Array; retryAfterMs?: number; retryAfter?: string; rateLimitAfter?: string}> => {
     request.signal.throwIfAborted()
     const parsed = new URL(url)
     // Local development HTTP: only to a loopback name or private IP literal, checked with the same
@@ -183,8 +202,11 @@ function browserTransport(mode: ServiceTransportMode, options: BrowserTransportO
     const body = new Uint8Array(size)
     let offset = 0
     for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.length }
-    const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'))
-    return {status: response.status, body, ...(retryAfterMs !== undefined ? {retryAfterMs} : {})}
+    const retryAfter = response.headers.get('retry-after'), retryAfterMs = parseRetryAfter(retryAfter)
+    // Paid replies also carry the raw wait headers for the strict paid pacer (CORS must expose them).
+    const rateLimitAfter = mode === 'paid-agent' ? response.headers.get('x-ratelimit-after') : null
+    return {status: response.status, body, ...(retryAfterMs !== undefined ? {retryAfterMs} : {}),
+      ...(mode === 'paid-agent' && retryAfter !== null ? {retryAfter} : {}), ...(rateLimitAfter !== null ? {rateLimitAfter} : {})}
   }
 }
 

@@ -27,6 +27,13 @@ export interface ApplicationStore {
    * such as backfilling the paid operation index; stores without it still work everywhere else.
    */
   list?(prefix: string): Promise<string[]>
+  /**
+   * Optional: atomically and durably create the record `key` only if it does not exist, across all
+   * participating processes or tabs. Resolves true for exactly one caller, false when the key
+   * already exists. Paid approvals use it as a one-use, generation-bound send claim; without it a
+   * retained approval is sent once and never resent.
+   */
+  claim?(key: string): Promise<boolean>
 }
 export {StoreLockedError}
 
@@ -111,6 +118,20 @@ export function createFileStore(directory: string): ApplicationStore {
       // Saved values are `<key>.json`; temporaries start with a dot and locks end in `.lock`.
       return (await readdir(root)).filter(name => name.endsWith('.json') && /^[a-zA-Z0-9]/.test(name))
         .map(name => name.slice(0, -'.json'.length)).filter(key => key.startsWith(prefix))
+    },
+    async claim(key) {
+      // `O_CREAT | O_EXCL` on the record itself is the exclusive claim, across threads and
+      // processes: exactly one creator wins, every other gets EEXIST. The record is written and
+      // fsynced, then the directory, before this resolves. A crash mid-write still leaves the key
+      // claimed (its content is only a diagnostic), which is the safe direction.
+      const target = path(key), contents = JSON.stringify({schemaVersion: 1, value: encode({claimed: true})}) + '\n'
+      await ready()
+      let file
+      try { file = await open(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600) }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false; throw error }
+      try { await file.writeFile(contents, 'utf8'); await file.sync() } finally { await file.close() }
+      await syncDirectory()
+      return true
     },
     async withLock(key, action) {
       const target = path(key, '.lock')

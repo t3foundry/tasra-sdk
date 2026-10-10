@@ -8,6 +8,13 @@ export interface PaidAgentHttpResponse {
   body: Uint8Array
   /** Parsed `Retry-After` in ms, when the service sent one. A wait hint, never a resend instruction. */
   retryAfterMs?: number
+  /**
+   * Raw `Retry-After` header value, when sent. With {@link PaidAgentHttpResponse.rateLimitAfter} it
+   * is parsed strictly (integer seconds) to pace a definite 429/503 refusal of a repeatable request.
+   */
+  retryAfter?: string
+  /** Raw `x-ratelimit-after` header value (the agent's per-client limiter), when sent. */
+  rateLimitAfter?: string
 }
 
 /** Transport for client-owned session initialization, consent and continuation. */

@@ -3,7 +3,8 @@ import {assertPaymentIntentWire, paymentIntentTypedData, prepaidRequestId, type 
 import {settlementAbi} from './abis/settlement.js'
 import {keyRegistryAbi} from './abis/keyRegistry.js'
 import {readPaidOperationReceipt, type ExpectedPaidOperation, type PaidOperationReceipt, type PrepaidDeployment} from './prepaid.js'
-import {UnderfundedSlotError} from '../errors.js'
+import {PaidBackoffError, PaidReservationQuotaError, UnderfundedSlotError} from '../errors.js'
+import {PaidBackoff, paidServerWaitMs, systemPacingClock, type PaidPacingClock} from './paidPacing.js'
 
 /** Accountant authorization for a single operation. This is not a mined reservation. */
 export interface PaidReservationQuote {
@@ -105,6 +106,12 @@ export interface ReservePaidOperationOptions {
    * an application's persistence guarantees; an in-memory callback is not safe for production.
    */
   persist: (checkpoint: PaidReservationCheckpoint) => Promise<void>
+  /**
+   * Time source for the accountant's reservation-quota wait (a `prepare` answered 429 with a valid
+   * `Retry-After` / `x-ratelimit-after` is repeated identically within min(150 s, half the payment's
+   * remaining lifetime)); wall-clock ms. Default: the system clock. Inject one in tests.
+   */
+  clock?: PaidPacingClock
 }
 
 /** The caller aborted before anything was prepared or broadcast; nothing was sent or journaled. Reserving again is safe. */
@@ -301,14 +308,53 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal | undefined): Pro
     work.then(value => {signal.removeEventListener('abort', abort); resolve(value)}, (error: unknown) => {signal.removeEventListener('abort', abort); reject(error)})
   })
 }
-async function ask(endpoint: string, method: 'prepare' | 'authorize', payment: PaymentIntentWire, block: Hex | null, timeout: number, signal?: AbortSignal): Promise<PaidReservationQuote> {
-  const deadline = AbortSignal.timeout(timeout)
-  const response = await fetch(`${endpoint}/v1/prepaid/reservations/${method}`, {method: 'POST', redirect: 'error',
-    headers: {'content-type': 'application/json'}, body: JSON.stringify({intents: [payment], quote_block: block}), signal: signal ? AbortSignal.any([signal, deadline]) : deadline})
+/** Ceiling on how long one `prepare` may wait out the accountant's reservation quota, ms. */
+const PREPARE_RETRY_BUDGET_MS = 150_000
+/** Least time a REPEATED prepare must have left in its window; its HTTP timeout is then the time left. */
+const PREPARE_ATTEMPT_BUDGET_MS = 10_000
+
+/**
+ * The prepare retry window: never more than {@link PREPARE_RETRY_BUDGET_MS} and never more than HALF
+ * of what is left of the signed payment expiry, so the authorize, the mined reservation and the
+ * credential session keep at least the other half.
+ */
+function prepareRetryWindowMs(expires: number, nowMs: number): number {
+  return Math.min(PREPARE_RETRY_BUDGET_MS, Math.max(0, Math.floor((expires - Math.floor(nowMs / 1000)) / 2)) * 1000)
+}
+
+/**
+ * One accountant reservation exchange; every attempt sends the SAME request bytes.
+ *
+ * Only `prepare` is ever repeated, and only after a 429 carrying a valid `Retry-After` (or
+ * `x-ratelimit-after`): the accountant answers its per-creator reservation quota that way BEFORE
+ * recording or signing anything, and nothing is on chain until the single reservation transaction
+ * after `authorize`. Every other status (503 included), every `authorize` answer and every transport
+ * error keeps its existing meaning. A repeated prepare needs {@link PREPARE_ATTEMPT_BUDGET_MS} left in
+ * its window and its HTTP timeout is cut to the time left.
+ */
+async function ask(endpoint: string, method: 'prepare' | 'authorize', payment: PaymentIntentWire, block: Hex | null, timeout: number, signal?: AbortSignal,
+  clock: PaidPacingClock = systemPacingClock): Promise<PaidReservationQuote> {
+  const url = `${endpoint}/v1/prepaid/reservations/${method}`, request = JSON.stringify({intents: [payment], quote_block: block})
+  const backoff = new PaidBackoff(clock, 'POST /v1/prepaid/reservations/prepare', clock.now() + prepareRetryWindowMs(payment.expires, clock.now()), PREPARE_ATTEMPT_BUDGET_MS)
+  let response: Response, hint: number | undefined
+  const quota = (cause: unknown) => cause instanceof PaidBackoffError && hint !== undefined
+    ? new PaidReservationQuotaError({reason: cause.code, url, retryAfterMs: hint, cause}) : cause
+  for (;;) {
+    let limit = timeout
+    // Re-read after a sleep: an overrun never leads to a late send.
+    if (backoff.retries > 0) try { limit = Math.min(timeout, backoff.readyToSend()) } catch (cause) { throw quota(cause) }
+    const deadline = AbortSignal.timeout(limit)
+    response = await fetch(url, {method: 'POST', redirect: 'error',
+      headers: {'content-type': 'application/json'}, body: request, signal: signal ? AbortSignal.any([signal, deadline]) : deadline})
+    hint = paidServerWaitMs(response.headers?.get('retry-after'), response.headers?.get('x-ratelimit-after'))
+    if (method !== 'prepare' || response.status !== 429 || hint === undefined) break
+    void response.body?.cancel().catch(() => {})
+    try { await backoff.wait(429, hint, signal) } catch (cause) { throw quota(cause) }
+  }
   if (!response.ok) {
     void response.body?.cancel().catch(() => {})
     if (response.status === 402) throw new UnderfundedSlotError({slotId: payment.slot, status: 402,
-      url: `${endpoint}/v1/prepaid/reservations/${method}`, message: 'accountant reservation request refused (402): insufficient available TASRA'})
+      url, message: 'accountant reservation request refused (402): insufficient available TASRA'})
     throw new Error(`accountant reservation request refused (${response.status})`)
   }
   if (!response.body) throw new Error(`accountant reservation request refused (${response.status})`)
@@ -382,8 +428,9 @@ async function reserveOnce(
   const urls = endpoints(opts, d.chainId)
   if (payer.type !== 'local' && payer.type !== 'json-rpc') throw new Error('reservation requires an EOA gas payer')
   if (payerChain.id !== d.chainId || await wallet.getChainId() !== d.chainId || await client.getChainId() !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
-  const quote = await ask(urls[0]!, 'prepare', payment, null, requestTimeout, signal)
-  const preparations = await Promise.all(urls.slice(1).map(url => ask(url, 'prepare', payment, quote.quote_block, requestTimeout, signal)))
+  const clock = opts.clock ?? systemPacingClock
+  const quote = await ask(urls[0]!, 'prepare', payment, null, requestTimeout, signal, clock)
+  const preparations = await Promise.all(urls.slice(1).map(url => ask(url, 'prepare', payment, quote.quote_block, requestTimeout, signal, clock)))
   if (preparations.some(q => unsigned(q) !== unsigned(quote))) throw new Error('accountants disagree on reservation')
   const authorized = await ask(urls[0]!, 'authorize', payment, quote.quote_block, requestTimeout, signal)
   if (unsigned(authorized) !== unsigned(quote)) throw new Error('authorization changed the prepared reservation')

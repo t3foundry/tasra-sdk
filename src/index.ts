@@ -95,8 +95,13 @@ export {
   isRevocationStatusPreflightRefusal,
   StatusRefreshError,
   isStatusRefreshError,
+  PaidBackoffError,
+  isPaidBackoffError,
+  PaidApprovalUnresolvedError,
+  isPaidApprovalUnresolved,
+  PaidReservationQuotaError,
 } from './errors.js'
-export type {RevocationStatusPreflightCode, StatusRefreshCode, StatusRefreshFailure} from './errors.js'
+export type {RevocationStatusPreflightCode, StatusRefreshCode, StatusRefreshFailure, PaidBackoffCode, PaidApprovalUnresolvedReason} from './errors.js'
 // Bounded waits honoring Retry-After, for requests that are safe to send again.
 // Never wrap a paid flow, reservation or other write whose outcome is uncertain.
 export {retryIdempotent, retryDelayMs, parseRetryAfter, classifyRetry, classifyRefusal, classifyRefusedWrite,

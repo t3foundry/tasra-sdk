@@ -5,7 +5,7 @@ import {sha256} from '@noble/hashes/sha256'
 import {concatBytes} from '@noble/hashes/utils'
 import {concatHex, hexToBytes, keccak256, toHex, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {prepareRegisteredPaidSession, PaidAgentControlError, type ClientApprovedPresentation, type PaidAgentProposal} from '../../src/chain/registeredPaidAgent.js'
+import {prepareRegisteredPaidSession, PaidAgentControlError, type ClientApprovedPresentation, type PaidAgentProposal, type PaidPacingOptions} from '../../src/chain/registeredPaidAgent.js'
 import {authenticateApprovedService} from '../../src/chain/serviceIdentity.js'
 import {readClientExecutionPolicy, type PaidVerifierWitness} from '../../src/chain/prepaid.js'
 import {createExecutionCertificate, createLocalExecutionSigner, executionBodyHash, verifyExecutionAuthorization} from '../../src/committee/execution.js'
@@ -32,7 +32,7 @@ const cleanups:Array<()=>void>=[]
 beforeEach(()=>{vi.spyOn(Date,'now').mockReturnValue(1_000_000);vi.mocked(authenticateApprovedService).mockReset();vi.mocked(readClientExecutionPolicy).mockReset()})
 afterEach(()=>{cleanups.splice(0).forEach(cleanup=>cleanup());vi.restoreAllMocks();vi.useRealTimers()})
 
-async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestations?:boolean) {
+async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestations?:boolean,pacing?:PaidPacingOptions) {
   const creator=privateKeyToAccount(h(11)), signer=createLocalExecutionSigner(new Uint8Array(32).fill(21))
   cleanups.push(()=>signer.dispose())
   const sign=vi.fn(signer.sign), endpoint='https://agent.example'
@@ -86,7 +86,7 @@ async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestat
     return {status:204,body:new Uint8Array()}
   })}
   const prepare=(signal?:AbortSignal)=>prepareRegisteredPaidSession(chain,{profile,deployment,transport,members,ruleHash:h(33),dcqlQuery:{credentials:[{id:'all',format:'dc+sd-jwt'}]},
-    ...(allowMissingStatusAttestations===undefined?{}:{allowMissingStatusAttestations})},params,
+    ...(allowMissingStatusAttestations===undefined?{}:{allowMissingStatusAttestations}),...(pacing?{pacing}:{})},params,
     {certificate,signer:{publicKey:signer.publicKey,sign},pollSecret:owner,expires:1030,signal})
   const session=await prepare();sessionId=session.sessionId
   const requestBody={operation:input.operation,operation_sig:operationSig,delegation:null,
@@ -222,10 +222,11 @@ it('preserves consent wait statuses without exposing error bodies or fetching a 
   expect(vi.mocked(f.transport.paidAgentRequest).mock.calls.at(-1)?.[1].bearer).toBeUndefined()
 })
 
-it('carries an agent Retry-After hint on a refusal without resending',async()=>{
+it('carries an agent hint on a busy read it cannot wait out inside the session expiry, without resending',async()=>{
   const f=await fixture();await f.session.create();vi.mocked(f.transport.paidAgentRequest).mockClear()
   vi.mocked(f.transport.paidAgentRequest).mockResolvedValueOnce({status:503,body:bytes({error:'busy'}),retryAfterMs:2000})
-  await expect(f.session.poll()).rejects.toMatchObject({name:'PaidAgentControlError',httpStatus:503,retryAfterMs:2000})
+  // 2 s hint + the 60 s attempt budget does not fit the 30 s left: typed, nothing slept or resent.
+  await expect(f.session.poll()).rejects.toMatchObject({name:'PaidBackoffError',code:'deadline_exceeded',httpStatus:503,retryAfterMs:2000})
   vi.mocked(f.transport.paidAgentRequest).mockResolvedValueOnce({status:425,body:bytes({}),retryAfterMs:-1})
   const error=await f.session.poll().catch((e:unknown)=>e) as PaidAgentControlError
   expect(error.httpStatus).toBe(425);expect(error.retryAfterMs).toBeUndefined()
@@ -494,5 +495,139 @@ it('accepts a missing list only under the migration opt-out, never a stale or fo
   for(const [bad,code] of [[[att(0,990),att(1,990)],'revocation_status_stale'],[[{...att(0,1030),status_until:1031},att(1,1030)],'revocation_status_invalid']] as const){
     vi.mocked(f.transport.paidAgentRequest).mockResolvedValueOnce(reply(token(bad)))
     await expect(f.session.poll()).rejects.toMatchObject({name:'RevocationStatusPreflightError',code})
+  }
+})
+
+// ---- Paced 429/503 on repeatable paid reads and the retained approval (n21) ----
+// A deterministic clock: sleeps advance virtual time instantly (plus an optional overrun) and are
+// recorded; the session deadline is the context's signed expiry (1030 s), virtual start 1000 s.
+function pacedClock(){
+  const state={now:1_000_000,overrun:0,jitter:0,sleeps:[] as number[]}
+  const clock={now:()=>state.now,sleep:async(ms:number)=>{state.sleeps.push(ms);state.now+=ms+state.overrun},jitter:()=>state.jitter}
+  return {state,clock}
+}
+const busy=(status:429|503,headers:{retryAfter?:string;rateLimitAfter?:string}={})=>({status,body:new TextEncoder().encode('Too Many Requests! Wait for 1s'),...headers})
+async function paced(){
+  const c=pacedClock(), f=await fixture('wallet',undefined,{clock:c.clock,attemptBudgetMs:5_000})
+  await f.session.create();vi.mocked(f.transport.paidAgentRequest).mockClear();f.sign.mockClear()
+  return {...f,...c,send:vi.mocked(f.transport.paidAgentRequest)}
+}
+
+it('repeats a busy owner read inside the session expiry: 429, 429, then 200 completes',async()=>{
+  const f=await paced()
+  f.send.mockResolvedValueOnce(busy(429,{rateLimitAfter:'1'})).mockResolvedValueOnce(busy(429)).mockResolvedValueOnce({status:200,body:bytes({proposals:[]})})
+  expect(await f.session.proposals()).toEqual([])
+  expect(f.send).toHaveBeenCalledTimes(3)
+  // tower_governor's x-ratelimit-after is the floor of the first wait; the second has no hint: own backoff.
+  expect(f.state.sleeps).toEqual([1000,1000])
+  expect(f.send.mock.calls.every(([url,o])=>url===f.profile.endpoint+'/v1/sessions/'+f.session.sessionId+'/execution'&&o.method==='GET'&&o.body===undefined)).toBe(true)
+})
+
+it('paces the poll, presentations, approval state and Request Object reads on 503 as well',async()=>{
+  const f=await paced(), context=f.context()!
+  f.send.mockResolvedValueOnce(busy(503,{retryAfter:'1',rateLimitAfter:'2'})).mockResolvedValueOnce({status:200,body:bytes({status:'pending',phase:'awaiting_wallet',execution_context:context,binding_preimage:context.binding_preimage})})
+  expect((await f.session.poll()).status).toBe('pending')
+  expect(f.state.sleeps).toEqual([2000]) // both valid: the longer wins
+  f.send.mockResolvedValueOnce(busy(429)).mockResolvedValueOnce({status:200,body:bytes({presentations:[]})})
+  expect(await f.session.presentations()).toEqual([])
+  f.send.mockResolvedValueOnce(busy(503)).mockResolvedValueOnce({status:200,body:bytes({id:proposalId,state:'pending',stage:'credential'})})
+  expect(await f.session.approvalState!(proposalId)).toBe('pending')
+  f.send.mockResolvedValueOnce(busy(429)).mockResolvedValueOnce({status:200,body:bytes({id:'ab'.repeat(32),state:'approved'})})
+  await expect(f.session.approvalState!(proposalId)).rejects.toThrow(/delivery state/)
+  f.send.mockResolvedValueOnce(busy(429,{retryAfter:'1'})).mockResolvedValueOnce(busy(503))
+    .mockResolvedValueOnce({status:200,body:new TextEncoder().encode('not.a-jar')})
+  await expect(f.session.requestObject()).rejects.toThrow(/Request Object/)
+  expect(f.send.mock.calls.filter(([url])=>url===f.profile.endpoint+'/v1/request/'+f.session.sessionId)).toHaveLength(3)
+})
+
+it('never shortens a server hint, and refuses typed without waiting when it is too long',async()=>{
+  const f=await paced()
+  f.state.jitter=400
+  f.send.mockResolvedValueOnce(busy(429,{retryAfter:'3'})).mockResolvedValueOnce({status:200,body:bytes({proposals:[]})})
+  await f.session.proposals()
+  expect(f.state.sleeps).toEqual([3400]) // floor 3000, jitter only lengthens
+  f.send.mockResolvedValueOnce(busy(429,{retryAfter:'121'}))
+  const error=await f.session.proposals().catch((e:unknown)=>e)
+  expect(error).toMatchObject({name:'PaidBackoffError',code:'server_wait_too_long',retryAfterMs:121_000,httpStatus:429,retryable:true})
+  expect(f.state.sleeps).toHaveLength(1)
+  expect(f.send).toHaveBeenCalledTimes(3)
+})
+
+
+it('re-reads the deadline after an overrunning sleep and does not send late',async()=>{
+  const f=await paced()
+  f.state.overrun=25_000 // the wait fits (1 s + 5 s budget < 30 s), but the timer overruns by 25 s
+  f.send.mockResolvedValueOnce(busy(429,{retryAfter:'1'}))
+  await expect(f.session.proposals()).rejects.toMatchObject({name:'PaidBackoffError',code:'no_time_to_send',neededMs:5_000})
+  expect(f.send).toHaveBeenCalledTimes(1)
+})
+
+it('never repeats 500, 422 or a transport error on a read',async()=>{
+  const f=await paced()
+  for(const status of [500,422,409]){
+    f.send.mockResolvedValueOnce({status,body:bytes({error:'x'})})
+    await expect(f.session.proposals()).rejects.toMatchObject({name:'PaidAgentControlError',httpStatus:status})
+  }
+  f.send.mockRejectedValueOnce(new Error('socket hang up'))
+  await expect(f.session.proposals()).rejects.toThrow('socket hang up')
+  expect(f.send).toHaveBeenCalledTimes(4)
+  expect(f.state.sleeps).toEqual([])
+})
+
+it('repeats the continuation POST on 429 only, never on 503',async()=>{
+  const f=await paced()
+  const u64=(value:number)=>{const out=new Uint8Array(8);new DataView(out.buffer).setBigUint64(0,BigInt(value));return out}
+  const callback=keccak256(concatBytes(new TextEncoder().encode('keykeeper/retained-presentation/v1'),u64(64),new TextEncoder().encode(f.session.sessionId),
+    hexToBytes(executionBodyHash(f.approved as unknown as Record<string,unknown>)),u64(1030))).slice(2)
+  f.send.mockResolvedValueOnce(busy(429,{rateLimitAfter:'1'})).mockResolvedValueOnce({status:200,body:bytes({status:'accepted'})})
+  await f.session.resumePresentation(callback,f.approved)
+  expect(f.send).toHaveBeenCalledTimes(2)
+  f.send.mockResolvedValueOnce(busy(503,{retryAfter:'1'}))
+  await expect(f.session.resumePresentation(callback,f.approved)).rejects.toMatchObject({name:'PaidAgentControlError',httpStatus:503})
+  expect(f.send).toHaveBeenCalledTimes(3)
+})
+
+it('signs a retained approval once and sends exactly its bytes on every resend',async()=>{
+  const f=await paced(), member=f.members[f.jarIndex]!
+  const approval=await f.session.prepareRequestApproval!(f.proposal(),'presentation_sign',member)
+  expect(f.sign).toHaveBeenCalledTimes(1);expect(f.send).not.toHaveBeenCalled()
+  expect(approval).toMatchObject({proposalId,expires:1030})
+  f.send.mockResolvedValueOnce(busy(429,{rateLimitAfter:'2'})).mockResolvedValueOnce({status:204,body:new Uint8Array()})
+  expect(await f.session.sendRetainedApproval!(approval)).toEqual({status:'busy',httpStatus:429,hintMs:2000})
+  expect(await f.session.sendRetainedApproval!(structuredClone(approval))).toEqual({status:'accepted'})
+  const bodies=f.send.mock.calls.map(([,o])=>new TextDecoder().decode(o.body))
+  expect(bodies).toEqual([approval.body,approval.body])
+  expect(f.send.mock.calls.every(([url,o])=>url===f.profile.endpoint+'/v1/sessions/'+f.session.sessionId+'/execution/'+proposalId+'/approve'&&o.method==='POST')).toBe(true)
+  expect(f.sign).toHaveBeenCalledTimes(1) // never re-signed
+  const authorization=(JSON.parse(approval.body) as {authorization:Parameters<typeof verifyExecutionAuthorization>[0]['authorization']}).authorization
+  await verifyExecutionAuthorization({payment:f.payment,policy:f.policy,expected:{stage:'presentation_sign',operatorKey:member.publicKey,body:f.proposal().unsigned_body},authorization})
+  // A changed or malformed retained body is refused before any send.
+  for(const tampered of [{...approval,body:approval.body.replace('{"authorization":','{"authorization":{"x":1},"y":')},{...approval,body:'{}'},{...approval,proposalId:'zz'},{...approval,expires:1031},{...approval,extra:1}])
+    await expect(f.session.sendRetainedApproval!(tampered as typeof approval)).rejects.toThrow()
+  expect(f.send).toHaveBeenCalledTimes(2)
+  // Any other status is a decided answer, thrown and never classified as busy.
+  f.send.mockResolvedValueOnce({status:409,body:bytes({error:'conflict'})})
+  await expect(f.session.sendRetainedApproval!(approval)).rejects.toMatchObject({name:'PaidAgentControlError',httpStatus:409})
+})
+
+it('keeps the direct approve single-attempt: a busy approval throws, nothing is resent',async()=>{
+  const f=await paced()
+  f.send.mockResolvedValueOnce(busy(429,{retryAfter:'1'}))
+  await expect(f.session.approveRequest(f.proposal(),'presentation_sign',f.members[f.jarIndex]!)).rejects.toMatchObject({name:'PaidAgentControlError',httpStatus:429})
+  expect(f.send).toHaveBeenCalledTimes(1);expect(f.state.sleeps).toEqual([])
+})
+
+it('refuses invalid pacing options',async()=>{
+  await expect(fixture('wallet',undefined,{attemptBudgetMs:999})).rejects.toThrow(/pacing/)
+  await expect(fixture('wallet',undefined,{attemptBudgetMs:60_001})).rejects.toThrow(/pacing/)
+  await expect(fixture('wallet',undefined,{clock:{now:()=>0} as never})).rejects.toThrow(/pacing/)
+})
+
+it('ignores garbage hints and uses its own backoff',async()=>{
+  for(const garbage of ['-1','+1','1.5',' 1','1s','9999999','Wed, 21 Oct 2015 07:28:00 GMT','0x10','1, 2','']){
+    const f=await paced()
+    f.send.mockResolvedValueOnce(busy(429,{retryAfter:garbage})).mockResolvedValueOnce(busy(503,{rateLimitAfter:garbage})).mockResolvedValueOnce({status:200,body:bytes({proposals:[]})})
+    await f.session.proposals()
+    expect(f.state.sleeps,garbage).toEqual([500,1000])
   }
 })
