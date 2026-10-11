@@ -1,10 +1,13 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest'
-import {createWalletClient, defineChain, encodeAbiParameters, encodeEventTopics, encodeFunctionData, http, type Address, type Hex} from 'viem'
+import {createWalletClient, defineChain, encodeAbiParameters, encodeEventTopics, encodeFunctionData, http, sha256, type Address, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import type {TasraChainClient} from '../../src/chain/client.js'
 import {authenticateApprovedService} from '../../src/chain/serviceIdentity.js'
 import {createRegisteredRelaySubmitter, isRelayBusyReason, reconcileRelayAttempt, relayForwarderAbi, RelayOutcomeUnknownError, type RelayAttempt, type RelayTransport} from '../../src/chain/registeredRelay.js'
 import type {ServiceApproval} from '../../src/chain/services.js'
+import {assertRelayVoucherIntent, assertRelayVoucher, type RelayVoucher, type RelayVoucherIntent} from '../../src/chain/relayVoucher.js'
+import {requestHash} from '../../src/oid4vp/binding.js'
+import {hexToBytes, bytesToHex} from '../../src/crypto/hex.js'
 
 vi.mock('../../src/chain/serviceIdentity.js', async original => ({...await original<typeof import('../../src/chain/serviceIdentity.js')>(), authenticateApprovedService: vi.fn()}))
 
@@ -50,6 +53,183 @@ function harness() {
     setNonce: (value: bigint) => { nonce = value }, expire: () => { expired = true },
     setRequest: (body: Uint8Array) => { bodies.push(body); request = JSON.parse(new TextDecoder().decode(body)) }}
 }
+
+const sponsorSlot = hash('77')
+function sponsorIntent(a: RelayAttempt): RelayVoucherIntent {
+  return {operation: {chain_id: a.chainId, slot_id: sponsorSlot, action: 'relay', payload_digest: sha256(a.id), description: 'Sponsor this exact request', exp: a.request.deadline},
+    operation_sig: `0x${'aa'.repeat(65)}`, delegation: {chain_id: a.chainId, slot_ids: [sponsorSlot], actions: ['relay'], delegate: account.address,
+      nonce: 1, exp: a.request.deadline + 100, signature: `0x${'bb'.repeat(65)}`}, message_hex: a.id, sponsorship_slot: sponsorSlot}
+}
+function voucher(a: RelayAttempt): RelayVoucher {
+  const now = Math.floor(Date.now() / 1000)
+  return {compound_token: {token_type: 'JWT', seed: hash('01'), epoch: 1, slot_id: sponsorSlot, vp_hash: hash('02'), holder_hash: hash('03'), rule_hash: hash('04'),
+    request_hash: bytesToHex(requestHash(a.chainId, hexToBytes(sponsorSlot), 'relay', hexToBytes(sha256(a.id)))), binding: 'holder_key', verifier_indexes: [0], iat: now, exp: now + 120,
+    signatures: [{verifier_index: 0, signature: `0x${'ab'.repeat(64)}`}]}, verifier_proofs: [{verifier_index: 0, operator: account.address, pubkey: hash('05'), proof: []}]}
+}
+
+describe('user-class sponsored relay writes', () => {
+  function sponsored() {
+    const h = harness(), persisted: RelayAttempt[] = [], calls: string[] = []
+    let latest: RelayAttempt | undefined
+    const authorize = vi.fn(async ({attempt}: {attempt: RelayAttempt}) => voucher(attempt))
+    const persistAttempt = vi.fn(async (a: RelayAttempt) => { latest = a; persisted.push(structuredClone(a)); calls.push(a.voucher ? 'persist-voucher' : 'persist-request') })
+    vi.mocked(h.transport.relayRequest).mockImplementation(async (url, {body}) => {
+      calls.push(url.endsWith('voucher-intent') ? 'intent' : body ? 'forward' : 'status')
+      if (url.endsWith('voucher-intent')) return encode(sponsorIntent(latest!))
+      if (body) { h.setRequest(body); h.setNonce(1n) }
+      throw new Error('lost response')
+    })
+    const config = {sponsorship: {slotId: sponsorSlot, authorize}, persistAttempt}
+    return {...h, persisted, calls, authorize, persistAttempt, config, latest: () => latest}
+  }
+
+  it('obtains a bound voucher through an authenticated provider and persists it before the original call', async () => {
+    const h = sponsored()
+    expect((await h.submitter(h.config).submit(target, '0x12345678')).txHash).toBe(txHash)
+    expect(h.calls).toEqual(['persist-request', 'intent', 'persist-voucher', 'forward', 'status'])
+    expect(h.sign).toHaveBeenCalledTimes(1)
+    expect(h.authorize).toHaveBeenCalledTimes(1)
+    const context = h.authorize.mock.calls[0]![0]
+    expect(context.attempt.id).toBe(h.persisted[0]!.id)
+    expect(h.persisted[1]!.request).toEqual(h.persisted[0]!.request)
+    expect(JSON.parse(new TextDecoder().decode(h.bodies[0])).voucher).toEqual(h.persisted[1]!.voucher)
+  })
+
+  it('requires durable storage and an independently approved slot', () => {
+    const h = harness()
+    expect(() => h.submitter({sponsorship: {slotId: sponsorSlot, authorize: async () => { throw new Error('unused') }}})).toThrow('durable persistence')
+    expect(() => h.submitter({sponsorship: {slotId: hash('00'), authorize: async () => { throw new Error('unused') }}, persistAttempt: async () => {}})).toThrow('approved slot')
+  })
+
+  it.each(['chain', 'slot', 'message', 'digest', 'expiry', 'delegation'] as const)('refuses a mismatched %s intent before wallet consent or a forward POST', async changed => {
+    const h = sponsored()
+    vi.mocked(h.transport.relayRequest).mockImplementation(async () => {
+      const i = sponsorIntent(h.latest()!)
+      if (changed === 'chain') i.operation.chain_id++
+      if (changed === 'slot') i.sponsorship_slot = hash('88')
+      if (changed === 'message') i.message_hex = hash('88')
+      if (changed === 'digest') i.operation.payload_digest = hash('88')
+      if (changed === 'expiry') i.operation.exp++
+      if (changed === 'delegation') i.delegation.actions = ['sign']
+      return encode(i)
+    })
+    await expect(h.submitter(h.config).submit(target, '0x12345678')).rejects.toThrow('does not bind')
+    expect(h.authorize).not.toHaveBeenCalled()
+    expect(h.bodies).toHaveLength(0)
+  })
+
+  it('does not forward or replace the request when the wallet refuses', async () => {
+    const h = sponsored()
+    h.authorize.mockRejectedValue(new Error('wallet declined'))
+    await expect(h.submitter(h.config).submit(target, '0x12345678')).rejects.toThrow('wallet declined')
+    expect(h.calls).toEqual(['persist-request', 'intent'])
+    expect(h.sign).toHaveBeenCalledTimes(1)
+    expect(h.persisted).toHaveLength(1)
+  })
+
+  it('refuses a wallet result for another request before any gas-spending POST', async () => {
+    const h = sponsored()
+    h.authorize.mockImplementation(async ({attempt}) => { const v = voucher(attempt); v.compound_token.request_hash = hash('ff'); return v })
+    await expect(h.submitter(h.config).submit(target, '0x12345678')).rejects.toThrow('does not bind')
+    expect(h.calls).toEqual(['persist-request', 'intent'])
+    expect(h.bodies).toHaveLength(0)
+  })
+
+  it('does not spend gas when retaining the voucher fails', async () => {
+    const h = sponsored()
+    const persistAttempt = async (a: RelayAttempt) => { if (a.voucher) throw new Error('storage unavailable'); await h.persistAttempt(a) }
+    await expect(h.submitter({...h.config, persistAttempt}).submit(target, '0x12345678')).rejects.toThrow('storage unavailable')
+    expect(h.calls).toEqual(['persist-request', 'intent'])
+    expect(h.bodies).toHaveLength(0)
+  })
+
+  it('does not obtain an intent or show a wallet prompt for unauthenticated services', async () => {
+    const h = sponsored()
+    vi.mocked(authenticateApprovedService).mockRejectedValue(new Error('unapproved identity'))
+    await expect(h.submitter(h.config).submit(target, '0x12345678')).rejects.toThrow('No approved relayer authenticated')
+    expect(h.calls).toEqual(['persist-request'])
+    expect(h.authorize).not.toHaveBeenCalled()
+  })
+
+  it('resumes the exact retained voucher and signature after a lost POST without a second wallet session', async () => {
+    const h = sponsored()
+    vi.mocked(h.transport.relayRequest).mockImplementation(async (url, {body}) => {
+      if (url.endsWith('voucher-intent')) return encode(sponsorIntent(h.latest()!))
+      if (body) h.setRequest(body)
+      throw new Error('offline')
+    })
+    await expect(h.submitter({...h.config, maxAttempts: 1}).submit(target, '0x12345678')).rejects.toBeInstanceOf(RelayOutcomeUnknownError)
+    const original = structuredClone(h.latest()!)
+    vi.mocked(h.transport.relayRequest).mockImplementation(async (_, {body}) => {
+      if (body) { h.setRequest(body); h.setNonce(1n) }
+      throw new Error('lost response')
+    })
+    expect((await h.submitter({...h.config, resumeAttempt: async () => original}).submit(target, '0x12345678')).txHash).toBe(txHash)
+    expect(h.sign).toHaveBeenCalledTimes(1)
+    expect(h.authorize).toHaveBeenCalledTimes(1)
+    expect(h.bodies[1]).toEqual(h.bodies[0])
+  })
+
+  it('uses one voucher and identical bytes across authenticated alternative providers', async () => {
+    const h = sponsored()
+    vi.mocked(h.transport.relayRequest).mockImplementation(async (url, {body}) => {
+      if (url.endsWith('voucher-intent')) return encode(sponsorIntent(h.latest()!))
+      if (body) { h.setRequest(body); if (url.includes('02.example')) h.setNonce(1n) }
+      throw new Error('lost response')
+    })
+    expect((await h.submitter(h.config).submit(target, '0x12345678')).txHash).toBe(txHash)
+    expect(h.sign).toHaveBeenCalledTimes(1)
+    expect(h.authorize).toHaveBeenCalledTimes(1)
+    expect(h.bodies).toHaveLength(2)
+    expect(h.bodies[1]).toEqual(h.bodies[0])
+  })
+
+  it('keeps the original voucher and signature during busy backoff', async () => {
+    const h = sponsored()
+    let sends = 0
+    h.transport.relayExchange = async (_, {body}) => {
+      h.setRequest(body!)
+      if (++sends === 1) return {status: 422, body: encode({state: 'rejected', reason: 'relayer busy: full lane'}), retryAfterMs: 0}
+      h.setNonce(1n)
+      return {status: 202, body: encode({state: 'queued'})}
+    }
+    expect((await h.submitter(h.config).submit(target, '0x12345678')).txHash).toBe(txHash)
+    expect(sends).toBe(2)
+    expect(h.bodies[0]).toEqual(h.bodies[1])
+    expect(h.sign).toHaveBeenCalledTimes(1)
+    expect(h.authorize).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses a replacement for a consumed nonce outside the reconciliation window', async () => {
+    const h = sponsored()
+    vi.mocked(h.transport.relayRequest).mockImplementation(async (url, {body}) => {
+      if (url.endsWith('voucher-intent')) return encode(sponsorIntent(h.latest()!))
+      if (body) h.setRequest(body)
+      throw new Error('offline')
+    })
+    await expect(h.submitter({...h.config, maxAttempts: 1}).submit(target, '0x12345678')).rejects.toBeInstanceOf(RelayOutcomeUnknownError)
+    const original = structuredClone(h.latest()!)
+    h.setNonce(1n)
+    h.client.getBlock.mockResolvedValue({number: 20_050n, timestamp: BigInt(Math.floor(Date.now() / 1000))})
+    await expect(h.submitter({...h.config, resumeAttempt: async () => original}).submit(target, '0x12345678')).rejects.toBeInstanceOf(RelayOutcomeUnknownError)
+    expect(h.bodies).toHaveLength(1)
+    expect(h.sign).toHaveBeenCalledTimes(1)
+    expect(h.authorize).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses foreign, paid or proofless wallet results before a forward POST', async () => {
+    const h = sponsored()
+    await h.submitter(h.config).submit(target, '0x12345678')
+    const a = h.persisted[0]!
+    const foreign = voucher(a); foreign.compound_token.request_hash = hash('ff')
+    expect(() => assertRelayVoucher(foreign, a, sponsorSlot)).toThrow('does not bind')
+    const paid = voucher(a); paid.compound_token.payment_hash = hash('ff')
+    expect(() => assertRelayVoucher(paid, a, sponsorSlot)).toThrow('does not bind')
+    const noProof = voucher(a); noProof.verifier_proofs = []
+    expect(() => assertRelayVoucher(noProof, a, sponsorSlot)).toThrow('does not bind')
+    expect(() => assertRelayVoucherIntent(sponsorIntent(a), a, hash('88'))).toThrow('does not bind')
+  })
+})
 
 describe('approved registered relayer writes', () => {
   it('recovers an executed call after both HTTP responses are lost without contacting another provider', async () => {

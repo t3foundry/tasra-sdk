@@ -146,6 +146,18 @@ describe('service HTTPS destination boundary', () => {
     await expect(createNodeRelayTransport({ca}).relayRequest(endpoint + '/v1/relay/forward', {...options(), body})).rejects.toThrow('destination policy')
     await expect(createNodeRelayTransport({ca, allowedPrivateHosts: ['localhost']}).relayRequest(endpoint + '/v1/relay/forward', {...options(), body})).rejects.toThrow('status')
   })
+  it('admits bounded voucher-intent POSTs over guarded TLS without widening status or arbitrary routes', async () => {
+    const hits = vi.fn()
+    const endpoint = await serve((req, res) => { hits(req.url, req.method); req.resume(); res.writeHead(200, {'content-type': 'application/json'}); res.end('{"intent":"' + 'x'.repeat(5000) + '"}') })
+    const transport = createNodeRelayTransport({allowedPrivateHosts: ['localhost'], ca})
+    const args = {...options(), maxBytes: 65_536, body: new TextEncoder().encode('{}')}
+    expect((await transport.relayRequest(endpoint + '/v1/relay/voucher-intent', args)).length).toBeGreaterThan(4096)
+    expect(hits).toHaveBeenCalledWith('/v1/relay/voucher-intent', 'POST')
+    expect(() => transport.relayRequest(endpoint + '/v1/relay/voucher-intent', {...args, body: undefined})).toThrow('method')
+    expect(() => transport.relayRequest(endpoint + '/v1/relay/forward', args)).toThrow('bounds')
+    expect(() => transport.relayRequest(endpoint + '/v1/relay/voucher-intent?next=1', args)).toThrow()
+    expect(() => transport.relayRequest(endpoint + '/v1/relay/voucher-intent', {...args, maxBytes: 65_537})).toThrow('bounds')
+  })
   it.each(vector.publicAddresses)('allows public address %s', address => expect(isPublicServiceAddress(address)).toBe(true))
   it.each(vector.privateAddresses)('refuses special address %s', address => expect(isPublicServiceAddress(address)).toBe(false))
   it('refuses private DNS before connecting and permits an explicit host with verified TLS', async () => {

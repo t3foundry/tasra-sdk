@@ -9,6 +9,14 @@ never does.
 
 ### Added
 
+- Registered relay sponsorship via `sponsorship: {slotId, authorize}`. The SDK requests
+  a sponsor intent only from an authenticated approved relayer, checks exact chain,
+  slot and forward-request binding, obtains the wallet voucher through the application's
+  approved verifier-agent callback, and persists it before forwarding. Restart recovery
+  reuses the original signature and voucher; an unresolvable spent nonce refuses replacement.
+  Sponsorship requires durable `persistAttempt`. The relayer remains responsible for
+  committee signature, membership, standing and revocation checks.
+
 - Status refresh for an already-issued committee grant (`keykeeper/committee-status-refresh/v1`):
   a verifier re-attests credential status for the SAME token (new
   `keykeeper/committee-status-attestation/v1` statement, token hash unchanged), with no new token,

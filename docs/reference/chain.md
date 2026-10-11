@@ -428,7 +428,7 @@ declare class PrepaidEscapeUncertainError {
 
 A relay request has no verified terminal result and must be reconciled before replacement.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L148)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L153)
 
 Import: `import {RelayOutcomeUnknownError} from 'tasra-sdk/chain'`
 
@@ -528,7 +528,7 @@ declare class UnderfundedSlotError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 85 functions</summary>
+<summary>Browse 87 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -538,6 +538,8 @@ Operations you can import and call.
 - [assertEurcFaucetAllowed](#asserteurcfaucetallowed)
 - [assertExpiredSlotCommitment](#assertexpiredslotcommitment)
 - [assertRegisteredWalletRequest](#assertregisteredwalletrequest)
+- [assertRelayVoucher](#assertrelayvoucher)
+- [assertRelayVoucherIntent](#assertrelayvoucherintent)
 - [authenticateApprovedService](#authenticateapprovedservice)
 - [awaitRegisteredVerifierAgentResult](#awaitregisteredverifieragentresult)
 - [categoryFor](#categoryfor)
@@ -772,6 +774,46 @@ declare function assertRegisteredWalletRequest(session: RegisteredVerifierAgentS
 
 Returns: ` void `.
 
+### assertRelayVoucher
+
+Validate voucher shape/binding before submission; signature, standing and status authority remain the relayer's gate.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/relayVoucher.ts#L81)
+
+Import: `import {assertRelayVoucher} from 'tasra-sdk/chain'`
+
+```ts
+declare function assertRelayVoucher(raw: unknown, attempt: RelayAttempt, slotId: Hex): asserts raw is RelayVoucher;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` raw ` | ` unknown ` | Wire voucher returned by the application's approved wallet flow. |
+| ` attempt ` | ` RelayAttempt ` | Original signed forward request to which the voucher must be bound. |
+| ` slotId ` | ` Hex ` | Independently approved sponsorship slot. |
+
+Returns: ` asserts raw is RelayVoucher `.
+
+### assertRelayVoucherIntent
+
+Validate intent shape and exact request/chain/slot binding; creator authority is verified by the approved agent.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/relayVoucher.ts#L60)
+
+Import: `import {assertRelayVoucherIntent} from 'tasra-sdk/chain'`
+
+```ts
+declare function assertRelayVoucherIntent(raw: unknown, attempt: RelayAttempt, slotId: Hex): asserts raw is RelayVoucherIntent;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` raw ` | ` unknown ` | Sponsor intent received from the authenticated approved relayer. |
+| ` attempt ` | ` RelayAttempt ` | Original signed forward request, retained before wallet authorization. |
+| ` slotId ` | ` Hex ` | Independently approved sponsorship slot. |
+
+Returns: ` asserts raw is RelayVoucherIntent `.
+
 ### authenticateApprovedService
 
 Uncached, bounded discovery only. A result is a short-lived observation, not verifier-agent or gas authorization.
@@ -984,7 +1026,7 @@ Returns:
 
 One signer per instance. Serializes nonces and blocks new signatures after an uncertain result.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L266)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L271)
 
 Import: `import {createRegisteredRelaySubmitter} from 'tasra-sdk/chain'`
 
@@ -1429,7 +1471,7 @@ journal or an unavailable shared sponsorship budget. The relayer answers these 4
 with `Retry-After` before journaling anything. "shared daily spend cap reached", quota and
 policy refusals are not busy.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L81)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L84)
 
 Import: `import {isRelayBusyReason} from 'tasra-sdk/chain'`
 
@@ -2140,7 +2182,7 @@ Returns: ` Promise<PaidReservationResolution> `.
 
 Recover from a lost HTTP response or process restart using the trusted RPC, without broadcasting.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L253)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L258)
 
 Import: `import {reconcileRelayAttempt} from 'tasra-sdk/chain'`
 
@@ -2688,7 +2730,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 128 types</summary>
+<summary>Browse 131 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -2787,7 +2829,10 @@ Options, data structures and return types.
 - [RelayIntent](#relayintent)
 - [RelayReceipt](#relayreceipt)
 - [RelayReconciliation](#relayreconciliation)
+- [RelaySponsorshipConfig](#relaysponsorshipconfig)
 - [RelayTransport](#relaytransport)
+- [RelayVoucher](#relayvoucher)
+- [RelayVoucherIntent](#relayvoucherintent)
 - [ReservePaidOperationOptions](#reservepaidoperationoptions)
 - [ResolvedEndpoints](#resolvedendpoints)
 - [ResolvedNetworkProfile](#resolvednetworkprofile)
@@ -5044,10 +5089,11 @@ Fields:
 
 Approved relay providers, pinned forwarder and durable recovery callbacks.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L49)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L50)
 
 ```ts
 export interface RegisteredRelayConfig {
+    sponsorship?: RelaySponsorshipConfig;
     approvals: readonly ServiceApproval[];
     transport: RelayTransport;
     forwarder: Address;
@@ -5064,6 +5110,7 @@ export interface RegisteredRelayConfig {
 
 Fields:
 
+- **` sponsorship `**: Holder-bound voucher flow for user-class calls; requires durable persistAttempt.
 - **` approvals `**: Application approvals, in preference order. Registry membership alone never selects a service.
 - **` transport `**: Guarded HTTP transport for service authentication and relay submission.
 - **` forwarder `**: Independently pinned deployment forwarder; never supplied by a relayer manifest.
@@ -5109,10 +5156,11 @@ Fields:
 
 JSON-safe reconciliation handle. Persist before POST to resume safely after a client restart.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L132)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L135)
 
 ```ts
 export interface RelayAttempt {
+    voucher?: RelayVoucher;
     chainId: number;
     forwarder: Address;
     fromBlock: string;
@@ -5133,6 +5181,7 @@ export interface RelayAttempt {
 
 Fields:
 
+- **` voucher `**: Wallet voucher persisted before relay submission, bound to this exact signed request.
 - **` chainId `**: Chain bound into the signed forward request.
 - **` forwarder `**: Pinned forwarder contract expected to execute the request.
 - **` fromBlock `**: Decimal block number from which reconciliation scans execution logs.
@@ -5151,6 +5200,7 @@ export type RelayConfig = RegisteredRelayConfig;
 
 Fields:
 
+- **` sponsorship `**: Holder-bound voucher flow for user-class calls; requires durable persistAttempt.
 - **` approvals `**: Application approvals, in preference order. Registry membership alone never selects a service.
 - **` transport `**: Guarded HTTP transport for service authentication and relay submission.
 - **` forwarder `**: Independently pinned deployment forwarder; never supplied by a relayer manifest.
@@ -5167,7 +5217,7 @@ Fields:
 
 Bounded relayer reply with the wait it requested, if any.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L19)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L20)
 
 ```ts
 export interface RelayHttpResponse {
@@ -5187,7 +5237,7 @@ Fields:
 
 Chain, forwarder, signer and exact calldata identifying a relay operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L31)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L32)
 
 ```ts
 export interface RelayIntent {
@@ -5213,7 +5263,7 @@ Fields:
 
 Verified forwarded transaction result with optional gas and native-token cost.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L99)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L102)
 
 ```ts
 export interface RelayReceipt {
@@ -5235,7 +5285,7 @@ Fields:
 
 Reconciled relay outcome. A receipt proves execution. Expired means the deadline passed with the nonce unused. Unresolvable means the nonce was consumed beyond the available log window; execution remains unknown and must not be retried as a new operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L204)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L209)
 
 ```ts
 export interface RelayReconciliation {
@@ -5251,11 +5301,33 @@ Fields:
 - **` expired `**: Whether the deadline passed while the request nonce remained unused.
 - **` unresolvable `**: Whether the consumed nonce predates the available log scan, leaving execution unknown.
 
+### RelaySponsorshipConfig
+
+Wallet consent callback and an independently approved sponsorship slot.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/relayVoucher.ts#L36)
+
+```ts
+export interface RelaySponsorshipConfig {
+    slotId: Hex;
+    authorize(context: {
+        attempt: RelayAttempt;
+        intent: RelayVoucherIntent;
+        signal: AbortSignal;
+    }): Promise<RelayVoucher>;
+}
+```
+
+Fields:
+
+- **` slotId `**: Expected slot, reviewed independently of the relayer's reply.
+- **` authorize `**: Complete an OID4VP session through an approved verifier-agent using this sponsor intent. Authenticate the agent, its Request Object and creator authorization before presenting credentials. Persist wallet-session recovery under attempt.id; honor signal cancellation. Return the resulting wire voucher, without a new forward signature or payment reservation. The relayer independently verifies committee signatures, membership and revocation status.
+
 ### RelayTransport
 
 Guarded discovery and transaction relay transport with bounded response bodies.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L11)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L12)
 
 ```ts
 export interface RelayTransport extends ServiceDiscoveryTransport {
@@ -5277,6 +5349,57 @@ Fields:
 - **` relayRequest `**: Guard the socket just like discovery. Accept bounded JSON status bodies for 200/202/422.
 - **` relayExchange `**: Optional: the same guarded request, also reporting status and `Retry-After` for busy refusals.
 - **` request `**: Perform a bounded request using the required destination, TLS and cancellation policy; return response bytes.
+
+### RelayVoucher
+
+Holder-bound authorization for exactly one forwarded request, in relayer wire format.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/relayVoucher.ts#L24)
+
+```ts
+export interface RelayVoucher {
+    compound_token: CompoundTokenWire;
+    verifier_proofs: {
+        verifier_index: number;
+        operator: string;
+        pubkey: string;
+        proof: string[];
+    }[];
+    status_attestations?: StatusAttestationWire[];
+    evidence_ct?: string;
+}
+```
+
+Fields:
+
+- **` compound_token `**: Unpaid committee token; relay sponsorship does not reserve slot credit.
+- **` verifier_proofs `**: Snapshot membership proofs accompanying the token signatures.
+- **` status_attestations `**: Freshness attestations, when supplied outside the token.
+- **` evidence_ct `**: Sealed evidence carried unchanged when supplied by the agent.
+
+### RelayVoucherIntent
+
+Sponsor-signed operation returned by an authenticated relayer, before wallet consent.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/relayVoucher.ts#L10)
+
+```ts
+export interface RelayVoucherIntent {
+    operation: PresentationOperation;
+    operation_sig: string;
+    delegation: PresentationDelegation;
+    message_hex: string;
+    sponsorship_slot: string;
+}
+```
+
+Fields:
+
+- **` operation `**: Relay action binding the prepared request digest to the sponsorship slot.
+- **` operation_sig `**: Sponsor delegate's EIP-712 operation signature.
+- **` delegation `**: Slot creator's authorization of that sponsor delegate.
+- **` message_hex `**: Original forward request's EIP-712 digest, presented as the session message.
+- **` sponsorship_slot `**: Independently approved sponsorship slot.
 
 ### ReservePaidOperationOptions
 

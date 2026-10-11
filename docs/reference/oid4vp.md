@@ -1128,14 +1128,14 @@ accountant audit and this SDK compute. The wallet's request body is deliberately
 Import: `import {requestHash} from 'tasra-sdk/oid4vp'`
 
 ```ts
-declare function requestHash(chainId: number | bigint, slotId: Uint8Array, action: CommitteeAction, payloadDigest: Uint8Array): Uint8Array;
+declare function requestHash(chainId: number | bigint, slotId: Uint8Array, action: CommitteeAction | 'relay', payloadDigest: Uint8Array): Uint8Array;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` chainId ` | ` number \| bigint ` | - EVM chain identifier. |
 | ` slotId ` | ` Uint8Array ` | - 32-byte slot identifier. |
-| ` action ` | ` CommitteeAction ` | - Operation name bound into the request. |
+| ` action ` | ` CommitteeAction \| 'relay' ` | - Operation name bound into the request. |
 | ` payloadDigest ` | ` Uint8Array ` | - 32-byte action-specific payload digest. |
 
 Returns: ` Uint8Array `.

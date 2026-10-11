@@ -153,6 +153,8 @@ export type {ServiceManifest, ServiceChallenge, ServiceDiscoveryTransport, Authe
 
 export {createRegisteredRelaySubmitter, reconcileRelayAttempt, RelayOutcomeUnknownError, isRelayBusyReason} from './registeredRelay.js'
 export type {RegisteredRelayConfig, RelayTransport, RelayAttempt, RelayIntent, RelayReconciliation, RelayHttpResponse} from './registeredRelay.js'
+export type {RelayVoucher, RelayVoucherIntent, RelaySponsorshipConfig} from './relayVoucher.js'
+export {assertRelayVoucher, assertRelayVoucherIntent} from './relayVoucher.js'
 
 export {createRegisteredAgentClient, AgentSessionCreationUnknownError} from './registeredAgent.js'
 export type {AgentTransport, ApprovedAgentProfile, RegisteredAgentSession} from './registeredAgent.js'

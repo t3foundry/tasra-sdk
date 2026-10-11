@@ -2,6 +2,32 @@
 
 > The chain subpath: reads, writes, slot creation, discovery, and the slot-driven clients.
 
+## User-class gas sponsorship
+
+Configure registered relay writes with `sponsorship: {slotId, authorize}` when the
+relayer's user-class policy requires a holder-bound voucher. Approve `slotId`
+independently of the relayer. Provide durable `persistAttempt` and `resumeAttempt`
+callbacks. The SDK saves the signed forward request before asking the authenticated
+relayer for `/v1/relay/voucher-intent`, then checks the intent's chain, slot, digest,
+expiry and delegation scope. Your `authorize({attempt, intent, signal})` callback
+completes the wallet flow through an independently approved verifier-agent and
+returns `{compound_token, verifier_proofs}` in wire format, optionally with
+`status_attestations` and `evidence_ct`. Do not include session metadata in this bundle.
+Authenticate the agent and its Request Object before presenting credentials; the
+agent must verify the sponsor's creator/delegate authority. Retain session recovery
+under `attempt.id` and honor cancellation.
+
+The SDK checks the returned voucher's request binding and persists the voucher with
+the original signature before submitting. The relayer independently verifies the
+committee signatures, snapshot proofs, standing and revocation freshness. No TASRA
+reservation is created for this relay authorization. TASRA slot funding and AVAX gas
+sponsorship remain separate balances. Busy retries and alternative providers receive
+the same signed request and voucher. Restarting with a retained, unexpired voucher
+does not sign a new request or open another wallet session. A consumed nonce with
+an unresolvable execution outcome refuses replacement; investigate that original
+request before creating another operation. Expired vouchers require explicit recovery
+and are not silently renewed. Native wallet/fleet acceptance is required before rollout.
+
 Download the selected manifest from
 [tasra-releases](https://github.com/t3-foundry/tasra-releases), verify its trusted
 checksum, and derive the address book with `addressBookFromManifest`.

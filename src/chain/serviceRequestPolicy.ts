@@ -44,7 +44,8 @@ export interface ServiceRequestShape {
 export function serviceRequestShape(mode: ServiceTransportMode, url: string, {body, maxBytes, bearer, method, oauth}: ServiceRequestOptions): ServiceRequestShape {
   const relay = mode === 'relay', agent = mode === 'agent', wallet = mode === 'wallet', status = mode === 'status'
   const paid = mode === 'paid-agent', recovery = mode === 'keeper-recovery'
-  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > (recovery ? 16 * 1024 * 1024 : paid ? 10 * 1024 * 1024 : agent || wallet ? 1_048_576 : relay ? 4_096 : 16_384) || body && body.length > (recovery ? 65_536 : paid ? 2 * 1024 * 1024 : wallet ? 1_048_576 : agent || relay ? 65_536 : 2_048)) throw new Error('Invalid service HTTP bounds')
+  const voucherIntent = relay && /\/v1\/relay\/voucher-intent$/.test(url)
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > (recovery ? 16 * 1024 * 1024 : paid ? 10 * 1024 * 1024 : agent || wallet ? 1_048_576 : relay ? voucherIntent ? 65_536 : 4_096 : 16_384) || body && body.length > (recovery ? 65_536 : paid ? 2 * 1024 * 1024 : wallet ? 1_048_576 : agent || relay ? 65_536 : 2_048)) throw new Error('Invalid service HTTP bounds')
   const recoverySuffix = url.match(/\/v1\/prepaid\/execution(?:\/recover)?$/)?.[0]
   if (recovery && (!recoverySuffix || method !== 'POST' || !body || bearer !== undefined || oauth !== undefined)) throw new Error('Invalid keeper recovery path, method or body')
   const paidSuffix = url.match(/(?:\/v1\/request\/[0-9a-f]{64}|\/v1\/sessions(?:\/[0-9a-f]{64}(?:\/(?:oauth-response|execution(?:\/[0-9a-f]{64}(?:\/(?:approve|reject))?)?|presentations(?:\/[0-9a-f]{64}\/resume)?))?)?)$/)?.[0]
@@ -60,8 +61,8 @@ export function serviceRequestShape(mode: ServiceTransportMode, url: string, {bo
     || (paidCreate || paidJar ? bearer !== undefined : !/^[0-9a-f]{64}$/.test(bearer ?? ''))
     || (paidCreate || paidSuffix.endsWith('/approve') ? body === undefined : body !== undefined))) throw new Error('Invalid paid agent path, method, body or owner bearer')
   // The registry's 512-byte limit applies to the base, excluding appended protocol paths.
-  const relaySuffix = url.match(/\/v1\/relay\/(forward|0x[0-9a-f]{64})$/)?.[0]
-  if (relay && (!relaySuffix || Boolean(body) !== relaySuffix.endsWith('/forward'))) throw new Error('Invalid relay path or method')
+  const relaySuffix = url.match(/\/v1\/relay\/(forward|voucher-intent|0x[0-9a-f]{64})$/)?.[0]
+  if (relay && (!relaySuffix || Boolean(body) !== (relaySuffix.endsWith('/forward') || voucherIntent))) throw new Error('Invalid relay path or method')
   const agentSuffix = url.match(/\/v1\/sessions(?:\/[0-9a-f]{64})?$/)?.[0]
   if (agent && (!agentSuffix || (body ? agentSuffix !== '/v1/sessions' || bearer !== undefined : agentSuffix === '/v1/sessions' || !/^[0-9a-f]{64}$/.test(bearer ?? '')))) throw new Error('Invalid agent path, method or poll secret')
   if (!agent && !paid && bearer !== undefined) throw new Error('Bearer is only allowed for agent polling')

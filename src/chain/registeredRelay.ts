@@ -4,6 +4,7 @@ import {authenticateApprovedService, type ServiceDiscoveryTransport} from './ser
 import {SERVICE_TYPES, type ServiceApproval} from './services.js'
 import {revertError} from './revertReason.js'
 import {retryDelayMs} from '../retry.js'
+import {assertRelayVoucher, assertRelayVoucherIntent, type RelayVoucher, type RelaySponsorshipConfig} from './relayVoucher.js'
 
 /**
  * Guarded discovery and transaction relay transport with bounded response bodies.
@@ -47,6 +48,8 @@ export interface RelayIntent {
  * Approved relay providers, pinned forwarder and durable recovery callbacks.
  */
 export interface RegisteredRelayConfig {
+  /** Holder-bound voucher flow for user-class calls; requires durable persistAttempt. */
+  sponsorship?: RelaySponsorshipConfig
   /** Application approvals, in preference order. Registry membership alone never selects a service. */
   approvals: readonly ServiceApproval[]
   /** Guarded HTTP transport for service authentication and relay submission. */
@@ -130,6 +133,8 @@ const types = {ForwardRequest: [
 
 /** JSON-safe reconciliation handle. Persist before POST to resume safely after a client restart. */
 export interface RelayAttempt {
+  /** Wallet voucher persisted before relay submission, bound to this exact signed request. */
+  voucher?: RelayVoucher
   /** Chain bound into the signed forward request. */
   chainId: number
   /** Pinned forwarder contract expected to execute the request. */
@@ -269,7 +274,9 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
     throw new Error('Relay requires approved registry profiles and a guarded RelayTransport; a URL alone is insufficient')
   }
   if (!/^0x[0-9a-fA-F]{40}$/.test(config.forwarder) || /^0x0{40}$/.test(config.forwarder)) throw new Error('Invalid pinned relay forwarder')
-  const cfg = {...config, approvals: config.approvals.map(a => Object.freeze({...a}))}
+  const cfg = {...config, sponsorship: config.sponsorship && Object.freeze({...config.sponsorship}), approvals: config.approvals.map(a => Object.freeze({...a}))}
+  if (cfg.sponsorship && (!/^0x[0-9a-fA-F]{64}$/.test(cfg.sponsorship.slotId) || /^0x0{64}$/.test(cfg.sponsorship.slotId) ||
+      typeof cfg.sponsorship.authorize !== 'function' || typeof (cfg.persistAttempt ?? options.persistAttempt) !== 'function')) throw new Error('Relay sponsorship requires an approved slot, wallet authorization and durable persistence')
   const timeout = cfg.timeoutMs ?? 120_000, pollMs = cfg.pollMs ?? 1_500, attemptMs = cfg.attemptMs ?? 10_000, busyRetries = cfg.busyRetries ?? 3
   const attempts = cfg.maxAttempts ?? Math.min(3, cfg.approvals.length)
   if (!cfg.approvals.length || cfg.approvals.length > 16 || cfg.approvals.some(a => a.serviceType !== SERVICE_TYPES.gasRelayer) ||
@@ -307,9 +314,14 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
         //    either, because the scan window only recedes. Fall through and sign a FRESH request
         //    at the current nonce - the caller was told (via the journal) that the old one is
         //    terminal-with-unknown-outcome and is responsible for not redoing work that landed.
+        if (result.unresolvable && cfg.sponsorship) { pending = previousAttempt; throw new RelayOutcomeUnknownError(previousAttempt) }
         if (result.unresolvable) pending = undefined
-        else if (!result.expired) { pending = previousAttempt; throw new RelayOutcomeUnknownError(previousAttempt) }
+        else if (!result.expired) {
+          if (cfg.sponsorship) attempt = Object.freeze({...previousAttempt, request: Object.freeze({...previousAttempt.request})})
+          else { pending = previousAttempt; throw new RelayOutcomeUnknownError(previousAttempt) }
+        }
       }
+      if (!attempt) {
       const fromBlock = await budget.run(() => chain.client.getBlockNumber({cacheTime: 0}))
       const nonce = await budget.run(() => chain.client.readContract({address: cfg.forwarder, abi: relayForwarderAbi, functionName: 'nonces', args: [from]}))
       // The inner call is estimated without an ABI, so viem cannot name a custom error; decode it, or a
@@ -322,7 +334,8 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
       const unsigned = {chainId, forwarder: cfg.forwarder, request}
       request.signature = await budget.run(() => wallet.signTypedData({account: wallet.account, ...typed(unsigned)}))
       attempt = Object.freeze({...unsigned, request: Object.freeze(request), fromBlock: fromBlock.toString(), id: hashTypedData(typed(unsigned))})
-      const body = new TextEncoder().encode(JSON.stringify(request))
+      }
+      let body = new TextEncoder().encode(JSON.stringify(attempt.request))
       if (body.length > 65_536) throw new Error('Relay request too large')
       // The application can durably store this handle before any endpoint receives it.
       const persist = cfg.persistAttempt ?? options.persistAttempt
@@ -342,6 +355,25 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
           if (!authenticated.manifest.capabilities.includes('relay-forward')) throw new Error('Service does not advertise relay-forward')
           endpoint = authenticated.record.endpoint
         } catch { budget.signal.throwIfAborted(); continue }
+        if (cfg.sponsorship) {
+          if (!attempt.voucher) {
+            const intentBody = new TextEncoder().encode(JSON.stringify({kind: 'forward', ...attempt.request}))
+            const bytes = await budget.run(() => cfg.transport.relayRequest(endpoint + '/v1/relay/voucher-intent', {body: intentBody, maxBytes: 65_536, signal: budget.signal}))
+            if (bytes.length > 65_536) throw new Error('Relay voucher intent too large')
+            const intent: unknown = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes))
+            assertRelayVoucherIntent(intent, attempt, cfg.sponsorship.slotId)
+            const voucher = JSON.parse(JSON.stringify(await budget.run(() => cfg.sponsorship!.authorize({attempt: attempt!, intent, signal: budget.signal})))) as unknown
+            assertRelayVoucher(voucher, attempt, cfg.sponsorship.slotId)
+            const freeze = (value: object): void => { for (const child of Object.values(value) as unknown[]) if (child && typeof child === 'object') freeze(child); Object.freeze(value) }
+            freeze(voucher)
+            attempt = Object.freeze({...attempt, voucher})
+          }
+          assertRelayVoucher(attempt.voucher, attempt, cfg.sponsorship.slotId)
+          body = new TextEncoder().encode(JSON.stringify({...attempt.request, voucher: attempt.voucher}))
+          if (body.length > 65_536) throw new Error('Relay request too large')
+          // The voucher and original forward signature are retained together before any gas can be spent.
+          await budget.run(() => persist!(attempt!))
+        }
         pending = attempt
         contacted = true
         // A busy refusal (full lane/journal, unavailable shared budget) is answered before anything
