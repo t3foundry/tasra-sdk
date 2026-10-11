@@ -1,6 +1,15 @@
 import {defineConfig} from 'astro/config'
 import starlight from '@astrojs/starlight'
 export default defineConfig({
+  vite: {
+    preview: {
+      allowedHosts: [
+        'sdk.t3-foundry.fuji.tasra.network',
+        'docs.tasra.network',
+        'tasra-sdk-docs',
+      ],
+    },
+  },  
   integrations: [starlight({
     title: 'Tasra SDK',
     logo: {src: './assets/tasra-logo.webp', alt: '', replacesTitle: false},
