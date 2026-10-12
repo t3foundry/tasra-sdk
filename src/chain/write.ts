@@ -24,6 +24,7 @@ import {
   concat,
   encodeFunctionData,
   keccak256,
+  parseEventLogs,
   toHex,
   type Account,
   type Address,
@@ -42,6 +43,14 @@ import {canonicalize, isOid4vpRule} from '../auth/oid4vp.js'
 import {isOauthEnvelope, loadRego, type OauthPolicyInput} from '../auth/rego.js'
 import {TasraError} from '../errors.js'
 import {keyRegistryAbi} from './abis/keyRegistry.js'
+import {
+  RuleAmendmentError,
+  immutableError,
+  pendingError,
+  readAmendmentOnChain,
+  sameAddress,
+  type AmendmentOnChain,
+} from './ruleAmendmentCore.js'
 import {nodeRegistryAbi} from './abis/nodeRegistry.js'
 
 /**
@@ -116,6 +125,18 @@ function authTypeIndex(auth: SlotAuthType | undefined): number {
     )
   }
   return i
+}
+
+/**
+ * Map a `KeyRegistry.AuthType` ordinal read from chain back to its label.
+ * @param ordinal The `auth` field of `KeyRegistry.getKeySlot`.
+ */
+export function slotAuthTypeOf(ordinal: number): SlotAuthType {
+  const auth = SLOT_AUTH_TYPES[ordinal]
+  if (auth === undefined) {
+    throw new TasraError(`unknown KeyRegistry.AuthType ordinal ${ordinal} (this SDK knows ${SLOT_AUTH_TYPES.join(' | ')}); upgrade tasra-sdk`)
+  }
+  return auth
 }
 
 /**
@@ -296,6 +317,102 @@ export interface RulePolicyArgs {
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address
 
 /**
+ * A rule amendment: the new rule (a clear rule string, or an authored Rego policy the SDK packs
+ * into a `kk_oauth` envelope) for an existing slot, committed with the slot's saved rule salt.
+ */
+export type ProposeRuleArgs = ({rule: string} | {oauthPolicy: OauthPolicyInput}) & {
+  /** 32-byte identifier of the slot whose rule changes. */
+  slotId: Hex
+  /** The slot's rule salt (from creation). Amendments reuse it; it is never minted here. */
+  ruleSalt: Hex
+}
+
+/** A confirmed `proposeRuleUpdate`, decoded from its `RuleUpdateProposed` event. */
+export interface ProposeRuleResult {
+  /** Slot whose rule amendment was proposed. */
+  slotId: Hex
+  /** Transaction that carried the proposal. */
+  txHash: Hex
+  /** Amendment version the contract assigned. */
+  version: number
+  /** Chain time (Unix seconds) from which the amendment may activate. */
+  notBefore: number
+  /** Salted commitment of the proposed rule. */
+  ruleCommitment: Hex
+  /** Rule salt the commitment was computed with. */
+  ruleSalt: Hex
+  /** Exact rule string committed; deliver exactly this to the keepers. */
+  rule: string
+  /** Relay receipt, when the proposal was gas-sponsored. */
+  relay?: RelayReceipt
+}
+
+/** Refuse a value that is not 0x-prefixed 32-byte hex, before any chain call. */
+function requireBytes32(value: unknown, field: string, what: string): void {
+  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(value)) {
+    throw new TasraError(`${what}: ${field} must be 0x-prefixed 32-byte hex`)
+  }
+}
+
+/**
+ * Resolve the rule string an amendment commits to: an `oauthPolicy` is packed into the canonical
+ * `kk_oauth` envelope, a `rule` is taken as given. No chain call; the auth-type check needs the
+ * slot and runs in {@link amendmentPreflight}.
+ * @param a Amendment arguments carrying exactly one of `rule` and `oauthPolicy`.
+ * @param what Caller name used in error messages.
+ */
+export async function resolveAmendmentRule(a: ProposeRuleArgs, what: string): Promise<string> {
+  const policy = (a as {oauthPolicy?: OauthPolicyInput}).oauthPolicy
+  const hasRule = (a as {rule?: unknown}).rule !== undefined
+  if (policy !== undefined) {
+    if (hasRule) throw new TasraError(`${what}: pass either \`rule\` or \`oauthPolicy\`, not both`)
+    try {
+      return (await loadRego()).pack(policy)
+    } catch (e) {
+      throw new RuleAmendmentError(
+        'not-admissible',
+        a.slotId,
+        `${what}: the oauthPolicy cannot be packed into a kk_oauth envelope: ${e instanceof Error ? e.message : String(e)}`,
+        {cause: e},
+      )
+    }
+  }
+  if (!hasRule && !('dcqlRule' in a)) throw new TasraError(`${what}: pass either \`rule\` or \`oauthPolicy\``)
+  return requireRule(a as RuleInput)
+}
+
+/**
+ * Refuse, before signing, an amendment rule the slot's keepers would never store: a `kk_oauth`
+ * envelope on a slot not created with `authType: 'oauth'` (`wrong-auth-type`), or an envelope
+ * that fails the network's gate (`not-admissible`). An OID4VP rule on an `oauth` slot stays allowed.
+ * @param rule Resolved amendment rule.
+ * @param state The slot's amendment state read from chain.
+ * @param slotId Slot being amended.
+ * @param what Caller name used in error messages.
+ */
+export async function amendmentPreflight(rule: string, state: AmendmentOnChain, slotId: Hex, what: string): Promise<void> {
+  if (!isOauthEnvelope(rule)) return
+  if (state.authOrdinal !== SLOT_AUTH_TYPES.indexOf('oauth')) {
+    const label = SLOT_AUTH_TYPES[state.authOrdinal] ?? `ordinal ${state.authOrdinal}`
+    throw new RuleAmendmentError(
+      'wrong-auth-type',
+      slotId,
+      `${what}: a kk_oauth policy envelope requires authType: 'oauth' — keepers refuse an envelope on any other slot, ` +
+        `and slot ${slotId} was created with authType '${label}'`,
+    )
+  }
+  let lint: {admissible: boolean; admissionError?: string}
+  try {
+    lint = (await loadRego()).lint(rule)
+  } catch (e) {
+    throw new RuleAmendmentError('not-admissible', slotId, `${what}: keepers would not store this envelope: ${e instanceof Error ? e.message : String(e)}`, {cause: e})
+  }
+  if (!lint.admissible) {
+    throw new RuleAmendmentError('not-admissible', slotId, `${what}: keepers would not store this envelope: ${lint.admissionError ?? 'not admissible'}`)
+  }
+}
+
+/**
  * salted DCQL rule commitment: `keccak256(DOMAIN || salt || rule)`.
  *
  * Must byte-for-byte match the reference rule-commitment function - the keeper
@@ -312,15 +429,16 @@ const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address
 /**
  * Wait for a receipt and reject reverted transactions. Receipt availability alone does not prove execution succeeded.
  */
-async function confirmed(
-  pub: {waitForTransactionReceipt: (a: {hash: Hex}) => Promise<{status: 'success' | 'reverted'}>},
+async function confirmed<R extends {status: 'success' | 'reverted'}>(
+  pub: {waitForTransactionReceipt: (a: {hash: Hex}) => Promise<R>},
   hash: Hex,
   what: string,
-): Promise<void> {
+): Promise<R> {
   const receipt = await pub.waitForTransactionReceipt({hash})
   if (receipt.status !== 'success') {
     throw new Error(`${what} REVERTED on chain (tx ${hash}) — the call did not take effect`)
   }
+  return receipt
 }
 
 /**
@@ -930,6 +1048,119 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     return h
   }
 
+  //  rule amendment (KeyRegistry.proposeRuleUpdate / endorse / veto / activate)
+  // Every refusal below is raised BEFORE `sendCall`: a proposal no keeper will store never
+  // activates, and on a slot without a guardian nobody can clear it.
+  /** Propose a new rule as the slot's rule admin; checks every contract precondition first. */
+  async function proposeRuleUpdate(a: ProposeRuleArgs): Promise<ProposeRuleResult> {
+    const what = 'proposeRuleUpdate'
+    requireBytes32(a.slotId, 'slotId', what)
+    requireBytes32(a.ruleSalt, 'ruleSalt', what)
+    const rule = await resolveAmendmentRule(a, what)
+    const keyRegistry = requireAddress(addr, 'KeyRegistry')
+    const state = await readAmendmentOnChain(pub.readContract, keyRegistry, a.slotId)
+    if (sameAddress(state.admin, ZERO_ADDRESS)) throw immutableError(a.slotId)
+    if (!sameAddress(account.address, state.admin)) {
+      throw new RuleAmendmentError(
+        'not-admin',
+        a.slotId,
+        `${what}: slot ${a.slotId} has rule admin ${state.admin}, but this client signs as ${account.address} ` +
+          '(a relayed call is still signed by this account). Use a write client for the rule admin key',
+      )
+    }
+    if (state.pending) throw pendingError(a.slotId, state)
+    await amendmentPreflight(rule, state, a.slotId, what)
+    const commitment = ruleCommitment(a.ruleSalt, rule)
+    if (commitment.toLowerCase() === state.ruleCommitment.toLowerCase()) {
+      throw new RuleAmendmentError(
+        'same-rule',
+        a.slotId,
+        `${what}: slot ${a.slotId} already enforces this rule (same salted commitment ${commitment}); nothing to amend`,
+      )
+    }
+    const txHash = await sendCall(keyRegistry, keyRegistryAbi, 'proposeRuleUpdate', [a.slotId, commitment], what)
+    const receipt = await confirmed(pub, txHash, what)
+    const proposed = parseEventLogs({abi: keyRegistryAbi, eventName: 'RuleUpdateProposed', logs: receipt.logs})
+      .find(l => sameAddress(l.address, keyRegistry) && l.args.slotId.toLowerCase() === a.slotId.toLowerCase())
+    if (!proposed) {
+      throw new TasraError(`${what}: tx ${txHash} confirmed but carries no RuleUpdateProposed event for slot ${a.slotId}`)
+    }
+    return {
+      slotId: a.slotId,
+      txHash,
+      version: Number(proposed.args.version),
+      notBefore: Number(proposed.args.notBefore),
+      ruleCommitment: commitment,
+      ruleSalt: a.ruleSalt,
+      rule,
+      relay: lastRelay?.txHash === txHash ? lastRelay : undefined,
+    }
+  }
+
+  /** Endorse or veto the pending amendment as the slot's guardian. */
+  async function guardianCall(slotId: Hex, functionName: 'endorseRuleUpdate' | 'vetoRuleUpdate'): Promise<Hex> {
+    requireBytes32(slotId, 'slotId', functionName)
+    const keyRegistry = requireAddress(addr, 'KeyRegistry')
+    const state = await readAmendmentOnChain(pub.readContract, keyRegistry, slotId)
+    if (sameAddress(state.guardian, ZERO_ADDRESS)) {
+      throw new RuleAmendmentError('not-guardian', slotId, `${functionName}: slot ${slotId} has no rule guardian, so nobody can call it`, {hasGuardian: false})
+    }
+    if (!sameAddress(account.address, state.guardian)) {
+      throw new RuleAmendmentError(
+        'not-guardian',
+        slotId,
+        `${functionName}: slot ${slotId} has rule guardian ${state.guardian}, but this client signs as ${account.address}. ` +
+          'Use a write client for the guardian key',
+        {hasGuardian: true},
+      )
+    }
+    if (!state.pending) {
+      throw new RuleAmendmentError('no-pending', slotId, `${functionName}: slot ${slotId} has no pending rule amendment`)
+    }
+    const h = await sendCall(keyRegistry, keyRegistryAbi, functionName, [slotId], functionName)
+    await confirmed(pub, h, functionName)
+    return h
+  }
+  const endorseRuleUpdate = (slotId: Hex) => guardianCall(slotId, 'endorseRuleUpdate')
+  const vetoRuleUpdate = (slotId: Hex) => guardianCall(slotId, 'vetoRuleUpdate')
+
+  /** Activate the pending amendment once chain time and keeper adoption allow it. */
+  async function activateRuleUpdate(slotId: Hex): Promise<Hex> {
+    const what = 'activateRuleUpdate'
+    requireBytes32(slotId, 'slotId', what)
+    const keyRegistry = requireAddress(addr, 'KeyRegistry')
+    const state = await readAmendmentOnChain(pub.readContract, keyRegistry, slotId, {withVotes: true})
+    const pending = state.pending
+    if (!pending) throw new RuleAmendmentError('no-pending', slotId, `${what}: slot ${slotId} has no pending rule amendment`)
+    // The contract compares `block.timestamp`, so the check must too: the local clock can be far
+    // ahead of an idle chain.
+    const block = await pub.getBlock({blockTag: 'latest'})
+    const chainTime = Number(block.timestamp)
+    if (chainTime < pending.notBefore) {
+      throw new RuleAmendmentError(
+        'timelock',
+        slotId,
+        `${what}: amendment version ${pending.version} of slot ${slotId} may activate from chain time ${pending.notBefore}; ` +
+          `the latest block is at ${chainTime} (${pending.notBefore - chainTime}s to go)`,
+        {notBefore: pending.notBefore, chainTime, pendingVersion: pending.version},
+      )
+    }
+    const have = pending.adoptions ?? 0
+    const need = pending.needed ?? 0
+    if (have < need) {
+      throw new RuleAmendmentError(
+        'below-threshold',
+        slotId,
+        `${what}: amendment version ${pending.version} of slot ${slotId} has ${have} of ${need} keeper adoptions; ` +
+          'keepers adopt it once they hold the rule - deliver it with provisionRule({expect: \'pending\'})',
+        {have, need, pendingVersion: pending.version},
+      )
+    }
+    const h = await sendCall(keyRegistry, keyRegistryAbi, what, [slotId], what)
+    await confirmed(pub, h, what)
+    return h
+  }
+
   //  TASRA tokenomics (BondingCurve / TasraToken)
   /** Buy TSRA from the bonding curve. Approve `eurcAmount` of EURC to the
    *  BondingCurve first; read balances for the fill. */
@@ -999,6 +1230,11 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     renewSlot,
     setVerifierPolicy,
     setRulePolicy,
+    // rule amendment
+    proposeRuleUpdate,
+    endorseRuleUpdate,
+    vetoRuleUpdate,
+    activateRuleUpdate,
     // tokenomics
     buyTsra,
     approveEurcForCurve,
@@ -1092,6 +1328,25 @@ export interface TasraWriteClient {
    * Pin amendment authority while the slot is fresh. Prefer passing rulePolicy at creation so key generation cannot win the race. The guardian must differ from the administrator, and omitting a guardian requires the contract minimum timelock.
    */
   setRulePolicy(slotId: Hex, policy: RulePolicyArgs): Promise<Hex>
+  /**
+   * Propose a new rule for the slot, signed by its rule admin (relayed calls are still signed by this account). The slot's saved `ruleSalt` is reused.
+   * Refused before signing, as a `RuleAmendmentError`: a missing slot, an immutable slot, a signer that is not the rule admin, an amendment already pending, a policy envelope on a slot not created with `authType: 'oauth'`, an envelope keepers would not store, and the current rule.
+   * An amendable rule means whoever holds the admin key can change who may sign with this key, without changing the key: keep the admin key as safe as the slot itself. The guardian can veto during the delay; without a guardian nobody can. A slot created without a rule admin can never become amendable.
+   * Deliver the returned `rule` with `provisionRule({expect: 'pending'})`; the amendment activates only once enough keepers hold it.
+   */
+  proposeRuleUpdate(a: ProposeRuleArgs): Promise<ProposeRuleResult>
+  /**
+   * Waive the remaining delay of the pending amendment, signed by the slot's guardian. Refuses `not-guardian` and `no-pending` before signing.
+   */
+  endorseRuleUpdate(slotId: Hex): Promise<Hex>
+  /**
+   * Discard the pending amendment, signed by the slot's guardian. Refuses `not-guardian` and `no-pending` before signing.
+   */
+  vetoRuleUpdate(slotId: Hex): Promise<Hex>
+  /**
+   * Activate the pending amendment; anyone may send it. Refuses `no-pending`, `timelock` (judged on the latest block timestamp, not the local clock) and `below-threshold` before signing.
+   */
+  activateRuleUpdate(slotId: Hex): Promise<Hex>
 
   /**
    * Buy TSRA with approved EURC while enforcing the minimum output amount.

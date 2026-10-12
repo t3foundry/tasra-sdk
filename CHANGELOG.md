@@ -9,6 +9,22 @@ never does.
 
 ### Added
 
+- Rule amendment on `tasra-sdk/chain`. The write client gains `proposeRuleUpdate`,
+  `endorseRuleUpdate`, `vetoRuleUpdate` and `activateRuleUpdate`; each refuses, before
+  signing, what the contract would revert (missing or immutable slot, wrong signer, an
+  amendment already pending, the current rule, a policy envelope on a non-`oauth` slot or
+  one keepers would not store, the timelock judged on chain time, too few keeper
+  adoptions). `readRuleAmendment` reads the active rule, the amendment policy and the
+  pending amendment with its adoption votes. `amendSlotRule` drives propose → deliver →
+  adoption → guardian endorsement → activation, resumes from the chain state when called
+  again, and returns `{version, ruleCommitment, proposeTx?, activateTx?}`. Refusals are a
+  `RuleAmendmentError` with a stable `code`.
+- `provisionRule` options `expect: 'pending'` (deliver a proposed amendment; keepers that
+  have not yet seen the proposal are retried with the same signature, and a keeper that
+  stores the rule as active is an error), `retryConflictMs` (default 120000) and
+  `delegation` (a creator delegation). Each keeper result now carries `authorizedBy`
+  (`creator`, `delegate` or `rule_admin`) when the keeper reports it. The default
+  `expect: 'active'` delivery is unchanged.
 - OAuth policy envelopes (`kk_oauth`): a slot whose holders sign in with their
   organization's identity provider can commit a Rego policy over the DPoP-bound access
   token's claims. `packEnvelope`, `unpackEnvelope`, `lintEnvelope` and `evaluateEnvelope`
@@ -50,6 +66,10 @@ and services selected through a verified tasra-releases manifest.
 
 ### Fixed
 
+- Every tasra-releases and repository link (docs, skills, examples, issue templates and
+  the generated reference `[Source]` links) now points at the `t3foundry` organisation.
+- The bring-your-own-identity-provider section of the API guide now shows the `kk_oauth`
+  policy envelope (`oauthPolicy`) an OAuth slot uses, and how to amend it.
 - Point npm package repository, issues, and homepage metadata to the publishing
   GitHub repository.
 - Make the funding tutorial resolve the EURC token from the verified BondingCurve
@@ -63,7 +83,7 @@ and services selected through a verified tasra-releases manifest.
 - Align note identity/result guidance with the API and include a complete standalone
   Node TypeScript configuration.
 - Point skills and onboarding docs to the published Fuji deployment pointer,
-  manifest checksum and service URLs in `t3-foundry/tasra-releases`; document
+  manifest checksum and service URLs in `t3foundry/tasra-releases`; document
   bootstrap from a pinned repository commit.
 - Narrow slot-creation results before reading the transaction hash in the skill's
   direct/commit-reveal example.

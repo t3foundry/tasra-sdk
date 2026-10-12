@@ -48,5 +48,6 @@ approvals. Credential alternatives use `credential_sets`. Rules have a byte-size
 limit; check the installed `DCQL_MAX_RULE_LEN` rather than character count.
 
 For detailed matching semantics, JWT-VC or OAuth/DPoP rules and commitment helpers,
-read [advanced policy formats](references/advanced.md). Cross-language conformance
+read [advanced policy formats](references/advanced.md). For a Rego policy on an OAuth
+slot, use `tasra-rego-rules`. Cross-language conformance
 requires separate evidence; it is not implied by local validation.

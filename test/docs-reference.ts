@@ -118,7 +118,7 @@ for (const [name, file] of Object.entries(entries)) {
     if (!declaration) continue
     const location = relative(root, declaration.getSourceFile().fileName).replaceAll('\\', '/')
     const line = declaration.getSourceFile().getLineAndCharacterOfPosition(declaration.getStart()).line + 1
-    const sourceLink = `[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/${location}#L${line})`
+    const sourceLink = `[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/${location}#L${line})`
     const signatures = checker.getTypeOfSymbolAtLocation(symbol, declaration).getCallSignatures()
     const typeDeclaration = ts.isInterfaceDeclaration(declaration) || ts.isTypeAliasDeclaration(declaration)
     if (!signatures.length && !typeDeclaration && !ts.isClassDeclaration(declaration)) {

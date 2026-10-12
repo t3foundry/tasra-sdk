@@ -7,7 +7,7 @@ and ready slots. No precreated learner account or slot is required.
 ## Network configuration
 
 Use Node.js 24 and install `tasra-sdk@latest`. Download the network pointer and
-manifest from [tasra-releases](https://github.com/t3-foundry/tasra-releases).
+manifest from [tasra-releases](https://github.com/t3foundry/tasra-releases).
 For Avalanche Fuji, use `networks/testnet/current.json`; resolve its `manifest`
 path relative to `networks/testnet/`, and fetch both files from the same reviewed
 commit. Verify the original manifest bytes against the pointer's trusted SHA-256.

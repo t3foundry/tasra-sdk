@@ -1,6 +1,6 @@
 {
   "name": "tasra-sdk",
-  "version": "0.3.0-next.0",
+  "version": "0.3.0-next.1",
   "description": "TypeScript SDK for Tasra network slots, credential-based access, distributed encryption and signing, and on-chain operations.",
   "private": false,
   "type": "module",
@@ -195,6 +195,8 @@
     "skills/tasra-ibe-identity-scoped/references/advanced.md",
     "skills/tasra-oid4vp-wallet-and-verifier-agent/SKILL.md",
     "skills/tasra-oid4vp-wallet-and-verifier-agent/references/advanced.md",
+    "skills/tasra-rego-rules/SKILL.md",
+    "skills/tasra-rego-rules/references/advanced.md",
     "skills/tasra-sign-and-decrypt/SKILL.md",
     "skills/tasra-sign-and-decrypt/references/advanced.md"
   ],

@@ -158,21 +158,35 @@ side. A wallet copies the nonce; it never interprets it.
 
 ## Bring your own identity provider — OAuth + DPoP against the Verifier Agent
 
-A slot whose rule uses the `oauth+access-token+dpop` format is authorized by an access token
-your users already get from your own IdP, sender-constrained with DPoP (RFC 9449). The rule is
-ordinary OID4VP-DCQL over the token's own claims — `iss` pinned, `["aud", null]` containing the
-platform audience, `meta.max_age_secs`, plus whatever roles you require:
+A slot created with `authType: 'oauth'` is authorized by an access token your users already get
+from your own IdP, sender-constrained with DPoP (RFC 9449). Its rule is a `kk_oauth` policy
+envelope: a Rego v1 policy over the DPoP-bound token's claims, plus a `tokens` map the network
+enforces before the policy runs — the token format, the pinned issuer, the platform audience and
+the maximum token age. Create the slot with an `oauthPolicy`; the SDK packs the envelope with the
+network's own engine and refuses one keepers would not store, before any chain call:
 
-```json
-{"credentials":[{"id":"t","format":"oauth+access-token+dpop","meta":{"max_age_secs":300},
-  "claims":[
-    {"path":["iss"],"values":["https://idp.example.com/realms/acme"]},
-    {"path":["aud",null],"values":["https://agent.tasra.example/authz/43114"]},
-    {"path":["realm_access","roles",null],"values":["treasury-signer"]}]}]}
+```ts
+import {platformAudience} from 'tasra-sdk/committee'
+
+const POLICY = `package tasra.slot
+
+default allow := false
+
+allow if "treasury-signer" in input.tokens.corp.claims.realm_access.roles
+`
+const tokens = {corp: {format: 'oauth+access-token+dpop', iss: ['https://idp.example.com/realms/acme'],
+  aud: [platformAudience(agentOrigin, chainId)], max_age_secs: 300}}
+
+const created = await writer.createSlot({
+  authType: 'oauth', oauthPolicy: {policy: POLICY, tokens}, mode: 'frost', k: 2, n: 3,
+  rulePolicy: {admin: adminAddress, guardian: writer.address, timelockSecs: 3600},
+})
+// created.rule is the packed envelope: persist it with created.ruleSalt, then provisionRule(...)
 ```
 
-`validateDcql` refuses an `oauth+*` query without the pinned `iss`, the `["aud", null]` entry or
-`meta.max_age_secs` (1–86400). The audience
+`createSlotCommitReveal` takes the same arguments. The policy decides on claims only; it never
+re-checks issuer, audience or age. Test it locally with `evaluateEnvelope` before committing it.
+The audience
 is derived, never chosen — `platformAudience(agentOrigin, chainId)` from
 `tasra-sdk/committee`, or read it back from any `createOauthSession` reply.
 
@@ -228,6 +242,48 @@ session is over; open a new one to retry. On success, `waitForSession` returns t
 What the platform proves this way is PRESENCE, not intent — the user never sees the
 operation; pin dual control on slots that need intent. Configuring a tenant identity
 provider is a deployment task, documented by whoever operates the network.
+
+### Amend the rule
+
+A slot created with a `rulePolicy` can change its rule without changing its key. The rule admin
+proposes the new rule, it is delivered to the keepers, the keepers adopt it, and once the delay
+has passed it is activated. `amendSlotRule` drives every step, checks everything it can before
+signing, and resumes where the chain is when called again with the same rule:
+
+```ts
+import {amendSlotRule, createTasraChainClient, createTasraWriteClient, readRuleAmendment} from 'tasra-sdk/chain'
+import {privateKeyToAccount} from 'viem/accounts'
+
+// The slot was created with rulePolicy {admin: adminAddress, guardian: creatorAddress, timelockSecs: 3600}.
+const chain = createTasraChainClient({rpcUrl, chainId, addresses})
+const admin = createTasraWriteClient({rpcUrl, chainId, addresses, privateKey: adminKey})
+const creator = createTasraWriteClient({rpcUrl, chainId, addresses, privateKey: creatorKey})
+
+const status = await readRuleAmendment(chain, slotId) // status.policy === null: the rule can never change
+const amended = await amendSlotRule(admin, chain, {
+  slotId,
+  ruleSalt, // the slot's saved rule salt
+  oauthPolicy: {policy: NEW_POLICY, tokens},
+  deliverer: privateKeyToAccount(creatorKey), // signs the delivery to the keepers
+  guardian: creator, // endorses, which waives the remaining delay
+  onPhase: phase => console.log(phase), // proposed, delivered, adopted, endorsed, activated
+})
+// → {version, ruleCommitment, proposeTx?, activateTx?}
+```
+
+- `readRuleAmendment(chain, slotId)` returns the active commitment, the policy (`null` when the
+  rule can never change) and the pending amendment with its keeper adoption votes.
+- `proposeRuleUpdate`, `endorseRuleUpdate`, `vetoRuleUpdate` and `activateRuleUpdate` on the write
+  client are the single steps. Each checks the contract's preconditions before signing and throws
+  `RuleAmendmentError` with a `code`.
+- `provisionRule(chain, {…, expect: 'pending'})` delivers a proposed rule, waiting for keepers
+  that have not yet seen the proposal. The creator, a creator delegate or the rule admin may sign it.
+
+**An amendable rule means whoever holds the admin key can change who may sign with this key,
+without changing the key.** Keep the admin key as safe as the slot itself. The guardian can veto
+during the delay; without a guardian nobody can. Slots created without a rule admin can never
+become amendable. A proposal no keeper stores never activates, and a new one is refused while it
+is pending, so lint the new policy first.
 
 ## Sealed committee evidence — `evidence_ct`
 

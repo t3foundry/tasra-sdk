@@ -60,7 +60,7 @@ FROST slots for FROST signatures, and tECDSA slots for Ethereum accounts.
 [All capabilities](docs/capabilities.md) · [Documentation index](docs/README.md).
 
 Deployment addresses and service URLs come from
-[**tasra-releases**](https://github.com/t3-foundry/tasra-releases).
+[**tasra-releases**](https://github.com/t3foundry/tasra-releases).
 The [Fuji configuration guide](docs/fuji.md) loads `networks/testnet/current.json`
 and its manifest from one pinned commit, then verifies the checksum. Confirm service support for the intended signing, authorization or decryption
 operation before executing it. A release record does not establish that support.
@@ -132,5 +132,5 @@ See [migration guidance](docs/consumer-migrations.md) and
 [deployment compatibility](docs/compatibility.md) before upgrading.
 The package has [not had an independent cryptographic audit](SECURITY.md#cryptographic-posture).
 
-[Contributing](https://github.com/t3-foundry/tasra-sdk/blob/develop/CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·
+[Contributing](https://github.com/t3foundry/tasra-sdk/blob/develop/CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·
 [Security](SECURITY.md) · [Apache-2.0 license](LICENSE)

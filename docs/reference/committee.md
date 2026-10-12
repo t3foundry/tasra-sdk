@@ -26,7 +26,7 @@ Distinct from a generic HTTP error because the committee flow polls several
 verifiers and tolerates individual refusals as long as a quorum co-signs - see
 ` ThresholdNotMetError ` for the failure that means the quorum was missed.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L71)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L71)
 
 Import: `import {CommitteeAuthorizeError} from 'tasra-sdk/committee'`
 
@@ -59,7 +59,7 @@ declare class CommitteeAuthorizeError {
 
 A signing request may have been accepted despite a transport or response failure. Reconcile before resubmitting.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L14)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L14)
 
 Import: `import {OperationOutcomeUnknownError} from 'tasra-sdk/committee'`
 
@@ -137,7 +137,7 @@ Operations you can import and call.
 
 Encode a token payload and verifier signatures into the keeper JSON wire format. This does not verify signatures.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L552)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L552)
 
 Import: `import {assembleCompoundToken} from 'tasra-sdk/committee'`
 
@@ -156,7 +156,7 @@ Returns: ` CompoundTokenWire `.
 
 Deterministic operation ID, matching keykeeper_committee::audit_op_id.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/receipts.ts#L49)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/receipts.ts#L49)
 
 Import: `import {auditOperationId} from 'tasra-sdk/committee'`
 
@@ -180,7 +180,7 @@ directory. Returns `undefined` (never a wrong proof) when the directory is incom
 missing, or the reconstructed root disagrees with the anchored `snapshotRoot` - so a mismatch
 degrades to the keeper's configured-set path rather than shipping a proof the keeper rejects.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L239)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L239)
 
 Import: `import {buildVerifierProofs} from 'tasra-sdk/committee'`
 
@@ -204,7 +204,7 @@ operation on `slotId` under the compound token whose canonical hash is `tokenHas
 `keccak256(DOMAIN || slotId || tokenHash)`. Byte-identical to the reference `client_binding_hash`, so
 the keeper (hot path) and accountant (audit) verify the client signature over the same bytes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L225)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L225)
 
 Import: `import {clientBindingHash} from 'tasra-sdk/committee'`
 
@@ -224,7 +224,7 @@ Returns: ` Uint8Array `.
 Ask one verifier to authorize the request. Throws CommitteeAuthorizeError
  (with `.status`) on a non-2xx - notably 403 when this verifier wasn't drawn.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L210)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L210)
 
 Import: `import {committeeAuthorize} from 'tasra-sdk/committee'`
 
@@ -243,7 +243,7 @@ Returns: ` Promise<CommitteeAuthorizeReply> `.
 
 Adapt the SDK chain client's `readers` into [CommitteeChainReads](#committeechainreads).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L145)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L145)
 
 Import: `import {committeeChainReadsFromClient} from 'tasra-sdk/committee'`
 
@@ -297,7 +297,7 @@ Returns: ` CommitteeChainReads `.
 
 Decrypt via committee authorization. The slot id is taken from the token.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L495)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L495)
 
 Import: `import {committeeDecrypt} from 'tasra-sdk/committee'`
 
@@ -315,7 +315,7 @@ Returns: ` Promise<Uint8Array> `.
 
 One-call committee-authorized threshold decrypt.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L440)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L440)
 
 Import: `import {committeeDecryptRequest} from 'tasra-sdk/committee'`
 
@@ -333,7 +333,7 @@ Returns: ` Promise<Uint8Array> `.
 
 Sign via committee authorization. The slot id is taken from the token.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L415)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L415)
 
 Import: `import {committeeSign} from 'tasra-sdk/committee'`
 
@@ -354,7 +354,7 @@ Open the verifier-agent session with action `sign` and message equal to `digest`
 The keeper checks the token's request binding against SHA-256(digest), then
 threshold-signs the original digest. This never falls back to JWT authorization.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L40)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L40)
 
 Import: `import {committeeSignEoaDigest} from 'tasra-sdk/committee'`
 
@@ -377,7 +377,7 @@ HTTP 401/403 is an authorization denial; do not retry it as a network failure.
 
 One-call committee-authorized threshold sign: resolve token (+proofs) then POST to the keeper.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L399)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L399)
 
 Import: `import {committeeSignRequest} from 'tasra-sdk/committee'`
 
@@ -395,7 +395,7 @@ Returns: ` Promise<FrostSignResult> `.
 
 Canonical, domain-separated, length-prefixed byte encoding hashed for signing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L157)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L157)
 
 Import: `import {compoundTokenCanonicalBytes} from 'tasra-sdk/committee'`
 
@@ -413,7 +413,7 @@ Returns: ` Uint8Array `.
 
 `keccak256` of the canonical bytes - the value each quorum verifier signs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L189)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L189)
 
 Import: `import {compoundTokenHash} from 'tasra-sdk/committee'`
 
@@ -433,7 +433,7 @@ Native multi-approver FROST lifecycle. Never falls back to a JWT route or create
 a new request after an ambiguous POST. All approval and result checks use the
 original expected message, slot, public key and quorum, not server-selected values.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L122)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L122)
 
 Import: `import {createDualSignClient} from 'tasra-sdk/committee'`
 
@@ -465,7 +465,7 @@ Returns:
 
 Decode a wire compound token into the byte-level payload + signatures for verification.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L576)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L576)
 
 Import: `import {decodeCompoundToken} from 'tasra-sdk/committee'`
 
@@ -491,7 +491,7 @@ CompoundTokenPayload & {
 
 Decode the optional receipt tuple. Incomplete tuples are protocol errors.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/receipts.ts#L32)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/receipts.ts#L32)
 
 Import: `import {decodeOperationReceipt} from 'tasra-sdk/committee'`
 
@@ -513,7 +513,7 @@ Returns: ` OperationReceipt | undefined `.
 
 Decrypt an IBE ciphertext and clear the intermediate identity key on every exit.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L144)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L144)
 
 Import: `import {decryptIdentityStrict} from 'tasra-sdk/committee'`
 
@@ -550,7 +550,7 @@ proxy) must still sign over the value the agent returned, not over the URL it ca
 Throws on a session id that is not one plain path segment, exactly as the verifiers refuse
 one.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L92)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L92)
 
 Import: `import {dpopHtu} from 'tasra-sdk/committee'`
 
@@ -569,7 +569,7 @@ Returns: ` string `.
 
 Exact existing Rust canonical_dual_sig_payload, including little-endian lengths.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L35)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L35)
 
 Import: `import {dualSignApprovalPayload} from 'tasra-sdk/committee'`
 
@@ -589,7 +589,7 @@ Returns: ` Uint8Array `.
 
 A [ClientSigner](#clientsigner) from a 32-byte ed25519 secret key (the common `did:key` holder).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L96)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L96)
 
 Import: `import {ed25519ClientSigner} from 'tasra-sdk/committee'`
 
@@ -609,7 +609,7 @@ Returns: ` ClientSigner `.
 verifier signs beside its token signature. Byte-identical to the Rust
 `keykeeper_committee::evidence_binding_message`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L478)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L478)
 
 Import: `import {evidenceBindingMessage} from 'tasra-sdk/committee'`
 
@@ -632,7 +632,7 @@ Read slot metadata before calling; this helper deliberately cannot authenticate 
 configuration. Never populate pinned shares from the extraction response itself.
 All temporary partials are cleared even on rejection. No master key is reconstructed.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L82)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L82)
 
 Import: `import {extractIdentityStrict} from 'tasra-sdk/committee'`
 
@@ -653,7 +653,7 @@ until quorum, and assemble the compound token. Verifies that our locally
 recomputed canonical token hash equals the hash the verifiers signed (a built-in
 encoding cross-check). Returns the wire token to POST to the keeper.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L298)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L298)
 
 Import: `import {gatherCommitteeToken} from 'tasra-sdk/committee'`
 
@@ -674,7 +674,7 @@ with the holder key over the same credentials + slot, hand it back for that veri
 Pass the result as `holderProof` to [requestCommitteeToken](#requestcommitteetoken) (or the one-call
 helpers built on it).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L71)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L71)
 
 Import: `import {holderProofPerVerifier} from 'tasra-sdk/committee'`
 
@@ -700,7 +700,7 @@ Returns: ` HolderProofPerVerifier `.
 One-call identity-scoped decrypt (the read path): token to extraction fan-out
 to verify each partial to combine to decrypt. The intermediate `sk_ID` never surfaces.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L501)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L501)
 
 Import: `import {ibeDecryptRequest} from 'tasra-sdk/committee'`
 
@@ -726,7 +726,7 @@ compressed G1).
 ciphertext to this identity. Prefer [ibeDecryptRequest](#ibedecryptrequest), which combines,
 decrypts and drops it. Zeroize the returned bytes when done.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L485)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L485)
 
 Import: `import {ibeExtractRequest} from 'tasra-sdk/committee'`
 
@@ -745,7 +745,7 @@ Returns: ` Promise<Uint8Array> `.
 Whether `sessionId` is one plain path segment: `[A-Za-z0-9_-]{1,128}`. Mirrors
 `keykeeper_committee::oauth::validate_session_id`, which every drawn verifier runs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L34)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L34)
 
 Import: `import {isValidSessionId} from 'tasra-sdk/committee'`
 
@@ -764,7 +764,7 @@ Returns: ` boolean `.
 The inclusion proof (sibling hashes, leaf to root) for `index` in `leaves`. `null` if `index`
 is out of range. Mirrors the reference `merkle_proof`; pairs with [`verifyMerkleProof`].
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L291)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L291)
 
 Import: `import {merkleProof} from 'tasra-sdk/committee'`
 
@@ -785,7 +785,7 @@ Build the Merkle root over `leaves` (sorted-pair; an odd node is promoted unchan
 next level). `null` for an empty set. Byte-identical to the reference `merkle_root`, so a root
 built here matches the on-chain `VerifierSetRegistry`/`Settlement` anchored root.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L277)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L277)
 
 Import: `import {merkleRoot} from 'tasra-sdk/committee'`
 
@@ -808,7 +808,7 @@ written.
  The PATH keeps its case deliberately - a path is case-sensitive, and lower-casing it
 would silently rewrite an agent deployed under `/API`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L48)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L48)
 
 Import: `import {normalizeOrigin} from 'tasra-sdk/committee'`
 
@@ -826,7 +826,7 @@ Returns: ` string `.
 
 The hash a keeper signs to attest it served `opId` on `slotId` under the token `tokenHash`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L203)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L203)
 
 Import: `import {opAttestationHash} from 'tasra-sdk/committee'`
 
@@ -851,7 +851,7 @@ The OAuth audience the tenant registers with its IdP and every rule pins:
 The chain id is in it so a token minted for a testnet deployment of the same platform
 cannot authorize on mainnet.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L73)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L73)
 
 Import: `import {platformAudience} from 'tasra-sdk/committee'`
 
@@ -870,7 +870,7 @@ Returns: ` string `.
 
 Read the verifier committee draw, request authorization and assemble the quorum token with available membership proofs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L292)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L292)
 
 Import: `import {requestCommitteeToken} from 'tasra-sdk/committee'`
 
@@ -891,7 +891,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L625)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L625)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk/committee'`
 
@@ -912,7 +912,7 @@ request: `index = keccak256(SELECT_DOMAIN || slotId || epoch(u64 BE) || seed || 
 skipping a repeat and incrementing `iter`. Identical, identically-ordered to what the
 verifier selects and the keeper reconstructs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L92)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L92)
 
 Import: `import {selectVerifierCommittee} from 'tasra-sdk/committee'`
 
@@ -934,7 +934,7 @@ Returns: ` number[] `.
 
 `keccak256(DOMAIN || index(u32 BE) || operator(20) || keccak256(pubkey))` - matches the on-chain leaf.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L238)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L238)
 
 Import: `import {verifierLeaf} from 'tasra-sdk/committee'`
 
@@ -954,7 +954,7 @@ Returns: ` Uint8Array `.
 
 Verify rule binding, committee selection, token lifetime, Ed25519 signatures and quorum against the supplied verifier set.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L376)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L376)
 
 Import: `import {verifyCompoundToken} from 'tasra-sdk/committee'`
 
@@ -979,7 +979,7 @@ verifier in `set` and verify over [evidenceBindingMessage](#evidencebindingmessa
 counted once and must satisfy `quorum` of the drawn committee. Throws on any failure;
 returns the verified indexes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L511)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L511)
 
 Import: `import {verifyEvidenceBinding} from 'tasra-sdk/committee'`
 
@@ -997,7 +997,7 @@ Returns: ` number[] `.
 
 Verify a sorted-pair keccak Merkle inclusion proof (leaf to root).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L253)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L253)
 
 Import: `import {verifyMerkleProof} from 'tasra-sdk/committee'`
 
@@ -1018,7 +1018,7 @@ Returns: ` boolean `.
 Verify the receipt against independently established operation and keeper identities.
 Returns false for absent, malformed or mismatched evidence. Does not prove log completeness.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/receipts.ts#L75)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/receipts.ts#L75)
 
 Import: `import {verifyOperationReceipt} from 'tasra-sdk/committee'`
 
@@ -1086,7 +1086,7 @@ client request signature. The client (== the credential holder) proves it author
 this exact request by signing `clientBindingHash(slotId, tokenHash)`. Supply an ed25519 signer
 (the holder's authentication key) - the keeper (hot path) and the accountant (audit) verify it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L46)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L46)
 
 ```ts
 export interface ClientSigner {
@@ -1104,7 +1104,7 @@ Fields:
 
 Credential presentation and request context sent to one verifier for committee authorization.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L82)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L82)
 
 ```ts
 export interface CommitteeAuthorizeBody {
@@ -1144,7 +1144,7 @@ Fields:
 
 Verifier signature, token hashes and committee metadata for an authorization request.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L137)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L137)
 
 ```ts
 export interface CommitteeAuthorizeReply {
@@ -1181,7 +1181,7 @@ Fields:
 The chain reads the committee flow needs. Adapt from the SDK chain client with
 [committeeChainReadsFromClient](#committeechainreadsfromclient), or supply raw viem reads.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L126)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L126)
 
 ```ts
 export interface CommitteeChainReads {
@@ -1211,7 +1211,7 @@ Fields:
 
 Committee-authorized group decryption request and optional verifier membership proofs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L460)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L460)
 
 ```ts
 export interface CommitteeDecryptOpts {
@@ -1251,7 +1251,7 @@ Fields:
 
 Operation-specific fields for [committeeDecryptRequest](#committeedecryptrequest).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L416)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L416)
 
 ```ts
 export interface CommitteeDecryptRequestOpts extends RequestCommitteeTokenOpts {
@@ -1294,7 +1294,7 @@ Fields:
 
 Compound authorization, keeper endpoint and digest for threshold ECDSA signing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L8)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L8)
 
 ```ts
 export interface CommitteeEoaSignOpts {
@@ -1326,7 +1326,7 @@ Fields:
 
 One verifier's signature within a compound token.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L308)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L308)
 
 ```ts
 export interface CommitteeSignature {
@@ -1344,7 +1344,7 @@ Fields:
 
 One verifier's signature on the wire (hex).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L417)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L417)
 
 ```ts
 export interface CommitteeSignatureWire {
@@ -1362,7 +1362,7 @@ Fields:
 
 Committee-authorized FROST signing request and optional verifier membership proofs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L382)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L382)
 
 ```ts
 export interface CommitteeSignOpts {
@@ -1401,7 +1401,7 @@ Fields:
 Operation-specific fields for [committeeSignRequest](#committeesignrequest) (everything `committeeSign` needs
 except the token, which this resolves).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L381)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L381)
 
 ```ts
 export interface CommitteeSignRequestOpts extends RequestCommitteeTokenOpts {
@@ -1438,7 +1438,7 @@ Fields:
 
 Assembled compound token, committee draw and optional proofs and client signature.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L204)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L204)
 
 ```ts
 export interface CommitteeTokenResult {
@@ -1473,7 +1473,7 @@ Fields:
 One member of the active verifier set. `operator`+`pubkey` are needed only to build the
 trustless snapshot proofs; `index`+`url` alone suffice for the keeper's configured-set path.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L113)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L113)
 
 ```ts
 export interface CommitteeVerifier {
@@ -1495,7 +1495,7 @@ Fields:
 
 The data the quorum verifiers sign over. All byte fields are 32 bytes unless noted.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L119)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L119)
 
 ```ts
 export interface CompoundTokenPayload {
@@ -1535,7 +1535,7 @@ Fields:
 
 The compound token JSON a client submits with `/v1/committee/{sign,decrypt}`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L425)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L425)
 
 ```ts
 export interface CompoundTokenWire {
@@ -1583,7 +1583,7 @@ Fields:
 
 Ed25519 approver public key and callback that signs canonical approval bytes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L87)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L87)
 
 ```ts
 export interface DualSignApprover {
@@ -1601,7 +1601,7 @@ Fields:
 
 Trusted slot key, keeper endpoint and approver policy for a native signing request.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L46)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L46)
 
 ```ts
 export interface DualSignConfig {
@@ -1631,7 +1631,7 @@ Fields:
 
 Handle for checking, approving and waiting for one native multi-approver signing request.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L95)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L95)
 
 ```ts
 export interface DualSignRequest {
@@ -1671,7 +1671,7 @@ Fields:
 
 Native signing request progress, verified completed signature or terminal failure.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L66)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L66)
 
 ```ts
 export type DualSignStatus = {
@@ -1694,7 +1694,7 @@ Fields:
 
 Keeper identity, share identifier and receipt verification status for an accepted extraction share.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L49)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L49)
 
 ```ts
 export interface ExtractionEvidence {
@@ -1718,7 +1718,7 @@ Fields:
 
 Assigned keeper endpoint with independently established operator, key and optional share metadata.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L11)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L11)
 
 ```ts
 export interface ExtractionKeeper {
@@ -1742,7 +1742,7 @@ Fields:
 
 Verifier requests and quorum configuration for assembling a compound token.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L276)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L276)
 
 ```ts
 export interface GatherCommitteeTokenOpts {
@@ -1777,7 +1777,7 @@ verifier's store, consumed atomically, so the first verifier to answer spends it
 rest refuse (401) under `require_holder_binding`. Pass a function instead of a string and
 the gather asks each candidate verifier for its own nonce.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L61)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L61)
 
 ```ts
 export type HolderProofPerVerifier = (verifier: CommitteeVerifier) => Promise<string> | string;
@@ -1787,7 +1787,7 @@ export type HolderProofPerVerifier = (verifier: CommitteeVerifier) => Promise<st
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L527)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L527)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -1815,7 +1815,7 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L545)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L545)
 
 ```ts
 export interface IbeExtractOpts {
@@ -1851,7 +1851,7 @@ Fields:
 
 Operation-specific fields for [ibeDecryptRequest](#ibedecryptrequest) / [ibeExtractRequest](#ibeextractrequest).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L462)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L462)
 
 ```ts
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
@@ -1886,7 +1886,7 @@ Fields:
 
 A keeper's operation attestation. Presence alone does not mean verified.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/receipts.ts#L10)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/receipts.ts#L10)
 
 ```ts
 export interface OperationReceipt {
@@ -1906,7 +1906,7 @@ Fields:
 
 Expected operation hashes and independently authenticated keeper key for receipt verification.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/receipts.ts#L55)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/receipts.ts#L55)
 
 ```ts
 export interface ReceiptExpectation {
@@ -1930,7 +1930,7 @@ Fields:
 
 Chain reads, verifier directory, credential presentation and optional request-signing context.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/request.ts#L172)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L172)
 
 ```ts
 export interface RequestCommitteeTokenOpts {
@@ -1970,7 +1970,7 @@ Fields:
 
 Expected slot epoch, threshold, chain key and keeper trust requirements for identity-key extraction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L25)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L25)
 
 ```ts
 export interface StrictExtractionOptions extends Omit<IbeExtractOpts, 'nodeUrls' | 'ciphertextEpoch'> {
@@ -2009,7 +2009,7 @@ Fields:
 
 Extracted identity key and provenance evidence. The caller must clear the returned key when finished.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L63)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L63)
 
 ```ts
 export interface StrictExtractionResult {
@@ -2031,7 +2031,7 @@ Fields:
 
 Compound authorization token category, used in the signed canonical encoding.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L26)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L26)
 
 ```ts
 export type TokenType = 'JWT' | 'refresh';
@@ -2041,7 +2041,7 @@ export type TokenType = 'JWT' | 'refresh';
 
 What a valid compound token attests.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L324)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L324)
 
 ```ts
 export interface VerifiedToken {
@@ -2069,7 +2069,7 @@ Fields:
 
 Trustless verifier-set inclusion proof, passed to the keeper.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/client.ts#L40)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L40)
 
 ```ts
 export interface VerifierProof {
@@ -2091,7 +2091,7 @@ Fields:
 
 The active verifier set: registry size + index to Ed25519 public key (32 bytes).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L316)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L316)
 
 ```ts
 export interface VerifierSet {
@@ -2109,7 +2109,7 @@ Fields:
 
 Compound token, trusted verifier set, expected rule binding and freshness constraints.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L352)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L352)
 
 ```ts
 export interface VerifyCompoundTokenOptions {
@@ -2139,7 +2139,7 @@ Fields:
 
 Inputs to [verifyEvidenceBinding](#verifyevidencebinding).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/token.ts#L486)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L486)
 
 ```ts
 export interface VerifyEvidenceBindingOptions {
@@ -2169,6 +2169,6 @@ Shared values and contract definitions.
 
 | Export | Description | Definition |
 |---|---|---|
-| `MAX_SESSION_ID_LEN` | The longest session id an `htu` may carry — mirrors `MAX_SESSION_ID_LEN`. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L24) |
-| `OAUTH_RESPONSE_PATH_PREFIX` | The OAuth response route is `{PREFIX}{sessionId}{SUFFIX}` under the agent origin. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L19) |
-| `OAUTH_RESPONSE_PATH_SUFFIX` | The trailing segment of the OAuth response route. | [Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L21) |
+| `MAX_SESSION_ID_LEN` | The longest session id an `htu` may carry — mirrors `MAX_SESSION_ID_LEN`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L24) |
+| `OAUTH_RESPONSE_PATH_PREFIX` | The OAuth response route is `{PREFIX}{sessionId}{SUFFIX}` under the agent origin. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L19) |
+| `OAUTH_RESPONSE_PATH_SUFFIX` | The trailing segment of the OAuth response route. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L21) |

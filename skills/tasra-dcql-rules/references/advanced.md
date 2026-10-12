@@ -119,6 +119,7 @@ When the decision is more than value lists, write it as a Rego v1 policy over
 network's decision with the same engine. The policy source is committed byte for byte:
 reformatting it is an amendment. A refused holder sees only `kk_oauth policy refused`.
 An envelope is not a wallet rule: `RecipientStore` and wallet requests refuse it.
+The full policy rules, input document and patterns are in `tasra-rego-rules`.
 
 ## Identity-scoped rules
 

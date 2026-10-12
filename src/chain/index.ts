@@ -71,10 +71,15 @@ export {createTasraWriteClient, generateClientKey, ruleCommitment, verifyRuleCom
 export {provisionRule, provisionRuleTypedData, PROVISION_RULE_ACTION} from './provisionRule.js'
 export type {ProvisionRuleArgs, ProvisionRuleResult, KeeperProvisionResult} from './provisionRule.js'
 export type {RuleInput} from './ruleInput.js'
+// Rule amendment: the status read and the end-to-end driver (the four writes live on the write client).
+export {readRuleAmendment, amendSlotRule, RuleAmendmentError} from './ruleAmendment.js'
+export type {RuleAmendmentStatus, RuleAmendmentErrorCode, AmendSlotRuleArgs, AmendSlotRuleResult, AmendmentPhase} from './ruleAmendment.js'
 export type {
   CreateSlotArgs,
   CreateSlotFromPolicyArgs,
   CommitRevealOptions,
+  ProposeRuleArgs,
+  ProposeRuleResult,
   RelayConfig,
   RelayReceipt,
   TasraWriteClient,

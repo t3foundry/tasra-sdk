@@ -102,7 +102,7 @@ try {
   ok('tarball contains no private source or source maps', !packedNames.some(p => p.startsWith('package/src/') || p.endsWith('.map')))
   ok('document app ships source, configuration and sample PDF', ['package.json', 'gitignore.template', 'server.ts', 'setup.ts', 'workflow.test.ts', 'web/app.ts', 'web/preview.ts', 'public/sample.pdf', 'network.ts'].every(p => packedNames.includes('package/examples/document-signing/' + p)))
   ok('document app excludes private state and generated assets', !packedNames.some(p => /^package\/examples\/document-signing\/(?:\.tasra|node_modules|\.superdesign|public\/pdf-assets)\//.test(p) || p === 'package/examples/document-signing/public/app.js'))
-  ok('tarball contains all 11 agent skills', packedNames.filter(p => p.endsWith('/SKILL.md')).length === 11)
+  ok('tarball contains all 12 agent skills', packedNames.filter(p => p.endsWith('/SKILL.md')).length === 12)
   for (const skill of packedNames.filter(p => p.endsWith('/SKILL.md'))) {
     const content = execFileSync('tar', ['-xOzf', join(scratch, tarball), skill], {encoding: 'utf8'})
     const references = [...content.matchAll(/^ {4}- (.+)$/gm)].map(m => m[1]!.split('#')[0]!)
