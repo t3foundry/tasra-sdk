@@ -75,7 +75,8 @@ export interface PaidSessionDriverOptions {
   observeRequest?(request: VerifiedRequestObject): void | Promise<void>
   /**
    * Resume a previous drive from the store: confirmed writes are skipped (creation is
-   * reconciled by an authenticated read), unknown ones still refuse. Default false: any
+   * reconciled by an authenticated read). Unknown creation can also be confirmed by a
+   * verified read of the original session; every other unknown write still refuses. Default false: any
    * retained write refuses, so a first drive can never collide with an earlier attempt.
    */
   resume?: boolean
@@ -133,13 +134,21 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,40}$/.test(options.journalPrefix ?? 'wallet-')) throw new Error('Invalid paid session journal prefix')
 
   /** Journal, send once, confirm. Returns false when a resumed drive skipped a confirmed original. */
-  const attempt = async (name: string, original: unknown, work: () => Promise<void>): Promise<boolean> => {
+  const attempt = async (name: string, original: unknown, work: () => Promise<void>, recover?: () => Promise<void>): Promise<boolean> => {
     signal.throwIfAborted()
     const key = prefix + '-' + name
     return store.withLock(key, async () => {
       const retained = await store.load<{original: unknown; phase: string}>(key)
       if (retained !== undefined) {
         if (resume && retained?.phase === 'confirmed' && same(retained.original, original)) return false
+        if (resume && retained?.phase === 'prepared' && same(retained.original, original) && recover) {
+          // Only creation supplies this read-only recovery. It checks the original
+          // provider, bearer and full context; no POST is repeated or replaced.
+          await recover()
+          signal.throwIfAborted()
+          await store.save(key, {original: retained.original, phase: 'confirmed'})
+          return false
+        }
         throw new PaidSessionRecoveryError(key, retained?.phase === 'confirmed' && !resume
           ? 'Original paid write already attempted; reconcile it without redelivery'
           : 'Original paid write already attempted with an unknown or different outcome; reconcile it without redelivery')
@@ -222,10 +231,20 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
     }
   }
 
+  let creationRecovered = false
   const created = await attempt('create', {sessionId: session.sessionId, paymentHash: session.paymentHash, initialization: session.initialization},
-    () => session.create(signal))
+    () => session.create(signal), async () => {
+      try {await session.reconcile(signal)}
+      catch (error) {
+        signal.throwIfAborted()
+        // A failed read (including 404) does not prove that the original POST
+        // was refused. Preserve the uncertain creation and its application fence.
+        throw new Error('Original session creation cannot be verified; resume only this session', {cause: error})
+      }
+      creationRecovered = true
+    })
   // A resumed drive recovers the original public context by an authenticated read instead.
-  if (!created) await session.reconcile(signal)
+  if (!created && !creationRecovered) await session.reconcile(signal)
   let opened: Awaited<ReturnType<RegisteredPaidAgentSession['requestObject']>>
   for (;;) {
     signal.throwIfAborted()

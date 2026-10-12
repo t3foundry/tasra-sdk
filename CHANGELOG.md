@@ -9,6 +9,10 @@ never does.
 
 ### Fixed
 
+- Explicit paid-session resume recovers an uncertain original creation through
+  an authenticated, verified read of that same session. The creation POST is
+  never repeated; failed recovery and other uncertain writes stay blocked.
+
 - Paid credential approvals cap the token lifetime by the earliest original
   issuer-signed credential or OAuth access-token expiry, matching the agent and
   verifiers. Fractional expiry is rounded down; substituted proposal lifetimes

@@ -79,8 +79,9 @@ uncertain the call throws `PaidOperationRecoveryError` (`requestId`, `phase`:
 separates a final refusal (`session-refused`, `reservation-failed`, `payment-expired`) and
 steps only reconciliation or `recover` can settle from an interruption worth resuming. Never call `paidOperation` again for that
 work, which would pay twice. Call `resumePaidOperation(config, requestId, {holder})`: it
-re-reads the session and skips confirmed writes, and refuses any write whose outcome is
-unknown. Cancelling through `signal` after the operation is journaled throws code
+re-reads the session and skips confirmed writes. An unknown creation can be confirmed only
+by an authenticated, verified read of that same original session; other unknown writes
+remain refused. Cancelling through `signal` after the operation is journaled throws code
 `aborted`, resumable unless the payment expired, when the step sent nothing uncertain; if
 a reservation or session write may have been sent, that step's uncertain code is reported
 instead. An abort before the journal is written rethrows the signal's reason: nothing was

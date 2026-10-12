@@ -229,6 +229,46 @@ describe('paidOperation', () => {
     expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
   })
 
+  it('retains the original application payment through unknown creation and a failed recovery read', async () => {
+    const f = setup(), sessionId = 'ab'.repeat(32)
+    // Compose the real session driver and application error classification.
+    // Protocol/provider verification remains the session's responsibility and
+    // is exercised with genuine signatures in chain.registered-paid-agent.
+    const actual = await vi.importActual<typeof import('../../src/app/paid-session.js')>('../../src/app/paid-session.js')
+    vi.mocked(drivePaidSession).mockImplementation(actual.drivePaidSession)
+    const create = vi.fn(async () => {throw new Error('lost original creation reply')})
+    const reconcile = vi.fn(async () => ({status: 'pending' as const}))
+      .mockRejectedValueOnce(new PaidAgentControlError(sessionId, 404))
+    const requestObject = vi.fn(async () => {throw new Error('stopped after verified creation read')})
+    vi.mocked(prepareRegisteredPaidSession).mockImplementation(async (_chain, _config, params) => ({
+      sessionId, paymentHash: paymentIntentHash(params.payment), initialization: {expires: params.operation.exp},
+      create, reconcile, requestObject,
+    } as unknown as RegisteredPaidAgentSession))
+    const error = await paidOperation(f.config, f.request).catch((e: unknown) => e) as PaidOperationRecoveryError
+    expect(error).toMatchObject({phase: 'session', code: 'session-interrupted', resumable: true})
+    const original = await f.store.load('wallet-' + sessionId + '-create')
+    expect(original).toMatchObject({phase: 'prepared'})
+    // A 404 on a recovery GET cannot prove the original POST was refused:
+    // applications must retain the pending payment rather than pay again.
+    await expect(resumePaidOperation(f.config, error.requestId, {holder: f.holder})).rejects.toMatchObject({
+      requestId: error.requestId, code: 'session-interrupted', resumable: true,
+      cause: expect.objectContaining({cause: expect.objectContaining({httpStatus: 404})}),
+    })
+    expect(await f.store.load('wallet-' + sessionId + '-create')).toEqual(original)
+    expect(await paidOperationPhase(f.store, error.requestId)).toBe('certified')
+    await expect(resumePaidOperation(f.config, error.requestId, {holder: f.holder})).rejects.toMatchObject({
+      requestId: error.requestId, code: 'session-interrupted', resumable: true,
+      cause: expect.objectContaining({message: 'stopped after verified creation read'}),
+    })
+    expect(await f.store.load('wallet-' + sessionId + '-create')).toEqual({...original as object, phase: 'confirmed'})
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(reconcile).toHaveBeenCalledTimes(2)
+    expect(requestObject).toHaveBeenCalledTimes(1)
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(createExecutionCertificate).toHaveBeenCalledTimes(1)
+    expect(f.holder.submit).not.toHaveBeenCalled()
+  })
+
   // D5 class: a store may hand back the journaled seed as a Buffer view over memory it reuses; the
   // resumed signer must own its secret, or the store's reuse zeroes it under the certified key.
   it('resumes with an execution signer that survives the store wiping the Buffer view it returned', async () => {

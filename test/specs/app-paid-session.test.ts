@@ -68,6 +68,64 @@ it('never resumes past a write whose outcome is unknown', async () => {
   expect(holder.submit).toHaveBeenCalledTimes(1)
 })
 
+it('recovers unknown creation only on explicit resume through the verified original read', async () => {
+  const f = fixture(), key = 'wallet-' + f.id + '-create'
+  const holder = {kind: 'local' as const, makePresentation: vi.fn(() => structuredClone(f.presentation)), submit: vi.fn(async () => { f.wallet() })}
+  vi.mocked(f.session.create).mockRejectedValueOnce(new Error('lost creation reply'))
+  await expect(drivePaidSession({...f.base, holder})).rejects.toThrow('lost creation reply')
+  const retained = await f.store.load(key)
+  expect(retained).toMatchObject({phase: 'prepared'})
+  await expect(drivePaidSession({...f.base, holder})).rejects.toBeInstanceOf(PaidSessionRecoveryError)
+  expect(f.session.reconcile).not.toHaveBeenCalled()
+  expect((await drivePaidSession({...f.base, holder, resume: true})).status).toBe('done')
+  expect(f.session.create).toHaveBeenCalledTimes(1)
+  expect(f.session.reconcile).toHaveBeenCalledTimes(1)
+  expect(await f.store.load(key)).toEqual({...(retained as Record<string, unknown>), phase: 'confirmed'})
+  expect(holder.submit).toHaveBeenCalledTimes(1)
+})
+
+it.each(['original session missing', 'original provider or context changed'])('retains unknown creation when its verified read refuses: %s', async message => {
+  const f = fixture(), key = 'wallet-' + f.id + '-create'
+  const holder = {kind: 'local' as const, makePresentation: vi.fn(() => structuredClone(f.presentation)), submit: vi.fn(async () => { f.wallet() })}
+  vi.mocked(f.session.create).mockRejectedValueOnce(new Error('lost creation reply'))
+  await expect(drivePaidSession({...f.base, holder})).rejects.toThrow('lost creation reply')
+  const retained = await f.store.load(key)
+  const failure = message === 'original session missing' ? new PaidAgentControlError(f.id, 404) : new Error(message)
+  vi.mocked(f.session.reconcile).mockRejectedValueOnce(failure)
+  await expect(drivePaidSession({...f.base, holder, resume: true})).rejects.toMatchObject({
+    message: 'Original session creation cannot be verified; resume only this session', cause: failure,
+  })
+  expect(await f.store.load(key)).toEqual(retained)
+  expect(f.session.create).toHaveBeenCalledTimes(1)
+  expect(f.session.requestObject).not.toHaveBeenCalled()
+  expect(holder.submit).not.toHaveBeenCalled()
+})
+
+it('refuses a different retained creation intent before recovery reads or wallet work', async () => {
+  const f = fixture(), key = 'wallet-' + f.id + '-create'
+  const original = {sessionId: f.id, paymentHash: '0x' + 'ee'.repeat(32), initialization: f.session.initialization}
+  await f.store.save(key, {phase: 'prepared', original})
+  const holder = {kind: 'local' as const, makePresentation: vi.fn(() => structuredClone(f.presentation)), submit: vi.fn(async () => { f.wallet() })}
+  await expect(drivePaidSession({...f.base, holder, resume: true})).rejects.toBeInstanceOf(PaidSessionRecoveryError)
+  expect(f.session.create).not.toHaveBeenCalled()
+  expect(f.session.reconcile).not.toHaveBeenCalled()
+  expect(holder.submit).not.toHaveBeenCalled()
+  expect(await f.store.load(key)).toEqual({phase: 'prepared', original})
+})
+
+it('retains unknown creation when cancellation arrives during its original recovery read', async () => {
+  const f = fixture(), key = 'wallet-' + f.id + '-create', controller = new AbortController()
+  const holder = {kind: 'local' as const, makePresentation: vi.fn(() => structuredClone(f.presentation)), submit: vi.fn(async () => { f.wallet() })}
+  vi.mocked(f.session.create).mockRejectedValueOnce(new Error('lost creation reply'))
+  await expect(drivePaidSession({...f.base, holder})).rejects.toThrow('lost creation reply')
+  const retained = await f.store.load(key)
+  vi.mocked(f.session.reconcile).mockImplementationOnce(async () => {controller.abort(new Error('cancelled recovery')); return {status: 'pending', phase: 'awaiting_wallet'}})
+  await expect(drivePaidSession({...f.base, holder, resume: true, signal: controller.signal})).rejects.toThrow('cancelled recovery')
+  expect(await f.store.load(key)).toEqual(retained)
+  expect(f.session.create).toHaveBeenCalledTimes(1)
+  expect(holder.submit).not.toHaveBeenCalled()
+})
+
 it('gives a local holder the request URI and QR payload instead of making it rebuild them', async () => {
   const f = fixture()
   const present = vi.fn()

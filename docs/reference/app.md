@@ -251,7 +251,7 @@ declare class PaidOperationRecoveryError {
 
 A retained write's outcome is unknown, or a resumed write differs from its original.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L87)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L88)
 
 Import: `import {PaidSessionRecoveryError} from 'tasra-sdk/app'`
 
@@ -789,7 +789,7 @@ Drive one prepared paid session to a completed, verified committee token.
 Creation, request-object approval, presentation, continuation and credential approvals are
 each journaled before sending; an unknown outcome is never redelivered.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L127)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L128)
 
 Import: `import {drivePaidSession} from 'tasra-sdk/app'`
 
@@ -1368,7 +1368,7 @@ Retry a read-only discovery while the verifier and accountant snapshots for the 
 are not yet anchored. Only those two explicit outcomes are retried, before any reservation,
 consent or delivery; every other failure is final.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L104)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/paid-session.ts#L105)
 
 Import: `import {waitForPaidSnapshot} from 'tasra-sdk/app'`
 
@@ -2437,7 +2437,7 @@ Fields:
 - **` holder `**: Holder strategy.
 - **` wait `**: Wait between polls; receives the agent's Retry-After hint when it sent one.
 - **` observeRequest `**: Observe the verified request before any credential is disclosed (receives a detached copy).
-- **` resume `**: Resume a previous drive from the store: confirmed writes are skipped (creation is reconciled by an authenticated read), unknown ones still refuse. Default false: any retained write refuses, so a first drive can never collide with an earlier attempt.
+- **` resume `**: Resume a previous drive from the store: confirmed writes are skipped (creation is reconciled by an authenticated read). Unknown creation can also be confirmed by a verified read of the original session; every other unknown write still refuses. Default false: any retained write refuses, so a first drive can never collide with an earlier attempt.
 - **` journalPrefix `**: Journal key prefix; default `wallet-` (compatible with records written by earlier drivers).
 
 ### PaidSessionHolder
