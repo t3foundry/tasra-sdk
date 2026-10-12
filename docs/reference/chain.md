@@ -2869,7 +2869,23 @@ Stable refusal categories of the rule-amendment API; branch on `code`, never on 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/ruleAmendmentCore.ts#L21)
 
 ```ts
-export type RuleAmendmentErrorCode = 'no-slot' | 'immutable' | 'not-admin' | 'pending' | 'same-rule' | 'wrong-auth-type' | 'not-admissible' | 'no-pending' | 'timelock' | 'below-threshold' | 'not-guardian' | 'not-deliverer' | 'not-pending' | 'pending-changed' | 'timeout' | 'not-activated';
+export type RuleAmendmentErrorCode =
+  | 'no-slot'
+  | 'immutable'
+  | 'not-admin'
+  | 'pending'
+  | 'same-rule'
+  | 'wrong-auth-type'
+  | 'not-admissible'
+  | 'no-pending'
+  | 'timelock'
+  | 'below-threshold'
+  | 'not-guardian'
+  | 'not-deliverer'
+  | 'not-pending'
+  | 'pending-changed'
+  | 'timeout'
+  | 'not-activated';
 ```
 
 ### RuleAmendmentStatus

@@ -902,7 +902,15 @@ Failure categories for deployment, slot, authorization and result validation.
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L24)
 
 ```ts
-export type ApplicationErrorCode = 'CHAIN_MISMATCH' | 'SLOT_NOT_FOUND' | 'SLOT_CANCELLED' | 'WRONG_SLOT_MODE' | 'KEY_NOT_READY' | 'SLOT_CHANGED' | 'INVALID_AUTHORIZATION' | 'INVALID_RESULT';
+export type ApplicationErrorCode =
+  | 'CHAIN_MISMATCH'
+  | 'SLOT_NOT_FOUND'
+  | 'SLOT_CANCELLED'
+  | 'WRONG_SLOT_MODE'
+  | 'KEY_NOT_READY'
+  | 'SLOT_CHANGED'
+  | 'INVALID_AUTHORIZATION'
+  | 'INVALID_RESULT';
 ```
 
 ### ApplicationManifest
@@ -927,7 +935,13 @@ Stable recovery categories for a durable named slot creation.
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L13)
 
 ```ts
-export type ApplicationSlotRecoveryCode = 'SAVED_INTENT_MISMATCH' | 'SLOT_STATE_MISMATCH' | 'VERIFIER_POLICY_OUTCOME_UNKNOWN' | 'VERIFIER_POLICY_RECEIPT_PENDING' | 'VERIFIER_POLICY_REVERTED' | 'VERIFIER_POLICY_MISMATCH';
+export type ApplicationSlotRecoveryCode =
+  | 'SAVED_INTENT_MISMATCH'
+  | 'SLOT_STATE_MISMATCH'
+  | 'VERIFIER_POLICY_OUTCOME_UNKNOWN'
+  | 'VERIFIER_POLICY_RECEIPT_PENDING'
+  | 'VERIFIER_POLICY_REVERTED'
+  | 'VERIFIER_POLICY_MISMATCH';
 ```
 
 ### ApplicationStore
