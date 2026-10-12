@@ -1746,7 +1746,7 @@ Authenticate one approved provider and prepare complete client-signed initializa
 This function reserves nothing, sends no session POST and keeps the execution signer local.
 The caller must retain the returned object through uncertain creation/delivery outcomes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L245)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L260)
 
 Import: `import {prepareRegisteredPaidSession} from 'tasra-sdk/chain'`
 

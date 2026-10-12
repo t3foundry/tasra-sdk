@@ -191,6 +191,41 @@ it('rebuilds every client-accepted credential without copying the agent proposal
   await verifyExecutionAuthorization({payment:f.payment,policy:f.policy,expected:{stage:'credential',operatorKey:f.members[0]!.publicKey,body},authorization})
 })
 
+it.each(['jwt','sd-jwt','oauth'] as const)('caps credential approval by the original %s issuer expiry before signing',async kind=>{
+  const f=await fixture(kind==='oauth'?'oauth':'wallet');await f.session.create()
+  const issue=(claims:Record<string,unknown>)=>signCompactJws({typ:'JWT'},claims,{alg:'EdDSA',privateKey:new Uint8Array(32).fill(5)})
+  let approved:ClientApprovedPresentation
+  if(kind==='oauth'){
+    const key=await createDpopKey()
+    const token=issue({iat:1000,exp:1015,aud:f.session.oauthContext.platformAudience,cnf:{jkt:await key.thumbprint()}})
+    approved=await f.session.prepareOAuthPresentation(token,key.signer)
+  }else{
+    const credential=issue({iat:990,exp:kind==='sd-jwt'?1015.9:1015})
+    // Only the issuer's first segment sets this bound. The holder's KB-JWT
+    // and a second, longer-lived credential cannot replace it.
+    const presented=kind==='sd-jwt'?credential+'~disclosure~'+issue({iat:1000,exp:1001}):credential
+    approved={...f.approved,credentials:[issue({iat:990,exp:1040}),presented]}
+  }
+  const body={payment:f.payment,holder:approved.holder,credentials:approved.credentials,
+    ...(approved.holder_proof!==null?{holder_proof:approved.holder_proof}:{}),
+    ...(approved.oauth!==null?{oauth:approved.oauth,session_id:f.session.sessionId}:{}),token_type:'JWT',
+    seed:f.payment.verification_seed,epoch:7,slot_id:f.payment.slot,registry_size:2,committee:2,quorum:2,iat:1000,exp:1015,
+    chain_id:43112,action:'sign',payload_digest:f.payment.payload_digest,random:f.params.random,client_id:f.profile.clientId,
+    description:f.params.operation.description,operation_exp:1060,operation:f.params.operation,operation_sig:f.params.operationSig}
+  const proposed:PaidAgentProposal={id:proposalId,stage:'credential',operator_key:f.members[0]!.publicKey,unsigned_body:body,expires:1030}
+  const send=vi.mocked(f.transport.paidAgentRequest);send.mockClear();f.sign.mockClear()
+  await f.session.approveCredentials(proposed,f.members[0]!,approved)
+  expect(send).toHaveBeenCalledTimes(1)
+  const authorization=JSON.parse(new TextDecoder().decode(send.mock.calls[0]![1].body)).authorization
+  await verifyExecutionAuthorization({payment:f.payment,policy:f.policy,expected:{stage:'credential',operatorKey:f.members[0]!.publicKey,body},authorization})
+  expect(authorization.body_hash).toBe(executionBodyHash(body))
+  send.mockClear();f.sign.mockClear()
+  for(const exp of [1014,1016,1030]){
+    await expect(f.session.approveCredentials({...proposed,unsigned_body:{...body,exp}},f.members[0]!,approved)).rejects.toThrow(/client-built intent/)
+  }
+  expect(f.sign).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled()
+})
+
 it('binds OAuth credential consent to the original session ID and refuses an omitted or substituted ID',async()=>{
   const f=await fixture('oauth');await f.session.create();const http=vi.spyOn(f.transport,'paidAgentRequest')
   const key=await createDpopKey(),token=signCompactJws({typ:'at+jwt'},{iss:'https://idp.example',sub:'holder',iat:1000,exp:1060,

@@ -233,6 +233,21 @@ function presented(value: ClientApprovedPresentation): ClientApprovedPresentatio
   return structuredClone(value)
 }
 
+// Mirrors the agent's signed_jws_expiry reader: only the issuer payload sets
+// this bound, never an SD-JWT disclosure or holder KB-JWT. This is advisory
+// decoding; the drawn verifiers still authenticate the complete evidence.
+function issuerExpiry(credential: string): number | undefined {
+  const parts=credential.split('~',1)[0]!.split('.')
+  if(parts.length!==3)return undefined
+  const payload=parts[1]!.replace(/=+$/,'')
+  if(!/^[A-Za-z0-9_-]*$/.test(payload))return undefined
+  try{
+    const exp=object(decodeJson(payload)).exp
+    if(typeof exp==='number'&&Number.isFinite(exp)&&exp>=-(2**63)&&exp<2**63)return Math.floor(exp)
+  }catch{/* Unreadable evidence contributes no bound; verifiers refuse it. */}
+  return undefined
+}
+
 /**
  * Authenticate one approved provider and prepare complete client-signed initialization before HTTP.
  * This function reserves nothing, sends no session POST and keeps the execution signer local.
@@ -458,7 +473,11 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   const credentialBody = (accepted:ClientApprovedPresentation):Record<string,unknown> => {
     const approved=presented(accepted),c=ready()
     if((params.kind==='oauth')!==(approved.oauth!==null))throw new Error('Presentation kind differs from the original session')
-    const exp=Math.min(approved.iat+3600,c.expires,params.operation.exp)
+    let exp=Math.min(approved.iat+3600,c.expires,params.operation.exp)
+    for(const credential of [...approved.credentials,...(approved.oauth?[approved.oauth.access_token]:[])]){
+      const expiry=issuerExpiry(credential)
+      if(expiry!==undefined)exp=Math.min(exp,expiry)
+    }
     if(!Number.isSafeInteger(exp)||exp<=Math.floor(Date.now()/1000))throw new Error('Original credential presentation expired')
     return {payment:typedPayment,holder:approved.holder,credentials:approved.credentials,
       ...(approved.holder_proof!==null?{holder_proof:approved.holder_proof}:{}),...(approved.oauth!==null?{oauth:approved.oauth,session_id:sessionId}:{}),token_type:'JWT',

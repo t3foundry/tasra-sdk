@@ -9,6 +9,11 @@ never does.
 
 ### Fixed
 
+- Paid credential approvals cap the token lifetime by the earliest original
+  issuer-signed credential or OAuth access-token expiry, matching the agent and
+  verifiers. Fractional expiry is rounded down; substituted proposal lifetimes
+  still refuse before signing or delivery.
+
 - Paid verifier-agent sessions accept typed payment contexts and operator bodies
   when the original deployment addresses use checksum casing. The original
   initialization JSON, payment hash and session identity stay unchanged, including
