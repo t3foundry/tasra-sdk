@@ -157,7 +157,7 @@ export type {RelayVoucher, RelayVoucherIntent, RelaySponsorshipConfig} from './r
 export {assertRelayVoucher, assertRelayVoucherIntent} from './relayVoucher.js'
 
 export {createRegisteredAgentClient, AgentSessionCreationUnknownError} from './registeredAgent.js'
-export type {AgentTransport, ApprovedAgentProfile, RegisteredAgentSession} from './registeredAgent.js'
+export type {AgentTransport, ApprovedAgentProfile, RegisteredAgentSession, UnpaidAgentSessionRecovery} from './registeredAgent.js'
 export type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
 export {prepareRegisteredPaidSession, PaidAgentControlError} from './registeredPaidAgent.js'
 export type {RegisteredPaidAgentSession, PaidAgentSessionParams, ClientApprovedPresentation, PaidRetainedPresentation, PaidAgentProposal,

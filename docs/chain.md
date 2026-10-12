@@ -17,6 +17,19 @@ Authenticate the agent and its Request Object before presenting credentials; the
 agent must verify the sponsor's creator/delegate authority. Retain session recovery
 under `attempt.id` and honor cancellation.
 
+Create the agent session with the original `intent.operation`, `intent.operation_sig`,
+`intent.delegation` and `intent.message_hex`; do not sign a replacement operation. Persist
+the creation intent under `attempt.id` before its POST, then persist the returned session's
+`unpaidRecovery` checkpoint before wallet delivery. It contains the poll secret: keep it in
+private durable application storage, never logs or public artifacts. After restart,
+`agent.restoreUnpaidSession(checkpoint, {signal})` checks the independently approved profile
+and live registry, then polls only that original session. It performs no creation POST or
+provider failover. Retain the original operation separately, derive its request hash, and
+use `assertRegisteredWalletRequest` before presenting and immediately before submitting.
+If creation was interrupted before its checkpoint was saved, retain that uncertain intent
+and refuse automatic creation of another session. Paid sessions use payment recovery and
+do not expose an unpaid checkpoint.
+
 The SDK checks the returned voucher's request binding and persists the voucher with
 the original signature before submitting. The relayer independently verifies the
 committee signatures, snapshot proofs, standing and revocation freshness. No TASRA

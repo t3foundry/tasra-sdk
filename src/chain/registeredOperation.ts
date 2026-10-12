@@ -33,7 +33,7 @@ export interface RegisteredVerifierAgentSession extends RegisteredAgentSession {
  * @param opts Exact operation, authorizing signer and optional delegation or cancellation.
  */
 export async function openRegisteredVerifierAgentSession(
-  client: ReturnType<typeof createRegisteredAgentClient>,
+  client: Pick<ReturnType<typeof createRegisteredAgentClient>, 'createSession'>,
   opts: OperationInput & {
     /** Creator or delegated presentation signer; payment consent remains the creator's. */
     signer: TypedDataSigner

@@ -1142,7 +1142,7 @@ Import: `import {registeredWalletAuthorization} from 'tasra-sdk/app'`
 
 ```ts
 declare function registeredWalletAuthorization(config: {
-    client: ReturnType<typeof createRegisteredAgentClient>;
+    client: Pick<ReturnType<typeof createRegisteredAgentClient>, 'createSession'>;
     signer: TypedDataSigner;
     delegation?: PresentationDelegation;
     present: (session: RegisteredVerifierAgentSession, signal?: AbortSignal) => Promise<void>;
@@ -1159,7 +1159,7 @@ declare function registeredWalletAuthorization(config: {
 
 ```ts
 {
-    client: ReturnType<typeof createRegisteredAgentClient>;
+    client: Pick<ReturnType<typeof createRegisteredAgentClient>, 'createSession'>;
     signer: TypedDataSigner;
     delegation?: PresentationDelegation;
     present: (session: RegisteredVerifierAgentSession, signal?: AbortSignal) => Promise<void>;

@@ -10,6 +10,19 @@ native approval POSTs or signing requests with an uncertain outcome.
 
 # OpenID4VP wallets and the Verifier Agent
 
+## Durable unpaid relay sponsorship
+
+Use the relayer's original validated sponsorship operation, signature, delegation and
+message with `createRegisteredAgentClient(...).createSession(...)`. Persist the creation
+intent before its POST, then privately save `session.unpaidRecovery` before wallet
+delivery. On restart, `restoreUnpaidSession(checkpoint, {signal})` checks independent
+approvals and live provider identity, and polls the original session without creating
+another one or switching providers. Keep the original operation and verify its Request
+Object binding before presenting and again immediately before delivery. An uncertain
+creation without a saved checkpoint requires recovery; never automatically create another
+session. The checkpoint contains a poll secret and belongs in private durable storage.
+Paid sessions use the separate payment recovery flow below.
+
 ## Mandatory prepaid deployments
 
 Slot credit is TASRA. AVAX pays transaction gas and does not fund a slot's work.

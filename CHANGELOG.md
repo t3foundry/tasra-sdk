@@ -9,6 +9,12 @@ never does.
 
 ### Added
 
+- Unpaid verifier-agent sessions expose a private JSON `unpaidRecovery` checkpoint.
+  `createRegisteredAgentClient(...).restoreUnpaidSession(checkpoint)` checks independent
+  approvals, live provider identity and the original session before returning it. It never
+  creates another session or switches providers. This supports durable relay sponsorship
+  callbacks; paid sessions continue to use their separate payment recovery protocol.
+
 - Registered relay sponsorship via `sponsorship: {slotId, authorize}`. The SDK requests
   a sponsor intent only from an authenticated approved relayer, checks exact chain,
   slot and forward-request binding, obtains the wallet voucher through the application's

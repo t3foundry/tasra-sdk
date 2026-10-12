@@ -43,8 +43,24 @@ export interface RegisteredAgentSession extends Readonly<CreateSessionResult> {
    * Provider identity and endpoint pinned when the session was opened.
    */
   readonly profile: Readonly<ApprovedAgentProfile>
+  /** Private JSON checkpoint for unpaid sessions. Save before wallet delivery; paid sessions use payment recovery. */
+  readonly unpaidRecovery?: UnpaidAgentSessionRecovery
   /** Poll only the original endpoint/profile. A provider change requires a fresh wallet session. */
   poll(signal?: AbortSignal): Promise<SessionStatusResult>
+}
+
+/** Private application state for restoring the original unpaid session, never a provider approval. */
+export interface UnpaidAgentSessionRecovery extends CreateSessionResult {
+  /** Checkpoint format. */
+  version: 1
+  /** Creation identity, compared with independent approvals and the live registry. */
+  serviceProfile: {
+    chainId: number; registry: string; serviceId: string; serviceType: 1
+    owner: string; revision: string; manifestHash: string; authKey: string
+    endpoint: string; clientId: string
+  }
+  /** Pending owner at creation; a later transfer stops recovery before bearer delivery. */
+  pendingOwner: string
 }
 
 /**
@@ -83,9 +99,9 @@ async function bounded<T>(signal: AbortSignal | undefined, work: (signal: AbortS
   } finally { clearTimeout(timer); combined.removeEventListener('abort', abort); controller.abort() }
 }
 
-function pin(profile: ApprovedAgentProfile, record: ServiceRecord) {
+function pin(profile: ApprovedAgentProfile, record: Pick<ServiceRecord, 'authKey'>) {
   const a = profile.approval
-  return {chainId: a.chainId, registry: a.registry.toLowerCase(), serviceId: a.serviceId.toLowerCase(), serviceType: 1,
+  return {chainId: a.chainId, registry: a.registry.toLowerCase(), serviceId: a.serviceId.toLowerCase(), serviceType: 1 as const,
     owner: a.owner.toLowerCase(), revision: a.revision.toString(), manifestHash: a.manifestHash.toLowerCase(),
     authKey: record.authKey.toLowerCase(), endpoint: profile.endpoint, clientId: profile.clientId}
 }
@@ -93,6 +109,50 @@ function pin(profile: ApprovedAgentProfile, record: ServiceRecord) {
 function equalPin(actual: unknown, expected: ReturnType<typeof pin>): boolean {
   if (!actual || typeof actual !== 'object') return false
   return Object.entries(expected).every(([key, value]) => (actual as Record<string, unknown>)[key] === value)
+}
+
+function metadata(data: Record<string, unknown>, profile: ApprovedAgentProfile, expected: ReturnType<typeof pin>): CreateSessionResult {
+  if (!equalPin(data.service_profile, expected) || typeof data.session_id !== 'string' || !/^[0-9a-f]{64}$/.test(data.session_id)
+    || typeof data.poll_secret !== 'string' || !/^[0-9a-f]{64}$/.test(data.poll_secret)) throw new Error('Agent session profile or identifiers mismatch')
+  const requestUri = `${profile.endpoint}/v1/request/${data.session_id}`
+  if (data.request_uri !== requestUri || typeof data.qr_payload !== 'string' || !data.qr_payload.startsWith('openid4vp://?')) throw new Error('Agent wallet request destination mismatch')
+  const qr = new URL(data.qr_payload)
+  if (qr.searchParams.get('client_id') !== profile.clientId || qr.searchParams.get('request_uri') !== requestUri || [...qr.searchParams.keys()].length !== 2) throw new Error('Agent wallet audience or request URI mismatch')
+  return {sessionId: data.session_id, pollSecret: data.poll_secret, requestUri, qrPayload: data.qr_payload}
+}
+
+function retainedSession(chain: TasraChainClient, transport: AgentTransport, profile: ApprovedAgentProfile,
+  expected: ReturnType<typeof pin>, pendingOwner: string, input: CreateSessionResult, paid: ReturnType<typeof sessionPaymentFields>): RegisteredAgentSession {
+  const {sessionId, pollSecret, requestUri, qrPayload} = input
+  expected = Object.freeze({...expected})
+  pendingOwner = pendingOwner.toLowerCase()
+  const paymentHash = paid.payment && paymentIntentHash(paid.payment)
+  const checkpoint: UnpaidAgentSessionRecovery = {version: 1, sessionId, pollSecret, requestUri, qrPayload, serviceProfile: expected, pendingOwner}
+  // Routing, identity and bearer live in this closure; callers receive defensive checkpoints.
+  return Object.freeze({sessionId, pollSecret, requestUri, qrPayload, profile,
+    ...(paid.payment ? {paymentHash, random: paid.random} : {}),
+    get payment() { return paid.payment && structuredClone(paid.payment) },
+    get unpaidRecovery() { return paid.payment ? undefined : structuredClone(checkpoint) },
+    poll: (pollSignal?: AbortSignal) => bounded(pollSignal, async activeSignal => {
+      const a = profile.approval
+      if (chain.addresses.ServiceRegistry?.toLowerCase() !== a.registry.toLowerCase() || await chain.client.getChainId() !== a.chainId) throw new Error('Agent session chain/registry changed')
+      activeSignal.throwIfAborted()
+      const block = await chain.client.getBlockNumber({cacheTime: 0})
+      activeSignal.throwIfAborted()
+      const current = await chain.readers.serviceRegistry.getService(a.serviceId, block)
+      activeSignal.throwIfAborted()
+      if (current.status > 1 || current.revision < a.revision || current.serviceType !== 1
+        || current.owner.toLowerCase() !== expected.owner || current.authKey.toLowerCase() !== expected.authKey
+        || current.pendingOwner.toLowerCase() !== pendingOwner || current.manifestHash.toLowerCase() !== a.manifestHash.toLowerCase()
+        || current.endpoint !== profile.endpoint) throw new Error('Agent session profile changed; retain the original session for recovery')
+      const reply = decode(await transport.agentRequest(`${profile.endpoint}/v1/sessions/${sessionId}`, {bearer: pollSecret, maxBytes: 1_048_576, signal: activeSignal}), 1_048_576)
+      const binding = reply.binding_preimage as Record<string, unknown> | null | undefined
+      const token = reply.compound_token as Record<string, unknown> | null | undefined
+      if (!paid.payment && [reply.payment, reply.payment_hash, binding?.payment, binding?.payment_hash, token?.payment, token?.payment_hash].some(value => value != null)) throw new Error('Paid agent state cannot use unpaid session recovery')
+      if (!(reply.status === 'failed' && reply.binding_preimage == null && reply.compound_token == null) && !equalPin((reply.binding_preimage as Record<string, unknown> | null)?.service_profile, expected)) throw new Error('Agent result belongs to another session profile')
+      return parseVerifierAgentSessionStatus(reply, sessionId)
+    }),
+  })
 }
 
 /**
@@ -109,6 +169,32 @@ export function createRegisteredAgentClient(chain: TasraChainClient, config: {pr
   })
   const transport = config.transport
   return {
+    /**
+     * Restore private unpaid-session state without creating another session. Independent
+     * approvals and live registry identity are checked before sending its bearer. Save the
+     * original operation separately and verify its wallet binding before presenting.
+     */
+    async restoreUnpaidSession(input: UnpaidAgentSessionRecovery, options: {signal?: AbortSignal} = {}): Promise<RegisteredAgentSession> {
+      options.signal?.throwIfAborted()
+      const saved = decode(new TextEncoder().encode(JSON.stringify(input)), 32_768)
+      const keys = ['version', 'sessionId', 'pollSecret', 'requestUri', 'qrPayload', 'serviceProfile', 'pendingOwner']
+      if (saved.version !== 1 || Object.keys(saved).length !== keys.length || keys.some(key => !(key in saved))
+        || typeof saved.pendingOwner !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(saved.pendingOwner)
+        || !saved.serviceProfile || typeof saved.serviceProfile !== 'object' || Array.isArray(saved.serviceProfile)) throw new Error('Invalid unpaid agent recovery checkpoint')
+      const service = saved.serviceProfile as Record<string, unknown>
+      if (typeof service.authKey !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(service.authKey)) throw new Error('Invalid unpaid agent recovery identity')
+      const profile = profiles.find(p => {
+        const expected = pin(p, {authKey: service.authKey as ServiceRecord['authKey']})
+        return Object.keys(service).length === Object.keys(expected).length && equalPin(service, expected)
+      })
+      if (!profile) throw new Error('Original agent recovery profile is not independently approved')
+      const expected = pin(profile, {authKey: service.authKey as ServiceRecord['authKey']})
+      const info = metadata({session_id: saved.sessionId, poll_secret: saved.pollSecret, request_uri: saved.requestUri, qr_payload: saved.qrPayload, service_profile: service}, profile, expected)
+      const session = retainedSession(chain, transport, profile, expected, saved.pendingOwner, info, {})
+      // Poll applies the same live checks as a surviving session closure, including draining.
+      await session.poll(options.signal)
+      return session
+    },
     /** At most three unpaid discovery candidates. A paid session uses only its selected profile. */
     async createSession(params: CreateSessionParams, options: {profileIndex?: number; signal?: AbortSignal} = {}): Promise<RegisteredAgentSession> {
       params = structuredClone(params)
@@ -138,35 +224,7 @@ export function createRegisteredAgentClient(chain: TasraChainClient, config: {pr
           try { data = decode(await transport.agentRequest(profile.endpoint + '/v1/sessions', {body, maxBytes: 32_768, signal}), 32_768) }
           catch { throw new AgentSessionCreationUnknownError(profile, paymentHash) }
           const expected = pin(profile, record)
-          if (!equalPin(data.service_profile, expected) || typeof data.session_id !== 'string' || !/^[0-9a-f]{64}$/.test(data.session_id)
-            || typeof data.poll_secret !== 'string' || !/^[0-9a-f]{64}$/.test(data.poll_secret)) throw new Error('Agent session profile or identifiers mismatch')
-          const sessionId = data.session_id, pollSecret = data.poll_secret
-          const requestUri = `${profile.endpoint}/v1/request/${sessionId}`
-          if (data.request_uri !== requestUri || typeof data.qr_payload !== 'string' || !data.qr_payload.startsWith('openid4vp://?')) throw new Error('Agent wallet request destination mismatch')
-          const qr = new URL(data.qr_payload)
-          if (qr.searchParams.get('client_id') !== profile.clientId || qr.searchParams.get('request_uri') !== requestUri || [...qr.searchParams.keys()].length !== 2) throw new Error('Agent wallet audience or request URI mismatch')
-          // Closure-owned routing and secret prevent a caller's mutable session object from
-          // redirecting a bearer. Replicas sit behind this one approved base endpoint.
-          return Object.freeze({sessionId, pollSecret, requestUri, qrPayload: data.qr_payload, profile,
-            ...(paid.payment ? {paymentHash, random: paid.random} : {}),
-            get payment() { return paid.payment && structuredClone(paid.payment) },
-            poll: (pollSignal?: AbortSignal) => bounded(pollSignal, async activeSignal => {
-              const a = profile.approval
-              if (chain.addresses.ServiceRegistry?.toLowerCase() !== a.registry.toLowerCase() || await chain.client.getChainId() !== a.chainId) throw new Error('Agent session chain/registry changed')
-              activeSignal.throwIfAborted()
-              const block = await chain.client.getBlockNumber({cacheTime: 0})
-              activeSignal.throwIfAborted()
-              const current = await chain.readers.serviceRegistry.getService(a.serviceId, block)
-              activeSignal.throwIfAborted()
-              if (current.status > 1 || current.revision < a.revision || current.serviceType !== 1
-                || current.owner.toLowerCase() !== record.owner.toLowerCase() || current.authKey.toLowerCase() !== record.authKey.toLowerCase()
-                || current.pendingOwner.toLowerCase() !== record.pendingOwner.toLowerCase() || current.manifestHash.toLowerCase() !== a.manifestHash.toLowerCase()
-                || current.endpoint !== profile.endpoint) throw new Error('Agent session profile changed; open a fresh wallet session')
-              const reply = decode(await transport.agentRequest(`${profile.endpoint}/v1/sessions/${sessionId}`, {bearer: pollSecret, maxBytes: 1_048_576, signal: activeSignal}), 1_048_576)
-              if (!(reply.status === 'failed' && reply.binding_preimage == null && reply.compound_token == null) && !equalPin((reply.binding_preimage as Record<string, unknown> | null)?.service_profile, expected)) throw new Error('Agent result belongs to another session profile')
-              return parseVerifierAgentSessionStatus(reply, sessionId)
-            }),
-          })
+          return retainedSession(chain, transport, profile, expected, record.pendingOwner, metadata(data, profile, expected), paid)
         }
         throw new Error('No approved verifier-agent authenticated')
       })

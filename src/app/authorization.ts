@@ -11,7 +11,7 @@ import type {OperationAuthorizer} from './client.js'
  * @param config Approved agent client, operation signer, wallet presentation callback and polling controls.
  */
 export function registeredWalletAuthorization(config: {
-  client: ReturnType<typeof createRegisteredAgentClient>
+  client: Pick<ReturnType<typeof createRegisteredAgentClient>, 'createSession'>
   signer: TypedDataSigner
   delegation?: PresentationDelegation
   present: (session: RegisteredVerifierAgentSession, signal?: AbortSignal) => Promise<void>

@@ -32,7 +32,7 @@ Clients, adapters and error classes.
 
 Session creation may have reached the provider, so automatic retry is unsafe.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L53)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L69)
 
 Import: `import {AgentSessionCreationUnknownError} from 'tasra-sdk/chain'`
 
@@ -990,7 +990,7 @@ Returns: ` PrepaidEscapeClient `.
 
 Selection authenticates public metadata first. Once POSTed, never silently switch providers.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L103)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L163)
 
 Import: `import {createRegisteredAgentClient} from 'tasra-sdk/chain'`
 
@@ -999,6 +999,9 @@ declare function createRegisteredAgentClient(chain: TasraChainClient, config: {
     profiles: readonly ApprovedAgentProfile[];
     transport: AgentTransport;
 }): {
+    restoreUnpaidSession(input: UnpaidAgentSessionRecovery, options?: {
+        signal?: AbortSignal;
+    }): Promise<RegisteredAgentSession>;
     createSession(params: CreateSessionParams, options?: {
         profileIndex?: number;
         signal?: AbortSignal;
@@ -1015,6 +1018,9 @@ Returns:
 
 ```ts
 {
+    restoreUnpaidSession(input: UnpaidAgentSessionRecovery, options?: {
+        signal?: AbortSignal;
+    }): Promise<RegisteredAgentSession>;
     createSession(params: CreateSessionParams, options?: {
         profileIndex?: number;
         signal?: AbortSignal;
@@ -1568,7 +1574,7 @@ Sign once, authenticate an explicitly approved provider, and retain its pinned p
 Import: `import {openRegisteredVerifierAgentSession} from 'tasra-sdk/chain'`
 
 ```ts
-declare function openRegisteredVerifierAgentSession(client: ReturnType<typeof createRegisteredAgentClient>, opts: OperationInput & {
+declare function openRegisteredVerifierAgentSession(client: Pick<ReturnType<typeof createRegisteredAgentClient>, 'createSession'>, opts: OperationInput & {
     signer: TypedDataSigner;
     delegation?: PresentationDelegation;
     profileIndex?: number;
@@ -1580,7 +1586,7 @@ declare function openRegisteredVerifierAgentSession(client: ReturnType<typeof cr
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` client ` | ` ReturnType<typeof createRegisteredAgentClient> ` | Registered agent client with independently approved providers. |
+| ` client ` | ` Pick<ReturnType<typeof createRegisteredAgentClient>, 'createSession'> ` | Registered agent client with independently approved providers. |
 | ` opts ` | See detailed type below. | Exact operation, authorizing signer and optional delegation or cancellation. |
 
 **` opts ` type**
@@ -2730,7 +2736,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 131 types</summary>
+<summary>Browse 132 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -2858,6 +2864,7 @@ Options, data structures and return types.
 - [TasraSlotClient](#tasraslotclient)
 - [TasraSlotClientConfig](#tasraslotclientconfig)
 - [TasraWriteClient](#tasrawriteclient)
+- [UnpaidAgentSessionRecovery](#unpaidagentsessionrecovery)
 - [VaultTranche](#vaulttranche)
 - [VerifierInfo](#verifierinfo)
 - [WriteClientConfig](#writeclientconfig)
@@ -5000,6 +5007,7 @@ export interface RegisteredAgentSession extends Readonly<CreateSessionResult> {
     readonly payment?: PaymentIntentWire;
     readonly random?: string;
     readonly profile: Readonly<ApprovedAgentProfile>;
+    readonly unpaidRecovery?: UnpaidAgentSessionRecovery;
     poll(signal?: AbortSignal): Promise<SessionStatusResult>;
 }
 ```
@@ -5010,6 +5018,7 @@ Fields:
 - **` payment `**: Defensive copy of the fixed spending intent, when this session is prepaid.
 - **` random `**: Presentation random bound by the spending intent to the approved audience.
 - **` profile `**: Provider identity and endpoint pinned when the session was opened.
+- **` unpaidRecovery `**: Private JSON checkpoint for unpaid sessions. Save before wallet delivery; paid sessions use payment recovery.
 - **` poll `**: Poll only the original endpoint/profile. A provider change requires a fresh wallet session.
 - **` sessionId `**: Opened authorization session identifier.
 - **` pollSecret `**: Bearer token for polling - treat as a secret
@@ -5146,6 +5155,7 @@ Fields:
 - **` payment `**: Defensive copy of the fixed spending intent, when this session is prepaid.
 - **` random `**: Presentation random bound by the spending intent to the approved audience.
 - **` profile `**: Provider identity and endpoint pinned when the session was opened.
+- **` unpaidRecovery `**: Private JSON checkpoint for unpaid sessions. Save before wallet delivery; paid sessions use payment recovery.
 - **` poll `**: Poll only the original endpoint/profile. A provider change requires a fresh wallet session.
 - **` sessionId `**: Opened authorization session identifier.
 - **` pollSecret `**: Bearer token for polling - treat as a secret
@@ -6059,6 +6069,41 @@ Fields:
 - **` lastRelay `**: Return the last verified relay receipt, if any.
 - **` pendingRelayAttempt `**: Return the signed relay attempt awaiting reconciliation, if any.
 - **` reconcileRelay `**: Inspect the pending attempt against the chain without signing a replacement.
+
+### UnpaidAgentSessionRecovery
+
+Private application state for restoring the original unpaid session, never a provider approval.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L53)
+
+```ts
+export interface UnpaidAgentSessionRecovery extends CreateSessionResult {
+    version: 1;
+    serviceProfile: {
+        chainId: number;
+        registry: string;
+        serviceId: string;
+        serviceType: 1;
+        owner: string;
+        revision: string;
+        manifestHash: string;
+        authKey: string;
+        endpoint: string;
+        clientId: string;
+    };
+    pendingOwner: string;
+}
+```
+
+Fields:
+
+- **` version `**: Checkpoint format.
+- **` serviceProfile `**: Creation identity, compared with independent approvals and the live registry.
+- **` pendingOwner `**: Pending owner at creation; a later transfer stops recovery before bearer delivery.
+- **` sessionId `**: Opened authorization session identifier.
+- **` pollSecret `**: Bearer token for polling - treat as a secret
+- **` qrPayload `**: OpenID4VP deep link for a wallet or QR code.
+- **` requestUri `**: URL from which the wallet retrieves the signed request.
 
 ### VaultTranche
 

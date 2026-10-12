@@ -4,7 +4,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {bytesToHex, type Address, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {openRegisteredVerifierAgentSession, awaitRegisteredVerifierAgentResult, assertRegisteredWalletRequest} from '../../src/chain/registeredOperation.js'
-import {createRegisteredAgentClient, AgentSessionCreationUnknownError, type ApprovedAgentProfile, type AgentTransport} from '../../src/chain/registeredAgent.js'
+import {createRegisteredAgentClient, AgentSessionCreationUnknownError, type ApprovedAgentProfile, type AgentTransport, type UnpaidAgentSessionRecovery} from '../../src/chain/registeredAgent.js'
 import {authenticateApprovedService} from '../../src/chain/serviceIdentity.js'
 import type {ServiceRecord} from '../../src/chain/services.js'
 import type {TasraChainClient} from '../../src/chain/client.js'
@@ -42,6 +42,85 @@ function harness() {
 beforeEach(() => { vi.mocked(authenticateApprovedService).mockReset() })
 
 describe('registered verifier-agent sessions', () => {
+  it('restores a JSON checkpoint at the original draining provider with no new creation or discovery', async () => {
+    const h = harness(), original = await h.client.createSession(params)
+    const checkpoint = JSON.parse(JSON.stringify(original.unpaidRecovery)) as UnpaidAgentSessionRecovery
+    original.unpaidRecovery!.pollSecret = 'ff'.repeat(32)
+    expect(original.unpaidRecovery!.pollSecret).toBe(original.pollSecret)
+    h.records[0]!.status = 1; h.records[0]!.revision = 2n
+    const restarted = createRegisteredAgentClient(h.chain, {profiles: [...h.profiles].reverse(), transport: h.transport})
+    const restored = await restarted.restoreUnpaidSession(checkpoint)
+    expect(restored.sessionId).toBe(original.sessionId)
+    expect(restored.unpaidRecovery).toEqual(checkpoint)
+    checkpoint.pollSecret = 'ff'.repeat(32)
+    checkpoint.serviceProfile.endpoint = 'https://attacker.example'
+    await restored.poll()
+    const calls = vi.mocked(h.transport.agentRequest).mock.calls
+    expect(calls.filter(([, options]) => options.body !== undefined)).toHaveLength(1)
+    expect(calls.slice(1).every(([url, options]) => url === `${original.profile.endpoint}/v1/sessions/${original.sessionId}` && options.bearer === original.pollSecret)).toBe(true)
+    expect(authenticateApprovedService).toHaveBeenCalledTimes(1)
+    expect(Object.isFrozen(restored)).toBe(true)
+  })
+  it.each(['owner', 'authKey', 'pendingOwner', 'manifestHash', 'endpoint', 'retired', 'chain', 'registry', 'role', 'revision'])('restore refuses live %s changes before bearer disclosure', async change => {
+    const h = harness(), original = await h.client.createSession(params)
+    const checkpoint = original.unpaidRecovery!
+    if (change === 'owner' || change === 'authKey' || change === 'pendingOwner') h.records[0]![change] = address('99')
+    else if (change === 'manifestHash') h.records[0]!.manifestHash = hash('99')
+    else if (change === 'endpoint') h.records[0]!.endpoint = 'https://attacker.example'
+    else if (change === 'retired') h.records[0]!.status = 2
+    else if (change === 'role') h.records[0]!.serviceType = 0
+    else if (change === 'revision') h.records[0]!.revision = 0n
+    else if (change === 'registry') h.chain.addresses.ServiceRegistry = address('99')
+    else vi.mocked(h.chain.client.getChainId).mockResolvedValue(999)
+    await expect(h.client.restoreUnpaidSession(checkpoint)).rejects.toThrow()
+    expect(h.transport.agentRequest).toHaveBeenCalledTimes(1)
+    expect(original.unpaidRecovery).toEqual(checkpoint)
+  })
+  it.each(['version', 'sessionId', 'pollSecret', 'requestUri', 'qrPayload', 'approval', 'paid', 'pendingOwner', 'authKey'])('refuses malformed or substituted recovery %s before network I/O', async field => {
+    const h = harness(), original = await h.client.createSession(params)
+    const checkpoint = original.unpaidRecovery!
+    if (field === 'approval') checkpoint.serviceProfile.manifestHash = hash('99')
+    else if (field === 'paid') Object.assign(checkpoint, {payment: {nonce: hash('99')}})
+    else if (field === 'authKey') checkpoint.serviceProfile.authKey = 'invalid'
+    else Object.assign(checkpoint, {[field]: field === 'version' ? 2 : 'https://attacker.example'})
+    await expect(h.client.restoreUnpaidSession(checkpoint)).rejects.toThrow()
+    expect(h.chain.client.getChainId).not.toHaveBeenCalled()
+    expect(h.transport.agentRequest).toHaveBeenCalledTimes(1)
+  })
+  it('refuses removed approvals and mismatched result profiles without creating or switching sessions', async () => {
+    const h = harness(), original = await h.client.createSession(params), checkpoint = original.unpaidRecovery!
+    const changed = createRegisteredAgentClient(h.chain, {profiles: [h.profiles[1]!], transport: h.transport})
+    await expect(changed.restoreUnpaidSession(checkpoint)).rejects.toThrow('independently approved')
+    expect(h.transport.agentRequest).toHaveBeenCalledTimes(1)
+    vi.mocked(h.transport.agentRequest).mockResolvedValue(encoded({status: 'pending', phase: 'awaiting_wallet', binding_preimage: {service_profile: h.profilePin(1)}}))
+    await expect(h.client.restoreUnpaidSession(checkpoint)).rejects.toThrow('another session profile')
+    const calls = vi.mocked(h.transport.agentRequest).mock.calls
+    expect(calls).toHaveLength(2)
+    expect(calls[1]![1].body).toBeUndefined()
+    expect(calls[1]![0]).toContain('one.example')
+  })
+  it('honors restore cancellation before I/O and blocks a late secret after an ignored abort', async () => {
+    const h = harness(), original = await h.client.createSession(params), controller = new AbortController()
+    controller.abort()
+    await expect(h.client.restoreUnpaidSession(original.unpaidRecovery!, {signal: controller.signal})).rejects.toThrow()
+    expect(h.chain.client.getChainId).not.toHaveBeenCalled()
+    const active = new AbortController()
+    let release!: (id: number) => void
+    vi.mocked(h.chain.client.getChainId).mockImplementation(() => new Promise<number>(resolve => {release = resolve}))
+    const waiting = expect(h.client.restoreUnpaidSession(original.unpaidRecovery!, {signal: active.signal})).rejects.toThrow()
+    active.abort(); await waiting; release(31337); await Promise.resolve(); await Promise.resolve()
+    expect(h.transport.agentRequest).toHaveBeenCalledTimes(1)
+  })
+  it.each(['binding', 'token', 'reply'])('refuses paid %s state through an unpaid checkpoint without recreating the session', async where => {
+    const h = harness(), original = await h.client.createSession(params)
+    const reply: Record<string, unknown> = {status: 'pending', phase: 'awaiting_wallet', binding_preimage: {service_profile: h.profilePin(0)}}
+    if (where === 'binding') Object.assign(reply.binding_preimage as object, {payment: {nonce: hash('99')}})
+    else if (where === 'token') reply.compound_token = {payment_hash: hash('99')}
+    else reply.payment_hash = hash('99')
+    vi.mocked(h.transport.agentRequest).mockResolvedValue(encoded(reply))
+    await expect(h.client.restoreUnpaidSession(original.unpaidRecovery!)).rejects.toThrow('cannot use unpaid')
+    expect(vi.mocked(h.transport.agentRequest).mock.calls.filter(([, opts]) => opts.body)).toHaveLength(1)
+  })
   it('pins the original provider while draining, with no bearer sent during discovery', async () => {
     const h = harness(), session = await h.client.createSession(params)
     h.records[0]!.status = 1; h.records[0]!.revision = 2n
@@ -121,6 +200,12 @@ async function paidInput(clientId: string) {
 }
 
 describe('registered prepaid sessions', () => {
+  it('does not expose a paid session through the unpaid recovery protocol', async () => {
+    const h = harness(), request = await paidInput(h.profiles[0]!.clientId)
+    const session = await openRegisteredVerifierAgentSession(h.client, request)
+    expect(session.unpaidRecovery).toBeUndefined()
+    expect(session.paymentHash).toBe(paymentIntentHash(request.payment))
+  })
   it('carries the exact paid intent and random, pins the hash, and refuses result downgrade or substitution', async () => {
     const h = harness(), request = await paidInput(h.profiles[0]!.clientId)
     const session = await openRegisteredVerifierAgentSession(h.client, request)
