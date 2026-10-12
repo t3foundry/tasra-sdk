@@ -80,44 +80,72 @@ export function drawnVerifierWitnesses(value: unknown, original: OriginalVerifie
  * Fetch an epoch's verifier snapshot from the first approved accountant that serves a bounded,
  * identity-encoded JSON body (no redirects), and return the drawn witnesses for the payment.
  * A host whose artifact does not verify is skipped; the call fails if none does.
+ * `waitForPublicationMs` defaults to zero. A positive value (at most 150000 ms)
+ * permits paced reads only while every host returns 404, using the original
+ * policy captured at entry. Invalid artifacts and other failures are not retried.
  * @param hosts Independently approved accountant origins, in preference order.
  * @param original The payment's anchored verifier policy.
  * @param registry Independently approved VerifierSetRegistry address.
- * @param options Cancellation, per-host timeout (default 15000 ms) and a fetch implementation.
+ * @param options Cancellation, per-host timeout (default 15000 ms), optional bounded publication wait and a fetch implementation.
  */
 export async function fetchDrawnVerifierWitnesses(hosts: readonly string[], original: OriginalVerifierPolicy, registry: Address,
-  options: {signal?: AbortSignal; timeoutMs?: number; fetch?: typeof fetch} = {}): Promise<{witnesses: PaidVerifierWitness[]; artifact: unknown; host: string}> {
+  options: {signal?: AbortSignal; timeoutMs?: number; waitForPublicationMs?: number; fetch?: typeof fetch} = {}): Promise<{witnesses: PaidVerifierWitness[]; artifact: unknown; host: string}> {
   const list = [...hosts], doFetch = options.fetch ?? globalThis.fetch, timeout = options.timeoutMs ?? 15_000
+  const originalPolicy = structuredClone(original), publicationWait = options.waitForPublicationMs ?? 0
   if (!list.length || list.length > 16 || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new Error('Invalid verifier snapshot hosts or timeout')
-  for (const host of list) {
-    const url = new URL(host)
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('Invalid verifier snapshot host')
-  }
-  for (const host of list) {
-    options.signal?.throwIfAborted()
-    try {
-      const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout)
-      const response = await doFetch(host.replace(/\/$/, '') + '/v1/verifier-set/' + original.verification_epoch,
-        {redirect: 'error', signal, headers: {accept: 'application/json', 'accept-encoding': 'identity'}})
-      const encoding = response.headers.get('content-encoding')
-      if (response.status !== 200 || response.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json'
-        || (encoding && encoding !== 'identity') || !response.body) continue
-      const reader = response.body.getReader(), chunks: Uint8Array[] = []
-      let length = 0
+  if (!Number.isSafeInteger(publicationWait) || publicationWait < 0 || publicationWait > 150_000) throw new Error('Invalid verifier snapshot publication wait')
+  const deadline = Date.now() + publicationWait
+  for (;;) {
+    let unpublished = 0
+    for (const host of list) {
+      const url = new URL(host)
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('Invalid verifier snapshot host')
+    }
+    for (const host of list) {
+      options.signal?.throwIfAborted()
       try {
-        for (;;) {
-          const {done, value} = await reader.read()
-          if (done) break
-          length += value.length
-          if (length > MAX_SNAPSHOT_BYTES) throw new Error('Snapshot exceeds the read-only artifact bound')
-          chunks.push(value)
+        const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout)
+        const response = await doFetch(host.replace(/\/$/, '') + '/v1/verifier-set/' + originalPolicy.verification_epoch,
+          {redirect: 'error', signal, headers: {accept: 'application/json', 'accept-encoding': 'identity'}})
+        if (response.status === 404) {
+          unpublished++
+          await response.body?.cancel().catch(() => {})
+          continue
         }
-      } finally { await reader.cancel().catch(() => {}) }
-      const bytes = new Uint8Array(length); let offset = 0
-      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
-      const artifact = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes)) as unknown
-      return {witnesses: drawnVerifierWitnesses(artifact, original, registry), artifact, host}
-    } catch { options.signal?.throwIfAborted() }
+        const encoding = response.headers.get('content-encoding')
+        if (response.status !== 200 || response.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json'
+          || (encoding && encoding !== 'identity') || !response.body) continue
+        const reader = response.body.getReader(), chunks: Uint8Array[] = []
+        let length = 0
+        try {
+          for (;;) {
+            const {done, value} = await reader.read()
+            if (done) break
+            length += value.length
+            if (length > MAX_SNAPSHOT_BYTES) throw new Error('Snapshot exceeds the read-only artifact bound')
+            chunks.push(value)
+          }
+        } finally { await reader.cancel().catch(() => {}) }
+        const bytes = new Uint8Array(length); let offset = 0
+        for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
+        const artifact = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes)) as unknown
+        return {witnesses: drawnVerifierWitnesses(artifact, originalPolicy, registry), artifact, host}
+      } catch { options.signal?.throwIfAborted() }
+    }
+    // A freshly anchored epoch may reach the public artifact index a tick later.
+    // Only unanimous 404s permit another read of this exact original policy.
+    // Wrong artifacts, authentication errors and transport failures remain final.
+    if (unpublished !== list.length || publicationWait === 0 || Date.now() >= deadline) break
+    await publicationDelay(Math.min(1_000, deadline - Date.now()), options.signal)
   }
   throw new Error('No approved accountant served a verifiable original verifier snapshot')
+}
+
+function publicationDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const abort = () => { clearTimeout(timer); reject(signal!.reason) }
+    const timer = setTimeout(() => {signal?.removeEventListener('abort', abort); resolve()}, ms)
+    signal?.addEventListener('abort', abort, {once: true})
+  })
 }

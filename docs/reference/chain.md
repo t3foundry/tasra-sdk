@@ -1329,8 +1329,11 @@ Returns: ` string[] `.
 Fetch an epoch's verifier snapshot from the first approved accountant that serves a bounded,
 identity-encoded JSON body (no redirects), and return the drawn witnesses for the payment.
 A host whose artifact does not verify is skipped; the call fails if none does.
+`waitForPublicationMs` defaults to zero. A positive value (at most 150000 ms)
+permits paced reads only while every host returns 404, using the original
+policy captured at entry. Invalid artifacts and other failures are not retried.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/verifierSnapshot.ts#L88)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/verifierSnapshot.ts#L91)
 
 Import: `import {fetchDrawnVerifierWitnesses} from 'tasra-sdk/chain'`
 
@@ -1338,6 +1341,7 @@ Import: `import {fetchDrawnVerifierWitnesses} from 'tasra-sdk/chain'`
 declare function fetchDrawnVerifierWitnesses(hosts: readonly string[], original: OriginalVerifierPolicy, registry: Address, options?: {
     signal?: AbortSignal;
     timeoutMs?: number;
+    waitForPublicationMs?: number;
     fetch?: typeof fetch;
 }): Promise<{
     witnesses: PaidVerifierWitness[];
@@ -1351,7 +1355,7 @@ declare function fetchDrawnVerifierWitnesses(hosts: readonly string[], original:
 | ` hosts ` | ` readonly string[] ` | Independently approved accountant origins, in preference order. |
 | ` original ` | ` OriginalVerifierPolicy ` | The payment's anchored verifier policy. |
 | ` registry ` | ` Address ` | Independently approved VerifierSetRegistry address. |
-| ` options? ` | ` { signal?: AbortSignal; timeoutMs?: number; fetch?: typeof fetch; } ` | Cancellation, per-host timeout (default 15000 ms) and a fetch implementation. |
+| ` options? ` | ` { signal?: AbortSignal; timeoutMs?: number; waitForPublicationMs?: number; fetch?: typeof fetch; } ` | Cancellation, per-host timeout (default 15000 ms), optional bounded publication wait and a fetch implementation. |
 
 Returns:
 

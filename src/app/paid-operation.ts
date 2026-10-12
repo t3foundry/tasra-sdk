@@ -477,7 +477,8 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
   await request.onRequestId?.(requestId)
   signal.throwIfAborted()
   const {witnesses} = await fetchDrawnVerifierWitnesses(config.accountantUrls, payment, d.verifierSet,
-    {signal: AbortSignal.any([signal, AbortSignal.timeout(Math.min(150_000, ttlSecs * 1000))]), fetch: config.fetch})
+    {signal: AbortSignal.any([signal, AbortSignal.timeout(Math.min(150_000, ttlSecs * 1000))]), fetch: config.fetch,
+      waitForPublicationMs: Math.min(config.snapshotWaitMs ?? 180_000, 150_000, ttlSecs * 1000)})
   const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: canonicalRule, ruleSalt: request.rule.salt,
     params: {operation: built.operation, operationSig, messageHex: built.messageHex, random}, coordinator: context.coordinator, contributors: context.contributors,
     action: request.operation.action, payloadDigest: toHex(built.payloadDigest), payer: config.gasPayer.account.address}

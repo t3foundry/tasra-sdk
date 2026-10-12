@@ -73,6 +73,13 @@ the same link, so applications never rebuild the request URI), or
 `{kind: 'external', present, accept}` when a phone wallet scans `qrPayload` and the
 application accepts the complete retained presentation.
 
+When every approved accountant returns 404 for the anchored verifier snapshot,
+`paidOperation` waits for that exact original artifact before reserving. The wait
+is capped by `snapshotWaitMs`, 150 seconds and the operation lifetime; cancellation
+stops it. An invalid artifact or any other read failure is not retried. The lower
+level `fetchDrawnVerifierWitnesses` keeps immediate failure by default; callers can
+opt into this behavior with `waitForPublicationMs` (0–150000).
+
 Each billable step is journaled in the store before it is sent. When an outcome is
 uncertain the call throws `PaidOperationRecoveryError` (`requestId`, `phase`:
 `reservation`, `session` or `execution`, a stable `code` and `resumable`). `resumable`

@@ -125,6 +125,7 @@ describe('paidOperation', () => {
     expect(op.requestId).toBe(prepaidRequestId(op.payment))
     expect(op.payment.max_cost).toBe('100')
     expect(op.payment.slot).toBe(slot)
+    expect(vi.mocked(fetchDrawnVerifierWitnesses).mock.calls[0]?.[3]?.waitForPublicationMs).toBe(150_000)
     expect(op.coordinatorUrl).toBe(coordinator.url)
     expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
     expect(vi.mocked(reserveApplicationPayment).mock.calls[0]![1]).toBe(f.config.gasPayer)
@@ -334,6 +335,13 @@ describe('createMemoryStore', () => {
 })
 
 describe('paidOperation edges', () => {
+  it('bounds the original artifact publication wait by the configured budget and intent lifetime before reserving', async () => {
+    const f = setup()
+    const op = await paidOperation({...f.config, snapshotWaitMs: 2_000}, {...f.request, operation: {...f.request.operation, ttlSecs: 1}})
+    expect(vi.mocked(fetchDrawnVerifierWitnesses).mock.calls[0]?.[3]?.waitForPublicationMs).toBe(1_000)
+    expect(vi.mocked(fetchDrawnVerifierWitnesses).mock.calls[0]?.[1]).toEqual(op.payment)
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+  })
   it('waits for the current snapshots to be anchored, then maps a FROST sign on an EOA slot to eoa-sign', async () => {
     const f = setup()
     const resolved = await discoverPaidOperationContext(undefined as never, undefined as never, slot)

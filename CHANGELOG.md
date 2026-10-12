@@ -9,6 +9,11 @@ never does.
 
 ### Fixed
 
+- Paid operations wait within their snapshot/lifetime budget when every approved
+  accountant has not yet published the original anchored verifier snapshot.
+  Only exact original snapshot reads are repeated; invalid artifacts still refuse,
+  and no reservation or session write is retried.
+
 - Explicit paid-session resume recovers an uncertain original creation through
   an authenticated, verified read of that same session. The creation POST is
   never repeated; failed recovery and other uncertain writes stay blocked.

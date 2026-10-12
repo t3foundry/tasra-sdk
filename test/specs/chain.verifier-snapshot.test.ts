@@ -45,4 +45,65 @@ describe('fetchDrawnVerifierWitnesses', () => {
     controller.abort(new Error('cancelled'))
     await expect(fetchDrawnVerifierWitnesses(['https://a.example'], f.payment, f.registry, {signal: controller.signal, fetch: vi.fn() as unknown as typeof fetch})).rejects.toThrow('cancelled')
   })
+  it('waits for publication of the same anchored original after unanimous missing artifacts', async () => {
+    vi.useFakeTimers()
+    try {
+      const f = fixture(), urls: string[] = []
+      const fetch = vi.fn(async (url: string) => {
+        urls.push(url)
+        return urls.length <= 2 ? new Response(null, {status: 404}) : json(f.artifact)
+      })
+      const result = fetchDrawnVerifierWitnesses(['https://a.example', 'https://b.example'], f.payment, f.registry,
+        {waitForPublicationMs: 5_000, fetch: fetch as typeof globalThis.fetch})
+      const checked = expect(result).resolves.toMatchObject({host: 'https://a.example', artifact: f.artifact})
+      await vi.advanceTimersByTimeAsync(1_000)
+      await checked
+      expect(urls).toEqual(['https://a.example/v1/verifier-set/7', 'https://b.example/v1/verifier-set/7', 'https://a.example/v1/verifier-set/7'])
+    } finally {vi.useRealTimers()}
+  })
+  it('pins the original verifier policy before waiting for publication', async () => {
+    vi.useFakeTimers()
+    try {
+      const f = fixture(), urls: string[] = []
+      const fetch = vi.fn(async (url: string) => {
+        urls.push(url)
+        if (urls.length === 1) {f.payment.verification_epoch = 99; f.payment.verification_root = hash(99); return new Response(null, {status: 404})}
+        return json(f.artifact)
+      })
+      const result = fetchDrawnVerifierWitnesses(['https://a.example'], f.payment, f.registry,
+        {waitForPublicationMs: 5_000, fetch: fetch as typeof globalThis.fetch})
+      const checked = expect(result).resolves.toMatchObject({artifact: f.artifact})
+      await vi.advanceTimersByTimeAsync(1_000)
+      await checked
+      expect(urls).toEqual(['https://a.example/v1/verifier-set/7', 'https://a.example/v1/verifier-set/7'])
+    } finally {vi.useRealTimers()}
+  })
+  it('does not wait for publication by default or after an invalid artifact', async () => {
+    const f = fixture(), missing = vi.fn(async () => new Response(null, {status: 404}))
+    await expect(fetchDrawnVerifierWitnesses(['https://a.example'], f.payment, f.registry, {fetch: missing as typeof globalThis.fetch})).rejects.toThrow(/No approved accountant/)
+    expect(missing).toHaveBeenCalledTimes(1)
+    const unsafe = vi.fn(async (url: string) => url.startsWith('https://a.') ? json({...f.artifact, root: hash(99)}) : new Response(null, {status: 404}))
+    await expect(fetchDrawnVerifierWitnesses(['https://a.example', 'https://b.example'], f.payment, f.registry,
+      {waitForPublicationMs: 5_000, fetch: unsafe as typeof globalThis.fetch})).rejects.toThrow(/No approved accountant/)
+    expect(unsafe).toHaveBeenCalledTimes(2)
+  })
+  it('bounds publication waiting and cancels without another read', async () => {
+    vi.useFakeTimers()
+    try {
+      const f = fixture(), missing = vi.fn(async () => new Response(null, {status: 404}))
+      const bounded = expect(fetchDrawnVerifierWitnesses(['https://a.example'], f.payment, f.registry,
+        {waitForPublicationMs: 1_500, fetch: missing as typeof globalThis.fetch})).rejects.toThrow(/No approved accountant/)
+      await vi.advanceTimersByTimeAsync(1_500)
+      await bounded
+      expect(missing).toHaveBeenCalledTimes(3)
+      const controller = new AbortController(), cancelled = vi.fn(async () => new Response(null, {status: 404}))
+      const stopped = expect(fetchDrawnVerifierWitnesses(['https://a.example'], f.payment, f.registry,
+        {waitForPublicationMs: 5_000, signal: controller.signal, fetch: cancelled as typeof globalThis.fetch})).rejects.toThrow('user cancelled')
+      await vi.advanceTimersByTimeAsync(0)
+      controller.abort(new Error('user cancelled'))
+      await stopped
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(cancelled).toHaveBeenCalledTimes(1)
+    } finally {vi.useRealTimers()}
+  })
 })
