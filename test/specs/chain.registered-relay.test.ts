@@ -354,6 +354,61 @@ describe('durable application relay recovery', () => {
   })
 })
 
+describe('unresolvable relay execution', () => {
+  function unresolved(sponsorship: boolean) {
+    const h = harness(), persisted: RelayAttempt[] = []
+    const authorize = vi.fn(async ({attempt}: {attempt: RelayAttempt}) => voucher(attempt))
+    const config = {maxAttempts: 1, persistAttempt: async (attempt: RelayAttempt) => { persisted.push(structuredClone(attempt)) },
+      ...(sponsorship ? {sponsorship: {slotId: sponsorSlot, authorize}} : {})}
+    vi.mocked(h.transport.relayRequest).mockImplementation(async (url, {body}) => {
+      if (url.endsWith('voucher-intent')) return encode(sponsorIntent(persisted.at(-1)!))
+      if (body) h.setRequest(body)
+      throw new Error('original submission response lost')
+    })
+    return {...h, persisted, authorize, config}
+  }
+
+  it.each([false, true])('retains the original on restart outside the log window (sponsored=%s)', async sponsorship => {
+    const h = unresolved(sponsorship)
+    await expect(h.submitter(h.config).submit(target, '0x12345678')).rejects.toBeInstanceOf(RelayOutcomeUnknownError)
+    const original = structuredClone(h.persisted.at(-1)!)
+    const persisted = structuredClone(h.persisted), calls = vi.mocked(h.transport.relayRequest).mock.calls.length
+    const discoveries = vi.mocked(authenticateApprovedService).mock.calls.length
+    h.setNonce(1n)
+    h.client.getBlock.mockResolvedValue({number: 20_050n, timestamp: BigInt(Math.floor(Date.now() / 1000))})
+    const resumed = h.submitter({...h.config, resumeAttempt: async () => original})
+    await expect(resumed.submit(target, '0x12345678')).rejects.toMatchObject({name: 'RelayOutcomeUnknownError', attempt: original})
+    expect(resumed.pendingAttempt()).toEqual(original)
+    await expect(resumed.submit(target, '0x12345679')).rejects.toMatchObject({name: 'RelayOutcomeUnknownError', attempt: original})
+    expect(h.sign).toHaveBeenCalledTimes(1)
+    expect(h.bodies).toHaveLength(1)
+    expect(h.transport.relayRequest).toHaveBeenCalledTimes(calls)
+    expect(authenticateApprovedService).toHaveBeenCalledTimes(discoveries)
+    expect(h.authorize).toHaveBeenCalledTimes(sponsorship ? 1 : 0)
+    expect(h.persisted).toEqual(persisted)
+    expect(h.client.getLogs).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('retains the signer after unresolvable reconciliation (sponsored=%s)', async sponsorship => {
+    const h = unresolved(sponsorship), relay = h.submitter(h.config)
+    await expect(relay.submit(target, '0x12345678')).rejects.toBeInstanceOf(RelayOutcomeUnknownError)
+    const original = structuredClone(h.persisted.at(-1)!)
+    const persisted = structuredClone(h.persisted), calls = vi.mocked(h.transport.relayRequest).mock.calls.length
+    h.setNonce(1n)
+    h.client.getBlock.mockResolvedValue({number: 20_050n, timestamp: BigInt(Math.floor(Date.now() / 1000))})
+    expect(await relay.reconcile()).toEqual({expired: false, unresolvable: true})
+    expect(relay.pendingAttempt()).toEqual(original)
+    await expect(relay.submit(target, '0x12345678')).rejects.toMatchObject({name: 'RelayOutcomeUnknownError', attempt: original})
+    await expect(relay.submit(address('99'), '0x12345679')).rejects.toMatchObject({name: 'RelayOutcomeUnknownError', attempt: original})
+    expect(h.sign).toHaveBeenCalledTimes(1)
+    expect(h.bodies).toHaveLength(1)
+    expect(h.transport.relayRequest).toHaveBeenCalledTimes(calls)
+    expect(h.authorize).toHaveBeenCalledTimes(sponsorship ? 1 : 0)
+    expect(h.persisted).toEqual(persisted)
+    expect(h.client.getLogs).not.toHaveBeenCalled()
+  })
+})
+
 // Reason texts are the relayer's Display strings (keykeeper-relayer policy.rs Reject).
 const BUSY = ['relayer busy: the deferrable queue is full; retry shortly or submit directly',
   'relayer busy: the request journal is full; retry shortly or submit directly',

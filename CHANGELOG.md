@@ -132,6 +132,12 @@ never does.
 
 ### Fixed
 
+- Preserve the original signer fence for registered relay attempts whose nonce was
+  consumed outside the bounded reconciliation window. Generic restart recovery no
+  longer signs a replacement, and `reconcile()` retains `pendingAttempt()` for both
+  sponsored and unsponsored calls until execution or unused-nonce expiry is proved.
+  This tightens the older release-on-`unresolvable` behavior; journals remain intact.
+
 - A paid request is no longer lost to a definite HTTP 429/503 after its TASRA was reserved.
   Clients behind one egress address share the verifier-agent's per-client limiter, and the SDK
   used to turn its refusal into a fatal error (and, for an approval, a journal entry no resume

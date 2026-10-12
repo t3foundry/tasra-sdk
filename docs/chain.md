@@ -45,6 +45,23 @@ Download the selected manifest from
 [tasra-releases](https://github.com/t3-foundry/tasra-releases), verify its trusted
 checksum, and derive the address book with `addressBookFromManifest`.
 
+## Recover registered relay writes
+
+For sponsored and unsponsored writes, retain the signed `RelayAttempt` before its
+first POST and restore it with `resumeAttempt` after restarting. If its nonce was
+consumed outside the 10,000-block reconciliation window, `submit` refuses another
+signature with `RelayOutcomeUnknownError`. Calling the submitter's `reconcile()`
+returns `{expired: false, unresolvable: true}` and keeps `pendingAttempt()` intact.
+A spent nonce proves that the original signed request cannot execute again; it does
+not prove whether its inner call already ran.
+
+Preserve the original journal and investigate its receipt and resulting chain state.
+Do not delete it, move its starting block or recreate the submitter to bypass this
+fence. Reconciliation automatically releases the signer only for a verified receipt
+or when the deadline passed with the original nonce still unused. This tightens the
+older behavior that released an unresolvable signer; it does not extend the bounded
+log scan or supply automatic recovery of unavailable historical receipts.
+
 ## Create a read client
 
 ```ts

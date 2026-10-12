@@ -1032,7 +1032,7 @@ Returns:
 
 One signer per instance. Serializes nonces and blocks new signatures after an uncertain result.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L271)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L269)
 
 Import: `import {createRegisteredRelaySubmitter} from 'tasra-sdk/chain'`
 
@@ -2188,7 +2188,7 @@ Returns: ` Promise<PaidReservationResolution> `.
 
 Recover from a lost HTTP response or process restart using the trusted RPC, without broadcasting.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L258)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L256)
 
 Import: `import {reconcileRelayAttempt} from 'tasra-sdk/chain'`
 
@@ -5125,7 +5125,7 @@ Fields:
 - **` forwarder `**: Independently pinned deployment forwarder; never supplied by a relayer manifest.
 - **` label `**: Default operation label used when persisting or resuming relay attempts.
 - **` persistAttempt `**: Persist the signed reconciliation handle before its first POST.
-- **` resumeAttempt `**: Load this durable operation's previous attempt before signing, including after a restart.
+- **` resumeAttempt `**: Load this durable operation's previous attempt before signing, including after a restart. Unknown execution blocks replacement, including a consumed nonce outside the log window.
 - **` pollMs `**: Relay status polling interval in milliseconds; defaults to 1500.
 - **` timeoutMs `**: Deadline in milliseconds after a submission leaves the serialization queue; defaults to 120000 and cannot exceed it.
 - **` maxAttempts `**: At most three authenticated providers receive the identical signed request.
@@ -5216,7 +5216,7 @@ Fields:
 - **` forwarder `**: Independently pinned deployment forwarder; never supplied by a relayer manifest.
 - **` label `**: Default operation label used when persisting or resuming relay attempts.
 - **` persistAttempt `**: Persist the signed reconciliation handle before its first POST.
-- **` resumeAttempt `**: Load this durable operation's previous attempt before signing, including after a restart.
+- **` resumeAttempt `**: Load this durable operation's previous attempt before signing, including after a restart. Unknown execution blocks replacement, including a consumed nonce outside the log window.
 - **` pollMs `**: Relay status polling interval in milliseconds; defaults to 1500.
 - **` timeoutMs `**: Deadline in milliseconds after a submission leaves the serialization queue; defaults to 120000 and cannot exceed it.
 - **` maxAttempts `**: At most three authenticated providers receive the identical signed request.

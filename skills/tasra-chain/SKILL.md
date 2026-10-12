@@ -56,6 +56,10 @@ another forward request or reserve TASRA. Retain session recovery by `attempt.id
 The relayer verifies committee signatures and revocation freshness. See
 `docs/chain.md` for request binding, recovery and expired-voucher limits.
 
+For every registered relay write, an unresolvable consumed nonce retains the original
+attempt and signer fence, including after `reconcile()`. Preserve its journal and
+investigate the outcome; never create a new signature to bypass missing history.
+
 Explorer/indexer applications should keep `createTasraChainClient` and typed
 readers/events from `tasra-sdk/chain`. An existing read client may be injected into
 `createTasra({deployment, chain})`; its registry addresses and chain must agree.

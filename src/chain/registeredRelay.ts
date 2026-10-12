@@ -60,7 +60,7 @@ export interface RegisteredRelayConfig {
   label?: string
   /** Persist the signed reconciliation handle before its first POST. */
   persistAttempt?: (attempt: RelayAttempt) => Promise<void>
-  /** Load this durable operation's previous attempt before signing, including after a restart. */
+  /** Load this durable operation's previous attempt before signing, including after a restart. Unknown execution blocks replacement, including a consumed nonce outside the log window. */
   resumeAttempt?: (intent: RelayIntent) => Promise<RelayAttempt | undefined>
   /** Relay status polling interval in milliseconds; defaults to 1500. */
   pollMs?: number
@@ -228,11 +228,9 @@ async function reconcile(chain: TasraChainClient, attempt: RelayAttempt, budget:
   if (nonce < BigInt(attempt.request.nonce)) throw new RelayOutcomeUnknownError(attempt, 'Forwarder nonce moved backwards')
   if (nonce > BigInt(attempt.request.nonce)) {
     const start = BigInt(attempt.fromBlock)
-    // OUT OF RANGE IS TERMINAL, not TRANSIENT. The nonce is already consumed, so this exact
-    //    request can never execute again whatever took it - the forwarder rejects a spent nonce.
-    //    All that is lost is WHICH request consumed it, and no amount of waiting recovers that:
-    //    every new block moves `start` further outside the window. Throwing here made callers
-    //    retry forever and permanently wedged a deployment's entire write path.
+    // A spent nonce prevents this exact request executing again, but does not prove whether
+    // its inner call already ran. Report the bounded history gap without scanning indefinitely;
+    // callers must preserve the original and must not infer permission for a new operation.
     if (start < 0n || head.number - start > 10_000n) return {expired: false, unresolvable: true}
     for (let from = start; from <= head.number; from += 2_000n) {
       const logs = await budget.run(() => chain.client.getLogs({address: attempt.forwarder,
@@ -309,14 +307,9 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
             previousAttempt.request.data.toLowerCase() !== data.toLowerCase()) throw new Error('Persisted relay operation does not match this request')
         const result = await reconcile(chain, previousAttempt, budget)
         if (result.receipt) return result.receipt
-        // `unresolvable` must not resume and must not block. Its nonce is spent, so replaying
-        //    the stored attempt is guaranteed to be rejected; but blocking on it never clears
-        //    either, because the scan window only recedes. Fall through and sign a FRESH request
-        //    at the current nonce - the caller was told (via the journal) that the old one is
-        //    terminal-with-unknown-outcome and is responsible for not redoing work that landed.
-        if (result.unresolvable && cfg.sponsorship) { pending = previousAttempt; throw new RelayOutcomeUnknownError(previousAttempt) }
-        if (result.unresolvable) pending = undefined
-        else if (!result.expired) {
+        // Unknown execution never authorizes a replacement, regardless of sponsorship.
+        if (result.unresolvable) { pending = previousAttempt; throw new RelayOutcomeUnknownError(previousAttempt) }
+        if (!result.expired) {
           if (cfg.sponsorship) attempt = Object.freeze({...previousAttempt, request: Object.freeze({...previousAttempt.request})})
           else { pending = previousAttempt; throw new RelayOutcomeUnknownError(previousAttempt) }
         }
@@ -434,9 +427,8 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
       if (!pending) return undefined
       const current = pending
       const result = await reconcileRelayAttempt(chain, current)
-      // `unresolvable` frees the signer too: the nonce is spent, so holding the slot blocks
-      // every future write for an attempt that can never complete.
-      if (pending === current && (result.receipt || result.expired || result.unresolvable)) pending = undefined
+      // Only verified execution or a proven unused expired nonce releases the signer.
+      if (pending === current && (result.receipt || result.expired)) pending = undefined
       return result
     },
   }

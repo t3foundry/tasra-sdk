@@ -72,6 +72,15 @@ continues to use OID4VP or OAuth. Existing type ordinals stay unchanged, and
 cannot decode them. This change requires a compatible fresh deployment or a planned
 reader-first upgrade, rather than assuming legacy image compatibility.
 
+## Preserve unknown relay outcomes
+
+Registered relay recovery now keeps the signer fenced when a consumed nonce is
+outside the bounded log window, for sponsored and unsponsored requests alike.
+`submit` throws `RelayOutcomeUnknownError`; `reconcile()` reports `unresolvable`
+without clearing `pendingAttempt()`. Older releases could release that signer and
+sign a replacement. Retain existing journals and investigate the original outcome
+before authorizing another operation. See [relay recovery](chain.md#recover-registered-relay-writes).
+
 ## Validate your application
 
 1. Install the [latest SDK from npm](installation.md) and keep
