@@ -144,10 +144,17 @@ it('rebuilds every client-accepted credential without copying the agent proposal
   const body={payment:f.payment,holder:f.approved.holder,credentials:f.approved.credentials,holder_proof:f.approved.holder_proof,token_type:'JWT',
     seed:f.payment.verification_seed,epoch:7,slot_id:f.payment.slot,registry_size:2,committee:2,quorum:2,iat:1000,exp:1030,
     chain_id:43112,action:'sign',payload_digest:f.payment.payload_digest,random:f.params.random,client_id:f.profile.clientId,
-    description:f.params.operation.description,operation_exp:1060,operation_sig:f.params.operationSig}
+    description:f.params.operation.description,operation_exp:1060,operation:f.params.operation,operation_sig:f.params.operationSig}
   const proposed:PaidAgentProposal={id:proposalId,stage:'credential',operator_key:f.members[0]!.publicKey,unsigned_body:body,expires:1030}
   for(const credentials of [[f.approved.credentials[0]!],['attacker.compact.token',f.approved.credentials[1]!]]){
     await expect(f.session.approveCredentials({...proposed,unsigned_body:{...body,credentials}},f.members[0]!,f.approved)).rejects.toThrow(/client-built intent/)
+  }
+  // The production agent forwards the original creator-signed operation as
+  // well as its flattened fields. Neither omission nor nested substitution is consent.
+  const missingOperation:Record<string,unknown>={...body};delete missingOperation.operation
+  for(const unsigned_body of [missingOperation,{...body,operation:null},
+    {...body,operation:{...body.operation,description:'substituted signed operation'}}]){
+    await expect(f.session.approveCredentials({...proposed,unsigned_body},f.members[0]!,f.approved)).rejects.toThrow(/client-built intent/)
   }
   expect(f.sign).not.toHaveBeenCalled();expect(f.transport.paidAgentRequest).not.toHaveBeenCalled()
   await f.session.approveCredentials(proposed,f.members[0]!,f.approved)
@@ -165,7 +172,7 @@ it('binds OAuth credential consent to the original session ID and refuses an omi
   const body={payment:f.payment,holder:'',credentials:[],oauth:approved.oauth,session_id:f.session.sessionId,token_type:'JWT',
     seed:f.payment.verification_seed,epoch:7,slot_id:f.payment.slot,registry_size:2,committee:2,quorum:2,iat:1000,exp:1030,
     chain_id:43112,action:'sign',payload_digest:f.payment.payload_digest,random:f.params.random,client_id:f.profile.clientId,
-    description:f.params.operation.description,operation_exp:1060,operation_sig:f.params.operationSig}
+    description:f.params.operation.description,operation_exp:1060,operation:f.params.operation,operation_sig:f.params.operationSig}
   const proposal:PaidAgentProposal={id:proposalId,stage:'credential',operator_key:f.members[0]!.publicKey,unsigned_body:body,expires:1030}
   f.sign.mockClear();http.mockClear()
   const missing:Record<string,unknown>={...body};delete missing.session_id

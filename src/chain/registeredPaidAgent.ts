@@ -457,7 +457,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
       seed:payment.verification_seed.toLowerCase(),epoch:payment.verification_epoch,slot_id:params.operation.slot_id,registry_size:payment.verification_registry_size,
       committee:payment.verification_committee,quorum:payment.verification_quorum,iat:approved.iat,exp,...(identity!==null?{identity}:{}),
       chain_id:payment.chain_id,action:params.operation.action,payload_digest:payment.payload_digest.toLowerCase(),random:params.random.toLowerCase(),client_id:profile.clientId,
-      description:params.operation.description,operation_exp:params.operation.exp,operation_sig:params.operationSig,...(params.delegation?{delegation:params.delegation}:{})}
+      description:params.operation.description,operation_exp:params.operation.exp,operation:params.operation,operation_sig:params.operationSig,...(params.delegation?{delegation:params.delegation}:{})}
   }
   // The direct API keeps its single-attempt behaviour: sign once, send once.
   const approve = async (proposed:PaidAgentProposal,member:PaidVerifierWitness,stage:'presentation_sign'|'presentation_attest'|'credential',body:Record<string,unknown>,signal?:AbortSignal) => {
