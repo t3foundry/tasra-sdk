@@ -275,6 +275,14 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   const pollSecret = id(consent.pollSecret ?? toHex(crypto.getRandomValues(new Uint8Array(32))).slice(2))
   if (/^0+$/.test(pollSecret)) throw new Error('Owner bearer must be nonzero')
   const expires = consent.expires ?? certificate.expires, payment = params.payment, paymentHash = paymentIntentHash(payment)
+  // The agent's typed PaymentIntentDto serializes Alloy addresses/bytes32 as
+  // lowercase hex. Reconstruct that representation only for returned context
+  // and operator bodies. Initialization still signs/sends the original JSON:
+  // changing it would change an existing session's identity on recovery.
+  const typedPayment = {...payment}
+  for (const field of ['settlement','key_registry','slot','payload_digest','session_commitment','nonce','verification_seed','verification_root'] as const) {
+    typedPayment[field] = payment[field].toLowerCase() as Hex
+  }
   const expected = {slot:payment.slot,action:payment.action,payloadDigest:payment.payload_digest}
   validateServiceEndpoint(profile.endpoint)
   if (profile.approval.serviceType !== 1 || profile.approval.chainId !== deployment.chainId
@@ -323,7 +331,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     registrySize:payment.verification_registry_size,committee:payment.verification_committee,quorum:payment.verification_quorum,operationExp:params.operation.exp})
   const expectedBinding = {chain_id:payment.chain_id,slot_id:params.operation.slot_id,action:params.operation.action,
     message_sha256:toHex(sha256(message)),identity,payload_digest:payment.payload_digest.toLowerCase(),description:params.operation.description,
-    operation:params.operation,operation_sig:params.operationSig,payment,delegation:params.delegation??null,random:params.random.toLowerCase(),
+    operation:params.operation,operation_sig:params.operationSig,payment:typedPayment,delegation:params.delegation??null,random:params.random.toLowerCase(),
     request_hash:toHex(rh),nonce,epoch:payment.verification_epoch,seed:payment.verification_seed.toLowerCase(),snapshot_root:payment.verification_root.toLowerCase(),
     committee_count:payment.verification_committee,quorum:payment.verification_quorum,registry_size:payment.verification_registry_size,drawn,jar_signer_index:jarIndex,
     client_id:profile.clientId,service_profile:pin,execution_initialization:initialization,execution_certificate:certificate,
@@ -444,7 +452,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     return {operation:params.operation,operation_sig:params.operationSig,delegation:params.delegation??null,
       session:{response_uri:profile.endpoint+'/v1/response?session='+sessionId,enc_jwk:c.key,state:c.state,random:params.random.toLowerCase()},
       epoch:payment.verification_epoch,seed:payment.verification_seed.toLowerCase(),committee_count:payment.verification_committee,
-      registry_size:payment.verification_registry_size,quorum:payment.verification_quorum,payment}
+      registry_size:payment.verification_registry_size,quorum:payment.verification_quorum,payment:typedPayment}
   }
   /** The complete credential body a drawn verifier is approved for, from the separately accepted presentation. */
   const credentialBody = (accepted:ClientApprovedPresentation):Record<string,unknown> => {
@@ -452,7 +460,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     if((params.kind==='oauth')!==(approved.oauth!==null))throw new Error('Presentation kind differs from the original session')
     const exp=Math.min(approved.iat+3600,c.expires,params.operation.exp)
     if(!Number.isSafeInteger(exp)||exp<=Math.floor(Date.now()/1000))throw new Error('Original credential presentation expired')
-    return {payment,holder:approved.holder,credentials:approved.credentials,
+    return {payment:typedPayment,holder:approved.holder,credentials:approved.credentials,
       ...(approved.holder_proof!==null?{holder_proof:approved.holder_proof}:{}),...(approved.oauth!==null?{oauth:approved.oauth,session_id:sessionId}:{}),token_type:'JWT',
       seed:payment.verification_seed.toLowerCase(),epoch:payment.verification_epoch,slot_id:params.operation.slot_id,registry_size:payment.verification_registry_size,
       committee:payment.verification_committee,quorum:payment.verification_quorum,iat:approved.iat,exp,...(identity!==null?{identity}:{}),

@@ -7,6 +7,13 @@ never does.
 
 ## [Unreleased]
 
+### Fixed
+
+- Paid verifier-agent sessions accept typed payment contexts and operator bodies
+  when the original deployment addresses use checksum casing. The original
+  initialization JSON, payment hash and session identity stay unchanged, including
+  during recovery; substituted operation fields still refuse before signing.
+
 ### Added
 
 - Unpaid verifier-agent sessions expose a private JSON `unpaidRecovery` checkpoint.

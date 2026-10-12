@@ -3,7 +3,7 @@ import {ed25519} from '@noble/curves/ed25519'
 import {p256} from '@noble/curves/p256'
 import {sha256} from '@noble/hashes/sha256'
 import {concatBytes} from '@noble/hashes/utils'
-import {concatHex, hexToBytes, keccak256, toHex, type Hex} from 'viem'
+import {concatHex, getAddress, hexToBytes, keccak256, toHex, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {prepareRegisteredPaidSession, PaidAgentControlError, type ClientApprovedPresentation, type PaidAgentProposal, type PaidPacingOptions} from '../../src/chain/registeredPaidAgent.js'
 import {authenticateApprovedService} from '../../src/chain/serviceIdentity.js'
@@ -32,7 +32,7 @@ const cleanups:Array<()=>void>=[]
 beforeEach(()=>{vi.spyOn(Date,'now').mockReturnValue(1_000_000);vi.mocked(authenticateApprovedService).mockReset();vi.mocked(readClientExecutionPolicy).mockReset()})
 afterEach(()=>{cleanups.splice(0).forEach(cleanup=>cleanup());vi.restoreAllMocks();vi.useRealTimers()})
 
-async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestations?:boolean,pacing?:PaidPacingOptions) {
+async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestations?:boolean,pacing?:PaidPacingOptions,checksummed=false) {
   const creator=privateKeyToAccount(h(11)), signer=createLocalExecutionSigner(new Uint8Array(32).fill(21))
   cleanups.push(()=>signer.dispose())
   const sign=vi.fn(signer.sign), endpoint='https://agent.example'
@@ -47,19 +47,24 @@ async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestat
   const operators=[h(31,20),h(32,20)]
   const leaves=keys.map((key,i)=>toHex(verifierLeaf(i,hexToBytes(operators[i]!),hexToBytes(key))))
   const root=keccak256(concatHex([...leaves].sort())), members:PaidVerifierWitness[]=keys.map((publicKey,index)=>({index,publicKey,operator:operators[index]!,proof:[leaves[1-index]!]}))
-  const input=presentationOperationTypedData({chainId:43112,keyRegistry:h(2,20),slotId:h(3),action:'sign',message:new Uint8Array([1,2,3]),
+  const settlement=checksummed?getAddress('0x6023ff0a8203ea32e737819b301d1672dd2ecbe0'):h(1,20)
+  const keyRegistry=checksummed?getAddress('0x7ca5543f9b2c35f0e972f1b45b61a2fe53ff1ed9'):h(2,20)
+  const input=presentationOperationTypedData({chainId:43112,keyRegistry,slotId:h(3),action:'sign',message:new Uint8Array([1,2,3]),
     description:'Approve these exact bytes',nowSecs:1000,ttlSecs:60})
   const operationSig=await creator.signTypedData(input.typedData), random=h(12)
-  const payment:PaymentIntentWire={chain_id:43112,settlement:h(1,20),key_registry:h(2,20),slot:h(3),action:'sign',payload_digest:toHex(input.payloadDigest),
+  const payment:PaymentIntentWire={chain_id:43112,settlement,key_registry:keyRegistry,slot:h(3),action:'sign',payload_digest:toHex(input.payloadDigest),
     session_commitment:paymentSessionCommitment(random,profile.clientId,1060),nonce:h(10),max_cost:'10',expires:1060,
     verification_epoch:7,verification_seed:h(9),verification_root:root,verification_registry_size:2,verification_committee:2,verification_quorum:2,
     keeper_assignment:{key_epoch:1,committee_version:2,threshold:2,coordinator:Array<number>(32).fill(9),contributors:[9,10,11].map(n=>Array<number>(32).fill(n))},signature:h(1,65)}
   payment.signature=await creator.signTypedData(paymentIntentTypedData(payment))
-  const policy={chainId:43112,settlement:h(1,20),keyRegistry:h(2,20),creator:creator.address,paymentHash:paymentIntentHash(payment),cost:9n,nowSecs:1000}
+  const policy={chainId:43112,settlement,keyRegistry,creator:creator.address,paymentHash:paymentIntentHash(payment),cost:9n,nowSecs:1000}
   vi.mocked(readClientExecutionPolicy).mockResolvedValue({blockNumber:20n,blockHash:h(20),blockTimestamp:1000n,policy})
   const certificate=await createExecutionCertificate({payment,policy,publicKey:signer.publicKey,expires:1050,creator})
   const params={operation:input.operation,operationSig,messageHex:input.messageHex,payment,random,...(kind==='oauth'?{kind}:{})}
-  const deployment={chainId:43112,settlement:h(1,20),keyRegistry:h(2,20),verifierSet:h(8,20),beacon:h(13,20)}
+  const deployment={chainId:43112,settlement,keyRegistry,verifierSet:h(8,20),beacon:h(13,20)}
+  // The Rust agent deserializes addresses/bytes32 into Alloy fixed-byte types;
+  // their JSON serialization is lowercase, including a checksummed input.
+  const wirePayment={...payment,settlement:settlement.toLowerCase(),key_registry:keyRegistry.toLowerCase()} as PaymentIntentWire
   const pin={chainId:43112,registry:h(4,20),serviceId:h(5),serviceType:1,owner:creator.address.toLowerCase(),revision:'1',manifestHash:h(6),authKey:h(7,20),endpoint,clientId:profile.clientId}
   const reqHash=requestHash(43112,hexToBytes(h(3)),'sign',input.payloadDigest)
   const drawn=selectVerifierCommittee(hexToBytes(h(3)),7,hexToBytes(h(9)),2,2), jarIndex=drawn[9%drawn.length]!
@@ -73,10 +78,10 @@ async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestat
       const body=JSON.parse(new TextDecoder().decode(opts.body)) as Record<string,unknown>
       const initialization=body.execution_initialization
       const binding={chain_id:43112,slot_id:h(3),action:'sign',message_sha256:toHex(sha256(new Uint8Array([1,2,3]))),identity:null,
-        payload_digest:payment.payload_digest,description:input.operation.description,operation:input.operation,operation_sig:operationSig,payment,delegation:null,random,
+        payload_digest:payment.payload_digest,description:input.operation.description,operation:input.operation,operation_sig:operationSig,payment:wirePayment,delegation:null,random,
         request_hash:toHex(reqHash),nonce,epoch:7,seed:h(9),snapshot_root:root,committee_count:2,quorum:2,registry_size:2,drawn,jar_signer_index:jarIndex,
         client_id:profile.clientId,service_profile:pin,execution_initialization:initialization,execution_certificate:certificate,
-        execution_policy:{chain_id:43112,settlement:h(1,20),key_registry:h(2,20),creator:creator.address.toLowerCase(),cost:toHex(9n,{size:32})}}
+        execution_policy:{chain_id:43112,settlement:settlement.toLowerCase(),key_registry:keyRegistry.toLowerCase(),creator:creator.address.toLowerCase(),cost:toHex(9n,{size:32})}}
       context={binding_preimage:binding,state,enc_public_jwk:key,expires_at:1030}
       return {status:201,body:bytes({session_id:sessionId,poll_secret:owner,service_profile:pin,execution_context:context,
         request_uri:kind==='wallet'?endpoint+'/v1/request/'+sessionId:null,qr_payload:null,nonce:kind==='oauth'?nonce:null,
@@ -90,7 +95,7 @@ async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestat
     {certificate,signer:{publicKey:signer.publicKey,sign},pollSecret:owner,expires:1030,signal})
   const session=await prepare();sessionId=session.sessionId
   const requestBody={operation:input.operation,operation_sig:operationSig,delegation:null,
-    session:{response_uri:endpoint+'/v1/response?session='+sessionId,enc_jwk:key,state,random},epoch:7,seed:h(9),committee_count:2,registry_size:2,quorum:2,payment}
+    session:{response_uri:endpoint+'/v1/response?session='+sessionId,enc_jwk:key,state,random},epoch:7,seed:h(9),committee_count:2,registry_size:2,quorum:2,payment:wirePayment}
   const proposal=(stage:'presentation_sign'|'presentation_attest'='presentation_sign'):PaidAgentProposal=>({id:proposalId,stage,
     operator_key:members[stage==='presentation_sign'?jarIndex:1-jarIndex]!.publicKey,unsigned_body:structuredClone(requestBody),expires:1030})
   const approved:ClientApprovedPresentation={holder:'did:example:holder',credentials:['one.compact.credential','two.compact.credential'],holder_proof:'holder.compact.proof',oauth:null,iat:1000}
@@ -114,6 +119,28 @@ it('sends initialized creation once and recovers its original public context aft
   expect(vi.mocked(readClientExecutionPolicy).mock.calls.at(-1)?.[4]).toEqual(member)
   expect(JSON.stringify(approval)).not.toContain(owner)
   expect(JSON.stringify(approval)).not.toContain('private')
+})
+
+it('accepts the typed agent payment with checksummed deployment addresses without changing the original initialization',async()=>{
+  const f=await fixture('wallet',undefined,undefined,true), send=vi.mocked(f.transport.paidAgentRequest)
+  expect(f.payment.settlement).not.toBe(f.payment.settlement.toLowerCase())
+  await f.session.create()
+  const submitted=JSON.parse(new TextDecoder().decode(send.mock.calls[0]![1].body)) as {payment:PaymentIntentWire}
+  expect(submitted.payment).toEqual(f.payment)
+  expect((await f.session.reconcile()).status).toBe('pending')
+  const restored=await f.prepare()
+  expect(restored.sessionId).toBe(f.session.sessionId)
+  expect((await restored.reconcile()).status).toBe('pending')
+  await restored.approveRequest(f.proposal(),'presentation_sign',f.members[f.jarIndex]!)
+  const authorization=JSON.parse(new TextDecoder().decode(send.mock.calls.at(-1)![1].body)).authorization
+  await verifyExecutionAuthorization({payment:f.payment,policy:f.policy,authorization,
+    expected:{stage:'presentation_sign',operatorKey:f.members[f.jarIndex]!.publicKey,body:f.proposal().unsigned_body}})
+  expect(send.mock.calls.filter(([url])=>url===f.profile.endpoint+'/v1/sessions')).toHaveLength(1)
+  const changed=f.proposal()
+  changed.unsigned_body={...changed.unsigned_body,payment:{...submitted.payment,settlement:h(99,20)}}
+  f.sign.mockClear();send.mockClear()
+  await expect(restored.approveRequest(changed,'presentation_sign',f.members[f.jarIndex]!)).rejects.toThrow(/client-built intent/)
+  expect(f.sign).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled()
 })
 
 it('refuses changed public recovery state or substituted operation before client signing or operator delivery',async()=>{
