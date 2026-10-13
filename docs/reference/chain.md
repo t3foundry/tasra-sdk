@@ -2317,9 +2317,10 @@ Return details: Address of the allocation vault; throws when missing.
 
 Reserve TASRA for a fixed creator-signed operation using an accountant threshold quote.
 Does not create an intent, approve tokens, activate a slot, authorize credentials or do keeper
-work. One broadcast attempt only; no replacement, coordinator failover or implicit gas funding.
+work. Before broadcast, unavailable accountants can be skipped while collecting the same quote
+and quorum authorization. One broadcast attempt only; no replacement or implicit gas funding.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L399)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L464)
 
 Import: `import {reservePaidOperation} from 'tasra-sdk/chain'`
 
@@ -5438,7 +5439,7 @@ export interface ReservePaidOperationOptions {
 
 Fields:
 
-- **` accountantUrls `**: Independently selected accountant HTTPS endpoints; all must agree on the same quote.
+- **` accountantUrls `**: Independently selected accountant HTTPS endpoints; responsive members must agree on one quote.
 - **` allowLocalHttp `**: Permit HTTP only on local chain43112; never on Fuji.
 - **` maxGas `**: Maximum transaction gas units.
 - **` maxGasPrice `**: Maximum native gas price in wei; separate from the payment's TASRA cap.
@@ -5447,7 +5448,7 @@ Fields:
 - **` confirmations `**: Required confirmations, 1..64 (default 1).
 - **` signal `**: Optional cancellation. Before the durable `prepared` checkpoint (nothing sent) an abort refuses with [PaidReservationAbortedError](#paidreservationabortederror). From that checkpoint the one broadcast proceeds and every journal write completes; an abort then only ends the receipt wait, as [PaidReservationUncertainError](#paidreservationuncertainerror): a broadcast transaction cannot be cancelled.
 - **` persist `**: Await durable storage before resolving. The prepared checkpoint MUST atomically create a unique requestId record, refuse every existing record, and survive process loss. Retain it on every later failure. Subsequent checkpoints update that record without deleting it. A callback failure before preparation completes prevents broadcast. The SDK cannot prove an application's persistence guarantees; an in-memory callback is not safe for production.
-- **` clock `**: Time source for the accountant's reservation-quota wait (a `prepare` answered 429 with a valid `Retry-After` / `x-ratelimit-after` is repeated identically within min(150 s, half the payment's remaining lifetime)); wall-clock ms. Default: the system clock. Inject one in tests.
+- **` clock `**: Time source for bounded quote collection and the reservation-quota wait (a `prepare` answered 429 with a valid `Retry-After` / `x-ratelimit-after` is repeated identically within min(150 s, half the payment's remaining lifetime)); wall-clock ms. Default: the system clock. Inject one in tests.
 
 ### ResolvedEndpoints
 

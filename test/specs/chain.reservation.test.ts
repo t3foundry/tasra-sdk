@@ -684,3 +684,144 @@ it('refuses typed, exposing the hint, when the quota wait does not fit min(150 s
   await expect(f.run({clock: c.clock})).rejects.toMatchObject({code: 'reservation_quota', reason: 'no_time_to_send', retryAfterMs: 1000})
   expect(f.fetcher).toHaveBeenCalledTimes(1)
 })
+
+// ---- Available-member collection keeps one intent, one quote and one broadcast ----
+const quorumUrls = ['https://acct0.example', 'https://acct1.example', 'https://acct2.example']
+function quorumHttp(f: Awaited<ReturnType<typeof fixture>>, change?: (url: string, method: string, init: RequestInit) => Response | Promise<Response> | undefined) {
+  const seen: {url: string; method: string; body: {intents: PaymentIntentWire[]; quote_block: Hex | null}}[] = []
+  f.fetcher.mockImplementation(async (input, init) => {
+    const url = String(input), method = url.endsWith('/authorize') ? 'authorize' : 'prepare'
+    const body = JSON.parse(init!.body as string) as {intents: PaymentIntentWire[]; quote_block: Hex | null}
+    seen.push({url, method, body}); f.trace.push(method)
+    expect(init!.redirect).toBe('error')
+    expect(body.intents).toEqual([f.payment])
+    const custom = await change?.(url, method, init!)
+    return custom ?? Response.json({...f.quote, signature: method === 'authorize' ? h(7, 64) : null})
+  })
+  return seen
+}
+
+it.each([0, 1, 2])('reserves once when accountant %i of three is unavailable', async offline => {
+  const f = await fixture()
+  const seen = quorumHttp(f, url => url.startsWith(quorumUrls[offline]!) ? new Response('offline', {status: 502}) : undefined)
+  await f.run({accountantUrls: quorumUrls})
+  expect(f.transactions).toHaveLength(1)
+  expect(f.checkpoints.map(c => c.phase)).toEqual(['prepared', 'submitted', 'confirmed'])
+  expect(seen.filter(s => s.method === 'authorize')).toHaveLength(1)
+  expect(seen.filter(s => s.url.startsWith(quorumUrls[offline]!))).toHaveLength(1)
+  const seed = offline === 0 ? 1 : 0
+  for (const entry of seen) {
+    const member = quorumUrls.findIndex(url => entry.url.startsWith(url))
+    expect(entry.body.quote_block).toBe(entry.method === 'authorize' || member > seed ? f.quote.quote_block : null)
+  }
+})
+
+it.each(['connection', 'response body'])('skips an unavailable %s without repeating that member request', async fault => {
+  const f = await fixture()
+  const seen = quorumHttp(f, url => {
+    if (!url.startsWith(quorumUrls[0]!)) return
+    if (fault === 'connection') throw new TypeError('connection refused')
+    return new Response(new ReadableStream({start(controller) { controller.error(new Error('socket closed')) }}))
+  })
+  await f.run()
+  expect(seen.filter(s => s.url.startsWith(quorumUrls[0]!))).toHaveLength(1)
+  expect(f.transactions).toHaveLength(1)
+})
+
+it('another prepared coordinator authorizes exactly the same quote before one broadcast', async () => {
+  const f = await fixture()
+  const seen = quorumHttp(f, (url, method) => url.startsWith(quorumUrls[0]!) && method === 'authorize'
+    ? new Response('coordinator unavailable', {status: 503}) : undefined)
+  await f.run()
+  const authorizations = seen.filter(s => s.method === 'authorize')
+  expect(authorizations).toHaveLength(2)
+  expect(authorizations[0]!.body).toEqual(authorizations[1]!.body)
+  expect(new Set(authorizations.map(s => s.url)).size).toBe(2)
+  expect(f.transactions).toHaveLength(1)
+  expect(f.checkpoints.filter(c => c.phase === 'prepared')).toHaveLength(1)
+})
+
+it.each([402, 403, 409, 422])('a responsive member refusal %i cannot be bypassed through another coordinator', async status => {
+  const f = await fixture()
+  const seen = quorumHttp(f, url => url.startsWith(quorumUrls[1]!) ? new Response('policy refusal', {status}) : undefined)
+  const error: unknown = await f.run().catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(status === 402 ? UnderfundedSlotError : Error)
+  expect(seen.every(s => s.method === 'prepare')).toBe(true)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+it('malformed or inconsistent success never counts as an unavailable member', async () => {
+  for (const response of [new Response('not json'), Response.json({wrong: 'quote'})]) {
+    const f = await fixture()
+    const seen = quorumHttp(f, url => url.startsWith(quorumUrls[1]!) ? response : undefined)
+    await expect(f.run()).rejects.toBeInstanceOf(Error)
+    expect(seen.every(s => s.method === 'prepare')).toBe(true)
+    expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+  }
+})
+
+it('available HTTP replies do not substitute for valid quorum authorization', async () => {
+  const f = await fixture({simulateFailure: true})
+  quorumHttp(f, url => url.startsWith(quorumUrls[1]!) ? new Response('offline', {status: 502}) : undefined)
+  await expect(f.run()).rejects.toThrow(/bad accountant signature/)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+it('all unavailable members stop before any journal or broadcast', async () => {
+  const f = await fixture(), seen = quorumHttp(f, () => new Response('offline', {status: 503}))
+  await expect(f.run()).rejects.toThrow(/503/)
+  expect(seen).toHaveLength(2)
+  expect(new Set(seen.map(s => s.url)).size).toBe(2)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+it('a caller abort during an unavailable response stops collection without failover', async () => {
+  const f = await fixture(), controller = new AbortController()
+  const seen = quorumHttp(f, () => { controller.abort('cancelled by caller'); return new Response('offline', {status: 503}) })
+  await expect(f.run({signal: controller.signal})).rejects.toBeInstanceOf(PaidReservationAbortedError)
+  expect(seen).toHaveLength(1)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+it('collection has one shared budget across unavailable members', async () => {
+  const f = await fixture(), c = quotaClock()
+  const seen = quorumHttp(f, () => { c.state.now += 30_001; return new Response('offline', {status: 503}) })
+  await expect(f.run({clock: c.clock})).rejects.toThrow(/shared time budget/)
+  expect(seen).toHaveLength(1)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+it('an over-budget successful preparation cannot proceed to authorization', async () => {
+  const f = await fixture(), c = quotaClock()
+  const seen = quorumHttp(f, url => { if (url.startsWith(quorumUrls[1]!)) c.state.now += 30_001; return undefined })
+  await expect(f.run({clock: c.clock})).rejects.toThrow(/shared time budget/)
+  expect(seen.every(s => s.method === 'prepare')).toBe(true)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+function differentQuote(f: Awaited<ReturnType<typeof fixture>>, signed = false) {
+  const q = {...f.quote, costs: ['9'], signature: signed ? h(7, 64) : null}
+  q.digest = keccak256(encodeAbiParameters([
+    {type: 'bytes32'}, {type: 'address'}, {type: 'uint256'}, {type: 'bytes32'}, {type: 'uint64'},
+    {type: 'bytes32'}, {type: 'bytes32[]'}, {type: 'uint256[]'}, {type: 'uint64'},
+  ], [keccak256(toHex('keykeeper/prepaid-reserve-assigned/v1')), f.payment.settlement, BigInt(f.payment.chain_id),
+    q.slot, BigInt(q.legacy_nonce), q.quote_block, q.request_ids, [9n], BigInt(q.deadline)]))
+  return Response.json(q)
+}
+
+it('a valid but different prepared quote stops collection before authorization', async () => {
+  const f = await fixture()
+  const seen = quorumHttp(f, url => url.startsWith(quorumUrls[1]!) ? differentQuote(f) : undefined)
+  await expect(f.run()).rejects.toThrow(/accountants disagree/)
+  expect(seen.every(s => s.method === 'prepare')).toBe(true)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+it.each(['changed quote', 'policy refusal'])('coordinator %s stops rather than falling back', async fault => {
+  const f = await fixture()
+  const seen = quorumHttp(f, (_url, method) => method !== 'authorize' ? undefined : fault === 'policy refusal'
+    ? new Response('refused', {status: 403}) : differentQuote(f, true))
+  await expect(f.run()).rejects.toThrow(fault === 'policy refusal' ? /403/ : /authorization changed/)
+  expect(seen.filter(s => s.method === 'authorize')).toHaveLength(1)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})

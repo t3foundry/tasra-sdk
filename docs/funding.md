@@ -258,6 +258,12 @@ out instead of losing the paid request, and never extends a signed expiry to do 
 - An accountant `prepare` answered 429 with a wait hint (its reservation quota) is repeated
   identically within min(150 s, half the payment's remaining lifetime); otherwise
   `PaidReservationQuotaError`. Nothing is reserved before the single reservation transaction.
+- Before that transaction, an unavailable accountant (transport failure or HTTP 5xx) can
+  be skipped. Responsive members must agree on one quote, and another prepared coordinator
+  may return its quorum authorization for that same intent and quote. Collection shares
+  one budget of min(150 s, half the remaining payment lifetime). Credit or policy refusals,
+  malformed responses, disagreement and caller cancellation still stop the operation.
+  This does not retry a transaction or change an uncertain reservation's recovery rules.
 
 Waits honour `Retry-After` and `x-ratelimit-after` as integer seconds (a hint is a floor, never
 shortened). A wait that does not fit before the deadline, or a hint over 120 s, throws

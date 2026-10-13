@@ -9,6 +9,11 @@ never does.
 
 ### Fixed
 
+- Reservation collection tolerates unavailable accountants before broadcast while keeping
+  one creator intent and canonical quote. Another prepared coordinator may supply the
+  quorum authorization within the shared time budget. Credit/policy refusals, disagreement,
+  invalid responses and cancellation remain fatal; transaction submission is still once.
+
 - Paid operations wait within their snapshot/lifetime budget when every approved
   accountant has not yet published the original anchored verifier snapshot.
   Only exact original snapshot reads are repeated; invalid artifacts still refuse,
