@@ -4,6 +4,7 @@ import {drivePaidSession, PaidSessionRecoveryError, type PaidWalletPresentation}
 import {createMemoryStore} from '../../src/app/memory-store.js'
 import {PaidAgentControlError, type RegisteredPaidAgentSession, type PaidAgentProposal} from '../../src/chain/registeredPaidAgent.js'
 import type {VerifiedRequestObject} from '../../src/oid4vp/request-object.js'
+import {VerifierAgentSessionError} from '../../src/verifier-agent/index.js'
 
 function fixture() {
   const id = 'ab'.repeat(32), key = ('0x' + 'cd'.repeat(32)) as Hex, store = createMemoryStore(), calls: string[] = []
@@ -27,6 +28,40 @@ function fixture() {
   const base = {session, store, members, signal: new AbortController().signal, wait: vi.fn(async (hint?: number) => { waits.push(hint) })}
   return {id, store, session, base, calls, presentation, waits, wallet: () => { sent = true }}
 }
+
+it.each([400, 409])('confirms terminal refusal after callback HTTP %s without repeating paid work', async httpStatus => {
+  const f = fixture()
+  const holder = {kind: 'local' as const, makePresentation: vi.fn(() => structuredClone(f.presentation)), submit: vi.fn(async () => {f.wallet()})}
+  vi.mocked(f.session.resumePresentation).mockImplementationOnce(async () => {
+    vi.mocked(f.session.poll).mockResolvedValue({status: 'failed', phase: 'failed'})
+    throw new PaidAgentControlError(f.id, httpStatus)
+  })
+  const error = await drivePaidSession({...f.base, holder}).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(VerifierAgentSessionError)
+  expect(error).toMatchObject({kind: 'refused'})
+  expect(f.session.resumePresentation).toHaveBeenCalledTimes(1)
+  expect(f.session.poll).toHaveBeenCalledTimes(3)
+  expect(f.session.approveCredentials).not.toHaveBeenCalled()
+  expect(f.session.create).toHaveBeenCalledTimes(1)
+  expect(holder.submit).toHaveBeenCalledTimes(1)
+})
+
+it.each(['pending', 'done', 'foreign-session', 'unavailable'] as const)('does not infer credential refusal from a callback HTTP 400: %s', async outcome => {
+  const f = fixture()
+  const holder = {kind: 'local' as const, makePresentation: () => structuredClone(f.presentation), submit: async () => {f.wallet()}}
+  const callbackError = new PaidAgentControlError(outcome === 'foreign-session' ? 'ff'.repeat(32) : f.id, 400)
+  const readError = new Error('original session unavailable')
+  vi.mocked(f.session.resumePresentation).mockImplementationOnce(async () => {
+    if (outcome === 'unavailable') vi.mocked(f.session.poll).mockRejectedValue(readError)
+    else vi.mocked(f.session.poll).mockResolvedValue({status: outcome === 'foreign-session' ? 'failed' : outcome,
+      phase: outcome === 'foreign-session' ? 'failed' : outcome === 'done' ? 'done' : 'awaiting_wallet'})
+    throw callbackError
+  })
+  await expect(drivePaidSession({...f.base, holder})).rejects.toBe(outcome === 'unavailable' ? readError : callbackError)
+  expect(f.session.resumePresentation).toHaveBeenCalledTimes(1)
+  expect(f.session.poll).toHaveBeenCalledTimes(outcome === 'foreign-session' ? 2 : 3)
+  expect(f.session.approveCredentials).not.toHaveBeenCalled()
+})
 
 it('drives an external wallet: shows the request, lets the client accept the retained body, then approves its work', async () => {
   const f = fixture()

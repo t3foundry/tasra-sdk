@@ -223,10 +223,11 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
     try {await session.resumePresentation(callback, approved, signal)}
     catch (error) {
       if (pendingConsent(error)) return
-      // A failed verifier run makes continuation return 409. Confirm the original terminal
-      // status before classifying it as credential refusal; a busy or unknown 409 remains an
-      // error and never causes another POST.
-      if (error instanceof PaidAgentControlError && error.sessionId === session.sessionId && error.httpStatus === 409) await checkedPoll()
+      // Admission can reject an expired credential with 400; a failed verifier run
+      // returns 409. Only the authenticated original session's terminal state proves
+      // refusal. Other errors stay unresolved and never cause another POST.
+      if (error instanceof PaidAgentControlError && error.sessionId === session.sessionId
+        && (error.httpStatus === 400 || error.httpStatus === 409)) await checkedPoll()
       throw error
     }
   }

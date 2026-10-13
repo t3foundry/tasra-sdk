@@ -31,6 +31,7 @@
 //   KK_KEEP=1             leave the stack up at the end (no teardown)
 
 import os from 'node:os'
+import {SETTLEMENT_STAGE_TIMEOUT_MS} from './settlement-budget.ts'
 import {bringUp, tearDown} from './bringup.ts'
 import {banner, have, log, networkDir, runStep, sdkRoot, type StepResult, type StepSpec} from './_run.ts'
 import {writeReport} from './report.ts'
@@ -184,7 +185,7 @@ async function fleetDependentTrack(): Promise<void> {
   // if any original payment needs recovery, before slashing or deleting shares.
   if (DO_BOOTSTRAP || DO_CORRECTNESS || DO_PERF) {
     const settlement = await run('settlement', {name: 'original paid requests reconciled with zero reserved TASRA',
-      cmd: 'npx', args: ['tsx', 'test/verify/settlement.ts'], cwd: sdkRoot, env: FLEET, timeoutMs: 660_000})
+      cmd: 'npx', args: ['tsx', 'test/verify/settlement.ts'], cwd: sdkRoot, env: FLEET, timeoutMs: SETTLEMENT_STAGE_TIMEOUT_MS})
     if (settlement.status !== 'pass') await finish(true)
   }
 

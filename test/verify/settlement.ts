@@ -9,8 +9,9 @@ import {loadPaidReservationJournal} from '../../src/app/paid-journal.ts'
 import {settlementAbi} from '../../src/chain/abis/settlement.ts'
 import {localPrepaidSettings} from '../fleet/_prepaid-funding.ts'
 import {fleetConfig} from './_run.ts'
+import {settlementObservationBudget} from './settlement-budget.ts'
 
-export interface OriginalPayment {requestId: Hex; slot: Hex; cost: bigint}
+export interface OriginalPayment {requestId: Hex; slot: Hex; cost: bigint; expires: number}
 export interface SettlementObservation {
   blockHash: Hex
   requests: Array<{requestId: Hex; settled: boolean; events: Array<{paid: bigint; refunded: bigint}>}>
@@ -71,11 +72,12 @@ async function main() {
     const {record} = journal
     assert.equal(record.payment.chain_id, 43112)
     assert.equal(record.payment.settlement.toLowerCase(), settlement.toLowerCase(), 'Original belongs to another deployment')
-    originals.push({requestId: record.requestId, slot: record.payment.slot, cost: BigInt(record.quote.costs[0]!)})
+    originals.push({requestId: record.requestId, slot: record.payment.slot, cost: BigInt(record.quote.costs[0]!), expires: record.payment.expires})
   }
   const client = createPublicClient({transport: http(cfg.rpcUrl, {retryCount: 0, timeout: 15_000, fetchOptions: {redirect: 'error'}})})
   assert.equal(await client.getChainId(), 43112)
   const slots = [...new Set(originals.map(p => p.slot))]
+  const timeoutMs = settlementObservationBudget(originals.map(p => p.expires), Date.now())
   const observation = await awaitOriginalSettlements(originals, async () => {
     const block = await client.getBlock({blockTag: 'latest'})
     const events = await client.getLogs({address: settlement, event: parseAbiItem('event PrepaidReconciled(bytes32 indexed slotId, bytes32 indexed requestId, bytes32 indexed batchId, uint256 paid, uint256 refunded)'),
@@ -89,7 +91,7 @@ async function main() {
     for (const slot of slots) reserved.push(await client.readContract({address: settlement, abi: settlementAbi, functionName: 'reservedBalanceOf', args: [slot], blockNumber: block.number}))
     assert.equal((await client.getBlock({blockNumber: block.number})).hash, block.hash, 'Settlement observation reorganized')
     return {blockHash: block.hash, requests, reserved}
-  })
+  }, undefined, timeoutMs)
   assert.deepEqual((await store.list!('prepaid-')).filter(k => /^prepaid-0x[0-9a-f]{64}$/.test(k)).sort(), keys, 'Original workload changed during verification')
   const output = mkdtempSync(join(settings.directory, 'settlement-proof-'))
   writeFileSync(join(output, 'PASS.json'), JSON.stringify({originals, observation, recipientFeeVerification: false},

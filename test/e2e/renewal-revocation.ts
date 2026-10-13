@@ -13,7 +13,7 @@ if (!(await gate(s,cfg))) { s.done(); process.exit(1) }
 const slot=await createWalletSlot(cfg),message=randomBytes(32)
 await assert.rejects(()=>authorizeWallet(cfg,slot.slotId,slot.creatorKey,{action:'sign',message},issueWallet(cfg,{ttlSecs:-120}),true),
   isPaidCredentialRefusal)
-s.ok('expired issuer-signed credential rejected by the verifiers',true)
+s.ok('expired issuer-signed credential refused before a grant',true)
 const grant=await authorizeWallet(cfg,slot.slotId,slot.creatorKey,{action:'sign',message})
 await committeeSign({nodeUrl:grant.coordinatorUrl,committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,approveExecution:grant.approveExecution,message})
 s.ok('fresh credential presentation restores the operation',true)

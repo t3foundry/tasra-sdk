@@ -1,6 +1,7 @@
 import {expect, it} from 'vitest'
 import {awaitOriginalSettlements, settlementComplete, type OriginalPayment, type SettlementObservation} from '../verify/settlement.ts'
-const originals: OriginalPayment[] = [{requestId: `0x${'11'.repeat(32)}`, slot: `0x${'22'.repeat(32)}`, cost: 100n}]
+import {settlementObservationBudget, SETTLEMENT_STAGE_TIMEOUT_MS} from '../verify/settlement-budget.ts'
+const originals: OriginalPayment[] = [{requestId: `0x${'11'.repeat(32)}`, slot: `0x${'22'.repeat(32)}`, cost: 100n, expires: 1}]
 const observed = (): SettlementObservation => ({blockHash: `0x${'33'.repeat(32)}`, requests: [{requestId: originals[0]!.requestId,
   settled: true, events: [{paid: 20n, refunded: 80n}]}], reserved: [0n]})
 it('accepts exact work-only billing and full refunds when nobody worked', () => {
@@ -44,4 +45,26 @@ it('ends a bounded observation with an explicit recovery failure', async () => {
 })
 it('does not mask failed RPC observations as successful settlement', async () => {
   await expect(awaitOriginalSettlements(originals, async () => {throw new Error('RPC unavailable')})).rejects.toThrow('RPC unavailable')
+})
+
+it('allows final settlement after the latest original expiry, within the process deadline', () => {
+  expect(settlementObservationBudget([11, 610], 10_000)).toBe(1_200_000)
+  expect(settlementObservationBudget([1, 10], 10_000)).toBe(600_000)
+  const longest = settlementObservationBudget([3610], 10_000)
+  expect(longest).toBe(4_200_000)
+  expect(SETTLEMENT_STAGE_TIMEOUT_MS - longest).toBe(60_000)
+})
+
+it.each([[], [0], [-1], [1.5], [NaN], [Infinity], [Number.MAX_SAFE_INTEGER], [3611], Array<number>(257).fill(1)].map(expires => ({expires})))(
+  'refuses invalid or unbounded original expiry inputs: $expires', ({expires}) => {
+    expect(() => settlementObservationBudget(expires, 10_000)).toThrow()
+  })
+
+it('keeps the expiry-aware deadline fixed through repeated unsettled observations', async () => {
+  let now = 10_000
+  const start = now, budget = settlementObservationBudget([11], now)
+  const unpaid = observed(); unpaid.requests[0]!.settled = false; unpaid.requests[0]!.events = []
+  await expect(awaitOriginalSettlements(originals, async () => unpaid,
+    {now: () => now, sleep: async ms => {now += ms}}, budget)).rejects.toThrow('retain fleet and journals')
+  expect(now - start).toBe(601_000)
 })

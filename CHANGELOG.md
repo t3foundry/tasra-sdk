@@ -9,6 +9,10 @@ never does.
 
 ### Fixed
 
+- Paid sessions confirm callback HTTP 400 and 409 refusals through an authenticated
+  read of the original session. Expired credentials now produce the terminal session
+  refusal type; unrelated HTTP errors stay errors, and no paid write is repeated.
+
 - Reservation collection tolerates unavailable accountants before broadcast while keeping
   one creator intent and canonical quote. Another prepared coordinator may supply the
   quorum authorization within the shared time budget. Credit/policy refusals, disagreement,
