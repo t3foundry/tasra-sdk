@@ -61,3 +61,12 @@ it('reads only bounded regular original configuration files without following sy
   writeFileSync(original, Buffer.from([0xff]))
   expect(() => readPaidConfigFile(original, 32)).toThrow()
 })
+
+it('binds published routes to the admitted exact name and instance label', () => {
+  const original = observation()
+  const value = {...original, Name: '/kki-cert1-swarm-accountant-1', Config: {Labels: {...original.Config.Labels, 'kk.fleet.instance': 'cert1'}}}
+  const identity = {name: 'kki-cert1-swarm-accountant-1', instance: 'cert1'}
+  expect(ownedPublishedPort(value, root, project, service, '8080/tcp', identity).port).toBe(19001)
+  expect(() => ownedPublishedPort({...value, Name: '/keykeeper-swarm-accountant-1'}, root, project, service, '8080/tcp', identity)).toThrow(/identity changed/)
+  expect(() => ownedPublishedPort(value, root, project, service, '8080/tcp', {...identity, instance: 'other'})).toThrow(/another fleet instance/)
+})

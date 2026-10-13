@@ -11,6 +11,7 @@ import {nodeRegistryAbi} from '../../src/chain/abis/nodeRegistry.ts'
 import {paidWalletSettings, readPaidConfigFile} from '../fleet/_paid-wallet.ts'
 import {localPrepaidSettings} from '../fleet/_prepaid-funding.ts'
 import type {FleetConfig} from '../fleet/_fleet.ts'
+import {resolveFleetScope, scopedContainer} from './_fleet-scope.ts'
 
 export function generatedInteger(text: string, section: string, key: string): number {
   assert(/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(section) && /^[a-zA-Z_][a-zA-Z_0-9]*$/.test(key), 'Invalid generated policy identifier')
@@ -28,15 +29,19 @@ export function generatedInteger(text: string, section: string, key: string): nu
   return value!
 }
 
-export function ownedPublishedPort(value: unknown, root: string, project: string, service: string, port: string) {
+export function ownedPublishedPort(value: unknown, root: string, project: string, service: string, port: string, identity?: {name: string; instance: string}) {
   assert(value && typeof value === 'object' && !Array.isArray(value), 'Missing original Docker container observation')
-  const c = value as {Id?: string; Config?: {Labels?: Record<string, string>}; State?: {Running?: boolean};
+  const c = value as {Id?: string; Name?: string; Config?: {Labels?: Record<string, string>}; State?: {Running?: boolean};
     NetworkSettings?: {Ports?: Record<string, Array<{HostIp: string; HostPort: string}> | null>}}
   const labels = c.Config?.Labels
   assert(typeof c.Id === 'string' && /^[0-9a-f]{64}$/.test(c.Id) && !/^0+$/.test(c.Id) && c.State?.Running === true,
     'Local SDK routing requires an exact running container identity')
   assert(labels?.['com.docker.compose.project'] === project && labels['com.docker.compose.service'] === service
     && labels['com.docker.compose.project.working_dir'] === resolve(root, 'lab'), 'SDK routing refuses a foreign or archived fleet container')
+  if (identity) {
+    assert.equal(c.Name, '/' + identity.name, 'SDK container identity changed during inspection')
+    assert.equal(labels['kk.fleet.instance'] ?? '', identity.instance, 'SDK container belongs to another fleet instance')
+  }
   const bindings = c.NetworkSettings?.Ports?.[port]
   assert(Array.isArray(bindings) && bindings.length > 0 && bindings.every(b => ['127.0.0.1', '0.0.0.0', '::', '::1'].includes(b.HostIp)
     && /^[1-9][0-9]{0,4}$/.test(b.HostPort) && Number(b.HostPort) <= 65535), 'Local SDK route has no bounded published port')
@@ -48,14 +53,14 @@ export function ownedPublishedPort(value: unknown, root: string, project: string
 export async function configurePaidWalletFleet(cfg: FleetConfig, networkRoot: string, sdkRoot: string): Promise<Record<string, string>> {
   // This function only reads the already deployed fleet. It neither resets a
   // chain nor creates/stops a container or submits an on-chain transaction.
+  const scope = resolveFleetScope(networkRoot)
   const outputRoot = resolve(sdkRoot, 'test/verify/out')
   localPrepaidSettings({...cfg, raw: {...cfg.raw, KK_PREPAID_EVIDENCE_DIR: outputRoot}})
   const rpc = createPublicClient({transport: http(cfg.rpcUrl, {retryCount: 0, timeout: 15_000, fetchOptions: {redirect: 'error'}})})
   assert.equal(await rpc.getChainId(), 43112, 'SDK configuration RPC must prove the local chain')
   assert(cfg.book.NodeRegistry && cfg.book.ServiceRegistry && cfg.book.KeyRegistry && cfg.book.Settlement)
-  const project = process.env.COMPOSE_PROJECT_NAME ?? 'keykeeper-swarm'
-  assert(/^[a-z0-9][a-z0-9_-]*$/.test(project), 'Invalid owned fleet project')
-  const sourceRoot = resolve(networkRoot), configs = join(sourceRoot, 'lab/configs')
+  const project = scope.project
+  const sourceRoot = scope.root, configs = join(sourceRoot, 'lab/configs')
   const agentText = readFileSync(join(configs, 'verifier-agent.toml'), 'utf8')
   const accountantText = readFileSync(join(configs, 'accountant-1.toml'), 'utf8')
   const committee = generatedInteger(agentText, 'chain', 'committee_count'), quorum = generatedInteger(agentText, 'chain', 'quorum')
@@ -64,33 +69,36 @@ export async function configurePaidWalletFleet(cfg: FleetConfig, networkRoot: st
   const blockNumber = await rpc.getBlockNumber({cacheTime: 0}), block = await rpc.getBlock({blockNumber})
   const tagged = async (role: string) => [...await rpc.readContract({address: cfg.book.NodeRegistry!, abi: nodeRegistryAbi,
     functionName: 'taggedActiveOperators', args: [keccak256(toHex(role))], blockNumber})].sort((a, b) => a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0)
-  const accountantOperators = await tagged('accountant'), keepers = await tagged('keykeeper')
+  const accountantOperators = await tagged('accountant'), keepers = await tagged('keykeeper'), verifiers = await tagged('verifier')
   const selectedAccountants = cap > 0 ? accountantOperators.slice(0, cap) : accountantOperators
-  assert(selectedAccountants.length > 0 && selectedAccountants.length <= 16 && keepers.length > 0 && keepers.length <= 256,
+  assert(selectedAccountants.length > 0 && selectedAccountants.length <= 16 && keepers.length > 0 && keepers.length <= 256 && verifiers.length > 0 && verifiers.length <= 256,
     'Local SDK operator population exceeds its explicitly bounded profile')
   const resources: Array<{role: string; registered: string; id: string; port: number}> = []
-  const inspect = (role: string, index: string, registered: string) => {
-    const name = `keykeeper-swarm-${role === 'keykeeper' ? 'node' : role}-${index}`
+  const inspect = (role: 'keykeeper' | 'accountant' | 'verifier', index: string, registered: string) => {
+    const {name, service, port} = scopedContainer(scope, role, index)
     const observed = JSON.parse(execFileSync('docker', ['inspect', name], {encoding: 'utf8', timeout: 10_000, maxBuffer: 1_048_576})) as unknown[]
     assert(Array.isArray(observed) && observed.length === 1, 'Original container inspection is ambiguous')
-    const service = `keykeeper-${role === 'keykeeper' ? 'node' : role}-${index}`
-    const published = ownedPublishedPort(observed[0], sourceRoot, project, service, '8080/tcp')
+    const published = ownedPublishedPort(observed[0], sourceRoot, project, service, port, {name, instance: scope.instance})
     resources.push({role, registered, ...published})
     return 'http://127.0.0.1:' + published.port
   }
-  const accountantUrls: string[] = [], routes: Record<string, string> = {}
-  for (const [role, operators] of [['accountant', selectedAccountants], ['keykeeper', keepers]] as const) {
+  const accountantUrls: string[] = [], nodeUrls: string[] = [], verifierUrls: string[] = [], routes: Record<string, string> = {}
+  for (const [role, operators] of [['accountant', selectedAccountants], ['keykeeper', keepers], ['verifier', verifiers]] as const) {
     for (const operator of operators) {
       const node = await rpc.readContract({address: cfg.book.NodeRegistry, abi: nodeRegistryAbi, functionName: 'nodeOf', args: [operator], blockNumber})
       assert(node.active && node.operator.toLowerCase() === operator.toLowerCase(), 'SDK operator changed during configuration')
-      const internal = node.url.match(new RegExp('^http://keykeeper-' + (role === 'keykeeper' ? 'node' : role) + '-([1-9][0-9]*):8080/?$'))
+      const internal = node.url.match(new RegExp('^http://keykeeper-' + (role === 'keykeeper' ? 'node' : role) + '-([1-9][0-9]*):' + (role === 'verifier' ? '8081' : '8080') + '/?$'))
       const bridge = node.url.match(new RegExp('^https://keykeeper-cert\\.localhost:([1-9][0-9]*)/' + (role === 'keykeeper' ? 'keeper' : role) + '-([1-9][0-9]*)/?$'))
       assert(internal || bridge, 'Local SDK configuration requires the original owned operator route')
       // Accountant reservation calls use owned published loopback ports; the
       // original quote is authenticated by its actual threshold signatures.
       const mapped = inspect(role, internal?.[1] ?? bridge![2]!, node.url)
       if (role === 'accountant') accountantUrls.push(mapped)
-      else routes[node.url.replace(/\/$/, '')] = bridge ? node.url.replace('keykeeper-cert.localhost', 'localhost').replace(/\/$/, '') : mapped
+      else if (role === 'verifier') verifierUrls.push(mapped)
+      else {
+        nodeUrls.push(mapped)
+        routes[node.url.replace(/\/$/, '')] = bridge ? node.url.replace('keykeeper-cert.localhost', 'localhost').replace(/\/$/, '') : mapped
+      }
     }
   }
   assert.equal((await rpc.getBlock({blockNumber})).hash, block.hash, 'Local SDK policy observation reorganized')
@@ -103,7 +111,9 @@ export async function configurePaidWalletFleet(cfg: FleetConfig, networkRoot: st
   const routeBytes = cfg.raw.KK_PREPAID_KEEPER_ROUTE_MAP ? Buffer.from(readPaidConfigFile(cfg.raw.KK_PREPAID_KEEPER_ROUTE_MAP, 65_536)) : Buffer.from(JSON.stringify(routes))
   assert(routeBytes.length > 0 && routeBytes.length <= 65_536)
   writeFileSync(routeFile, routeBytes, {flag: 'wx', mode: 0o600})
-  const env = {KK_PREPAID_EVIDENCE_DIR: directory, KK_PREPAID_AGENT_PROFILE: profileFile, KK_PREPAID_KEEPER_ROUTE_MAP: routeFile,
+  const env = {TASRA_NODE_URLS: nodeUrls.join(','), TASRA_VERIFIER_URLS: verifierUrls.join(','),
+    TASRA_EXPLORER_API: `http://127.0.0.1:${8090 + scope.offset}/api`, TASRA_FAUCET: `http://127.0.0.1:${8552 + scope.offset}`,
+    KK_PREPAID_EVIDENCE_DIR: directory, KK_PREPAID_AGENT_PROFILE: profileFile, KK_PREPAID_KEEPER_ROUTE_MAP: routeFile,
     KK_PREPAID_AGENT_PRIVATE_HOSTS: 'localhost', KK_PREPAID_ACCOUNTANT_URLS: accountantUrls.join(','),
     KK_PREPAID_VERIFIER_COUNT: String(committee), KK_PREPAID_VERIFIER_QUORUM: String(quorum),
     KK_PREPAID_SLOT_TASRA_UNITS: cfg.raw.KK_PREPAID_SLOT_TASRA_UNITS ?? '1000000000000000000',
