@@ -6,7 +6,9 @@ import {execFileSync} from 'node:child_process'
 import {createHash} from 'node:crypto'
 import {readFileSync, writeFileSync, mkdirSync, mkdtempSync, openSync, closeSync, fsyncSync} from 'node:fs'
 import {resolve, join} from 'node:path'
-import {createPublicClient, http, keccak256, toHex} from 'viem'
+import {createPublicClient, http, keccak256, toHex, type Hex} from 'viem'
+import {ed25519} from '@noble/curves/ed25519'
+import type {MeteringIdentity} from '../fleet/_metering.ts'
 import {nodeRegistryAbi} from '../../src/chain/abis/nodeRegistry.ts'
 import {paidWalletSettings, readPaidConfigFile} from '../fleet/_paid-wallet.ts'
 import {localPrepaidSettings} from '../fleet/_prepaid-funding.ts'
@@ -27,6 +29,21 @@ export function generatedInteger(text: string, section: string, key: string): nu
   }
   assert(matches === 1 && Number.isSafeInteger(value) && value! >= 0, 'Generated fleet policy is absent, duplicated or unsafe')
   return value!
+}
+
+export function generatedMeteringSeed(text: string): Hex {
+  let section = ''
+  const found: string[] = []
+  for (const line of text.split('\n')) {
+    const header = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/)
+    if (header) {section = header[1]!; continue}
+    if (section !== 'threshold_beacon' || !/^\s*libp2p_key\s*=/.test(line)) continue
+    const assignment = line.match(/^\s*libp2p_key\s*=\s*"(0x[0-9a-fA-F]{64})"\s*(?:#.*)?$/)
+    assert(assignment, 'Invalid generated accountant identity')
+    found.push(assignment[1]!)
+  }
+  assert.equal(found.length, 1, 'Generated accountant identity must be unambiguous')
+  return found[0]! as Hex
 }
 
 export function ownedPublishedPort(value: unknown, root: string, project: string, service: string, port: string, identity?: {name: string; instance: string}) {
@@ -83,9 +100,10 @@ export async function configurePaidWalletFleet(cfg: FleetConfig, networkRoot: st
     return 'http://127.0.0.1:' + published.port
   }
   const accountantUrls: string[] = [], nodeUrls: string[] = [], verifierUrls: string[] = [], routes: Record<string, string> = {}
+  let meteringIdentity: MeteringIdentity | undefined
   for (const [role, operators] of [['accountant', selectedAccountants], ['keykeeper', keepers], ['verifier', verifiers]] as const) {
     for (const operator of operators) {
-      const node = await rpc.readContract({address: cfg.book.NodeRegistry, abi: nodeRegistryAbi, functionName: 'nodeOf', args: [operator], blockNumber})
+      const node: {active: boolean; operator: Hex; url: string; pubkey: Hex} = await rpc.readContract({address: cfg.book.NodeRegistry, abi: nodeRegistryAbi, functionName: 'nodeOf', args: [operator], blockNumber})
       assert(node.active && node.operator.toLowerCase() === operator.toLowerCase(), 'SDK operator changed during configuration')
       const internal = node.url.match(new RegExp('^http://keykeeper-' + (role === 'keykeeper' ? 'node' : role) + '-([1-9][0-9]*):' + (role === 'verifier' ? '8081' : '8080') + '/?$'))
       const bridge = node.url.match(new RegExp('^https://keykeeper-cert\\.localhost:([1-9][0-9]*)/' + (role === 'keykeeper' ? 'keeper' : role) + '-([1-9][0-9]*)/?$'))
@@ -93,7 +111,16 @@ export async function configurePaidWalletFleet(cfg: FleetConfig, networkRoot: st
       // Accountant reservation calls use owned published loopback ports; the
       // original quote is authenticated by its actual threshold signatures.
       const mapped = inspect(role, internal?.[1] ?? bridge![2]!, node.url)
-      if (role === 'accountant') accountantUrls.push(mapped)
+      if (role === 'accountant') {
+        accountantUrls.push(mapped)
+        if (!meteringIdentity) {
+          const index = internal?.[1] ?? bridge![2]!
+          const seed = generatedMeteringSeed(readFileSync(join(configs, `accountant-${index}.toml`), 'utf8'))
+          assert.equal(toHex(ed25519.getPublicKey(Buffer.from(seed.slice(2), 'hex'))).toLowerCase(), node.pubkey.toLowerCase(),
+            'Generated metering identity differs from the registered accountant')
+          meteringIdentity = {chainId: 43112, nodeRegistry: cfg.book.NodeRegistry, operator, seed}
+        }
+      }
       else if (role === 'verifier') verifierUrls.push(mapped)
       else {
         nodeUrls.push(mapped)
@@ -104,6 +131,9 @@ export async function configurePaidWalletFleet(cfg: FleetConfig, networkRoot: st
   assert.equal((await rpc.getBlock({blockNumber})).hash, block.hash, 'Local SDK policy observation reorganized')
   mkdirSync(outputRoot, {recursive: true, mode: 0o700})
   const directory = mkdtempSync(join(outputRoot, 'paid-wallet-original-'))
+  assert(meteringIdentity, 'Local SDK metering needs an assigned active accountant')
+  const meteringFile = join(directory, 'metering-identity.private.json')
+  writeFileSync(meteringFile, JSON.stringify(meteringIdentity) + '\n', {flag: 'wx', mode: 0o600})
   const profileBytes = Buffer.from(readPaidConfigFile(cfg.raw.KK_PREPAID_AGENT_PROFILE ?? join(configs, 'services/verifier-agent/profile.json'), 65_536))
   assert(profileBytes.length > 0 && profileBytes.length <= 65_536)
   const profileFile = join(directory, 'agent-profile.json'), routeFile = join(directory, 'keeper-routes.json')
@@ -112,6 +142,7 @@ export async function configurePaidWalletFleet(cfg: FleetConfig, networkRoot: st
   assert(routeBytes.length > 0 && routeBytes.length <= 65_536)
   writeFileSync(routeFile, routeBytes, {flag: 'wx', mode: 0o600})
   const env = {TASRA_NODE_URLS: nodeUrls.join(','), TASRA_VERIFIER_URLS: verifierUrls.join(','),
+    KK_METERING_IDENTITY_FILE: meteringFile,
     TASRA_EXPLORER_API: `http://127.0.0.1:${8090 + scope.offset}/api`, TASRA_FAUCET: `http://127.0.0.1:${8552 + scope.offset}`,
     KK_PREPAID_EVIDENCE_DIR: directory, KK_PREPAID_AGENT_PROFILE: profileFile, KK_PREPAID_KEEPER_ROUTE_MAP: routeFile,
     KK_PREPAID_AGENT_PRIVATE_HOSTS: 'localhost', KK_PREPAID_ACCOUNTANT_URLS: accountantUrls.join(','),
@@ -128,7 +159,7 @@ export async function configurePaidWalletFleet(cfg: FleetConfig, networkRoot: st
     agentPolicySha256: createHash('sha256').update(agentText).digest('hex'), accountantPolicySha256: createHash('sha256').update(accountantText).digest('hex'),
     profileSha256: createHash('sha256').update(profileBytes).digest('hex'), routesSha256: createHash('sha256').update(routeBytes).digest('hex'), env}, null, 2) + '\n',
     {flag: 'wx', mode: 0o600})
-  for (const file of ['agent-profile.json', 'keeper-routes.json', 'deployment-observation.json']) {
+  for (const file of ['agent-profile.json', 'keeper-routes.json', 'deployment-observation.json', 'metering-identity.private.json']) {
     const fd = openSync(join(directory, file), 'r'); try {fsyncSync(fd)} finally {closeSync(fd)}
   }
   const dir = openSync(directory, 'r'); try {fsyncSync(dir)} finally {closeSync(dir)}

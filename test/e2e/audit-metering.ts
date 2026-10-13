@@ -4,7 +4,7 @@
 // then asserts that node's sign-audit log and the metering view (derived from
 // sign_audit, the data accountants pull to bill) both reflect exactly those ops.
 //
-// audit + metering require the `audit:read` scope. JWT: locally-minted EdDSA.
+// Audit uses `audit:read`; meters require the registered accountant's signature.
 // Run: tsx test/e2e/audit-metering.ts
 
 import {randomBytes} from 'node:crypto'
@@ -12,6 +12,7 @@ import {committeeSign} from '../../src/committee/client.ts'
 import {Suite} from '../fleet/_assert.ts'
 import {discoverCommittee, gate, keeperSlotN, loadFleetConfig, mintLocalJwt, mintAdminJwt, provisionRule} from '../fleet/_fleet.ts'
 import {authorizeWallet,createWalletSlot, WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
+import {readAccountantMetering} from '../fleet/_metering.ts'
 
 const cfg = loadFleetConfig()
 const s = new Suite('e2e: audit + metering')
@@ -88,14 +89,18 @@ s.ok('audit entries name the served presentations and successful outcomes', list
 s.ok('audit entries have distinct message digests', new Set(listRes.entries.map(e => e.message_sha256)).size >= N)
 
 // ── metering (derived from sign_audit) reflects the retrievals ────────────────
-const meter = (await (await fetch(`${coord}/v1/metering/${slotId}`, {headers: auth})).json()) as {total: number; by_subject: Array<{subject: string; count: number}>}
+const meter = await readAccountantMetering(cfg, coord, slotId)
 s.ok('metering total reflects the signs', meter.total >= N, `total=${meter.total}`)
 const count = meter.by_subject?.filter(r => subjects.has(r.subject)).reduce((sum,r) => sum+r.count,0)
 s.eq('metering attributes the operations to the served wallet presentations', count, N)
 
 // unauthorized: a JWT WITHOUT audit:read must be denied
 const noScope = mintLocalJwt(cfg, {sub: SUBJECT, scope: ['EmployeeOf:dept=Engineering']})
-const denied = await fetch(`${coord}/v1/metering/${slotId}`, {headers: {Authorization: `Bearer ${noScope}`}})
-s.ok('metering denied without audit:read scope', denied.status === 401 || denied.status === 403, `HTTP ${denied.status}`)
+const denied = await fetch(`${coord}/v1/audit/${slotId}/count`, {headers: {Authorization: `Bearer ${noScope}`}})
+s.ok('audit denied without audit:read scope', denied.status === 401 || denied.status === 403, `HTTP ${denied.status}`)
+const bearer = await fetch(`${coord}/v1/metering/${slotId}`, {headers: auth})
+s.eq('retired bearer metering route is absent', bearer.status, 404)
+const unsigned = await fetch(`${coord}/v1/metering/${slotId}/signed`, {headers: auth})
+s.eq('bearer cannot replace accountant metering signature', unsigned.status, 403)
 
 s.done()
