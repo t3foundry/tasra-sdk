@@ -32,7 +32,7 @@ const SESSION_ID = /^[A-Za-z0-9_-]+$/
  * @param sessionId - Session id returned by the verifier agent when the session was opened.
  */
 export function isValidSessionId(sessionId: string): boolean {
-  return sessionId.length > 0 && sessionId.length <= MAX_SESSION_ID_LEN && SESSION_ID.test(sessionId)
+  return typeof sessionId === 'string' && sessionId.length > 0 && sessionId.length <= MAX_SESSION_ID_LEN && SESSION_ID.test(sessionId)
 }
 
 /**

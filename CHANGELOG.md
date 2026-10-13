@@ -54,15 +54,34 @@ and services selected through a verified tasra-releases manifest.
 - SDK-only shared-account example that creates and provisions a tECDSA slot,
   confirms Alice/Bob transactions, and verifies Mallory's server-side denial.
 - Generated API reference and explicit SDK/deployment compatibility guidance.
+- Evidence pass-through on `tasra-sdk/committee`: `committeeSign`, `committeeDecrypt` and
+  `requestIbeExtractionPartials` accept `evidenceCt` (the sealed presentation the verifier
+  agent returns beside the compound token as `evidenceCt`) and forward it to keepers;
+  `evidenceBindingMessage` and `verifyEvidenceBinding` check the token's evidence binding.
+- `createDpopKey().tokenRequestProof({htm, htu, nonce?})` for identity providers that
+  require a DPoP proof on the token request itself.
+- `isValidSessionId`, `MAX_SESSION_ID_LEN`, `OAUTH_RESPONSE_PATH_PREFIX` and
+  `OAUTH_RESPONSE_PATH_SUFFIX` in `tasra-sdk/committee`.
 
 ### Changed
 
+- **Breaking** (`tasra-sdk/committee`): `dpopHtu(origin, sessionId)` now takes the session
+  id and returns the per-session OAuth response URL
+  (`/v1/sessions/<sessionId>/oauth-response`); the session id must be one plain path
+  segment or the call throws.
+- `assertCompoundTokenWire` refuses a compound token that carries only some of the
+  evidence fields.
 - `RecipientStore.satisfies` and `validateRule` refuse a `kk_oauth` policy envelope by
   name: held credentials cannot satisfy it (`canAccess` returns `false`).
 - All 11 application-building skills lead with the current task workflow;
   specialized and compatibility details are available in supporting references.
 - The shared-account tutorial always demonstrates durable prepared creation.
 - The slot-provisioning example uses the creator's signature instead of an admin JWT.
+
+### Removed
+
+- **Breaking** (`tasra-sdk/committee`): `OAUTH_RESPONSE_PATH`; the response path is now
+  per session (`OAUTH_RESPONSE_PATH_PREFIX` + session id + `OAUTH_RESPONSE_PATH_SUFFIX`).
 
 ### Fixed
 

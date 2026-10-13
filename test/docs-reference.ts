@@ -48,8 +48,8 @@ function wrapUnionAlias(line: string) {
     const c = body[i]!
     if (quote) { if (c === quote && body[i - 1] !== '\\') quote = ''; continue }
     if (c === "'" || c === '"' || c === '`') quote = c
-    else if ('([{<'.includes(c)) depth++
-    else if (')]}>'.includes(c)) depth--
+    else if ('([{'.includes(c) || (c === '<' && body[i - 1] !== '=')) depth++
+    else if (')]}'.includes(c) || (c === '>' && body[i - 1] !== '=')) depth--
     else if (c === '|' && depth === 0) { members.push(body.slice(start, i).trim()); start = i + 1 }
   }
   members.push(body.slice(start).trim())

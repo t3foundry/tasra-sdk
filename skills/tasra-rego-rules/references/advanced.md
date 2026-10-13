@@ -168,6 +168,9 @@ mismatch (`count(5)`) is undefined too.
 
 The slot commits to the exact envelope string, and the network accepts nothing else. A
 changed policy (even whitespace) is an amendment and needs the slot's configured amendment
-policy; without one, create a new slot. Keep the policy source in version control with the
+policy; without one, create a new slot. With one, `amendSlotRule` on the write client
+(`tasra-sdk/chain`) drives propose → `provisionRule({expect: 'pending'})` → adoption →
+activation; `proposeRuleUpdate`, `endorseRuleUpdate`, `vetoRuleUpdate` and
+`activateRuleUpdate` are the individual steps. Keep the policy source in version control with the
 exact packed string and its salt, and recover the parts of a deployed rule with
 `unpackEnvelope`.
