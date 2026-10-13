@@ -1,15 +1,17 @@
 // Read-only gate before destructive scenarios. Never recreate or submit a payment.
 import assert from 'node:assert/strict'
-import {mkdtempSync, writeFileSync} from 'node:fs'
+import {mkdtempSync} from 'node:fs'
 import {join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {createPublicClient, http, parseAbiItem, type Hex} from 'viem'
 import {createFileStore} from '../../src/app/node.ts'
 import {loadPaidReservationJournal} from '../../src/app/paid-journal.ts'
+import type {PaidReservationRecord} from '../../src/chain/reservation.ts'
 import {settlementAbi} from '../../src/chain/abis/settlement.ts'
 import {localPrepaidSettings} from '../fleet/_prepaid-funding.ts'
-import {fleetConfig} from './_run.ts'
+import {fleetConfig, networkDir, sdkRoot, chainEnvPath} from './_run.ts'
 import {settlementObservationBudget} from './settlement-budget.ts'
+import {retainRecipientFees, saveCertificationEvidence} from './recipient-fees.ts'
 
 export interface OriginalPayment {requestId: Hex; slot: Hex; cost: bigint; expires: number}
 export interface SettlementObservation {
@@ -66,10 +68,12 @@ async function main() {
   const keys = (await store.list!('prepaid-')).filter(k => /^prepaid-0x[0-9a-f]{64}$/.test(k)).sort()
   assert(keys.length > 0 && keys.length <= 256, 'No bounded original paid workload to verify')
   const originals: OriginalPayment[] = []
+  const records: PaidReservationRecord[] = []
   for (const key of keys) {
     const journal = await loadPaidReservationJournal(store, key.slice(8) as Hex)
     assert(journal?.phase === 'confirmed', 'Unconfirmed original payment requires recovery before certification')
     const {record} = journal
+    records.push(record)
     assert.equal(record.payment.chain_id, 43112)
     assert.equal(record.payment.settlement.toLowerCase(), settlement.toLowerCase(), 'Original belongs to another deployment')
     originals.push({requestId: record.requestId, slot: record.payment.slot, cost: BigInt(record.quote.costs[0]!), expires: record.payment.expires})
@@ -94,9 +98,11 @@ async function main() {
   }, undefined, timeoutMs)
   assert.deepEqual((await store.list!('prepaid-')).filter(k => /^prepaid-0x[0-9a-f]{64}$/.test(k)).sort(), keys, 'Original workload changed during verification')
   const output = mkdtempSync(join(settings.directory, 'settlement-proof-'))
-  writeFileSync(join(output, 'PASS.json'), JSON.stringify({originals, observation, recipientFeeVerification: false},
-    (_key, value) => typeof value === 'bigint' ? value.toString() : value, 2) + '\n', {flag: 'wx', mode: 0o600})
-  console.log(`Verified ${originals.length} original payments: one reconciliation each, exact paid/refunded totals, zero reserved TASRA. Evidence: ${output}`)
+  const recipientManifest = await retainRecipientFees(cfg, records, output, networkDir, sdkRoot, chainEnvPath)
+  assert.deepEqual((await store.list!('prepaid-')).filter(k => /^prepaid-0x[0-9a-f]{64}$/.test(k)).sort(), keys, 'Original workload changed during recipient verification')
+  for (const record of records) assert.deepEqual((await loadPaidReservationJournal(store, record.requestId))?.record, record, 'Original payment changed during recipient verification')
+  saveCertificationEvidence(join(output, 'PASS.json'), {originals, observation, recipientFeeVerification: true, recipientManifest})
+  console.log(`Verified ${originals.length} original payments: one reconciliation each, exact recipient fees and paid/refunded totals, zero reserved TASRA; accountant evidence retained. Evidence: ${output}`)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))

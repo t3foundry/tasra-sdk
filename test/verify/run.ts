@@ -58,7 +58,9 @@ const npm = (script: string): StepSpec => ({name: script, cmd: 'npm', args: ['ru
 // accountant suites "passed" in under a second for at least two certs. minPassedTests
 // turns any such vacuous green into a fail instead of trusting the exit code.
 const cargoTest = (pkg: string, test: string, extra: string[] = []): StepSpec => ({name: `cargo ${pkg}::${test}`, cmd: 'cargo', args: ['test', '-p', pkg, ...extra, '--test', test, '--', '--include-ignored'], cwd: networkDir, timeoutMs: 1_800_000, minPassedTests: 1})
-const scenario = (file: string): StepSpec => ({name: file, cmd: 'bash', args: [`lab/fleet/scenarios/${file}`], cwd: networkDir, timeoutMs: 600_000})
+const scenario = (file: string): StepSpec => ({name: file, cmd: 'bash', args: [`lab/fleet/scenarios/${file}`], cwd: networkDir,
+  // Disk loss now observes both original 600s payment windows and their payouts.
+  timeoutMs: file === '08b-nuke-and-recover.sh' ? 3_600_000 : 600_000})
 
 const startedAt = new Date().toISOString()
 const t0 = Date.now()
@@ -199,6 +201,11 @@ async function fleetDependentTrack(): Promise<void> {
     }
     await run('destructive',npm('test:slashing'))
     await run('destructive',scenario('08b-nuke-and-recover.sh'))
+    // Destructive stages can create paid work after the first barrier. Refuse
+    // final teardown/profile replacement until its original evidence is retained.
+    const settlement = await run('settlement-final', {name: 'final original paid requests and recipient evidence retained',
+      cmd: 'npx', args: ['tsx', 'test/verify/settlement.ts'], cwd: sdkRoot, env: FLEET, timeoutMs: SETTLEMENT_STAGE_TIMEOUT_MS})
+    if (settlement.status !== 'pass') await finish(true)
   }
 }
 

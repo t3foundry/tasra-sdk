@@ -52,7 +52,7 @@ it('allows final settlement after the latest original expiry, within the process
   expect(settlementObservationBudget([1, 10], 10_000)).toBe(600_000)
   const longest = settlementObservationBudget([3610], 10_000)
   expect(longest).toBe(4_200_000)
-  expect(SETTLEMENT_STAGE_TIMEOUT_MS - longest).toBe(60_000)
+  expect(SETTLEMENT_STAGE_TIMEOUT_MS - longest).toBe(360_000)
 })
 
 it.each([[], [0], [-1], [1.5], [NaN], [Infinity], [Number.MAX_SAFE_INTEGER], [3611], Array<number>(257).fill(1)].map(expires => ({expires})))(
