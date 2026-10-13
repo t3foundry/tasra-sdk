@@ -180,6 +180,14 @@ async function fleetDependentTrack(): Promise<void> {
   // host is still churning the backlog, up to a bounded ceiling. See settleFleet.
   if (DO_PERF && DO_DESTRUCTIVE) await settleFleet()
 
+  // A served operation is not a completed billing lifecycle. Preserve the fleet
+  // if any original payment needs recovery, before slashing or deleting shares.
+  if (DO_BOOTSTRAP || DO_CORRECTNESS || DO_PERF) {
+    const settlement = await run('settlement', {name: 'original paid requests reconciled with zero reserved TASRA',
+      cmd: 'npx', args: ['tsx', 'test/verify/settlement.ts'], cwd: sdkRoot, env: FLEET, timeoutMs: 660_000})
+    if (settlement.status !== 'pass') await finish(true)
+  }
+
   // Stage 5: destructive (LAST — degrades the fleet).
   if (DO_DESTRUCTIVE) {
     await run('destructive', {name: 'node-slash-lifecycle (slash + unbond)', cmd: 'npx', args: ['tsx', 'test/slashing/node-slash-lifecycle.ts'], cwd: sdkRoot, env: {...FLEET, KK_DESTRUCTIVE: '1'}, timeoutMs: 600_000})
