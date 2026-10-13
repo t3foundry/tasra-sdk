@@ -4,7 +4,7 @@ import {randomBytes} from 'node:crypto'
 import {Suite} from '../fleet/_assert.ts'
 import {gate,loadFleetConfig} from '../fleet/_fleet.ts'
 import {authorizeWallet,createWalletSlot,issueWallet} from '../fleet/_wallet.ts'
-import {VerifierAgentSessionError} from '../../src/oid4vp/index.ts'
+import {isPaidCredentialRefusal} from '../fleet/_credential-refusal.ts'
 import {committeeSign} from '../../src/committee/client.ts'
 import {frostVerify} from '../fleet/_crypto.ts'
 
@@ -23,7 +23,7 @@ for (const [label,wallet] of [
   // Force the negative presentation onto the wire; local wallet selection is
   // advisory and cannot serve as evidence that the verifiers enforce the rule.
   await assert.rejects(()=>authorizeWallet(cfg,slot.slotId,slot.creatorKey,{action:'sign',message},wallet,true),
-    error=>error instanceof VerifierAgentSessionError && error.kind==='refused')
+    isPaidCredentialRefusal)
   s.ok(`verifier committee rejected ${label}`,true)
 }
 s.done()
