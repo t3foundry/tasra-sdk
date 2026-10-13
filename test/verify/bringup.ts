@@ -103,12 +103,17 @@ export async function bringUp(): Promise<StepResult[]> {
   // scenarios (KK_VERIFY_DEMO_FAULTS=1, see the destructive phase), pass
   // KK_DEMO_FAULTS=1 through so the fleet actually comes up with those faults —
   // otherwise scenarios 12/13/14/15 would run against an honest fleet and fail.
-  const fleetEnv = {KK_THRESHOLD_SET:'1'}
+  const freshFleet = process.env.KK_VERIFY_WIPE === '1' || process.env.KK_VERIFY_WIPE === 'true'
+  // Paid operations need the accountant coordination endpoints and the automatic
+  // payout worker. Only a freshly wiped fleet can declare an empty manual-root
+  // history; resumed deployments retain their operator-supplied inventory policy.
+  const fleetEnv = {KK_THRESHOLD_SET:'1', KK_PREPAID_PAYOUTS:'1', KK_AGG_SETTLE:'true',
+    ...(freshFleet ? {KK_PAYOUT_DECLARE_NO_MANUAL_ROOTS:'1'} : {})}
   // KK_VERIFY_WIPE=1 → clean slate: delete volumes + Besu chain first, so the
   // fleet-up below is a fresh provision (new chain, redeployed contracts, fresh
   // genesis DKG + slot) rather than a resume of preserved state. This is the
   // "verify against a clean fleet + clean Besu" path; default is resume (fast).
-  if (process.env.KK_VERIFY_WIPE === '1' || process.env.KK_VERIFY_WIPE === 'true') {
+  if (freshFleet) {
     results.push(await runStep(phase, {name: 'make fleet-wipe (clean slate — fresh chain)', cmd: 'make', args: ['fleet-wipe'], cwd: networkDir, timeoutMs: 300_000}))
     if (results.at(-1)?.status === 'fail') return results
   }

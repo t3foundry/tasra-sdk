@@ -2,7 +2,7 @@
 // cargo, Docker, RPC, chain reset or explorer operation is run in this suite.
 import {afterEach, expect, it, vi} from 'vitest'
 
-const control = vi.hoisted(() => ({failName: '', calls: [] as string[], configurationCalls: 0, configure: false, specs: [] as {name: string; cmd: string; args: string[]}[]}))
+const control = vi.hoisted(() => ({failName: '', calls: [] as string[], configurationCalls: 0, configure: false, specs: [] as {name: string; cmd: string; args: string[]; env?: Record<string, string>}[]}))
 vi.mock('../verify/_run.ts', () => ({
   sdkRoot: '/owned/sdk', networkDir: '/owned/network', explorerDir: '/owned/explorer', chainEnvPath: '/owned/missing-chain.env',
   have: async () => true, banner: () => {}, log: () => {}, fleetConfig: () => ({}),
@@ -67,4 +67,20 @@ it('does not tear down the fleet when Explorer ownership or stop fails', async (
   expect(results).toHaveLength(1)
   expect(results[0]?.status).toBe('fail')
   expect(control.specs[0]).toMatchObject({cmd: 'bash', args: ['/owned/network/lab/e2e/repoint-explorer.sh', '/owned/explorer', 'down']})
+})
+it.each(['1', 'true'])('enables automatic payouts with empty-history declaration after an explicit fresh wipe: %s', async value => {
+  vi.stubEnv('KK_VERIFY_WIPE', value)
+  await bringUp()
+  expect(control.calls.indexOf('make fleet-wipe (clean slate — fresh chain)')).toBeLessThan(control.calls.indexOf('make fleet-up (production threshold fleet)'))
+  expect(control.specs.find(s => s.name === 'make fleet-up (production threshold fleet)')?.env).toMatchObject({
+    KK_PREPAID_PAYOUTS: '1', KK_AGG_SETTLE: 'true', KK_PAYOUT_DECLARE_NO_MANUAL_ROOTS: '1',
+  })
+})
+it.each(['', '0', 'false'])('resumed fleet enables payout processing without inventing an empty manual-root history: %s', async value => {
+  vi.stubEnv('KK_VERIFY_WIPE', value)
+  await bringUp()
+  expect(control.calls).not.toContain('make fleet-wipe (clean slate — fresh chain)')
+  const env = control.specs.find(s => s.name === 'make fleet-up (production threshold fleet)')?.env
+  expect(env).toMatchObject({KK_PREPAID_PAYOUTS: '1', KK_AGG_SETTLE: 'true'})
+  expect(env).not.toHaveProperty('KK_PAYOUT_DECLARE_NO_MANUAL_ROOTS')
 })
