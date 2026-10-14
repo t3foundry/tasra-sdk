@@ -41,7 +41,7 @@ export const REGO_POLICY_REFUSED = 'kk_oauth policy refused'
  * `scripts/check-rego-pins.mjs` asserts the two agree, so this constant cannot drift from the
  * pinned build.
  */
-export const REGO_WASM_SHA256 = '09ed834a292b7a0e79e4da32af21027c740e5cbe705d9eb69ee425bd8beba88a'
+export const REGO_WASM_SHA256 = '853cdecd788069b9c881904c67d4c7c2ec340386ae3a76054e0fdcfbfb112f88'
 
 // ─── grammar dispatch (pure) ─────────────────────────────────────────────────
 
