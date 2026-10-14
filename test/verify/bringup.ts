@@ -36,6 +36,9 @@ function explorerEnv(): Record<string, string> {
     CHAIN_ENV_FILE: chainEnvPath,
     RPC_URL: explorerRpcUrl(process.env, fleet.rpc),
     CHAIN_ID: String(process.env.KK_CHAIN_ID ?? fleet.chainId ?? '1337'),
+    // fleetEnv belongs to make fleet-up only. Carry local reward approval to
+    // the later guarded Explorer restart; official networks need operator setup.
+    ...(String(process.env.KK_CHAIN_ID ?? fleet.chainId) === '43112' ? {KK_EXPLORER_REWARDS: '1'} : {}),
     NODE_URLS: 'http://keykeeper-node-1:8080,http://keykeeper-node-2:8080,http://keykeeper-node-3:8080,http://keykeeper-node-4:8080,http://keykeeper-node-5:8080',
     VERIFIER_URLS: 'http://keykeeper-verifier-1:8081,http://keykeeper-verifier-2:8081,http://keykeeper-verifier-3:8081',
     ACCOUNTANT_URLS,
