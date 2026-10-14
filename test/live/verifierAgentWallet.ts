@@ -87,7 +87,7 @@ for (const u of keeperUrls) {
   if (r?.ok) { keeperUrl = u; break }
 }
 if (keeperUrl) {
-  const sig = await committeeSign({nodeUrl: keeperUrl, committeeToken: token, message, verifierProofs: result.verifierProofs})
+  const sig = await committeeSign({nodeUrl: keeperUrl, committeeToken: token, message, verifierProofs: result.verifierProofs, evidenceCt: result.evidenceCt})
   if (!verifyFrostSignature(sig.groupPublicKey, message, sig.signature)) throw new Error('FROST signature does not verify under the group key')
   step(`keeper ${keeperUrl} FROST-signed; verifies under group key ${bytesToHex(sig.groupPublicKey).slice(0, 18)}…`)
 } else if (keeperUrls.length) {

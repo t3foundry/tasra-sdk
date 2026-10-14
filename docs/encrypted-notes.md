@@ -10,7 +10,7 @@ It uses Node.js and `tasra-sdk`; no separate wallet or cryptography library is n
 ## 1. Create the project
 
 Install Node.js **24**. The example downloads and checksum-verifies the testnet
-manifest from [tasra-releases](https://github.com/t3-foundry/tasra-releases).
+manifest from [tasra-releases](https://github.com/t3foundry/tasra-releases).
 The deployment needs BLS key generation, creator-signed rule provisioning,
 OID4VP with SD-JWT and `did:jwk` support, scoped identity extraction and keeper
 receipts. It must support the requested 2-of-3 keeper and verifier policies and

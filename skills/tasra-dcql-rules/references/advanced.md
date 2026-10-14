@@ -106,6 +106,21 @@ tells you whether a format is in this family.
 through the verifier agent as an `oauth` session kind — see
 `tasra-oid4vp-wallet-and-verifier-agent`.
 
+### Rego policy envelopes for OAuth slots
+
+When the decision is more than value lists, write it as a Rego v1 policy over
+`input.tokens.<id>.claims` instead. `packEnvelope(policy, tokens, entrypoint?)` returns a
+`kk_oauth` envelope; the issuer, audience, format and `max_age_secs` pins live in `tokens`
+(data, enforced before the policy runs), so the policy decides only on claims.
+`createSlot`/`createSlotCommitReveal` accept `oauthPolicy: {policy, tokens}` and require
+`authType: 'oauth'`; an envelope on any other slot is refused before a transaction.
+`lintEnvelope` reports whether keepers would store it (one token today), and
+`evaluateEnvelope(rule, {holder, credentials: [{format, issuer, claims}]})` previews the
+network's decision with the same engine. The policy source is committed byte for byte:
+reformatting it is an amendment. A refused holder sees only `kk_oauth policy refused`.
+An envelope is not a wallet rule: `RecipientStore` and wallet requests refuse it.
+The full policy rules, input document and patterns are in `tasra-rego-rules`.
+
 ## Identity-scoped rules
 
 A plain rule answers *who* may operate. An identity-scoped rule also answers *which

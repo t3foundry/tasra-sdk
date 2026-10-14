@@ -13,7 +13,7 @@ metadata:
 # Create and recover a slot
 
 Use `TasraClient` from a checksum-verified manifest downloaded from
-https://github.com/t3-foundry/tasra-releases, SDK wallets and `slots.create` for new
+https://github.com/t3foundry/tasra-releases, SDK wallets and `slots.create` for new
 applications. Install only `tasra-sdk` as the runtime dependency. Before writing,
 confirm deployment compatibility and obtain authorization for the live effects.
 

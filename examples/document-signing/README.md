@@ -17,7 +17,7 @@ npm run setup
 ```
 
 `network.ts` downloads the current testnet manifest from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases/tree/main/networks),
+[tasra-releases](https://github.com/t3foundry/tasra-releases/tree/main/networks),
 verifies its SHA-256, and saves `network.json` and `network-pin.json`. Keep those files
 together. The example explicitly selects the `lowest-operator-id` coordinator policy;
 confirm that the chosen services use this policy before creating slots.

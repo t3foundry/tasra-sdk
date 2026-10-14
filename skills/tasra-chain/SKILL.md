@@ -12,7 +12,7 @@ metadata:
 
 # Configure a deployment and read public state
 
-Canonical public records are in https://github.com/t3-foundry/tasra-releases.
+Canonical public records are in https://github.com/t3foundry/tasra-releases.
 For Fuji, fetch `networks/testnet/current.json` and the manifest it names,
 `deployments/tasra-fuji-v1.json`, relative to that directory. Pin both to the same
 reviewed repository commit. Verify the original manifest bytes using the trusted

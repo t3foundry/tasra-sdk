@@ -158,21 +158,35 @@ side. A wallet copies the nonce; it never interprets it.
 
 ## Bring your own identity provider — OAuth + DPoP against the Verifier Agent
 
-A slot whose rule uses the `oauth+access-token+dpop` format is authorized by an access token
-your users already get from your own IdP, sender-constrained with DPoP (RFC 9449). The rule is
-ordinary OID4VP-DCQL over the token's own claims — `iss` pinned, `["aud", null]` containing the
-platform audience, `meta.max_age_secs`, plus whatever roles you require:
+A slot created with `authType: 'oauth'` is authorized by an access token your users already get
+from your own IdP, sender-constrained with DPoP (RFC 9449). Its rule is a `kk_oauth` policy
+envelope: a Rego v1 policy over the DPoP-bound token's claims, plus a `tokens` map the network
+enforces before the policy runs — the token format, the pinned issuer, the platform audience and
+the maximum token age. Create the slot with an `oauthPolicy`; the SDK packs the envelope with the
+network's own engine and refuses one keepers would not store, before any chain call:
 
-```json
-{"credentials":[{"id":"t","format":"oauth+access-token+dpop","meta":{"max_age_secs":300},
-  "claims":[
-    {"path":["iss"],"values":["https://idp.example.com/realms/acme"]},
-    {"path":["aud",null],"values":["https://agent.tasra.example/authz/43114"]},
-    {"path":["realm_access","roles",null],"values":["treasury-signer"]}]}]}
+```ts
+import {platformAudience} from 'tasra-sdk/committee'
+
+const POLICY = `package tasra.slot
+
+default allow := false
+
+allow if "treasury-signer" in input.tokens.corp.claims.realm_access.roles
+`
+const tokens = {corp: {format: 'oauth+access-token+dpop', iss: ['https://idp.example.com/realms/acme'],
+  aud: [platformAudience(agentOrigin, chainId)], max_age_secs: 300}}
+
+const created = await writer.createSlot({
+  authType: 'oauth', oauthPolicy: {policy: POLICY, tokens}, mode: 'frost', k: 2, n: 3,
+  rulePolicy: {admin: adminAddress, guardian: writer.address, timelockSecs: 3600},
+})
+// created.rule is the packed envelope: persist it with created.ruleSalt, then provisionRule(...)
 ```
 
-`validateDcql` refuses an `oauth+*` query without the pinned `iss`, the `["aud", null]` entry or
-`meta.max_age_secs` (1–86400). The audience
+`createSlotCommitReveal` takes the same arguments. The policy decides on claims only; it never
+re-checks issuer, audience or age. Test it locally with `evaluateEnvelope` before committing it.
+The audience
 is derived, never chosen — `platformAudience(agentOrigin, chainId)` from
 `tasra-sdk/committee`, or read it back from any `createOauthSession` reply.
 
@@ -206,24 +220,93 @@ if (result.status !== 'done') throw new Error(`refused: ${result.error}`)
 | `oidc-client-ts` with `dpop` enabled | `{proof: ({htm, htu, nonce}) => userManager.dpopProof(htu, user, htm, nonce)}` (it computes `ath` from the user's token) |
 | your own token request with a key from `createDpopKey()` | `key.signer` |
 
-**`createDpopKey().signer` mints resource-request proofs only** — it always sets `ath` and
-`nonce` — and the SDK has no token-request proof helper, so it cannot obtain the token from the
-IdP for you. Prefer letting your OIDC library own the key.
+To obtain the token with a `createDpopKey()` key, put `await key.tokenRequestProof({htm: 'POST',
+htu: tokenEndpoint})` in the token request's `DPoP` header (add `nonce` only if the IdP answered
+`use_dpop_nonce`); a token-request proof carries no `ath`, because there is no token yet. Then
+present with `key.signer`.
 
-**Sign over `session.dpopHtu`, not the request URL.** The platform's `htu` is
-`{agentOrigin}/v1/sessions/oauth-response` (no session id), while the request goes to
-`/v1/sessions/{id}/oauth-response`. `submitOauthResponse` passes `dpopHtu` to the signer; a
-generic DPoP fetch helper that derives `htu` from the request URL — including `auth0-spa-js`'s
-`fetchWithAuth` — is refused.
+**Note: the `htu` is this session's route on the agent's PUBLIC origin:**
+`{agentOrigin}/v1/sessions/{sessionId}/oauth-response`, returned as `session.dpopHtu`. When you
+call the agent at that origin, it is exactly the URL `submitOauthResponse` posts to, so a
+generic DPoP client that derives `htu` from the request URL works too. If you reach the agent
+through a different base URL (an internal hostname, a proxy), sign over `session.dpopHtu` — the
+origin the verifiers approved — not over the URL you called.
 
-**`submitOauthResponse` resolving does not mean authorized.** The agent accepts the delivery
-and runs the committee; a refusal (wrong role, stale token, wrong audience…) surfaces from
-`waitForSession` as `status: 'failed'` with the verifiers' reasons in `error` (it RETURNS a
-failed session rather than throwing — check `status`). `submitOauthResponse` answers the agent's `use_dpop_nonce` challenge once by itself.
+**Note: a refused delivery throws.** When the committee refuses (wrong role, stale token, wrong
+audience…) the agent answers the POST itself with `{status: "failed", error}` — `403` for a
+refusal, `503` when the drawn quorum could not be reached — and `submitOauthResponse` throws
+`VerifierAgentSessionError` with `kind: 'refused'` and the verifiers' reasons in `message`. The
+session is over; open a new one to retry. On success, `waitForSession` returns the token.
+`submitOauthResponse` answers the agent's `use_dpop_nonce` challenge once by itself.
 
 What the platform proves this way is PRESENCE, not intent — the user never sees the
 operation; pin dual control on slots that need intent. Configuring a tenant identity
 provider is a deployment task, documented by whoever operates the network.
+
+### Amend the rule
+
+A slot created with a `rulePolicy` can change its rule without changing its key. The rule admin
+proposes the new rule, it is delivered to the keepers, the keepers adopt it, and once the delay
+has passed it is activated. `amendSlotRule` drives every step, checks everything it can before
+signing, and resumes where the chain is when called again with the same rule:
+
+```ts
+import {amendSlotRule, createTasraChainClient, createTasraWriteClient, readRuleAmendment} from 'tasra-sdk/chain'
+import {privateKeyToAccount} from 'viem/accounts'
+
+// The slot was created with rulePolicy {admin: adminAddress, guardian: creatorAddress, timelockSecs: 3600}.
+const chain = createTasraChainClient({rpcUrl, chainId, addresses})
+const admin = createTasraWriteClient({rpcUrl, chainId, addresses, privateKey: adminKey})
+const creator = createTasraWriteClient({rpcUrl, chainId, addresses, privateKey: creatorKey})
+
+const status = await readRuleAmendment(chain, slotId) // status.policy === null: the rule can never change
+const amended = await amendSlotRule(admin, chain, {
+  slotId,
+  ruleSalt, // the slot's saved rule salt
+  oauthPolicy: {policy: NEW_POLICY, tokens},
+  deliverer: privateKeyToAccount(creatorKey), // signs the delivery to the keepers
+  guardian: creator, // endorses, which waives the remaining delay
+  onPhase: phase => console.log(phase), // proposed, delivered, adopted, endorsed, activated
+})
+// → {version, ruleCommitment, proposeTx?, activateTx?}
+```
+
+- `readRuleAmendment(chain, slotId)` returns the active commitment, the policy (`null` when the
+  rule can never change) and the pending amendment with its keeper adoption votes.
+- `proposeRuleUpdate`, `endorseRuleUpdate`, `vetoRuleUpdate` and `activateRuleUpdate` on the write
+  client are the single steps. Each checks the contract's preconditions before signing and throws
+  `RuleAmendmentError` with a `code`.
+- `provisionRule(chain, {…, expect: 'pending'})` delivers a proposed rule, waiting for keepers
+  that have not yet seen the proposal. The creator, a creator delegate or the rule admin may sign it.
+
+**An amendable rule means whoever holds the admin key can change who may sign with this key,
+without changing the key.** Keep the admin key as safe as the slot itself. The guardian can veto
+during the delay; without a guardian nobody can. Slots created without a rule admin can never
+become amendable. A proposal no keeper stores never activates, and a new one is refused while it
+is pending, so lint the new policy first.
+
+## Sealed committee evidence — `evidence_ct`
+
+Each drawn verifier seals the presentation it evaluated to the accountant set's certified
+evidence key, and signs a second message binding that ciphertext to the token it signed. When
+the committee sealed one, the compound token carries three optional fields and the Verifier
+Agent's poll reply carries the ciphertext BESIDE the token:
+
+| Where | Field | What |
+|---|---|---|
+| `compound_token` | `evidence_hash` | `0x..` keccak256 of `bincode(ciphertext)` |
+| `compound_token` | `evidence_key_id` | `0x..` keccak256 of the evidence key it is sealed to |
+| `compound_token` | `evidence_signatures` | `[{verifier_index, signature}]` — each over `evidenceBindingMessage(tokenHash, evidenceHash, evidenceKeyId)` |
+| poll reply | `evidence_ct` | base64url `bincode(ciphertext)` — surfaced as `evidenceCt` |
+
+The three token fields come together or not at all (`assertCompoundTokenWire` refuses anything
+else). They are NOT inside the token's signed canonical bytes, so `committee-token-vectors.json`
+is unchanged. Hand `evidenceCt` to every keeper call (`committeeSign`, `committeeDecrypt`,
+`requestIbeExtractionPartials` take an optional `evidenceCt`, posted as `evidence_ct`): a keeper
+with `require_committee_evidence` refuses a token without it, and retains it so a mis-issuance
+can be challenged. Nothing in the ciphertext is readable without a threshold of accountants.
+`evidenceBindingMessage` / `verifyEvidenceBinding` (on `tasra-sdk/committee`) mirror the
+Rust functions and are pinned to `test/committee-evidence-vectors.json`.
 
 ## `tasra-sdk/committee` — protocol internals
 
@@ -236,8 +319,9 @@ import {verifyCompoundToken, selectVerifierCommittee} from 'tasra-sdk/committee'
 ```
 
 It also carries the derivations `platformAudience(origin, chainId)` and
-`dpopHtu(origin)` (+ `normalizeOrigin`, `OAUTH_RESPONSE_PATH`). Use these helpers
-to preserve the deployment protocol's exact audience and URI binding.
+`dpopHtu(origin, sessionId)` (+ `normalizeOrigin`, `isValidSessionId`,
+`OAUTH_RESPONSE_PATH_PREFIX`/`_SUFFIX`), vector-pinned byte for byte
+against `keykeeper-committee`'s `oauth` module (`test/dpop.ts`).
 
 **Most consumers never need it.** Typed slots on `TasraClient` handle these
 operations. Advanced integrations can use `createCommitteeSlotClient` from

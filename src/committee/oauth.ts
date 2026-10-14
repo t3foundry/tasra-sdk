@@ -10,11 +10,30 @@
 // calls these. They exist for the step that happens BEFORE any session: telling a tenant
 // which `aud` to register with their IdP.
 
+import {TasraError} from '../errors.js'
+
 /** Path segment identifying the platform's authorization API, under the agent origin. */
 const AUDIENCE_PATH = 'authz'
 
-/** The path an OAuth response is POSTed to - the `htu` a DPoP proof must name. */
-export const OAUTH_RESPONSE_PATH = '/v1/sessions/oauth-response'
+/** The OAuth response route is `{PREFIX}{sessionId}{SUFFIX}` under the agent origin. */
+export const OAUTH_RESPONSE_PATH_PREFIX = '/v1/sessions/'
+/** The trailing segment of the OAuth response route. */
+export const OAUTH_RESPONSE_PATH_SUFFIX = '/oauth-response'
+
+/** The longest session id an `htu` may carry — mirrors `MAX_SESSION_ID_LEN`. */
+export const MAX_SESSION_ID_LEN = 128
+
+const SESSION_ID = /^[A-Za-z0-9_-]+$/
+
+/**
+ * Whether `sessionId` is one plain path segment: `[A-Za-z0-9_-]{1,128}`. Mirrors
+ * `keykeeper_committee::oauth::validate_session_id`, which every drawn verifier runs.
+ *
+ * @param sessionId - Session id returned by the verifier agent when the session was opened.
+ */
+export function isValidSessionId(sessionId: string): boolean {
+  return typeof sessionId === 'string' && sessionId.length > 0 && sessionId.length <= MAX_SESSION_ID_LEN && SESSION_ID.test(sessionId)
+}
 
 /**
  * Normalise an origin the way the reference endpoint normaliser
@@ -56,16 +75,26 @@ export function platformAudience(origin: string, chainId: number | bigint): stri
 }
 
 /**
- * The `htu` (RFC 9449) a DPoP proof for an OAuth response must carry:
- * `{origin}/v1/sessions/oauth-response`.
+ * The `htu` (RFC 9449 §4.2) a DPoP proof for an OAuth response must carry:
+ * `{origin}/v1/sessions/{sessionId}/oauth-response` — the URL the proof is presented at.
  *
- * Session-INDEPENDENT, deliberately: RFC 9449 defines `htu` as the request URI WITHOUT query
- * or fragment, and a client library that derives it from the URL it is about to call - which
- * every conformant one does - produces this string, not one carrying a session id. The
- * session is already bound by the `nonce`.
+ * Per session, because RFC 9449 §4.3 checks `htu` against the request URI and a conformant
+ * client library derives it from the URL it calls. The ORIGIN is still the agent origin the
+ * verifiers approved, so a client posting to a different base URL (an internal hostname, a
+ * proxy) must still sign over the value the agent returned, not over the URL it called.
  *
- * @param origin - Platform origin used to derive the OAuth response target.
+ * Throws on a session id that is not one plain path segment, exactly as the verifiers refuse
+ * one.
+ *
+ * @param origin - Verifier-agent public origin the verifiers approved.
+ * @param sessionId - Id of the OAuth session the proof is presented to.
  */
-export function dpopHtu(origin: string): string {
-  return `${normalizeOrigin(origin)}${OAUTH_RESPONSE_PATH}`
+export function dpopHtu(origin: string, sessionId: string): string {
+  if (!isValidSessionId(sessionId)) {
+    throw new TasraError(
+      `dpopHtu: session id must be 1..=${MAX_SESSION_ID_LEN} characters of [A-Za-z0-9_-]`,
+      {retryable: false},
+    )
+  }
+  return `${normalizeOrigin(origin)}${OAUTH_RESPONSE_PATH_PREFIX}${sessionId}${OAUTH_RESPONSE_PATH_SUFFIX}`
 }

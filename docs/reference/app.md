@@ -22,7 +22,7 @@ Clients, adapters and error classes.
 
 Manifest-first application API. Construction validates configuration without network I/O.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/tasra-client.ts#L65)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/tasra-client.ts#L65)
 
 Import: `import {TasraClient} from 'tasra-sdk/app'`
 
@@ -94,7 +94,7 @@ readonly wallets: {
 
 A creation state that requires inspection or reconciliation before resuming.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L18)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L18)
 
 Import: `import {ApplicationSlotRecoveryError} from 'tasra-sdk/app'`
 
@@ -130,7 +130,7 @@ declare class ApplicationSlotRecoveryError {
 
 Creation paused because the journal has no transaction hash and the submission outcome is unknown. This does not establish whether broadcasting occurred.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/creation.ts#L42)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/creation.ts#L42)
 
 Import: `import {CreationReconciliationRequiredError} from 'tasra-sdk/app'`
 
@@ -158,7 +158,7 @@ declare class CreationReconciliationRequiredError {
 
 An application operation rejected because its deployment, slot, authorization or result failed validation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L28)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L28)
 
 Import: `import {TasraApplicationError} from 'tasra-sdk/app'`
 
@@ -215,7 +215,7 @@ Operations you can import and call.
 
 Present a credential for this exact request, then sign its canonical approval payload.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L89)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L89)
 
 Import: `import {approveWithCredential} from 'tasra-sdk/app'`
 
@@ -241,7 +241,7 @@ Returns: ` Promise<DualSignStatus> `.
 
 Requests the user's wallet account. Chain switching remains an explicit wallet/user decision.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/wallet.ts#L204)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/wallet.ts#L204)
 
 Import: `import {connectWallet} from 'tasra-sdk/app'`
 
@@ -262,7 +262,7 @@ Return details: Wallet bound to the authorized account and matching chain.
 
 Durable creation, key readiness, rule delivery and explicit verifier policy in one operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L190)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L190)
 
 Import: `import {createApplicationSlot} from 'tasra-sdk/app'`
 
@@ -282,7 +282,7 @@ Returns: `` Promise<`0x${string}`> ``.
 
 Create a fresh DID and its credential signing key without a separate crypto library.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L44)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/identity.ts#L44)
 
 Import: `import {createIdentity} from 'tasra-sdk/app'`
 
@@ -305,7 +305,7 @@ Return details: Identity with public DID metadata and explicitly managed private
 
 Create or restore a local key. Explicitly export and save a generated key before funding it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/wallet.ts#L192)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/wallet.ts#L192)
 
 Import: `import {createLocalWallet} from 'tasra-sdk/app'`
 
@@ -336,7 +336,7 @@ Return details: Chain-bound wallet with an explicit private-key export function.
 
 Create or resume one persisted slot intent. Persistence must be atomic and runs must be serialized. Saved transaction hashes are observed without resubmission; missing hashes require wallet reconciliation. Cancellation cannot undo a submitted transaction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/creation.ts#L73)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/creation.ts#L73)
 
 Import: `import {createPreparedSlot} from 'tasra-sdk/app'`
 
@@ -361,7 +361,7 @@ Return details: Updated journal after on-chain creation; key generation and rule
 
 Use a threshold ECDSA slot with fresh operation authorization on every signature.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/wallet.ts#L219)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/wallet.ts#L219)
 
 Import: `import {createSlotWallet} from 'tasra-sdk/app'`
 
@@ -383,7 +383,7 @@ Configure one application client. Construction does no I/O and holds no wallet c
 Start with `await tasra.slots.ecdsa(slotId)` and `await account.getAddress()`;
 provide an authorizer only when signing or decrypting.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L121)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L121)
 
 Import: `import {createTasra} from 'tasra-sdk/app'`
 
@@ -521,7 +521,7 @@ Return details: A client with read-only checks and authorized slot operations.
 
 Authorize one exact SDK operation: sign its request, present a credential, collect bound proofs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L368)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/identity.ts#L368)
 
 Import: `import {credentialAuthorization} from 'tasra-sdk/app'`
 
@@ -539,7 +539,7 @@ Returns: ` OperationAuthorizer `.
 
 Build and validate the policy committed to a slot, with issuer trust pinned explicitly.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L252)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/identity.ts#L252)
 
 Import: `import {credentialPolicy} from 'tasra-sdk/app'`
 
@@ -559,7 +559,7 @@ Return details: Validated DCQL rule suitable for slot creation.
 
 Validate a caller-approved descriptor. This does not establish its authenticity.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/deployment.ts#L36)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/deployment.ts#L36)
 
 Import: `import {defineDeployment} from 'tasra-sdk/app'`
 
@@ -577,7 +577,7 @@ Returns: ` Readonly<TasraDeployment> `.
 
 Adapt an SDK Ed25519 identity to native approval signatures without exporting its key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L70)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L70)
 
 Import: `import {identityApprover} from 'tasra-sdk/app'`
 
@@ -597,7 +597,7 @@ Return details: Approver adapter exposing the public key and signing callback.
 
 Issue a holder-bound SD-JWT credential; protocol claims cannot be replaced by app claims.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L142)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/identity.ts#L142)
 
 Import: `import {issueCredential} from 'tasra-sdk/app'`
 
@@ -617,7 +617,7 @@ Return details: Serialized holder-bound SD-JWT credential.
 
 Fetch a public manifest; an optional trusted pin is checked before parsing any JSON.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L134)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L134)
 
 Import: `import {loadApplicationManifest} from 'tasra-sdk/app'`
 
@@ -638,7 +638,7 @@ Return details: Parsed deployment after any supplied digest pin has been verifie
 
 Prepare without I/O. Save this private journal durably before requesting creation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/creation.ts#L55)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/creation.ts#L55)
 
 Import: `import {prepareSlot} from 'tasra-sdk/app'`
 
@@ -662,7 +662,7 @@ Present selected, holder-bound credentials to a signed OID4VP request. Passing c
 explicit consent to the default selection; provide `choose` to display a wallet consent screen.
 A local policy mismatch throws locally and is not evidence of a verifier rejection.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L300)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/identity.ts#L300)
 
 Import: `import {presentCredentials} from 'tasra-sdk/app'`
 
@@ -699,7 +699,7 @@ Request-bound authorization through an independently approved registered agent.
 `present` displays a QR/deep link or runs the application's credential wallet.
 It never changes the selected provider or transfers a presentation to a fallback.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/authorization.ts#L13)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/authorization.ts#L13)
 
 Import: `import {registeredWalletAuthorization} from 'tasra-sdk/app'`
 
@@ -737,7 +737,7 @@ Returns: ` OperationAuthorizer `.
 
 Validate caller-approved configuration without network I/O or readiness claims.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L94)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L94)
 
 Import: `import {resolveApplicationManifest} from 'tasra-sdk/app'`
 
@@ -758,7 +758,7 @@ Return details: Validated deployment and optional routing without a network requ
 
 Install an explicit native FROST approval policy using a durable named transaction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L36)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L36)
 
 Import: `import {setApprovalPolicy} from 'tasra-sdk/app'`
 
@@ -784,7 +784,7 @@ Returns: ` Promise<WalletTransactionJournal> `.
 Use a Tasra slot as a viem account. Every signing call gets fresh authorization;
 this adapter never broadcasts a transaction. Pass it to viem's createWalletClient.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/viem.ts#L14)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/viem.ts#L14)
 
 Import: `import {toViemAccount} from 'tasra-sdk/app'`
 
@@ -807,7 +807,7 @@ Verify an SD-JWT issued by a self-certifying did:jwk/did:key, its lifetime and o
 Signature verification proves key control; trust in that issuer must come from the app's policy.
 This does not perform revocation/status checks or resolve did:web issuers.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L193)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/identity.ts#L193)
 
 Import: `import {verifyCredential} from 'tasra-sdk/app'`
 
@@ -874,7 +874,7 @@ Options, data structures and return types.
 
 Public application deployment settings with optional explicitly approved endpoint routing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L10)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L10)
 
 ```ts
 export interface ApplicationDeployment extends TasraDeployment {
@@ -899,17 +899,25 @@ Fields:
 
 Failure categories for deployment, slot, authorization and result validation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L24)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L24)
 
 ```ts
-export type ApplicationErrorCode = 'CHAIN_MISMATCH' | 'SLOT_NOT_FOUND' | 'SLOT_CANCELLED' | 'WRONG_SLOT_MODE' | 'KEY_NOT_READY' | 'SLOT_CHANGED' | 'INVALID_AUTHORIZATION' | 'INVALID_RESULT';
+export type ApplicationErrorCode =
+  | 'CHAIN_MISMATCH'
+  | 'SLOT_NOT_FOUND'
+  | 'SLOT_CANCELLED'
+  | 'WRONG_SLOT_MODE'
+  | 'KEY_NOT_READY'
+  | 'SLOT_CHANGED'
+  | 'INVALID_AUTHORIZATION'
+  | 'INVALID_RESULT';
 ```
 
 ### ApplicationManifest
 
 A network manifest downloaded from tasra-releases or an explicitly approved application deployment.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L21)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L21)
 
 ```ts
 export type ApplicationManifest = NetworkManifest | ApplicationDeployment;
@@ -924,17 +932,23 @@ Fields:
 
 Stable recovery categories for a durable named slot creation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L13)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L13)
 
 ```ts
-export type ApplicationSlotRecoveryCode = 'SAVED_INTENT_MISMATCH' | 'SLOT_STATE_MISMATCH' | 'VERIFIER_POLICY_OUTCOME_UNKNOWN' | 'VERIFIER_POLICY_RECEIPT_PENDING' | 'VERIFIER_POLICY_REVERTED' | 'VERIFIER_POLICY_MISMATCH';
+export type ApplicationSlotRecoveryCode =
+  | 'SAVED_INTENT_MISMATCH'
+  | 'SLOT_STATE_MISMATCH'
+  | 'VERIFIER_POLICY_OUTCOME_UNKNOWN'
+  | 'VERIFIER_POLICY_RECEIPT_PENDING'
+  | 'VERIFIER_POLICY_REVERTED'
+  | 'VERIFIER_POLICY_MISMATCH';
 ```
 
 ### ApplicationStore
 
 Implementations must save atomically and exclusively lock across processes/tabs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L38)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L38)
 
 ```ts
 export interface ApplicationStore {
@@ -954,7 +968,7 @@ Fields:
 
 Required approval count and either trusted Ed25519 keys or a credential rule.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L18)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/approvals.ts#L18)
 
 ```ts
 export interface ApprovalPolicy {
@@ -974,7 +988,7 @@ Fields:
 
 Immutable operation details presented to the application authorizer.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L44)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L44)
 
 ```ts
 export type AuthorizationRequest = Readonly<OperationInput & {
@@ -1000,7 +1014,7 @@ Fields:
 
 Authorization callback, consent description and cancellation controls for a protected operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L53)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L53)
 
 ```ts
 export interface AuthorizedOperationOptions {
@@ -1022,7 +1036,7 @@ Fields:
 
 Identity-based encryption handle with authorized decryption and explicit identity-key extraction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L325)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L325)
 
 ```ts
 export type BlsSlot = Awaited<ReturnType<TasraApplication['slots']['bls']>>;
@@ -1039,7 +1053,7 @@ Fields:
 
 Named slot intent with an authorization rule, key threshold and verifier quorum.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L55)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L55)
 
 ```ts
 export interface CreateApplicationSlot {
@@ -1075,7 +1089,7 @@ Fields:
 
 Creator wallet, durable storage and network controls for creating a ready slot.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L122)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L122)
 
 ```ts
 export interface CreateApplicationSlotOptions {
@@ -1105,7 +1119,7 @@ Fields:
 
 Per-operation overrides for the creator wallet, durable store and cancellation deadline.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/tasra-client.ts#L42)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/tasra-client.ts#L42)
 
 ```ts
 export interface CreateSlotOptions {
@@ -1129,7 +1143,7 @@ Fields:
 
 Approved verifier-agent endpoint, holder credentials and consent controls for operation authorization.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L327)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/identity.ts#L327)
 
 ```ts
 export interface CredentialAuthorizationOptions {
@@ -1161,7 +1175,7 @@ Fields:
 
 Trusted issuer and claim restrictions used to build a credential authorization rule.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L228)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/identity.ts#L228)
 
 ```ts
 export interface CredentialPolicyOptions {
@@ -1188,7 +1202,7 @@ Fields:
 
 Threshold Ethereum account handle that verifies each signature against the anchored public key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L317)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L317)
 
 ```ts
 export type EcdsaSlot = Awaited<ReturnType<TasraApplication['slots']['ecdsa']>>;
@@ -1204,7 +1218,7 @@ Fields:
 
 Threshold Ed25519 signing handle with optional receipt checks and native approval sessions.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L321)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L321)
 
 ```ts
 export type FrostSlot = Awaited<ReturnType<TasraApplication['slots']['frost']>>;
@@ -1220,7 +1234,7 @@ Fields:
 
 Issuer, holder and claims for a signed, expiring SD-JWT credential.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L110)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/identity.ts#L110)
 
 ```ts
 export interface IssueCredentialOptions {
@@ -1248,7 +1262,7 @@ Fields:
 
 Manifest download controls and an optional independently trusted SHA-256 pin.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L53)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L53)
 
 ```ts
 export interface LoadApplicationManifestOptions extends ResolveApplicationManifestOptions {
@@ -1270,7 +1284,7 @@ Fields:
 
 Called once for the exact operation. Applications display the wallet request here.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L49)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L49)
 
 ```ts
 export type OperationAuthorizer = (request: AuthorizationRequest) => Promise<OperationGrant>;
@@ -1280,7 +1294,7 @@ export type OperationAuthorizer = (request: AuthorizationRequest) => Promise<Ope
 
 Holder-bound committee token and verifier membership proofs for one operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L35)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L35)
 
 ```ts
 export interface OperationGrant {
@@ -1298,7 +1312,7 @@ Fields:
 
 Credential selection, request validation and cancellation controls for OID4VP presentation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L284)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/identity.ts#L284)
 
 ```ts
 export interface PresentCredentialsOptions extends PresentOpts {
@@ -1320,7 +1334,7 @@ Fields:
 
 Private creation journal tracking rule delivery and verifier-policy installation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L86)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L86)
 
 ```ts
 export interface ReadySlotJournal {
@@ -1347,7 +1361,7 @@ Fields:
 
 Explicit RPC and coordinator choices applied when resolving a network manifest.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L25)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L25)
 
 ```ts
 export interface ResolveApplicationManifestOptions {
@@ -1365,7 +1379,7 @@ Fields:
 
 Validated deployment settings and optional endpoint routing for an application client.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L36)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/manifest.ts#L36)
 
 ```ts
 export interface ResolvedApplicationManifest {
@@ -1385,7 +1399,7 @@ Fields:
 
 Private durable creation intent and transaction progress required to resume the same slot.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/creation.ts#L11)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/creation.ts#L11)
 
 ```ts
 export interface SlotCreationJournal {
@@ -1424,7 +1438,7 @@ Fields:
 
 Public milestone emitted while a named slot is created or resumed.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L109)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L109)
 
 ```ts
 export interface SlotCreationProgress {
@@ -1446,7 +1460,7 @@ Fields:
 
 Current slot mode, key epoch, threshold and anchored public key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L87)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L87)
 
 ```ts
 export interface SlotMetadata {
@@ -1475,7 +1489,7 @@ Fields:
 
 Application client exposing checked slot operations and deployment readiness probes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L313)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L313)
 
 ```ts
 export type TasraApplication = ReturnType<typeof createTasra>;
@@ -1492,7 +1506,7 @@ Fields:
 
 Deployment, chain reader and transport choices used by the application client.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/client.ts#L74)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/client.ts#L74)
 
 ```ts
 export interface TasraApplicationConfig {
@@ -1514,7 +1528,7 @@ Fields:
 
 Network manifest and optional wallet, storage and transport adapters for an application.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/tasra-client.ts#L11)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/tasra-client.ts#L11)
 
 ```ts
 export interface TasraClientOptions extends ResolveApplicationManifestOptions {
@@ -1544,7 +1558,7 @@ Fields:
 
 Public, versioned application configuration. Never contains credentials or private keys.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/deployment.ts#L5)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/deployment.ts#L5)
 
 ```ts
 export interface TasraDeployment {
@@ -1575,7 +1589,7 @@ Fields:
 
 DID identity with holder and issuer adapters backed by one managed signing key.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L16)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/identity.ts#L16)
 
 ```ts
 export interface TasraIdentity {
@@ -1606,7 +1620,7 @@ Fields:
 
 Chain-bound wallet adapter with durable transaction submission and receipt recovery.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/wallet.ts#L74)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/wallet.ts#L74)
 
 ```ts
 export interface TasraWallet {
@@ -1641,7 +1655,7 @@ Fields:
 
 Optional issuer, holder, type and subject pins applied during credential verification.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/identity.ts#L162)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/identity.ts#L162)
 
 ```ts
 export interface VerifyCredentialOptions {
@@ -1665,7 +1679,7 @@ Fields:
 
 Recipient, native-token value and optional calldata, gas limit and nonce.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/wallet.ts#L14)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/wallet.ts#L14)
 
 ```ts
 export interface WalletTransactionInput {
@@ -1689,7 +1703,7 @@ Fields:
 
 Private durable evidence; signed bytes permit explicit recovery without creating a new transaction.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/wallet.ts#L37)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/wallet.ts#L37)
 
 ```ts
 export interface WalletTransactionJournal {

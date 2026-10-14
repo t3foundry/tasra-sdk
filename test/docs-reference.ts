@@ -34,7 +34,27 @@ function parameterType(symbol: ts.Symbol, at: ts.Declaration) {
 // same indentation as source annotations, without altering their public contract.
 function formatDeclaration(value: string) {
   const source = ts.createSourceFile('reference.ts', value, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  return printer.printFile(source).trim()
+  return printer.printFile(source).trim().split('\n').map(wrapUnionAlias).join('\n')
+}
+// The printer puts a union alias on one line however long it is; the site refuses code lines
+// over 240 characters, so a long alias is laid out one member per line, as its source is.
+function wrapUnionAlias(line: string) {
+  const alias = /^(export type \w+(?:<[^=]*>)? =) (.*);$/.exec(line)
+  if (!alias || line.length <= 160) return line
+  const members: string[] = []
+  let depth = 0, quote = '', start = 0
+  const body = alias[2]!
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i]!
+    if (quote) { if (c === quote && body[i - 1] !== '\\') quote = ''; continue }
+    if (c === "'" || c === '"' || c === '`') quote = c
+    else if ('([{'.includes(c) || (c === '<' && body[i - 1] !== '=')) depth++
+    else if (')]}'.includes(c) || (c === '>' && body[i - 1] !== '=')) depth--
+    else if (c === '|' && depth === 0) { members.push(body.slice(start, i).trim()); start = i + 1 }
+  }
+  members.push(body.slice(start).trim())
+  if (members.length < 2 || members.some(member => !member)) return line
+  return `${alias[1]}\n${members.map(member => `  | ${member}`).join('\n')};`
 }
 function formatType(value: string) {
   const source = ts.createSourceFile('reference.ts', `type ReferenceType = ${value}`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
@@ -118,7 +138,7 @@ for (const [name, file] of Object.entries(entries)) {
     if (!declaration) continue
     const location = relative(root, declaration.getSourceFile().fileName).replaceAll('\\', '/')
     const line = declaration.getSourceFile().getLineAndCharacterOfPosition(declaration.getStart()).line + 1
-    const sourceLink = `[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/${location}#L${line})`
+    const sourceLink = `[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/${location}#L${line})`
     const signatures = checker.getTypeOfSymbolAtLocation(symbol, declaration).getCallSignatures()
     const typeDeclaration = ts.isInterfaceDeclaration(declaration) || ts.isTypeAliasDeclaration(declaration)
     if (!signatures.length && !typeDeclaration && !ts.isClassDeclaration(declaration)) {

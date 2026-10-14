@@ -55,7 +55,10 @@ export async function authorizeWallet(cfg: FleetConfig, slot: Hex, creatorKey: H
   const result = await awaitVerifierAgentResult(session,{intervalMs:1000,timeoutMs:120000})
   assert.equal(result.token.binding,'holder_key')
   assert(result.verifierProofs?.length)
-  return {compound_token:result.token,verifierProofs:result.verifierProofs,verifier_proofs:result.verifierProofs.map(p => ({verifier_index:p.verifierIndex,operator:p.operator,pubkey:p.pubkey,proof:p.proof}))}
+  // ADR-0076: a sealed committee returns the evidence ciphertext BESIDE the token; a keeper
+  // refuses an evidenced token without it, and refuses it beside an un-evidenced one.
+  const evidence = result.evidenceCt !== undefined ? {evidence_ct:result.evidenceCt,evidenceCt:result.evidenceCt} : {}
+  return {compound_token:result.token,verifierProofs:result.verifierProofs,verifier_proofs:result.verifierProofs.map(p => ({verifier_index:p.verifierIndex,operator:p.operator,pubkey:p.pubkey,proof:p.proof})),...evidence}
 }
 
 export async function createWalletSlot(cfg: FleetConfig, mode: 'frost'|'bls' = 'frost', k = 2, n = 3, rule = WALLET_RULE) {

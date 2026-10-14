@@ -32,7 +32,7 @@ function load(savedNetwork: unknown) {
   symlinkSync(root, join(directory, 'node_modules/tasra-sdk'), 'dir')
   writeFileSync(join(directory, 'network.json'), body)
   writeFileSync(join(directory, 'network-pin.json'), JSON.stringify({sha256,
-    manifestUrl: 'https://raw.githubusercontent.com/t3-foundry/tasra-releases/main/networks/testnet/deployments/document-test.json'}))
+    manifestUrl: 'https://raw.githubusercontent.com/t3foundry/tasra-releases/main/networks/testnet/deployments/document-test.json'}))
   const state = join(directory, '.tasra')
   mkdirSync(state)
   writeFileSync(join(state, 'service.json'), JSON.stringify({network: savedNetwork,

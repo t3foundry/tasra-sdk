@@ -40,6 +40,12 @@ export default defineConfig({
         branches: 90,
         functions: 95,
         lines: 96,
+        // ADR-0078's plan (§10.1) makes >= 90 % on the policy-envelope loader an ENFORCED
+        // floor rather than a reported number. It is the one per-file entry, and it takes
+        // rego.ts out of the global figures above - the trade-off the paragraph above
+        // describes, accepted because this file decides which bytes run as the network's
+        // policy engine. (~99 % statements / ~94 % branches when it was added.)
+        'src/auth/rego.ts': {statements: 90, branches: 90, functions: 90, lines: 90},
       },
 
       // ⚠ What the headline number does and does not say. This measures the HERMETIC

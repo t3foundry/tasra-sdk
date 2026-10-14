@@ -32,7 +32,7 @@ you do not need a separate crypto or Ethereum library to use the application API
 See the [manifest-first application guide](application-api.md).
 
 For new applications, download a manifest from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases) and load it with
+[tasra-releases](https://github.com/t3foundry/tasra-releases) and load it with
 `TasraClient.fromManifest(url, {sha256, coordinator})`. Remote manifest URLs require HTTPS unless an independently trusted SHA-256 pin is provided; loopback HTTP is allowed for development. Obtain the SHA-256 from a
 trusted release pointer. Pass the deployment's coordinator convention explicitly;
 the release schema does not specify it. Planned and retired manifests cannot

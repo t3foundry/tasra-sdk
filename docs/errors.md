@@ -39,6 +39,7 @@ try {
 | `CommitteeAuthorizeError` | as `TasraHttpError` — a verifier refused to co-sign | 5xx / 429 |
 | `DcqlMalformedError` | the rule is not well-formed OID4VP-DCQL | **never** |
 | `VerifierAgentSessionError` | `kind`, `correlation`, `httpStatus?` — a Verifier Agent session failed | `timeout` / `unavailable` only |
+| `RuleAmendmentError` | `code`, `slotId`, and when known `pendingVersion`, `pendingCommitment`, `hasGuardian`, `notBefore`, `chainTime`, `have`, `need`, `results`, `phase` — a rule amendment refused before signing, or one that did not reach the asked state | `timelock` / `below-threshold` / `timeout` only |
 
 `isRetryable(e)` returns `false` for errors outside the `TasraError` hierarchy.
 A `true` result describes a possibly transient failure; it does not prove that

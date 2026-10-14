@@ -15,6 +15,7 @@
 // it would for a real install, so the exports map is genuinely under test.
 
 import {execFileSync} from 'node:child_process'
+import {createHash} from 'node:crypto'
 import {cpSync, existsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {dirname, join, resolve} from 'node:path'
@@ -84,15 +85,24 @@ try {
     const path = name.replace(/^package\//, '')
     if (path === 'package.json' || publication.files.includes(path)) return false
     if (!path.startsWith('dist/')) return true
+    // The vendored policy engine (ADR-0078) ships verbatim from src/, not compiled from a .ts.
+    if (path.startsWith('dist/auth/rego/wasm/')) return !existsSync(join(repoRoot, path.replace(/^dist\//, 'src/')))
     const source = path.replace(/^dist\//, 'src/').replace(/(?:\.d\.ts|\.js)$/, '.ts')
     return !/\.(?:js|d\.ts|json)$/.test(path) || !existsSync(join(repoRoot, source))
   })
+  const regoAssets = ['keykeeper_rego_wasm_bg.wasm', 'keykeeper_rego_wasm.js', 'keykeeper_rego_wasm.d.ts', 'PINS.json']
+  ok('tarball ships the pinned policy engine (wasm, glue, declarations, pins)', regoAssets.every(f => packedNames.includes(`package/dist/auth/rego/wasm/${f}`)))
+  const packedWasm = execFileSync('tar', ['-xOzf', join(scratch, tarball), 'package/dist/auth/rego/wasm/keykeeper_rego_wasm_bg.wasm'], {maxBuffer: 64 << 20})
+  const pins = JSON.parse(readFileSync(join(repoRoot, 'src/auth/rego/wasm/PINS.json'), 'utf8')) as {sha256: Record<string, string>}
+  ok('packed policy engine is byte-identical to the pinned build',
+    createHash('sha256').update(packedWasm).digest('hex') === pins.sha256['keykeeper_rego_wasm_bg.wasm'])
+  console.log(`  policy engine: ${packedWasm.length} bytes uncompressed`)
   ok('tarball contains only allowlisted consumer files and compiled SDK modules', unexpected.length === 0, unexpected.join(', '))
   ok('every allowlisted consumer file ships', publication.files.every(path => packedNames.includes('package/' + path)))
   ok('tarball contains no private source or source maps', !packedNames.some(p => p.startsWith('package/src/') || p.endsWith('.map')))
   ok('document app ships source, configuration and sample PDF', ['package.json', 'gitignore.template', 'server.ts', 'setup.ts', 'workflow.test.ts', 'web/app.ts', 'web/preview.ts', 'public/sample.pdf', 'network.ts'].every(p => packedNames.includes('package/examples/document-signing/' + p)))
   ok('document app excludes private state and generated assets', !packedNames.some(p => /^package\/examples\/document-signing\/(?:\.tasra|node_modules|\.superdesign|public\/pdf-assets)\//.test(p) || p === 'package/examples/document-signing/public/app.js'))
-  ok('tarball contains all 11 agent skills', packedNames.filter(p => p.endsWith('/SKILL.md')).length === 11)
+  ok('tarball contains all 12 agent skills', packedNames.filter(p => p.endsWith('/SKILL.md')).length === 12)
   for (const skill of packedNames.filter(p => p.endsWith('/SKILL.md'))) {
     const content = execFileSync('tar', ['-xOzf', join(scratch, tarball), skill], {encoding: 'utf8'})
     const references = [...content.matchAll(/^ {4}- (.+)$/gm)].map(m => m[1]!.split('#')[0]!)
@@ -209,6 +219,19 @@ try {
     console.log('ok');
   `);
   ok('one-package application identities and durable Node storage work', simpleApp === 'ok');
+
+  // The policy engine loads from the INSTALLED package (its .wasm resolved beside the module,
+  // hash-checked before instantiation) and decides like the network.
+  const rego = runInConsumer(consumer, 'mjs', `
+    import {packEnvelope, evaluateEnvelope, isOauthEnvelope} from '${pkg.name}';
+    const tokens = {kc: {format: 'oauth+access-token+dpop', iss: ['https://idp.example/realms/kk'], aud: ['https://agent.example/authz/1'], max_age_secs: 300}};
+    const env = await packEnvelope('package tasra.slot\\n\\ndefault allow := false\\n\\nallow if "admin" in input.tokens.kc.claims.roles\\n', tokens);
+    const pres = roles => ({holder: 'h', credentials: [{format: 'oauth+access-token+dpop', issuer: 'https://idp.example/realms/kk', claims: {aud: ['https://agent.example/authz/1'], roles}}]});
+    const yes = await evaluateEnvelope(env, pres(['admin'])), no = await evaluateEnvelope(env, pres(['viewer']));
+    if (!isOauthEnvelope(env) || !yes.allow || no.allow || no.kind !== 'reject') throw new Error('policy engine verdicts wrong: ' + JSON.stringify([yes, no]));
+    console.log('ok');
+  `)
+  ok('ESM: the installed policy engine loads, packs and evaluates', rego === 'ok', rego ?? undefined)
 
   const esmMain = runInConsumer(
     consumer,

@@ -109,7 +109,10 @@ export async function bringUp(): Promise<StepResult[]> {
   // scenarios (KK_VERIFY_DEMO_FAULTS=1, see the destructive phase), pass
   // KK_DEMO_FAULTS=1 through so the fleet actually comes up with those faults —
   // otherwise scenarios 12/13/14/15 would run against an honest fleet and fail.
-  const fleetEnv = {KK_THRESHOLD_SET:'1'}
+  // KK_BYO_IDP=1: the fleet's OAuth identity provider (Keycloak). `test:prod` runs the Rego
+  // kk_oauth slot suite (test/e2e/rego-slot.ts), which needs it; without it that suite fails
+  // red under TASRA_FLEET_REQUIRED rather than certifying nothing.
+  const fleetEnv = {KK_THRESHOLD_SET:'1',KK_BYO_IDP:'1'}
   // KK_VERIFY_WIPE=1 → clean slate: delete volumes + Besu chain first, so the
   // fleet-up below is a fresh provision (new chain, redeployed contracts, fresh
   // genesis DKG + slot) rather than a resume of preserved state. This is the

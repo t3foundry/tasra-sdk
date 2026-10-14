@@ -75,7 +75,7 @@ the old slot does not resume the exited run.
 
 
 Use Node.js **24**. The examples download and checksum-verify the testnet manifest
-from [tasra-releases](https://github.com/t3-foundry/tasra-releases). The deployment
+from [tasra-releases](https://github.com/t3foundry/tasra-releases). The deployment
 must support FROST creation and the selected native approval policy. Credential
 approvals additionally require operation-bound OID4VP, SD-JWT and `did:jwk`
 support. Ensure sufficient keeper/verifier membership and usage credits.
