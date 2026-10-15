@@ -159,7 +159,11 @@ export async function openVerifierAgentSession(opts: OpenVerifierAgentSessionOpt
 
 /** Compound committee token with optional request preimage and verifier membership proofs. */
 export interface VerifierAgentResult {
-  /** Sealed presentation ciphertext to retain and forward unchanged to keepers. */
+  /**
+   * Sealed presentation ciphertext the token's `evidence_hash` binds, when the committee
+   * sealed one: retain it and forward it unchanged to every keeper call (`evidenceCt`); a keeper
+   * with `require_committee_evidence` refuses the token without it.
+   */
   evidenceCt?: string
   /** Compound committee authorization token. */
   token: CompoundTokenWire

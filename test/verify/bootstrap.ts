@@ -163,6 +163,7 @@ const out = await committeeDecrypt({
   committeeToken:grant.compound_token,
   verifierProofs:grant.verifierProofs,
   approveExecution:grant.approveExecution,
+  evidenceCt:grant.evidenceCt,
   ciphertext: back.ciphertext,
   identity: back.identity,
   decryptingSet: blsPeers.map(p => p.id),

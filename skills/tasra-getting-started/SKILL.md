@@ -24,7 +24,7 @@ limit or forced migration.
    The application runtime needs only `tasra-sdk`; TypeScript, tsx and Node types
    are development tooling.
 2. Download the selected network pointer and manifest from
-   https://github.com/t3-foundry/tasra-releases. For testnet, read
+   https://github.com/t3foundry/tasra-releases. For testnet, read
    `networks/testnet/current.json` and resolve its `manifest` path relative to
    `networks/testnet/`. Fetch both at one reviewed commit and verify the original
    manifest bytes against the pointer's trusted SHA-256.

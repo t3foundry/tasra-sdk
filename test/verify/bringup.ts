@@ -110,7 +110,10 @@ export async function bringUp(): Promise<StepResult[]> {
   // Paid operations need the accountant coordination endpoints and the automatic
   // payout worker. Only a freshly wiped fleet can declare an empty manual-root
   // history; resumed deployments retain their operator-supplied inventory policy.
-  const fleetEnv = {KK_THRESHOLD_SET:'1', KK_PREPAID_PAYOUTS:'1', KK_AGG_SETTLE:'true',
+  // KK_BYO_IDP=1: the fleet's OAuth identity provider (Keycloak). `test:prod` runs the Rego
+  // kk_oauth slot suite (test/e2e/rego-slot.ts), which needs it; without it that suite fails
+  // red under TASRA_FLEET_REQUIRED rather than certifying nothing.
+  const fleetEnv = {KK_THRESHOLD_SET:'1', KK_PREPAID_PAYOUTS:'1', KK_AGG_SETTLE:'true', KK_BYO_IDP:'1',
     ...(freshFleet ? {KK_PAYOUT_DECLARE_NO_MANUAL_ROOTS:'1'} : {})}
   // KK_VERIFY_WIPE=1 → clean slate: delete volumes + Besu chain first, so the
   // fleet-up below is a fresh provision (new chain, redeployed contracts, fresh

@@ -5,7 +5,7 @@ Existing lower-level SDK imports remain available.
 Creation and provisioning integrations must adopt the required `rule` property
 and migrate any older recovery journals as described below.
 Download the selected network manifest from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases) and verify its checksum.
+[tasra-releases](https://github.com/t3foundry/tasra-releases) and verify its checksum.
 Confirm that the deployment supports the required key modes, authorization formats
 and service routes before executing protected operations.
 

@@ -36,6 +36,8 @@ export {
   STATUS_STALE_CODE,
   STATUS_MISSING_CODE,
   STATUS_INVALID_CODE,
+  evidenceBindingMessage,
+  verifyEvidenceBinding,
 } from './token.js'
 export type {
   TokenType,
@@ -51,6 +53,7 @@ export type {
   VerifyStatusAttestationsOptions,
   RequireStatusAttestationsOptions,
   StatusFreshness,
+  VerifyEvidenceBindingOptions,
 } from './token.js'
 export {
   statusRefreshHash,
@@ -125,7 +128,17 @@ export {ibeExtractRequest, ibeDecryptRequest} from './request.js'
 export type {IbeExtractRequestOpts} from './request.js'
 
 // derived OAuth audience + DPoP htu
-export {platformAudience, dpopHtu, legacyDpopHtu, normalizeOrigin, OAUTH_RESPONSE_PATH} from './oauth.js'
+export {
+  platformAudience,
+  dpopHtu,
+  legacyDpopHtu,
+  normalizeOrigin,
+  isValidSessionId,
+  OAUTH_RESPONSE_PATH,
+  OAUTH_RESPONSE_PATH_PREFIX,
+  OAUTH_RESPONSE_PATH_SUFFIX,
+  MAX_SESSION_ID_LEN,
+} from './oauth.js'
 
 export {keeperAssignmentCommitment, paymentIntentTypedData, paymentIntentHash, prepaidRequestId, paymentSessionCommitment, assertPaymentIntentWire} from './payment.js'
 export type {PaidKeeperAssignment, PaymentIntentWire} from './payment.js'

@@ -7,6 +7,64 @@ never does.
 
 ## [Unreleased]
 
+### Added
+
+- Rule amendment on `tasra-sdk/chain`. The write client gains `proposeRuleUpdate`,
+  `endorseRuleUpdate`, `vetoRuleUpdate` and `activateRuleUpdate`; each refuses, before
+  signing, what the contract would revert (missing or immutable slot, wrong signer, an
+  amendment already pending, the current rule, a policy envelope on a non-`oauth` slot or
+  one keepers would not store, the timelock judged on chain time, too few keeper
+  adoptions). `readRuleAmendment` reads the active rule, the amendment policy and the
+  pending amendment with its adoption votes. `amendSlotRule` drives propose → deliver →
+  adoption → guardian endorsement → activation, resumes from the chain state when called
+  again, and returns `{version, ruleCommitment, proposeTx?, activateTx?}`. Refusals are a
+  `RuleAmendmentError` with a stable `code`.
+- `provisionRule` options `expect: 'pending'` (deliver a proposed amendment; keepers that
+  have not yet seen the proposal are retried with the same signature, and a keeper that
+  stores the rule as active is an error), `retryConflictMs` (default 120000) and
+  `delegation` (a creator delegation). Each keeper result now carries `authorizedBy`
+  (`creator`, `delegate` or `rule_admin`) when the keeper reports it. The default
+  `expect: 'active'` delivery is unchanged.
+- OAuth policy envelopes (`kk_oauth`): a slot whose holders sign in with their
+  organization's identity provider can commit a Rego policy over the DPoP-bound access
+  token's claims. `packEnvelope`, `unpackEnvelope`, `lintEnvelope` and `evaluateEnvelope`
+  run the network's own policy engine, shipped as a pinned WebAssembly module that is
+  loaded on first use and SHA-256-checked before instantiation; `isOauthEnvelope` is pure
+  TypeScript. `createSlot` / `createSlotCommitReveal` accept `oauthPolicy: {policy, tokens,
+  entrypoint?}`, require `authType: 'oauth'` for an envelope, refuse one keepers would not
+  store before any transaction, and return the committed string as `rule`.
+  `ruleCommitment` commits an envelope in canonical (RFC 8785) form. Package size: the
+  module adds 965,157 bytes unpacked (about 328 KB compressed); applications that never
+  call the engine do not load it. Third-party notices for the compiled engine are in
+  `NOTICE`.
+- Public sealed-evidence primitives on `tasra-sdk/committee`: `evidenceBindingMessage` (the
+  single implementation the SDK's own sealed-evidence path also uses) and
+  `verifyEvidenceBinding({tokenHash, evidenceHash, evidenceKeyId, signatures, set, drawn,
+  quorum})`, the mirror of the Rust check (strict, non-ZIP-215 Ed25519). `committeeSign`,
+  `committeeDecrypt` and `requestIbeExtractionPartials` keep forwarding `evidenceCt` only
+  after checking it against the token's binding.
+- `createDpopKey().tokenRequestProof({htm, htu, nonce?})` for identity providers that
+  require a DPoP proof on the token request itself.
+- `isValidSessionId`, `MAX_SESSION_ID_LEN`, `OAUTH_RESPONSE_PATH_PREFIX` and
+  `OAUTH_RESPONSE_PATH_SUFFIX` in `tasra-sdk/committee`. `OAUTH_RESPONSE_PATH` and
+  `legacyDpopHtu` stay exported for the pre-remediation session-independent target.
+
+### Changed
+
+- `dpopHtu` throws a non-retryable `TasraError` (still naming `sessionId`) for a session id
+  that is not one plain path segment.
+- `assertCompoundTokenWire` names a compound token that carries only some of the evidence
+  fields, and a poll reply whose `evidence_ct` is not base64url is refused as such before the
+  binding check.
+- `submitOauthResponse` classifies failures as `VerifierAgentSessionError`: `refused` when the
+  agent reports the session failed, `unavailable` for other 502/503/504, `protocol` otherwise.
+- `RecipientStore.satisfies` and `validateRule` refuse a `kk_oauth` policy envelope by
+  name: held credentials cannot satisfy it (`canAccess` returns `false`).
+- Every tasra-releases and repository link (docs, skills, examples, issue templates and
+  the generated reference `[Source]` links) now points at the `t3foundry` organisation.
+- The bring-your-own-identity-provider section of the API guide now shows the `kk_oauth`
+  policy envelope (`oauthPolicy`) an OAuth slot uses, and how to amend it.
+
 ### Fixed
 
 - Paid sessions confirm callback HTTP 400 and 409 refusals through an authenticated
@@ -593,7 +651,7 @@ A minor bump: a public option is removed.
 - Align note identity/result guidance with the API and include a complete standalone
   Node TypeScript configuration.
 - Point skills and onboarding docs to the published Fuji deployment pointer,
-  manifest checksum and service URLs in `t3-foundry/tasra-releases`; document
+  manifest checksum and service URLs in `t3foundry/tasra-releases`; document
   bootstrap from a pinned repository commit.
 - Narrow slot-creation results before reading the transaction hash in the skill's
   direct/commit-reveal example.

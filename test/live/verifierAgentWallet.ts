@@ -72,7 +72,7 @@ try {
     assert(grant.compound_token.payment && grant.verifierProofs.length, 'Original paid grant must retain payment and anchored verifier proofs')
     if (!scoped) {
       const sig = await committeeSign({nodeUrl: grant.coordinatorUrl, committeeToken: grant.compound_token, message,
-        verifierProofs: grant.verifierProofs, approveExecution: grant.approveExecution})
+        verifierProofs: grant.verifierProofs, evidenceCt: grant.evidenceCt, approveExecution: grant.approveExecution})
       assert(verifyFrostSignature(sig.groupPublicKey, message, sig.signature), 'FROST signature does not verify under the original group key')
       assert.equal(bytesToHex(sig.groupPublicKey).replace(/^0x/, '').toLowerCase(), slot.publicKey.replace(/^0x/, '').toLowerCase(),
         'Keeper signed under a different slot key')

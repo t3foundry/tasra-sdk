@@ -543,6 +543,13 @@ try {
   eq('dpopHtu: origin + the response path', dpopHtu('https://agent.example/', 'session-1'), 'https://agent.example/v1/sessions/session-1/oauth-response')
   // The exact session path is bound; query and fragment never enter the target.
   ok('dpopHtu: carries no query', !dpopHtu('https://agent.example', 'session-1').includes('?'))
+  eq(
+    'dpopHtu: origin + this session\'s response path',
+    dpopHtu('https://agent.example/', 'abc_DEF-123'),
+    'https://agent.example/v1/sessions/abc_DEF-123/oauth-response',
+  )
+  // Per session (the URL the proof is presented at), and still never a query or fragment.
+  ok('dpopHtu: carries no query (second vector)', !dpopHtu('https://agent.example', 'abc').includes('?'))
 }
 
 if (failures.length > 0) {

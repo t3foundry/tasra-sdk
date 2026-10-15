@@ -27,6 +27,7 @@ export default tseslint.config(
       'dist/**', // build output
       'node_modules/**',
       'src/chain/abis/**', // AUTO-GENERATED
+      'src/auth/rego/wasm/**', // VENDORED keykeeper-rego wasm-bindgen output, pinned by scripts/check-rego-pins.mjs
       'coverage/**', // vitest coverage report (generated)
     ],
   },

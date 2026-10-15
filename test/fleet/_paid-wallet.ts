@@ -138,7 +138,10 @@ export async function authorizePaidWallet(cfg: FleetConfig, slot: Hex, creatorKe
       return {approved: {holder, credentials: [built.presentation], holder_proof: null, oauth: null, iat}, form: built.form}
     }, submit: (request, presentation) => submitResponse(request, presentation, fetcherFor(request)).then(() => {})},
   })
+  // ADR-0076: a sealed committee returns the evidence ciphertext BESIDE the token; a keeper
+  // refuses an evidenced token without it, and refuses it beside an un-evidenced one.
+  const evidence = operation.evidenceCt !== undefined ? {evidenceCt: operation.evidenceCt, evidence_ct: operation.evidenceCt} : {}
   return {compound_token: operation.compound_token, verifierProofs: operation.verifierProofs, verifier_proofs: operation.verifier_proofs,
-    approveExecution: operation.approveExecution, coordinatorUrl: operation.coordinatorUrl, payment: operation.payment,
+    ...evidence, approveExecution: operation.approveExecution, coordinatorUrl: operation.coordinatorUrl, payment: operation.payment,
     originalRequestId: operation.requestId, operation, dispose: () => operation.dispose()}
 }

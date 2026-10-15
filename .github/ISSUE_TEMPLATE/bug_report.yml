@@ -5,7 +5,7 @@ body:
     attributes:
       value: |
         **Security issue?** Stop — report it privately instead:
-        https://github.com/t3-foundry/tasra-sdk/security/advisories/new
+        https://github.com/t3foundry/tasra-sdk/security/advisories/new
 
   - type: textarea
     id: what-happened

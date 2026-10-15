@@ -13,7 +13,7 @@ committee; that threshold is separate from the two-person application workflow.
 Install Node.js **24**. The commands below install the latest SDK from npm.
 
 The application downloads the testnet manifest from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases) and verifies its
+[tasra-releases](https://github.com/t3foundry/tasra-releases) and verifies its
 checksum. The selected deployment must support FROST slot creation, creator-signed
 provisioning, OID4VP, SD-JWT credentials bound to `did:jwk` holders and required
 keeper receipts. It needs sufficient members for 2-of-3 keeper and verifier

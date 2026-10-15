@@ -1,8 +1,9 @@
 import {keccak_256} from '@noble/hashes/sha3'
 import {ed25519} from '@noble/curves/ed25519'
-import {bytesToHex, concatBytes, utf8ToBytes} from '@noble/hashes/utils'
+import {bytesToHex} from '@noble/hashes/utils'
 import {base64Decode, base64Encode} from '../crypto/envelope.js'
 import {hexToBytes} from '../crypto/hex.js'
+import {evidenceBindingMessage} from './token.js'
 
 /** Sealed presentation bindings signed beside the unchanged compound-token hash. */
 export interface EvidenceBindingWire {
@@ -49,11 +50,9 @@ export function evidenceBody(token: EvidenceBindingWire & {verifier_indexes: num
   return {evidence_ct: evidenceCt}
 }
 
-/** Domain-separated message signed beside the original compound token. */
-export function evidenceBindingMessage(tokenHash: Uint8Array, evidenceHash: Uint8Array, keyId: Uint8Array): Uint8Array {
-  if ([tokenHash, evidenceHash, keyId].some(b => b.length !== 32)) throw new Error('Invalid evidence binding hash size')
-  return keccak_256(concatBytes(utf8ToBytes('keykeeper-committee/evidence-binding/v1'), tokenHash, evidenceHash, keyId))
-}
+/** Domain-separated message signed beside the original compound token. ONE implementation:
+ *  the public `evidenceBindingMessage` in `./token.ts` (byte-identical to the Rust one). */
+export {evidenceBindingMessage}
 
 /** Authenticate sealed evidence under the independently anchored verifier committee keys. */
 export function verifyEvidenceBinding(token: EvidenceBindingWire & {verifier_indexes: number[]}, evidenceCt: string | undefined,

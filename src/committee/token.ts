@@ -478,6 +478,73 @@ export interface CompoundTokenWire extends EvidenceBindingWire {
    * token hash. Keepers in production posture require a quorum of fresh ones.
    */
   status_attestations?: StatusAttestationWire[]
+  // The sealed-evidence fields (`evidence_hash`, `evidence_key_id`, `evidence_signatures`) are
+  // inherited from EvidenceBindingWire: present together or not at all, OUTSIDE the signed
+  // canonical bytes; each signer's {@link evidenceBindingMessage} signature binds them.
+}
+
+// Sealed committee evidence binding
+
+const EVIDENCE_BINDING_DOMAIN = new TextEncoder().encode('keykeeper-committee/evidence-binding/v1')
+
+/** `keccak256(DOMAIN ‖ tokenHash ‖ evidenceHash ‖ evidenceKeyId)` — the message each drawn
+ *  verifier signs beside its token signature. Byte-identical to the Rust
+ *  `keykeeper_committee::evidence_binding_message`. The SDK's own sealed-evidence path
+ *  (`./evidence.ts`) signs and verifies over this same function.
+ *
+ * @param tokenHash - 32-byte compound-token signing hash.
+ * @param evidenceHash - 32-byte keccak256 of the sealed evidence ciphertext.
+ * @param evidenceKeyId - 32-byte keccak256 of the accountant evidence key it is sealed to.
+ */
+export function evidenceBindingMessage(tokenHash: Uint8Array, evidenceHash: Uint8Array, evidenceKeyId: Uint8Array): Uint8Array {
+  for (const [n, v] of [['tokenHash', tokenHash], ['evidenceHash', evidenceHash], ['evidenceKeyId', evidenceKeyId]] as const) {
+    if (v.length !== 32) throw new Error(`${n} must be 32 bytes`)
+  }
+  return keccak_256(concatBytes(EVIDENCE_BINDING_DOMAIN, tokenHash, evidenceHash, evidenceKeyId))
+}
+
+/** Inputs to {@link verifyEvidenceBinding}. */
+export interface VerifyEvidenceBindingOptions {
+  /** 32-byte compound-token signing hash. */
+  tokenHash: Uint8Array
+  /** 32-byte keccak256 of the sealed evidence ciphertext. */
+  evidenceHash: Uint8Array
+  /** 32-byte keccak256 of the accountant evidence key it is sealed to. */
+  evidenceKeyId: Uint8Array
+  /** Each signer's evidence-binding signature, by verifier index. */
+  signatures: CommitteeSignature[]
+  /** The anchored verifier set the signer keys are read from. */
+  set: VerifierSet
+  /** The drawn committee (the token's `verifier_indexes`). */
+  drawn: number[]
+  /** How many distinct drawn signers must verify. */
+  quorum: number
+}
+
+/**
+ * Mirror of the Rust `verify_evidence_binding`: every signature must come from a DRAWN
+ * verifier in `set` and verify (strict, non-ZIP-215) over {@link evidenceBindingMessage};
+ * distinct signers are counted once and must satisfy `quorum` of the drawn committee.
+ * Throws on any failure; returns the verified indexes.
+ *
+ * @param opts - Token and evidence hashes, the signatures, the verifier set, the drawn committee and the quorum.
+ */
+export function verifyEvidenceBinding(opts: VerifyEvidenceBindingOptions): number[] {
+  const {tokenHash, evidenceHash, evidenceKeyId, signatures, set, drawn, quorum} = opts
+  if (quorum === 0) throw new Error('evidence binding: quorum must be positive')
+  const msg = evidenceBindingMessage(tokenHash, evidenceHash, evidenceKeyId)
+  const verified: number[] = []
+  for (const {verifierIndex, signature} of signatures) {
+    if (!drawn.includes(verifierIndex)) throw new Error(`evidence binding: index ${verifierIndex} is not in the drawn committee`)
+    const pk = set.pubkeys.get(verifierIndex)
+    if (!pk) throw new Error(`evidence binding: index ${verifierIndex} is not in the verifier set`)
+    if (!ed25519.verify(signature, msg, pk, {zip215: false})) throw new Error(`evidence binding: invalid signature from verifier index ${verifierIndex}`)
+    if (!verified.includes(verifierIndex)) verified.push(verifierIndex)
+  }
+  if (!quorumSatisfied(verified, drawn, quorum)) {
+    throw new Error(`evidence binding: quorum not met: ${verified.length} of the drawn committee, need ${quorum}`)
+  }
+  return verified
 }
 
 /** Assemble the wire compound token from a payload + the gathered quorum signatures. */

@@ -26,6 +26,8 @@ import {
   verifyCompoundToken,
   assembleCompoundToken,
   decodeCompoundToken,
+  evidenceBindingMessage,
+  verifyEvidenceBinding,
   type CompoundTokenPayload,
   type CommitteeSignature,
   type VerifierSet,
@@ -262,6 +264,43 @@ function payloadOf(t: TokenVector): CompoundTokenPayload {
     expRejected = true
   }
   check('expired rejected', expRejected)
+}
+
+// ─── ADR-0076 evidence binding: vectors from keykeeper-committee tests/evidence_binding.rs ───
+{
+  const ev = JSON.parse(readFileSync(join(here, 'committee-evidence-vectors.json'), 'utf8')) as {
+    domain: string
+    token_hash: string
+    evidence_hash: string
+    evidence_key_id: string
+    binding_message: string
+    signer_seed: string
+    signer_pubkey: string
+    signature: string
+  }
+  check('evidence: domain pinned', ev.domain === 'keykeeper-committee/evidence-binding/v1')
+  const msg = evidenceBindingMessage(hexToBytes(ev.token_hash), hexToBytes(ev.evidence_hash), hexToBytes(ev.evidence_key_id))
+  check('evidence: binding message matches Rust', bytesToHex(msg) === ev.binding_message, bytesToHex(msg))
+  const pk = ed25519.getPublicKey(hexToBytes(ev.signer_seed))
+  check('evidence: signer pubkey matches Rust', bytesToHex(pk) === ev.signer_pubkey)
+  check('evidence: signature matches Rust (ed25519 is deterministic)', bytesToHex(ed25519.sign(msg, hexToBytes(ev.signer_seed))) === ev.signature)
+
+  // Quorum semantics mirror verify_evidence_binding: drawn only, distinct signers, quorum of the drawn set.
+  const seeds = [1, 2, 3].map(i => new Uint8Array(32).fill(0x60 + i))
+  const pks = new Map(seeds.map((sd, i) => [i, ed25519.getPublicKey(sd)]))
+  const set = {registrySize: 4, pubkeys: pks}
+  const [th, eh, kid] = [ev.token_hash, ev.evidence_hash, ev.evidence_key_id].map(hexToBytes) as [Uint8Array, Uint8Array, Uint8Array]
+  const m = evidenceBindingMessage(th, eh, kid)
+  const sig = (i: number) => ({verifierIndex: i, signature: ed25519.sign(m, seeds[i]!)})
+  const base = {tokenHash: th, evidenceHash: eh, evidenceKeyId: kid, set, drawn: [0, 1, 2], quorum: 2}
+  let ok: boolean
+  try { ok = verifyEvidenceBinding({...base, signatures: [sig(0), sig(1)]}).length === 2 } catch { ok = false }
+  check('evidence: 2-of-3 drawn quorum verifies', ok)
+  const throws = (f: () => unknown) => { try { f(); return false } catch { return true } }
+  check('evidence: a duplicate signer counts once', throws(() => verifyEvidenceBinding({...base, signatures: [sig(0), sig(0)]})))
+  check('evidence: a non-drawn signer is refused', throws(() => verifyEvidenceBinding({...base, drawn: [0, 1], signatures: [sig(0), sig(2)]})))
+  check('evidence: a signature over another ciphertext is refused', throws(() => verifyEvidenceBinding({...base, evidenceHash: new Uint8Array(32).fill(9), signatures: [sig(0), sig(1)]})))
+  check('evidence: zero quorum is refused', throws(() => verifyEvidenceBinding({...base, quorum: 0, signatures: [sig(0)]})))
 }
 
 const total = passed + failures.length

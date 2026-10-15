@@ -68,7 +68,7 @@ const identity = 'decrypt-e2e'
 const plaintext = new TextEncoder().encode('threshold-decrypt round-trip 🔐')
 const env = encryptEnvelope(hexToBytes(slotId), hexToBytes(`0x${mpkHex}`), new TextEncoder().encode(identity), plaintext, 0n)
 const grant = await authorizeWallet(cfg,slotId,creatorKey,{action:'decrypt',payloadDigest:decryptPayloadDigest(env.ciphertext.u,env.ciphertext.aeadCt)})
-const recovered = await committeeDecrypt({nodeUrl:grant.coordinatorUrl,committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,
+const recovered = await committeeDecrypt({nodeUrl:grant.coordinatorUrl,committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,
   approveExecution:grant.approveExecution,ciphertext:env.ciphertext,identity:new TextEncoder().encode(identity),
   decryptingSet:peers.map(p=>p.id),blsPeers:peers.map(p=>({id:p.id,peerId:p.peer_id})),ciphertextEpoch:0})
 grant.dispose()

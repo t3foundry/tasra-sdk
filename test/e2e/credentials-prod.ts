@@ -14,7 +14,7 @@ const slot=await createWalletSlot(cfg)
 const message=randomBytes(32)
 const grant=await authorizeWallet(cfg,slot.slotId,slot.creatorKey,{action:'sign',message})
 s.eq('wallet earned holder-key-bound authorization',grant.compound_token.binding,'holder_key')
-const signed=await committeeSign({nodeUrl:grant.coordinatorUrl,committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,approveExecution:grant.approveExecution,message})
+const signed=await committeeSign({nodeUrl:grant.coordinatorUrl,committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,approveExecution:grant.approveExecution,message})
 s.ok('credential-earned grant produced an independently verified signature',frostVerify(signed.signature.r,signed.signature.z,signed.groupPublicKey,message))
 for (const [label,wallet] of [
   ['wrong department',issueWallet(cfg,{dept:'Sales'})],

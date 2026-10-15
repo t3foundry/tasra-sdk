@@ -61,7 +61,7 @@ const sign = async (worker: number) => {
   const coordinator = await paidWalletCoordinator(cfg,frost.slotId,worker)
   const grant = await authorizeWallet(cfg,frost.slotId,frost.creatorKey,{action:'sign',message},undefined,false,coordinator)
   const result = await committeeSign({nodeUrl:grant.coordinatorUrl,
-    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,approveExecution:grant.approveExecution,message})
+    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,approveExecution:grant.approveExecution,message})
   assert(frostVerify(result.signature.r,result.signature.z,hexToBytes(frost.publicKey),message))
   grant.dispose()
 }
@@ -86,7 +86,7 @@ const decrypt = async (worker: number) => {
   const grant = await authorizeWallet(cfg,bls.slotId,bls.creatorKey,
     {action:'decrypt',payloadDigest:decryptPayloadDigest(envelope.ciphertext.u,envelope.ciphertext.aeadCt)},undefined,false,coordinator)
   const output = await committeeDecrypt({nodeUrl:grant.coordinatorUrl,
-    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,approveExecution:grant.approveExecution,
+    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,approveExecution:grant.approveExecution,
     ciphertext:envelope.ciphertext,identity,decryptingSet:peers.map(p=>p.id),blsPeers:peers,ciphertextEpoch:0})
   assert.deepEqual(Buffer.from(output),plaintext)
   grant.dispose()

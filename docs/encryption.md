@@ -31,7 +31,7 @@ protocol matches your deployment; it is not the setup for the new tutorial.
 
 
 Download and checksum-verify the selected manifest from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases). Confirm that the
+[tasra-releases](https://github.com/t3foundry/tasra-releases). Confirm that the
 deployment supports the chosen authorization and decryption routes, then prepare:
 
 | Input | Where it comes from |

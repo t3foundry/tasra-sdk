@@ -11,7 +11,7 @@ import {ed25519} from '@noble/curves/ed25519'
 
 export function required(name: string, env: NodeJS.ProcessEnv = process.env): string {
   const value = env[name]?.trim()
-  if (!value) throw new Error(`Missing ${name}. See docs/prerequisites.md and https://github.com/t3-foundry/tasra-releases for Fuji deployment records.`)
+  if (!value) throw new Error(`Missing ${name}. See docs/prerequisites.md and https://github.com/t3foundry/tasra-releases for Fuji deployment records.`)
   return value
 }
 

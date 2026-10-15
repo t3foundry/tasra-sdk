@@ -20,8 +20,8 @@ A manifest is the record of a deployment — every contract, its address, its ru
 code hash and its proxy implementation. Configuring from one means no address is ever
 copied by hand, and nothing loads that does not match its pin.
 
-Canonical source: [t3-foundry/tasra-releases](https://github.com/t3-foundry/tasra-releases).
-Fuji's [current pointer](https://github.com/t3-foundry/tasra-releases/blob/main/networks/testnet/current.json)
+Canonical source: [t3foundry/tasra-releases](https://github.com/t3foundry/tasra-releases).
+Fuji's [current pointer](https://github.com/t3foundry/tasra-releases/blob/main/networks/testnet/current.json)
 names `deployments/tasra-fuji-v1.json` and supplies `sha256`. Resolve that path
 relative to `networks/testnet/`, not the repository root. Network records are
 versioned by repository commit, independently of CLI binary release assets.
@@ -43,7 +43,7 @@ import {
 
 const revision = process.env.TASRA_RELEASES_REF
 if (!revision || !/^[a-f0-9]{40}$/.test(revision)) throw new Error('Set TASRA_RELEASES_REF to a reviewed release-repository commit')
-const base = `https://raw.githubusercontent.com/t3-foundry/tasra-releases/${revision}/networks/testnet/`
+const base = `https://raw.githubusercontent.com/t3foundry/tasra-releases/${revision}/networks/testnet/`
 async function readText(url: string) {
   const response = await fetch(url, {signal: AbortSignal.timeout(15_000)})
   if (!response.ok) throw new Error(`Release download failed: HTTP ${response.status}`)

@@ -27,8 +27,8 @@ describe('downloaded tutorial manifest boundary', () => {
     const directory = scratch(), {body, pointer, fetchImpl} = fixture()
     await downloadNetwork(fetchImpl, directory)
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
-      'https://raw.githubusercontent.com/t3-foundry/tasra-releases/main/networks/testnet/current.json',
-      'https://raw.githubusercontent.com/t3-foundry/tasra-releases/main/networks/testnet/deployments/example.json',
+      'https://raw.githubusercontent.com/t3foundry/tasra-releases/main/networks/testnet/current.json',
+      'https://raw.githubusercontent.com/t3foundry/tasra-releases/main/networks/testnet/deployments/example.json',
     ])
     expect(fetchImpl.mock.calls.every(([, options]) => options?.redirect === 'error')).toBe(true)
     expect(readFileSync(join(directory, 'network.json'), 'utf8')).toBe(body)

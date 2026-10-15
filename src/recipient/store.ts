@@ -2,6 +2,20 @@
 // are made; network authorization still depends on credential verification.
 
 import {evaluate, validate, DcqlMalformedError, jsonCredential, type CredentialView} from '../auth/oid4vp.js'
+import {isOauthEnvelope} from '../auth/rego.js'
+
+/**
+ * Held credentials never satisfy a `kk_oauth` envelope: it is decided over an organization's
+ * DPoP-bound access token, which a credential store does not hold. Refused by name rather than
+ * left to the DCQL parser's generic complaint, so the caller learns which tool applies.
+ */
+function refuseEnvelope(rule: string): void {
+  if (isOauthEnvelope(rule)) {
+    throw new DcqlMalformedError(
+      'rule is a kk_oauth policy envelope, decided over an OAuth access token rather than held credentials; use evaluateEnvelope',
+    )
+  }
+}
 
 /**
  * One credential the recipient holds, described as a structured credential view.
@@ -56,10 +70,12 @@ export class RecipientStore {
    *
    * @returns Whether the supplied credential views satisfy the rule; this is not network authorization.
    * @throws {DcqlMalformedError} if the rule itself is broken (a slot-author
-   *   bug - the same class the node returns as 400, not a 403 deny). Callers
+   *   bug - the same class the node returns as 400, not a 403 deny), or is a `kk_oauth`
+   *   policy envelope, which held credentials cannot satisfy. Callers
    *   who want a never-throwing check should use {@link canAccess}.
    */
   satisfies(rule: string): boolean {
+    refuseEnvelope(rule)
     return evaluate(rule, this.credentials)
   }
 
@@ -106,5 +122,6 @@ export function canAccess(rule: string, store: RecipientStore | HeldCredential[]
  * @param rule - DCQL policy encoded as JSON text.
  */
 export function validateRule(rule: string): void {
+  refuseEnvelope(rule)
   validate(rule)
 }

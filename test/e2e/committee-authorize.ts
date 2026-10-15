@@ -23,7 +23,7 @@ for (const url of slot.committee) {
   peers.push({id:info.node_identifier,peer_id:info.peer_id})
 }
 const b64=(value:Uint8Array)=>Buffer.from(value).toString('base64')
-const body={committee_token:grant.compound_token,verifier_proofs:grant.verifier_proofs,
+const body={committee_token:grant.compound_token,verifier_proofs:grant.verifier_proofs,evidence_ct:grant.evidence_ct,
   ciphertext:{u:b64(env.ciphertext.u),nonce:b64(env.ciphertext.nonce),aead_ct:b64(env.ciphertext.aeadCt)},identity,
   decrypting_set:peers.map(p=>p.id).sort((a,b)=>a-b),bls_peers:peers}
 const negative=await withKeeperExecutionApprovals({body:{...body,committee_token:{...grant.compound_token,signatures:grant.compound_token.signatures.slice(0,1)}},
@@ -37,7 +37,7 @@ grant.dispose()
 // successful case has its own independently signed intent and reservation.
 const accepted=await authorizeWallet(cfg,slot.slotId,slot.creatorKey,{action:'decrypt',payloadDigest:decryptPayloadDigest(env.ciphertext.u,env.ciphertext.aeadCt)})
 const result=await committeeDecrypt({nodeUrl:accepted.coordinatorUrl,committeeToken:accepted.compound_token,
-  verifierProofs:accepted.verifierProofs,approveExecution:accepted.approveExecution,ciphertext:env.ciphertext,
+  verifierProofs:accepted.verifierProofs,evidenceCt:accepted.evidenceCt,approveExecution:accepted.approveExecution,ciphertext:env.ciphertext,
   identity:new TextEncoder().encode(identity),decryptingSet:peers.map(p=>p.id),blsPeers:peers.map(p=>({id:p.id,peerId:p.peer_id})),ciphertextEpoch:0})
 accepted.dispose()
 s.ok('full quorum accepted by the keeper',true)

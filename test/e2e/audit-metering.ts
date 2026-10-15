@@ -69,7 +69,7 @@ for (let i = 0; i < N; i++) {
   const grant = await authorizeWallet(cfg,slotId,creatorKey,{action:'sign',message})
   if (coord && coord !== grant.coordinatorUrl) throw new Error('Audit coordinator changed during the original paid batch')
   coord = grant.coordinatorUrl
-  await committeeSign({nodeUrl:coord,committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,
+  await committeeSign({nodeUrl:coord,committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,
     approveExecution:grant.approveExecution,message})
   subjects.add(grant.compound_token.vp_hash)
   grant.dispose()

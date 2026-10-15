@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url'
 import {parsePinnedNetworkManifest} from 'tasra-sdk/chain'
 import {resolveApplicationManifest} from 'tasra-sdk/app'
 
-const base = 'https://raw.githubusercontent.com/t3-foundry/tasra-releases/main/networks/testnet/'
+const base = 'https://raw.githubusercontent.com/t3foundry/tasra-releases/main/networks/testnet/'
 type Pin = {sha256: string; manifestUrl: string}
 
 /** Fetch the pointer and its checksum-verified manifest, then save the original bytes. */

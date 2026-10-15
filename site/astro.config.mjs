@@ -16,7 +16,8 @@ export default defineConfig({
       //    inside the container and 403s the moment Nginx Proxy Manager forwards Host: <fqdn>.
       //    ⚠ The public name must match `site` above and deploy/fuji/deployment.json .service.dns;
       //      the container name must match .service.container. Nothing checks that they agree.
-      allowedHosts: ['sdk.t3-foundry.fuji.tasra.network', 'tasra-sdk-docs'],
+      //    docs.tasra.network is the second (multi-host) public name the docs are served under.
+      allowedHosts: ['sdk.t3-foundry.fuji.tasra.network', 'docs.tasra.network', 'tasra-sdk-docs'],
     },
   },
   integrations: [starlight({

@@ -24,7 +24,7 @@ shared funding key or assume an account is funded because it was created.
 
 - `rpcUrl` and the chain id of the deployment.
 - Download the selected manifest from
-  [tasra-releases](https://github.com/t3-foundry/tasra-releases), verify the trusted
+  [tasra-releases](https://github.com/t3foundry/tasra-releases), verify the trusted
   pointer checksum with `parsePinnedNetworkManifest`, and derive the address book
   with `addressBookFromManifest`. Pass `manifest.chainId` explicitly. Include the
   contracts required by the operation; `requireAddress` reports missing entries.
@@ -339,7 +339,7 @@ Then the amendment is a four-party dance, and each party is different:
 | step | who | what |
 |---|---|---|
 | `proposeRuleUpdate(slotId, newRuleCommitment)` | **admin only** | pins `ruleVersion + 1` and `notBefore = now + timelock`. One pending amendment at a time; the new hash cannot equal the current one |
-| deliver the new clear rule + its salt | operator (the admin-gated POST) | the keeper matches it against the **pending** commitment and stores it as pending — the live rule keeps serving |
+| deliver the new clear rule + its salt | `provisionRule({expect: 'pending'})`, signed by the **creator**, a creator delegate, or the **rule admin** | the keeper matches it against the **pending** commitment and stores it as pending — the live rule keeps serving |
 | `attestRuleAdoption(slotId, ruleVer, ruleCommitment)` | **each assigned keeper** | "I hold and have verified this rule". Needs `n - k + 1` of them. Keepers should attest *during* the timelock |
 | `endorseRuleUpdate(slotId)` | **guardian only**, optional | collapses `notBefore` to now — the fast path |
 | `vetoRuleUpdate(slotId)` | **guardian only**, optional | discards the proposal. A tripwire, not a wall: the admin may propose again |
@@ -350,9 +350,10 @@ until enough keepers already hold its preimage, so a slot never points at a comm
 nobody can resolve. `ruleAdoptionThreshold(slotId)` and `ruleAdoptionVotes(slotId)` read
 the progress.
 
-The SDK's write client exposes `setRulePolicy` only; send the four update calls with viem
-against `CONTRACT_ABIS.KeyRegistry`. All four are typically relayer-`public`, so an owner
-amends their own policy without gas.
+`tasra-sdk/chain` covers every step: `proposeRuleUpdate`, `endorseRuleUpdate`,
+`vetoRuleUpdate` and `activateRuleUpdate` on the write client (each refuses, before signing,
+what the contract would revert), `readRuleAmendment` for the state above, and `amendSlotRule`,
+which drives propose → deliver → adoption → endorse → activate and resumes when called again.
 
 ## `chainId` rule
 
