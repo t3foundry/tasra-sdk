@@ -172,6 +172,8 @@ export interface RequestCommitteeTokenOpts {
 
 /** Assembled compound token, committee draw and optional proofs and client signature. */
 export interface CommitteeTokenResult {
+  /** Exact sealed presentation ciphertext returned with the token. */
+  evidenceCt?: string
   /** Compound committee authorization token. */
   token: CompoundTokenWire
   /** Number of verifiers selected for the committee. */
@@ -296,6 +298,7 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
   // straddle an activation legitimately disagree, and pairing a version from one
   // with a hash from another would describe a state that never existed.
   let ruleVersion: number | undefined
+  let evidenceCt: string | undefined
   // A per-verifier proof function is resolved inside the gather, against each verifier's
   // own URL; a string is the legacy single proof (fine when holder binding is off).
   const byIndex = new Map(opts.verifiers.map(v => [v.index, v]))
@@ -307,6 +310,7 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
     verifiers: opts.verifiers.map(v => ({index: v.index, url: v.url, ...(v.pubkey ? {pubkey: v.pubkey} : {})})),
     quorum,
     holderProofFor,
+    onEvidence: ct => { evidenceCt = ct },
     onReplies: (_all, reference) => {
       ruleVersion = reference.ruleVersion
     },
@@ -329,7 +333,7 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
   const signerIndexes = token.signatures.map(s => s.verifier_index)
   const verifierProofs = buildVerifierProofs(opts.verifiers, registrySize, signerIndexes, snapshotRoot)
 
-  return {token, committee, quorum, registrySize, seed, epoch, verifierProofs, ruleVersion}
+  return {token, committee, quorum, registrySize, seed, epoch, verifierProofs, ruleVersion, ...(evidenceCt !== undefined ? {evidenceCt} : {})}
 }
 
 /** Operation-specific fields for {@link committeeSignRequest} (everything `committeeSign` needs
@@ -355,10 +359,11 @@ export interface CommitteeSignRequestOpts extends RequestCommitteeTokenOpts {
  * @param opts - Token request settings, keeper endpoint and message to sign.
  */
 export async function committeeSignRequest(opts: CommitteeSignRequestOpts): Promise<FrostSignResult> {
-  const {token, verifierProofs} = await requestCommitteeToken(opts)
+  const {token, verifierProofs, evidenceCt} = await requestCommitteeToken(opts)
   const signOpts: CommitteeSignOpts = {
     nodeUrl: opts.nodeUrl,
     committeeToken: token,
+    evidenceCt,
     message: opts.message,
     signingSet: opts.signingSet,
     userSignature: opts.userSignature,
@@ -397,10 +402,11 @@ export interface CommitteeDecryptRequestOpts extends RequestCommitteeTokenOpts {
  * @param opts - Token request settings, keeper endpoint, ciphertext and associated data.
  */
 export async function committeeDecryptRequest(opts: CommitteeDecryptRequestOpts): Promise<Uint8Array> {
-  const {token, verifierProofs} = await requestCommitteeToken(opts)
+  const {token, verifierProofs, evidenceCt} = await requestCommitteeToken(opts)
   const decOpts: CommitteeDecryptOpts = {
     nodeUrl: opts.nodeUrl,
     committeeToken: token,
+    evidenceCt,
     ciphertext: opts.ciphertext,
     identity: opts.identity,
     decryptingSet: opts.decryptingSet,
@@ -486,13 +492,14 @@ export async function ibeDecryptRequest(
 
 async function gatherIbePartials(opts: IbeExtractRequestOpts) {
   opts.signal?.throwIfAborted()
-  const {token, verifierProofs} = await requestCommitteeToken({
+  const {token, verifierProofs, evidenceCt} = await requestCommitteeToken({
     ...opts,
     scopedIdentity: opts.identity,
   })
   const partials = await requestIbeExtractionPartials({
     nodeUrls: opts.nodeUrls,
     committeeToken: token,
+    evidenceCt,
     identity: opts.identity,
     userSignature: opts.userSignature,
     ciphertextEpoch: opts.ciphertextEpoch,

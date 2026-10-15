@@ -139,3 +139,4 @@ export {paidExecutionRequest, paidExecutionReportSigningHash, verifyPaidExecutio
 export type {PaidExecutionRequest, CompletedPaidExecutionReport, SignedPaidExecutionReport, ExecutionRecoveryAuthorization,
   ExecutionRecoveryTarget, RecoveredExecutionReply} from './recovery.js'
 export type {KeeperExecutionKind,KeeperExecutionApprovalRequest,KeeperExecutionApprovals,KeeperExecutionApprover} from './keeperExecution.js'
+export type {EvidenceBindingWire} from './evidence.js'

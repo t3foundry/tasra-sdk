@@ -1,3 +1,4 @@
+import {evidenceBody} from '../committee/evidence.js'
 // The RELYING PARTY half against the Verifier Agent: the app that wants an authorization
 // signs the operation tuple with the slot creator's EVM key (EIP-712 `PresentationOperation`),
 // opens a session, hands the `openid4vp://` payload to a wallet as a QR or deep link, and later
@@ -158,6 +159,8 @@ export async function openVerifierAgentSession(opts: OpenVerifierAgentSessionOpt
 
 /** Compound committee token with optional request preimage and verifier membership proofs. */
 export interface VerifierAgentResult {
+  /** Sealed presentation ciphertext to retain and forward unchanged to keepers. */
+  evidenceCt?: string
   /** Compound committee authorization token. */
   token: CompoundTokenWire
   /** Operation context used to derive the request-binding hash. */
@@ -215,6 +218,8 @@ export async function awaitVerifierAgentResult(session: Pick<OpenedVerifierAgent
 export function verifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'sessionId' | 'requestHash' | 'paymentHash'>, r: SessionStatusResult): VerifierAgentResult {
   if (r.status !== 'done' || !r.compoundToken) throw new VerifierAgentSessionError('refused', session.sessionId, `presentation ${r.status}: ${r.error ?? 'no token'}`)
   const token = assertCompoundTokenWire(r.compoundToken, session.sessionId) as unknown as CompoundTokenWire
+  try { evidenceBody(token, r.evidenceCt) }
+  catch { throw new VerifierAgentSessionError('protocol', session.sessionId, 'the token lacks its bound sealed evidence') }
   const rh = (token as unknown as {request_hash?: string}).request_hash
   if (!rh || rh.replace(/^0x/, '').toLowerCase() !== bytesToHex(session.requestHash).replace(/^0x/, '').toLowerCase()) {
     throw new VerifierAgentSessionError('protocol', session.sessionId, 'the token does not bind the request this session opened')
@@ -230,5 +235,5 @@ export function verifierAgentResult(session: Pick<OpenedVerifierAgentSession, 's
   } catch (e) {
     throw new VerifierAgentSessionError('protocol', session.sessionId, e instanceof Error ? e.message : String(e))
   }
-  return {token, bindingPreimage: r.bindingPreimage, verifierProofs}
+  return {token, bindingPreimage: r.bindingPreimage, verifierProofs, ...(r.evidenceCt !== undefined ? {evidenceCt: r.evidenceCt} : {})}
 }

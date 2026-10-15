@@ -235,6 +235,7 @@ export function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): Commi
       return committeeSign({
         nodeUrl,
         committeeToken: res.token,
+        evidenceCt: res.evidenceCt,
         message,
         signingSet: opts?.signingSet,
         userSignature: opts?.userSignature,
@@ -259,6 +260,7 @@ export function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): Commi
       return committeeDecrypt({
         nodeUrl,
         committeeToken: res.token,
+        evidenceCt: res.evidenceCt,
         ciphertext: opts.ciphertext,
         identity: opts.identity,
         decryptingSet: opts.decryptingSet,

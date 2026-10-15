@@ -1,3 +1,4 @@
+import {evidenceBody} from './evidence.js'
 import {hexToBytes, bytesToHex} from '../crypto/hex.js'
 import {httpError} from '../errors.js'
 import type {EoaSignature} from '../signing/ecdsa.js'
@@ -8,6 +9,8 @@ import {withNetworkDeadline} from '../internal/network.js'
 
 /** Compound authorization, keeper endpoint and digest for threshold ECDSA signing. */
 export interface CommitteeEoaSignOpts {
+  /** Exact sealed presentation ciphertext returned with this authorization. */
+  evidenceCt?: string
   /** Required for a paid token: locally verify and approve the complete keeper body. */
   approveExecution?:KeeperExecutionApprover
   /** HTTP transport override; defaults to the global fetch implementation. */
@@ -54,6 +57,7 @@ async function signWithinDeadline(opts: CommitteeEoaSignOpts): Promise<EoaSignat
   const bare = (hex: string) => hex.replace(/^0x/, '')
   const unsignedBody = {
     committee_token: opts.committeeToken,
+    ...evidenceBody(opts.committeeToken, opts.evidenceCt),
     digest: bare(bytesToHex(opts.digest)),
     ...(opts.verifierProofs ? {verifier_proofs: opts.verifierProofs.map(p => ({
       verifier_index: p.verifierIndex, operator: bare(p.operator), pubkey: bare(p.pubkey), proof: p.proof.map(bare),

@@ -1,3 +1,5 @@
+import {ed25519} from '@noble/curves/ed25519'
+import {evidenceBindingMessage, evidenceBody} from './evidence.js'
 // Committee-mode HTTP orchestration - the glue around the pure token
 // crypto in ./committee.ts. Three pieces:
 // - committeeAuthorize() - POST a VP to ONE verifier's /v1/committee-authorize,
@@ -142,6 +144,8 @@ export interface RequestBindingPreimage {
 
 /** Verifier signature, token hashes and committee metadata for an authorization request. */
 export interface CommitteeAuthorizeReply {
+  /** Complete sealed evidence returned and independently signed by this verifier. */
+  sealedEvidence?: {hash: string; keyId: string; signature: string; ciphertext: string}
   /** Zero-based verifier registry index. */
   verifierIndex: number
   /** 32-byte compound token hash. */
@@ -271,6 +275,10 @@ export async function committeeAuthorize(
     )
   }
   const d = (await res.json()) as {
+    evidence_hash?: string | null
+    evidence_key_id?: string | null
+    evidence_sig?: string | null
+    evidence_ct?: string | null
     verifier_index: number
     token_hash: string
     vp_hash: string
@@ -290,9 +298,17 @@ export async function committeeAuthorize(
     status_until?: number | null
     status_signature?: string | null
   }
+  let sealedEvidence: CommitteeAuthorizeReply['sealedEvidence']
+  if ([d.evidence_hash, d.evidence_key_id, d.evidence_sig, d.evidence_ct].some(v => v != null)) {
+    const token = {verifier_indexes: d.committee_indexes, evidence_hash: d.evidence_hash ?? undefined, evidence_key_id: d.evidence_key_id ?? undefined,
+      evidence_signatures: [{verifier_index: d.verifier_index, signature: d.evidence_sig!}]}
+    evidenceBody(token, d.evidence_ct ?? undefined)
+    sealedEvidence = {hash: d.evidence_hash!, keyId: d.evidence_key_id!, signature: d.evidence_sig!, ciphertext: d.evidence_ct!}
+  }
   const expectedPayment = body.payment ? paymentIntentHash(body.payment) : undefined
   if ((d.payment_hash ?? undefined)?.toLowerCase() !== expectedPayment?.toLowerCase()) throw new Error('verifier changed or omitted the payment commitment')
   return {
+    ...(sealedEvidence ? {sealedEvidence} : {}),
     ...(expectedPayment ? {paymentHash: hexToBytes(expectedPayment)} : {}),
     verifierIndex: Number(d.verifier_index),
     tokenHash: hexToBytes(d.token_hash),
@@ -322,6 +338,8 @@ function statusAttestationField(until: unknown, signature: unknown): {statusAtte
 
 /** Verifier requests and quorum configuration for assembling a compound token. */
 export interface GatherCommitteeTokenOpts {
+  /** Required for sealed replies: retain this ciphertext beside the returned token. */
+  onEvidence?: (ciphertext: string) => void
   /** Candidate verifiers to ask (index to base URL). Asking the whole registry is
    *  fine - non-drawn verifiers reply 403 and are skipped. */
   verifiers: Array<{index: number; url: string; pubkey?: string | Uint8Array}>
@@ -361,11 +379,17 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
         const pubkey = typeof v.pubkey === 'string' ? hexToBytes(v.pubkey) : v.pubkey
         if (!pubkey) {
           const {statusAttestation: _dropped, ...rest} = reply
+          if (reply.sealedEvidence) throw new Error('Sealed evidence requires the verifier public key')
           return rest
         }
         if (reply.verifierIndex !== v.index || !verifyStatusAttestation(pubkey, reply.tokenHash, {verifierIndex: reply.verifierIndex, ...reply.statusAttestation})) {
           throw new Error(`verifier #${v.index} status attestation does not verify`)
         }
+      }
+      if (reply.sealedEvidence) {
+        const key = typeof v.pubkey === 'string' ? hexToBytes(v.pubkey) : v.pubkey
+        const e = reply.sealedEvidence
+        if (!key || reply.verifierIndex !== v.index || !ed25519.verify(hexToBytes(e.signature), evidenceBindingMessage(reply.tokenHash, hexToBytes(e.hash), hexToBytes(e.keyId)), key, {zip215: false})) throw new Error('Verifier sealed evidence signature does not verify')
       }
       return reply
     }),
@@ -392,6 +416,9 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
   }
 
   const ref = replies[0]!
+  const sealed = ref.sealedEvidence
+  if (replies.some(r => Boolean(r.sealedEvidence) !== Boolean(sealed) || sealed && (r.sealedEvidence!.ciphertext !== sealed.ciphertext || r.sealedEvidence!.hash.toLowerCase() !== sealed.hash.toLowerCase() || r.sealedEvidence!.keyId.toLowerCase() !== sealed.keyId.toLowerCase()))) throw new Error('Verifier sealed evidence replies disagree')
+  if (sealed && !opts.onEvidence) throw new Error('Sealed authorization requires onEvidence to retain its ciphertext')
   opts.onReplies?.(replies, ref)
   const committeeIndexes = ref.committeeIndexes
   const inCommittee = new Set(committeeIndexes)
@@ -451,13 +478,22 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
       attestations.push({verifierIndex: r.verifierIndex, ...r.statusAttestation})
     }
   }
-  return assembleCompoundToken(payload, [...sigByIndex.values()], attestations.length >= opts.quorum ? attestations : undefined)
+  const token = assembleCompoundToken(payload, [...sigByIndex.values()], attestations.length >= opts.quorum ? attestations : undefined)
+  if (sealed) {
+    token.evidence_hash = sealed.hash; token.evidence_key_id = sealed.keyId
+    token.evidence_signatures = [...new Map(replies.filter(r => inCommittee.has(r.verifierIndex)).map(r => [r.verifierIndex, {verifier_index: r.verifierIndex, signature: r.sealedEvidence!.signature}])).values()]
+    evidenceBody(token, sealed.ciphertext)
+    opts.onEvidence!(sealed.ciphertext)
+  }
+  return token
 }
 
 // keeper: POST /v1/committee/{sign,decrypt} (token in body, no auth header)
 
 /** Committee-authorized FROST signing request and optional verifier membership proofs. */
 export interface CommitteeSignOpts {
+  /** Exact sealed presentation ciphertext returned with this authorization. */
+  evidenceCt?: string
   /** Required for a paid token: client-only exact-body stage approval capability. */
   approveExecution?: KeeperExecutionApprover
   /** Optional signal that cancels the request. */
@@ -495,6 +531,7 @@ async function signWithinDeadline(opts: CommitteeSignOpts): Promise<FrostSignRes
   opts={...opts,committeeToken:structuredClone(opts.committeeToken)}
   let body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
+    ...evidenceBody(opts.committeeToken, opts.evidenceCt),
     message_hex: bareHex(opts.message),
   }
   if (opts.signingSet) body.signing_set = opts.signingSet
@@ -536,6 +573,8 @@ async function signWithinDeadline(opts: CommitteeSignOpts): Promise<FrostSignRes
 
 /** Committee-authorized group decryption request and optional verifier membership proofs. */
 export interface CommitteeDecryptOpts {
+  /** Exact sealed presentation ciphertext returned with this authorization. */
+  evidenceCt?: string
   /** Required for a paid token: client-only exact-body stage approval capability. */
   approveExecution?: KeeperExecutionApprover
   /** Caller cancellation for canonical approval and keeper work. */
@@ -579,6 +618,7 @@ async function decryptWithinDeadline(opts: CommitteeDecryptOpts): Promise<Uint8A
   opts={...opts,committeeToken:structuredClone(opts.committeeToken)}
   let body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
+    ...evidenceBody(opts.committeeToken, opts.evidenceCt),
     ciphertext: ctToWire(opts.ciphertext),
     identity: new TextDecoder().decode(opts.identity),
     decrypting_set: opts.decryptingSet,
@@ -626,6 +666,8 @@ export interface IbeExtractionPartial {
 
 /** Committee authorization and keeper endpoints for extracting shares of one IBE identity key. */
 export interface IbeExtractOpts {
+  /** Exact sealed presentation ciphertext returned with this authorization. */
+  evidenceCt?: string
   /** Stop after this many distinct, pairing-verified shares. Without this option,
    * collect every successful reply. The low-level check uses returned verifying
    * shares; use extractIdentityStrict for independently pinned keeper provenance. */
@@ -657,6 +699,7 @@ export interface IbeExtractOpts {
 async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<IbeExtractionPartial> {
   let body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
+    ...evidenceBody(opts.committeeToken, opts.evidenceCt),
     identity: opts.identity,
   }
   if (opts.userSignature) body.user_signature = bareHex(opts.userSignature)

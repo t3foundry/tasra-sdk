@@ -13,6 +13,7 @@
 import {keccak_256} from '@noble/hashes/sha3'
 import {concatBytes} from '@noble/hashes/utils'
 import {ed25519} from '@noble/curves/ed25519'
+import type {EvidenceBindingWire} from './evidence.js'
 
 import {bytesToHex, hexToBytes} from '../crypto/hex.js'
 import {RevocationStatusPreflightError} from '../errors.js'
@@ -437,7 +438,7 @@ export interface CommitteeSignatureWire {
 }
 
 /** The compound token JSON a client submits with `/v1/committee/{sign,decrypt}`. */
-export interface CompoundTokenWire {
+export interface CompoundTokenWire extends EvidenceBindingWire {
   /** Compound authorization token category. */
   token_type: TokenType
   /** Hexadecimal beacon seed. */

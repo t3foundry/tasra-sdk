@@ -1,3 +1,4 @@
+import {assertEvidenceBinding, evidenceBody} from '../committee/evidence.js'
 // Verifier Agent client - creates OID4VP sessions on the platform verifier-agent and
 // polls for the compound token result.
 //
@@ -103,6 +104,8 @@ export type SessionPhase = 'awaiting_wallet' | 'verifying' | 'done' | 'failed'
 
 /** Authorization session progress and optional committee result or failure detail. */
 export interface SessionStatusResult {
+  /** Sealed presentation ciphertext, retained unchanged alongside the token. */
+  evidenceCt?: string
   /** Pending, completed or failed authorization state. */
   status: 'pending' | 'done' | 'failed'
   /** Displayable progress within the authorization lifecycle. */
@@ -172,7 +175,7 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
   const t = {...raw as Record<string, unknown>}
   // Reference-side optional fields are serialized as null for non-IBE operations. Normalize
   // absence before consumers decode the token; never replace it with a zero hash.
-  for (const key of ['identity_hash', 'request_hash', 'payment_hash', 'payment', 'status_attestations'] as const) if (t[key] === null) delete t[key]
+  for (const key of ['identity_hash', 'request_hash', 'payment_hash', 'payment', 'status_attestations', 'evidence_hash', 'evidence_key_id', 'evidence_signatures'] as const) if (t[key] === null) delete t[key]
   for (const k of ['seed', 'slot_id', 'vp_hash', 'holder_hash', 'rule_hash'] as const) {
     if (typeof t[k] !== 'string' || !HEX32.test(t[k] as string)) bad(`${k} is not a 32-byte hex string`)
   }
@@ -205,6 +208,8 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
       t.status_attestations = assertStatusAttestationsWire(t.status_attestations, (t.verifier_indexes as number[]).length)
     } catch (e) { bad(e instanceof Error ? e.message : String(e)) }
   }
+  try { assertEvidenceBinding(t as unknown as Parameters<typeof assertEvidenceBinding>[0]) }
+  catch { bad('invalid sealed evidence binding') }
   return t
 }
 
@@ -431,7 +436,13 @@ export function parseVerifierAgentSessionStatus(data: Record<string, unknown>, s
   if (status === 'done') data.compound_token = assertCompoundTokenWire(data.compound_token, sessionId)
   // Absent optional fields arrive as JSON `null` from the verifier-agent (serde `Option`): null = absent.
   if (data.error != null && typeof data.error !== 'string') throw new VerifierAgentSessionError('protocol', sessionId, 'poll: error is not a string')
+  let evidenceCt: string | undefined
+  try {
+    if (data.compound_token != null) evidenceCt = evidenceBody(assertCompoundTokenWire(data.compound_token, sessionId) as unknown as Parameters<typeof evidenceBody>[0], data.evidence_ct == null ? undefined : data.evidence_ct as string).evidence_ct
+    else if (data.evidence_ct != null) throw new Error('ciphertext without a token')
+  } catch { throw new VerifierAgentSessionError('protocol', sessionId, 'poll: invalid sealed evidence') }
   return {
+    ...(evidenceCt !== undefined ? {evidenceCt} : {}),
     status,
     phase,
     compoundToken: (data.compound_token ?? undefined) as Record<string, unknown> | undefined,

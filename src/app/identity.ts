@@ -409,6 +409,6 @@ export function credentialAuthorization(options: CredentialAuthorizationOptions)
     request.signal?.throwIfAborted()
     const result = await awaitVerifierAgentResult(session, {signal: request.signal, timeoutMs: options.timeoutMs, onPhase: options.onPhase})
     if (!result.verifierProofs?.length) throw new Error('Authorization did not include verifier membership proofs')
-    return {token: result.token, verifierProofs: result.verifierProofs}
+    return {token: result.token, verifierProofs: result.verifierProofs, ...(result.evidenceCt !== undefined ? {evidenceCt: result.evidenceCt} : {})}
   }
 }

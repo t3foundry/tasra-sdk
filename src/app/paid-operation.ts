@@ -1,3 +1,4 @@
+import {verifyEvidenceBinding} from '../committee/evidence.js'
 // One paid committee operation, end to end, from the client side.
 //
 //   billing guard → canonical discovery → creator-signed operation and payment intent →
@@ -115,6 +116,8 @@ export interface PaidOperationRequest {
 
 /** A verified, paid committee authorization for exactly one keeper execution. */
 export interface PaidOperation {
+  /** Exact sealed presentation ciphertext persisted with the original grant. */
+  readonly evidenceCt?: string
   /** Reservation identity (`prepaid-request/v1`), the key for resume and recovery. */
   readonly requestId: Hex
   /** Original creator-signed payment intent. */
@@ -322,7 +325,7 @@ interface OperationRecord {
   certificate?: ExecutionCertificate
   pollSecret?: string
   /** `sessionId` is absent from journals written before status refresh existed (relay unavailable for them). */
-  grant?: {compound_token: CompoundTokenWire; verifierProofs: VerifierProof[]; sessionId?: string}
+  grant?: {compound_token: CompoundTokenWire; verifierProofs: VerifierProof[]; sessionId?: string; evidenceCt?: string}
   /** Status refresh history (absent until the first refresh). */
   statusRefresh?: StatusRefreshJournal
 }
@@ -585,7 +588,7 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
       const grant = verifierAgentResult({sessionId: session.sessionId, paymentHash: paymentIntentHash(record.payment),
         requestHash: requestHash(d.chainId, hexToBytes(record.payment.slot), record.action, hexToBytes(record.payloadDigest))}, result)
       if (!grant.verifierProofs?.length) throw new TasraError('Paid grant lacks anchored verifier proofs')
-      record = await advance(store, requestId, 'certified', {phase: 'authorized', grant: {compound_token: grant.token, verifierProofs: grant.verifierProofs, sessionId: session.sessionId}})
+      record = await advance(store, requestId, 'certified', {phase: 'authorized', grant: {compound_token: grant.token, verifierProofs: grant.verifierProofs, sessionId: session.sessionId, ...(grant.evidenceCt !== undefined ? {evidenceCt: grant.evidenceCt} : {})}})
     }
     return handle(config, record, signer)
   } catch (error) { signer.dispose(); throw error }
@@ -605,6 +608,7 @@ function handle(config: PaidOperationConfig, record: OperationRecord, signer: Re
   const operation: PaidOperation = {
     requestId, payment: structuredClone(record.payment), coordinatorUrl: route(record.coordinator.url),
     get compound_token() { return structuredClone(current) },
+    get evidenceCt() { return grant.evidenceCt },
     verifierProofs: structuredClone(grant.verifierProofs),
     verifier_proofs: grant.verifierProofs.map(p => ({verifier_index: p.verifierIndex, operator: p.operator, pubkey: p.pubkey, proof: [...p.proof]})),
     approveExecution,
@@ -621,7 +625,10 @@ function handle(config: PaidOperationConfig, record: OperationRecord, signer: Re
       // a refusal sends nothing and leaves the journal `authorized`. After the send, a keeper's
       // refusal stays an uncertain execution like any other. Refreshing is explicit
       // (`refreshStatus`), never automatic.
-      try { statusPreflight(config, record, current) }
+      try {
+        verifyEvidenceBinding(current, grant.evidenceCt, compoundTokenHash(decodeCompoundToken(current)), new Map(record.members.map(m => [m.index, hexToBytes(m.publicKey)])), record.payment.verification_quorum)
+        statusPreflight(config, record, current)
+      }
       catch (error) {
         if (error instanceof RevocationStatusPreflightError) throw statusRefusal(requestId, error)
         throw error

@@ -37,6 +37,8 @@ export class TasraApplicationError extends TasraError {
  * Holder-bound committee token and verifier membership proofs for one operation.
  */
 export interface OperationGrant {
+  /** Exact sealed presentation ciphertext for this grant. */
+  evidenceCt?: string
   /** Fresh compound verifier token bound to the holder and exact operation. */
   token: CompoundTokenWire
   /** Membership proofs for the verifiers that authorized the operation. */
@@ -287,7 +289,7 @@ export function createTasra(config: TasraApplicationConfig) {
             const digest = input.slice(), s = await ready(slotId, 2)
             const grant = await authorize(s, 'sign', {message: digest}, options), node = grant.paidTarget ? paidNode(grant.paidTarget) : (await keepers(slotId, options.signal))[0]!
             options.signal?.throwIfAborted()
-            const result = await committeeSignEoaDigest({nodeUrl: node.nodeUrl, committeeToken: grant.token, verifierProofs: grant.verifierProofs,
+            const result = await committeeSignEoaDigest({nodeUrl: node.nodeUrl, committeeToken: grant.token, evidenceCt: grant.evidenceCt, verifierProofs: grant.verifierProofs,
               digest, userSignature: options.userSignature, targetKeykeeper: node.operator, signal: options.signal, fetchImpl,approveExecution:grant.approveExecution})
             const publicKey = protocolHex(s.publicKey, 33, 'secp256k1 public key')
             const recovered = await recoverAddress({hash: toHex(digest), signature: {r: toHex(result.r), s: toHex(result.s), yParity: result.yParity}})
@@ -314,7 +316,7 @@ export function createTasra(config: TasraApplicationConfig) {
             const message = input.slice(), s = await ready(slotId, 0)
             const grant = await authorize(s, 'sign', {message}, options), node = grant.paidTarget ? paidNode(grant.paidTarget) : (await keepers(slotId, options.signal))[0]!
             options.signal?.throwIfAborted()
-            const result = await committeeSign({nodeUrl: node.nodeUrl, committeeToken: grant.token, message, verifierProofs: grant.verifierProofs,
+            const result = await committeeSign({nodeUrl: node.nodeUrl, committeeToken: grant.token, evidenceCt: grant.evidenceCt, message, verifierProofs: grant.verifierProofs,
               targetKeykeeper: node.operator, userSignature: options.userSignature, signal: options.signal, fetchImpl,approveExecution:grant.approveExecution})
             const publicKey = protocolHex(s.publicKey, 32, 'FROST public key')
             if (!equalBytes(result.groupPublicKey, publicKey) || !equalBytes(result.messageSha256, sha256(message)) || result.epoch !== s.epoch ||
@@ -364,7 +366,7 @@ export function createTasra(config: TasraApplicationConfig) {
         const extraction = async (identity: string, options: IdentityExtractionOptions) => {
           const s = await ready(slotId, 1), grant = await authorize(s, 'ibe-extract', {identity}, options)
           const opts: StrictExtractionOptions = {chainId: deployment.chainId, slotId, threshold: s.threshold.k, epoch: s.epoch,
-            groupPublicKey: groupKey(s), keepers: grant.paidTarget ? grant.paidTarget.contributors.map(paidNode) : await keepers(slotId, options.signal), shareTrust: 'anchored-group', committeeToken: grant.token,
+            groupPublicKey: groupKey(s), keepers: grant.paidTarget ? grant.paidTarget.contributors.map(paidNode) : await keepers(slotId, options.signal), shareTrust: 'anchored-group', committeeToken: grant.token, evidenceCt: grant.evidenceCt,
             verifierProofs: grant.verifierProofs, identity, userSignature: options.userSignature, signal: options.signal, fetchImpl, requireReceipts: options.requireReceipts,approveExecution:grant.approveExecution, timeoutMs: options.timeoutMs}
           return opts
         }

@@ -1,3 +1,4 @@
+import {verifyEvidenceBinding} from '../committee/evidence.js'
 import {sha256} from '@noble/hashes/sha256'
 import {concatBytes} from '@noble/hashes/utils'
 import {p256} from '@noble/curves/p256'
@@ -543,6 +544,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
         || (identity===null?token.identityHash!==undefined:!token.identityHash||toHex(token.identityHash)!==keccak256(toHex(identity)))) throw new Error('Paid committee result changed its original operation, holder binding or payment')
       const set={registrySize:payment.verification_registry_size,pubkeys:new Map(members.map(m=>[m.index,protocolHex(m.publicKey,32,'key')]))},now=Math.floor(Date.now()/1000)
       const verified=verifyCompoundToken({token,set,committee:payment.verification_committee,quorum:payment.verification_quorum,now,leeway:0,slotRuleHash:ruleHash})
+      verifyEvidenceBinding(status.compoundToken as unknown as CompoundTokenWire, status.evidenceCt, compoundTokenHash(token), set.pubkeys, payment.verification_quorum)
       // Paid preflight: revocation-status attestations sit outside the token hash and are
       // REQUIRED, checked exactly as a keeper will (same keys, counted signers and quorum), so a
       // grant every keeper would refuse never reaches one. Missing (absent, null or empty) is

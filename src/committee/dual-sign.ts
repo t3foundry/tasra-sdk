@@ -1,3 +1,4 @@
+import {evidenceBody} from './evidence.js'
 import {equalBytes} from '@noble/curves/utils.js'
 import {ed25519} from '@noble/curves/ed25519'
 import {sha256} from '@noble/hashes/sha256'
@@ -142,7 +143,7 @@ export interface DualSignRequest {
   approve(options: {
     signer: DualSignApprover
     /** Each credentialed approval needs its own request-bound wallet presentation. */
-    authorization?: {token: CompoundTokenWire; verifierProofs: VerifierProof[]}
+    authorization?: {token: CompoundTokenWire; verifierProofs: VerifierProof[]; evidenceCt?: string}
     signal?: AbortSignal
   }): Promise<DualSignStatus>
   /** Poll until a verified signature is available or the request fails or times out. */
@@ -266,7 +267,7 @@ export function createDualSignClient(input: DualSignConfig): {
         options.signal?.throwIfAborted()
         if (publicKey.length !== 32 || signature.length !== 64 || !ed25519.verify(signature, payload, publicKey, {zip215: false})) throw new TasraError('Invalid local approval signature')
         const d = await http(path + '/approve', options.signal, {approver_pubkey: bytesToHex(publicKey), signature: bytesToHex(signature),
-          ...(grant ? {committee_token: grant.token, verifier_proofs: grant.verifierProofs.map(p => ({verifier_index: p.verifierIndex,
+          ...(grant ? {...evidenceBody(grant.token, grant.evidenceCt), committee_token: grant.token, verifier_proofs: grant.verifierProofs.map(p => ({verifier_index: p.verifierIndex,
             operator: p.operator.replace(/^0x/, ''), pubkey: p.pubkey.replace(/^0x/, ''), proof: p.proof.map(x => x.replace(/^0x/, ''))}))} : {})}, requestId)
         try {
           const count = counts(d)

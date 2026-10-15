@@ -117,7 +117,7 @@ declare class KeeperRecoveryError {
 
 HTTP refusal or consent/recovery wait, with no credential-bearing response text.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L105)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L106)
 
 Import: `import {PaidAgentControlError} from 'tasra-sdk/chain'`
 
@@ -1789,7 +1789,7 @@ Authenticate one approved provider and prepare complete client-signed initializa
 This function reserves nothing, sends no session POST and keeps the execution signer local.
 The caller must retain the returned object through uncertain creation/delivery outcomes.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L260)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L261)
 
 Import: `import {prepareRegisteredPaidSession} from 'tasra-sdk/chain'`
 
@@ -3153,7 +3153,7 @@ Fields:
 
 Complete presentation explicitly accepted by the client before verifier work.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L73)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L74)
 
 ```ts
 export interface ClientApprovedPresentation {
@@ -4026,7 +4026,7 @@ Fields:
 
 Owner proposal, including its transport correlation identity.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L99)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L100)
 
 ```ts
 export interface PaidAgentProposal extends ExecutionProposal {
@@ -4046,7 +4046,7 @@ Fields:
 
 Client-built original operation and reserved intent. No provider fallback is permitted.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L63)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L64)
 
 ```ts
 export interface PaidAgentSessionParams extends CreateSessionParams {
@@ -4097,7 +4097,7 @@ Fields:
 
 Outcome of one send of a retained approval. Any other answer throws [PaidAgentControlError](#paidagentcontrolerror).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L53)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L54)
 
 ```ts
 export interface PaidApprovalDelivery {
@@ -4304,7 +4304,7 @@ Pacing of a paid session's definite 429/503 refusals. Repeatable reads (proposal
 Object, presentations, session poll, approval state) and the continuation POST (429 only) are
 repeated inside the session's signed expiry; nothing else is.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L32)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L33)
 
 ```ts
 export interface PaidPacingOptions {
@@ -4455,7 +4455,7 @@ Fields:
 
 Retained callback is untrusted until the application accepts its complete presentation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L87)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L88)
 
 ```ts
 export interface PaidRetainedPresentation {
@@ -5073,7 +5073,7 @@ Fields:
 
 Prepared client-owned session; creation sends once, reconciliation only reads.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L117)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L118)
 
 ```ts
 export interface RegisteredPaidAgentSession {
@@ -5541,7 +5541,7 @@ Fields:
 
 A signed approval retained BEFORE its first send; every send uses exactly `body`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L43)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L44)
 
 ```ts
 export interface RetainedPaidApproval {

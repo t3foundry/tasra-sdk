@@ -26,6 +26,6 @@ export function registeredWalletAuthorization(config: {
     request.signal?.throwIfAborted()
     const result = await awaitRegisteredVerifierAgentResult(session, {signal: request.signal, onPhase, timeoutMs})
     if (!result.verifierProofs?.length) throw new Error('Authorization did not include verifier membership proofs')
-    return {token: result.token, verifierProofs: result.verifierProofs}
+    return {token: result.token, verifierProofs: result.verifierProofs, ...(result.evidenceCt !== undefined ? {evidenceCt: result.evidenceCt} : {})}
   }
 }
