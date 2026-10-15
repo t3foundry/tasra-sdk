@@ -191,7 +191,7 @@ function newJob(name: string): Job {
   mkdirSync(dir, {mode: 0o700})
   // 'wx': each record is written once and never replaced.
   const write = (file: string, value: unknown) => writeFileSync(join(dir, file),
-    typeof value === 'string' ? value : JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v, 2),
+    typeof value === 'string' ? value : JSON.stringify(value, (_, v: unknown) => typeof v === 'bigint' ? v.toString() : v, 2),
     {flag: 'wx', mode: 0o600})
   return {dir, write, mark: file => write(file, new Date().toISOString() + '\n')}
 }
