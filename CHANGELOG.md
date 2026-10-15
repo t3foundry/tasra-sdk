@@ -67,6 +67,9 @@ never does.
 
 ### Fixed
 
+- The docs site resolves `http-cache-semantics` 4.3.0, which fixes GHSA-ch52-4w7c-c8xp; its
+  dated audit exception is removed.
+
 - Paid sessions confirm callback HTTP 400 and 409 refusals through an authenticated
   read of the original session. Expired credentials now produce the terminal session
   refusal type; unrelated HTTP errors stay errors, and no paid write is repeated.
