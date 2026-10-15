@@ -529,12 +529,20 @@ export interface VerifyEvidenceBindingOptions {
  *
  * @param opts - Token and evidence hashes, the signatures, the verifier set, the drawn committee and the quorum.
  */
+const isU32 = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0 && (n as number) <= 0xffff_ffff
+
 export function verifyEvidenceBinding(opts: VerifyEvidenceBindingOptions): number[] {
   const {tokenHash, evidenceHash, evidenceKeyId, signatures, set, drawn, quorum} = opts
-  if (quorum === 0) throw new Error('evidence binding: quorum must be positive')
+  // Rust takes `quorum: u32` and `u32` indexes; a JS number does not, so the bounds are checked
+  // here. A negative or NaN quorum would otherwise be met by zero signatures.
+  if (!isU32(quorum) || quorum === 0) throw new Error('evidence binding: quorum must be a positive 32-bit integer')
+  if (!Array.isArray(drawn) || !drawn.every(isU32)) throw new Error('evidence binding: drawn committee must be 32-bit indexes')
+  if (!Array.isArray(signatures)) throw new Error('evidence binding: signatures must be a list')
   const msg = evidenceBindingMessage(tokenHash, evidenceHash, evidenceKeyId)
   const verified: number[] = []
   for (const {verifierIndex, signature} of signatures) {
+    if (!isU32(verifierIndex)) throw new Error('evidence binding: verifier index must be a 32-bit integer')
+    if (!(signature instanceof Uint8Array) || signature.length !== 64) throw new Error(`evidence binding: signature from verifier index ${verifierIndex} must be 64 bytes`)
     if (!drawn.includes(verifierIndex)) throw new Error(`evidence binding: index ${verifierIndex} is not in the drawn committee`)
     const pk = set.pubkeys.get(verifierIndex)
     if (!pk) throw new Error(`evidence binding: index ${verifierIndex} is not in the verifier set`)
