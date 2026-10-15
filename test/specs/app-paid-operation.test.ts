@@ -2,7 +2,7 @@
 // which steps are never repeated, and how resume continues. Protocol crypto, RPC canonicality,
 // reservation and session bodies have their own suites; here they are replaced by spies.
 import {beforeEach, describe, expect, it, vi} from 'vitest'
-import {defineChain, hexToBytes, toHex, type Address, type Hex} from 'viem'
+import {defineChain, hexToBytes, keccak256, toHex, type Address, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {ed25519} from '@noble/curves/ed25519'
 
@@ -119,6 +119,21 @@ function reservation(state: ApplicationReservationStatus['state'], payerLocked =
 }
 
 describe('paidOperation', () => {
+  it('preserves supplied rule bytes for the verifier token hash across journal and resume', async () => {
+    const f = setup()
+    const raw = JSON.stringify(JSON.parse(rule), null, 2) + '\n'
+    expect(ruleCommitment(salt, raw)).toBe(ruleCommitment(salt, rule))
+    f.request.rule.rule = raw
+    const op = await paidOperation(f.config, f.request)
+    expect(vi.mocked(prepareRegisteredPaidSession).mock.calls[0]![1].ruleHash).toBe(keccak256(toHex(raw)))
+    expect(await f.store.load(`paid-op-${op.requestId.slice(2)}`)).toMatchObject({rule: raw})
+    op.dispose()
+    const resumed = await resumePaidOperation(f.config, op.requestId, {holder: f.holder})
+    expect(vi.mocked(prepareRegisteredPaidSession).mock.calls.at(-1)![1].ruleHash).toBe(keccak256(toHex(raw)))
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    resumed.dispose()
+  })
+
   it('reserves once, certifies, drives the session and executes exactly once', async () => {
     const f = setup()
     const op = await paidOperation(f.config, f.request)

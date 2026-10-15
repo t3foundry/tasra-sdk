@@ -94,7 +94,7 @@ export interface PaidOperationRequest {
   slot: Hex
   /** Committee action and payload: `message` for sign, `identity` for ibe-extract, `payloadDigest` for decrypt/dual-approve. */
   operation: {action: CommitteeAction; message?: Uint8Array; identity?: string; payloadDigest?: Uint8Array; ttlSecs?: number; description?: string}
-  /** The slot's original DCQL rule and salt; checked against its on-chain commitment. */
+  /** Exact provisioned DCQL rule bytes and salt. The chain commitment uses canonical JSON; the verifier token hash binds these original bytes unchanged. */
   rule: {rule: string; salt: Hex}
   /** Holder strategy: the SDK wallet presents itself, or an external wallet scans the request. */
   holder: PaidSessionHolder
@@ -460,7 +460,10 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
   const original = await client.readContract({address: d.keyRegistry, abi: keyRegistryAbi, functionName: 'getKeySlot', args: [slot], blockNumber: context.blockNumber})
   if (original.ruleCommitment.toLowerCase() !== ruleCommitment(request.rule.salt, request.rule.rule).toLowerCase()) throw new TasraError('Supplied rule or salt differs from the slot commitment')
   if ((await client.getBlock({blockNumber: context.blockNumber})).hash !== context.blockHash) throw new TasraError('Rule observation reorganized')
-  const canonicalRule = canonicalize(request.rule.rule)
+  // Validate the DCQL JSON, but retain the provisioned bytes. The chain's salted
+  // commitment canonicalizes JSON; verifier tokens bind keccak256(raw rule).
+  // Rewriting whitespace/key order here changes the expected token hash.
+  canonicalize(request.rule.rule)
   const ttlSecs = request.operation.ttlSecs ?? 600
   if (!Number.isSafeInteger(ttlSecs) || ttlSecs <= 0 || ttlSecs > 3600) throw new TasraError('Paid operation lifetime must be 1..3600 seconds')
   const built = presentationOperationTypedData({action: request.operation.action, message: request.operation.message, identity: request.operation.identity,
@@ -479,7 +482,7 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
   const {witnesses} = await fetchDrawnVerifierWitnesses(config.accountantUrls, payment, d.verifierSet,
     {signal: AbortSignal.any([signal, AbortSignal.timeout(Math.min(150_000, ttlSecs * 1000))]), fetch: config.fetch,
       waitForPublicationMs: Math.min(config.snapshotWaitMs ?? 180_000, 150_000, ttlSecs * 1000)})
-  const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: canonicalRule, ruleSalt: request.rule.salt,
+  const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: request.rule.rule, ruleSalt: request.rule.salt,
     params: {operation: built.operation, operationSig, messageHex: built.messageHex, random}, coordinator: context.coordinator, contributors: context.contributors,
     action: request.operation.action, payloadDigest: toHex(built.payloadDigest), payer: config.gasPayer.account.address}
   const key = recordKey(requestId)
