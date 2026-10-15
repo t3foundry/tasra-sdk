@@ -70,6 +70,29 @@ export class UnderfundedSlotError extends TasraError {
 }
 
 /**
+ * The transaction payer lacks native currency for the quoted reservation gas.
+ * Slot TASRA credit is a separate balance. Nothing was prepared or broadcast;
+ * this error never authorizes resubmission of an uncertain transaction.
+ */
+export class UnderfundedGasPayerError extends TasraError {
+  /** Stable code distinguishing native gas from slot TASRA credit. */
+  readonly code = 'underfunded-gas-payer' as const
+  /** Address that would pay the reservation transaction's gas. */
+  readonly payer: string
+  /** Pending native balance, in the chain's smallest native unit. */
+  readonly availableNativeUnits: bigint
+  /** Estimated gas multiplied by the actual transaction gas price. */
+  readonly requiredNativeUnits: bigint
+
+  constructor(args: {payer: string; availableNativeUnits: bigint; requiredNativeUnits: bigint}) {
+    super(`Gas payer ${args.payer} has insufficient native currency for reservation gas`, {retryable: false})
+    this.payer = args.payer
+    this.availableNativeUnits = args.availableNativeUnits
+    this.requiredNativeUnits = args.requiredNativeUnits
+  }
+}
+
+/**
  * A node or verifier answered with a non-2xx status. `body` is the response body,
  * truncated to 200 characters - enough to carry the service's own error text
  * without dumping a page of HTML into a log line.

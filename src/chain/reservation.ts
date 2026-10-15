@@ -3,7 +3,7 @@ import {assertPaymentIntentWire, paymentIntentTypedData, prepaidRequestId, type 
 import {settlementAbi} from './abis/settlement.js'
 import {keyRegistryAbi} from './abis/keyRegistry.js'
 import {readPaidOperationReceipt, type ExpectedPaidOperation, type PaidOperationReceipt, type PrepaidDeployment} from './prepaid.js'
-import {PaidBackoffError, PaidReservationQuotaError, UnderfundedSlotError} from '../errors.js'
+import {PaidBackoffError, PaidReservationQuotaError, UnderfundedSlotError, UnderfundedGasPayerError} from '../errors.js'
 import {PaidBackoff, paidServerWaitMs, systemPacingClock, type PaidPacingClock} from './paidPacing.js'
 
 /** Accountant authorization for a single operation. This is not a mined reservation. */
@@ -526,11 +526,18 @@ async function reserveOnce(
   if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= BigInt(now())) || !same(creator, slot.creator)) throw new Error('reservation intent is not from an active slot creator')
   // Contract simulation verifies the accountant threshold signature and reservation state without gas.
   await client.call({to: d.settlement, data, account: payer, blockHash: quote.quote_block, requireCanonical: true, batch: false})
-  const [gasPrice, gas, nonce] = await Promise.all([
-    client.getGasPrice(), client.estimateGas({account: payer, to: d.settlement, data, value: 0n}),
+  const [gasPrice, gas, nonce, balance] = await Promise.all([
+    // A local Account makes viem prepare EIP-1559 fees during estimation, but
+    // this flow signs a bounded legacy transaction below. Estimate execution
+    // with zero simulation fees, then check the actual legacy gas cost. Without
+    // this separation a balance-capped BN254 precompile can report BadSignature.
+    client.getGasPrice(), client.estimateGas({account: payer.address, to: d.settlement, data, value: 0n, gasPrice: 0n, type: 'legacy'}),
     client.getTransactionCount({address: payer.address, blockTag: 'pending'}),
+    client.getBalance({address: payer.address, blockTag: 'pending'}),
   ])
   if (gas <= 0n || gas > opts.maxGas || gasPrice <= 0n || gasPrice > opts.maxGasPrice) throw new Error('reservation exceeds native gas budget')
+  const requiredNativeUnits = gas * gasPrice
+  if (balance < requiredNativeUnits) throw new UnderfundedGasPayerError({payer: payer.address, availableNativeUnits: balance, requiredNativeUnits})
   signal?.throwIfAborted()
   if (block.number === null) throw new Error('reservation quote has no block number')
   const canonical = await client.getBlock({blockNumber: block.number})

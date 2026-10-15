@@ -12,7 +12,7 @@ import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplica
 import {loadPaidReservationJournal} from '../../src/app/paid-journal.js'
 import type {ApplicationStore} from '../../src/app/ready-slot.js'
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
-import {PaidReservationQuotaError, UnderfundedSlotError} from '../../src/errors.js'
+import {PaidReservationQuotaError, UnderfundedSlotError, UnderfundedGasPayerError} from '../../src/errors.js'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.js'
 
 const h = (n: number, length = 32): Hex => `0x${n.toString(16).padStart(2, '0').repeat(length)}`
@@ -24,7 +24,7 @@ interface Changes {
   paymentNonce?: Hex; payerNonce?: number; applicationJournal?: boolean
   session?: {random: Hex; audience: string}
   quote?: (quote: PaidReservationQuote, method: string, index: number) => void
-  gas?: bigint; price?: bigint; chain?: number; creator?: Hex; simulateFailure?: boolean
+  gas?: bigint; price?: bigint; balance?: bigint; chain?: number; creator?: Hex; simulateFailure?: boolean
   orphan?: boolean; stale?: boolean; failSend?: boolean; rpcSendError?: boolean; failPersist?: string; response?: Response
   receiptCost?: bigint; receiptAssignment?: Hex; receiptReorg?: boolean; reverted?: boolean
   localSigner?: boolean; transactionChanged?: boolean; alreadyReserved?: boolean
@@ -89,7 +89,18 @@ async function fixture(change: Changes = {}) {
       return encoded(abi, functionName, values[functionName])
     }
     if (method === 'eth_gasPrice') return toHex(change.price ?? 25n)
-    if (method === 'eth_estimateGas') return toHex(change.gas ?? 100000n)
+    if (method === 'eth_estimateGas') {
+      const call = (params as Record<string, unknown>[])[0]!
+      expect(call.gasPrice).toBe('0x0')
+      expect(call.maxFeePerGas).toBeUndefined()
+      expect(call.maxPriorityFeePerGas).toBeUndefined()
+      return toHex(change.gas ?? 100000n)
+    }
+    if (method === 'eth_getBalance') {
+      expect(String((params as unknown[])[0]).toLowerCase()).toBe(creator.address.toLowerCase())
+      expect((params as unknown[])[1]).toBe('pending')
+      return toHex(change.balance ?? 10n ** 18n)
+    }
     if (method === 'eth_getTransactionCount') return toHex(change.payerNonce ?? 4)
     if (method === 'eth_sendTransaction') {
       if (!change.applicationJournal) expect(checkpoints[0]?.phase).toBe('prepared')
@@ -133,6 +144,24 @@ async function fixture(change: Changes = {}) {
     recover: (confirmations = 1) => reconcilePaidReservation(client, deployment, record(), expected, transactionHash, confirmations)}
 }
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it('reports insufficient native gas separately from TASRA before preparation or broadcast', async () => {
+  const f = await fixture({localSigner: true, gas: 100000n, price: 25n, balance: 2499999n})
+  const error: unknown = await f.run().catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(UnderfundedGasPayerError)
+  expect(error).toMatchObject({code: 'underfunded-gas-payer', availableNativeUnits: 2499999n, requiredNativeUnits: 2500000n, retryable: false})
+  expect(error).not.toBeInstanceOf(UnderfundedSlotError)
+  expect(f.checkpoints).toHaveLength(0)
+  expect(f.transactions).toHaveLength(0)
+  expect(f.trace).not.toContain('eth_sendRawTransaction')
+})
+
+it('admits exactly sufficient native gas and persists the actual legacy price', async () => {
+  const f = await fixture({localSigner: true, gas: 100000n, price: 25n, balance: 2500000n})
+  await f.run()
+  expect(f.record().transaction.gasPrice).toBe('25')
+  expect(f.transactions).toHaveLength(1)
+})
 
 it('returns a typed underfunded slot error before journaling or broadcasting a reservation', async () => {
   const f = await fixture({response: new Response('insufficient available TASRA', {status: 402})})

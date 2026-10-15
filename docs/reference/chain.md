@@ -9,7 +9,7 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 14 classes</summary>
+<summary>Browse 15 classes</summary>
 
 - [AgentSessionCreationUnknownError](#agentsessioncreationunknownerror)
 - [BillingModeError](#billingmodeerror)
@@ -24,6 +24,7 @@ Clients, adapters and error classes.
 - [PrepaidEscapeUncertainError](#prepaidescapeuncertainerror)
 - [RelayOutcomeUnknownError](#relayoutcomeunknownerror)
 - [SlotCommitmentExpiredError](#slotcommitmentexpirederror)
+- [UnderfundedGasPayerError](#underfundedgaspayererror)
 - [UnderfundedSlotError](#underfundedsloterror)
 
 </details>
@@ -149,7 +150,7 @@ and only under a durable, generation-bound, one-use permit that an exclusive cla
 every send. Anything else (a lost claim, a moved generation, an unknown outcome, a legacy record)
 lands here. Not retryable: reconcile the delivery by reading it, never by resending or re-signing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L406)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L429)
 
 Import: `import {PaidApprovalUnresolvedError} from 'tasra-sdk/chain'`
 
@@ -197,7 +198,7 @@ only) and the accountant reservation `prepare`. The deadline is never extended a
 Nothing was sent after the refusal this error reports. A retained approval keeps its durable
 permit, so a later resume may resend the identical body; never start the paid operation again.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L338)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L361)
 
 Import: `import {PaidBackoffError} from 'tasra-sdk/chain'`
 
@@ -274,7 +275,7 @@ inside its window (at most 150 s and half of the payment's remaining signed life
 Code `reservation_quota`. Nothing was prepared, signed or put on chain: no reservation transaction
 exists for this attempt. `reason` says why waiting stopped; `retryAfterMs` is the last hint.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L445)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L468)
 
 Import: `import {PaidReservationQuotaError} from 'tasra-sdk/chain'`
 
@@ -344,7 +345,7 @@ already confirmed are in their journal (`confirmed` checkpoints) and stay final.
 
 Only `escape_not_open` is retryable: the same call succeeds once chain time reaches `opensAt`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L487)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L510)
 
 Import: `import {PrepaidEscapeError} from 'tasra-sdk/chain'`
 
@@ -391,7 +392,7 @@ A prepaid escape transaction may have been broadcast and its outcome is not prov
 (`reconcileEscape`); never send it again blindly. An escape cannot refund twice (a second one
 reverts `ReservationUnavailable`), but a blind resend still spends gas and can collide on the nonce.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L539)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L562)
 
 Import: `import {PrepaidEscapeUncertainError} from 'tasra-sdk/chain'`
 
@@ -473,6 +474,44 @@ declare class SlotCommitmentExpiredError {
 - ` readonly creator: Address; ` — Account that submitted the original commitment.
 
 - ` readonly salt: Hex; ` — Original private commit salt; preserve it until outstanding requests are reconciled.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### UnderfundedGasPayerError
+
+The transaction payer lacks native currency for the quoted reservation gas.
+Slot TASRA credit is a separate balance. Nothing was prepared or broadcast;
+this error never authorizes resubmission of an uncertain transaction.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L77)
+
+Import: `import {UnderfundedGasPayerError} from 'tasra-sdk/chain'`
+
+```ts
+declare class UnderfundedGasPayerError {
+    constructor(args: {
+        payer: string;
+        availableNativeUnits: bigint;
+        requiredNativeUnits: bigint;
+    });
+}
+```
+
+- ` readonly code: "underfunded-gas-payer"; ` — Stable code distinguishing native gas from slot TASRA credit.
+
+- ` readonly payer: string; ` — Address that would pay the reservation transaction's gas.
+
+- ` readonly availableNativeUnits: bigint; ` — Pending native balance, in the chain's smallest native unit.
+
+- ` readonly requiredNativeUnits: bigint; ` — Estimated gas multiplied by the actual transaction gas price.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
 - ` name: string; `
 
@@ -1460,7 +1499,7 @@ Returns: ` Hex `.
 
 True for a [PrepaidEscapeError](#prepaidescapeerror).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L529)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L552)
 
 Import: `import {isPrepaidEscapeError} from 'tasra-sdk/chain'`
 
@@ -4573,7 +4612,7 @@ Stable code of a prepaid timeout-escape refusal (see [PrepaidEscapeError](#prepa
 - `empty_request`: no request IDs; contract error `EmptyBundle()`.
 - `escape_unsupported`: the Settlement has no escape getters (a version before "3").
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L476)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L499)
 
 ```ts
 export type PrepaidEscapeCode = 'escape_disabled' | 'escape_not_open' | 'reservation_unavailable' | 'invalid_escape_delay' | 'too_many_requests' | 'empty_request' | 'escape_unsupported';

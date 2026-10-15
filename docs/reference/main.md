@@ -9,7 +9,7 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 19 classes</summary>
+<summary>Browse 20 classes</summary>
 
 - [RecipientStore](#recipientstore)
 - [AuthDeniedError](#authdeniederror)
@@ -28,6 +28,7 @@ Clients, adapters and error classes.
 - [TasraError](#tasraerror)
 - [TasraHttpError](#tasrahttperror)
 - [ThresholdNotMetError](#thresholdnotmeterror)
+- [UnderfundedGasPayerError](#underfundedgaspayererror)
 - [UnderfundedSlotError](#underfundedsloterror)
 - [VerifierAgentSessionError](#verifieragentsessionerror)
 
@@ -74,7 +75,7 @@ static fromJwtBodies(bodies: Array<{
 The credential was rejected: 401 or 403. Never retryable - the same token will
 be refused again. Re-claim (redeem a fresh credential or renewal) instead.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L108)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L131)
 
 Import: `import {AuthDeniedError} from 'tasra-sdk'`
 
@@ -179,7 +180,7 @@ declare class DcqlMalformedError {
 The request never got an HTTP answer - DNS failure, connection refused,
 timeout, CORS. Retryable: the service may simply not be up yet.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L561)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L584)
 
 Import: `import {NodeUnreachableError} from 'tasra-sdk'`
 
@@ -214,7 +215,7 @@ and only under a durable, generation-bound, one-use permit that an exclusive cla
 every send. Anything else (a lost claim, a moved generation, an unknown outcome, a legacy record)
 lands here. Not retryable: reconcile the delivery by reading it, never by resending or re-signing.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L406)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L429)
 
 Import: `import {PaidApprovalUnresolvedError} from 'tasra-sdk'`
 
@@ -262,7 +263,7 @@ only) and the accountant reservation `prepare`. The deadline is never extended a
 Nothing was sent after the refusal this error reports. A retained approval keeps its durable
 permit, so a later resume may resend the identical body; never start the paid operation again.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L338)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L361)
 
 Import: `import {PaidBackoffError} from 'tasra-sdk'`
 
@@ -313,7 +314,7 @@ inside its window (at most 150 s and half of the payment's remaining signed life
 Code `reservation_quota`. Nothing was prepared, signed or put on chain: no reservation transaction
 exists for this attempt. `reason` says why waiting stopped; `retryAfterMs` is the last hint.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L445)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L468)
 
 Import: `import {PaidReservationQuotaError} from 'tasra-sdk'`
 
@@ -355,7 +356,7 @@ already confirmed are in their journal (`confirmed` checkpoints) and stay final.
 
 Only `escape_not_open` is retryable: the same call succeeds once chain time reaches `opensAt`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L487)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L510)
 
 Import: `import {PrepaidEscapeError} from 'tasra-sdk'`
 
@@ -402,7 +403,7 @@ A prepaid escape transaction may have been broadcast and its outcome is not prov
 (`reconcileEscape`); never send it again blindly. An escape cannot refund twice (a second one
 reverts `ReservationUnavailable`), but a blind resend still spends gas and can collide on the nonce.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L539)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L562)
 
 Import: `import {PrepaidEscapeUncertainError} from 'tasra-sdk'`
 
@@ -450,7 +451,7 @@ or clear a paid operation (its journal keeps the execution as uncertain until or
 evidence settles it). For an UNPAID operation the remedy is a new presentation and a new grant.
 Not an [AuthDeniedError](#authdeniederror), and [isAuthDenied](#isauthdenied) returns false for it.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L128)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L151)
 
 Import: `import {RevocationStatusError} from 'tasra-sdk'`
 
@@ -507,7 +508,7 @@ and never a reason to start a new session or payment automatically: present agai
 grant. `allowMissingStatusAttestations` (migration window only) waives `revocation_status_missing`
 and nothing else.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L161)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L184)
 
 Import: `import {RevocationStatusPreflightError} from 'tasra-sdk'`
 
@@ -546,7 +547,7 @@ The slot was re-keyed (rotated) since the key in hand was assembled, so that
 key cannot read anything encrypted after the rotation. Retryable: re-assemble
 at the new epoch and try again - the managed [Session](#session) does this for you.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L609)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L632)
 
 Import: `import {SlotRotatedError} from 'tasra-sdk'`
 
@@ -586,7 +587,7 @@ retries a refresh automatically, and a new attempt always uses a new, journaled 
 `status_refresh_refused` means a credential status reference is revoked or no longer
 acceptable: present again (a new grant), never refresh this one.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L274)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L297)
 
 Import: `import {StatusRefreshError} from 'tasra-sdk'`
 
@@ -666,7 +667,7 @@ without dumping a page of HTML into a log line.
 5xx, 429 and 425 are marked retryable; so is a 409, 410 or 422 that carries
 `Retry-After`. Other 4xx are not. `retryAfterMs` is the service-requested wait.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L80)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L103)
 
 Import: `import {TasraHttpError} from 'tasra-sdk'`
 
@@ -711,7 +712,7 @@ signing set.
 this actionable: previously those were collected and then discarded, so a DNS
 failure and a cold DKG produced the same opaque message.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L580)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L603)
 
 Import: `import {ThresholdNotMetError} from 'tasra-sdk'`
 
@@ -732,6 +733,44 @@ declare class ThresholdNotMetError {
 - ` readonly need: number; ` — How many were needed.
 
 - ` readonly reasons: readonly string[]; ` — Why each failing participant failed, one string per participant.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### UnderfundedGasPayerError
+
+The transaction payer lacks native currency for the quoted reservation gas.
+Slot TASRA credit is a separate balance. Nothing was prepared or broadcast;
+this error never authorizes resubmission of an uncertain transaction.
+
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L77)
+
+Import: `import {UnderfundedGasPayerError} from 'tasra-sdk'`
+
+```ts
+declare class UnderfundedGasPayerError {
+    constructor(args: {
+        payer: string;
+        availableNativeUnits: bigint;
+        requiredNativeUnits: bigint;
+    });
+}
+```
+
+- ` readonly code: "underfunded-gas-payer"; ` — Stable code distinguishing native gas from slot TASRA credit.
+
+- ` readonly payer: string; ` — Address that would pay the reservation transaction's gas.
+
+- ` readonly availableNativeUnits: bigint; ` — Pending native balance, in the chain's smallest native unit.
+
+- ` readonly requiredNativeUnits: bigint; ` — Estimated gas multiplied by the actual transaction gas price.
 
 - ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
@@ -2029,7 +2068,7 @@ True when `e` is an auth rejection - i.e. retrying is pointless, re-claim
 instead. Keyed on the HTTP status rather than the class, so it also catches
 subclasses that carry their own name (e.g. `CommitteeAuthorizeError`).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L659)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L682)
 
 Import: `import {isAuthDenied} from 'tasra-sdk'`
 
@@ -2105,7 +2144,7 @@ Returns: ` boolean `.
 
 True for a [PaidApprovalUnresolvedError](#paidapprovalunresolvederror).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L433)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L456)
 
 Import: `import {isPaidApprovalUnresolved} from 'tasra-sdk'`
 
@@ -2123,7 +2162,7 @@ Returns: ` e is PaidApprovalUnresolvedError `.
 
 True for a [PaidBackoffError](#paidbackofferror).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L381)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L404)
 
 Import: `import {isPaidBackoffError} from 'tasra-sdk'`
 
@@ -2141,7 +2180,7 @@ Returns: ` e is PaidBackoffError `.
 
 True for a [PrepaidEscapeError](#prepaidescapeerror).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L529)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L552)
 
 Import: `import {isPrepaidEscapeError} from 'tasra-sdk'`
 
@@ -2160,7 +2199,7 @@ Returns: ` e is PrepaidEscapeError `.
 True when a typed failure may be transient. Errors outside the TasraError
 hierarchy return false. This hint does not make a write safe to repeat.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L669)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L692)
 
 Import: `import {isRetryable} from 'tasra-sdk'`
 
@@ -2179,7 +2218,7 @@ Returns: ` boolean `.
 True when a grant was refused locally for missing, stale or invalid revocation-status
 attestations before anything was sent.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L184)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L207)
 
 Import: `import {isRevocationStatusPreflightRefusal} from 'tasra-sdk'`
 
@@ -2198,7 +2237,7 @@ Returns: ` e is RevocationStatusPreflightError `.
 True when a keeper refused a grant only for stale or missing revocation-status attestations:
 present the credential again for a fresh grant and repeat the call.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L207)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L230)
 
 Import: `import {isRevocationStatusRefusal} from 'tasra-sdk'`
 
@@ -2216,7 +2255,7 @@ Returns: ` e is RevocationStatusError `.
 
 True for a [StatusRefreshError](#statusrefresherror).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L312)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L335)
 
 Import: `import {isStatusRefreshError} from 'tasra-sdk'`
 
@@ -3991,7 +4030,7 @@ Why a retained paid approval was not (re)sent (see [PaidApprovalUnresolvedError]
 - `legacy_state`: the record or permit was written in an older or unknown format.
 - `conflict`: the agent answered 409 after a busy refusal and its delivery state is not accepted.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L396)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L419)
 
 ```ts
 export type PaidApprovalUnresolvedReason = 'claim_lost' | 'generation_moved' | 'outcome_unknown' | 'no_permit' | 'legacy_state' | 'conflict';
@@ -4008,7 +4047,7 @@ Stable code of a paid backoff refusal (see [PaidBackoffError](#paidbackofferror)
   too little time was left before the deadline; that send did not happen.
 - `attempts_exhausted`: the attempt ceiling was reached inside the deadline.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L326)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L349)
 
 ```ts
 export type PaidBackoffCode = 'deadline_exceeded' | 'server_wait_too_long' | 'no_time_to_send' | 'attempts_exhausted';
@@ -4028,7 +4067,7 @@ Stable code of a prepaid timeout-escape refusal (see [PrepaidEscapeError](#prepa
 - `empty_request`: no request IDs; contract error `EmptyBundle()`.
 - `escape_unsupported`: the Settlement has no escape getters (a version before "3").
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L476)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L499)
 
 ```ts
 export type PrepaidEscapeCode = 'escape_disabled' | 'escape_not_open' | 'reservation_unavailable' | 'invalid_escape_delay' | 'too_many_requests' | 'empty_request' | 'escape_unsupported';
@@ -4174,7 +4213,7 @@ Fields:
 
 Stable code of a local revocation-status preflight refusal.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L141)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L164)
 
 ```ts
 export type RevocationStatusPreflightCode = 'revocation_status_missing' | 'revocation_status_stale' | 'revocation_status_invalid' | 'revocation_status_refused';
@@ -4443,7 +4482,7 @@ Client codes:
 - `status_refresh_unreachable`: no HTTP answer (the verifier may still have consumed the `seq`).
 - `status_refresh_http`: any other HTTP status, or a refusal without a recognised code.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L235)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L258)
 
 ```ts
 export type StatusRefreshCode =
@@ -4467,7 +4506,7 @@ export type StatusRefreshCode =
 
 Why one verifier (or the relay) did not contribute a fresh attestation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L251)
+[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/errors.ts#L274)
 
 ```ts
 export interface StatusRefreshFailure {

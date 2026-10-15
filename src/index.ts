@@ -83,6 +83,7 @@ export {
   TasraError,
   TasraHttpError,
   UnderfundedSlotError,
+  UnderfundedGasPayerError,
   AuthDeniedError,
   NodeUnreachableError,
   ThresholdNotMetError,
