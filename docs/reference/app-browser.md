@@ -19,7 +19,7 @@ Clients, adapters and error classes.
 
 A state lock is already held and requires reconciliation before manual removal.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/store-errors.ts#L6)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/store-errors.ts#L6)
 
 Import: `import {StoreLockedError} from 'tasra-sdk/app/browser'`
 
@@ -59,7 +59,7 @@ Operations you can import and call.
 
 Browser transport for reading a keeper's retained paid result (the two POST recovery reads only).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L243)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/browser.ts#L243)
 
 Import: `import {createBrowserKeeperRecoveryTransport} from 'tasra-sdk/app/browser'`
 
@@ -78,7 +78,7 @@ Returns: ` KeeperRecoveryTransport `.
 Browser transport for registered paid sessions: authenticated discovery plus owner-only
 session control, with the same route, method, bearer and bound checks as the Node transport.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L223)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/browser.ts#L223)
 
 Import: `import {createBrowserPaidAgentTransport} from 'tasra-sdk/app/browser'`
 
@@ -97,7 +97,7 @@ Returns: ` PaidAgentTransport `.
 Browser transport for registered relayers: discovery, forward and status, with
 `relayExchange` reporting busy refusals and their `Retry-After`.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L253)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/browser.ts#L253)
 
 Import: `import {createBrowserRelayTransport} from 'tasra-sdk/app/browser'`
 
@@ -118,7 +118,7 @@ durability before `save` resolves, and Web Locks (exclusive, shared by every tab
 extension service worker of this origin) for `withLock`. Values must be plain data (strings,
 finite numbers, booleans, bigints, Uint8Array, arrays and plain objects).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L66)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/browser.ts#L66)
 
 Import: `import {createIndexedDbStore} from 'tasra-sdk/app/browser'`
 
@@ -150,7 +150,7 @@ Options, data structures and return types.
 
 Implementations must save atomically and exclusively lock across processes/tabs.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L38)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L38)
 
 ```ts
 export interface ApplicationStore {
@@ -174,7 +174,7 @@ Fields:
 
 Options for [createBrowserKeeperRecoveryTransport](#createbrowserkeeperrecoverytransport).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L229)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/browser.ts#L229)
 
 ```ts
 export interface BrowserKeeperRecoveryTransportOptions extends BrowserTransportOptions {
@@ -193,7 +193,7 @@ Fields:
 
 Options shared by the browser transports.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L135)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/browser.ts#L135)
 
 ```ts
 export interface BrowserTransportOptions {
@@ -213,7 +213,7 @@ Fields:
 
 Options for [createIndexedDbStore](#createindexeddbstore).
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/browser.ts#L31)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/browser.ts#L31)
 
 ```ts
 export interface IndexedDbStoreOptions {
