@@ -243,7 +243,7 @@ Returns: ` Promise<ExecutionAuthorization> `.
 
 Encode a token payload and verifier signatures into the keeper JSON wire format. This does not verify signatures.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L574)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L582)
 
 Import: `import {assembleCompoundToken} from 'tasra-sdk/committee'`
 
@@ -284,7 +284,7 @@ Strictly validate an untrusted `status_attestations` value: an array of at most
 `{verifier_index: u32, status_until: safe integer, signature: "0x" + 128 hex}` and distinct
 indexes. Returns a fresh copy (the value a keeper receives unchanged).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L868)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L876)
 
 Import: `import {assertStatusAttestationsWire} from 'tasra-sdk/committee'`
 
@@ -750,7 +750,7 @@ Returns: ` Promise<StatusRefreshProofWire> `.
 
 Decode a wire compound token into the byte-level payload + signatures for verification.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L609)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L617)
 
 Import: `import {decodeCompoundToken} from 'tasra-sdk/committee'`
 
@@ -2195,7 +2195,7 @@ a missing list throws `revocation_status_missing` (unless `allowMissing`), fewer
 fresh counted attestations `revocation_status_stale`, a malformed or forged list
 `revocation_status_invalid` - each a ` RevocationStatusPreflightError `.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L846)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L854)
 
 Import: `import {requireStatusAttestations} from 'tasra-sdk/committee'`
 
@@ -2240,7 +2240,7 @@ The registry indexes whose Ed25519 signature over the token's own canonical hash
 `set` (strict), distinct and drawn. Mirrors the reference `signers_that_verify`: no rule, draw,
 lifetime or quorum check - only "which signatures are real", for counting status attestations.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L803)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L811)
 
 Import: `import {signersThatVerify} from 'tasra-sdk/committee'`
 
@@ -2263,7 +2263,7 @@ The 32-byte digest a drawn verifier signs to attest credential-status freshness 
 `keccak256(DOMAIN || tokenHash || verifierIndex(u32 BE) || statusUntil(i64 BE))`.
 Byte-identical to the reference `status_attestation_hash`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L726)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L734)
 
 Import: `import {statusAttestationHash} from 'tasra-sdk/committee'`
 
@@ -2405,7 +2405,7 @@ verifier in `set` and verify (strict, non-ZIP-215) over [evidenceBindingMessage]
 distinct signers are counted once and must satisfy `quorum` of the drawn committee.
 Throws on any failure; returns the verified indexes.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L532)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L534)
 
 Import: `import {verifyEvidenceBinding} from 'tasra-sdk/committee'`
 
@@ -2619,7 +2619,7 @@ Returns: ` Promise<void> `.
 Verify ONE attestation's Ed25519 signature under the verifier's committee key over `tokenHash`
 (no freshness, no quorum) - what a relay checks before forwarding it.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L740)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L748)
 
 Import: `import {verifyStatusAttestation} from 'tasra-sdk/committee'`
 
@@ -2644,7 +2644,7 @@ deadline (the quorum-th largest attested `status_until`). Throws on a duplicate 
 oversize list, a bad signature from a counted verifier, or fewer than `quorum` attestations
 fresh at `now` (`now <= status_until + STATUS_SKEW_SECS`; the token leeway is NOT applied).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L774)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L782)
 
 Import: `import {verifyStatusAttestations} from 'tasra-sdk/committee'`
 
@@ -4281,7 +4281,7 @@ Fields:
 
 Inputs of [requireStatusAttestations](#requirestatusattestations).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L814)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L822)
 
 ```ts
 export interface RequireStatusAttestationsOptions extends Omit<VerifyStatusAttestationsOptions, 'attestations'> {
@@ -4348,7 +4348,7 @@ Fields:
 
 One decoded status-freshness attestation.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L681)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L689)
 
 ```ts
 export interface StatusAttestation {
@@ -4368,7 +4368,7 @@ Fields:
 
 One status attestation on the wire - exactly these three keys.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L691)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L699)
 
 ```ts
 export interface StatusAttestationWire {
@@ -4388,7 +4388,7 @@ Fields:
 
 Accepted preflight outcome.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L826)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L834)
 
 ```ts
 export type StatusFreshness = {
@@ -4795,7 +4795,7 @@ Fields:
 
 Inputs of [verifyStatusAttestations](#verifystatusattestations), as a keeper checks them.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L751)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L759)
 
 ```ts
 export interface VerifyStatusAttestationsOptions {
@@ -4823,26 +4823,26 @@ Shared values and contract definitions.
 
 | Export | Description | Definition |
 |---|---|---|
-| `DEFAULT_STATUS_WINDOW_SECS` | Default attested window (`[committee] status_window_secs`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L665) |
+| `DEFAULT_STATUS_WINDOW_SECS` | Default attested window (`[committee] status_window_secs`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L673) |
 | `EXECUTION_APPROVAL_DOMAIN` | Client stage approvals bind complete request bodies and assigned operator keys. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L11) |
 | `EXECUTION_CERTIFICATE_DOMAIN` | Separate creator-consent domain; original payment commitments remain unchanged. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L9) |
 | `EXECUTION_INITIALIZATION_DOMAIN` | Client consent to one exact session and independently approved registered agent. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L13) |
 | `MAX_EXECUTION_BODY_BYTES` | Maximum complete unsigned request size shared with the Rust verifier. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L15) |
 | `MAX_SESSION_ID_LEN` | The longest session id an `htu` may carry — mirrors `MAX_SESSION_ID_LEN`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L27) |
-| `MAX_STATUS_ATTESTATIONS` | Most attestations one token may carry (mirrors the keeper cap). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L667) |
+| `MAX_STATUS_ATTESTATIONS` | Most attestations one token may carry (mirrors the keeper cap). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L675) |
 | `MAX_STATUS_REFRESH_BODY_BYTES` | Largest request body a verifier accepts, in bytes. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L68) |
-| `MAX_STATUS_WINDOW_SECS` | Longest usable window a verifier may attest (`55 - 10`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L663) |
+| `MAX_STATUS_WINDOW_SECS` | Longest usable window a verifier may attest (`55 - 10`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L671) |
 | `OAUTH_RESPONSE_PATH` | Legacy session-independent response path. New sessions use dpopHtu(origin, sessionId). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L19) |
 | `OAUTH_RESPONSE_PATH_PREFIX` | The OAuth response route is `{PREFIX}{sessionId}{SUFFIX}` under the agent origin. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L22) |
 | `OAUTH_RESPONSE_PATH_SUFFIX` | The trailing segment of the OAuth response route. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L24) |
-| `REVOCATION_BOUND_SECS` | Decided revocation bound: no keeper accepts a grant later than `R + 60 s`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L657) |
-| `STATUS_ATTESTATION_DOMAIN` | Domain separator of the status-freshness statement (new name, `/v1`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L655) |
-| `STATUS_CACHE_BOUND_SECS` | The verifier's attestation cache bound: `REVOCATION_BOUND_SECS - STATUS_SKEW_SECS`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L661) |
-| `STATUS_INVALID_CODE` | Stable client preflight code: attestations are present but malformed, duplicated, over the cap or carry a bad signature from a counted verifier (a keeper refuses these without a stable code). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L676) |
-| `STATUS_MISSING_CODE` | Stable keeper refusal code: the keeper requires attestations and the grant carries none. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L671) |
+| `REVOCATION_BOUND_SECS` | Decided revocation bound: no keeper accepts a grant later than `R + 60 s`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L665) |
+| `STATUS_ATTESTATION_DOMAIN` | Domain separator of the status-freshness statement (new name, `/v1`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L663) |
+| `STATUS_CACHE_BOUND_SECS` | The verifier's attestation cache bound: `REVOCATION_BOUND_SECS - STATUS_SKEW_SECS`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L669) |
+| `STATUS_INVALID_CODE` | Stable client preflight code: attestations are present but malformed, duplicated, over the cap or carry a bad signature from a counted verifier (a keeper refuses these without a stable code). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L684) |
+| `STATUS_MISSING_CODE` | Stable keeper refusal code: the keeper requires attestations and the grant carries none. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L679) |
 | `STATUS_REFRESH_DOMAIN` | Domain separator of the status-refresh proof (new name, `/v1`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L62) |
 | `STATUS_REFRESH_FRESHNESS_SECS` | A verifier accepts `\|issued_at - now\| <= 30 s`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L70) |
 | `STATUS_REFRESH_JWT_TYP` | JOSE `typ` of a `holder_key` refresh proof. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L64) |
 | `STATUS_REFRESH_PATH` | Verifier route (direct mode). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L66) |
-| `STATUS_SKEW_SECS` | The only skew a keeper allows past `status_until` (reserved inside the 60 s bound). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L659) |
-| `STATUS_STALE_CODE` | Stable keeper refusal code: attestations present but fewer than a quorum valid and fresh. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L669) |
+| `STATUS_SKEW_SECS` | The only skew a keeper allows past `status_until` (reserved inside the 60 s bound). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L667) |
+| `STATUS_STALE_CODE` | Stable keeper refusal code: attestations present but fewer than a quorum valid and fresh. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L677) |
