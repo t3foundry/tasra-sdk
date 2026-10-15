@@ -521,6 +521,8 @@ export interface VerifyEvidenceBindingOptions {
   quorum: number
 }
 
+const isU32 = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0 && (n as number) <= 0xffff_ffff
+
 /**
  * Mirror of the Rust `verify_evidence_binding`: every signature must come from a DRAWN
  * verifier in `set` and verify (strict, non-ZIP-215) over {@link evidenceBindingMessage};
@@ -529,8 +531,6 @@ export interface VerifyEvidenceBindingOptions {
  *
  * @param opts - Token and evidence hashes, the signatures, the verifier set, the drawn committee and the quorum.
  */
-const isU32 = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0 && (n as number) <= 0xffff_ffff
-
 export function verifyEvidenceBinding(opts: VerifyEvidenceBindingOptions): number[] {
   const {tokenHash, evidenceHash, evidenceKeyId, signatures, set, drawn, quorum} = opts
   // Rust takes `quorum: u32` and `u32` indexes; a JS number does not, so the bounds are checked
