@@ -499,6 +499,9 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     if(typeof accessToken!=='string'||accessToken.length>16*1024||! /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(accessToken))throw new Error('Invalid original OAuth access token')
     let claims:Record<string,unknown>
     try{claims=object(decodeJson(accessToken.split('.')[1]!))}catch{throw new Error('Invalid original OAuth access token')}
+    // A bearer token (no cnf.jkt) is refused by name: only a DPoP-bound token can authorize a paid session.
+    if(claims.cnf===null||typeof claims.cnf!=='object'||Array.isArray(claims.cnf)||typeof (claims.cnf as Record<string,unknown>).jkt!=='string')
+      throw new Error('OAuth access token is a bearer token (no cnf.jkt): only a DPoP-bound token can authorize a paid session')
     const now=Math.floor(Date.now()/1000),cnf=object(claims.cnf)
     if(typeof claims.iat!=='number'||!Number.isSafeInteger(claims.iat)||claims.iat<0||claims.iat>now+60
       ||typeof claims.exp!=='number'||!Number.isSafeInteger(claims.exp)||claims.exp<=now||claims.exp<=claims.iat

@@ -368,6 +368,12 @@ it('refuses substituted OAuth nonce, audience, access-token hash or proof key be
     {iat:1000,exp:1060,aud,cnf:{jkt:await key.thumbprint()}},{alg:'ES256',privateKey:new Uint8Array(32).fill(5)})
   const token=await mint(f.session.oauthContext.platformAudience), proof=vi.fn(key.signer.proof)
   await expect(f.session.prepareOAuthPresentation(await mint('https://attacker.example'),{proof})).rejects.toThrow(/audience/)
+  // A bearer token (no cnf, or cnf without jkt) is refused by name before any proof is signed.
+  for(const cnf of [undefined,{},{jkt:7},['jkt']]){
+    const bearer=signCompactJws({typ:'at+jwt'},{iat:1000,exp:1060,aud:f.session.oauthContext.platformAudience,...(cnf===undefined?{}:{cnf})},
+      {alg:'ES256',privateKey:new Uint8Array(32).fill(5)})
+    await expect(f.session.prepareOAuthPresentation(bearer,{proof})).rejects.toThrow(/bearer token \(no cnf\.jkt\)/)
+  }
   expect(proof).not.toHaveBeenCalled()
   const approved=await f.session.prepareOAuthPresentation(token,key.signer)
   vi.mocked(f.transport.paidAgentRequest).mockClear()
