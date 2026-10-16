@@ -2551,9 +2551,10 @@ export interface PresentCredentialsOptions extends PresentOpts {
 Fields:
 
 - **` signal `**: Cancel pending wallet presentation work.
-- **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
 - **` choose `**: Pick among the candidates (default: the evaluator's choice). Return `undefined` to abort.
 - **` disclose `**: Claim names to disclose, or all; defaults to the selected query's requested claims.
+- **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
+- **` inProgressRetry `**: Limits for the in-progress and at-capacity retry; see ` RequestObjectRetryPolicy `.
 - **` resolveKey `**: Resolver supplying a trusted public key for the request issuer and key identifier.
 - **` nowSecs `**: Current time override in Unix seconds.
 - **` leewaySecs `**: Seconds of clock skew tolerated on `exp`.
