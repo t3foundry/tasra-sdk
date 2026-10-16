@@ -20,11 +20,15 @@ never does.
   errors stay final. Each wait follows `Retry-After` (delta-seconds or HTTP-date,
   2 s when absent or malformed) clamped to 0.5–5 s. The budget defaults to 120 s, which covers
   the agent's longest detached exchange (about 118 s), and 64 attempts; it ends earlier at
-  `inProgressRetry.notAfterMs` (pass the session's expiry when known), and a repeated GET still
-  running at its end is aborted. The new `signal` option cancels the in-flight GET or the wait
+  `inProgressRetry.notAfterMs` (pass the session's expiry when known). Every GET, including
+  the first and its body read, is bounded; an expired authority or zero budget sends nothing.
+  Custom transports that ignore cancellation cannot leave the caller waiting indefinitely.
+  The new `signal` option cancels the in-flight GET or the wait
   at once. Limits are set with `inProgressRetry: {maxAttempts (1..256), maxTotalMs (0..300000),
   notAfterMs, minDelayMs (100..5000), maxDelayMs (minDelayMs..10000)}`; `maxAttempts: 1`
   restores the previous single GET. A successful reply is read and verified exactly as before.
+  `PresentOpts` exposes the same metadata retry and cancellation options; cancellation while
+  choosing a credential prevents the subsequent presentation POST.
   New exports on `tasra-sdk/oid4vp`: `REQUEST_OBJECT_IN_PROGRESS`, `REQUEST_OBJECT_AT_CAPACITY`,
   `FetchRequestObjectOpts`, `RequestObjectRetryPolicy`.
 

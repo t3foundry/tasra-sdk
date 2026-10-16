@@ -565,10 +565,11 @@ longest detached exchange) that ends early at `notAfterMs`. A repeated GET still
 end of the budget is aborted. `signal` cancels the in-flight GET or the wait at once. When the
 budget or attempts run out, the last 503 is thrown; the paid work may still complete on the agent.
 Authorization refusals, any other 503 (including an uncertain paid outcome), other statuses, a
-reply from a redirected URL and network errors are final. The first GET is the same request as
-before (plus `signal` when given), and a 200 is verified exactly as before.
+reply from a redirected URL and network errors are final. Every GET, including the first and
+its response body, shares that deadline and cancellation signal. An expired budget sends
+nothing. A 200 is verified exactly as before.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L253)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L254)
 
 Import: `import {fetchRequestObject} from 'tasra-sdk/oid4vp'`
 
@@ -1048,7 +1049,7 @@ Returns: ` string `.
 The whole wallet flow for one QR / deep link: fetch + verify the JAR, plan, let the caller
 choose (consent screen), bind, encrypt, POST.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/wallet.ts#L171)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/wallet.ts#L169)
 
 Import: `import {presentToRequestUri} from 'tasra-sdk/oid4vp'`
 
@@ -2219,8 +2220,7 @@ Request verification, credential selection and disclosure options for a wallet p
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/wallet.ts#L153)
 
 ```ts
-export interface PresentOpts extends VerifyRequestObjectOpts {
-    fetchImpl?: typeof fetch;
+export interface PresentOpts extends FetchRequestObjectOpts {
     choose?: (plan: PresentationPlan) => PresentationCandidate | undefined | Promise<PresentationCandidate | undefined>;
     disclose?: 'all' | readonly string[];
 }
@@ -2228,9 +2228,11 @@ export interface PresentOpts extends VerifyRequestObjectOpts {
 
 Fields:
 
-- **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
 - **` choose `**: Pick among the candidates (default: the evaluator's choice). Return `undefined` to abort.
 - **` disclose `**: Claim names to disclose, or all; defaults to the selected query's requested claims.
+- **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
+- **` signal `**: Cancels an in-flight GET and any wait between GETs; the promise rejects with the signal's reason.
+- **` inProgressRetry `**: Limits for the in-progress and at-capacity retry; see [RequestObjectRetryPolicy](#requestobjectretrypolicy).
 - **` resolveKey `**: Resolver supplying a trusted public key for the request issuer and key identifier.
 - **` nowSecs `**: Current time override in Unix seconds.
 - **` leewaySecs `**: Seconds of clock skew tolerated on `exp`.
@@ -2384,7 +2386,7 @@ export interface RequestObjectRetryPolicy {
 Fields:
 
 - **` maxAttempts `**: Total GETs including the first, 1..256 (default 64; 120 s at the agent's 2 s hint is 60). 1 disables the retry.
-- **` maxTotalMs `**: Wall-clock budget from the first GET in ms, 0..300000 (default 120000). No wait or repeated GET runs past it.
+- **` maxTotalMs `**: Wall-clock budget from the first GET in ms, 0..300000 (default 120000). Every GET and body read is bounded; zero sends nothing.
 - **` notAfterMs `**: Absolute end of the budget in Unix ms, such as the session's expiry; the earlier of this and `maxTotalMs` applies.
 - **` minDelayMs `**: Shortest wait in ms, 100..5000 (default 500). A smaller `Retry-After` is raised to it.
 - **` maxDelayMs `**: Longest wait in ms, `minDelayMs`..10000 (default 5000). A larger `Retry-After` is lowered to it.

@@ -7,6 +7,7 @@
 // that the 200 path is unchanged.
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {ed25519DidKey, ed25519HolderKey, signCompactJws} from '../../src/oid4vp/jose.js'
+import {presentToRequestUri, type PresentOpts} from '../../src/oid4vp/wallet.js'
 import {
   CLIENT_ID_PREFIX_DID,
   REQUEST_OBJECT_AT_CAPACITY,
@@ -134,12 +135,12 @@ describe('fetchRequestObject: in-progress and at-capacity retry', () => {
     expect(calls).toHaveLength(2)
   })
 
-  it('keeps the 200 path unchanged: one GET with the same init, same bytes, same verification', async () => {
+  it('keeps the 200 path unchanged: one bounded GET with the same headers, bytes and verification', async () => {
     const {calls, fetchImpl} = transport([jarReply])
     const got = await fetchRequestObject(URI, {...OPTS, fetchImpl})
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe(URI)
-    expect(calls[0]!.init).toStrictEqual({headers: ACCEPT})
+    expect(calls[0]!.init).toStrictEqual({headers: ACCEPT, signal: expect.any(AbortSignal)})
     expect(got.jwt).toBe(JAR)
     expect(got).toStrictEqual(await verifyRequestObject(JAR, OPTS))
   })
@@ -224,6 +225,52 @@ describe('fetchRequestObject: in-progress and at-capacity retry', () => {
     expect(msg(result)).toMatch(/still unavailable when the retry budget ended/)
     expect(Date.now() - start).toBe(10_000)
     expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['transport', 'success body', 'error body'])('bounds a stalled initial %s even if the transport ignores cancellation', async stage => {
+    const stalled = new Promise<never>(() => {})
+    const fetchImpl = vi.fn(async () => {
+      if (stage === 'transport') return stalled
+      const reply = stage === 'success body' ? jarReply() : inProgress()
+      Object.defineProperty(reply, 'text', {value: () => stalled})
+      return reply
+    }) as unknown as typeof fetch
+    const start = Date.now()
+    const pending = run(fetchRequestObject(URI, {...OPTS, fetchImpl, inProgressRetry: {maxTotalMs: 1_000}}))
+    await vi.runAllTimersAsync()
+    expect(msg(await pending)).toMatch(/still unavailable when the retry budget ended/)
+    expect(Date.now() - start).toBe(1_000)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each(['expired authority', 'zero budget'])('refuses %s before sending the first GET', async kind => {
+    const {calls, fetchImpl} = transport([jarReply])
+    const inProgressRetry = kind === 'expired authority' ? {notAfterMs: Date.now()} : {maxTotalMs: 0}
+    expect(msg(await run(fetchRequestObject(URI, {...OPTS, fetchImpl, inProgressRetry})))).toMatch(/retry budget ended/)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('the public wallet flow exposes and forwards metadata authority and cancellation options', async () => {
+    const {calls, fetchImpl} = transport([jarReply])
+    const opts: PresentOpts = {...OPTS, fetchImpl, signal: new AbortController().signal,
+      inProgressRetry: {notAfterMs: Date.now()}}
+    expect(msg(await run(presentToRequestUri(URI, [], key, opts)))).toMatch(/retry budget ended/)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('cancels a stalled initial response body with the original caller reason', async () => {
+    const reply = jarReply()
+    Object.defineProperty(reply, 'text', {value: () => new Promise<string>(() => {})})
+    const {fetchImpl, calls} = transport([() => reply])
+    const controller = new AbortController()
+    const pending = run(fetchRequestObject(URI, {...OPTS, fetchImpl, signal: controller.signal}))
+    await vi.advanceTimersByTimeAsync(10)
+    const reason = new Error('cancel body read')
+    controller.abort(reason)
+    expect((await pending as {e: unknown}).e).toBe(reason)
+    expect(calls).toHaveLength(1)
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it.each([

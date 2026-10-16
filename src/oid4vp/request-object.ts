@@ -172,7 +172,7 @@ const RETRYABLE_503_MESSAGES: ReadonlySet<string> = new Set([REQUEST_OBJECT_IN_P
 export interface RequestObjectRetryPolicy {
   /** Total GETs including the first, 1..256 (default 64; 120 s at the agent's 2 s hint is 60). 1 disables the retry. */
   maxAttempts?: number
-  /** Wall-clock budget from the first GET in ms, 0..300000 (default 120000). No wait or repeated GET runs past it. */
+  /** Wall-clock budget from the first GET in ms, 0..300000 (default 120000). Every GET and body read is bounded; zero sends nothing. */
   maxTotalMs?: number
   /** Absolute end of the budget in Unix ms, such as the session's expiry; the earlier of this and `maxTotalMs` applies. */
   notAfterMs?: number
@@ -244,8 +244,9 @@ function isRetryable503(res: Response, requestUri: string, body: string): boolea
  * end of the budget is aborted. `signal` cancels the in-flight GET or the wait at once. When the
  * budget or attempts run out, the last 503 is thrown; the paid work may still complete on the agent.
  * Authorization refusals, any other 503 (including an uncertain paid outcome), other statuses, a
- * reply from a redirected URL and network errors are final. The first GET is the same request as
- * before (plus `signal` when given), and a 200 is verified exactly as before.
+ * reply from a redirected URL and network errors are final. Every GET, including the first and
+ * its response body, shares that deadline and cancellation signal. An expired budget sends
+ * nothing. A 200 is verified exactly as before.
  *
  * @param requestUri - URL from the OpenID4VP request_uri parameter.
  * @param opts - Request signature verification settings, fetch implementation, cancellation and retry limits.
@@ -258,7 +259,7 @@ export async function fetchRequestObject(requestUri: string, opts: FetchRequestO
   const deadline = Math.min(Date.now() + limits.maxTotalMs, limits.notAfterMs ?? Number.POSITIVE_INFINITY)
   for (let attempt = 1; ; attempt++) {
     signal?.throwIfAborted()
-    const {res, body} = attempt === 1 ? await firstGet() : await retryGet()
+    const {res, body} = await boundedGet()
     if (res.ok) return verifyRequestObject(body.trim(), opts)
     const failure = new Error(`request_uri ${requestUri} → HTTP ${res.status}: ${body.slice(0, 200)}`)
     if (!isRetryable503(res, requestUri, body) || attempt >= limits.maxAttempts) throw failure
@@ -268,25 +269,36 @@ export async function fetchRequestObject(requestUri: string, opts: FetchRequestO
     await sleep(delay, signal)
   }
 
-  // The first GET is the request this function always sent; a caller's signal is its only addition.
-  async function firstGet(): Promise<{res: Response; body: string}> {
-    const res = await f(requestUri, signal ? {headers, signal} : {headers})
-    return {res, body: res.ok ? await res.text() : await res.text().catch(() => '')}
-  }
-
-  // A repeat is the identical GET, additionally cut off at the wall-clock deadline.
-  async function retryGet(): Promise<{res: Response; body: string}> {
+  // Deadline admission precedes every dispatch, including the first. The race also
+  // bounds custom transports that do not honour AbortSignal themselves.
+  async function boundedGet(): Promise<{res: Response; body: string}> {
+    const ended = () => new Error(`request_uri ${requestUri} → still unavailable when the retry budget ended`)
+    if (Date.now() >= deadline) throw ended()
     const budget = new AbortController()
-    const timer = setTimeout(() => budget.abort(), Math.max(0, deadline - Date.now()))
+    const combined = signal ? AbortSignal.any([signal, budget.signal]) : budget.signal
+    const timer = setTimeout(() => budget.abort(ended()), deadline - Date.now())
+    let onAbort: (() => void) | undefined
     try {
-      const res = await f(requestUri, {headers, signal: signal ? AbortSignal.any([signal, budget.signal]) : budget.signal})
-      return {res, body: res.ok ? await res.text() : await res.text().catch(() => '')}
+      const cancelled = new Promise<never>((_, reject) => {
+        onAbort = () => reject(combined.reason)
+        combined.addEventListener('abort', onAbort, {once: true})
+        if (combined.aborted) onAbort()
+      })
+      const response = (async () => {
+        combined.throwIfAborted()
+        const res = await f(requestUri, {headers, signal: combined})
+        const body = res.ok ? await res.text() : await res.text().catch(() => '')
+        combined.throwIfAborted()
+        return {res, body}
+      })()
+      return await Promise.race([response, cancelled])
     } catch (error) {
       signal?.throwIfAborted()
       if (budget.signal.aborted) throw new Error(`request_uri ${requestUri} → still unavailable when the retry budget ended`, {cause: error})
       throw error
     } finally {
       clearTimeout(timer)
+      if (onAbort) combined.removeEventListener('abort', onAbort)
     }
   }
 }
