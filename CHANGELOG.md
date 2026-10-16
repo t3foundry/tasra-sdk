@@ -9,6 +9,10 @@ never does.
 
 ### Fixed
 
+- Require Noble Curves 1.9.7 or a compatible later 1.x release, which exports the
+  `utils.js` entry point used by paid-operation modules. Older consumer lockfiles
+  could otherwise satisfy the declared range while failing to load those modules.
+
 - Paid OAuth presentations now retain the original nested `oauth.session_id`, matching
   the agent's retained callback and credential fanout. Missing or foreign nested session
   IDs are refused before submitting, resuming or approving paid work. Applications should
