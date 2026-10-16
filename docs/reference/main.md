@@ -1174,7 +1174,7 @@ Retry only explicit "not now" refusals: 425/429/503, or 409/410/422 carrying
 `Retry-After`. Generic 5xx and transport failures are final. Suits requests whose
 repetition is harmless but whose callers expect a prompt failure otherwise.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L114)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L115)
 
 Import: `import {classifyRefusal} from 'tasra-sdk'`
 
@@ -1194,7 +1194,7 @@ Classification for a write whose refusal proves it was not processed: only HTTP 
 the verifier uses for SP-11 capacity refusals before it stores anything. A 5xx or lost reply
 may follow processing, so it is final here.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L126)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L127)
 
 Import: `import {classifyRefusedWrite} from 'tasra-sdk'`
 
@@ -1214,7 +1214,7 @@ Default classification for an idempotent request: retry 425/429/503, a 409/410/4
 when the service sent `Retry-After`, other 5xx and unreachable endpoints with backoff.
 Authorization refusals and other 4xx are final.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L98)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L99)
 
 Import: `import {classifyRetry} from 'tasra-sdk'`
 
@@ -2675,7 +2675,7 @@ that refused clients do not return in lockstep, and it is never shortened. A req
 above `maxDelayMs` or beyond the remaining total budget stops retrying instead.
 Without a header the wait is full-jitter exponential backoff from `baseDelayMs`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L72)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L73)
 
 Import: `import {retryDelayMs} from 'tasra-sdk'`
 
@@ -2699,7 +2699,7 @@ The last failure is rethrown unchanged when the policy is exhausted, the classif
 stop, or the requested wait is longer than allowed. Only wrap a request that is safe to send
 again; this function cannot tell.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L148)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L139)
 
 Import: `import {retryIdempotent} from 'tasra-sdk'`
 
@@ -4555,7 +4555,7 @@ Fields:
 
 Classification of one failed attempt.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L33)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L34)
 
 ```ts
 export interface RetryDecision {
@@ -4573,7 +4573,7 @@ Fields:
 
 Limits for one retried request. Every field is optional and bounded.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L19)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L20)
 
 ```ts
 export interface RetryPolicy {
@@ -5025,5 +5025,5 @@ Shared values and contract definitions.
 | `OAUTH_ENVELOPE_KEY` | The single top-level member that marks a rule as an OAuth policy envelope. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L28) |
 | `REGO_POLICY_REFUSED` | The refusal text a holder sees when an envelope's policy denies. Deliberately generic: rule contents are confidential to the operator set, so a refusal never names a claim or clause. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L37) |
 | `REGO_WASM_SHA256` | SHA-256 of the vendored `keykeeper_rego_wasm_bg.wasm`, as recorded in its PINS.json. `scripts/check-rego-pins.mjs` asserts the two agree, so this constant cannot drift from the pinned build. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L44) |
-| `RETRY_AFTER_ONLY_STATUSES` | HTTP statuses retried only when the service explicitly sends `Retry-After`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L46) |
-| `RETRY_STATUSES` | HTTP statuses that mean "not now" and are retried even without a header. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L44) |
+| `RETRY_AFTER_ONLY_STATUSES` | HTTP statuses retried only when the service explicitly sends `Retry-After`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L47) |
+| `RETRY_STATUSES` | HTTP statuses that mean "not now" and are retried even without a header. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L45) |

@@ -7,6 +7,8 @@
 import {resolveDidWeb, verificationKey, type ResolveOpts} from './did-web.js'
 import {decodeJson, jwkFromDid, verifyCompactJws, type EcJwk, type Jwk} from './jose.js'
 import type {Query as DcqlQuery} from '../auth/oid4vp.js'
+import {parseRetryAfter} from '../internal/retryAfter.js'
+import {sleep} from '../internal/sleep.js'
 
 /** JOSE type identifier for a signed authorization request object. */
 export const REQUEST_OBJECT_TYP = 'oauth-authz-req+jwt'
@@ -141,14 +143,150 @@ export function responseEncryptionKey(ro: Pick<VerifiedRequestObject, 'claims'>)
 }
 
 /**
+ * The `error` message of the verifier-agent's HTTP 503 meaning "the paid exchange this request
+ * started is still running; repeating this same request joins it and never sends or pays again".
+ * It must equal the agent's text byte for byte. Any other 503 (for example an uncertain paid
+ * outcome awaiting reconciliation) is final.
+ */
+export const REQUEST_OBJECT_IN_PROGRESS = 'paid verifier exchange in progress; it will not be sent again - retry this request'
+
+/**
+ * The `error` message of the verifier-agent's HTTP 503 meaning "this agent is at its paid-exchange
+ * capacity": the request was refused before anything was dispatched, sent or billed, and the
+ * approval stands, so repeating the same request is safe. It must equal the agent's text byte for byte.
+ */
+export const REQUEST_OBJECT_AT_CAPACITY = 'paid verifier exchange capacity saturated on this agent; nothing was sent or billed and the approval stands - retry this request'
+
+/** The only 503 messages that make the identical `request_uri` GET worth repeating. */
+const RETRYABLE_503_MESSAGES: ReadonlySet<string> = new Set([REQUEST_OBJECT_IN_PROGRESS, REQUEST_OBJECT_AT_CAPACITY])
+
+/**
+ * Limits for repeating the identical `request_uri` GET while the verifier-agent reports work in progress
+ * or that it is at capacity.
+ *
+ * The default budget is 120 s because the agent's detached paid exchange may legitimately run up to
+ * about 118 s (its deadline is the earlier of the session authority's expiry and dispatch + 120 s,
+ * less 2 s). The budget ends at the earliest of `maxTotalMs`, `notAfterMs` and the caller's
+ * `AbortSignal`; pass the session's (authority's) expiry as `notAfterMs` when you know it.
+ */
+export interface RequestObjectRetryPolicy {
+  /** Total GETs including the first, 1..256 (default 64; 120 s at the agent's 2 s hint is 60). 1 disables the retry. */
+  maxAttempts?: number
+  /** Wall-clock budget from the first GET in ms, 0..300000 (default 120000). No wait or repeated GET runs past it. */
+  maxTotalMs?: number
+  /** Absolute end of the budget in Unix ms, such as the session's expiry; the earlier of this and `maxTotalMs` applies. */
+  notAfterMs?: number
+  /** Shortest wait in ms, 100..5000 (default 500). A smaller `Retry-After` is raised to it. */
+  minDelayMs?: number
+  /** Longest wait in ms, `minDelayMs`..10000 (default 5000). A larger `Retry-After` is lowered to it. */
+  maxDelayMs?: number
+}
+
+/** Request verification, transport, cancellation and retry options for {@link fetchRequestObject}. */
+export interface FetchRequestObjectOpts extends VerifyRequestObjectOpts {
+  /** HTTP transport override; defaults to the global fetch implementation. */
+  fetchImpl?: typeof fetch
+  /** Cancels an in-flight GET and any wait between GETs; the promise rejects with the signal's reason. */
+  signal?: AbortSignal
+  /** Limits for the in-progress and at-capacity retry; see {@link RequestObjectRetryPolicy}. */
+  inProgressRetry?: RequestObjectRetryPolicy
+}
+
+/** Wait used when a retryable 503 carries no usable `Retry-After` (the agent's own value). */
+const IN_PROGRESS_DEFAULT_DELAY_MS = 2_000
+/** A retryable 503 is a short JSON object; a larger body is not one. */
+const IN_PROGRESS_MAX_BODY = 4_096
+
+function requestObjectRetryLimits(policy: RequestObjectRetryPolicy = {}): Required<Omit<RequestObjectRetryPolicy, 'notAfterMs'>> & {notAfterMs?: number} {
+  const value = (v: number | undefined, fallback: number, min: number, max: number, name: string) => {
+    const n = v ?? fallback
+    if (!Number.isSafeInteger(n) || n < min || n > max) throw new Error(`invalid inProgressRetry.${name}`)
+    return n
+  }
+  const minDelayMs = value(policy.minDelayMs, 500, 100, 5_000, 'minDelayMs')
+  const limits = {maxAttempts: value(policy.maxAttempts, 64, 1, 256, 'maxAttempts'), maxTotalMs: value(policy.maxTotalMs, 120_000, 0, 300_000, 'maxTotalMs'),
+    minDelayMs, maxDelayMs: value(policy.maxDelayMs, Math.max(5_000, minDelayMs), minDelayMs, 10_000, 'maxDelayMs')}
+  if (policy.notAfterMs === undefined) return limits
+  if (!Number.isFinite(policy.notAfterMs)) throw new Error('invalid inProgressRetry.notAfterMs')
+  return {...limits, notAfterMs: policy.notAfterMs}
+}
+
+/**
+ * True only for the verifier-agent's explicit in-progress or at-capacity answer: HTTP 503, served
+ * by the requested URL itself (no redirect), with a JSON body whose `error` is exactly
+ * {@link REQUEST_OBJECT_IN_PROGRESS} or {@link REQUEST_OBJECT_AT_CAPACITY}. Every other reply is final.
+ */
+function isRetryable503(res: Response, requestUri: string, body: string): boolean {
+  if (res.status !== 503 || res.redirected === true) return false
+  if (typeof res.url === 'string' && res.url !== '') {
+    let requested: string
+    try { requested = new URL(requestUri).href } catch { return false }
+    if (res.url !== requested) return false
+  }
+  if (body.length > IN_PROGRESS_MAX_BODY) return false
+  let parsed: unknown
+  try { parsed = JSON.parse(body) } catch { return false }
+  return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) && RETRYABLE_503_MESSAGES.has((parsed as {error?: unknown}).error as string)
+}
+
+/**
  * Fetch a JAR from `request_uri` (`Accept: application/oauth-authz-req+jwt`) and verify it.
  *
+ * While a paid verifier exchange that this request started is still running, the verifier-agent
+ * answers HTTP 503 with the exact {@link REQUEST_OBJECT_IN_PROGRESS} message and `Retry-After`.
+ * When it is at its paid-exchange capacity it refuses before sending or billing anything with the
+ * exact {@link REQUEST_OBJECT_AT_CAPACITY} message. Only these two answers are retried, in any mix
+ * and under one shared budget, by repeating the identical GET (same URL and headers; nothing is
+ * posted, presented or paid). The wait follows `Retry-After` (delta-seconds or HTTP-date; 2 s when
+ * absent or malformed) clamped to `minDelayMs`..`maxDelayMs` (default 0.5..5 s), within
+ * `maxAttempts` (default 64) and a wall-clock budget (default 120 s, which covers the agent's
+ * longest detached exchange) that ends early at `notAfterMs`. A repeated GET still running at the
+ * end of the budget is aborted. `signal` cancels the in-flight GET or the wait at once. When the
+ * budget or attempts run out, the last 503 is thrown; the paid work may still complete on the agent.
+ * Authorization refusals, any other 503 (including an uncertain paid outcome), other statuses, a
+ * reply from a redirected URL and network errors are final. The first GET is the same request as
+ * before (plus `signal` when given), and a 200 is verified exactly as before.
+ *
  * @param requestUri - URL from the OpenID4VP request_uri parameter.
- * @param opts - Request signature verification settings and optional fetch implementation.
+ * @param opts - Request signature verification settings, fetch implementation, cancellation and retry limits.
  */
-export async function fetchRequestObject(requestUri: string, opts: VerifyRequestObjectOpts & {fetchImpl?: typeof fetch} = {}): Promise<VerifiedRequestObject> {
+export async function fetchRequestObject(requestUri: string, opts: FetchRequestObjectOpts = {}): Promise<VerifiedRequestObject> {
   const f = opts.fetchImpl ?? fetch
-  const res = await f(requestUri, {headers: {Accept: `application/${REQUEST_OBJECT_TYP}`}})
-  if (!res.ok) throw new Error(`request_uri ${requestUri} → HTTP ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`)
-  return verifyRequestObject((await res.text()).trim(), opts)
+  const limits = requestObjectRetryLimits(opts.inProgressRetry)
+  const signal = opts.signal
+  const headers = {Accept: `application/${REQUEST_OBJECT_TYP}`}
+  const deadline = Math.min(Date.now() + limits.maxTotalMs, limits.notAfterMs ?? Number.POSITIVE_INFINITY)
+  for (let attempt = 1; ; attempt++) {
+    signal?.throwIfAborted()
+    const {res, body} = attempt === 1 ? await firstGet() : await retryGet()
+    if (res.ok) return verifyRequestObject(body.trim(), opts)
+    const failure = new Error(`request_uri ${requestUri} → HTTP ${res.status}: ${body.slice(0, 200)}`)
+    if (!isRetryable503(res, requestUri, body) || attempt >= limits.maxAttempts) throw failure
+    const hinted = parseRetryAfter(res.headers?.get('retry-after')) ?? IN_PROGRESS_DEFAULT_DELAY_MS
+    const delay = Math.min(Math.max(hinted, limits.minDelayMs), limits.maxDelayMs)
+    if (Date.now() + delay >= deadline) throw failure
+    await sleep(delay, signal)
+  }
+
+  // The first GET is the request this function always sent; a caller's signal is its only addition.
+  async function firstGet(): Promise<{res: Response; body: string}> {
+    const res = await f(requestUri, signal ? {headers, signal} : {headers})
+    return {res, body: res.ok ? await res.text() : await res.text().catch(() => '')}
+  }
+
+  // A repeat is the identical GET, additionally cut off at the wall-clock deadline.
+  async function retryGet(): Promise<{res: Response; body: string}> {
+    const budget = new AbortController()
+    const timer = setTimeout(() => budget.abort(), Math.max(0, deadline - Date.now()))
+    try {
+      const res = await f(requestUri, {headers, signal: signal ? AbortSignal.any([signal, budget.signal]) : budget.signal})
+      return {res, body: res.ok ? await res.text() : await res.text().catch(() => '')}
+    } catch (error) {
+      signal?.throwIfAborted()
+      if (budget.signal.aborted) throw new Error(`request_uri ${requestUri} → still unavailable when the retry budget ended`, {cause: error})
+      throw error
+    } finally {
+      clearTimeout(timer)
+    }
+  }
 }

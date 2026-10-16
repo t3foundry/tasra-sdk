@@ -12,6 +12,7 @@
 
 import {TasraError, TasraHttpError, NodeUnreachableError} from './errors.js'
 import {parseRetryAfter} from './internal/retryAfter.js'
+import {sleep} from './internal/sleep.js'
 
 export {parseRetryAfter}
 
@@ -125,16 +126,6 @@ export function classifyRefusal(error: unknown): RetryDecision {
  */
 export function classifyRefusedWrite(error: unknown): RetryDecision {
   return error instanceof TasraHttpError && error.status === 429 ? {retry: true, retryAfterMs: error.retryAfterMs} : {retry: false}
-}
-
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    signal?.throwIfAborted()
-    const done = () => { signal?.removeEventListener('abort', abort); resolve() }
-    const timer = setTimeout(done, ms)
-    const abort = () => { clearTimeout(timer); reject(signal!.reason) }
-    signal?.addEventListener('abort', abort, {once: true})
-  })
 }
 
 /**

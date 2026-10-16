@@ -213,6 +213,14 @@ wallet, or the call fails with `UNABLE_TO_VERIFY_LEAF_SIGNATURE` before it plans
 anything. A client of your own goes in `fetchImpl` (the JAR and the POST) and in
 `defaultKeyResolver({fetchImpl})` (the `did:web` document).
 
+For a paid session the `request_uri` GET can answer HTTP 503 "paid verifier exchange in
+progress" while the agent's paid exchange runs, or "capacity saturated" when the agent refused
+before sending or billing anything; `fetchRequestObject` repeats the identical GET
+(never a POST, never a second payment) for up to 120 s by default, clamping `Retry-After` to
+0.5–5 s. Pass `signal` to cancel and `inProgressRetry: {notAfterMs}` to stop at the session's
+expiry. Any other 503 — including "paid delivery outcome uncertain" — is final: reconcile, do
+not retry.
+
 Keep HTTPS certificate and hostname verification enabled. A private CA, when
 explicitly required by the chosen service, must be trusted by the process.
 Do not enable an insecure transport option to work around a certificate failure.

@@ -9,6 +9,25 @@ never does.
 
 ### Fixed
 
+- `fetchRequestObject` (and so `presentToRequestUri`) no longer fails when the
+  verifier-agent answers the `request_uri` GET with its explicit "paid verifier exchange in
+  progress" HTTP 503, or with its "capacity saturated" HTTP 503 (refused before anything was
+  sent or billed; the approval stands). It repeats the identical GET (same URL and headers;
+  nothing is posted, presented or paid again) until the Request Object is served. Only a 503
+  whose JSON `error` is exactly `REQUEST_OBJECT_IN_PROGRESS` or `REQUEST_OBJECT_AT_CAPACITY`,
+  served by the requested URL without a redirect, is repeated, in any mix under one budget;
+  401/403, an uncertain paid outcome, any other 503 or status, a redirected reply and network
+  errors stay final. Each wait follows `Retry-After` (delta-seconds or HTTP-date,
+  2 s when absent or malformed) clamped to 0.5–5 s. The budget defaults to 120 s, which covers
+  the agent's longest detached exchange (about 118 s), and 64 attempts; it ends earlier at
+  `inProgressRetry.notAfterMs` (pass the session's expiry when known), and a repeated GET still
+  running at its end is aborted. The new `signal` option cancels the in-flight GET or the wait
+  at once. Limits are set with `inProgressRetry: {maxAttempts (1..256), maxTotalMs (0..300000),
+  notAfterMs, minDelayMs (100..5000), maxDelayMs (minDelayMs..10000)}`; `maxAttempts: 1`
+  restores the previous single GET. A successful reply is read and verified exactly as before.
+  New exports on `tasra-sdk/oid4vp`: `REQUEST_OBJECT_IN_PROGRESS`, `REQUEST_OBJECT_AT_CAPACITY`,
+  `FetchRequestObjectOpts`, `RequestObjectRetryPolicy`.
+
 - Require Noble Curves 1.9.7 or a compatible later 1.x release, which exports the
   `utils.js` entry point used by paid-operation modules. Older consumer lockfiles
   could otherwise satisfy the declared range while failing to load those modules.
