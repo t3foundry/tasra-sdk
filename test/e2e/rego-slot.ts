@@ -43,6 +43,8 @@ import {createNodePaidAgentTransport} from '../../src/chain/node.ts'
 import {discoverPaidOperationContext, readClientExecutionPolicy, type PaidVerifierWitness} from '../../src/chain/prepaid.ts'
 import {fetchDrawnVerifierWitnesses} from '../../src/chain/verifierSnapshot.ts'
 import {reservePaidOperation} from '../../src/chain/reservation.ts'
+import {createFileStore} from '../../src/app/node.ts'
+import {createPaidReservationJournal} from '../../src/app/paid-journal.ts'
 import {prepareRegisteredPaidSession, PaidAgentControlError, type ClientApprovedPresentation,
   type RegisteredPaidAgentSession} from '../../src/chain/registeredPaidAgent.ts'
 import {createKeeperExecutionApprover} from '../../src/chain/keeperExecution.ts'
@@ -50,7 +52,7 @@ import {evaluateEnvelope, isOauthEnvelope, lintEnvelope, packEnvelope, REGO_POLI
 import {createDpopKey, type DpopKey} from '../../src/auth/dpop.ts'
 import {decodeJwtClaims} from '../../src/auth/verifier.ts'
 import {platformAudience} from '../../src/committee/oauth.ts'
-import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, type PaymentIntentWire} from '../../src/committee/payment.ts'
+import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.ts'
 import {createExecutionCertificate, createLocalExecutionSigner, executionBodyHash} from '../../src/committee/execution.ts'
 import {verifyEvidenceBinding} from '../../src/committee/evidence.ts'
 import {compoundTokenHash, decodeCompoundToken} from '../../src/committee/token.ts'
@@ -246,12 +248,20 @@ async function authorize(name: string, message: Uint8Array, token: {key: DpopKey
     throw e
   })
   const expected = {slot: slotId, action: payment.action, payloadDigest: payment.payload_digest}
+  // Retain the same immutable reservation in the application's standard store.
+  // The full verifier's settlement gate inventories this store before allowing
+  // destructive scenarios; exclusive per-job diagnostics alone are insufficient.
+  const standardJournal = createPaidReservationJournal(createFileStore(settings.directory), payment,
+    {random, audience: settings.profile.clientId})
   // The reservation: one transaction with the caps above. Each checkpoint is journaled before
   // the step it guards; the prepared record exists before anything is sent.
   try {
     await withDedicatedPayer(`${cfg.chainId}-${creator.address.toLowerCase()}`, () => reservePaidOperation(chain.client, gasWallet, deployment, payment, expected, {
       accountantUrls: settings.accountantUrls, allowLocalHttp: true, maxGas: MAX_GAS, maxGasPrice: MAX_FEE_PER_GAS,
-      persist: async checkpoint => job.write(`reservation-${checkpoint.phase}.json`, checkpoint)}))
+      persist: async checkpoint => {
+        job.write(`reservation-${checkpoint.phase}.json`, checkpoint)
+        await standardJournal.persist(checkpoint)
+      }}))
   } catch (e) {
     if (!existsSync(join(job.dir, 'reservation-prepared.json'))) {
       job.write('outcome', `nothing reserved: ${(e as Error).message}\n`)
@@ -259,6 +269,10 @@ async function authorize(name: string, message: Uint8Array, token: {key: DpopKey
     }
     throw unknown(job, `the reservation was sent (${(e as Error).message})`)
   }
+  const originalJournal = await standardJournal.load()
+  if (!originalJournal || originalJournal.phase !== 'confirmed') throw unknown(job, 'standard settlement journal is not confirmed')
+  s.eq(`${name}: standard settlement inventory retains the original request`, originalJournal.record.requestId,
+    prepaidRequestId(payment))
   try {
     // The execution client: a key the creator certifies for this one operation.
     const seed = randomBytes(32), signer = createLocalExecutionSigner(seed)
