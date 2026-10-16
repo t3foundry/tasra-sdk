@@ -362,6 +362,51 @@ it('derives OAuth challenge and audience locally and retains a genuine DPoP pres
   expect(sent[1].body).toBeUndefined()
 })
 
+it('matches the production OAuth callback shape and binds nested session IDs before any paid delivery',async()=>{
+  const f=await fixture('oauth');await f.session.create()
+  const key=await createDpopKey(),token=signCompactJws({typ:'at+jwt'},{iat:1000,exp:1060,
+    aud:f.session.oauthContext.platformAudience,cnf:{jkt:await key.thumbprint()}},{alg:'ES256',privateKey:new Uint8Array(32).fill(5)})
+  const approved=await f.session.prepareOAuthPresentation(token,key.signer)
+  // Production Presented serializes OauthPresentationDto with its nested session_id.
+  // Keep this independent of the SDK's approved object: the old two-field shape timed out.
+  const production={holder:'',credentials:[],holder_proof:null,iat:1000,
+    oauth:{access_token:token,dpop_proof:approved.oauth!.dpop_proof,session_id:f.session.sessionId}}
+  expect(approved).toEqual(production)
+  const u64=(n:number)=>{const b=new Uint8Array(8);new DataView(b.buffer).setBigUint64(0,BigInt(n));return b}
+  const callback=keccak256(concatBytes(new TextEncoder().encode('keykeeper/retained-presentation/v1'),
+    u64(f.session.sessionId.length),new TextEncoder().encode(f.session.sessionId),
+    hexToBytes(executionBodyHash(production)),u64(1030))).slice(2)
+  const retained={id:callback,presentation:production,expires:1030,selected:false}
+  const send=vi.mocked(f.transport.paidAgentRequest)
+  send.mockResolvedValueOnce({status:200,body:bytes({presentations:[retained]})})
+  expect(await f.session.presentations()).toEqual([retained])
+  send.mockResolvedValueOnce({status:200,body:bytes({})})
+  await f.session.resumePresentation(callback,approved)
+  const body={payment:f.payment,holder:'',credentials:[],oauth:production.oauth,session_id:f.session.sessionId,token_type:'JWT',
+    seed:f.payment.verification_seed,epoch:7,slot_id:f.payment.slot,registry_size:2,committee:2,quorum:2,iat:1000,exp:1030,
+    chain_id:43112,action:'sign',payload_digest:f.payment.payload_digest,random:f.params.random,client_id:f.profile.clientId,
+    description:f.params.operation.description,operation_exp:1060,operation:f.params.operation,operation_sig:f.params.operationSig}
+  const proposal:PaidAgentProposal={id:proposalId,stage:'credential',operator_key:f.members[0]!.publicKey,unsigned_body:body,expires:1030}
+  await f.session.approveCredentials(proposal,f.members[0]!,approved)
+  const authorization=JSON.parse(new TextDecoder().decode(send.mock.calls.at(-1)![1].body)).authorization
+  await verifyExecutionAuthorization({payment:f.payment,policy:f.policy,expected:{stage:'credential',operatorKey:f.members[0]!.publicKey,body},authorization})
+  send.mockClear();f.sign.mockClear()
+  const missing={...production.oauth} as Record<string,unknown>;delete missing.session_id
+  for(const oauth of [missing,{...production.oauth,session_id:null},{...production.oauth,session_id:'foreign-session'}]){
+    const changed={...production,oauth} as unknown as ClientApprovedPresentation
+    await expect(async()=>f.session.submitOAuthPresentation(changed)).rejects.toThrow()
+    await expect(f.session.resumePresentation(callback,changed)).rejects.toThrow()
+    await expect(f.session.approveCredentials(proposal,f.members[0]!,changed)).rejects.toThrow()
+  }
+  expect(send).not.toHaveBeenCalled();expect(f.sign).not.toHaveBeenCalled()
+  const foreign={...production,oauth:{...production.oauth,session_id:'foreign-session'}}
+  const foreignId=keccak256(concatBytes(new TextEncoder().encode('keykeeper/retained-presentation/v1'),
+    u64(f.session.sessionId.length),new TextEncoder().encode(f.session.sessionId),
+    hexToBytes(executionBodyHash(foreign)),u64(1030))).slice(2)
+  send.mockResolvedValueOnce({status:200,body:bytes({presentations:[{...retained,id:foreignId,presentation:foreign}]})})
+  await expect(f.session.presentations()).rejects.toThrow(/original session/)
+})
+
 it('refuses substituted OAuth nonce, audience, access-token hash or proof key before delivery',async()=>{
   const f=await fixture('oauth');await f.session.create()
   const key=await createDpopKey(), other=await createDpopKey(), mint=async(aud:string)=>signCompactJws({typ:'at+jwt'},
@@ -379,10 +424,10 @@ it('refuses substituted OAuth nonce, audience, access-token hash or proof key be
   vi.mocked(f.transport.paidAgentRequest).mockClear()
   for(const change of [{nonce:'wrong'},{accessToken:token+'changed'},{htu:'https://attacker.example'}]){
     const forged=await key.signer.proof({htm:'POST',htu:f.session.oauthContext.dpopHtu,nonce:f.nonce,accessToken:token,...change})
-    await expect(f.session.submitOAuthPresentation({...approved,oauth:{access_token:token,dpop_proof:forged}})).rejects.toThrow(/DPoP/)
+    await expect(f.session.submitOAuthPresentation({...approved,oauth:{access_token:token,dpop_proof:forged,session_id:f.session.sessionId}})).rejects.toThrow(/DPoP/)
   }
   const foreign=await other.signer.proof({htm:'POST',htu:f.session.oauthContext.dpopHtu,nonce:f.nonce,accessToken:token})
-  await expect(f.session.submitOAuthPresentation({...approved,oauth:{access_token:token,dpop_proof:foreign}})).rejects.toThrow(/DPoP/)
+  await expect(f.session.submitOAuthPresentation({...approved,oauth:{access_token:token,dpop_proof:foreign,session_id:f.session.sessionId}})).rejects.toThrow(/DPoP/)
   expect(f.transport.paidAgentRequest).not.toHaveBeenCalled()
 })
 
@@ -484,7 +529,7 @@ it('refuses empty, malformed or wrong-kind presentations before local signing or
   const send=vi.mocked(f.transport.paidAgentRequest);send.mockClear()
   for(const approved of [{...f.approved,credentials:[]},{...f.approved,holder:3},
     {...f.approved,credentials:['invalid credential']},{...f.approved,iat:-1},
-    {...f.approved,oauth:{access_token:'',dpop_proof:'empty'},credentials:[]}]){
+    {...f.approved,oauth:{access_token:'',dpop_proof:'empty',session_id:f.session.sessionId},credentials:[]}]){
     await expect(f.session.approveCredentials(f.proposal(),f.members[0]!,approved as ClientApprovedPresentation)).rejects.toThrow(/presentation/)
   }
   expect(f.sign).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled()

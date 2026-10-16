@@ -7,6 +7,13 @@ never does.
 
 ## [Unreleased]
 
+### Fixed
+
+- Paid OAuth presentations now retain the original nested `oauth.session_id`, matching
+  the agent's retained callback and credential fanout. Missing or foreign nested session
+  IDs are refused before submitting, resuming or approving paid work. Applications should
+  retain the complete result of `prepareOAuthPresentation` unchanged.
+
 ### Added
 
 - Rule amendment on `tasra-sdk/chain`. The write client gains `proposeRuleUpdate`,

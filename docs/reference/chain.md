@@ -3330,6 +3330,7 @@ export interface ClientApprovedPresentation {
     oauth: {
         access_token: string;
         dpop_proof: string;
+        session_id: string;
     } | null;
     iat: number;
 }

@@ -10,7 +10,7 @@ import {approveExecutionRequest, executionBodyHash, executionInitializationTyped
   type ExecutionProposal, type SessionInitialization} from '../committee/execution.js'
 import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 import {protocolHex} from '../committee/receipts.js'
-import {dpopHtu, platformAudience} from '../committee/oauth.js'
+import {dpopHtu, platformAudience, isValidSessionId} from '../committee/oauth.js'
 import {BINDING_HOLDER_KEY, assertStatusAttestationsWire, decodeCompoundToken, selectVerifierCommittee, verifierLeaf, verifyCompoundToken, verifyMerkleProof,
   requireStatusAttestations, compoundTokenHash, type CompoundTokenWire} from '../committee/token.js'
 import {derivedNonce, requestHash, type CommitteeAction} from '../oid4vp/binding.js'
@@ -79,7 +79,7 @@ export interface ClientApprovedPresentation {
   /** Original holder proof, if applicable. */
   holder_proof: string | null
   /** Original OAuth artifacts, if this session uses OAuth. */
-  oauth: {access_token: string; dpop_proof: string} | null
+  oauth: {access_token: string; dpop_proof: string; session_id: string} | null
   /** Original holder-selected integer issuance time; never change it on a retry. */
   iat: number
 }
@@ -227,9 +227,9 @@ function presented(value: ClientApprovedPresentation): ClientApprovedPresentatio
     || value.credentials.some(v=>typeof v !== 'string' || !v.length || /\s/.test(v))
     || (value.holder_proof !== null && typeof value.holder_proof !== 'string')) throw new Error('Invalid client-approved presentation')
   if (value.oauth !== null) {
-    exact(object(value.oauth),['access_token','dpop_proof'])
+    exact(object(value.oauth),['access_token','dpop_proof','session_id'])
     if (value.credentials.length || typeof value.oauth.access_token!=='string'||typeof value.oauth.dpop_proof!=='string'
-      ||!value.oauth.access_token||!value.oauth.dpop_proof) throw new Error('Invalid OAuth presentation')
+      ||!value.oauth.access_token||!value.oauth.dpop_proof||!isValidSessionId(value.oauth.session_id)) throw new Error('Invalid OAuth presentation')
   } else if (!value.credentials.length) throw new Error('Empty wallet presentation')
   return structuredClone(value)
 }
@@ -474,6 +474,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   const credentialBody = (accepted:ClientApprovedPresentation):Record<string,unknown> => {
     const approved=presented(accepted),c=ready()
     if((params.kind==='oauth')!==(approved.oauth!==null))throw new Error('Presentation kind differs from the original session')
+    if(approved.oauth!==null&&approved.oauth.session_id!==sessionId)throw new Error('OAuth presentation differs from the original session')
     let exp=Math.min(approved.iat+3600,c.expires,params.operation.exp)
     for(const credential of [...approved.credentials,...(approved.oauth?[approved.oauth.access_token]:[])]){
       const expiry=issuerExpiry(credential)
@@ -510,7 +511,8 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     return claims
   }
   const checkOAuth=async(approved:ClientApprovedPresentation)=>{
-    if(params.kind!=='oauth'||approved.oauth===null||approved.holder!==''||approved.holder_proof!==null)throw new Error('Invalid original OAuth presentation')
+    if(params.kind!=='oauth'||approved.oauth===null||approved.holder!==''||approved.holder_proof!==null
+      ||approved.oauth.session_id!==sessionId)throw new Error('Invalid original OAuth presentation')
     const claims=oauthClaims(approved.oauth.access_token),proof=approved.oauth.dpop_proof
     if(approved.iat!==claims.iat||proof.length>4*1024||!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(proof))throw new Error('OAuth presentation changed its original issuance time or proof')
     let header:Record<string,unknown>,payload:Record<string,unknown>
@@ -573,7 +575,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
         const claims=oauthClaims(accessToken)
         const proof=await oauthSigner.proof({htm:'POST',htu:oauthContext.dpopHtu,nonce,accessToken})
         active.throwIfAborted()
-        const approved=presented({holder:'',credentials:[],holder_proof:null,oauth:{access_token:accessToken,dpop_proof:proof},iat:Number(claims.iat)})
+        const approved=presented({holder:'',credentials:[],holder_proof:null,oauth:{access_token:accessToken,dpop_proof:proof,session_id:sessionId},iat:Number(claims.iat)})
         await checkOAuth(approved);active.throwIfAborted();return approved
       })
     },
@@ -631,11 +633,13 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
       if(!Array.isArray(values)||values.length>16)throw new Error('Invalid retained presentation list')
       return values.map(value=>{const p=object(value);exact(p,['id','presentation','expires','selected']);
         const presentation=presented(p.presentation as unknown as ClientApprovedPresentation)
+        if(presentation.oauth!==null&&presentation.oauth.session_id!==sessionId)throw new Error('Retained OAuth presentation differs from the original session')
         if(p.id!==callbackId(presentation)||p.expires!==ready().expires||typeof p.selected!=='boolean')throw new Error('Retained presentation identity changed')
         return {id:id(p.id),presentation,expires:ready().expires,selected:p.selected}})
     },
     async resumePresentation(callback:string,approved:ClientApprovedPresentation,signal?:AbortSignal) {
       approved=presented(approved)
+      if(approved.oauth!==null&&approved.oauth.session_id!==sessionId)throw new Error('OAuth presentation differs from the original session')
       if(id(callback)!==callbackId(approved)||(params.kind==='oauth')!==(approved.oauth!==null))throw new Error('Callback differs from the client-accepted presentation')
       const response=await paced('POST /v1/sessions/{id}/presentations/{callback}/resume',()=>control('/v1/sessions/'+sessionId+'/presentations/'+callback+'/resume','POST',undefined,signal),LIMITED,sessionDeadline(),signal);ok(response,[200])
     },
