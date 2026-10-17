@@ -216,7 +216,8 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
   const checkedPoll = async () => {
     signal.throwIfAborted()
     const status = await session.poll(signal)
-    if (status.status === 'failed') throw new VerifierAgentSessionError('refused', session.sessionId, 'Original paid credential verification refused')
+    if (status.status === 'failed') throw new VerifierAgentSessionError('refused', session.sessionId,
+      'Original paid credential verification refused' + (status.error ? ': ' + status.error.slice(0, 500) : ''))
     return status
   }
   const resumeCallback = async (callback: string, approved: ClientApprovedPresentation) => {

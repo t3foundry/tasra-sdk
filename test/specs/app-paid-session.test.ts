@@ -171,3 +171,37 @@ it('gives a local holder the request URI and QR payload instead of making it reb
   expect(present).toHaveBeenCalledWith(expect.objectContaining(link))
   expect(present.mock.invocationCallOrder[0]).toBeLessThan(holder.makePresentation.mock.invocationCallOrder[0]!)
 })
+
+
+it.each([400, 409])('preserves the original terminal revocation reason after callback HTTP %s without another paid write', async httpStatus => {
+  const f = fixture(), detail = 'paid credential verification refused: credentials[0]: revocation check failed (deny): credential is revoked'
+  const holder = {kind: 'local' as const, makePresentation: () => structuredClone(f.presentation), submit: async () => {f.wallet()}}
+  vi.mocked(f.session.resumePresentation).mockImplementationOnce(async () => {
+    vi.mocked(f.session.poll).mockResolvedValue({status: 'failed', phase: 'failed', error: detail})
+    throw new PaidAgentControlError(f.id, httpStatus)
+  })
+  const error = await drivePaidSession({...f.base, holder}).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(VerifierAgentSessionError)
+  if (!(error instanceof VerifierAgentSessionError)) throw error
+  expect(error).toMatchObject({kind: 'refused', retryable: false, correlation: f.id})
+  expect(error.message).toContain(detail)
+  expect(f.session.resumePresentation).toHaveBeenCalledTimes(1)
+  expect(f.session.poll).toHaveBeenCalledTimes(3)
+  expect(f.session.create).toHaveBeenCalledTimes(1)
+  expect(f.session.approveCredentials).not.toHaveBeenCalled()
+})
+
+it.each([undefined, '', 'x'.repeat(2048)])('bounds terminal refusal detail and preserves the fallback for missing detail', async detail => {
+  const f = fixture()
+  vi.mocked(f.session.poll).mockResolvedValue({status: 'failed', phase: 'failed', error: detail})
+  const holder = {kind: 'external' as const, present: vi.fn(), accept: vi.fn(async () => true)}
+  const error = await drivePaidSession({...f.base, holder}).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(VerifierAgentSessionError)
+  if (!(error instanceof VerifierAgentSessionError)) throw error
+  expect(error.message).toContain('Original paid credential verification refused')
+  if (detail) {expect(error.message).toContain('x'.repeat(500)); expect(error.message).not.toContain('x'.repeat(501))}
+  expect(error.message.length).toBeLessThan(650)
+  expect(holder.present).not.toHaveBeenCalled()
+  expect(f.session.approveCredentials).not.toHaveBeenCalled()
+  expect(f.session.resumePresentation).not.toHaveBeenCalled()
+})
