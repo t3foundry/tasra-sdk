@@ -1,5 +1,6 @@
 import {decodeFunctionResult, encodeFunctionData, keccak256, recoverTypedDataAddress, toHex, type Abi, type Address, type Hex, type PublicClient, type ReadContractReturnType} from 'viem'
 import {ed25519} from '@noble/curves/ed25519'
+import {randomBytes} from '@noble/hashes/utils'
 import {UnderfundedSlotError} from '../errors.js'
 import {hexToBytes} from '../crypto/hex.js'
 import {assertPaymentIntentWire, keeperAssignmentCommitment, paymentIntentHash, paymentIntentTypedData, prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
@@ -293,7 +294,7 @@ export interface PaidContextDeployment extends PrepaidDeployment {
 
 /** Explicit application policy for selecting currently eligible paid workers. */
 export interface PaidContextOptions extends PaidKeeperTransportOptions {
-  /** Requested registered coordinator; otherwise the eligible keeper with the lowest operator ID. */
+  /** Requested registered coordinator; otherwise a uniform draw among eligible keepers. Retain the returned context for reservation and recovery. */
   coordinator?: Address
   /** Independently approved deployed verifier defaults; required only for a zero slot override. */
   defaultVerificationPolicy?: {committee: number; quorum: number}
@@ -599,7 +600,9 @@ export async function discoverPaidOperationContext(
     : {committee: onChainCommittee, quorum: onChainQuorum}
   if (!Number.isInteger(committee) || !Number.isInteger(quorum) || quorum <= 0 || quorum > committee || committee > 4096 || committee > size) throw new Error('missing or invalid approved verifier policy')
   const members = [...directory.members.values()].filter(member => member.eligible).sort((a, b) => a.id < b.id ? -1 : 1)
-  const selected = members.find(member => !options.coordinator || member.operator.toLowerCase() === options.coordinator.toLowerCase())
+  const selected = options.coordinator
+    ? members.find(member => member.operator.toLowerCase() === options.coordinator!.toLowerCase())
+    : drawKeeper(members)
   if (!selected) throw new Error('requested coordinator is not an eligible assigned keeper')
   const contributors = members.map(member => member.key).sort()
   const assignment = {key_epoch: safeInteger(directory.slot.epoch, 'keeper epoch'), committee_version: safeInteger(directory.slot.committeeVersion, 'committee version'),
@@ -612,4 +615,15 @@ export async function discoverPaidOperationContext(
     verification_committee: committee, verification_quorum: quorum, keeper_assignment: assignment}
   await finishObservation(client, at)
   return {...at, intentFields, creator: directory.slot.creator, mode: directory.slot.mode, groupPublicKey: directory.slot.publicKey, coordinator, contributors: endpoints, available}
+}
+
+// readKeeperDirectory bounds a slot to 256 members. Reject the excess range so
+// every eligible keeper has the same chance, including with non-power-of-two rosters.
+// This is a fresh-context default, never a redraw of an existing signed assignment.
+function drawKeeper<T>(members: readonly T[]): T | undefined {
+  if (!members.length) return undefined
+  const limit = 256 - 256 % members.length
+  let sample: number
+  do { sample = randomBytes(1)[0]! } while (sample >= limit)
+  return members[sample % members.length]
 }

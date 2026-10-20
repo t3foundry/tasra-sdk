@@ -9,6 +9,11 @@ never does.
 
 ### Fixed
 
+- Fresh paid-operation discovery draws its default coordinator uniformly from
+  eligible assigned keepers. Lower operator IDs no longer receive every default
+  coordination opportunity. Explicit choices and saved paid assignments stay pinned;
+  this provides equal chances over time, not guaranteed turn-taking.
+
 - `fetchRequestObject` (and so `presentToRequestUri`) no longer fails when the
   verifier-agent answers the `request_uri` GET with its explicit "paid verifier exchange in
   progress" HTTP 503, or with its "capacity saturated" HTTP 503 (refused before anything was

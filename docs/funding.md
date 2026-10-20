@@ -189,9 +189,12 @@ const unsignedPayment = {
 
 Use the verifier defaults approved for your deployment; the numbers above are examples.
 A slot's nonzero policy overrides them. Missing defaults for a slot with no override are
-refused. Discovery selects the eligible assigned keeper with the lowest registered operator
-ID as coordinator, or accepts an explicit `coordinator` address. The intent includes all
+refused. Discovery draws the coordinator uniformly from eligible assigned keepers, or
+accepts an explicit `coordinator` address. Retain that context for signing and reservation;
+recovery uses the original paid assignment and does not draw again. The intent includes all
 currently eligible assigned contributors. It refuses fewer contributors than the threshold.
+This gives eligible keepers equal chances over many fresh operations, not guaranteed turns.
+Eligibility is verified on chain; discovery does not probe endpoint reachability.
 
 The result includes the creator, published group key, endpoints, available TASRA and block
 identity. Only `intentFields` belongs in the payment preimage. The application still chooses

@@ -1,5 +1,6 @@
 import {afterEach, expect, it, vi} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
+import * as randomness from '@noble/hashes/utils'
 import {createPublicClient, custom, decodeFunctionData, encodeFunctionResult, getAddress, keccak256, recoverTypedDataAddress, toHex, type Abi, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {discoverPaidOperationContext, readClientExecutionPolicy, type PaidContextOptions} from '../../src/chain/prepaid.js'
@@ -13,6 +14,11 @@ import {settlementAbi} from '../../src/chain/abis/settlement.js'
 import {thresholdRandomBeaconAbi} from '../../src/chain/abis/thresholdRandomBeacon.js'
 import {verifierSetRegistryAbi} from '../../src/chain/abis/verifierSetRegistry.js'
 import {accountantSetRegistryAbi} from '../../src/chain/abis/accountantSetRegistry.js'
+
+vi.mock('@noble/hashes/utils', async importOriginal => {
+  const actual = await importOriginal<typeof import('@noble/hashes/utils')>()
+  return {...actual, randomBytes: vi.fn(actual.randomBytes)}
+})
 
 const h = (n: number, len = 32): Hex => `0x${n.toString(16).padStart(2, '0').repeat(len)}`
 interface Changes {
@@ -83,7 +89,7 @@ function fixture(change: Changes = {}) {
   }}, {retryCount: 0})})
   return {client, deployment, slotId, creator, keys, operators, calls, run: (options?: PaidContextOptions) => discoverPaidOperationContext(client, deployment, slotId, options)}
 }
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => { vi.restoreAllMocks(); vi.mocked(randomness.randomBytes).mockReset() })
 const now = () => vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
 
 it('refuses a legacy Settlement or a slot not cut over with a typed billing refusal', async () => {
@@ -112,7 +118,8 @@ it('identifies an exhausted activated slot without inventing an HTTP response or
 })
 
 it('discovers one canonical assignment/policy and produces creator-signable intent fields without mutations', async () => {
-  now(); const f = fixture(), context = await f.run()
+  now(); vi.mocked(randomness.randomBytes).mockReturnValueOnce(Uint8Array.of(0))
+  const f = fixture(), context = await f.run()
   expect(context).toMatchObject({blockHash: h(20), blockNumber: 20n, available: 100n, creator: f.creator.address,
     coordinator: {operator: getAddress(f.operators[1]!), publicKey: f.keys[1]}, intentFields: {verification_epoch: 7, verification_seed: h(9), verification_root: h(18),
       verification_committee: 3, verification_quorum: 2, keeper_assignment: {key_epoch: 1, committee_version: 2, threshold: 2}}})
@@ -148,13 +155,33 @@ it('requires explicit defaults and enforces the native verifier policy bounds', 
   expect((await fixture({policy: [4096, 3000], size: 5000}).run()).intentFields.verification_committee).toBe(4096)
   for (const policy of [[0, 1], [3, 0], [3, 4], [6, 2], [4097, 3000]] as [number, number][]) await expect(fixture({policy}).run()).rejects.toThrow(/policy/)
 })
+it('draws each eligible coordinator without ID bias and rejects the uneven byte range', async () => {
+  now()
+  const draw = vi.mocked(randomness.randomBytes)
+  // Each accepted byte selects one of three members; 255 would bias member 0
+  // if reduced modulo three instead of being rejected.
+  for (const [byte, index] of [[0, 1], [1, 2], [2, 0], [254, 0]] as const) {
+    draw.mockReturnValueOnce(Uint8Array.of(255)).mockReturnValueOnce(Uint8Array.of(byte))
+    const f = fixture(), context = await f.run()
+    expect(context.coordinator.operator).toBe(getAddress(f.operators[index]!))
+    expect(context.intentFields.keeper_assignment.coordinator).toEqual([...ed25519.getPublicKey(new Uint8Array(32).fill(index + 1))])
+    expect(context.contributors).toHaveLength(3)
+  }
+  expect(draw).toHaveBeenCalledTimes(8)
+  draw.mockReturnValueOnce(Uint8Array.of(1))
+  const f = fixture({inactive: [0]}), context = await f.run()
+  expect(context.coordinator.operator).toBe(getAddress(f.operators[2]!))
+  expect(context.contributors).toHaveLength(2)
+})
 it('honors an explicitly selected eligible coordinator and excludes inactive contributors', async () => {
   now(); const f = fixture({inactive: [0]})
+  const draw = vi.mocked(randomness.randomBytes)
   const c = await f.run({coordinator: f.operators[2]})
   expect(c.coordinator.operator).toBe(getAddress(f.operators[2]!))
   expect(c.contributors.map(m => m.operator.toLowerCase()).sort()).toEqual(f.operators.slice(1).sort())
   await expect(f.run({coordinator: f.operators[0]})).rejects.toThrow(/coordinator/)
   await expect(f.run({coordinator: h(88, 20)})).rejects.toThrow(/coordinator/)
+  expect(draw).not.toHaveBeenCalled()
   await expect(fixture({inactive: [0], insufficient: true}).run()).rejects.toThrow(/threshold/)
 })
 it('refuses mismatched deployment pointers, inactive/unfunded slots and ambiguous keeper identities', async () => {
