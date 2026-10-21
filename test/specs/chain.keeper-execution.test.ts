@@ -12,10 +12,12 @@ import {keeperExecutionFixture} from '../support/keeperExecution.js'
 import {hex} from '../support/executionRecovery.js'
 
 interface Changes {cost?:bigint;settled?:boolean;creator?:Hex;mode?:number;inactive?:boolean;version?:bigint;
-  unsupported?:boolean;orphan?:boolean;age?:number;duringRead?:()=>void}
+  unsupported?:boolean;orphan?:boolean;age?:number;duringRead?:()=>void;eoa?:boolean}
+const EOA_DIGEST=new Uint8Array(32).fill(0x5e)
 async function fixture(changes:Changes={}){
   vi.spyOn(Date,'now').mockReturnValue(1_000_000)
-  const f=await keeperExecutionFixture('sign',toHex(sha256(Uint8Array.of(1,2,3))))
+  const f=changes.eoa?await keeperExecutionFixture('eoa-sign',toHex(sha256(EOA_DIGEST)))
+    :await keeperExecutionFixture('sign',toHex(sha256(Uint8Array.of(1,2,3))))
   const payment=structuredClone(f.payment),operators=[hex(31,20),hex(32,20)],nodes=hex(7,20),hits:string[]=[]
   const client=createPublicClient({transport:custom({request:async({method,params}:{method:string;params?:unknown})=>{
     hits.push(method)
@@ -44,8 +46,10 @@ async function fixture(changes:Changes={}){
   }},{retryCount:0})})
   const deployment={chainId:43112,settlement:payment.settlement,keyRegistry:payment.key_registry}
   const expected={slot:payment.slot,action:payment.action,payloadDigest:payment.payload_digest}
-  const request:KeeperExecutionApprovalRequest={kind:'committee-sign',nodeUrl:'https://keeper0.example',payment,
-    body:{committee_token:{slot_id:payment.slot,payment,payment_hash:paymentIntentHash(payment)},message_hex:'010203',signing_set:[1,2]}}
+  const token={slot_id:payment.slot,payment,payment_hash:paymentIntentHash(payment)}
+  const request:KeeperExecutionApprovalRequest=changes.eoa
+    ?{kind:'committee-eoa-digest',nodeUrl:'https://keeper0.example',payment,body:{committee_token:token,digest:toHex(EOA_DIGEST).slice(2)}}
+    :{kind:'committee-sign',nodeUrl:'https://keeper0.example',payment,body:{committee_token:token,message_hex:'010203',signing_set:[1,2]}}
   return {...f,client,deployment,expected,request,hits}
 }
 afterEach(()=>vi.restoreAllMocks())
@@ -115,6 +119,26 @@ describe('independent keeper approval chain boundary',()=>{
     try{
       await expect(createKeeperExecutionApprover({...f,signer:{publicKey:f.signer.publicKey,sign}})(f.request)).rejects.toThrow('aged')
       expect(sign).toHaveBeenCalledTimes(1)
+    }finally{f.signer.dispose()}
+  })
+})
+
+// Chain 18: a paid tecdsa-p256 signature (slot mode 4) was refused on the client before signing,
+// because the EOA-digest route admitted only secp256k1 (mode 2). It serves both curves.
+describe('threshold-ECDSA digest route',()=>{
+  it.each([['secp256k1',2],['p256',4]])('approves a %s slot (mode %i)',async (_curve,mode)=>{
+    const f=await fixture({eoa:true,mode}),sign=vi.fn(f.signer.sign)
+    try{
+      const result=await createKeeperExecutionApprover({...f,signer:{publicKey:f.signer.publicKey,sign}})(f.request)
+      expect(result.authorizations).toHaveLength(3);expect(sign).toHaveBeenCalledTimes(3)
+    }finally{f.signer.dispose()}
+  })
+  it.each([['frost',0],['bls',1],['bls-bn254',3]])('refuses a %s slot (mode %i) before any client signature',async (_mode,mode)=>{
+    const f=await fixture({eoa:true,mode}),sign=vi.fn(f.signer.sign)
+    try{
+      await expect(createKeeperExecutionApprover({...f,signer:{publicKey:f.signer.publicKey,sign}})(f.request))
+        .rejects.toThrow(/canonical slot mode/)
+      expect(sign).not.toHaveBeenCalled()
     }finally{f.signer.dispose()}
   })
 })

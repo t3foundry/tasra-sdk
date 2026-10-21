@@ -55,8 +55,10 @@ export function createKeeperExecutionApprover(options:KeeperExecutionApproverOpt
     const body=structuredClone(request.body),nodeUrl=new URL(request.nodeUrl).toString().replace(/\/$/,'')
     const target=await resolvePaidKeeperTarget(client,deployment,payment,expected,transportPolicy)
     signal?.throwIfAborted()
-    const mode=kind==='committee-eoa-digest'?2:kind==='committee-decrypt'||kind==='ibe-extract'?1:0
-    if(target.mode!==mode)throw new Error('Keeper request route does not match the canonical slot mode')
+    // The EOA-digest route signs for BOTH threshold-ECDSA curves: tecdsa (secp256k1, mode 2) and
+    // tecdsa-p256 (mode 4). Every other route serves exactly one slot mode.
+    const modes=kind==='committee-eoa-digest'?[2,4]:kind==='committee-decrypt'||kind==='ibe-extract'?[1]:[0]
+    if(!modes.includes(target.mode))throw new Error('Keeper request route does not match the canonical slot mode')
     const coordinatorUrl=endpoint(target,deployment.chainId,transportPolicy,route)
     const contributors=target.contributors.map(member=>({...member,approvedUrl:endpoint(member,deployment.chainId,transportPolicy,route)}))
     if(new Set(contributors.map(m=>m.approvedUrl)).size!==contributors.length)throw new Error('Client-approved routing aliases multiple keeper identities')
