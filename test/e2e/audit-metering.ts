@@ -12,6 +12,7 @@ import {committeeSign} from '../../src/committee/client.ts'
 import {Suite} from '../fleet/_assert.ts'
 import {discoverCommittee, gate, keeperSlotN, loadFleetConfig, mintLocalJwt, mintAdminJwt, provisionRule} from '../fleet/_fleet.ts'
 import {authorizeWallet,createWalletSlot, WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
+import {paidWalletCoordinator} from '../fleet/_paid-wallet.ts'
 import {readAccountantMetering} from '../fleet/_metering.ts'
 
 const cfg = loadFleetConfig()
@@ -63,10 +64,14 @@ s.ok('provisioned the rule + salt on the committee', prov.ok, prov.errors.join('
 // JWT carries the sign scope + audit:read, under a known subject
 const jwt = mintLocalJwt(cfg, {sub: SUBJECT, scope: ['audit:read']})
 const subjects = new Set<string>()
+// The audit log and the metering read below are per COORDINATOR, so the batch pins one. Since
+// f0b6cf6 a fresh paid context draws its default coordinator uniformly, and the unpinned loop
+// failed whenever two signs drew different keepers (chain #15b).
+const pinned = await paidWalletCoordinator(cfg, slotId, 0)
 let coord = ''
 for (let i = 0; i < N; i++) {
   const message = randomBytes(32)
-  const grant = await authorizeWallet(cfg,slotId,creatorKey,{action:'sign',message})
+  const grant = await authorizeWallet(cfg,slotId,creatorKey,{action:'sign',message},undefined,false,pinned)
   if (coord && coord !== grant.coordinatorUrl) throw new Error('Audit coordinator changed during the original paid batch')
   coord = grant.coordinatorUrl
   await committeeSign({nodeUrl:coord,committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,
