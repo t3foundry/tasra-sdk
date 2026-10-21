@@ -11,7 +11,7 @@ before running the app.
 ## 1. Prepare the network connection
 
 Install Node.js **22.12+** (24 recommended). The example downloads the testnet
-pointer and manifest from [tasra-releases](https://github.com/t3-foundry/tasra-releases)
+pointer and manifest from [tasra-releases](https://github.com/t3foundry/tasra-releases)
 and checks the manifest checksum. It resolves the RPC, contracts and verifier from
 that configuration, with an explicit `lowest-operator-id` coordinator convention.
 

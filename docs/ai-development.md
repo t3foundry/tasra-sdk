@@ -65,6 +65,7 @@ load all instructions for every request.
 | Create, provision or resume a slot | [tasra-create-slot](../skills/tasra-create-slot/SKILL.md) |
 | Give a user operation-specific authorization | [tasra-credentials-and-sessions](../skills/tasra-credentials-and-sessions/SKILL.md) |
 | Define who may use a slot or decrypt a document | [tasra-dcql-rules](../skills/tasra-dcql-rules/SKILL.md) |
+| Write a Rego policy for an OAuth (organization IdP) slot | [tasra-rego-rules](../skills/tasra-rego-rules/SKILL.md) |
 | Handle refusal, cancellation and uncertain results | [tasra-handle-errors](../skills/tasra-handle-errors/SKILL.md) |
 | Build shared Ethereum accounts or document signing | [tasra-sign-and-decrypt](../skills/tasra-sign-and-decrypt/SKILL.md) |
 | Encrypt documents with scoped access | [tasra-ibe-identity-scoped](../skills/tasra-ibe-identity-scoped/SKILL.md) |

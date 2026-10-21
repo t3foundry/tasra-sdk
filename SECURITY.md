@@ -11,7 +11,7 @@ argue about severity before fixing something real.
 **Do not open a public issue for a security problem.**
 
 Report privately through
-[GitHub Security Advisories](https://github.com/t3-foundry/tasra-sdk/security/advisories/new),
+[GitHub Security Advisories](https://github.com/t3foundry/tasra-sdk/security/advisories/new),
 which lets us collaborate on a fix in a private fork before anything is disclosed.
 This requires no special access — any GitHub user can file one, and only the
 maintainers can read it.

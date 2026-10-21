@@ -123,6 +123,37 @@ export type {
   Selection as DcqlSelection,
 } from './auth/index.js'
 
+// OAuth policy envelopes (ADR-0078)
+// A slot whose holders authenticate with their organization's own IdP can commit a Rego
+// policy over the access token's claims instead of a DCQL query. Pack, lint and evaluate it
+// locally with the network's own engine (WebAssembly, loaded on first use and hash-checked);
+// `isOauthEnvelope` is pure and needs no engine.
+export {
+  isOauthEnvelope,
+  loadRego,
+  packEnvelope,
+  unpackEnvelope,
+  lintEnvelope,
+  evaluateEnvelope,
+  RegoEnvelopeError,
+  OAUTH_ENVELOPE_KEY,
+  DEFAULT_REGO_ENTRYPOINT,
+  REGO_POLICY_REFUSED,
+  REGO_WASM_SHA256,
+} from './auth/index.js'
+export type {
+  OauthTokenSpec,
+  OauthTokens,
+  OauthPolicyInput,
+  UnpackedEnvelope,
+  EnvelopeGateReport,
+  EnvelopeLint,
+  OauthPresentation,
+  EnvelopeVerdict,
+  RegoEngine,
+  LoadRegoOptions,
+} from './auth/index.js'
+
 // identity-scoped rules (WHO + WHICH)
 export {
   evaluateIdentityScoped,

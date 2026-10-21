@@ -60,10 +60,31 @@ FROST slots for FROST signatures, and tECDSA slots for Ethereum accounts.
 [All capabilities](docs/capabilities.md) · [Documentation index](docs/README.md).
 
 Deployment addresses and service URLs come from
-[**tasra-releases**](https://github.com/t3-foundry/tasra-releases).
+[**tasra-releases**](https://github.com/t3foundry/tasra-releases).
 The [Fuji configuration guide](docs/fuji.md) loads `networks/testnet/current.json`
 and its manifest from one pinned commit, then verifies the checksum. Confirm service support for the intended signing, authorization or decryption
 operation before executing it. A release record does not establish that support.
+
+## Authorize with your organization's identity provider
+
+A slot can trust access tokens from your own OAuth identity provider. Write the access
+rule as a short Rego policy over the token's claims; the SDK packs it into the slot's
+rule and checks it with the same policy engine the network runs:
+
+```ts
+import {packEnvelope, evaluateEnvelope} from 'tasra-sdk'
+
+const rule = await packEnvelope(
+  'package tasra.slot\n\ndefault allow := false\n\nallow if "treasury-signer" in input.tokens.corp.claims.roles\n',
+  {corp: {format: 'oauth+access-token+dpop', iss: [issuer], aud: [platformAudience], max_age_secs: 300}},
+)
+// Create the slot with {rule, authType: 'oauth'} (or pass oauthPolicy to createSlot),
+// then preview a decision locally before presenting a token:
+console.log(await evaluateEnvelope(rule, {holder, credentials: [{format: 'oauth+access-token+dpop', issuer, claims}]}))
+```
+
+The engine (about 1 MB of WebAssembly) loads only when one of these functions is
+called. See [OAuth authorization](docs/flows.md#integrate-oauth-authorization).
 
 ## Try local encryption without a network
 
@@ -111,5 +132,5 @@ See [migration guidance](docs/consumer-migrations.md) and
 [deployment compatibility](docs/compatibility.md) before upgrading.
 The package has [not had an independent cryptographic audit](SECURITY.md#cryptographic-posture).
 
-[Contributing](https://github.com/t3-foundry/tasra-sdk/blob/develop/CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·
+[Contributing](https://github.com/t3foundry/tasra-sdk/blob/develop/CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·
 [Security](SECURITY.md) · [Apache-2.0 license](LICENSE)

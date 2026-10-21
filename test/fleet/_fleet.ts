@@ -107,14 +107,22 @@ const CALLER_ENV = new Set(Object.keys(process.env))
  * The fleet's `chain.env`, when there is one. Only a LOCAL fleet has this file; a third party
  * pointing the SDK at a real deployment has no such thing, which is why the config below reads
  * environment variables and this is a bridge rather than the primary source.
+ *
+ * Resolution: `KK_CHAIN_ENV`, else the network checkout `KK_NETWORK_DIR` names (the variable
+ * test/verify/_run.ts already reads), else the `managination/keykeeper-network` layout - which
+ * is NOT a sibling of this SDK's own checkout since it moved to t3-foundry/, so a hand run with
+ * neither variable set finds no chain.env.
  */
+const CHAIN_ENV_IN_NETWORK = ['lab', 'fleet', 'credentials', 'chain.env'] as const
 export const chainEnvPath =
   process.env.KK_CHAIN_ENV ??
-  resolve(
-    dirname(fileURLToPath(import.meta.url)),
-    '..', '..', '..', '..', 'managination', 'keykeeper-network',
-    'lab', 'fleet', 'credentials', 'chain.env',
-  )
+  (process.env.KK_NETWORK_DIR
+    ? resolve(process.env.KK_NETWORK_DIR, ...CHAIN_ENV_IN_NETWORK)
+    : resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '..', '..', '..', '..', 'managination', 'keykeeper-network',
+      ...CHAIN_ENV_IN_NETWORK,
+    ))
 
 /**
  * Publish `chain.env` into `process.env` so this config can see a local fleet.

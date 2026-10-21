@@ -9,6 +9,34 @@ never does.
 
 ### Added
 
+- Rule amendment on `tasra-sdk/chain`. The write client gains `proposeRuleUpdate`,
+  `endorseRuleUpdate`, `vetoRuleUpdate` and `activateRuleUpdate`; each refuses, before
+  signing, what the contract would revert (missing or immutable slot, wrong signer, an
+  amendment already pending, the current rule, a policy envelope on a non-`oauth` slot or
+  one keepers would not store, the timelock judged on chain time, too few keeper
+  adoptions). `readRuleAmendment` reads the active rule, the amendment policy and the
+  pending amendment with its adoption votes. `amendSlotRule` drives propose → deliver →
+  adoption → guardian endorsement → activation, resumes from the chain state when called
+  again, and returns `{version, ruleCommitment, proposeTx?, activateTx?}`. Refusals are a
+  `RuleAmendmentError` with a stable `code`.
+- `provisionRule` options `expect: 'pending'` (deliver a proposed amendment; keepers that
+  have not yet seen the proposal are retried with the same signature, and a keeper that
+  stores the rule as active is an error), `retryConflictMs` (default 120000) and
+  `delegation` (a creator delegation). Each keeper result now carries `authorizedBy`
+  (`creator`, `delegate` or `rule_admin`) when the keeper reports it. The default
+  `expect: 'active'` delivery is unchanged.
+- OAuth policy envelopes (`kk_oauth`): a slot whose holders sign in with their
+  organization's identity provider can commit a Rego policy over the DPoP-bound access
+  token's claims. `packEnvelope`, `unpackEnvelope`, `lintEnvelope` and `evaluateEnvelope`
+  run the network's own policy engine, shipped as a pinned WebAssembly module that is
+  loaded on first use and SHA-256-checked before instantiation; `isOauthEnvelope` is pure
+  TypeScript. `createSlot` / `createSlotCommitReveal` accept `oauthPolicy: {policy, tokens,
+  entrypoint?}`, require `authType: 'oauth'` for an envelope, refuse one keepers would not
+  store before any transaction, and return the committed string as `rule`.
+  `ruleCommitment` commits an envelope in canonical (RFC 8785) form. Package size: the
+  module adds 965,157 bytes unpacked (about 328 KB compressed); applications that never
+  call the engine do not load it. Third-party notices for the compiled engine are in
+  `NOTICE`.
 - Additive `tasra-sdk/app` entry for typed slot operations, public EVM address lookup,
   exact-operation authorization, a registered wallet adapter and viem accounts.
 - Durable prepared creation journals with known-transaction recovery and explicit
@@ -26,16 +54,41 @@ and services selected through a verified tasra-releases manifest.
 - SDK-only shared-account example that creates and provisions a tECDSA slot,
   confirms Alice/Bob transactions, and verifies Mallory's server-side denial.
 - Generated API reference and explicit SDK/deployment compatibility guidance.
+- Evidence pass-through on `tasra-sdk/committee`: `committeeSign`, `committeeDecrypt` and
+  `requestIbeExtractionPartials` accept `evidenceCt` (the sealed presentation the verifier
+  agent returns beside the compound token as `evidenceCt`) and forward it to keepers;
+  `evidenceBindingMessage` and `verifyEvidenceBinding` check the token's evidence binding.
+- `createDpopKey().tokenRequestProof({htm, htu, nonce?})` for identity providers that
+  require a DPoP proof on the token request itself.
+- `isValidSessionId`, `MAX_SESSION_ID_LEN`, `OAUTH_RESPONSE_PATH_PREFIX` and
+  `OAUTH_RESPONSE_PATH_SUFFIX` in `tasra-sdk/committee`.
 
 ### Changed
 
+- **Breaking** (`tasra-sdk/committee`): `dpopHtu(origin, sessionId)` now takes the session
+  id and returns the per-session OAuth response URL
+  (`/v1/sessions/<sessionId>/oauth-response`); the session id must be one plain path
+  segment or the call throws.
+- `assertCompoundTokenWire` refuses a compound token that carries only some of the
+  evidence fields.
+- `RecipientStore.satisfies` and `validateRule` refuse a `kk_oauth` policy envelope by
+  name: held credentials cannot satisfy it (`canAccess` returns `false`).
 - All 11 application-building skills lead with the current task workflow;
   specialized and compatibility details are available in supporting references.
 - The shared-account tutorial always demonstrates durable prepared creation.
 - The slot-provisioning example uses the creator's signature instead of an admin JWT.
 
+### Removed
+
+- **Breaking** (`tasra-sdk/committee`): `OAUTH_RESPONSE_PATH`; the response path is now
+  per session (`OAUTH_RESPONSE_PATH_PREFIX` + session id + `OAUTH_RESPONSE_PATH_SUFFIX`).
+
 ### Fixed
 
+- Every tasra-releases and repository link (docs, skills, examples, issue templates and
+  the generated reference `[Source]` links) now points at the `t3foundry` organisation.
+- The bring-your-own-identity-provider section of the API guide now shows the `kk_oauth`
+  policy envelope (`oauthPolicy`) an OAuth slot uses, and how to amend it.
 - Point npm package repository, issues, and homepage metadata to the publishing
   GitHub repository.
 - Make the funding tutorial resolve the EURC token from the verified BondingCurve
@@ -49,7 +102,7 @@ and services selected through a verified tasra-releases manifest.
 - Align note identity/result guidance with the API and include a complete standalone
   Node TypeScript configuration.
 - Point skills and onboarding docs to the published Fuji deployment pointer,
-  manifest checksum and service URLs in `t3-foundry/tasra-releases`; document
+  manifest checksum and service URLs in `t3foundry/tasra-releases`; document
   bootstrap from a pinned repository commit.
 - Narrow slot-creation results before reading the transaction hash in the skill's
   direct/commit-reveal example.

@@ -107,6 +107,9 @@ export interface SessionStatusResult {
   bindingPreimage?: Record<string, unknown>
   /** Optional failure detail reported by the verifier agent. */
   error?: string
+  /** the sealed presentation (base64url `bincode(Ciphertext)`) the token's
+   *  `evidence_hash` names — post it to the keeper beside the token as `evidence_ct`. */
+  evidenceCt?: string
 }
 
 /** Why a session did not yield a token - the class the UI explains, with a NON-SECRET
@@ -178,10 +181,24 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
   if (t.binding !== undefined && !['unbound', 'holder_key', 'issuer_asserted'].includes(t.binding as string)) bad('binding is not a known strength')
   if (!Array.isArray(t.verifier_indexes) || !t.verifier_indexes.every(i => Number.isInteger(i) && (i as number) >= 0)) bad('verifier_indexes is not an index list')
   if (!Array.isArray(t.signatures) || t.signatures.length === 0) bad('signatures missing')
-  for (const sig of t.signatures as unknown[]) {
-    const sg = sig as Record<string, unknown> | null
-    if (!sg || typeof sg !== 'object' || !Number.isInteger(sg.verifier_index) || typeof sg.signature !== 'string') bad('a signature entry is not {verifier_index, signature}')
-    if (!(t.verifier_indexes as number[]).includes(sg.verifier_index as number)) bad('a signature names an index outside the committee')
+  const checkSignatures = (list: unknown[], what: string) => {
+    for (const sig of list) {
+      const sg = sig as Record<string, unknown> | null
+      if (!sg || typeof sg !== 'object' || !Number.isInteger(sg.verifier_index) || typeof sg.signature !== 'string') bad(`a ${what} entry is not {verifier_index, signature}`)
+      if (!(t.verifier_indexes as number[]).includes(sg.verifier_index as number)) bad(`a ${what} entry names an index outside the committee`)
+    }
+  }
+  checkSignatures(t.signatures as unknown[], 'signature')
+  // the sealed-evidence binding is all-or-none.
+  for (const key of ['evidence_hash', 'evidence_key_id', 'evidence_signatures'] as const) if (t[key] === null) delete t[key]
+  const evidence = ['evidence_hash', 'evidence_key_id', 'evidence_signatures'].filter(k => t[k] !== undefined).length
+  if (evidence !== 0 && evidence !== 3) bad('evidence_hash, evidence_key_id and evidence_signatures come together or not at all')
+  if (evidence === 3) {
+    for (const k of ['evidence_hash', 'evidence_key_id'] as const) {
+      if (typeof t[k] !== 'string' || !HEX32.test(t[k] as string)) bad(`${k} is not a 32-byte hex string`)
+    }
+    if (!Array.isArray(t.evidence_signatures) || t.evidence_signatures.length === 0) bad('evidence_signatures missing')
+    checkSignatures(t.evidence_signatures as unknown[], 'evidence signature')
   }
   return t
 }
@@ -305,8 +322,26 @@ export async function createOauthSession(
 /**
  * Submit a DPoP-bound access token and proof to an OAuth session. The signer must use the key bound to that token. Retry once when the server responds with a DPoP nonce challenge.
  *
+ * Speaks the RFC 9449 §9 resource-server contract — token in `Authorization: DPoP`, proof in
+ * `DPoP:` — so a conformant client library needs no custom code. It also handles the
+ * `use_dpop_nonce` challenge ITSELF: on a `401` carrying `DPoP-Nonce`, it re-mints the proof
+ * with the server's nonce and resends ONCE. One retry, not a loop: a server that keeps
+ * challenging is broken, and retrying forever would hide that.
+ *
+ * `signer` must be the key the token is bound to — see `../auth/dpop.js` for the two shapes.
+ *
+ * Note: the proof is signed over `dpopHtu` — the agent's PUBLIC origin plus this session's route,
+ * as {@link createOauthSession} returned it — and posted to `verifierAgentUrl`. When the two
+ * name the same host (the normal case) they are the same URL. When a client reaches the
+ * agent through a different base URL, the proof must still name the public one: that is
+ * the origin the verifiers approved.
+ *
+ * Throws `VerifierAgentSessionError`: `refused` when the agent reports the session failed
+ * (the committee refused, or could not be reached — `message` says which; not retryable on
+ * this session), `unavailable` for other 502/503/504, `protocol` for any other non-2xx.
+ *
  * @param verifierAgentUrl - Verifier-agent HTTP base URL.
- * @param args - Session credentials, DPoP-bound access token, nonce and matching signer.
+ * @param args - Session credentials, DPoP-bound access token, nonce, `dpopHtu` and matching signer.
  */
 export async function submitOauthResponse(
   verifierAgentUrl: string,
@@ -350,7 +385,32 @@ export async function submitOauthResponse(
   }
   if (!resp.ok) {
     const body = await resp.text()
-    throw new Error(`submitOauthResponse failed (${resp.status}): ${body}`)
+    // The agent answers a delivery that FAILED the session with `{status: "failed", error}`
+    // — a committee refusal (403), an unreachable quorum (503) or disagreeing verifiers
+    // (502). The session is over either way, so this is `refused` (not retryable) whatever
+    // the status: re-sending to the same session cannot succeed, a new session might.
+    let failed: {status?: unknown; error?: unknown} | undefined
+    try {
+      failed = JSON.parse(body) as {status?: unknown; error?: unknown}
+    } catch {
+      failed = undefined
+    }
+    if (failed?.status === 'failed' && typeof failed.error === 'string') {
+      throw new VerifierAgentSessionError(
+        'refused',
+        args.sessionId,
+        `submitOauthResponse: session failed (HTTP ${resp.status}): ${failed.error.slice(0, 500)}`,
+        resp.status,
+      )
+    }
+    const kind: VerifierAgentSessionErrorKind =
+      resp.status === 502 || resp.status === 503 || resp.status === 504 ? 'unavailable' : 'protocol'
+    throw new VerifierAgentSessionError(
+      kind,
+      args.sessionId,
+      `submitOauthResponse: HTTP ${resp.status}${body ? `: ${body.slice(0, 300)}` : ''}`,
+      resp.status,
+    )
   }
 }
 
@@ -403,6 +463,7 @@ export function parseVerifierAgentSessionStatus(data: Record<string, unknown>, s
   if (status === 'done') data.compound_token = assertCompoundTokenWire(data.compound_token, sessionId)
   // Absent optional fields arrive as JSON `null` from the verifier-agent (serde `Option`): null = absent.
   if (data.error != null && typeof data.error !== 'string') throw new VerifierAgentSessionError('protocol', sessionId, 'poll: error is not a string')
+  if (data.evidence_ct != null && (typeof data.evidence_ct !== 'string' || !/^[A-Za-z0-9_-]+$/.test(data.evidence_ct))) throw new VerifierAgentSessionError('protocol', sessionId, 'poll: evidence_ct is not base64url')
   return {
     status,
     phase,
@@ -410,6 +471,7 @@ export function parseVerifierAgentSessionStatus(data: Record<string, unknown>, s
     verifierProofs: data.verifier_proofs ?? undefined,
     bindingPreimage: (data.binding_preimage ?? undefined) as Record<string, unknown> | undefined,
     error: (data.error ?? undefined) as string | undefined,
+    ...(typeof data.evidence_ct === 'string' ? {evidenceCt: data.evidence_ct} : {}),
   }
 }
 

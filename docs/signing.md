@@ -4,7 +4,7 @@
 
 ## Before you start
 
-Load the network manifest from [tasra-releases](https://github.com/t3-foundry/tasra-releases).
+Load the network manifest from [tasra-releases](https://github.com/t3foundry/tasra-releases).
 You need a **secp256k1 tECDSA slot** (mode 2), completed distributed key generation, and the current registry
 address. BLS, FROST, and P-256 slots cannot serve as Ethereum accounts.
 

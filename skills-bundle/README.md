@@ -40,6 +40,7 @@ credentials. Skills do not configure a network or grant access to anything.
 | [tasra-create-slot](tasra-create-slot/SKILL.md) | durable creation, provisioning and uncertain-transaction recovery |
 | [tasra-credentials-and-sessions](tasra-credentials-and-sessions/SKILL.md) | operation authorizers, holder binding and credential lifetime; existing JWT sessions when needed |
 | [tasra-dcql-rules](tasra-dcql-rules/SKILL.md) | writing, validating and evaluating a slot's access rule |
+| [tasra-rego-rules](tasra-rego-rules/SKILL.md) | a Rego policy (`kk_oauth` envelope) for an OAuth slot: write, lint, test, commit |
 | [tasra-handle-errors](tasra-handle-errors/SKILL.md) | refusals, cancellation, readiness polling and uncertain-outcome reconciliation |
 | [tasra-sign-and-decrypt](tasra-sign-and-decrypt/SKILL.md) | public EVM address, viem signing, shared accounts and two independent document signatures |
 | [tasra-ibe-identity-scoped](tasra-ibe-identity-scoped/SKILL.md) | typed BLS encryption/decryption, strict extraction and explicit share trust |
@@ -70,7 +71,7 @@ not the directory where the skill was copied. The skills contain no private setu
 knowledge. Complete sources are shipped in the package. The selected network
 must support the application’s requested key modes and authorization routes.
 
-Deployment records live in [tasra-releases](https://github.com/t3-foundry/tasra-releases),
+Deployment records live in [tasra-releases](https://github.com/t3foundry/tasra-releases),
 not the npm package. Fuji's `networks/testnet/current.json` points to
 `deployments/tasra-fuji-v1.json` and supplies its checksum. Use `tasra-chain` to
 bootstrap from one reviewed repository revision, then discover the slot's keepers.

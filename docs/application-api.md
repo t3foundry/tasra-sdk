@@ -20,7 +20,7 @@ npm install --save-dev typescript tsx @types/node
 ## Connect using the deployment's manifest
 
 Download network configuration from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases). For testnet,
+[tasra-releases](https://github.com/t3foundry/tasra-releases). For testnet,
 `networks/testnet/current.json` names the manifest relative to `networks/testnet/`
 and supplies its SHA-256 checksum. Read both files from the same reviewed commit.
 

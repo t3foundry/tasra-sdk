@@ -74,7 +74,7 @@ const grant = await authorizeWallet(cfg,slotId,creatorKey,{action:'sign',message
 const res = await fetch(`${committee[0]}/v1/committee/sign`, {
   method: 'POST',
   headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({committee_token:grant.compound_token,verifier_proofs:grant.verifier_proofs,message_hex:messageHex}),
+  body: JSON.stringify({committee_token:grant.compound_token,verifier_proofs:grant.verifier_proofs,evidence_ct:grant.evidence_ct,message_hex:messageHex}),
   signal: AbortSignal.timeout(30000),
 })
 const resBody = await res.text()

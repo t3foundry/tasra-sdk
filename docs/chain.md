@@ -3,7 +3,7 @@
 > The chain subpath: reads, writes, slot creation, discovery, and the slot-driven clients.
 
 Download the selected manifest from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases), verify its trusted
+[tasra-releases](https://github.com/t3foundry/tasra-releases), verify its trusted
 checksum, and derive the address book with `addressBookFromManifest`.
 
 ## Create a read client

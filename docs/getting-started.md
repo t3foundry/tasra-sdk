@@ -41,7 +41,7 @@ npx tsx network.ts
 ```
 
 The supplied helper downloads the testnet manifest from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases), verifies its checksum
+[tasra-releases](https://github.com/t3foundry/tasra-releases), verifies its checksum
 and saves `network.json` and `network-pin.json`. A manifest tells the SDK which
 network and services to use. Keep these files for the following lessons.
 

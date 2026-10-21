@@ -15,7 +15,7 @@ funding, an access policy and protected state storage.
 
 1. Install `tasra-sdk@latest` and retain the lockfile.
 2. Download the network pointer and manifest from
-   [tasra-releases](https://github.com/t3-foundry/tasra-releases) at one reviewed
+   [tasra-releases](https://github.com/t3foundry/tasra-releases) at one reviewed
    commit. Verify the pointer's trusted checksum against the exact manifest bytes.
 3. Construct `TasraClient` with the release manifest and the deployment's coordinator
    convention. Run `check()` to verify chain identity and registry availability.

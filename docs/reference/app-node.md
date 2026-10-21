@@ -19,7 +19,7 @@ Clients, adapters and error classes.
 
 A state lock is already held and requires reconciliation before manual removal.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/node.ts#L28)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L28)
 
 Import: `import {StoreLockedError} from 'tasra-sdk/app/node'`
 
@@ -56,7 +56,7 @@ Operations you can import and call.
 
 The directory is private, trusted application state, not an untrusted shared folder.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/node.ts#L67)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L67)
 
 Import: `import {createFileStore} from 'tasra-sdk/app/node'`
 
@@ -85,7 +85,7 @@ Options, data structures and return types.
 
 Durable private state storage with exclusive locking for each named operation.
 
-[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/src/app/node.ts#L11)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L11)
 
 ```ts
 export interface ApplicationStore {

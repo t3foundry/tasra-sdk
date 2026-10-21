@@ -1,0 +1,11 @@
+{
+  "network_commit": "d41df79ea2ef051c18ecc9817f27a269a5d14fcb",
+  "network_tree_dirty": false,
+  "rustc": "1.97.1",
+  "wasm_bindgen": "0.2.121",
+  "regorus": "0.12.0",
+  "sha256": {
+    "keykeeper_rego_wasm_bg.wasm": "853cdecd788069b9c881904c67d4c7c2ec340386ae3a76054e0fdcfbfb112f88",
+    "keykeeper_rego_wasm.js": "d99278d5f40d7c8ae96fd32b0e02a35c4c746ccb44cc5eeb8f7a4f264ede66e4"
+  }
+}

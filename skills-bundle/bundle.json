@@ -13,6 +13,7 @@
     "tasra-chain",
     "tasra-committee-path",
     "tasra-oid4vp-wallet-and-verifier-agent",
-    "tasra-hovi-issuer"
+    "tasra-hovi-issuer",
+    "tasra-rego-rules"
   ]
 }

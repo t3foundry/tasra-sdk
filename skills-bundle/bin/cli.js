@@ -13,7 +13,7 @@ Commands:
   init    Install all skills from the bundle into the workspace
 
 Options:
-  -t, --target <dir>  Target skills folder (default: .agent/skills)
+  -t, --target <dir>  Target skills folder (default: .agents/skills)
   -h, --help          Show this help message
 `);
 }
@@ -27,7 +27,7 @@ if (!command || command === '-h' || command === '--help') {
 }
 
 if (command === 'init') {
-    let targetDir = '.agent/skills';
+    let targetDir = '.agents/skills';
 
     const targetIdx = args.indexOf('-t');
     if (targetIdx === -1) {
