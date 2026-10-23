@@ -334,7 +334,8 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
       const persist = cfg.persistAttempt ?? options.persistAttempt
       if (persist) await budget.run(() => persist(attempt!))
       let contacted = false
-      for (const approval of cfg.approvals.slice(0, attempts)) {
+      const candidates = cfg.approvals.slice(0, attempts)
+      for (const [index, approval] of candidates.entries()) {
         if (contacted) {
           const result = await reconcile(chain, attempt, budget)
           if (result.receipt) { pending = undefined; return result.receipt }
@@ -387,7 +388,10 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
           }
         }
         await post()
-        const until = Date.now() + attemptMs
+        // attemptMs is the failover window to the NEXT provider. The last provider has no successor, so its
+        // accepted request is watched for the rest of the relay budget rather than declared unknown early
+        // (a single approved relayer serialising several applications mined the call after 18 s).
+        const until = index < candidates.length - 1 ? Date.now() + attemptMs : Number.POSITIVE_INFINITY
         do {
           // A lost POST response still has a deterministic status ID.
           try {
@@ -405,10 +409,16 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
               await budget.run(() => new Promise(resolve => setTimeout(resolve, Math.min(1_000, Math.max(1, until - Date.now())))))
               await post()
             } else if (['failed', 'rejected', 'unknown'].includes(status.state)) break
-          } catch { budget.signal.throwIfAborted(); break }
+          } catch {
+            budget.signal.throwIfAborted()
+            // A lost or unreadable status fails over to the next provider; the last one is reconciled on chain.
+            if (index < candidates.length - 1) break
+          }
           const result = await reconcile(chain, attempt, budget)
           if (result.receipt) { pending = undefined; return result.receipt }
           if (result.expired) { pending = undefined; throw new Error('Forward request expired without execution') }
+          // A nonce spent beyond the log window is a final verdict: stop watching, keep the original.
+          if (result.unresolvable) break
           await budget.run(() => new Promise(resolve => setTimeout(resolve, Math.min(pollMs, Math.max(1, until - Date.now())))))
         } while (Date.now() < until)
       }

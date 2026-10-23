@@ -48,7 +48,8 @@ function harness() {
     return encode({id: 'ignored', state: 'unknown'})
   })}
   const submitter = (overrides: Partial<Parameters<typeof createRegisteredRelaySubmitter>[1]> = {}) => createRegisteredRelaySubmitter(chain,
-    {approvals: [approval('01'), approval('02')], forwarder, transport, attemptMs: 1, pollMs: 10, ...overrides}, wallet)
+    // timeoutMs bounds how long the LAST provider is watched; fixtures that never execute end there.
+    {approvals: [approval('01'), approval('02')], forwarder, transport, attemptMs: 1, pollMs: 10, timeoutMs: 300, ...overrides}, wallet)
   return {chain, client, wallet, sign, transport, bodies, submitter,
     setNonce: (value: bigint) => { nonce = value }, expire: () => { expired = true },
     setRequest: (body: Uint8Array) => { bodies.push(body); request = JSON.parse(new TextDecoder().decode(body)) }}
@@ -246,6 +247,23 @@ describe('approved registered relayer writes', () => {
     expect(h.bodies).toHaveLength(1)
   })
 
+  it('keeps watching the last provider for the whole budget instead of failing over to nobody', async () => {
+    // Certification run 38: the only approved relayer, serialising several applications, mined the
+    // forward 18 s after acceptance while attemptMs (the failover window) was 10 s.
+    const h = harness()
+    vi.mocked(h.transport.relayRequest).mockImplementation(async (_, {body}) => {
+      if (body) { h.setRequest(body); setTimeout(() => h.setNonce(1n), 150); return encode({state: 'queued'}) }
+      return encode({id: saved!.id, state: 'queued'})
+    })
+    let saved: RelayAttempt | undefined
+    const relay = h.submitter({approvals: [approval('01')], attemptMs: 20, pollMs: 10, timeoutMs: 5_000, persistAttempt: async a => { saved = a }})
+    const result = await relay.submit(target, '0x12345678')
+    expect(result.txHash).toBe(txHash)
+    expect(relay.pendingAttempt()).toBeUndefined()
+    expect(h.bodies).toHaveLength(1)
+    expect(h.sign).toHaveBeenCalledTimes(1)
+  })
+
   it('reconciles the nonce then retries exactly the same signed bytes at an authenticated second provider', async () => {
     const h = harness()
     vi.mocked(h.transport.relayRequest).mockImplementation(async (url, {body}) => {
@@ -262,7 +280,8 @@ describe('approved registered relayer writes', () => {
   it('refuses a relayer-supplied hash for another call and prevents another signature while unresolved', async () => {
     const h = harness()
     let saved: RelayAttempt | undefined
-    const relay = h.submitter({maxAttempts: 1, persistAttempt: async a => { saved = a }})
+    // No verified result can arrive, so the outcome stays unknown once the relay budget ends.
+    const relay = h.submitter({maxAttempts: 1, timeoutMs: 300, persistAttempt: async a => { saved = a }})
     vi.mocked(h.transport.relayRequest).mockImplementation(async (_, {body}) => {
       if (body) { h.setRequest(body); return encode({state: 'queued'}) }
       return encode({id: saved!.id, state: 'mined', tx_hash: txHash})
@@ -469,7 +488,8 @@ describe('relayer busy status', () => {
       if (posts === 2) h.setNonce(1n)
       return {status: 202, body: encode({id: 'x', state: 'queued'})}
     })
-    const relay = h.submitter({attemptMs: 5_000})
+    // The busy re-send waits its 1 s hint, so this fixture needs more than the default watch budget.
+    const relay = h.submitter({attemptMs: 5_000, timeoutMs: 10_000})
     vi.mocked(h.transport.relayRequest).mockImplementation(async () => {
       statuses++
       return encode({id: relay.pendingAttempt()!.id, state: 'rejected', reason: BUSY[0]})
