@@ -85,6 +85,21 @@ export function isRelayBusyReason(reason: unknown): boolean {
   return typeof reason === 'string' && reason.length <= 512 && reason.startsWith('relayer busy:')
 }
 
+/**
+ * The reason of a definitive pre-acceptance refusal: a 422 `rejected` reply whose reason is not a
+ * busy one (identity budget, policy, voucher). Accepted replies, busy refusals and anything that
+ * does not parse are undefined. Certification run 42: an identity-budget refusal was otherwise
+ * ignored and the last provider was watched for the whole relay budget.
+ */
+function definitiveRefusal(reply: RelayHttpResponse): string | undefined {
+  if (reply.status !== 422 || reply.body.length > 4_096) return undefined
+  try {
+    const status = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(reply.body)) as {state?: unknown; reason?: unknown}
+    if (status?.state !== 'rejected' || typeof status.reason !== 'string' || status.reason.length > 512 || isRelayBusyReason(status.reason)) return undefined
+    return status.reason
+  } catch { return undefined }
+}
+
 /** Busy-refusal parse of a POST reply; anything else (accepted, other refusals, garbage) is undefined. */
 function busyRefusal(reply: RelayHttpResponse): {retryAfterMs?: number} | undefined {
   if (reply.status !== 422 || reply.body.length > 4_096) return undefined
@@ -334,6 +349,7 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
       const persist = cfg.persistAttempt ?? options.persistAttempt
       if (persist) await budget.run(() => persist(attempt!))
       let contacted = false
+      let refusal: string | undefined
       const candidates = cfg.approvals.slice(0, attempts)
       for (const [index, approval] of candidates.entries()) {
         if (contacted) {
@@ -374,20 +390,27 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
         // is journaled. Re-send the IDENTICAL signed bytes after the requested wait: the forwarder
         // spends this nonce once, so a repeat can never execute the call twice. Nothing is re-signed.
         let busySends = 0, busyWaited = 0
-        const post = async () => {
+        // Returns the reason when this provider refused the request outright; undefined otherwise.
+        const post = async (): Promise<string | undefined> => {
           for (;;) {
             let busy: {retryAfterMs?: number} | undefined
             try {
-              busy = busyRefusal(await budget.run(() => exchange(endpoint + '/v1/relay/forward', {body, maxBytes: 4_096, signal: budget.signal})))
+              const reply = await budget.run(() => exchange(endpoint + '/v1/relay/forward', {body, maxBytes: 4_096, signal: budget.signal}))
+              const refused = definitiveRefusal(reply)
+              if (refused !== undefined) return refused
+              busy = busyRefusal(reply)
             } catch { budget.signal.throwIfAborted() }
-            if (!busy) return
+            if (!busy) return undefined
             const delay = retryDelayMs(busySends, busy.retryAfterMs ?? 1_000, {maxAttempts: busyRetries + 1, maxDelayMs: 10_000, maxTotalWaitMs: 10_000}, busyWaited)
-            if (delay === undefined) return
+            if (delay === undefined) return undefined
             busySends++; busyWaited += delay
             await budget.run(() => new Promise(resolve => setTimeout(resolve, delay)))
           }
         }
-        await post()
+        const refused = await post()
+        // A definitive refusal was answered before anything was journaled: nothing to watch here.
+        // Fail over (reconciling first, as for any contacted provider), or stop with its reason.
+        if (refused !== undefined) { refusal = refused; continue }
         // attemptMs is the failover window to the NEXT provider. The last provider has no successor, so its
         // accepted request is watched for the rest of the relay budget rather than declared unknown early
         // (a single approved relayer serialising several applications mined the call after 18 s).
@@ -426,7 +449,7 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
       const result = await reconcile(chain, attempt, budget)
       if (result.receipt) { pending = undefined; return result.receipt }
       if (result.expired) { pending = undefined; throw new Error('Forward request expired without execution') }
-      throw new RelayOutcomeUnknownError(attempt)
+      throw new RelayOutcomeUnknownError(attempt, refusal === undefined ? undefined : `relayer refused: ${refusal}`)
     } catch (error) {
       if (pending) throw new RelayOutcomeUnknownError(pending, error instanceof Error ? error.message : undefined)
       throw error

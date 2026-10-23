@@ -264,6 +264,42 @@ describe('approved registered relayer writes', () => {
     expect(h.sign).toHaveBeenCalledTimes(1)
   })
 
+  it('stops promptly with the reason when the only provider refuses the request outright', async () => {
+    // Certification run 42: an identity-budget refusal was ignored and the provider was then watched
+    // for the whole relay budget, reporting only "Relay deadline exceeded".
+    const h = harness()
+    let statuses = 0
+    h.transport.relayExchange = vi.fn(async (_url: string, {body}: {body?: Uint8Array}) => {
+      h.setRequest(body!)
+      return {status: 422, body: encode({id: 'x', state: 'rejected', reason: "identity budget: this holder's daily sponsorship budget is used up"})}
+    })
+    vi.mocked(h.transport.relayRequest).mockImplementation(async () => { statuses++; throw new Error('unknown request id') })
+    const relay = h.submitter({approvals: [approval('01')], attemptMs: 20, pollMs: 10, timeoutMs: 5_000})
+    const started = Date.now()
+    const error = await relay.submit(target, '0x12345678').catch((e: unknown) => e)
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(error).toBeInstanceOf(RelayOutcomeUnknownError)
+    expect((error as Error).message).toContain("relayer refused: identity budget: this holder's daily sponsorship budget is used up")
+    expect(statuses).toBe(0)
+    expect(h.sign).toHaveBeenCalledTimes(1)
+    expect(relay.pendingAttempt()).toBeDefined()
+  })
+
+  it('fails over past a provider that refused outright to one that accepts', async () => {
+    const h = harness()
+    const urls: string[] = []
+    h.transport.relayExchange = vi.fn(async (url: string, {body}: {body?: Uint8Array}) => {
+      urls.push(url); h.setRequest(body!)
+      if (url.includes('01.example')) return {status: 422, body: encode({id: 'x', state: 'rejected', reason: 'target/selector not sponsored'})}
+      h.setNonce(1n)
+      return {status: 202, body: encode({id: 'x', state: 'queued'})}
+    })
+    const result = await h.submitter({attemptMs: 20, pollMs: 10, timeoutMs: 5_000}).submit(target, '0x12345678')
+    expect(result.txHash).toBe(txHash)
+    expect(urls.map(u => u.includes('01.example') ? 1 : 2)).toEqual([1, 2])
+    expect(h.sign).toHaveBeenCalledTimes(1)
+  })
+
   it('reconciles the nonce then retries exactly the same signed bytes at an authenticated second provider', async () => {
     const h = harness()
     vi.mocked(h.transport.relayRequest).mockImplementation(async (url, {body}) => {
