@@ -70,10 +70,12 @@ export class AgentSessionCreationUnknownError extends Error {
   constructor(
     /** Approved verifier-agent profile whose session creation outcome is unknown. */ readonly profile: Readonly<ApprovedAgentProfile>,
     /** Retained payment commitment; reconcile it before another paid session attempt. */ readonly paymentHash?: string,
+    /** The transport failure behind the uncertainty, kept so the reason can be diagnosed. */ cause?: unknown,
   ) {
-    super(paymentHash
+    super((paymentHash
       ? 'Paid agent session creation has an uncertain result; retain the original payment and reconcile it before another session attempt.'
       : 'Agent session creation has an uncertain result; explicitly open a fresh wallet session to retry. No session secret or presentation is transferred.')
+      + (cause instanceof Error ? ` Transport: ${cause.message}` : ''), {cause})
     this.name = 'AgentSessionCreationUnknownError'
   }
 }
@@ -222,7 +224,7 @@ export function createRegisteredAgentClient(chain: TasraChainClient, config: {pr
           signal.throwIfAborted()
           let data: Record<string, unknown>
           try { data = decode(await transport.agentRequest(profile.endpoint + '/v1/sessions', {body, maxBytes: 32_768, signal}), 32_768) }
-          catch { throw new AgentSessionCreationUnknownError(profile, paymentHash) }
+          catch (error) { throw new AgentSessionCreationUnknownError(profile, paymentHash, error) }
           const expected = pin(profile, record)
           return retainedSession(chain, transport, profile, expected, record.pendingOwner, metadata(data, profile, expected), paid)
         }

@@ -193,7 +193,8 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
           const noContent = paid && res.statusCode === 204
           const receivedType = res.headers['content-type']?.split(';')[0]?.trim().toLowerCase() ?? ''
           if (!acceptsServiceResponse(mode, shape, Boolean(body), res.statusCode ?? 0, receivedType) || res.headers['content-encoding'] && res.headers['content-encoding'] !== 'identity') {
-            fail(new Error('Service HTTP status, content type or encoding refused')); return
+            // The status and type name the refusal without any body bytes (certification run 39).
+            fail(new Error(`Service HTTP status, content type or encoding refused (HTTP ${res.statusCode ?? 0}, ${receivedType || 'no content type'})`)); return
           }
           const advertised = res.headers['content-length']
           if (advertised && (!/^\d+$/.test(advertised) || Number(advertised) > maxBytes || noContent && Number(advertised) !== 0)) {

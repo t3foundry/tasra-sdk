@@ -176,7 +176,7 @@ function browserTransport(mode: ServiceTransportMode, options: BrowserTransportO
     const noContent = mode === 'paid-agent' && response.status === 204
     if (!acceptsServiceResponse(mode, shape, Boolean(request.body), response.status, type)) {
       await response.body?.cancel().catch(() => {})
-      throw new Error('Service HTTP status, content type or encoding refused')
+      throw new Error(`Service HTTP status, content type or encoding refused (HTTP ${response.status}, ${type || 'no content type'})`)
     }
     const advertised = response.headers.get('content-length')
     if (advertised && !response.headers.get('content-encoding') && (!/^\d+$/.test(advertised) || Number(advertised) > request.maxBytes)) {

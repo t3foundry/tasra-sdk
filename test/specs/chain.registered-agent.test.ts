@@ -153,6 +153,16 @@ describe('registered verifier-agent sessions', () => {
     const selected = await h.client.createSession(params)
     expect(selected.profile.endpoint).toContain('two.example')
   })
+  it('names the transport reason behind an uncertain creation without retrying it', async () => {
+    // Certification run 39: the reason (an HTTP refusal status) was dropped, leaving nothing to diagnose.
+    const h = harness(), transport = new Error('Service HTTP status, content type or encoding refused (HTTP 503, application/json)')
+    vi.mocked(h.transport.agentRequest).mockRejectedValue(transport)
+    const error = await h.client.createSession(params).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(AgentSessionCreationUnknownError)
+    expect((error as Error).message).toContain('Transport: Service HTTP status, content type or encoding refused (HTTP 503, application/json)')
+    expect((error as Error).cause).toBe(transport)
+    expect(h.transport.agentRequest).toHaveBeenCalledTimes(1)
+  })
   it('does not fail over an uncertain creation POST automatically', async () => {
     const h = harness()
     vi.mocked(h.transport.agentRequest).mockRejectedValue(new Error('lost reply'))
