@@ -4,7 +4,8 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {bytesToHex, type Address, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {openRegisteredVerifierAgentSession, awaitRegisteredVerifierAgentResult, assertRegisteredWalletRequest} from '../../src/chain/registeredOperation.js'
-import {createRegisteredAgentClient, AgentSessionCreationUnknownError, type ApprovedAgentProfile, type AgentTransport, type UnpaidAgentSessionRecovery} from '../../src/chain/registeredAgent.js'
+import {createRegisteredAgentClient, AgentSessionCreationUnknownError, SNAPSHOT_PENDING_REASON, type ApprovedAgentProfile, type AgentTransport, type AgentHttpResponse, type UnpaidAgentSessionRecovery} from '../../src/chain/registeredAgent.js'
+import {acceptsServiceResponse} from '../../src/chain/serviceRequestPolicy.js'
 import {authenticateApprovedService} from '../../src/chain/serviceIdentity.js'
 import type {ServiceRecord} from '../../src/chain/services.js'
 import type {TasraChainClient} from '../../src/chain/client.js'
@@ -162,6 +163,60 @@ describe('registered verifier-agent sessions', () => {
     expect((error as Error).message).toContain('Transport: Service HTTP status, content type or encoding refused (HTTP 503, application/json)')
     expect((error as Error).cause).toBe(transport)
     expect(h.transport.agentRequest).toHaveBeenCalledTimes(1)
+  })
+  describe('a creation refused because no verifier snapshot is anchored yet', () => {
+    // Native certification run 41: a fresh fleet's catch-up epochs outran snapshot anchoring and
+    // the agent's pre-creation 503 was filed as an uncertain creation, which is never retried.
+    const pending = (retryAfterMs: number | null = 1, error = SNAPSHOT_PENDING_REASON): AgentHttpResponse =>
+      ({status: 503, body: new TextEncoder().encode(JSON.stringify({error})), ...(retryAfterMs === null ? {} : {retryAfterMs})})
+    function withExchange(h: ReturnType<typeof harness>, replies: AgentHttpResponse[]) {
+      const exchange = vi.fn(async (url: string, options: {body: Uint8Array}) => {
+        const next = replies.shift()
+        if (next) return next
+        const i = url.startsWith(h.profiles[0]!.endpoint) ? 0 : 1
+        expect(options.body.length).toBeGreaterThan(0)
+        return {status: 201, body: new TextEncoder().encode(JSON.stringify(h.reply(i)))}
+      })
+      h.transport.agentExchange = exchange
+      return {exchange, client: createRegisteredAgentClient(h.chain, {profiles: h.profiles, transport: h.transport})}
+    }
+    it('re-sends the identical creation after the hint and opens exactly one session', async () => {
+      const h = harness(), {exchange, client} = withExchange(h, [pending(), pending()])
+      const session = await client.createSession(params)
+      expect(session.profile.endpoint).toBe(h.profiles[0]!.endpoint)
+      expect(exchange).toHaveBeenCalledTimes(3)
+      const bodies = exchange.mock.calls.map(([, o]) => new TextDecoder().decode(o.body))
+      expect(new Set(bodies).size).toBe(1)
+      expect(h.transport.agentRequest).not.toHaveBeenCalledWith(expect.stringMatching(/\/v1\/sessions$/), expect.anything())
+    })
+    it('never retries a 503 without Retry-After or with another reason', async () => {
+      for (const reply of [pending(null), pending(1, 'beacon read failed: chain error: seed read failed')]) {
+        const h = harness(), {exchange, client} = withExchange(h, [reply])
+        const error = await client.createSession(params).catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(AgentSessionCreationUnknownError)
+        expect((error as Error).message).toContain('Transport: Agent session creation refused (HTTP 503)')
+        expect(exchange).toHaveBeenCalledTimes(1)
+      }
+    })
+    it('stops after five attempts and leaves the creation uncertain', async () => {
+      const h = harness(), {exchange, client} = withExchange(h, Array.from({length: 9}, () => pending()))
+      await expect(client.createSession(params)).rejects.toBeInstanceOf(AgentSessionCreationUnknownError)
+      expect(exchange).toHaveBeenCalledTimes(5)
+    })
+    it('never re-sends a paid creation, even for the snapshot-pending reason', async () => {
+      const h = harness(), request = await paidInput(h.profiles[0]!.clientId), {exchange, client} = withExchange(h, [pending()])
+      await expect(openRegisteredVerifierAgentSession(client, request)).rejects.toMatchObject({
+        name: 'AgentSessionCreationUnknownError', paymentHash: paymentIntentHash(request.payment),
+      })
+      expect(exchange).toHaveBeenCalledTimes(1)
+    })
+    it('admits a session-creation 503 only through the exchange, and only with a body', () => {
+      const shape = {method: 'POST', headers: {}, responseTypes: ['application/json']} as unknown as Parameters<typeof acceptsServiceResponse>[1]
+      expect(acceptsServiceResponse('agent', shape, true, 503, 'application/json')).toBe(false)
+      expect(acceptsServiceResponse('agent', shape, true, 503, 'application/json', true)).toBe(true)
+      expect(acceptsServiceResponse('agent', shape, false, 503, 'application/json', true)).toBe(false)
+      expect(acceptsServiceResponse('agent', shape, true, 201, 'application/json', true)).toBe(true)
+    })
   })
   it('does not fail over an uncertain creation POST automatically', async () => {
     const h = harness()

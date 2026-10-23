@@ -89,14 +89,15 @@ export function serviceRequestShape(mode: ServiceTransportMode, url: string, {bo
  * @param status HTTP status received.
  * @param contentType Received media type, without parameters, lowercased.
  */
-export function acceptsServiceResponse(mode: ServiceTransportMode, shape: ServiceRequestShape, hasBody: boolean, status: number, contentType: string): boolean {
+export function acceptsServiceResponse(mode: ServiceTransportMode, shape: ServiceRequestShape, hasBody: boolean, status: number, contentType: string, exchange = false): boolean {
   const paid = mode === 'paid-agent', recovery = mode === 'keeper-recovery'
   // A paid 429/503 is a definite "not now": the agent's per-client limiter (tower_governor) answers
   // it as text/plain before any handler runs. Its body is bounded and never interpreted, so its media
   // type does not matter; only the status and the wait headers are read.
   const anyType = paid && (status === 204 || status === 429 || status === 503)
   const permittedStatus = paid || recovery ? [200,201,202,204,400,401,403,404,409,410,413,422,425,429,500,502,503,504].includes(status)
-    : mode === 'agent' ? status === (hasBody ? 201 : 200) : mode === 'relay' ? [200,202,422].includes(status)
+    // An agent session-creation exchange also reads a 503, so a retryable not-yet-anchored refusal is visible.
+    : mode === 'agent' ? status === (hasBody ? 201 : 200) || (exchange && hasBody && status === 503) : mode === 'relay' ? [200,202,422].includes(status)
       : mode === 'wallet' && hasBody ? [200,202].includes(status) : status === 200
   const permittedType = anyType || (paid ? contentType === (shape.paidJar && status === 200 ? 'application/oauth-authz-req+jwt' : 'application/json') : shape.responseTypes.includes(contentType))
   return permittedStatus && permittedType

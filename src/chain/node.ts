@@ -1,7 +1,7 @@
 /** Node-only service discovery transport; never imported by the browser-safe chain barrel. */
 import {didWebUrl} from '../oid4vp/did-web.js'
 import type {RegisteredAgentSession} from './registeredAgent.js'
-import type {AgentTransport} from './registeredAgent.js'
+import type {AgentHttpResponse, AgentTransport} from './registeredAgent.js'
 import type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
 import type {KeeperRecoveryHttpResponse, KeeperRecoveryTransport} from './keeperRecovery.js'
 import type {RelayHttpResponse, RelayTransport} from './registeredRelay.js'
@@ -84,7 +84,8 @@ export function createNodeRelayTransport(policy: ServiceTransportPolicy = {}): R
 export function createNodeAgentTransport(policy: ServiceTransportPolicy = {}): AgentTransport {
   const discovery = guardedTransport(policy, 'discovery')
   const agent = guardedTransport(policy, 'agent')
-  return {...discovery, agentRequest: agent.request}
+  return {...discovery, agentRequest: agent.request,
+    agentExchange: (url, options) => agent.request(url, {...options, full: true}) as unknown as Promise<AgentHttpResponse>}
 }
 
 /**
@@ -192,7 +193,7 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
           const fail = (error: Error) => { reject(error); req.destroy(error) }
           const noContent = paid && res.statusCode === 204
           const receivedType = res.headers['content-type']?.split(';')[0]?.trim().toLowerCase() ?? ''
-          if (!acceptsServiceResponse(mode, shape, Boolean(body), res.statusCode ?? 0, receivedType) || res.headers['content-encoding'] && res.headers['content-encoding'] !== 'identity') {
+          if (!acceptsServiceResponse(mode, shape, Boolean(body), res.statusCode ?? 0, receivedType, agent && Boolean(full)) || res.headers['content-encoding'] && res.headers['content-encoding'] !== 'identity') {
             // The status and type name the refusal without any body bytes (certification run 39).
             fail(new Error(`Service HTTP status, content type or encoding refused (HTTP ${res.statusCode ?? 0}, ${receivedType || 'no content type'})`)); return
           }
@@ -217,7 +218,7 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
             const governor = res.headers['x-ratelimit-after']
             const raw = paid ? {...(typeof header === 'string' ? {retryAfter: header} : {}),
               ...(governor !== undefined ? {rateLimitAfter: Array.isArray(governor) ? governor.join(', ') : governor} : {})} : {}
-            resolve(paid || recovery || wallet || (relay && full) ? {status: res.statusCode!, body: bytes, ...(retryAfterMs !== undefined ? {retryAfterMs} : {}), ...raw} : bytes)
+            resolve(paid || recovery || wallet || ((relay || agent) && full) ? {status: res.statusCode!, body: bytes, ...(retryAfterMs !== undefined ? {retryAfterMs} : {}), ...raw} : bytes)
           })
         }
         // Absolute request deadline also bounds DNS/TLS and slow trickle responses.

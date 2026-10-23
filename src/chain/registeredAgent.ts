@@ -11,7 +11,30 @@ import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js
 export interface AgentTransport extends ServiceDiscoveryTransport {
   /** Same socket/TLS policy as discovery; bearer is allowed only on a session GET. */
   agentRequest(url: string, options: {body?: Uint8Array; bearer?: string; maxBytes: number; signal: AbortSignal}): Promise<Uint8Array>
+  /**
+   * Optional session-creation exchange that also returns a 503 with its status and Retry-After, so
+   * the agent's one retryable pre-creation refusal can be retried. Without it creation never retries.
+   */
+  agentExchange?(url: string, options: {body: Uint8Array; maxBytes: number; signal: AbortSignal}): Promise<AgentHttpResponse>
 }
+
+/** A session-creation reply read with its status; the body stays bounded by the caller. */
+export interface AgentHttpResponse {
+  /** HTTP status of the reply. */
+  status: number
+  /** Bounded reply bytes. */
+  body: Uint8Array
+  /** Parsed Retry-After, in milliseconds, when the agent sent one. */
+  retryAfterMs?: number
+}
+
+/**
+ * The verifier-agent's fixed reason for an unpaid creation refused because the current and
+ * previous epoch have no anchored verifier snapshot yet. It is answered before anything is stored
+ * or charged, with Retry-After; it is the only creation refusal that is retried.
+ */
+export const SNAPSHOT_PENDING_REASON = 'verifier snapshot not yet anchored for the current or previous epoch; nothing was created - retry this request'
+const SNAPSHOT_RETRY_ATTEMPTS = 5, SNAPSHOT_RETRY_MAX_WAIT_MS = 10_000
 
 /** Both the application and committee verifiers must independently approve this verifier-agent identity. */
 export interface ApprovedAgentProfile {
@@ -223,7 +246,7 @@ export function createRegisteredAgentClient(chain: TasraChainClient, config: {pr
           if (body.length > 65_536) throw new Error('Agent session request too large')
           signal.throwIfAborted()
           let data: Record<string, unknown>
-          try { data = decode(await transport.agentRequest(profile.endpoint + '/v1/sessions', {body, maxBytes: 32_768, signal}), 32_768) }
+          try { data = decode(await createPost(transport, profile.endpoint + '/v1/sessions', body, Boolean(paymentHash), signal), 32_768) }
           catch (error) { throw new AgentSessionCreationUnknownError(profile, paymentHash, error) }
           const expected = pin(profile, record)
           return retainedSession(chain, transport, profile, expected, record.pendingOwner, metadata(data, profile, expected), paid)
@@ -231,5 +254,32 @@ export function createRegisteredAgentClient(chain: TasraChainClient, config: {pr
         throw new Error('No approved verifier-agent authenticated')
       })
     },
+  }
+}
+
+/** True when a creation reply is exactly the agent's retryable not-yet-anchored refusal. */
+function snapshotPending(reply: AgentHttpResponse): boolean {
+  if (reply.status !== 503 || reply.retryAfterMs === undefined) return false
+  try { return decode(reply.body, 4_096).error === SNAPSHOT_PENDING_REASON } catch { return false }
+}
+
+/**
+ * POST one session creation. Only an UNPAID creation answered with the snapshot-pending refusal is
+ * re-sent (identical bytes, after the agent's hint, at most five times): that refusal is by contract
+ * given before anything is stored or charged. Any other reply or failure is left to the caller.
+ */
+async function createPost(transport: AgentTransport, url: string, body: Uint8Array, paid: boolean, signal: AbortSignal): Promise<Uint8Array> {
+  if (!transport.agentExchange) return transport.agentRequest(url, {body, maxBytes: 32_768, signal})
+  for (let attempt = 1; ; attempt++) {
+    const reply = await transport.agentExchange(url, {body, maxBytes: 32_768, signal})
+    if (reply.status === 201) return reply.body
+    if (paid || attempt >= SNAPSHOT_RETRY_ATTEMPTS || !snapshotPending(reply))
+      throw new Error(`Agent session creation refused (HTTP ${reply.status})`)
+    const wait = Math.min(reply.retryAfterMs!, SNAPSHOT_RETRY_MAX_WAIT_MS)
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => { clearTimeout(timer); reject(signal.reason) }
+      const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve() }, wait)
+      signal.addEventListener('abort', abort, {once: true})
+    })
   }
 }
