@@ -23,9 +23,10 @@ import {Suite, bytesEq, metric} from '../fleet/_assert.ts'
 import {
   discoverCommittee,
   gate,
-  mintLocalJwt,
+  mintAdminJwt,
   provisionRule,
 } from '../fleet/_fleet.ts'
+import {assertLocalPrepaidFleet, fundFreshWalletSlot} from '../fleet/_prepaid-funding.ts'
 import {authorizeWallet, WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
 import {decryptPayloadDigest} from '../../src/oid4vp/index.ts'
 import {committeeDecrypt} from '../../src/committee/client.ts'
@@ -58,6 +59,7 @@ const curve = (cfg.book.BondingCurve ?? (cfg.raw.BONDING_CURVE as Hex | undefine
 // ── 1. fresh account ──────────────────────────────────────────────────────────
 const creatorKey = generateClientKey()
 const client = createTasraWriteClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, privateKey: creatorKey, chainId: cfg.chainId})
+await assertLocalPrepaidFleet(cfg,client)
 s.info(`new account ${client.address}`)
 
 // ── 2. faucet (gas) ───────────────────────────────────────────────────────────
@@ -92,7 +94,7 @@ s.ok('account now holds TSRA', (await client.tsraBalance()) > 0n, `${formatEther
 // ── 4. self-create a slot on-chain (production commit→reveal)
 const tCreate = Date.now()
 const createPath = 'commit-reveal'
-const created = await client.createSlotCommitReveal({rule:SLOT_DCQL_RULE,k:2,n:3,mode:'bls',tags:['keykeeper'],maxWaitMs:180000,onEpoch:(cur,t)=>s.info(`beacon epoch ${cur}/${t}…`)})
+const created = await client.createSlotCommitReveal({rule:SLOT_DCQL_RULE,k:2,n:3,mode:'bls',authType:'oid4vp',tags:['keykeeper'],maxWaitMs:180000,onEpoch:(cur,t)=>s.info(`beacon epoch ${cur}/${t}…`)})
 const {slotId,ruleSalt} = created
 const createMs = Date.now() - tCreate
 s.ok('account self-created a TSRA-funded slot on-chain', /^0x[0-9a-f]{64}$/.test(slotId), `${createPath}, ${(createMs / 1000).toFixed(1)}s`)
@@ -127,11 +129,11 @@ if (!mpkHex) {
 }
 
 // ── 6. provision the clear DCQL rule (ADR-0025) + prepay the slot with TSRA ────
-const adminJwt = mintLocalJwt(cfg)
+const adminJwt = mintAdminJwt(cfg)
 const prov = await provisionRule(committee, slotId, SLOT_DCQL_RULE, ruleSalt, adminJwt)
 s.ok('provisioned the rule + salt on the committee', prov.ok, prov.errors.join('; '))
 const settleBefore = await client.settlementBalance(slotId)
-await client.fundSlot(slotId, parseEther('1'))
+await fundFreshWalletSlot(cfg,client,creatorKey,created,SLOT_DCQL_RULE,{payerKey:creatorKey})
 const settleAfter = await client.settlementBalance(slotId)
 s.ok('prepaid the slot on Settlement with the TSRA it bought', settleAfter - settleBefore === parseEther('1'), `${formatEther(settleBefore)} → ${formatEther(settleAfter)} TSRA`)
 
@@ -157,9 +159,10 @@ const plaintext = enc.encode('onboarded, funded, and operated entirely by a fres
 const back = fromBytes(toBytes(encryptEnvelope(hexToBytes(slotId), mpkBytes, identity, plaintext, BigInt(epoch))))
 const grant = await authorizeWallet(cfg,slotId,creatorKey,{action:'decrypt',payloadDigest:decryptPayloadDigest(back.ciphertext.u,back.ciphertext.aeadCt)})
 const out = await committeeDecrypt({
-  nodeUrl: committee[0]!,
+  nodeUrl: grant.coordinatorUrl,
   committeeToken:grant.compound_token,
   verifierProofs:grant.verifierProofs,
+  approveExecution:grant.approveExecution,
   evidenceCt:grant.evidenceCt,
   ciphertext: back.ciphertext,
   identity: back.identity,
@@ -167,6 +170,7 @@ const out = await committeeDecrypt({
   blsPeers,
   ciphertextEpoch: epoch,
 })
+grant.dispose()
 s.ok('encrypt → k-of-n custody decrypt round-trip on the new slot (production path, no export)', bytesEq(out, plaintext))
 
 s.done()

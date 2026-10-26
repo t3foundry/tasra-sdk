@@ -8,7 +8,7 @@
 
 import {parseEther} from 'viem'
 import {Suite} from '../fleet/_assert.ts'
-import {discoverCommittee, gate, loadFleetConfig, mintLocalJwt, provisionRule} from '../fleet/_fleet.ts'
+import {discoverCommittee, gate, loadFleetConfig, mintLocalJwt, mintAdminJwt, provisionRule} from '../fleet/_fleet.ts'
 import {createTasraWriteClient, generateClientKey} from '../../src/chain/write.ts'
 import {WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
 import {httpFaucet} from '../../src/slots/faucet.ts'
@@ -51,7 +51,7 @@ s.ok('committee DKG anchored the key', ready, `committee=${committee.length}`)
 const jwt = mintLocalJwt(cfg)
 const auth = {Authorization: `Bearer ${jwt}`}
 const node = committee[0]!
-const prov = await provisionRule(committee, slotId, SLOT_DCQL_RULE, ruleSalt, jwt)
+const prov = await provisionRule(committee, slotId, SLOT_DCQL_RULE, ruleSalt, mintAdminJwt(cfg))
 s.ok('provisioned the rule + salt on the committee', prov.ok, prov.errors.join('; '))
 
 // /v1/keys returns key_slot_id as bare hex (no 0x) — normalize before comparing.

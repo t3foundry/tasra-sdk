@@ -6,6 +6,7 @@ import {randomBytes} from 'node:crypto'
 import {Suite, metric} from '../fleet/_assert.ts'
 import {gate, loadFleetConfig} from '../fleet/_fleet.ts'
 import {authorizeWallet, createWalletSlot} from '../fleet/_wallet.ts'
+import {paidWalletCoordinator} from '../fleet/_paid-wallet.ts'
 import {frostVerify} from '../fleet/_crypto.ts'
 import {encryptEnvelope} from '../../src/crypto/envelope.ts'
 import {hexToBytes} from '../../src/crypto/hex.ts'
@@ -57,10 +58,12 @@ async function measure(name: string, operation: (worker: number) => Promise<void
 const frost = await createWalletSlot(cfg,'frost',k,n)
 const sign = async (worker: number) => {
   const message = randomBytes(32)
-  const grant = await authorizeWallet(cfg,frost.slotId,frost.creatorKey,{action:'sign',message})
-  const result = await committeeSign({nodeUrl:frost.committee[worker % frost.committee.length]!,
-    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,message})
+  const coordinator = await paidWalletCoordinator(cfg,frost.slotId,worker)
+  const grant = await authorizeWallet(cfg,frost.slotId,frost.creatorKey,{action:'sign',message},undefined,false,coordinator)
+  const result = await committeeSign({nodeUrl:grant.coordinatorUrl,
+    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,approveExecution:grant.approveExecution,message})
   assert(frostVerify(result.signature.r,result.signature.z,hexToBytes(frost.publicKey),message))
+  grant.dispose()
 }
 await sign(0)
 s.ok('sign produces a cryptographically valid FROST signature',true)
@@ -79,12 +82,14 @@ const decrypt = async (worker: number) => {
   const identity = new TextEncoder().encode('stress-keyops')
   const plaintext = randomBytes(32)
   const envelope = encryptEnvelope(hexToBytes(bls.slotId),hexToBytes(bls.publicKey),identity,plaintext,0n)
+  const coordinator = await paidWalletCoordinator(cfg,bls.slotId,worker)
   const grant = await authorizeWallet(cfg,bls.slotId,bls.creatorKey,
-    {action:'decrypt',payloadDigest:decryptPayloadDigest(envelope.ciphertext.u,envelope.ciphertext.aeadCt)})
-  const output = await committeeDecrypt({nodeUrl:bls.committee[worker % bls.committee.length]!,
-    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,
+    {action:'decrypt',payloadDigest:decryptPayloadDigest(envelope.ciphertext.u,envelope.ciphertext.aeadCt)},undefined,false,coordinator)
+  const output = await committeeDecrypt({nodeUrl:grant.coordinatorUrl,
+    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,approveExecution:grant.approveExecution,
     ciphertext:envelope.ciphertext,identity,decryptingSet:peers.map(p=>p.id),blsPeers:peers,ciphertextEpoch:0})
   assert.deepEqual(Buffer.from(output),plaintext)
+  grant.dispose()
 }
 await decrypt(0)
 s.ok('decrypt recovers the correct plaintext',true)

@@ -1,3 +1,5 @@
+import {ed25519} from '@noble/curves/ed25519'
+import {evidenceBindingMessage, evidenceBody} from './evidence.js'
 // Committee-mode HTTP orchestration - the glue around the pure token
 // crypto in ./committee.ts. Three pieces:
 // - committeeAuthorize() - POST a VP to ONE verifier's /v1/committee-authorize,
@@ -10,7 +12,8 @@
 // BODY, no auth header) to the keeper's /v1/committee/{sign,decrypt}.
 
 import {hexToBytes, bytesToHex} from '../crypto/hex.js'
-import {httpError, TasraHttpError, ThresholdNotMetError} from '../errors.js'
+import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from './payment.js'
+import {httpError, RevocationStatusError, TasraHttpError, ThresholdNotMetError} from '../errors.js'
 import {bytesToHex as bareHex} from '@noble/hashes/utils'
 import {
   assembleCompoundToken,
@@ -18,12 +21,16 @@ import {
   type CompoundTokenPayload,
   type CompoundTokenWire,
   type CommitteeSignature,
-  type TokenType, bindingFromWire} from './token.js'
+  type StatusAttestation,
+  type TokenType, bindingFromWire, verifyStatusAttestation} from './token.js'
 import {base64Encode, base64Decode} from '../crypto/envelope.js'
 import type {Ciphertext} from '../crypto/kem.js'
 import type {FrostSignResult} from '../signing/frost.js'
 import type {BlsPeer} from '../decryption/client.js'
 import {decodeOperationReceipt, type OperationReceipt} from './receipts.js'
+import {withKeeperExecutionApprovals, type KeeperExecutionApprover} from './keeperExecution.js'
+import {ibeVerifyShare} from '../crypto/ibe.js'
+import {withNetworkDeadline} from '../internal/network.js'
 
 const strip0x = (s: string): string => (s.startsWith('0x') ? s.slice(2) : s)
 const base = (u: string): string => u.replace(/\/$/, '')
@@ -80,6 +87,8 @@ export class CommitteeAuthorizeError extends TasraHttpError {
 // authorize against it.
 /** Credential presentation and request context sent to one verifier for committee authorization. */
 export interface CommitteeAuthorizeBody {
+  /** Creator intent for the already mined reservation. */
+  payment?: PaymentIntentWire
   /** Holder DID (the credentials' subject). */
   holder: string
   /** Compact-JWS verifiable credentials. */
@@ -135,6 +144,8 @@ export interface RequestBindingPreimage {
 
 /** Verifier signature, token hashes and committee metadata for an authorization request. */
 export interface CommitteeAuthorizeReply {
+  /** Complete sealed evidence returned and independently signed by this verifier. */
+  sealedEvidence?: {hash: string; keyId: string; signature: string; ciphertext: string}
   /** Zero-based verifier registry index. */
   verifierIndex: number
   /** 32-byte compound token hash. */
@@ -167,12 +178,36 @@ export interface CommitteeAuthorizeReply {
   ruleVersion?: number
   /** present when the request carried a binding preimage; inside the signed bytes. */
   requestHash?: Uint8Array
+  /** Payment commitment attested by this verifier. */
+  paymentHash?: Uint8Array
   /** binding strength byte (`bindingFromWire`); `0x00` when the verifier declared none. */
   binding: number
+  /**
+   * This verifier's revocation-status freshness attestation (`status_until` + `status_signature`
+   * on the wire), when it sent one. Not authenticated here: {@link gatherCommitteeToken} verifies
+   * it under the verifier's committee key before relaying it.
+   */
+  statusAttestation?: {statusUntil: number; signature: Uint8Array}
 }
 
 function authorizeWire(b: CommitteeAuthorizeBody): Record<string, unknown> {
+  if (b.payment !== undefined) {
+    assertPaymentIntentWire(b.payment)
+    const p = b.payment
+    if (!b.binding
+      || p.chain_id !== Number(b.binding.chainId)
+      || p.slot.toLowerCase() !== bytesToHex(b.slotId).toLowerCase()
+      || p.payload_digest.toLowerCase() !== bytesToHex(b.binding.payloadDigest).toLowerCase()
+      || (p.action === 'eoa-sign' ? 'sign' : p.action) !== b.binding.action
+      || p.verification_epoch !== Number(b.epoch)
+      || p.verification_seed.toLowerCase() !== bytesToHex(b.seed).toLowerCase()
+      || p.verification_registry_size !== b.registrySize
+      || p.verification_committee !== b.committee) {
+      throw new Error('payment differs from verifier request')
+    }
+  }
   return {
+    ...(b.payment !== undefined ? {payment: b.payment} : {}),
     holder: b.holder,
     credentials: b.credentials,
     // Omit rather than send "": the server field is an Option, and an empty
@@ -240,6 +275,10 @@ export async function committeeAuthorize(
     )
   }
   const d = (await res.json()) as {
+    evidence_hash?: string | null
+    evidence_key_id?: string | null
+    evidence_sig?: string | null
+    evidence_ct?: string | null
     verifier_index: number
     token_hash: string
     vp_hash: string
@@ -253,9 +292,24 @@ export async function committeeAuthorize(
     rule_version?: number
     /** Present when the request carried the binding preimage. */
     request_hash?: string
+    payment_hash?: string
     binding?: string
+    /** Revocation-status freshness attestation: both or neither. */
+    status_until?: number | null
+    status_signature?: string | null
   }
+  let sealedEvidence: CommitteeAuthorizeReply['sealedEvidence']
+  if ([d.evidence_hash, d.evidence_key_id, d.evidence_sig, d.evidence_ct].some(v => v != null)) {
+    const token = {verifier_indexes: d.committee_indexes, evidence_hash: d.evidence_hash ?? undefined, evidence_key_id: d.evidence_key_id ?? undefined,
+      evidence_signatures: [{verifier_index: d.verifier_index, signature: d.evidence_sig!}]}
+    evidenceBody(token, d.evidence_ct ?? undefined)
+    sealedEvidence = {hash: d.evidence_hash!, keyId: d.evidence_key_id!, signature: d.evidence_sig!, ciphertext: d.evidence_ct!}
+  }
+  const expectedPayment = body.payment ? paymentIntentHash(body.payment) : undefined
+  if ((d.payment_hash ?? undefined)?.toLowerCase() !== expectedPayment?.toLowerCase()) throw new Error('verifier changed or omitted the payment commitment')
   return {
+    ...(sealedEvidence ? {sealedEvidence} : {}),
+    ...(expectedPayment ? {paymentHash: hexToBytes(expectedPayment)} : {}),
     verifierIndex: Number(d.verifier_index),
     tokenHash: hexToBytes(d.token_hash),
     vpHash: hexToBytes(d.vp_hash),
@@ -267,16 +321,28 @@ export async function committeeAuthorize(
     signature: hexToBytes(d.signature),
     committeeIndexes: d.committee_indexes,
     ruleVersion: typeof d.rule_version === 'number' ? d.rule_version : undefined,
+    ...statusAttestationField(d.status_until, d.status_signature),
   }
 }
 
-// coordinator: gather a quorum + assemble the token
+// A reply carries both halves of a status attestation or neither. Half of one, or a malformed
+// one, makes the whole reply invalid (the verifier-agent refuses such a reply the same way).
+function statusAttestationField(until: unknown, signature: unknown): {statusAttestation?: {statusUntil: number; signature: Uint8Array}} {
+  if (until == null && signature == null) return {}
+  if (typeof until !== 'number' || !Number.isSafeInteger(until) || typeof signature !== 'string' || !/^(?:0x)?[0-9a-fA-F]{128}$/.test(signature)) {
+    throw new Error('verifier reply carries a malformed or partial status attestation')
+  }
+  return {statusAttestation: {statusUntil: until, signature: hexToBytes(signature)}}
+}
+
 
 /** Verifier requests and quorum configuration for assembling a compound token. */
 export interface GatherCommitteeTokenOpts {
+  /** Required for sealed replies: retain this ciphertext beside the returned token. */
+  onEvidence?: (ciphertext: string) => void
   /** Candidate verifiers to ask (index to base URL). Asking the whole registry is
    *  fine - non-drawn verifiers reply 403 and are skipped. */
-  verifiers: Array<{index: number; url: string}>
+  verifiers: Array<{index: number; url: string; pubkey?: string | Uint8Array}>
   /** Authorization input shared across requests to the selected verifiers. */
   authorize: CommitteeAuthorizeBody
   /** The slot's verifierPolicy quorum (minimum distinct committee signatures). */
@@ -287,6 +353,8 @@ export interface GatherCommitteeTokenOpts {
   holderProofFor?: (verifier: {index: number; url: string}) => Promise<string> | string
 }
 
+// coordinator: gather a quorum + assemble the token
+
 /**
  * Fan out to the candidate verifiers, collect signatures from the drawn committee
  * until quorum, and assemble the compound token. Verifies that our locally
@@ -296,12 +364,34 @@ export interface GatherCommitteeTokenOpts {
  * @param opts - Verifier requests, committee draw and required signature quorum.
  */
 export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Promise<CompoundTokenWire> {
+  if (opts.authorize.payment && opts.quorum !== opts.authorize.payment.verification_quorum) throw new Error('quorum differs from payment')
   const settled = await Promise.allSettled(
     opts.verifiers.map(async v => {
       const body = opts.holderProofFor
         ? {...opts.authorize, holderProof: await opts.holderProofFor(v)}
         : opts.authorize
-      return committeeAuthorize(v.url, body)
+      const reply = await committeeAuthorize(v.url, body)
+      // Revocation-status freshness: authenticate the reply's attestation under this verifier's
+      // committee key (the key its token signature is checked against) before it may be relayed.
+      // A forged one refuses the reply, as the verifier-agent does. Without a known key it is
+      // dropped, never relayed unauthenticated.
+      if (reply.statusAttestation) {
+        const pubkey = typeof v.pubkey === 'string' ? hexToBytes(v.pubkey) : v.pubkey
+        if (!pubkey) {
+          const {statusAttestation: _dropped, ...rest} = reply
+          if (reply.sealedEvidence) throw new Error('Sealed evidence requires the verifier public key')
+          return rest
+        }
+        if (reply.verifierIndex !== v.index || !verifyStatusAttestation(pubkey, reply.tokenHash, {verifierIndex: reply.verifierIndex, ...reply.statusAttestation})) {
+          throw new Error(`verifier #${v.index} status attestation does not verify`)
+        }
+      }
+      if (reply.sealedEvidence) {
+        const key = typeof v.pubkey === 'string' ? hexToBytes(v.pubkey) : v.pubkey
+        const e = reply.sealedEvidence
+        if (!key || reply.verifierIndex !== v.index || !ed25519.verify(hexToBytes(e.signature), evidenceBindingMessage(reply.tokenHash, hexToBytes(e.hash), hexToBytes(e.keyId)), key, {zip215: false})) throw new Error('Verifier sealed evidence signature does not verify')
+      }
+      return reply
     }),
   )
   const replies = settled
@@ -326,6 +416,9 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
   }
 
   const ref = replies[0]!
+  const sealed = ref.sealedEvidence
+  if (replies.some(r => Boolean(r.sealedEvidence) !== Boolean(sealed) || sealed && (r.sealedEvidence!.ciphertext !== sealed.ciphertext || r.sealedEvidence!.hash.toLowerCase() !== sealed.hash.toLowerCase() || r.sealedEvidence!.keyId.toLowerCase() !== sealed.keyId.toLowerCase()))) throw new Error('Verifier sealed evidence replies disagree')
+  if (sealed && !opts.onEvidence) throw new Error('Sealed authorization requires onEvidence to retain its ciphertext')
   opts.onReplies?.(replies, ref)
   const committeeIndexes = ref.committeeIndexes
   const inCommittee = new Set(committeeIndexes)
@@ -365,21 +458,44 @@ export async function gatherCommitteeToken(opts: GatherCommitteeTokenOpts): Prom
     // The binding the reference verifier declared; the hash cross-check below proves
     // every signer signed the SAME request_hash + binding byte.
     ...(ref.requestHash !== undefined ? {requestHash: ref.requestHash} : {}),
+    ...(ref.paymentHash !== undefined ? {paymentHash: ref.paymentHash, payment: opts.authorize.payment} : {}),
     binding: ref.binding,
     verifierIndexes: committeeIndexes,
     iat: opts.authorize.iat,
     exp: opts.authorize.exp,
   }
-  if (!bytesEqual(compoundTokenHash(payload), ref.tokenHash)) {
+  const canonicalHash = compoundTokenHash(payload)
+  if (replies.some(r => !bytesEqual(canonicalHash, r.tokenHash))) {
     throw new Error('gatherCommitteeToken: canonical token hash disagrees with the verifier (encoding mismatch)')
   }
-  return assembleCompoundToken(payload, [...sigByIndex.values()])
+  // Revocation-status attestations (already authenticated above) from the signers whose signature
+  // the token carries. Relayed only when at least a quorum carry one: a keeper that sees the field
+  // requires a quorum of them, so a partial list would turn a grant a keeper could accept (field
+  // absent, freshness not yet enforced) into one every keeper refuses.
+  const attestations: StatusAttestation[] = []
+  for (const r of replies) {
+    if (sigByIndex.has(r.verifierIndex) && r.statusAttestation && !attestations.some(a => a.verifierIndex === r.verifierIndex)) {
+      attestations.push({verifierIndex: r.verifierIndex, ...r.statusAttestation})
+    }
+  }
+  const token = assembleCompoundToken(payload, [...sigByIndex.values()], attestations.length >= opts.quorum ? attestations : undefined)
+  if (sealed) {
+    token.evidence_hash = sealed.hash; token.evidence_key_id = sealed.keyId
+    token.evidence_signatures = [...new Map(replies.filter(r => inCommittee.has(r.verifierIndex)).map(r => [r.verifierIndex, {verifier_index: r.verifierIndex, signature: r.sealedEvidence!.signature}])).values()]
+    evidenceBody(token, sealed.ciphertext)
+    opts.onEvidence!(sealed.ciphertext)
+  }
+  return token
 }
 
 // keeper: POST /v1/committee/{sign,decrypt} (token in body, no auth header)
 
 /** Committee-authorized FROST signing request and optional verifier membership proofs. */
 export interface CommitteeSignOpts {
+  /** Exact sealed presentation ciphertext returned with this authorization. */
+  evidenceCt?: string
+  /** Required for a paid token: client-only exact-body stage approval capability. */
+  approveExecution?: KeeperExecutionApprover
   /** Optional signal that cancels the request. */
   signal?: AbortSignal
   /** HTTP transport override; defaults to the global fetch implementation. */
@@ -398,41 +514,40 @@ export interface CommitteeSignOpts {
   targetKeykeeper?: string
   /** Verifier membership proofs for the selected snapshot. */
   verifierProofs?: VerifierProof[]
-  /** 32-byte Ed25519 client public key used to verify clientSignature over the slot and token hash; supply both fields together. */
-  clientPubkey?: Uint8Array
-  /** Client signature over the slot and compound token binding. */
-  clientSignature?: Uint8Array
-  /** the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
-   *  posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`. */
-  evidenceCt?: string
 }
 
 /**
  * Sign via committee authorization. The slot id is taken from the token.
+ * Approvals, HTTP and response decoding share a 15-second deadline. A timeout
+ * is an uncertain outcome; reconcile the original paid operation before resubmitting.
  *
  * @param opts - Keeper endpoint, compound authorization and message to sign.
  */
 export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignResult> {
-  const body: Record<string, unknown> = {
+  return withNetworkDeadline(signal => signWithinDeadline({...opts, signal}), opts.signal)
+}
+
+async function signWithinDeadline(opts: CommitteeSignOpts): Promise<FrostSignResult> {
+  opts={...opts,committeeToken:structuredClone(opts.committeeToken)}
+  let body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
-    ...(opts.evidenceCt !== undefined ? {evidence_ct: opts.evidenceCt} : {}),
+    ...evidenceBody(opts.committeeToken, opts.evidenceCt),
     message_hex: bareHex(opts.message),
   }
   if (opts.signingSet) body.signing_set = opts.signingSet
   if (opts.userSignature) body.user_signature = bareHex(opts.userSignature)
   if (opts.targetKeykeeper) body.target_keykeeper = strip0x(opts.targetKeykeeper)
   if (opts.verifierProofs) body.verifier_proofs = proofsToWire(opts.verifierProofs)
-  if (opts.clientPubkey && opts.clientSignature) {
-    body.client_pubkey = bareHex(opts.clientPubkey)
-    body.client_signature = bareHex(opts.clientSignature)
-  }
 
+  body = await withKeeperExecutionApprovals({body,kind:'committee-sign',nodeUrl:opts.nodeUrl,payment:opts.committeeToken.payment,
+    approveExecution:opts.approveExecution,signal:opts.signal})
   const url = `${base(opts.nodeUrl)}/v1/committee/sign`
   const res = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
     signal: opts.signal,
+    ...(opts.committeeToken.payment ? {redirect:'error' as const,credentials:'omit' as const} : {}),
   })
   if (!res.ok) throw await httpError(res, url, 'committee/sign')
   const d = (await res.json()) as {
@@ -458,6 +573,14 @@ export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignR
 
 /** Committee-authorized group decryption request and optional verifier membership proofs. */
 export interface CommitteeDecryptOpts {
+  /** Exact sealed presentation ciphertext returned with this authorization. */
+  evidenceCt?: string
+  /** Required for a paid token: client-only exact-body stage approval capability. */
+  approveExecution?: KeeperExecutionApprover
+  /** Caller cancellation for canonical approval and keeper work. */
+  signal?: AbortSignal
+  /** Caller-approved HTTP implementation. */
+  fetchImpl?: typeof fetch
   /** Keeper HTTP base URL. */
   nodeUrl: string
   /** Compound token authorizing this operation. */
@@ -478,24 +601,24 @@ export interface CommitteeDecryptOpts {
   targetKeykeeper?: string
   /** Verifier membership proofs for the selected snapshot. */
   verifierProofs?: VerifierProof[]
-  /** 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together. */
-  clientPubkey?: Uint8Array
-  /** Client signature over the slot and compound token binding. */
-  clientSignature?: Uint8Array
-  /** the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
-   *  posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`. */
-  evidenceCt?: string
 }
 
 /**
  * Decrypt via committee authorization. The slot id is taken from the token.
+ * Approvals, HTTP and response decoding share a 15-second deadline. A timeout
+ * does not prove that the keeper performed no work and never triggers a retry.
  *
  * @param opts - Keeper endpoint, compound authorization, ciphertext and associated data.
  */
 export async function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint8Array> {
-  const body: Record<string, unknown> = {
+  return withNetworkDeadline(signal => decryptWithinDeadline({...opts, signal}), opts.signal)
+}
+
+async function decryptWithinDeadline(opts: CommitteeDecryptOpts): Promise<Uint8Array> {
+  opts={...opts,committeeToken:structuredClone(opts.committeeToken)}
+  let body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
-    ...(opts.evidenceCt !== undefined ? {evidence_ct: opts.evidenceCt} : {}),
+    ...evidenceBody(opts.committeeToken, opts.evidenceCt),
     ciphertext: ctToWire(opts.ciphertext),
     identity: new TextDecoder().decode(opts.identity),
     decrypting_set: opts.decryptingSet,
@@ -505,16 +628,16 @@ export async function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint
   if (opts.ciphertextEpoch !== undefined) body.ciphertext_epoch = opts.ciphertextEpoch
   if (opts.targetKeykeeper) body.target_keykeeper = strip0x(opts.targetKeykeeper)
   if (opts.verifierProofs) body.verifier_proofs = proofsToWire(opts.verifierProofs)
-  if (opts.clientPubkey && opts.clientSignature) {
-    body.client_pubkey = bareHex(opts.clientPubkey)
-    body.client_signature = bareHex(opts.clientSignature)
-  }
 
+  body = await withKeeperExecutionApprovals({body,kind:'committee-decrypt',nodeUrl:opts.nodeUrl,payment:opts.committeeToken.payment,
+    approveExecution:opts.approveExecution,signal:opts.signal})
   const url = `${base(opts.nodeUrl)}/v1/committee/decrypt`
-  const res = await fetch(url, {
+  const res = await (opts.fetchImpl??fetch)(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
+    signal:opts.signal,
+    ...(opts.committeeToken.payment ? {redirect:'error' as const,credentials:'omit' as const} : {}),
   })
   if (!res.ok) throw await httpError(res, url, 'committee/decrypt')
   const d = (await res.json()) as {plaintext: string}
@@ -543,6 +666,17 @@ export interface IbeExtractionPartial {
 
 /** Committee authorization and keeper endpoints for extracting shares of one IBE identity key. */
 export interface IbeExtractOpts {
+  /** Exact sealed presentation ciphertext returned with this authorization. */
+  evidenceCt?: string
+  /** Stop after this many distinct, pairing-verified shares. Without this option,
+   * collect every successful reply. The low-level check uses returned verifying
+   * shares; use extractIdentityStrict for independently pinned keeper provenance. */
+  threshold?: number
+  /** Deadline for the complete fan-out, including approvals and response bodies.
+   * Default 10000 ms. Cancellation cannot undo work a keeper already started. */
+  timeoutMs?: number
+  /** Required for paid extraction: approve only the exact targeted assigned contributor. */
+  approveExecution?: KeeperExecutionApprover
   /** Optional signal that cancels the request. */
   signal?: AbortSignal
   /** HTTP transport override; defaults to the global fetch implementation. */
@@ -560,37 +694,33 @@ export interface IbeExtractOpts {
   ciphertextEpoch?: number
   /** Verifier membership proofs for the selected snapshot. */
   verifierProofs?: VerifierProof[]
-  /** 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together. */
-  clientPubkey?: Uint8Array
-  /** Client signature over the slot and compound token binding. */
-  clientSignature?: Uint8Array
-  /** the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
-   *  posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`. */
-  evidenceCt?: string
 }
 
 async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<IbeExtractionPartial> {
-  const body: Record<string, unknown> = {
+  let body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
-    ...(opts.evidenceCt !== undefined ? {evidence_ct: opts.evidenceCt} : {}),
+    ...evidenceBody(opts.committeeToken, opts.evidenceCt),
     identity: opts.identity,
   }
   if (opts.userSignature) body.user_signature = bareHex(opts.userSignature)
   if (opts.ciphertextEpoch !== undefined) body.ciphertext_epoch = opts.ciphertextEpoch
   if (opts.verifierProofs) body.verifier_proofs = proofsToWire(opts.verifierProofs)
-  if (opts.clientPubkey && opts.clientSignature) {
-    body.client_pubkey = bareHex(opts.clientPubkey)
-    body.client_signature = bareHex(opts.clientSignature)
-  }
+  body = await withKeeperExecutionApprovals({body,kind:'ibe-extract',nodeUrl,payment:opts.committeeToken.payment,
+    approveExecution:opts.approveExecution,signal:opts.signal})
+  // An approver may ignore cancellation. Never dispatch its late authorization.
+  opts.signal?.throwIfAborted()
   const url = `${base(nodeUrl)}/v1/shards/ibe/extract`
   const res = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
     signal: opts.signal,
+    ...(opts.committeeToken.payment ? {redirect:'error' as const,credentials:'omit' as const} : {}),
   })
-  if (!res.ok) throw await httpError(res, url, 'shards/ibe/extract')
-  const d = (await res.json()) as {
+  const text = await readIbeReply(res, opts.signal)
+  opts.signal?.throwIfAborted()
+  if (!res.ok) throw await httpError(new Response(text, {status: res.status}), url, 'shards/ibe/extract')
+  const d = JSON.parse(text) as {
     identifier: number
     extraction_share: string
     verifying_share: string
@@ -600,10 +730,10 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
     token_hash?: unknown
     op_attestation?: unknown
   }
-  const vs = base64Decode(d.verifying_share)
+  const vs = base64Decode(d.verifying_share), receipt = decodeOperationReceipt(d)
   return {
     ...(d.key_slot_id !== undefined ? {keySlotId: d.key_slot_id} : {}),
-    ...(decodeOperationReceipt(d) ? {receipt: decodeOperationReceipt(d)} : {}),
+    ...(receipt ? {receipt} : {}),
     identifier: Number(d.identifier),
     value: base64Decode(d.extraction_share),
     // The reply is the 144-byte dual-group encoding (96B G2 || 48B G1); the IBE pairing
@@ -611,6 +741,38 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
     verifyingShareG2: vs.slice(0, 96),
     epoch: Number(d.epoch),
     nodeUrl,
+  }
+}
+
+async function readIbeReply(response: Response, signal?: AbortSignal): Promise<string> {
+  const cap = 16 * 1024
+  if (Number(response.headers.get('content-length')) > cap) {
+    void response.body?.cancel().catch(() => {})
+    throw new Error('Extraction reply exceeds 16 KiB')
+  }
+  const reader = response.body?.getReader()
+  if (!reader) return ''
+  let bytes = 0, text = ''
+  const decoder = new TextDecoder()
+  const cancelled = () => { void reader.cancel().catch(() => {}) }
+  signal?.addEventListener('abort', cancelled, {once: true})
+  try {
+    if (signal?.aborted) cancelled()
+    signal?.throwIfAborted()
+    for (;;) {
+      const {done, value} = await reader.read()
+      signal?.throwIfAborted()
+      if (done) break
+      bytes += value.length
+      if (bytes > cap) throw new Error('Extraction reply exceeds 16 KiB')
+      text += decoder.decode(value, {stream: true})
+    }
+    return text + decoder.decode()
+  } finally {
+    // Includes a streaming cap refusal. Do not wait for a hostile body's cancel hook.
+    void reader.cancel().catch(() => {})
+    reader.releaseLock()
+    signal?.removeEventListener('abort', cancelled)
   }
 }
 
@@ -625,21 +787,99 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
 export async function requestIbeExtractionPartials(
   opts: IbeExtractOpts,
 ): Promise<IbeExtractionPartial[]> {
+  opts = {...opts}
+  const identity = new TextEncoder().encode(opts.identity)
+  return collectIbeExtractionPartials(opts, opts.threshold === undefined ? undefined : p => {
+    if (!Number.isSafeInteger(p.identifier) || p.identifier < 1 || p.identifier > 65535 ||
+      p.value.length !== 48 || p.verifyingShareG2.length !== 96 ||
+      !Number.isSafeInteger(p.epoch) || p.epoch < 0 ||
+      p.keySlotId !== undefined && strip0x(p.keySlotId).toLowerCase() !== strip0x(opts.committeeToken.slot_id).toLowerCase() ||
+      opts.ciphertextEpoch !== undefined && p.epoch !== opts.ciphertextEpoch) {
+      throw new Error('Invalid extraction identifier, encoding or epoch')
+    }
+    ibeVerifyShare(new Map([[p.identifier, p.verifyingShareG2]]), identity, p)
+  })
+}
+
+/** @internal The strict helper supplies its independent keeper/receipt admission check. */
+export async function collectIbeExtractionPartials(
+  opts: IbeExtractOpts,
+  validate?: (partial: IbeExtractionPartial) => void,
+): Promise<IbeExtractionPartial[]> {
+  opts={...opts,nodeUrls:[...opts.nodeUrls],committeeToken:structuredClone(opts.committeeToken),
+    verifierProofs:opts.verifierProofs&&structuredClone(opts.verifierProofs),userSignature:opts.userSignature?.slice()}
   if (opts.nodeUrls.length === 0) throw new Error('requestIbeExtractionPartials: no node URLs')
-  const settled = await Promise.allSettled(opts.nodeUrls.map(u => ibeExtractOne(u, opts)))
-  const partials = settled
-    .filter((r): r is PromiseFulfilledResult<IbeExtractionPartial> => r.status === 'fulfilled')
-    .map(r => r.value)
-  if (partials.length === 0) {
-    const why = settled
-      .map((r, i) => {
-        if (r.status === 'fulfilled') return null
-        const e = r.reason as {message?: string}
-        return `${opts.nodeUrls[i]}: ${e?.message ?? String(r.reason)}`
-      })
-      .filter(Boolean)
-      .join('; ')
-    throw new Error(`requestIbeExtractionPartials: no node served an extraction — ${why}`)
+  const threshold = opts.threshold, timeoutMs = opts.timeoutMs ?? 10_000
+  if (threshold !== undefined && (!Number.isSafeInteger(threshold) || threshold < 1 || threshold > opts.nodeUrls.length)) {
+    throw new Error('Invalid extraction threshold')
   }
-  return partials
+  if (threshold !== undefined && new Set(opts.nodeUrls.map(base)).size !== opts.nodeUrls.length) {
+    throw new Error('Duplicate extraction endpoint')
+  }
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) {
+    throw new Error('Invalid extraction timeout')
+  }
+  opts.signal?.throwIfAborted()
+  const controller = new AbortController()
+  const requests = {...opts, signal: controller.signal}
+  return new Promise((resolve, reject) => {
+    const partials: IbeExtractionPartial[] = [], ids = new Set<number>()
+    const accepted = new Map<number, IbeExtractionPartial>()
+    const failures = new Map<number, string>()
+    // Keepers that refused only for stale/missing revocation-status attestations: when every
+    // failure is one, surface the typed "present again" error instead of a threshold miss.
+    const revocation = new Map<number, RevocationStatusError>()
+    const pending = new Set(opts.nodeUrls.map((_, i) => i))
+    let done = false
+    const failure = () => failures.size > 0 && [...failures.keys()].every(i => revocation.has(i))
+      ? revocation.values().next().value!
+      : threshold === undefined
+      ? new Error(`requestIbeExtractionPartials: no node served an extraction — ${[...failures.values()].join('; ')}`)
+      : new ThresholdNotMetError({got: partials.length, need: threshold, reasons: [...failures.values()]})
+    const finish = (error?: unknown) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      opts.signal?.removeEventListener('abort', cancelled)
+      // Abort first, including bodies/approval calls still awaiting a response. A
+      // transport ignoring abort may resolve later; that handler clears its partial.
+      controller.abort()
+      if (error !== undefined) {
+        for (const p of partials) p.value.fill(0)
+        reject(error)
+      } else resolve(threshold === undefined ? [...accepted].sort(([a], [b]) => a - b).map(([, p]) => p) : partials)
+    }
+    const cancelled = () => finish(opts.signal ? opts.signal.reason : new DOMException('Aborted', 'AbortError'))
+    const timer = setTimeout(() => {
+      for (const i of pending) failures.set(i, `${opts.nodeUrls[i]}: extraction deadline exceeded`)
+      finish(threshold === undefined && partials.length > 0 ? undefined : failure())
+    }, timeoutMs)
+    opts.signal?.addEventListener('abort', cancelled, {once: true})
+    // Registration follows the early check; this also closes a custom signal's race.
+    if (opts.signal?.aborted) { cancelled(); return }
+    for (const [i, url] of opts.nodeUrls.entries()) {
+      void ibeExtractOne(url, requests).then(p => {
+        if (done) { p.value.fill(0); return }
+        try {
+          if (threshold !== undefined && ids.has(p.identifier)) throw new Error('Duplicate extraction identifier')
+          validate?.(p)
+          ids.add(p.identifier)
+          partials.push(p)
+          accepted.set(i, p)
+          if (threshold !== undefined && partials.length >= threshold) finish()
+        } catch (error) {
+          p.value.fill(0)
+          failures.set(i, `${url}: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }, (error: unknown) => {
+        if (error instanceof RevocationStatusError) revocation.set(i, error)
+        failures.set(i, `${url}: ${error instanceof Error ? error.message : String(error)}`)
+      }).finally(() => {
+        pending.delete(i)
+        if (done) return
+        if (pending.size === 0) finish(partials.length > 0 && threshold === undefined ? undefined : failure())
+        else if (threshold !== undefined && partials.length + pending.size < threshold) finish(failure())
+      })
+    }
+  })
 }

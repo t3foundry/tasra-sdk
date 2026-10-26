@@ -9,6 +9,12 @@ credentials. Existing `createTasra` and lower-level APIs remain available. The a
 chooses its policy, consent behavior and private storage; the SDK handles network
 operations and cryptographic checks.
 
+For a prepaid deployment, reserve the creator-signed operation with
+`reserveApplicationPayment` and retain its original session. Use one durable store and a
+dedicated gas payer across operations; recover uncertain submissions with
+`reconcileApplicationPayment` before spending again. See [slot funding](funding.md) for
+the required discovery, fee limits, journal guarantees and recovery limits.
+
 Install the latest SDK from npm as your application dependency. TypeScript and
 `tsx` are development tools:
 
@@ -253,6 +259,13 @@ Encryption needs only the anchored public key. Decryption requires a distinct
 assigned keeper quorum, one epoch, valid shares and a combined identity key matching
 the chain-anchored group key. Temporary extraction shares and the intermediate
 identity key are cleared. The returned plaintext belongs to your app.
+
+Extraction completes after the first verified quorum and cancels remaining keeper
+requests. Invalid replies and duplicate share identifiers do not count. A stalled
+fetch, approval or response body cannot hold the fan-out past its deadline (10 seconds
+by default; pass `timeoutMs` in the identity operation options to change it).
+This deadline starts after wallet authorization. Replies are limited to 16 KiB.
+Cancelling a request does not undo paid work a keeper already started.
 
 Use a fresh identity for every immutable document version. An extracted identity
 key is a durable capability: token expiry does not revoke it. `extractIdentity`

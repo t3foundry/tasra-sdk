@@ -301,6 +301,11 @@ function payloadOf(t: TokenVector): CompoundTokenPayload {
   check('evidence: a non-drawn signer is refused', throws(() => verifyEvidenceBinding({...base, drawn: [0, 1], signatures: [sig(0), sig(2)]})))
   check('evidence: a signature over another ciphertext is refused', throws(() => verifyEvidenceBinding({...base, evidenceHash: new Uint8Array(32).fill(9), signatures: [sig(0), sig(1)]})))
   check('evidence: zero quorum is refused', throws(() => verifyEvidenceBinding({...base, quorum: 0, signatures: [sig(0)]})))
+  // Rust's quorum is a u32: a negative, fractional, NaN or out-of-range quorum must not be met by no signatures.
+  for (const quorum of [-1, -0.5, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 32]) {
+    check(`evidence: quorum ${quorum} is refused even with no signatures`, throws(() => verifyEvidenceBinding({...base, quorum, signatures: []})))
+  }
+  check('evidence: no signatures never meets a positive quorum', throws(() => verifyEvidenceBinding({...base, quorum: 1, signatures: []})))
 }
 
 const total = passed + failures.length

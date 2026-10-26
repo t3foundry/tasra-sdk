@@ -6,6 +6,8 @@ import type {SessionStatusResult} from '../verifier-agent/index.js'
 import {derivedNonce, requestHash} from '../oid4vp/binding.js'
 import {VerifierAgentSessionError, nextPollDelay, type PresentationDelegation, type PresentationOperation, type WaitOpts} from '../verifier-agent/index.js'
 import {type RegisteredAgentSession, type createRegisteredAgentClient} from './registeredAgent.js'
+import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
+import {sessionPaymentFields} from '../verifier-agent/payment.js'
 
 /**
  * Authenticated provider session bound to one signed operation and request hash.
@@ -31,17 +33,32 @@ export interface RegisteredVerifierAgentSession extends RegisteredAgentSession {
  * @param opts Exact operation, authorizing signer and optional delegation or cancellation.
  */
 export async function openRegisteredVerifierAgentSession(
-  client: ReturnType<typeof createRegisteredAgentClient>,
-  opts: OperationInput & {signer: TypedDataSigner; delegation?: PresentationDelegation; profileIndex?: number; signal?: AbortSignal},
+  client: Pick<ReturnType<typeof createRegisteredAgentClient>, 'createSession'>,
+  opts: OperationInput & {
+    /** Creator or delegated presentation signer; payment consent remains the creator's. */
+    signer: TypedDataSigner
+    /** Optional presentation delegation. */
+    delegation?: PresentationDelegation
+    /** Explicit approved provider index; paid sessions never fall back to another profile. */
+    profileIndex?: number
+    /** Cancellation of pending authorization work. */
+    signal?: AbortSignal
+    /** Existing reservation intent, fixed before the session. Operation expiry must match it. */
+    payment?: PaymentIntentWire
+    /** Presentation random committed in payment.session_commitment. */
+    random?: string
+  },
 ): Promise<RegisteredVerifierAgentSession> {
   opts.signal?.throwIfAborted()
   const {typedData, operation, messageHex, payloadDigest} = presentationOperationTypedData(opts)
+  const payment = opts.payment && structuredClone(opts.payment), random = opts.random
+  sessionPaymentFields({operation, operationSig: '', messageHex, payment, random})
+  const expectedHash = requestHash(operation.chain_id, hexToBytes(operation.slot_id), opts.action, payloadDigest)
   const operationSig = await opts.signer.signTypedData(typedData)
   opts.signal?.throwIfAborted()
-  const session = await client.createSession({operation, operationSig, messageHex, delegation: opts.delegation}, {profileIndex: opts.profileIndex, signal: opts.signal})
-  const slot = typeof opts.slotId === 'string' ? hexToBytes(opts.slotId) : opts.slotId
-  const expectedHash = requestHash(opts.chainId, slot, opts.action, payloadDigest)
+  const session = await client.createSession({operation, operationSig, messageHex, delegation: opts.delegation, payment, random}, {profileIndex: opts.profileIndex, signal: opts.signal})
   return Object.freeze({...session, operation: Object.freeze(operation), verifierAgentUrl: session.profile.endpoint,
+    get payment() { return session.payment },
     get requestHash() { return expectedHash.slice() },
   })
 }
@@ -122,6 +139,16 @@ export function assertRegisteredWalletRequest(session: RegisteredVerifierAgentSe
   const expected = derivedNonce(session.requestHash, hex('random'), {epoch: integer('epoch'), snapshotRoot: hex('snapshot_root'),
     registrySize: integer('registry_size'), committee: integer('committee_count'), quorum: integer('quorum'), operationExp: op.exp})
   if (claims.nonce !== expected || binding.nonce !== expected) throw new Error('Wallet nonce does not bind the opened operation')
+  const payment = session.payment
+  if (payment) {
+    assertPaymentIntentWire(binding.payment)
+    if (paymentIntentHash(binding.payment).toLowerCase() !== session.paymentHash?.toLowerCase()
+      || String(binding.random).toLowerCase() !== session.random?.toLowerCase() || integer('epoch') !== payment.verification_epoch
+      || String(binding.seed).toLowerCase() !== payment.verification_seed.toLowerCase()
+      || String(binding.snapshot_root).toLowerCase() !== payment.verification_root.toLowerCase()
+      || integer('registry_size') !== payment.verification_registry_size || integer('committee_count') !== payment.verification_committee
+      || integer('quorum') !== payment.verification_quorum || op.exp !== payment.expires) throw new Error('Wallet nonce context differs from the reserved payment')
+  }
   if (!Number.isSafeInteger(claims.exp) || Number(claims.exp) > op.exp || Number(claims.exp) < Math.floor(Date.now() / 1000)) throw new Error('Wallet request expiry exceeds its authorization')
   // VERIFY WHEN PRESENT - DO not REQUIRE. Requiring it made this wallet the only one that
   //    could complete a presentation: a JAR carrying `transaction_data` is silently dropped by

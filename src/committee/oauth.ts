@@ -15,6 +15,9 @@ import {TasraError} from '../errors.js'
 /** Path segment identifying the platform's authorization API, under the agent origin. */
 const AUDIENCE_PATH = 'authz'
 
+/** Legacy session-independent response path. New sessions use dpopHtu(origin, sessionId). */
+export const OAUTH_RESPONSE_PATH = '/v1/sessions/oauth-response'
+
 /** The OAuth response route is `{PREFIX}{sessionId}{SUFFIX}` under the agent origin. */
 export const OAUTH_RESPONSE_PATH_PREFIX = '/v1/sessions/'
 /** The trailing segment of the OAuth response route. */
@@ -76,25 +79,36 @@ export function platformAudience(origin: string, chainId: number | bigint): stri
 
 /**
  * The `htu` (RFC 9449 §4.2) a DPoP proof for an OAuth response must carry:
- * `{origin}/v1/sessions/{sessionId}/oauth-response` — the URL the proof is presented at.
+ * `{origin}/v1/sessions/{sessionId}/oauth-response` — the exact POST target the proof is
+ * presented at. A session ID is one ASCII path segment; separators and encoded path
+ * characters are refused.
  *
  * Per session, because RFC 9449 §4.3 checks `htu` against the request URI and a conformant
  * client library derives it from the URL it calls. The ORIGIN is still the agent origin the
  * verifiers approved, so a client posting to a different base URL (an internal hostname, a
  * proxy) must still sign over the value the agent returned, not over the URL it called.
  *
- * Throws on a session id that is not one plain path segment, exactly as the verifiers refuse
- * one.
+ * Throws a non-retryable `TasraError` on a session id that is not one plain path segment,
+ * exactly as the verifiers refuse one.
  *
  * @param origin - Verifier-agent public origin the verifiers approved.
- * @param sessionId - Id of the OAuth session the proof is presented to.
+ * @param sessionId - Original session identifier, 1 to 128 ASCII letters, digits, underscores or hyphens.
  */
 export function dpopHtu(origin: string, sessionId: string): string {
   if (!isValidSessionId(sessionId)) {
     throw new TasraError(
-      `dpopHtu: session id must be 1..=${MAX_SESSION_ID_LEN} characters of [A-Za-z0-9_-]`,
+      `dpopHtu: OAuth sessionId must be 1 to ${MAX_SESSION_ID_LEN} characters of [A-Za-z0-9_-]`,
       {retryable: false},
     )
   }
   return `${normalizeOrigin(origin)}${OAUTH_RESPONSE_PATH_PREFIX}${sessionId}${OAUTH_RESPONSE_PATH_SUFFIX}`
+}
+
+/**
+ * Pre-remediation proof target for an agent that supplies no session identity.
+ * New paid sessions never accept this target as a fallback.
+ * @param origin - Original platform origin.
+ */
+export function legacyDpopHtu(origin: string): string {
+  return `${normalizeOrigin(origin)}${OAUTH_RESPONSE_PATH}`
 }

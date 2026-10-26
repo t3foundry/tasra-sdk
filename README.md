@@ -134,3 +134,18 @@ The package has [not had an independent cryptographic audit](SECURITY.md#cryptog
 
 [Contributing](https://github.com/t3foundry/tasra-sdk/blob/develop/CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·
 [Security](SECURITY.md) · [Apache-2.0 license](LICENSE)
+## Sealed committee evidence
+
+When an authorization includes sealed presentation evidence, retain its `evidenceCt`
+alongside the token and verifier proofs. Low-level sign, decrypt, IBE, ECDSA and
+credentialed dual-approval calls accept this same `evidenceCt`; they check its
+ciphertext hash before requesting execution approval or submitting a keeper body.
+Application authorizers must return it in `OperationGrant`. Paid operations retain
+it in their original journal and expose `PaidOperation.evidenceCt` for keeper calls.
+
+`requestCommitteeToken` and the one-call committee helpers retain and forward this
+field automatically. Direct `gatherCommitteeToken` callers must provide `onEvidence`
+to retain the ciphertext beside the returned token. Mixed or conflicting sealed
+replies refuse; the SDK never strips evidence to assemble an unsealed fallback.
+Keep ciphertext and journals private. Production sealing acceptance still requires
+a fleet configured to require evidence and an actual native test.

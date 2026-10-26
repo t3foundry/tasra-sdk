@@ -41,7 +41,6 @@ set once, by the slot creator, with `writer.setVerifierPolicy(slotId, committee,
 import {createHolderProof, fromBytes, type HolderSigner} from 'tasra-sdk'
 import {holderProofPerVerifier} from 'tasra-sdk/committee'
 import {createTasraChainClient, createCommitteeSlotClient, addressBookFromManifest, VERIFIER_TAG} from 'tasra-sdk/chain'
-import {ed25519ClientSigner} from 'tasra-sdk/committee'
 
 // manifest is the checksum-verified download from tasra-releases.
 const chainId = manifest.chainId
@@ -65,7 +64,6 @@ const holderProof = holderProofPerVerifier({signer, audience: 'your-verifier-iss
 // is enough only where the deployment has one verifier.
 const kk = createCommitteeSlotClient({
   chain, holder, credentials, holderProof,
-  clientSigner: ed25519ClientSigner(clientSecretKey),   // optional, 32-byte Ed25519 secret; attributes the request bundle
   ttlSecs: 300,                                         // compound-token TTL (default 300)
 })
 

@@ -7,6 +7,7 @@
 // every product on top of a Tasra Network needs.
 
 import {httpError} from '../errors.js'
+import {classifyRefusedWrite, retryIdempotent, type RetryPolicy} from '../retry.js'
 
 /** Verifier-issued bearer JWT with its holder identifier and expiry in Unix seconds. */
 export interface IssuedToken {
@@ -57,8 +58,11 @@ export interface RenewalGrant {
 export async function createRenewal(
   verifierUrl: string,
   body: {dcql_rule: string; presentation: unknown; credentials?: string[]; slot_ids?: string[]},
+  /** Waits on an SP-11 capacity refusal (HTTP 429, nothing stored); `false` fails at once. Other failures are never retried. */
+  retry?: RetryPolicy | false,
 ): Promise<RenewalGrant> {
-  const b = (await postJson(`${base(verifierUrl)}/v1/renewals`, body)) as {
+  const b = (await retryIdempotent(() => postJson(`${base(verifierUrl)}/v1/renewals`, body),
+    {policy: retry === false ? {maxAttempts: 1} : retry, classify: classifyRefusedWrite})) as {
     renewal_token: string
     holder: string
     expires_at: number
@@ -205,7 +209,7 @@ export async function revokeSlotUser(
  */
 export async function verifyPresentation(
   verifierUrl: string,
-  body: {dcql_rule: string; presentation: unknown; credentials?: unknown},
+  body: {dcql_rule: string; presentation: unknown},
 ): Promise<IssuedToken> {
   const b = (await postJson(`${base(verifierUrl)}/v1/verify`, body)) as {
     token: string

@@ -4,7 +4,7 @@
 import {select, credentialMatches, validate, type CredentialView, type Query} from '../auth/oid4vp.js'
 import {encryptJwe, type JweEnc} from './jwe.js'
 import type {HolderKey} from './jose.js'
-import {fetchRequestObject, parseOpenid4vpUri, responseEncryptionKey, type VerifiedRequestObject, type VerifyRequestObjectOpts} from './request-object.js'
+import {fetchRequestObject, parseOpenid4vpUri, responseEncryptionKey, type VerifiedRequestObject, type FetchRequestObjectOpts} from './request-object.js'
 import {parseSdJwt, presentSdJwt, sdJwtCredentialView, type ParsedSdJwt} from './sd-jwt.js'
 
 /** A credential the wallet holds. */
@@ -150,9 +150,7 @@ export async function submitResponse(ro: Pick<VerifiedRequestObject, 'claims'>, 
 }
 
 /** Request verification, credential selection and disclosure options for a wallet presentation. */
-export interface PresentOpts extends VerifyRequestObjectOpts {
-  /** HTTP transport override; defaults to the global fetch implementation. */
-  fetchImpl?: typeof fetch
+export interface PresentOpts extends FetchRequestObjectOpts {
   /** Pick among the candidates (default: the evaluator's choice). Return `undefined` to abort. */
   choose?: (plan: PresentationPlan) => PresentationCandidate | undefined | Promise<PresentationCandidate | undefined>
   /** Claim names to disclose, or all; defaults to the selected query's requested claims. */
@@ -173,6 +171,7 @@ export async function presentToRequestUri(requestUriOrOpenid4vp: string, held: r
   const ro = await fetchRequestObject(requestUri, opts)
   const plan = planPresentation(ro, held, opts.nowSecs)
   const candidate = opts.choose ? await opts.choose(plan) : plan.chosen
+  opts.signal?.throwIfAborted()
   if (!candidate) throw new Error(plan.unmatched.length ? `no held credential answers: ${plan.unmatched.join(', ')}` : 'presentation declined')
   const built = buildResponse({ro, candidate, holder, disclose: opts.disclose, nowSecs: opts.nowSecs})
   const {redirectUri} = await submitResponse(ro, built, opts.fetchImpl)

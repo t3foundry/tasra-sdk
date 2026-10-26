@@ -59,6 +59,10 @@ export interface FleetConfig {
   jwtSigningKey: string
   jwtIss: string
   jwtAud: string
+  /** Independent operator admin issuer, never a fallback to the verifier seed. */
+  adminJwtSigningKey: string
+  adminJwtIss: string
+  adminJwtAud: string
   book: AddressBook
   /** Every string-valued environment variable, for deployment-specific lookups. */
   raw: Record<string, string>
@@ -215,6 +219,9 @@ export function loadFleetConfig(): FleetConfig {
     jwtSigningKey: process.env.TASRA_JWT_SIGNING_KEY ?? '',
     jwtIss: process.env.TASRA_JWT_ISS ?? '',
     jwtAud: process.env.TASRA_JWT_AUD ?? '',
+    adminJwtSigningKey: process.env.TASRA_ADMIN_JWT_SIGNING_KEY ?? '',
+    adminJwtIss: process.env.TASRA_ADMIN_JWT_ISS ?? '',
+    adminJwtAud: process.env.TASRA_ADMIN_JWT_AUD ?? '',
     book: addressBookFromEnv(raw),
     raw,
   }
@@ -374,41 +381,45 @@ export async function mintSignedEngineeringJwt(
   return verifyVpJwt(verifier, {dcql_rule: rule, holder: opts.holder, credentials: [vc], holder_proof: holderProof})
 }
 
-/**
- * Mint an EdDSA JWT locally from the deployment's issuer seed. Needed for the
- * operations the verifier does not gate: slot creation and slot-scoped
- * sign/decrypt during load tests.
- *
- * The keepers verify against the public half of this seed, so there is no shared
- * minting secret. Scope may be a string or an array; nodes accept both.
- */
-export function mintLocalJwt(
-  cfg: FleetConfig,
-  opts: {sub?: string; scope?: string | string[]; ttlSecs?: number; signingKey?: string; iss?: string; aud?: string} = {},
-): string {
-  // No default seed, deliberately: a built-in constant would let anyone holding
-  // this package mint an admin token against a real deployment.
-  const seedSource = opts.signingKey ?? cfg.jwtSigningKey
-  if (!seedSource) throw new Error('no JWT issuer seed: set TASRA_JWT_SIGNING_KEY to the deployment 32-byte Ed25519 seed')
-  const seedHex = seedSource.replace(/^0x/, '')
+type LocalJwtOptions = {sub?: string; scope?: string | string[]; ttlSecs?: number; signingKey?: string; iss?: string; aud?: string}
+
+/** Mint a test read/audit JWT. Key operations require their original paid grant. */
+export function mintLocalJwt(cfg: FleetConfig, opts: LocalJwtOptions = {}): string {
+  return mintTestJwt(cfg, opts, false)
+}
+
+/** Mint an operator test JWT from the separate admin issuer. No verifier-key fallback. */
+export function mintAdminJwt(cfg: FleetConfig, opts: LocalJwtOptions = {}): string {
+  return mintTestJwt(cfg, opts, true)
+}
+
+function mintTestJwt(cfg: FleetConfig, opts: LocalJwtOptions, admin: boolean): string {
+  const variable = admin ? 'TASRA_ADMIN_JWT' : 'TASRA_JWT'
+  const seedSource = opts.signingKey ?? (admin ? cfg.adminJwtSigningKey : cfg.jwtSigningKey)
+  if (!seedSource) throw new Error('no JWT issuer seed: set '+variable+'_SIGNING_KEY')
+  const seedHex = seedSource.replace(/^0x/i, '')
+  if (seedHex.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(seedHex)) throw new Error(variable+'_SIGNING_KEY must be a 32-byte hex seed')
   const seed = Buffer.from(seedHex, 'hex')
-  if (seed.length !== 32) throw new Error(`TASRA_JWT_SIGNING_KEY must be a 32-byte hex seed, got ${seed.length} bytes`)
-  const iss = opts.iss ?? cfg.jwtIss
-  const aud = opts.aud ?? cfg.jwtAud
-  if (!iss || !aud) throw new Error('no JWT iss/aud: set TASRA_JWT_ISS and TASRA_JWT_AUD')
+  if (admin && cfg.jwtSigningKey) {
+    const userHex = cfg.jwtSigningKey.replace(/^0x/i, '')
+    if (userHex.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(userHex)) throw new Error('TASRA_JWT_SIGNING_KEY must be a 32-byte hex seed')
+    if (toHex(ed25519.getPublicKey(seed)) === toHex(ed25519.getPublicKey(Buffer.from(userHex, 'hex')))) {
+      throw new Error('Admin and verifier JWT issuers must have different keys')
+    }
+  }
+  const iss = opts.iss ?? (admin ? cfg.adminJwtIss : cfg.jwtIss)
+  const aud = opts.aud ?? (admin ? cfg.adminJwtAud : cfg.jwtAud)
+  if (!iss?.trim() || !aud?.trim()) throw new Error('no JWT iss/aud: set '+variable+'_ISS and '+variable+'_AUD')
   const now = Math.floor(Date.now() / 1000)
   const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
-  const head = b64({typ: 'JWT', alg: 'EdDSA'})
+  const head = b64({typ: admin ? 'kk-admin+jwt' : 'JWT', alg: 'EdDSA'})
   const body = b64({
-    sub: opts.sub ?? 'did:demo:loadtest',
-    iss,
-    aud,
-    iat: now,
-    exp: now + (opts.ttlSecs ?? 3600),
-    scope: opts.scope ?? ['admin', 'EmployeeOf', 'EmployeeOf:dept=Engineering'],
+    sub: opts.sub ?? (admin ? 'platform-operator' : 'did:demo:loadtest'),
+    iss, aud, iat: now, exp: now + (opts.ttlSecs ?? 3600),
+    scope: opts.scope ?? (admin ? ['admin'] : ['EmployeeOf', 'EmployeeOf:dept=Engineering']),
   })
-  const sig = Buffer.from(ed25519.sign(new TextEncoder().encode(`${head}.${body}`), seed)).toString('base64url')
-  return `${head}.${body}.${sig}`
+  const sig = Buffer.from(ed25519.sign(new TextEncoder().encode(head+'.'+body), seed)).toString('base64url')
+  return head+'.'+body+'.'+sig
 }
 
 /**

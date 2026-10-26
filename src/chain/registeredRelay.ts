@@ -3,6 +3,8 @@ import type {TasraChainClient} from './client.js'
 import {authenticateApprovedService, type ServiceDiscoveryTransport} from './serviceIdentity.js'
 import {SERVICE_TYPES, type ServiceApproval} from './services.js'
 import {revertError} from './revertReason.js'
+import {retryDelayMs} from '../retry.js'
+import {assertRelayVoucher, assertRelayVoucherIntent, type RelayVoucher, type RelaySponsorshipConfig} from './relayVoucher.js'
 
 /**
  * Guarded discovery and transaction relay transport with bounded response bodies.
@@ -10,6 +12,18 @@ import {revertError} from './revertReason.js'
 export interface RelayTransport extends ServiceDiscoveryTransport {
   /** Guard the socket just like discovery. Accept bounded JSON status bodies for 200/202/422. */
   relayRequest(url: string, options: {body?: Uint8Array; maxBytes: number; signal: AbortSignal}): Promise<Uint8Array>
+  /** Optional: the same guarded request, also reporting status and `Retry-After` for busy refusals. */
+  relayExchange?(url: string, options: {body?: Uint8Array; maxBytes: number; signal: AbortSignal}): Promise<RelayHttpResponse>
+}
+
+/** Bounded relayer reply with the wait it requested, if any. */
+export interface RelayHttpResponse {
+  /** HTTP status: 200/202 accepted or status, 422 a pre-acceptance refusal. */
+  status: number
+  /** Bounded JSON body. */
+  body: Uint8Array
+  /** Parsed `Retry-After` in ms, when sent. */
+  retryAfterMs?: number
 }
 
 /**
@@ -34,6 +48,8 @@ export interface RelayIntent {
  * Approved relay providers, pinned forwarder and durable recovery callbacks.
  */
 export interface RegisteredRelayConfig {
+  /** Holder-bound voucher flow for user-class calls; requires durable persistAttempt. */
+  sponsorship?: RelaySponsorshipConfig
   /** Application approvals, in preference order. Registry membership alone never selects a service. */
   approvals: readonly ServiceApproval[]
   /** Guarded HTTP transport for service authentication and relay submission. */
@@ -44,7 +60,7 @@ export interface RegisteredRelayConfig {
   label?: string
   /** Persist the signed reconciliation handle before its first POST. */
   persistAttempt?: (attempt: RelayAttempt) => Promise<void>
-  /** Load this durable operation's previous attempt before signing, including after a restart. */
+  /** Load this durable operation's previous attempt before signing, including after a restart. Unknown execution blocks replacement, including a consumed nonce outside the log window. */
   resumeAttempt?: (intent: RelayIntent) => Promise<RelayAttempt | undefined>
   /** Relay status polling interval in milliseconds; defaults to 1500. */
   pollMs?: number
@@ -54,6 +70,45 @@ export interface RegisteredRelayConfig {
   maxAttempts?: number
   /** Status polling budget per provider in milliseconds; defaults to 10000 and cannot exceed 30000. */
   attemptMs?: number
+  /** Re-sends of the identical signed request to one provider after a busy refusal, 0..5 (default 3). Waits honor `Retry-After`, at most 10 s in total per provider. */
+  busyRetries?: number
+}
+
+/**
+ * True for a relayer refusal about its own load rather than the request: a full lane, a full
+ * journal or an unavailable shared sponsorship budget. The relayer answers these 422 `rejected`
+ * with `Retry-After` before journaling anything. "shared daily spend cap reached", quota and
+ * policy refusals are not busy.
+ * @param reason The `reason` text of a relayer `rejected` status.
+ */
+export function isRelayBusyReason(reason: unknown): boolean {
+  return typeof reason === 'string' && reason.length <= 512 && reason.startsWith('relayer busy:')
+}
+
+/**
+ * The reason of a definitive pre-acceptance refusal: a 422 `rejected` reply whose reason is not a
+ * busy one (identity budget, policy, voucher). Accepted replies, busy refusals and anything that
+ * does not parse are undefined. Certification run 42: an identity-budget refusal was otherwise
+ * ignored and the last provider was watched for the whole relay budget.
+ */
+function definitiveRefusal(reply: RelayHttpResponse): string | undefined {
+  if (reply.status !== 422 || reply.body.length > 4_096) return undefined
+  try {
+    const status = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(reply.body)) as {state?: unknown; reason?: unknown}
+    if (status?.state !== 'rejected' || typeof status.reason !== 'string' || status.reason.length > 512 || isRelayBusyReason(status.reason)) return undefined
+    return status.reason
+  } catch { return undefined }
+}
+
+/** Busy-refusal parse of a POST reply; anything else (accepted, other refusals, garbage) is undefined. */
+function busyRefusal(reply: RelayHttpResponse): {retryAfterMs?: number} | undefined {
+  if (reply.status !== 422 || reply.body.length > 4_096) return undefined
+  try {
+    const status = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(reply.body)) as {state?: unknown; reason?: unknown}
+    if (status?.state !== 'rejected' || !isRelayBusyReason(status.reason)) return undefined
+  } catch { return undefined }
+  const after = reply.retryAfterMs
+  return after !== undefined && Number.isSafeInteger(after) && after >= 0 ? {retryAfterMs: after} : {}
 }
 
 /**
@@ -93,6 +148,8 @@ const types = {ForwardRequest: [
 
 /** JSON-safe reconciliation handle. Persist before POST to resume safely after a client restart. */
 export interface RelayAttempt {
+  /** Wallet voucher persisted before relay submission, bound to this exact signed request. */
+  voucher?: RelayVoucher
   /** Chain bound into the signed forward request. */
   chainId: number
   /** Pinned forwarder contract expected to execute the request. */
@@ -186,11 +243,9 @@ async function reconcile(chain: TasraChainClient, attempt: RelayAttempt, budget:
   if (nonce < BigInt(attempt.request.nonce)) throw new RelayOutcomeUnknownError(attempt, 'Forwarder nonce moved backwards')
   if (nonce > BigInt(attempt.request.nonce)) {
     const start = BigInt(attempt.fromBlock)
-    // OUT OF RANGE IS TERMINAL, not TRANSIENT. The nonce is already consumed, so this exact
-    //    request can never execute again whatever took it - the forwarder rejects a spent nonce.
-    //    All that is lost is WHICH request consumed it, and no amount of waiting recovers that:
-    //    every new block moves `start` further outside the window. Throwing here made callers
-    //    retry forever and permanently wedged a deployment's entire write path.
+    // A spent nonce prevents this exact request executing again, but does not prove whether
+    // its inner call already ran. Report the bounded history gap without scanning indefinitely;
+    // callers must preserve the original and must not infer permission for a new operation.
     if (start < 0n || head.number - start > 10_000n) return {expired: false, unresolvable: true}
     for (let from = start; from <= head.number; from += 2_000n) {
       const logs = await budget.run(() => chain.client.getLogs({address: attempt.forwarder,
@@ -232,13 +287,19 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
     throw new Error('Relay requires approved registry profiles and a guarded RelayTransport; a URL alone is insufficient')
   }
   if (!/^0x[0-9a-fA-F]{40}$/.test(config.forwarder) || /^0x0{40}$/.test(config.forwarder)) throw new Error('Invalid pinned relay forwarder')
-  const cfg = {...config, approvals: config.approvals.map(a => Object.freeze({...a}))}
-  const timeout = cfg.timeoutMs ?? 120_000, pollMs = cfg.pollMs ?? 1_500, attemptMs = cfg.attemptMs ?? 10_000
+  const cfg = {...config, sponsorship: config.sponsorship && Object.freeze({...config.sponsorship}), approvals: config.approvals.map(a => Object.freeze({...a}))}
+  if (cfg.sponsorship && (!/^0x[0-9a-fA-F]{64}$/.test(cfg.sponsorship.slotId) || /^0x0{64}$/.test(cfg.sponsorship.slotId) ||
+      typeof cfg.sponsorship.authorize !== 'function' || typeof (cfg.persistAttempt ?? options.persistAttempt) !== 'function')) throw new Error('Relay sponsorship requires an approved slot, wallet authorization and durable persistence')
+  const timeout = cfg.timeoutMs ?? 120_000, pollMs = cfg.pollMs ?? 1_500, attemptMs = cfg.attemptMs ?? 10_000, busyRetries = cfg.busyRetries ?? 3
   const attempts = cfg.maxAttempts ?? Math.min(3, cfg.approvals.length)
   if (!cfg.approvals.length || cfg.approvals.length > 16 || cfg.approvals.some(a => a.serviceType !== SERVICE_TYPES.gasRelayer) ||
     !Number.isInteger(attempts) || attempts < 1 || attempts > 3 || attempts > cfg.approvals.length ||
     !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 120_000 || !Number.isSafeInteger(pollMs) || pollMs < 10 ||
-    !Number.isSafeInteger(attemptMs) || attemptMs < 1 || attemptMs > 30_000) throw new Error('Invalid registered relayer policy')
+    !Number.isSafeInteger(attemptMs) || attemptMs < 1 || attemptMs > 30_000 || !Number.isSafeInteger(busyRetries) || busyRetries < 0 || busyRetries > 5) throw new Error('Invalid registered relayer policy')
+  const exchange = (url: string, options: {body?: Uint8Array; maxBytes: number; signal: AbortSignal}): Promise<RelayHttpResponse> =>
+    cfg.transport.relayExchange ? cfg.transport.relayExchange(url, options)
+      // A transport without status reporting: a 422 body still names the refusal; assume the relayer's 1 s hint.
+      : cfg.transport.relayRequest(url, options).then(bytes => ({status: 422, body: bytes, retryAfterMs: 1_000}))
   let serial = Promise.resolve()
   let pending: RelayAttempt | undefined
 
@@ -261,14 +322,14 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
             previousAttempt.request.data.toLowerCase() !== data.toLowerCase()) throw new Error('Persisted relay operation does not match this request')
         const result = await reconcile(chain, previousAttempt, budget)
         if (result.receipt) return result.receipt
-        // `unresolvable` must not resume and must not block. Its nonce is spent, so replaying
-        //    the stored attempt is guaranteed to be rejected; but blocking on it never clears
-        //    either, because the scan window only recedes. Fall through and sign a FRESH request
-        //    at the current nonce - the caller was told (via the journal) that the old one is
-        //    terminal-with-unknown-outcome and is responsible for not redoing work that landed.
-        if (result.unresolvable) pending = undefined
-        else if (!result.expired) { pending = previousAttempt; throw new RelayOutcomeUnknownError(previousAttempt) }
+        // Unknown execution never authorizes a replacement, regardless of sponsorship.
+        if (result.unresolvable) { pending = previousAttempt; throw new RelayOutcomeUnknownError(previousAttempt) }
+        if (!result.expired) {
+          if (cfg.sponsorship) attempt = Object.freeze({...previousAttempt, request: Object.freeze({...previousAttempt.request})})
+          else { pending = previousAttempt; throw new RelayOutcomeUnknownError(previousAttempt) }
+        }
       }
+      if (!attempt) {
       const fromBlock = await budget.run(() => chain.client.getBlockNumber({cacheTime: 0}))
       const nonce = await budget.run(() => chain.client.readContract({address: cfg.forwarder, abi: relayForwarderAbi, functionName: 'nonces', args: [from]}))
       // The inner call is estimated without an ABI, so viem cannot name a custom error; decode it, or a
@@ -281,13 +342,16 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
       const unsigned = {chainId, forwarder: cfg.forwarder, request}
       request.signature = await budget.run(() => wallet.signTypedData({account: wallet.account, ...typed(unsigned)}))
       attempt = Object.freeze({...unsigned, request: Object.freeze(request), fromBlock: fromBlock.toString(), id: hashTypedData(typed(unsigned))})
-      const body = new TextEncoder().encode(JSON.stringify(request))
+      }
+      let body = new TextEncoder().encode(JSON.stringify(attempt.request))
       if (body.length > 65_536) throw new Error('Relay request too large')
       // The application can durably store this handle before any endpoint receives it.
       const persist = cfg.persistAttempt ?? options.persistAttempt
       if (persist) await budget.run(() => persist(attempt!))
       let contacted = false
-      for (const approval of cfg.approvals.slice(0, attempts)) {
+      let refusal: string | undefined
+      const candidates = cfg.approvals.slice(0, attempts)
+      for (const [index, approval] of candidates.entries()) {
         if (contacted) {
           const result = await reconcile(chain, attempt, budget)
           if (result.receipt) { pending = undefined; return result.receipt }
@@ -301,12 +365,56 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
           if (!authenticated.manifest.capabilities.includes('relay-forward')) throw new Error('Service does not advertise relay-forward')
           endpoint = authenticated.record.endpoint
         } catch { budget.signal.throwIfAborted(); continue }
+        if (cfg.sponsorship) {
+          if (!attempt.voucher) {
+            const intentBody = new TextEncoder().encode(JSON.stringify({kind: 'forward', ...attempt.request}))
+            const bytes = await budget.run(() => cfg.transport.relayRequest(endpoint + '/v1/relay/voucher-intent', {body: intentBody, maxBytes: 65_536, signal: budget.signal}))
+            if (bytes.length > 65_536) throw new Error('Relay voucher intent too large')
+            const intent: unknown = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes))
+            assertRelayVoucherIntent(intent, attempt, cfg.sponsorship.slotId)
+            const voucher = JSON.parse(JSON.stringify(await budget.run(() => cfg.sponsorship!.authorize({attempt: attempt!, intent, signal: budget.signal})))) as unknown
+            assertRelayVoucher(voucher, attempt, cfg.sponsorship.slotId)
+            const freeze = (value: object): void => { for (const child of Object.values(value) as unknown[]) if (child && typeof child === 'object') freeze(child); Object.freeze(value) }
+            freeze(voucher)
+            attempt = Object.freeze({...attempt, voucher})
+          }
+          assertRelayVoucher(attempt.voucher, attempt, cfg.sponsorship.slotId)
+          body = new TextEncoder().encode(JSON.stringify({...attempt.request, voucher: attempt.voucher}))
+          if (body.length > 65_536) throw new Error('Relay request too large')
+          // The voucher and original forward signature are retained together before any gas can be spent.
+          await budget.run(() => persist!(attempt!))
+        }
         pending = attempt
         contacted = true
-        try {
-          await budget.run(() => cfg.transport.relayRequest(endpoint + '/v1/relay/forward', {body, maxBytes: 4_096, signal: budget.signal}))
-        } catch { budget.signal.throwIfAborted() }
-        const until = Date.now() + attemptMs
+        // A busy refusal (full lane/journal, unavailable shared budget) is answered before anything
+        // is journaled. Re-send the IDENTICAL signed bytes after the requested wait: the forwarder
+        // spends this nonce once, so a repeat can never execute the call twice. Nothing is re-signed.
+        let busySends = 0, busyWaited = 0
+        // Returns the reason when this provider refused the request outright; undefined otherwise.
+        const post = async (): Promise<string | undefined> => {
+          for (;;) {
+            let busy: {retryAfterMs?: number} | undefined
+            try {
+              const reply = await budget.run(() => exchange(endpoint + '/v1/relay/forward', {body, maxBytes: 4_096, signal: budget.signal}))
+              const refused = definitiveRefusal(reply)
+              if (refused !== undefined) return refused
+              busy = busyRefusal(reply)
+            } catch { budget.signal.throwIfAborted() }
+            if (!busy) return undefined
+            const delay = retryDelayMs(busySends, busy.retryAfterMs ?? 1_000, {maxAttempts: busyRetries + 1, maxDelayMs: 10_000, maxTotalWaitMs: 10_000}, busyWaited)
+            if (delay === undefined) return undefined
+            busySends++; busyWaited += delay
+            await budget.run(() => new Promise(resolve => setTimeout(resolve, delay)))
+          }
+        }
+        const refused = await post()
+        // A definitive refusal was answered before anything was journaled: nothing to watch here.
+        // Fail over (reconciling first, as for any contacted provider), or stop with its reason.
+        if (refused !== undefined) { refusal = refused; continue }
+        // attemptMs is the failover window to the NEXT provider. The last provider has no successor, so its
+        // accepted request is watched for the rest of the relay budget rather than declared unknown early
+        // (a single approved relayer serialising several applications mined the call after 18 s).
+        const until = index < candidates.length - 1 ? Date.now() + attemptMs : Number.POSITIVE_INFINITY
         do {
           // A lost POST response still has a deterministic status ID.
           try {
@@ -318,11 +426,22 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
               const receipt = await verifiedReceipt(chain, attempt, status.tx_hash!, budget)
               if (receipt) { pending = undefined; return receipt }
             }
-            if (['failed', 'rejected', 'unknown'].includes(status.state)) break
-          } catch { budget.signal.throwIfAborted(); break }
+            if (status.state === 'rejected' && isRelayBusyReason((status as {reason?: unknown}).reason) && busySends < busyRetries) {
+              // Same identical bytes; counted against the same per-provider busy budget.
+              busySends++
+              await budget.run(() => new Promise(resolve => setTimeout(resolve, Math.min(1_000, Math.max(1, until - Date.now())))))
+              await post()
+            } else if (['failed', 'rejected', 'unknown'].includes(status.state)) break
+          } catch {
+            budget.signal.throwIfAborted()
+            // A lost or unreadable status fails over to the next provider; the last one is reconciled on chain.
+            if (index < candidates.length - 1) break
+          }
           const result = await reconcile(chain, attempt, budget)
           if (result.receipt) { pending = undefined; return result.receipt }
           if (result.expired) { pending = undefined; throw new Error('Forward request expired without execution') }
+          // A nonce spent beyond the log window is a final verdict: stop watching, keep the original.
+          if (result.unresolvable) break
           await budget.run(() => new Promise(resolve => setTimeout(resolve, Math.min(pollMs, Math.max(1, until - Date.now())))))
         } while (Date.now() < until)
       }
@@ -330,7 +449,7 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
       const result = await reconcile(chain, attempt, budget)
       if (result.receipt) { pending = undefined; return result.receipt }
       if (result.expired) { pending = undefined; throw new Error('Forward request expired without execution') }
-      throw new RelayOutcomeUnknownError(attempt)
+      throw new RelayOutcomeUnknownError(attempt, refusal === undefined ? undefined : `relayer refused: ${refusal}`)
     } catch (error) {
       if (pending) throw new RelayOutcomeUnknownError(pending, error instanceof Error ? error.message : undefined)
       throw error
@@ -341,9 +460,8 @@ export function createRegisteredRelaySubmitter(chain: TasraChainClient, config: 
       if (!pending) return undefined
       const current = pending
       const result = await reconcileRelayAttempt(chain, current)
-      // `unresolvable` frees the signer too: the nonce is spent, so holding the slot blocks
-      // every future write for an attempt that can never complete.
-      if (pending === current && (result.receipt || result.expired || result.unresolvable)) pending = undefined
+      // Only verified execution or a proven unused expired nonce releases the signer.
+      if (pending === current && (result.receipt || result.expired)) pending = undefined
       return result
     },
   }

@@ -12,6 +12,7 @@ Functions, Types or Constants from its page navigation. Each group has its own l
 |---|---|---|
 | [Application client](app.md) | `tasra-sdk/app` | Connect, create slots, manage identities and run application workflows. |
 | [Local storage (Node.js)](app-node.md) | `tasra-sdk/app/node` | Persist application state and coordinate local operations. |
+| [Browser storage and transports](app-browser.md) | `tasra-sdk/app/browser` | Durable IndexedDB state with cross-tab locks, and fetch transports for paid flows. |
 | [Core utilities](main.md) | `tasra-sdk` | Signing, encryption, credentials and shared helpers. |
 | [Chain access](chain.md) | `tasra-sdk/chain` | Read contracts, submit transactions, discover services and fund slots. |
 | [Committee operations](committee.md) | `tasra-sdk/committee` | Threshold requests, approvals and operation receipts. |

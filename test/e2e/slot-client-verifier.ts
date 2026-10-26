@@ -17,7 +17,7 @@
 import {randomBytes} from 'node:crypto'
 import {keccak256, toHex, type Address, type Hex} from 'viem'
 import {Suite} from '../fleet/_assert.ts'
-import {clusterToHost, gate, issueVc, loadFleetConfig, mintLocalJwt, provisionRule, randomDidKeyHolder, SLOT_DCQL_RULE} from '../fleet/_fleet.ts'
+import {clusterToHost, gate, issueVc, loadFleetConfig, mintAdminJwt, provisionRule, randomDidKeyHolder, SLOT_DCQL_RULE} from '../fleet/_fleet.ts'
 import {frostVerify} from '../fleet/_crypto.ts'
 import {createTasraChainClient, resolveVerifierDirectory} from '../../src/chain/index.ts'
 import {resolveSlotKeeperUrls} from '../../src/chain/discovery.ts'
@@ -49,7 +49,7 @@ const holderProof = {
   signer,
   audience: cfg.jwtIss,
 }
-const adminJwt = mintLocalJwt(cfg) // operator provisioning only (create + provision rule)
+const adminJwt = mintAdminJwt(cfg) // operator provisioning only (create + provision rule)
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 const dec = (u: Uint8Array) => new TextDecoder().decode(u)
 

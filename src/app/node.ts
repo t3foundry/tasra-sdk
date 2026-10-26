@@ -1,9 +1,10 @@
 /** Node-only durable private state. Import from tasra-sdk/app/node. */
 import {constants} from 'node:fs'
-import {mkdir, lstat, open, rename, unlink} from 'node:fs/promises'
+import {mkdir, lstat, open, readdir, rename, unlink} from 'node:fs/promises'
 import {resolve, join} from 'node:path'
 import {randomUUID} from 'node:crypto'
 import {TasraError} from '../errors.js'
+import {StoreLockedError} from './store-errors.js'
 
 /**
  * Durable private state storage with exclusive locking for each named operation.
@@ -21,13 +22,20 @@ export interface ApplicationStore {
    * Exclusively serialize work for the key across all participating processes or tabs.
    */
   withLock<T>(key: string, action: () => Promise<T>): Promise<T>
+  /**
+   * Optional: keys starting with `prefix`, in any order. Used only for one-time maintenance
+   * such as backfilling the paid operation index; stores without it still work everywhere else.
+   */
+  list?(prefix: string): Promise<string[]>
+  /**
+   * Optional: atomically and durably create the record `key` only if it does not exist, across all
+   * participating processes or tabs. Resolves true for exactly one caller, false when the key
+   * already exists. Paid approvals use it as a one-use, generation-bound send claim; without it a
+   * retained approval is sent once and never resent.
+   */
+  claim?(key: string): Promise<boolean>
 }
-/**
- * A state lock is already held and requires reconciliation before manual removal.
- */
-export class StoreLockedError extends TasraError {
-  constructor(/** Store entry whose exclusive lock could not be acquired. */ readonly key: string) { super(`State ${key} is locked; reconcile any interrupted operation before removing its lock`) }
-}
+export {StoreLockedError}
 
 type Encoded = ['null'] | ['undefined'] | ['string', string] | ['number', number] | ['boolean', boolean] | ['bigint', string] | ['bytes', string] | ['array', Encoded[]] | ['object', [string, Encoded][]]
 function encode(value: unknown, seen = new Set<object>()): Encoded {
@@ -104,6 +112,26 @@ export function createFileStore(directory: string): ApplicationStore {
         await rename(temporary, target)
         await syncDirectory()
       } finally { await unlink(temporary).catch(error => { if (!missing(error)) throw error }) }
+    },
+    async list(prefix) {
+      await ready()
+      // Saved values are `<key>.json`; temporaries start with a dot and locks end in `.lock`.
+      return (await readdir(root)).filter(name => name.endsWith('.json') && /^[a-zA-Z0-9]/.test(name))
+        .map(name => name.slice(0, -'.json'.length)).filter(key => key.startsWith(prefix))
+    },
+    async claim(key) {
+      // `O_CREAT | O_EXCL` on the record itself is the exclusive claim, across threads and
+      // processes: exactly one creator wins, every other gets EEXIST. The record is written and
+      // fsynced, then the directory, before this resolves. A crash mid-write still leaves the key
+      // claimed (its content is only a diagnostic), which is the safe direction.
+      const target = path(key), contents = JSON.stringify({schemaVersion: 1, value: encode({claimed: true})}) + '\n'
+      await ready()
+      let file
+      try { file = await open(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600) }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false; throw error }
+      try { await file.writeFile(contents, 'utf8'); await file.sync() } finally { await file.close() }
+      await syncDirectory()
+      return true
     },
     async withLock(key, action) {
       const target = path(key, '.lock')

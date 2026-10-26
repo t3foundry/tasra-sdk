@@ -9,7 +9,7 @@ const config = ts.readConfigFile(resolve(root, 'tsconfig.json'), (path) => ts.sy
 const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root)
 const program = ts.createProgram(parsed.fileNames, parsed.options)
 const checker = program.getTypeChecker()
-const entries = {app: 'src/app/index.ts', 'app-node': 'src/app/node.ts', main: 'src/index.ts', chain: 'src/chain/index.ts', committee: 'src/committee/index.ts',
+const entries = {app: 'src/app/index.ts', 'app-node': 'src/app/node.ts', 'app-browser': 'src/app/browser.ts', main: 'src/index.ts', chain: 'src/chain/index.ts', committee: 'src/committee/index.ts',
   oid4vp: 'src/oid4vp/index.ts', 'verifier-agent': 'src/verifier-agent/index.ts', 'chain-node': 'src/chain/node.ts'}
 const flags = ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope
 const text = (parts: readonly ts.SymbolDisplayPart[] | undefined) => ts.displayPartsToString(parts ? [...parts] : undefined)
@@ -34,27 +34,39 @@ function parameterType(symbol: ts.Symbol, at: ts.Declaration) {
 // same indentation as source annotations, without altering their public contract.
 function formatDeclaration(value: string) {
   const source = ts.createSourceFile('reference.ts', value, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  return printer.printFile(source).trim().split('\n').map(wrapUnionAlias).join('\n')
-}
-// The printer puts a union alias on one line however long it is; the site refuses code lines
-// over 240 characters, so a long alias is laid out one member per line, as its source is.
-function wrapUnionAlias(line: string) {
-  const alias = /^(export type \w+(?:<[^=]*>)? =) (.*);$/.exec(line)
-  if (!alias || line.length <= 160) return line
-  const members: string[] = []
-  let depth = 0, quote = '', start = 0
-  const body = alias[2]!
-  for (let i = 0; i < body.length; i++) {
-    const c = body[i]!
-    if (quote) { if (c === quote && body[i - 1] !== '\\') quote = ''; continue }
-    if (c === "'" || c === '"' || c === '`') quote = c
-    else if ('([{'.includes(c) || (c === '<' && body[i - 1] !== '=')) depth++
-    else if (')]}'.includes(c) || (c === '>' && body[i - 1] !== '=')) depth--
-    else if (c === '|' && depth === 0) { members.push(body.slice(start, i).trim()); start = i + 1 }
+  const printed = printer.printFile(source).trim()
+  // TypeScript indents structural types but keeps flat parameter lists and unions on one line.
+  // Wrap at parsed boundaries, preserving delimiters inside generic arguments and literals.
+  const formatted = ts.createSourceFile('reference.ts', printed, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const edits: {start: number; end: number; text: string}[] = []
+  function visit(node: ts.Node) {
+    if (ts.isFunctionLike(node) && node.parameters.length) {
+      const first = node.parameters[0]!, last = node.parameters.at(-1)!
+      const start = first.getStart(formatted), end = last.end
+      const lineStart = printed.lastIndexOf('\n', start - 1) + 1
+      const nextLine = printed.indexOf('\n', end), lineEnd = nextLine < 0 ? printed.length : nextLine
+      if (!printed.slice(start, end).includes('\n') && lineEnd - lineStart > 240) {
+        const indent = /^ */.exec(printed.slice(lineStart))![0]
+        edits.push({start, end, text: '\n' + node.parameters.map(parameter => indent + '    ' + parameter.getText(formatted)).join(',\n') + '\n' + indent})
+        return
+      }
+    }
+    if (ts.isUnionTypeNode(node)) {
+      let start = node.getStart(formatted)
+      const end = node.end
+      const lineStart = printed.lastIndexOf('\n', start - 1) + 1
+      const nextLine = printed.indexOf('\n', end), lineEnd = nextLine < 0 ? printed.length : nextLine
+      if (!printed.slice(start, end).includes('\n') && lineEnd - lineStart > 240) {
+        const indent = /^ */.exec(printed.slice(lineStart))![0]
+        while (start > lineStart && printed[start - 1] === ' ') start--
+        edits.push({start, end, text: '\n' + node.types.map(type => indent + '    | ' + type.getText(formatted)).join('\n') + '\n' + indent})
+        return
+      }
+    }
+    ts.forEachChild(node, visit)
   }
-  members.push(body.slice(start).trim())
-  if (members.length < 2 || members.some(member => !member)) return line
-  return `${alias[1]}\n${members.map(member => `  | ${member}`).join('\n')};`
+  visit(formatted)
+  return edits.sort((a, b) => b.start - a.start).reduce((text, edit) => text.slice(0, edit.start) + edit.text + text.slice(edit.end), printed)
 }
 function formatType(value: string) {
   const source = ts.createSourceFile('reference.ts', `type ReferenceType = ${value}`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
@@ -127,7 +139,7 @@ for (const [name, file] of Object.entries(entries)) {
     anchors.set(title, base + (occurrence ? `-${occurrence}` : ''))
   }
   const documentation = (value: string) => value.replace(/\{@link(?:code|plain)?\s+([^\s|}]+)(?:[\s|]+([^}]*?))?\s*\}/g, (_match, target: string, label: string | undefined) => exportNames.has(target) ? `[${label?.trim() || target}](#${anchors.get(target)})` : inlineCode(label?.trim() || target))
-  const entry = name === 'main' ? 'tasra-sdk' : `tasra-sdk/${name === 'chain-node' ? 'chain/node' : name === 'app-node' ? 'app/node' : name}`
+  const entry = name === 'main' ? 'tasra-sdk' : `tasra-sdk/${name === 'chain-node' ? 'chain/node' : name === 'app-node' ? 'app/node' : name === 'app-browser' ? 'app/browser' : name}`
   let body = `# ${entry}\n\nGenerated from public TypeScript exports.\n\n[SDK reference](README.md) · [Task guides](../README.md) · [Errors](../errors.md)\n\n`
   const sections: {title: string; group: string; start: number}[] = []
   const values: string[] = []
@@ -274,6 +286,7 @@ for (const [name, file] of Object.entries(entries)) {
 const modules: Record<string, {label: string; purpose: string}> = {
   app: {label: 'Application client', purpose: 'Connect, create slots, manage identities and run application workflows.'},
   'app-node': {label: 'Local storage (Node.js)', purpose: 'Persist application state and coordinate local operations.'},
+  'app-browser': {label: 'Browser storage and transports', purpose: 'Durable IndexedDB state with cross-tab locks, and fetch transports for paid flows.'},
   main: {label: 'Core utilities', purpose: 'Signing, encryption, credentials and shared helpers.'},
   chain: {label: 'Chain access', purpose: 'Read contracts, submit transactions, discover services and fund slots.'},
   committee: {label: 'Committee operations', purpose: 'Threshold requests, approvals and operation receipts.'},
@@ -282,7 +295,7 @@ const modules: Record<string, {label: string; purpose: string}> = {
   'chain-node': {label: 'Chain tools (Node.js)', purpose: 'Load chain configuration from Node.js files.'},
 }
 emit('README.md', `# SDK reference\n\nLook up the TypeScript classes, functions, options and return types you use in your code.\nStart with the [learning path](../README.md) if you are building your first TASRA app.\n\n## Choose a module\n\nMost applications start with **tasra-sdk/app**. Open a module, then choose Classes,\nFunctions, Types or Constants from its page navigation. Each group has its own lookup list.\n\n| Module | Import | What you will find |\n|---|---|---|\n${Object.entries(entries).map(([name]) => {
-  const entry = name === 'main' ? 'tasra-sdk' : `tasra-sdk/${name === 'chain-node' ? 'chain/node' : name === 'app-node' ? 'app/node' : name}`
+  const entry = name === 'main' ? 'tasra-sdk' : `tasra-sdk/${name === 'chain-node' ? 'chain/node' : name === 'app-node' ? 'app/node' : name === 'app-browser' ? 'app/browser' : name}`
   return `| [${modules[name]!.label}](${name}.md) | \`${entry}\` | ${modules[name]!.purpose} |`
 }).join('\n')}\n\n## Read a declaration\n\nFunctions show their import, parameters and return value. Classes show constructors,\nproperties and methods. Types describe the data you pass in or receive. Constants\nand contract ABIs link to their definitions. Follow **Source** for the implementation.\n\nThe declarations and descriptions are generated from the SDK source. They describe\nprogramming interfaces; use the [application guides](../README.md) for complete\nrunnable examples and [Errors](../errors.md) for recovery guidance.\n`)
 

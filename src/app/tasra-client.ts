@@ -9,6 +9,8 @@ import {createIdentity, issueCredential, verifyCredential, credentialPolicy, cre
  * Network manifest and optional wallet, storage and transport adapters for an application.
  */
 export interface TasraClientOptions extends ResolveApplicationManifestOptions {
+  /** Permit paid keeper HTTP only on the explicitly selected local chain43112. */
+  allowLocalPaidHttp?: boolean
   /**
    * Network manifest downloaded from tasra-releases, or approved application settings.
    */
@@ -110,7 +112,7 @@ export class TasraClient {
     options = {...options}
     const resolved = resolveApplicationManifest(options.manifest, options)
     const keeperUrl = options.keeperUrl ?? resolved.keeperUrl
-    const app = createTasra({...resolved, keeperUrl, chain: options.chain, fetchImpl: options.fetchImpl})
+    const app = createTasra({...resolved, keeperUrl, chain: options.chain, fetchImpl: options.fetchImpl, allowLocalPaidHttp: options.allowLocalPaidHttp})
     this.deployment = app.deployment
     this.chain = app.chain
     this.verifierAgentUrl = options.verifierAgentUrl ?? resolved.verifierAgentUrl

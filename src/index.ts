@@ -82,13 +82,35 @@ export type {Faucet, FaucetGrant} from './slots/index.js'
 export {
   TasraError,
   TasraHttpError,
+  UnderfundedSlotError,
+  UnderfundedGasPayerError,
   AuthDeniedError,
   NodeUnreachableError,
   ThresholdNotMetError,
   SlotRotatedError,
+  RevocationStatusError,
+  RevocationStatusPreflightError,
   isAuthDenied,
   isRetryable,
+  isRevocationStatusRefusal,
+  isRevocationStatusPreflightRefusal,
+  StatusRefreshError,
+  isStatusRefreshError,
+  PaidBackoffError,
+  isPaidBackoffError,
+  PaidApprovalUnresolvedError,
+  isPaidApprovalUnresolved,
+  PaidReservationQuotaError,
+  PrepaidEscapeError,
+  PrepaidEscapeUncertainError,
+  isPrepaidEscapeError,
 } from './errors.js'
+export type {RevocationStatusPreflightCode, StatusRefreshCode, StatusRefreshFailure, PaidBackoffCode, PaidApprovalUnresolvedReason, PrepaidEscapeCode} from './errors.js'
+// Bounded waits honoring Retry-After, for requests that are safe to send again.
+// Never wrap a paid flow, reservation or other write whose outcome is uncertain.
+export {retryIdempotent, retryDelayMs, parseRetryAfter, classifyRetry, classifyRefusal, classifyRefusedWrite,
+  RETRY_STATUSES, RETRY_AFTER_ONLY_STATUSES} from './retry.js'
+export type {RetryPolicy, RetryDecision} from './retry.js'
 // The committee flow's HTTP error lives with the committee code but is caught
 // by consumers of the managed clients, so it is reachable from the main entry.
 export {CommitteeAuthorizeError} from './committee/index.js'

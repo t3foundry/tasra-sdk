@@ -35,6 +35,43 @@ the variable.
 `_fleet.ts` holds the configuration loader and the reachability gate, `_assert.ts` the
 suite/report helpers, `_crypto.ts` and `_wallet.ts` the shared credential machinery.
 
+### Fresh prepaid certification slots
+
+The wallet slot fixture requires a loopback RPC actually answering chain **43112**
+and a Settlement deployed with `prepaidFromGenesis`. Configure
+`KK_PREPAID_EVIDENCE_DIR` as a private directory owned by the current user. The
+fixture retains the original creator, rule, salt, creation transactions, funding
+amount and payer nonce before approving or depositing TASRA. An existing or
+uncertain funding record refuses a second attempt and must be reconciled.
+
+`KK_PREPAID_SLOT_TASRA_UNITS` selects the finite deposit in token base units:
+the default is 1 TASRA and the certification ceiling is 10 TASRA. The configured
+deployer must already hold that TASRA. Native AVAX transfers only fund transaction
+gas. The helper checks the configured token and the canonical available, reserved
+and total balances after funding; successful genesis funding enables prepaid mode.
+It refuses Fuji, mainnet and legacy governance cutovers before spending.
+
+The shared wallet now uses the SDK's registered paid-session driver and original
+complete-body client approvals. Sign, decrypt, credential, quorum, audit, bootstrap
+and key-operation stress callers carry the paid coordinator and approvals. The full
+component gate passed with 819 tests, type checks, lint, package, documentation and
+site checks. These results do not establish live settlement or platform acceptance.
+
+After a successful fresh bring-up, `test/verify/bringup.ts` reads the deployed
+local committee settings and operator registry. It requires exact running Docker
+identities with the expected checkout, project and service labels before mapping
+published ports. It retains the registered provider profile, routes and canonical
+deployment observation in a fresh private evidence directory. A failed prerequisite
+or paid configuration stops the run before live tests. TLS setup must supply
+`KK_STATUS_LIST_DIR`, `KK_STATUS_LIST_URL` and `KK_WALLET_CA_FILE`; a reused fleet
+also needs its explicitly retained prepaid profile, routes, evidence directory,
+accountant URLs, committee/quorum and finite TASRA/gas limits.
+
+The latest deployment adapter, issuer file-permission fix and bring-up controls
+passed 30 focused checks and the full SDK gate passed with 839 tests and unchanged
+sources. Current native concurrency, exhaustion, role payouts/refunds and recovery
+remain required. Funding and component tests alone do not establish a passing live suite.
+
 ## Configuration
 
 Endpoints default to a loopback deployment. **Anything identifying a specific deployment
@@ -54,6 +91,7 @@ authorization failure.
 | `TASRA_DEPLOY_PK`, `TASRA_DEPLOY_ADDR` | — | A funded key with the rights the suite needs |
 | `TASRA_ISSUER_KEY`, `TASRA_ISSUER_DID` | — | The credential issuer. Must be one the target verifier's anchor trusts |
 | `TASRA_JWT_SIGNING_KEY`, `TASRA_JWT_ISS`, `TASRA_JWT_AUD` | — | The deployment's Ed25519 JWT issuer seed and its `iss`/`aud` |
+| `TASRA_ADMIN_JWT_SIGNING_KEY`, `TASRA_ADMIN_JWT_ISS`, `TASRA_ADMIN_JWT_AUD` | — | Independent operator issuer for rule provisioning and governance; no fallback to the verifier issuer |
 | `TASRA_ADMIN_SECRET` | — | Verifier admin secret, where a suite needs an admin route |
 | `TASRA_FAUCET` | `http://localhost:8552` | Faucet base URL |
 | `TASRA_FLEET_REQUIRED` | _(unset)_ | `1` ⇒ fail rather than skip when unreachable |

@@ -60,7 +60,7 @@ export interface SignCustodyOpts {
   slotId: string
   /** Raw message bytes to sign. */
   message: Uint8Array
-  /** Explicit signer set (u16 ids). Omit to node uses 1..k. Passing MORE than k
+  /** Explicit signer set (u16 ids). Omit to let the keeper select responsive eligible signers. Passing MORE than k
    *  ids makes the node use the robust ROAST coordinator. */
   signingSet?: number[]
   /** 64-byte Ed25519 user signature - required iff the slot has a registered

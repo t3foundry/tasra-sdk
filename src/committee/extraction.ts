@@ -3,7 +3,7 @@ import {utf8ToBytes} from '@noble/hashes/utils'
 import {sha256} from '@noble/hashes/sha256'
 import {ibeCombineExtract, ibeDecryptWithKey, ibeVerifyShare, type IbeCiphertext} from '../crypto/ibe.js'
 import {TasraError, ThresholdNotMetError} from '../errors.js'
-import {requestIbeExtractionPartials, type IbeExtractOpts} from './client.js'
+import {collectIbeExtractionPartials, type IbeExtractOpts} from './client.js'
 import {compoundTokenHash, decodeCompoundToken} from './token.js'
 import {auditOperationId, protocolHex, verifyOperationReceipt, type OperationReceipt} from './receipts.js'
 
@@ -102,30 +102,30 @@ export async function extractIdentityStrict(input: StrictExtractionOptions): Pro
   const threshold = input.threshold, epoch = input.epoch, shareTrust = input.shareTrust, required = input.requireReceipts
   const tokenHash = compoundTokenHash(decodeCompoundToken(input.committeeToken))
   const opId = auditOperationId(slot, 'ibe-extract', tokenHash, sha256(identity))
-  const partials = await requestIbeExtractionPartials({...input, nodeUrls: keepers.map(k => k.nodeUrl), ciphertextEpoch: epoch})
+  const evidence: ExtractionEvidence[] = []
+  const partials = await collectIbeExtractionPartials({...input, nodeUrls: keepers.map(k => k.nodeUrl), ciphertextEpoch: epoch}, p => {
+    const k = byUrl.get(p.nodeUrl)
+    if (!k || !Number.isSafeInteger(p.identifier) || p.identifier < 1 || p.identifier > 65535 ||
+      p.epoch !== epoch || !equalBytes(protocolHex(p.keySlotId, 32, 'extraction slot'), slot) || p.value.length !== 48 || p.verifyingShareG2.length !== 96 ||
+      k.identifier !== undefined && k.identifier !== p.identifier || k.verifyingShareG2 && !equalBytes(k.verifyingShareG2, p.verifyingShareG2)) {
+      throw new TasraError('Extraction share has inconsistent slot, epoch, keeper or key provenance')
+    }
+    let receiptStatus: ExtractionEvidence['receiptStatus'] = p.receipt ? 'unverified' : 'absent'
+    if (p.receipt && k.publicKey) {
+      if (!verifyOperationReceipt(p.receipt, {chainId: input.chainId, slotId: slot, tokenHash, opId, keeperPublicKey: k.publicKey})) {
+        throw new TasraError('Invalid extraction operation receipt')
+      }
+      receiptStatus = 'verified'
+    }
+    if (required && receiptStatus !== 'verified') throw new TasraError('Verified extraction receipt required')
+    // A received reply only counts after provenance, receipt and pairing verification.
+    ibeVerifyShare(new Map([[p.identifier, k.verifyingShareG2 ?? p.verifyingShareG2]]), identity, p)
+    evidence.push({operator: k.operator, identifier: p.identifier, nodeUrl: p.nodeUrl, ...(p.receipt ? {receipt: p.receipt} : {}), receiptStatus})
+  })
   let key: Uint8Array | undefined
   try {
     input.signal?.throwIfAborted()
     if (partials.length < threshold) throw new ThresholdNotMetError({got: partials.length, need: threshold})
-    const ids = new Set<number>(), evidence: ExtractionEvidence[] = []
-    for (const p of partials) {
-      const k = byUrl.get(p.nodeUrl)
-      if (!k || !Number.isSafeInteger(p.identifier) || p.identifier < 1 || p.identifier > 65535 || ids.has(p.identifier) ||
-        p.epoch !== epoch || !equalBytes(protocolHex(p.keySlotId, 32, 'extraction slot'), slot) || p.value.length !== 48 || p.verifyingShareG2.length !== 96 ||
-        k.identifier !== undefined && k.identifier !== p.identifier || k.verifyingShareG2 && !equalBytes(k.verifyingShareG2, p.verifyingShareG2)) {
-        throw new TasraError('Extraction share has inconsistent slot, epoch, keeper or key provenance')
-      }
-      ids.add(p.identifier)
-      let receiptStatus: ExtractionEvidence['receiptStatus'] = p.receipt ? 'unverified' : 'absent'
-      if (p.receipt && k.publicKey) {
-        if (!verifyOperationReceipt(p.receipt, {chainId: input.chainId, slotId: slot, tokenHash, opId, keeperPublicKey: k.publicKey})) {
-          throw new TasraError('Invalid extraction operation receipt')
-        }
-        receiptStatus = 'verified'
-      }
-      if (required && receiptStatus !== 'verified') throw new TasraError('Verified extraction receipt required')
-      evidence.push({operator: k.operator, identifier: p.identifier, nodeUrl: p.nodeUrl, ...(p.receipt ? {receipt: p.receipt} : {}), receiptStatus})
-    }
     key = ibeCombineExtract(new Map(partials.map(p => [p.identifier, p.verifyingShareG2])), partials, identity)
     // Returned shares must combine to the slot's independently anchored master public key.
     ibeVerifyShare(new Map([[1, group]]), identity, {identifier: 1, value: key})

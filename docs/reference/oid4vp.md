@@ -21,7 +21,7 @@ A Verifier Agent session did not produce a compound token. `kind` says why;
 `retryable` is true only for `timeout` and `unavailable` - the session may
 still complete, so poll again. Extends ` TasraError `.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L134)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L143)
 
 Import: `import {VerifierAgentSessionError} from 'tasra-sdk/oid4vp'`
 
@@ -126,7 +126,7 @@ Operations you can import and call.
 The compound token the verifier-agent hands back must be the wire shape the keepers verify -
  checked field by field before anything is built on it.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L162)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L171)
 
 Import: `import {assertCompoundTokenWire} from 'tasra-sdk/oid4vp'`
 
@@ -149,12 +149,12 @@ refusing side), `timeout`, `unavailable`, `protocol`, `cancelled` - and whose
 `correlation` is the session id. A token that binds another request than this session
 opened, or one whose proofs are malformed, is a `protocol` refusal: nothing is built on it.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L196)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L210)
 
 Import: `import {awaitVerifierAgentResult} from 'tasra-sdk/oid4vp'`
 
 ```ts
-declare function awaitVerifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'verifierAgentUrl' | 'sessionId' | 'pollSecret' | 'requestHash'>, opts?: {
+declare function awaitVerifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'verifierAgentUrl' | 'sessionId' | 'pollSecret' | 'requestHash' | 'paymentHash'>, opts?: {
     intervalMs?: number;
     timeoutMs?: number;
 } & WaitOpts): Promise<VerifierAgentResult>;
@@ -162,7 +162,7 @@ declare function awaitVerifierAgentResult(session: Pick<OpenedVerifierAgentSessi
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` session ` | ` Pick<OpenedVerifierAgentSession, 'verifierAgentUrl' \| 'sessionId' \| 'pollSecret' \| 'requestHash'> ` | - Opened session credentials and expected request-binding hash. |
+| ` session ` | ` Pick<OpenedVerifierAgentSession, 'verifierAgentUrl' \| 'sessionId' \| 'pollSecret' \| 'requestHash' \| 'paymentHash'> ` | - Opened session credentials and expected request-binding hash. |
 | ` opts? ` | ` { intervalMs?: number; timeoutMs?: number; } & WaitOpts ` | - Polling intervals, timeout, cancellation and progress callback. |
 
 Returns: ` Promise<VerifierAgentResult> `.
@@ -207,7 +207,7 @@ Returns: ` Uint8Array `.
 
 Decode base58btc text, preserving leading zero bytes and rejecting invalid characters.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L173)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L191)
 
 Import: `import {base58Decode} from 'tasra-sdk/oid4vp'`
 
@@ -225,7 +225,7 @@ Returns: ` Uint8Array `.
 
 Encode bytes as base58btc, preserving leading zero bytes.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L154)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L172)
 
 Import: `import {base58Encode} from 'tasra-sdk/oid4vp'`
 
@@ -287,7 +287,7 @@ The verifier-agent derives a nonce, generates an ECDH key for JWE, and returns a
 payload the wallet scans. The session ID and poll secret are used to poll
 for the result.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L238)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L263)
 
 Import: `import {createOid4vpSession} from 'tasra-sdk/oid4vp'`
 
@@ -364,7 +364,7 @@ Returns: ` Uint8Array `.
 
 Create a signing-key resolver that fetches did:web keys and decodes did:key or did:jwk keys.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L85)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L87)
 
 Import: `import {defaultKeyResolver} from 'tasra-sdk/oid4vp'`
 
@@ -477,7 +477,7 @@ Returns: ` string `.
 
 `did:key` of an Ed25519 public key (multicodec 0xed01).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L198)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L216)
 
 Import: `import {ed25519DidKey} from 'tasra-sdk/oid4vp'`
 
@@ -495,7 +495,7 @@ Returns: ` string `.
 
 The 32-byte Ed25519 key inside a `did:key:z6Mk...`; throws for any other key type.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L215)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L233)
 
 Import: `import {ed25519FromDidKey} from 'tasra-sdk/oid4vp'`
 
@@ -513,7 +513,7 @@ Returns: ` Uint8Array `.
 
 An Ed25519 holder key from a 32-byte seed - the shape `tasra-cli vc issue-sd-jwt` binds.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L137)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L151)
 
 Import: `import {ed25519HolderKey} from 'tasra-sdk/oid4vp'`
 
@@ -523,7 +523,7 @@ declare function ed25519HolderKey(seed: Uint8Array): HolderKey;
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` seed ` | ` Uint8Array ` | - 32-byte Ed25519 secret seed. |
+| ` seed ` | ` Uint8Array ` | - 32-byte Ed25519 secret seed. Copied: the holder's `privateKey` never shares memory with it, so the caller may wipe its bytes once this returns. |
 
 Returns: ` HolderKey `.
 
@@ -553,20 +553,34 @@ Returns: ` string `.
 
 Fetch a JAR from `request_uri` (`Accept: application/oauth-authz-req+jwt`) and verify it.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L149)
+While a paid verifier exchange that this request started is still running, the verifier-agent
+answers HTTP 503 with the exact ` REQUEST_OBJECT_IN_PROGRESS ` message and `Retry-After`.
+When it is at its paid-exchange capacity it refuses before sending or billing anything with the
+exact ` REQUEST_OBJECT_AT_CAPACITY ` message. Only these two answers are retried, in any mix
+and under one shared budget, by repeating the identical GET (same URL and headers; nothing is
+posted, presented or paid). The wait follows `Retry-After` (delta-seconds or HTTP-date; 2 s when
+absent or malformed) clamped to `minDelayMs`..`maxDelayMs` (default 0.5..5 s), within
+`maxAttempts` (default 64) and a wall-clock budget (default 120 s, which covers the agent's
+longest detached exchange) that ends early at `notAfterMs`. A repeated GET still running at the
+end of the budget is aborted. `signal` cancels the in-flight GET or the wait at once. When the
+budget or attempts run out, the last 503 is thrown; the paid work may still complete on the agent.
+Authorization refusals, any other 503 (including an uncertain paid outcome), other statuses, a
+reply from a redirected URL and network errors are final. Every GET, including the first and
+its response body, shares that deadline and cancellation signal. An expired budget sends
+nothing. A 200 is verified exactly as before.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L254)
 
 Import: `import {fetchRequestObject} from 'tasra-sdk/oid4vp'`
 
 ```ts
-declare function fetchRequestObject(requestUri: string, opts?: VerifyRequestObjectOpts & {
-    fetchImpl?: typeof fetch;
-}): Promise<VerifiedRequestObject>;
+declare function fetchRequestObject(requestUri: string, opts?: FetchRequestObjectOpts): Promise<VerifiedRequestObject>;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` requestUri ` | ` string ` | - URL from the OpenID4VP request_uri parameter. |
-| ` opts? ` | ` VerifyRequestObjectOpts & { fetchImpl?: typeof fetch; } ` | - Request signature verification settings and optional fetch implementation. |
+| ` opts? ` | ` FetchRequestObjectOpts ` | - Request signature verification settings, fetch implementation, cancellation and retry limits. |
 
 Returns: ` Promise<VerifiedRequestObject> `.
 
@@ -656,7 +670,7 @@ Returns: ` string `.
 
 The public JWK inside a `did:jwk` or a `did:key` (Ed25519 / P-256); a `#fragment` is ignored.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L228)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L246)
 
 Import: `import {jwkFromDid} from 'tasra-sdk/oid4vp'`
 
@@ -675,7 +689,7 @@ Returns: ` Jwk `.
 The next polling delay: geometric growth (times1.5) capped at `max`, plus or minus20 % full jitter.
  Pure, so the schedule is testable without timers.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L499)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L538)
 
 Import: `import {nextPollDelay} from 'tasra-sdk/oid4vp'`
 
@@ -696,7 +710,7 @@ Returns: ` number `.
 
 Sign the operation and open a session; hand `qrPayload` to the wallet.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L138)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L147)
 
 Import: `import {openVerifierAgentSession} from 'tasra-sdk/oid4vp'`
 
@@ -714,7 +728,7 @@ Returns: ` Promise<OpenedVerifierAgentSession> `.
 
 `did:key` of a P-256 public key (multicodec 0x1200 to varint `80 24`, compressed point) - Hovi's issuer shape.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L206)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L224)
 
 Import: `import {p256DidKey} from 'tasra-sdk/oid4vp'`
 
@@ -753,7 +767,7 @@ Returns: ` SdJwtIssuer `.
 
 Construct a holder identity from a 32-byte P-256 private scalar.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L127)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L137)
 
 Import: `import {p256HolderKey} from 'tasra-sdk/oid4vp'`
 
@@ -763,7 +777,7 @@ declare function p256HolderKey(privateKey: Uint8Array): HolderKey;
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` privateKey ` | ` Uint8Array ` | - 32-byte P-256 private scalar. |
+| ` privateKey ` | ` Uint8Array ` | - 32-byte P-256 private scalar. Copied: the holder's `privateKey` never shares memory with it, so the caller may wipe its bytes once this returns. |
 
 Returns: ` HolderKey `.
 
@@ -817,7 +831,7 @@ Returns:
 
 `openid4vp://?client_id=...&request_uri=...` (a QR payload or deep link) to its two parameters.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L69)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L71)
 
 Import: `import {parseOpenid4vpUri} from 'tasra-sdk/oid4vp'`
 
@@ -866,7 +880,7 @@ Compute the `payload_digest` for a given action and message.
 For `sign` and `ibe-extract`, this is `sha256(message_bytes)` as 0x-hex.
 Other actions should supply the digest directly.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L215)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L240)
 
 Import: `import {payloadDigest} from 'tasra-sdk/oid4vp'`
 
@@ -964,7 +978,7 @@ Returns: ` PresentationPlan `.
 
 Fetch and validate one authorization session status. Transport failures and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error. The polling secret is sent in the Authorization header.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L424)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L455)
 
 Import: `import {pollOid4vpSession} from 'tasra-sdk/oid4vp'`
 
@@ -984,7 +998,7 @@ Returns: ` Promise<SessionStatusResult> `.
 
 The typed data a creator (or delegate) signs, plus the wire operation and the verifier-agent's `message_hex`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L78)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L81)
 
 Import: `import {presentationOperationTypedData} from 'tasra-sdk/oid4vp'`
 
@@ -1035,7 +1049,7 @@ Returns: ` string `.
 The whole wallet flow for one QR / deep link: fetch + verify the JAR, plan, let the caller
 choose (consent screen), bind, encrypt, POST.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/wallet.ts#L171)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/wallet.ts#L169)
 
 Import: `import {presentToRequestUri} from 'tasra-sdk/oid4vp'`
 
@@ -1070,7 +1084,7 @@ Promise<{
 
 Generate a random P-256 holder key and its did:jwk identifier.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L143)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L160)
 
 Import: `import {randomHolderKey} from 'tasra-sdk/oid4vp'`
 
@@ -1128,14 +1142,14 @@ accountant audit and this SDK compute. The wallet's request body is deliberately
 Import: `import {requestHash} from 'tasra-sdk/oid4vp'`
 
 ```ts
-declare function requestHash(chainId: number | bigint, slotId: Uint8Array, action: CommitteeAction, payloadDigest: Uint8Array): Uint8Array;
+declare function requestHash(chainId: number | bigint, slotId: Uint8Array, action: CommitteeAction | 'relay', payloadDigest: Uint8Array): Uint8Array;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` chainId ` | ` number \| bigint ` | - EVM chain identifier. |
 | ` slotId ` | ` Uint8Array ` | - 32-byte slot identifier. |
-| ` action ` | ` CommitteeAction ` | - Operation name bound into the request. |
+| ` action ` | ` CommitteeAction \| 'relay' ` | - Operation name bound into the request. |
 | ` payloadDigest ` | ` Uint8Array ` | - 32-byte action-specific payload digest. |
 
 Returns: ` Uint8Array `.
@@ -1163,7 +1177,7 @@ Returns: ` Promise<DidDocument> `.
 
 The ephemeral P-256 key the wallet must encrypt its response to, when the verifier-agent served one.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L138)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L140)
 
 Import: `import {responseEncryptionKey} from 'tasra-sdk/oid4vp'`
 
@@ -1235,7 +1249,7 @@ Returns: ` CredentialView `.
 
 Sign a JSON payload as compact JWS. Set the header algorithm from the supplied signer.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L262)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L280)
 
 Import: `import {signCompactJws} from 'tasra-sdk/oid4vp'`
 
@@ -1320,17 +1334,17 @@ Returns: ` Jwk `.
 
 Validate request binding and proof encoding after either URL or registered-session polling.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L208)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L222)
 
 Import: `import {verifierAgentResult} from 'tasra-sdk/oid4vp'`
 
 ```ts
-declare function verifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'sessionId' | 'requestHash'>, r: SessionStatusResult): VerifierAgentResult;
+declare function verifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'sessionId' | 'requestHash' | 'paymentHash'>, r: SessionStatusResult): VerifierAgentResult;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` session ` | ` Pick<OpenedVerifierAgentSession, 'sessionId' \| 'requestHash'> ` | - Session identifier and expected request-binding hash. |
+| ` session ` | ` Pick<OpenedVerifierAgentSession, 'sessionId' \| 'requestHash' \| 'paymentHash'> ` | - Session identifier and expected request-binding hash. |
 | ` r ` | ` SessionStatusResult ` | - Completed session status to validate and decode. |
 
 Returns: ` VerifierAgentResult `.
@@ -1339,7 +1353,7 @@ Returns: ` VerifierAgentResult `.
 
 The verifier-agent's `verifier_proofs` DTO (`{verifier_index, operator, pubkey, proof}`) to the SDK shape.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L171)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L185)
 
 Import: `import {verifierAgentVerifierProofs} from 'tasra-sdk/oid4vp'`
 
@@ -1357,7 +1371,7 @@ Returns: ` VerifierProof[] | undefined `.
 
 Verify a compact JWS under `jwk` and return its decoded payload; throws on any failure.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L277)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L295)
 
 Import: `import {verifyCompactJws} from 'tasra-sdk/oid4vp'`
 
@@ -1420,7 +1434,7 @@ Verify the request signature, JOSE type and agreement between client_id and the
 issuer DID. Check expiration only when exp is a number; absence or a nonnumeric
 value is not rejected by this helper. Require a nonce, response URI and DCQL query.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L113)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L115)
 
 Import: `import {verifyRequestObject} from 'tasra-sdk/oid4vp'`
 
@@ -1444,7 +1458,7 @@ deadline; a `protocol` answer stops at once; the deadline is a `timeout` error; 
 caller's `signal` is a `cancelled` error. A terminal `failed` is RETURNED (the caller
 decides how to explain it) - see `awaitVerifierAgentResult` for the version that throws `refused`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L521)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L560)
 
 Import: `import {waitForSession} from 'tasra-sdk/oid4vp'`
 
@@ -1468,7 +1482,7 @@ Returns: ` Promise<SessionStatusResult> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 43 types</summary>
+<summary>Browse 45 types</summary>
 
 - [BuildResponseOpts](#buildresponseopts)
 - [BuiltResponse](#builtresponse)
@@ -1479,6 +1493,7 @@ Options, data structures and return types.
 - [DidDocument](#diddocument)
 - [Disclosure](#disclosure)
 - [EcJwk](#ecjwk)
+- [FetchRequestObjectOpts](#fetchrequestobjectopts)
 - [HeldSdJwt](#heldsdjwt)
 - [HolderKey](#holderkey)
 - [IssuerMetadata](#issuermetadata)
@@ -1503,6 +1518,7 @@ Options, data structures and return types.
 - [ReceiveCredentialOpts](#receivecredentialopts)
 - [ReceivedCredential](#receivedcredential)
 - [RequestObjectClaims](#requestobjectclaims)
+- [RequestObjectRetryPolicy](#requestobjectretrypolicy)
 - [ResolveOpts](#resolveopts)
 - [SdJwtIssuer](#sdjwtissuer)
 - [SessionPhase](#sessionphase)
@@ -1578,10 +1594,12 @@ export type CommitteeAction = 'sign' | 'decrypt' | 'ibe-extract' | 'dual-approve
 
 Signed operation, optional delegation and payload submitted to the verifier agent.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L56)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L61)
 
 ```ts
 export interface CreateSessionParams {
+    payment?: PaymentIntentWire;
+    random?: string;
     operation: PresentationOperation;
     operationSig: string;
     delegation?: PresentationDelegation;
@@ -1591,6 +1609,8 @@ export interface CreateSessionParams {
 
 Fields:
 
+- **` payment `**: Creator-signed intent for an already reserved TASRA payment. Requires random.
+- **` random `**: Fixed 32-byte hex presentation random committed before reservation.
 - **` operation `**: Signed operation details presented for authorization.
 - **` operationSig `**: 0x-hex 65-byte EIP-712 signature over the operation
 - **` delegation `**: Optional EIP-712 delegation from the slot creator
@@ -1600,7 +1620,7 @@ Fields:
 
 Wallet presentation link and polling credentials for an opened authorization session.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L68)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L77)
 
 ```ts
 export interface CreateSessionResult {
@@ -1729,6 +1749,29 @@ Fields:
 - **` kid `**: Optional signing key identifier.
 - **` alg `**: JOSE signing algorithm identifier.
 - **` use `**: Optional JOSE key-use hint.
+
+### FetchRequestObjectOpts
+
+Request verification, transport, cancellation and retry options for [fetchRequestObject](#fetchrequestobject).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L186)
+
+```ts
+export interface FetchRequestObjectOpts extends VerifyRequestObjectOpts {
+    fetchImpl?: typeof fetch;
+    signal?: AbortSignal;
+    inProgressRetry?: RequestObjectRetryPolicy;
+}
+```
+
+Fields:
+
+- **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
+- **` signal `**: Cancels an in-flight GET and any wait between GETs; the promise rejects with the signal's reason.
+- **` inProgressRetry `**: Limits for the in-progress and at-capacity retry; see [RequestObjectRetryPolicy](#requestobjectretrypolicy).
+- **` resolveKey `**: Resolver supplying a trusted public key for the request issuer and key identifier.
+- **` nowSecs `**: Current time override in Unix seconds.
+- **` leewaySecs `**: Seconds of clock skew tolerated on `exp`.
 
 ### HeldSdJwt
 
@@ -1865,7 +1908,7 @@ Fields:
 
 Supported compact JWS algorithms: ES256 for P-256 or EdDSA for Ed25519.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L246)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L264)
 
 ```ts
 export type JwsAlg = 'ES256' | 'EdDSA';
@@ -1875,7 +1918,7 @@ export type JwsAlg = 'ES256' | 'EdDSA';
 
 A signer for a compact JWS: a raw private key of the named curve.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L248)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/jose.ts#L266)
 
 ```ts
 export interface JwsSigner {
@@ -1893,7 +1936,7 @@ Fields:
 
 Resolve the signing key a JAR's `kid` names: `did:web` documents online, `did:key`/`did:jwk` offline.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L78)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L80)
 
 ```ts
 export type KeyResolver = (did: string, kid: string | undefined) => Promise<Jwk>;
@@ -1956,10 +1999,11 @@ Fields:
 
 Opened wallet session with its signed operation and expected request-binding hash.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L124)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L131)
 
 ```ts
 export interface OpenedVerifierAgentSession extends CreateSessionResult {
+    paymentHash?: string;
     operation: PresentationOperation;
     requestHash: Uint8Array;
     verifierAgentUrl: string;
@@ -1968,6 +2012,7 @@ export interface OpenedVerifierAgentSession extends CreateSessionResult {
 
 Fields:
 
+- **` paymentHash `**: Expected payment commitment; a result may not change or discard it.
 - **` operation `**: Signed operation details presented for authorization.
 - **` requestHash `**: The binding hash the token will carry - compare with the token's `request_hash`.
 - **` verifierAgentUrl `**: Verifier-agent HTTP base URL for the selected network.
@@ -1980,10 +2025,12 @@ Fields:
 
 Operation, signing wallet and verifier-agent endpoint for opening a presentation session.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L114)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L117)
 
 ```ts
 export interface OpenVerifierAgentSessionOpts extends OperationInput {
+    payment?: PaymentIntentWire;
+    random?: string;
     verifierAgentUrl: string;
     signer: TypedDataSigner;
     delegation?: PresentationDelegation;
@@ -1992,6 +2039,8 @@ export interface OpenVerifierAgentSessionOpts extends OperationInput {
 
 Fields:
 
+- **` payment `**: Already reserved creator payment, fixed before opening the session.
+- **` random `**: Random committed in payment.session_commitment. Required with payment.
 - **` verifierAgentUrl `**: Verifier-agent HTTP base URL for the selected network.
 - **` signer `**: The slot creator's key, or a delegate's (with `delegation`).
 - **` delegation `**: Optional creator-signed delegation authorizing the signing wallet.
@@ -2010,7 +2059,7 @@ Fields:
 
 Slot operation, payload context and authorization lifetime used to construct EIP-712 typed data.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L50)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L53)
 
 ```ts
 export interface OperationInput {
@@ -2092,7 +2141,7 @@ Fields:
 
 EIP-712 delegation from the slot creator to a delegate address.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L38)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L43)
 
 ```ts
 export interface PresentationDelegation {
@@ -2120,7 +2169,7 @@ Fields:
 
 Operation details signed by a slot creator or delegate for credential authorization.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L22)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L27)
 
 ```ts
 export interface PresentationOperation {
@@ -2171,8 +2220,7 @@ Request verification, credential selection and disclosure options for a wallet p
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/wallet.ts#L153)
 
 ```ts
-export interface PresentOpts extends VerifyRequestObjectOpts {
-    fetchImpl?: typeof fetch;
+export interface PresentOpts extends FetchRequestObjectOpts {
     choose?: (plan: PresentationPlan) => PresentationCandidate | undefined | Promise<PresentationCandidate | undefined>;
     disclose?: 'all' | readonly string[];
 }
@@ -2180,9 +2228,11 @@ export interface PresentOpts extends VerifyRequestObjectOpts {
 
 Fields:
 
-- **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
 - **` choose `**: Pick among the candidates (default: the evaluator's choice). Return `undefined` to abort.
 - **` disclose `**: Claim names to disclose, or all; defaults to the selected query's requested claims.
+- **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
+- **` signal `**: Cancels an in-flight GET and any wait between GETs; the promise rejects with the signal's reason.
+- **` inProgressRetry `**: Limits for the in-progress and at-capacity retry; see [RequestObjectRetryPolicy](#requestobjectretrypolicy).
 - **` resolveKey `**: Resolver supplying a trusted public key for the request issuer and key identifier.
 - **` nowSecs `**: Current time override in Unix seconds.
 - **` leewaySecs `**: Seconds of clock skew tolerated on `exp`.
@@ -2269,7 +2319,7 @@ Fields:
 
 OpenID4VP request claims carrying the credential query and wallet response context.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L17)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L19)
 
 ```ts
 export interface RequestObjectClaims {
@@ -2310,6 +2360,36 @@ Fields:
 - **` dcql_query `**: Credential requirements presented to the wallet.
 - **` client_metadata `**: Verifier metadata, including optional response encryption keys.
 - **` transaction_data `**: Encoded operation context displayed or bound by the wallet.
+
+### RequestObjectRetryPolicy
+
+Limits for repeating the identical `request_uri` GET while the verifier-agent reports work in progress
+or that it is at capacity.
+
+The default budget is 120 s because the agent's detached paid exchange may legitimately run up to
+about 118 s (its deadline is the earlier of the session authority's expiry and dispatch + 120 s,
+less 2 s). The budget ends at the earliest of `maxTotalMs`, `notAfterMs` and the caller's
+`AbortSignal`; pass the session's (authority's) expiry as `notAfterMs` when you know it.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L172)
+
+```ts
+export interface RequestObjectRetryPolicy {
+    maxAttempts?: number;
+    maxTotalMs?: number;
+    notAfterMs?: number;
+    minDelayMs?: number;
+    maxDelayMs?: number;
+}
+```
+
+Fields:
+
+- **` maxAttempts `**: Total GETs including the first, 1..256 (default 64; 120 s at the agent's 2 s hint is 60). 1 disables the retry.
+- **` maxTotalMs `**: Wall-clock budget from the first GET in ms, 0..300000 (default 120000). Every GET and body read is bounded; zero sends nothing.
+- **` notAfterMs `**: Absolute end of the budget in Unix ms, such as the session's expiry; the earlier of this and `maxTotalMs` applies.
+- **` minDelayMs `**: Shortest wait in ms, 100..5000 (default 500). A smaller `Retry-After` is raised to it.
+- **` maxDelayMs `**: Longest wait in ms, `minDelayMs`..10000 (default 5000). A larger `Retry-After` is lowered to it.
 
 ### ResolveOpts
 
@@ -2353,7 +2433,7 @@ Fields:
 
 Displayable authorization progress. A done phase means the committee answered; it does not mean the requested signing or decryption operation executed.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L94)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L103)
 
 ```ts
 export type SessionPhase = 'awaiting_wallet' | 'verifying' | 'done' | 'failed';
@@ -2363,35 +2443,35 @@ export type SessionPhase = 'awaiting_wallet' | 'verifying' | 'done' | 'failed';
 
 Authorization session progress and optional committee result or failure detail.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L97)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L106)
 
 ```ts
 export interface SessionStatusResult {
+    evidenceCt?: string;
     status: 'pending' | 'done' | 'failed';
     phase: SessionPhase;
     compoundToken?: Record<string, unknown>;
     verifierProofs?: unknown;
     bindingPreimage?: Record<string, unknown>;
     error?: string;
-    evidenceCt?: string;
 }
 ```
 
 Fields:
 
+- **` evidenceCt `**: Sealed presentation (base64url `bincode(Ciphertext)`) the token's `evidence_hash` names, retained unchanged and posted to the keeper beside the token as `evidence_ct`.
 - **` status `**: Pending, completed or failed authorization state.
 - **` phase `**: Displayable progress within the authorization lifecycle.
 - **` compoundToken `**: Committee token returned after successful authorization.
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
 - **` bindingPreimage `**: Operation context used to derive the request-binding hash.
 - **` error `**: Optional failure detail reported by the verifier agent.
-- **` evidenceCt `**: the sealed presentation (base64url `bincode(Ciphertext)`) the token's `evidence_hash` names — post it to the keeper beside the token as `evidence_ct`.
 
 ### TypedDataSigner
 
 Anything that signs EIP-712 typed data for an address - a viem `LocalAccount` or `WalletClient`-bound account fits.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L37)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L40)
 
 ```ts
 export interface TypedDataSigner {
@@ -2426,7 +2506,7 @@ Fields:
 
 Request JWT, decoded claims and signing identity after request-object validation.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L51)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L53)
 
 ```ts
 export interface VerifiedRequestObject {
@@ -2454,30 +2534,30 @@ Fields:
 
 Compound committee token with optional request preimage and verifier membership proofs.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L147)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L161)
 
 ```ts
 export interface VerifierAgentResult {
+    evidenceCt?: string;
     token: CompoundTokenWire;
     bindingPreimage?: Record<string, unknown>;
     verifierProofs?: VerifierProof[];
-    evidenceCt?: string;
 }
 ```
 
 Fields:
 
+- **` evidenceCt `**: Sealed presentation ciphertext the token's `evidence_hash` binds, when the committee sealed one: retain it and forward it unchanged to every keeper call (`evidenceCt`); a keeper with `require_committee_evidence` refuses the token without it.
 - **` token `**: Compound committee authorization token.
 - **` bindingPreimage `**: Operation context used to derive the request-binding hash.
 - **` verifierProofs `**: The drawn verifiers' snapshot membership proofs the verifier-agent built at session creation - hand them to every keeper call (`verifierProofs`): a keeper in snapshot-required mode (`api.require_verifier_proofs`) refuses a committee request without them.
-- **` evidenceCt `**: the sealed presentation the token's `evidence_hash` binds, when the committee sealed one — hand it to every keeper call (`evidenceCt`); a keeper with `require_committee_evidence` refuses the token without it.
 
 ### VerifierAgentSessionErrorKind
 
 Why a session did not yield a token - the class the UI explains, with a NON-SECRET
 correlation reference (the session id; the poll secret is never part of an error).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L117)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L126)
 
 ```ts
 export type VerifierAgentSessionErrorKind = 'timeout' | 'refused' | 'unavailable' | 'protocol' | 'cancelled';
@@ -2487,7 +2567,7 @@ export type VerifierAgentSessionErrorKind = 'timeout' | 'refused' | 'unavailable
 
 Signing-key resolver, evaluation time and expiration tolerance for request validation.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L96)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L98)
 
 ```ts
 export interface VerifyRequestObjectOpts {
@@ -2507,7 +2587,7 @@ Fields:
 
 Polling backoff, cancellation, progress callback and randomness options.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L479)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L518)
 
 ```ts
 export interface WaitOpts {
@@ -2531,17 +2611,19 @@ Shared values and contract definitions.
 
 | Export | Description | Definition |
 |---|---|---|
-| `CLIENT_ID_PREFIX_DID` | OpenID4VP client identifier prefix for a DID-based verifier. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L14) |
+| `CLIENT_ID_PREFIX_DID` | OpenID4VP client identifier prefix for a DID-based verifier. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L16) |
 | `COMMITTEE_ACTIONS` | Supported operation names accepted by request-binding validation. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L19) |
 | `CREDENTIAL_OFFER_SCHEME` | URI scheme for a wallet credential offer. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/oid4vci.ts#L6) |
 | `DECRYPT_DIGEST_DOMAIN` | Domain separator for the ciphertext digest used in decryption authorization. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L14) |
 | `KB_JWT_TYP` | JOSE type identifier for the holder key-binding JWT. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/sd-jwt.ts#L11) |
 | `PRE_AUTHORIZED_GRANT` | OAuth grant identifier for credential issuance using a pre-authorized code. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/oid4vci.ts#L8) |
-| `PRESENTATION_EIP712_NAME` | EIP-712 domain name for creator-signed presentation operations. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L20) |
-| `PRESENTATION_EIP712_VERSION` | EIP-712 domain version for creator-signed presentation operations. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L22) |
-| `PRESENTATION_OPERATION_TYPES` | The EIP-712 types mirrored from the reference presentation-auth types - do not reorder. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L25) |
+| `PRESENTATION_EIP712_NAME` | EIP-712 domain name for creator-signed presentation operations. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L23) |
+| `PRESENTATION_EIP712_VERSION` | EIP-712 domain version for creator-signed presentation operations. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L25) |
+| `PRESENTATION_OPERATION_TYPES` | The EIP-712 types mirrored from the reference presentation-auth types - do not reorder. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/verifier-agent.ts#L28) |
 | `PROOF_TYP` | JOSE type identifier for an OpenID4VCI proof of key possession. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/oid4vci.ts#L10) |
 | `REQUEST_BINDING_DOMAIN` | Domain separator for binding chain, slot, action and payload digest. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L10) |
-| `REQUEST_OBJECT_TYP` | JOSE type identifier for a signed authorization request object. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L12) |
+| `REQUEST_OBJECT_AT_CAPACITY` | The `error` message of the verifier-agent's HTTP 503 meaning "this agent is at its paid-exchange capacity": the request was refused before anything was dispatched, sent or billed, and the approval stands, so repeating the same request is safe. It must equal the agent's text byte for byte. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L158) |
+| `REQUEST_OBJECT_IN_PROGRESS` | The `error` message of the verifier-agent's HTTP 503 meaning "the paid exchange this request started is still running; repeating this same request joins it and never sends or pays again". It must equal the agent's text byte for byte. Any other 503 (for example an uncertain paid outcome awaiting reconciliation) is final. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L151) |
+| `REQUEST_OBJECT_TYP` | JOSE type identifier for a signed authorization request object. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L14) |
 | `SD_JWT_TYP` | JOSE type identifier for a selectively disclosable verifiable credential. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/sd-jwt.ts#L9) |
 | `VP_NONCE_DOMAIN` | Domain separator for deriving a wallet presentation nonce from the operation context. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L12) |
