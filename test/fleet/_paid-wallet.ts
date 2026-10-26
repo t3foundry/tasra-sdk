@@ -14,6 +14,7 @@ import {discoverPaidOperationContext, type PaidContextDeployment} from '../../sr
 import {buildResponse, parseSdJwt, planPresentation, sdJwtCredentialView, submitResponse, type HolderKey, type OperationInput} from '../../src/oid4vp/index.ts'
 import type {FleetConfig} from './_fleet.ts'
 import {localPrepaidSettings} from './_prepaid-funding.ts'
+import {fixturePaymentTtlSeconds} from './_certification-timing.ts'
 import type {VerifiedRequestObject} from '../../src/oid4vp/request-object.ts'
 
 export function readPaidConfigFile(file: string, cap: number): string {
@@ -110,7 +111,7 @@ export async function authorizePaidWallet(cfg: FleetConfig, slot: Hex, creatorKe
   const chain = createTasraChainClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, chainId: 43112, multicall3: false})
   const snapshotWaitSecs = Number(cfg.raw.KK_SNAPSHOT_WAIT_SECS ?? '180')
   assert(Number.isSafeInteger(snapshotWaitSecs) && snapshotWaitSecs > 0 && snapshotWaitSecs <= 300, 'Snapshot readiness wait must be bounded')
-  const ttlSecs = input.ttlSecs ?? 600
+  const ttlSecs = fixturePaymentTtlSeconds(cfg, input.ttlSecs)
   assert(Number.isSafeInteger(ttlSecs) && ttlSecs > 0 && ttlSecs <= 3600, 'Original payment expiry must be bounded')
   // Each slot's creator is its dedicated reservation gas payer. The store refuses
   // an unresolved nonce instead of silently retrying/replacing the transaction.

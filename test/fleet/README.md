@@ -117,3 +117,11 @@ Tunables: `KK_STRESS_DURATION`, `KK_STRESS_CONC`, `KK_STRESS_SLOTS`, `KK_STRESS_
 
 HTTP hot-path load testing (stateless routes, spike and soak profiles) is not in this
 package — it belongs with whatever operates the deployment.
+
+Certification fixtures may select `CERTIFY_TIMING_PROFILE=hourly-v1` on local chain 43112,
+with `KK_NETWORK_DIR` naming the physically claimed checkout and a matching
+`KK_FLEET_INSTANCE`. The paid-wallet test helper then defaults new original payments to
+60 seconds (`KK_PREPAID_EXPIRES_IN_SECS`, bounded to 60..240). Explicit lifetimes selected
+by a test remain unchanged, and reference fixtures retain their 600-second default.
+This affects test fixtures only. It neither changes the published SDK/client defaults
+nor shortens an already signed payment. Full native timing qualification is required.
