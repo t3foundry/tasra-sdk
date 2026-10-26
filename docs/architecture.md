@@ -1,6 +1,6 @@
 # How the application SDK connects to Tasra
 
-New applications use `TasraClient` from `tasra-sdk/app`. A public manifest describes
+New applications use `TasraClient` from `@t3foundry/tasra-sdk/app`. A public manifest describes
 the deployment; a wallet authorizes chain writes; a durable store retains private
 operation state. The SDK then exposes:
 
@@ -28,7 +28,7 @@ What `openSession` does internally, if you want to drive it yourself:
 import {
   redeemCredential, fetchMpk, fetchAndAssembleKey,
   encryptEnvelope, toBytes, buildTasraText, hexToBytes,
-} from 'tasra-sdk'
+} from '@t3foundry/tasra-sdk'
 
 // 1. obtain a DCQL-gated JWT from the verifier
 const {token: jwt} = await redeemCredential(verifierUrl, redemptionToken, 'did:example:alice')

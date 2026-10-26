@@ -1,4 +1,4 @@
-import {createTasraWriteClient} from 'tasra-sdk/chain'
+import {createTasraWriteClient} from '@t3foundry/tasra-sdk/chain'
 import {savedCreator, savedSlotId, tasra} from './learning-context.js'
 
 const slotId = await savedSlotId()

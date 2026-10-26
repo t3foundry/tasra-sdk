@@ -5,7 +5,7 @@ credential from the same issuer, but the slot policy gives him no access. The ap
 also proves that changing an encrypted byte fails authentication.
 
 The complete application is [encrypted-notes.ts](../examples/encrypted-notes.ts).
-It uses Node.js and `tasra-sdk`; Web Crypto for AES-256-GCM is built into Node.
+It uses Node.js and `@t3foundry/tasra-sdk`; Web Crypto for AES-256-GCM is built into Node.
 
 ## Architecture
 
@@ -42,13 +42,13 @@ mkdir my-encrypted-notes
 cd my-encrypted-notes
 npm init -y
 npm pkg set type=module
-npm install tasra-sdk@latest
+npm install @t3foundry/tasra-sdk@latest
 npm install --save-dev tsx typescript @types/node
-cp node_modules/tasra-sdk/examples/encrypted-notes.ts app.ts
-cp node_modules/tasra-sdk/examples/tutorial-support.ts .
-cp node_modules/tasra-sdk/examples/tutorial-negative.ts .
-cp node_modules/tasra-sdk/examples/network.ts .
-cp node_modules/tasra-sdk/examples/fund-slot.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/encrypted-notes.ts app.ts
+cp node_modules/@t3foundry/tasra-sdk/examples/tutorial-support.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/tutorial-negative.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/network.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/fund-slot.ts .
 printf '.tasra/\nnode_modules/\n' > .gitignore
 ```
 

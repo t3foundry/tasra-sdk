@@ -13,7 +13,7 @@ import {requestSlotSeed, type SlotSeed} from './slotSeed.js'
 //   - TSRA approve + Settlement.fund - prepay the slot's metered usage,
 // and exposes plain ETH/TSRA transfers (so a funded key can also back a faucet).
 //
-// Lives in the `tasra-sdk/chain` subpath (viem). Browser + Node (uses
+// Lives in the `@t3foundry/tasra-sdk/chain` subpath (viem). Browser + Node (uses
 // globalThis.crypto for slot/salt randomness; no Node-only APIs).
 
 import {
@@ -134,7 +134,7 @@ function authTypeIndex(auth: SlotAuthType | undefined): number {
 export function slotAuthTypeOf(ordinal: number): SlotAuthType {
   const auth = SLOT_AUTH_TYPES[ordinal]
   if (auth === undefined) {
-    throw new TasraError(`unknown KeyRegistry.AuthType ordinal ${ordinal} (this SDK knows ${SLOT_AUTH_TYPES.join(' | ')}); upgrade tasra-sdk`)
+    throw new TasraError(`unknown KeyRegistry.AuthType ordinal ${ordinal} (this SDK knows ${SLOT_AUTH_TYPES.join(' | ')}); upgrade @t3foundry/tasra-sdk`)
   }
   return auth
 }

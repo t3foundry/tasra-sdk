@@ -1,6 +1,6 @@
 // Only for a BLS slot created with exportable: true. Export is permanent:
 // revoking authorization cannot revoke a master key already held by a client.
-import {createTasraSlotClient} from 'tasra-sdk/chain'
+import {createTasraSlotClient} from '@t3foundry/tasra-sdk/chain'
 import {loadHolder, loadNetwork, required, slotId} from './live-config.ts'
 
 const network = await loadNetwork()

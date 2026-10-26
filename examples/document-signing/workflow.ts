@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Hex } from './model.js'
-import type { OpenedVerifierAgentSession } from 'tasra-sdk/oid4vp'
+import type { OpenedVerifierAgentSession } from '@t3foundry/tasra-sdk/oid4vp'
 import { Store } from './store.js'
 import {
   digest,

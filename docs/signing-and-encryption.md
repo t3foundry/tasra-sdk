@@ -9,7 +9,7 @@ and a funded creator wallet do not provide the slot's usage credits.
 ## Sign a message
 
 ```sh
-cp node_modules/tasra-sdk/examples/learning-sign.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/learning-sign.ts .
 npx tsc --noEmit
 npx tsx learning-sign.ts
 ```

@@ -21,7 +21,7 @@ no signature is needed. Use the manifest for the network where the slot was crea
 <!-- slot-address-example -->
 ```ts
 import {loadNetwork} from './network.js'
-import {TasraClient} from 'tasra-sdk/app'
+import {TasraClient} from '@t3foundry/tasra-sdk/app'
 
 // Read the checksum-verified manifest downloaded from tasra-releases.
 const network = loadNetwork()
@@ -46,7 +46,7 @@ with the [shared-account tutorial](shared-account.md) before using this lookup.
 
 For a complete runnable app, follow [Alice and Bob's shared account](shared-account.md).
 It includes slot creation, issuer/holder keys, rule provisioning and actual receipts.
-Install with `npm install tasra-sdk@latest`. The application uses
+Install with `npm install @t3foundry/tasra-sdk@latest`. The application uses
 `tasra.credentials.authorize`, `tasra.wallets.fromSlot` and a named
 `wallet.transfer`; the SDK handles signature verification and durable submission.
 [Compatibility](compatibility.md).
@@ -59,7 +59,7 @@ over the digest and verifier session.
 After presenting a credential and obtaining `grant` from `awaitVerifierAgentResult`:
 
 ```ts
-import {committeeSignEoaDigest} from 'tasra-sdk/committee'
+import {committeeSignEoaDigest} from '@t3foundry/tasra-sdk/committee'
 
 const signature = await committeeSignEoaDigest({
   nodeUrl: coordinatorUrl,
@@ -98,7 +98,7 @@ returns Ethereum `{r, s, yParity}`; `addressFromEoaPubkey` derives the EOA's
 EIP-55 address from its secp256k1 group key (using only `@noble`):
 
 ```ts
-import {signEoaDigest, ethSignatureV, addressFromEoaPubkey} from 'tasra-sdk'
+import {signEoaDigest, ethSignatureV, addressFromEoaPubkey} from '@t3foundry/tasra-sdk'
 
 const {groupPublicKey, r, s, yParity} = await signEoaDigest({nodeUrl, jwt, slotId, digest})
 const from = addressFromEoaPubkey(groupPublicKey) // 0x… checksummed address
@@ -111,7 +111,7 @@ key-backed account. `examples/ethers-signer.ts` (shipped with the package) is a 
 signTypedData), with the JWT supplied by your `getJwt` callback:
 
 ```ts
-import {redeemRenewalToken} from 'tasra-sdk'
+import {redeemRenewalToken} from '@t3foundry/tasra-sdk'
 import {TasraSigner} from './tasra-signer' // copied from the package's examples/ethers-signer.ts
 
 const signer = new TasraSigner({
@@ -132,7 +132,7 @@ included by the SDK. If your application imports viem directly, declare it along
 
 ```ts
 import {createWalletClient, http} from 'viem'
-import {redeemRenewalToken} from 'tasra-sdk'
+import {redeemRenewalToken} from '@t3foundry/tasra-sdk'
 import {createTasraAccount} from './tasra-account' // copied from the package's examples/viem-account.ts
 
 const account = await createTasraAccount({

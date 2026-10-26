@@ -1,5 +1,5 @@
 import {loadNetwork} from './network.js'
-import {TasraClient} from 'tasra-sdk/app'
+import {TasraClient} from '@t3foundry/tasra-sdk/app'
 
 // Verify the manifest downloaded from tasra-releases; no wallet is needed.
 const network = loadNetwork()

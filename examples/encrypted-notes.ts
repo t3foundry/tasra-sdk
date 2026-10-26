@@ -2,8 +2,8 @@
 import {randomUUID, webcrypto as nodeWebCrypto} from 'node:crypto'
 import {sha256} from '@noble/hashes/sha256'
 import {utf8ToBytes} from '@noble/hashes/utils'
-import {decryptPayloadDigest} from 'tasra-sdk/oid4vp'
-import type {ReadySlotJournal} from 'tasra-sdk/app'
+import {decryptPayloadDigest} from '@t3foundry/tasra-sdk/oid4vp'
+import type {ReadySlotJournal} from '@t3foundry/tasra-sdk/app'
 import {createTutorial} from './tutorial-support.js'
 
 async function main() {

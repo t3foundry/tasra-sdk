@@ -4,8 +4,8 @@
 //
 //   npx tsx examples/viem-account.ts      # runs the offline self-test below
 //
-// Install the optional peer with npm install tasra-sdk viem for this adapter. In YOUR project import the SDK bits from
-// 'tasra-sdk' (this in-repo example imports from 'tasra-sdk'). The private key
+// Install the optional peer with npm install @t3foundry/tasra-sdk viem for this adapter. In YOUR project import the SDK bits from
+// '@t3foundry/tasra-sdk' (this in-repo example imports from '@t3foundry/tasra-sdk'). The private key
 // never exists anywhere: each signature is produced by the k-of-n keykeeper-node
 // fleet via signEoaDigest(); this account just turns viem's message/typed-data/
 // transaction hashes into that 32-byte digest call and serializes the result.
@@ -16,7 +16,7 @@
 //
 // ── Usage (viem) ──────────────────────────────────────────────────────────────
 //   import {createWalletClient, http} from 'viem'
-//   import {redeemRenewalToken} from 'tasra-sdk'
+//   import {redeemRenewalToken} from '@t3foundry/tasra-sdk'
 //   const account = await createTasraAccount({
 //     nodes, slotId, // a tECDSA signing slot
 //     getJwt: async () => (await redeemRenewalToken(verifier, renewalToken)).token,
@@ -41,7 +41,7 @@ import {
 } from 'viem'
 import {toAccount} from 'viem/accounts'
 import {secp256k1} from '@noble/curves/secp256k1'
-import {signEoaDigest, addressFromEoaPubkey, fetchMpk} from 'tasra-sdk'
+import {signEoaDigest, addressFromEoaPubkey, fetchMpk} from '@t3foundry/tasra-sdk'
 
 /** Raw Ethereum ECDSA components as returned by the threshold network. */
 export interface RawEcdsaSig {

@@ -19,14 +19,14 @@ Run this when you want to extend the slot's lifetime. Renewal is a transaction
 and needs native tokens for gas. Each execution requests another renewal.
 
 ```sh
-cp node_modules/tasra-sdk/examples/learning-renew-slot.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/learning-renew-slot.ts .
 npx tsc --noEmit
 npx tsx learning-renew-slot.ts
 ```
 
 <!-- learning-renew-slot-example -->
 ```ts
-import {createTasraWriteClient} from 'tasra-sdk/chain'
+import {createTasraWriteClient} from '@t3foundry/tasra-sdk/chain'
 import {savedCreator, savedSlotId, tasra} from './learning-context.js'
 
 const slotId = await savedSlotId()
@@ -53,14 +53,14 @@ exported keys.
 <summary>Show cancellation commands and code</summary>
 
 ```sh
-cp node_modules/tasra-sdk/examples/learning-cancel-slot.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/learning-cancel-slot.ts .
 npx tsc --noEmit
 npx tsx learning-cancel-slot.ts --confirm-cancel
 ```
 
 <!-- learning-cancel-slot-example -->
 ```ts
-import {createTasraWriteClient} from 'tasra-sdk/chain'
+import {createTasraWriteClient} from '@t3foundry/tasra-sdk/chain'
 import {savedCreator, savedSlotId, tasra} from './learning-context.js'
 
 if (!process.argv.includes('--confirm-cancel')) throw new Error('Cancellation is final. Add --confirm-cancel only when finished with this slot.')

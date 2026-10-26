@@ -1,6 +1,6 @@
 # SDK and deployment compatibility
 
-Install the SDK with `npm install tasra-sdk@latest`. Select a network from
+Install the SDK with `npm install @t3foundry/tasra-sdk@latest`. Select a network from
 [tasra-releases](https://github.com/t3foundry/tasra-releases), download its deployment
 manifest and verify the release checksum before configuring the client.
 

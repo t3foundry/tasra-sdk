@@ -1,8 +1,8 @@
 /** Shared manifest loading and fresh identities for the runnable examples. */
 import {mkdirSync, mkdtempSync, writeFileSync} from 'node:fs'
 import {resolve} from 'node:path'
-import {TasraClient, type CredentialPolicyOptions} from 'tasra-sdk/app'
-import {createFileStore} from 'tasra-sdk/app/node'
+import {TasraClient, type CredentialPolicyOptions} from '@t3foundry/tasra-sdk/app'
+import {createFileStore} from '@t3foundry/tasra-sdk/app/node'
 import {loadNetwork} from './network.js'
 import {proveServerRefusal as refuse} from './tutorial-negative.js'
 

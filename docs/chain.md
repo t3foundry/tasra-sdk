@@ -1,4 +1,4 @@
-# `tasra-sdk/chain` — on-chain + network-service
+# `@t3foundry/tasra-sdk/chain` — on-chain + network-service
 
 > The chain subpath: reads, writes, slot creation, discovery, and the slot-driven clients.
 
@@ -9,7 +9,7 @@ checksum, and derive the address book with `addressBookFromManifest`.
 ## Create a read client
 
 ```ts
-import {createTasraChainClient} from 'tasra-sdk/chain'
+import {createTasraChainClient} from '@t3foundry/tasra-sdk/chain'
 
 // rpcUrl, chainId and addresses come from your deployment configuration.
 const chain = createTasraChainClient({rpcUrl, chainId, addresses})
@@ -35,7 +35,7 @@ Compare `await chain.client.getChainId()` with your configured ID before use.
 After loading `manifest` and `rpcUrl` as in the [Fuji guide](fuji.md):
 
 ```ts
-import {observeNetworkManifest} from 'tasra-sdk/chain'
+import {observeNetworkManifest} from '@t3foundry/tasra-sdk/chain'
 
 const observation = await observeNetworkManifest(manifest, rpcUrl)
 if (!observation.matches) throw new Error('Deployed contract code differs from the manifest')
@@ -125,8 +125,8 @@ refuses to proceed unless the trustless on-chain verifier-set proofs are derivab
 never degrades to a keeper's statically-configured set.
 
 ```ts
-import {createHolderProof} from 'tasra-sdk'
-import {createTasraChainClient, createCommitteeSlotClient, addressBookFromManifest} from 'tasra-sdk/chain'
+import {createHolderProof} from '@t3foundry/tasra-sdk'
+import {createTasraChainClient, createCommitteeSlotClient, addressBookFromManifest} from '@t3foundry/tasra-sdk/chain'
 
 const chain = createTasraChainClient({rpcUrl, addresses: addressBookFromManifest(manifest)})
 const audience = 'your-verifier-iss'
@@ -145,7 +145,7 @@ ONE verifier's store and is consumed atomically, so a single proof fanned to k v
 spent by whichever answers first — the rest refuse under `require_holder_binding`. The
 lower-level flow therefore accepts a proof **per verifier**: pass
 `holderProofPerVerifier({signer, audience, credentials, slotId})` (from
-`tasra-sdk/committee`) as `holderProof` to `requestCommitteeToken` / `ibeDecryptRequest`
+`@t3foundry/tasra-sdk/committee`) as `holderProof` to `requestCommitteeToken` / `ibeDecryptRequest`
 and each drawn verifier is asked for its own nonce.
 
 ---

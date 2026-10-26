@@ -7,7 +7,7 @@ without receiving the master key. A slot is the network-managed key plus its acc
 
 Follow [Build encrypted notes](encrypted-notes.md) for exact installation and run
 commands. It creates a fresh issuer, Alice and Bob, then a BLS slot from the public
-manifest. The only application runtime dependency is `tasra-sdk`.
+manifest. The only application runtime dependency is `@t3foundry/tasra-sdk`.
 
 1. Connect with `new TasraClient({manifest, wallet, store})`.
 2. Issue a holder-bound credential with `tasra.credentials.issue` and define the
@@ -55,7 +55,7 @@ request binding. For a fleet enforcing request binding, use the
 From your application directory, after installing the compatible SDK and `tsx` as developer tooling:
 
 ```sh
-npx tsx node_modules/tasra-sdk/examples/getting-started.ts
+npx tsx node_modules/@t3foundry/tasra-sdk/examples/getting-started.ts
 ```
 
 Expected result:

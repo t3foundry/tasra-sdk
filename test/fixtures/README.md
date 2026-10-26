@@ -24,7 +24,7 @@ suite stands up real HTTPS servers to exercise the transport, TLS pinning and th
 is why a fixture and not a stub.
 
 **These files do not ship.** `test/` is excluded from the published package, so the key
-reaches nobody who installs `tasra-sdk` — it exists only in this repository.
+reaches nobody who installs `@t3foundry/tasra-sdk` — it exists only in this repository.
 
 If you need a fresh pair, regenerate both cert and key together and leave the CA
 subject string unchanged — the suite asserts against it.

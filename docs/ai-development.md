@@ -16,9 +16,9 @@ Skills ship in a separate package, `@t3foundry/tasra-skills`. Start in your
 application's directory:
 
 ```sh
-npm install tasra-sdk@latest
+npm install @t3foundry/tasra-sdk@latest
 npx @t3foundry/tasra-skills@latest init
-node -p "require('tasra-sdk/package.json').version"
+node -p "require('@t3foundry/tasra-sdk/package.json').version"
 ```
 
 The version command reports the SDK package actually installed. Keep your
@@ -37,7 +37,7 @@ discovery can read the installed `SKILL.md` directly when you provide its path.
 After an SDK upgrade, refresh the skills by re-running
 `npx @t3foundry/tasra-skills@latest init`, and record the installed version.
 npm does not update `.agents/skills` copies. Paths beginning `docs/`,
-`examples/` and `dist/` in skill instructions refer to `node_modules/tasra-sdk/`;
+`examples/` and `dist/` in skill instructions refer to `node_modules/@t3foundry/tasra-sdk/`;
 `references/` stays inside the copied skill folder. See the
 [`@t3foundry/tasra-skills`](https://www.npmjs.com/package/@t3foundry/tasra-skills)
 package for the complete convention.

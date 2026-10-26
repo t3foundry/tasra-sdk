@@ -1,6 +1,6 @@
 /** Two distinct people approve one threshold signature; duplicate and replay checks follow. */
-import {setApprovalPolicy, identityApprover, type ReadySlotJournal} from 'tasra-sdk/app'
-import {dualSignApprovalPayload} from 'tasra-sdk/committee'
+import {setApprovalPolicy, identityApprover, type ReadySlotJournal} from '@t3foundry/tasra-sdk/app'
+import {dualSignApprovalPayload} from '@t3foundry/tasra-sdk/committee'
 import {createTutorial, stopped} from './tutorial-support.js'
 const hex = (bytes: Uint8Array) => `0x${Buffer.from(bytes).toString('hex')}` as `0x${string}`
 

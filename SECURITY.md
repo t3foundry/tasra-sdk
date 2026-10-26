@@ -1,6 +1,6 @@
 # Security policy
 
-`tasra-sdk` is the client half of a threshold key-management protocol. It handles
+`@t3foundry/tasra-sdk` is the client half of a threshold key-management protocol. It handles
 private key material, assembles master secret keys in process memory, and decides
 whether a credential satisfies an access rule. Bugs here can expose keys or grant
 access that policy should have refused. We take reports seriously and we will not
@@ -20,12 +20,12 @@ Private disclosure is also enabled on the repository, so the **Report a
 vulnerability** button on the Security tab reaches the same place.
 
 If you cannot or would rather not use GitHub, email **waldemar@managination.com**
-with `tasra-sdk` in the subject. Encrypted mail is welcome; say so in the
+with `@t3foundry/tasra-sdk` in the subject. Encrypted mail is welcome; say so in the
 first message and we will arrange keys.
 
 Please include, as far as you have it:
 
-- the version (`npm ls tasra-sdk`) and Node or browser runtime;
+- the version (`npm ls @t3foundry/tasra-sdk`) and Node or browser runtime;
 - what an attacker gains — key material, unauthorized decryption, policy bypass,
   signature forgery, denial of service;
 - the smallest reproduction you can manage, ideally a failing script against a
@@ -78,7 +78,7 @@ Things that look alarming, are already known, and do not need reporting:
   stand up real HTTPS servers — `test/specs/chain.service-transport.test.ts` exercises
   TLS pinning and the `isPublicServiceAddress` SSRF guard against an actual socket,
   which a mock cannot do honestly. `test/` is excluded from the published package, so it
-  reaches nobody who installs `tasra-sdk`. Secret scanners flag it; that is expected.
+  reaches nobody who installs `@t3foundry/tasra-sdk`. Secret scanners flag it; that is expected.
 
 ## Supported versions
 

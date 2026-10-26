@@ -1,12 +1,12 @@
 // Node example utilities, not part of the SDK's public API.
 import {readFileSync} from 'node:fs'
-import {ed25519DidKey, hexToBytes, type HolderSigner} from 'tasra-sdk'
+import {ed25519DidKey, hexToBytes, type HolderSigner} from '@t3foundry/tasra-sdk'
 import {
   addressBookFromManifest, createTasraChainClient, parsePinnedNetworkManifest,
   observeNetworkManifest, resolveSlotKeeperUrls, nodeApi,
   createCommitteeSlotClient, type TasraChainClient,
-} from 'tasra-sdk/chain'
-import {ed25519ClientSigner, holderProofPerVerifier} from 'tasra-sdk/committee'
+} from '@t3foundry/tasra-sdk/chain'
+import {ed25519ClientSigner, holderProofPerVerifier} from '@t3foundry/tasra-sdk/committee'
 
 export function required(name: string, env: NodeJS.ProcessEnv = process.env): string {
   const value = env[name]?.trim()

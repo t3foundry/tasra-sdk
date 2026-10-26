@@ -1,4 +1,4 @@
-// tasra-sdk - a TypeScript access gate that exposes the full functionality
+// @t3foundry/tasra-sdk - a TypeScript access gate that exposes the full functionality
 // of a Tasra Network (keykeeper-node + verifier + contracts) to developers.
 //
 // Two layers, both product-agnostic:
@@ -10,7 +10,7 @@
 // (the nodes never reveal it), redeem/refresh DCQL-gated JWTs, assemble
 // compound committee authorization tokens, encrypt/decrypt message envelopes
 // (ChaCha20-Poly1305 over BLS-G2 ElGamal), create slots (sovereign or
-// relayer), and read/write on-chain state (see the `tasra-sdk/chain`
+// relayer), and read/write on-chain state (see the `@t3foundry/tasra-sdk/chain`
 // subpath export).
 //
 // What this SDK is NOT: a product. It has no knowledge of any specific

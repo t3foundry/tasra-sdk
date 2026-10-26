@@ -12,7 +12,7 @@ bounded retry. The recovery functions below are application callbacks:
 ```ts
 import {
   isAuthDenied, isRetryable, ThresholdNotMetError, SlotRotatedError,
-} from 'tasra-sdk'
+} from '@t3foundry/tasra-sdk'
 
 try {
   await readStatus() // An application read with no write effects.
@@ -59,11 +59,11 @@ Retain the original operation details and reconcile before submitting again:
 
 | Error | Import | Retained details and recovery |
 |---|---|---|
-| `CreationReconciliationRequiredError` | `tasra-sdk/app` | `slotId`, `step`; preserve the creation journal and reconcile the wallet transaction before resuming. |
-| `ApplicationSlotRecoveryError` | `tasra-sdk/app` | `code`, `recoveryName`, optional `slotId` and `transactionHash`; inspect the saved named intent or original verifier-policy transaction before resuming. `VERIFIER_POLICY_OUTCOME_UNKNOWN` means a submission may have happened without a recorded hash; never submit another policy transaction until reconciled. `VERIFIER_POLICY_RECEIPT_PENDING` has a saved hash and can resume receipt observation. |
-| `OperationOutcomeUnknownError` | `tasra-sdk/committee` | `operation`, optional `requestId`; inspect the original approval request. If its ID was lost, retain that uncertainty. |
-| `RelayOutcomeUnknownError` | `tasra-sdk/chain` | `attempt`; use `reconcileRelayAttempt` with that signed request and the trusted chain reader before considering a replacement. |
-| `AgentSessionCreationUnknownError` | `tasra-sdk/chain` | `profile`; session creation may have reached that provider. A replacement requires explicitly opening a fresh wallet session; do not transfer session secrets or presentations. |
+| `CreationReconciliationRequiredError` | `@t3foundry/tasra-sdk/app` | `slotId`, `step`; preserve the creation journal and reconcile the wallet transaction before resuming. |
+| `ApplicationSlotRecoveryError` | `@t3foundry/tasra-sdk/app` | `code`, `recoveryName`, optional `slotId` and `transactionHash`; inspect the saved named intent or original verifier-policy transaction before resuming. `VERIFIER_POLICY_OUTCOME_UNKNOWN` means a submission may have happened without a recorded hash; never submit another policy transaction until reconciled. `VERIFIER_POLICY_RECEIPT_PENDING` has a saved hash and can resume receipt observation. |
+| `OperationOutcomeUnknownError` | `@t3foundry/tasra-sdk/committee` | `operation`, optional `requestId`; inspect the original approval request. If its ID was lost, retain that uncertainty. |
+| `RelayOutcomeUnknownError` | `@t3foundry/tasra-sdk/chain` | `attempt`; use `reconcileRelayAttempt` with that signed request and the trusted chain reader before considering a replacement. |
+| `AgentSessionCreationUnknownError` | `@t3foundry/tasra-sdk/chain` | `profile`; session creation may have reached that provider. A replacement requires explicitly opening a fresh wallet session; do not transfer session secrets or presentations. |
 
 The last two classes extend plain `Error`, so check them explicitly with
 `instanceof`. Unknown errors and cancellation after submission also leave the

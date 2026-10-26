@@ -1,5 +1,5 @@
 // Signing uses a separate, provisioned FROST slot, not the BLS encryption slot.
-import {verifyFrostSignature} from 'tasra-sdk'
+import {verifyFrostSignature} from '@t3foundry/tasra-sdk'
 import {committeeClient, loadHolder, loadNetwork, slotId} from './live-config.ts'
 
 const network = await loadNetwork()

@@ -2,7 +2,7 @@
 //
 // Most hermetic suites import `../src/**/*.ts` directly through tsx,
 // so nothing verifies that `dist/` resolves, that the `exports` map is correct,
-// or that a consumer can actually `import 'tasra-sdk'`. Packaging bugs are
+// or that a consumer can actually `import '@t3foundry/tasra-sdk'`. Packaging bugs are
 // invisible until someone installs the tarball.
 //
 // This packs the real tarball, lays it out as a consumer's node_modules would
@@ -195,7 +195,7 @@ try {
      if (typeof m.createTasraClient !== 'function') throw new Error('createTasraClient missing')
      console.log(Object.keys(m).length)`,
   )
-  ok('ESM: import "tasra-sdk" resolves and exports createTasraClient', esmMain !== null)
+  ok('ESM: import "@t3foundry/tasra-sdk" resolves and exports createTasraClient', esmMain !== null)
   if (esmMain !== null) {
     ok(`ESM: main entry exports ${esmMain} symbols`, Number(esmMain) > 0)
   }
@@ -207,7 +207,7 @@ try {
      if (typeof m.createTasraChainClient !== 'function') throw new Error('createTasraChainClient missing')
      console.log(Object.keys(m).length)`,
   )
-  ok('ESM: import "tasra-sdk/chain" resolves and exports createTasraChainClient', esmChain !== null)
+  ok('ESM: import "@t3foundry/tasra-sdk/chain" resolves and exports createTasraChainClient', esmChain !== null)
   if (esmChain !== null) {
     ok(`ESM: chain entry exports ${esmChain} symbols`, Number(esmChain) > 0)
   }
@@ -226,7 +226,7 @@ try {
      if (typeof m.verifyCompoundToken !== 'function') throw new Error('verifyCompoundToken missing')
      console.log(Object.keys(m).length)`,
   )
-  ok('ESM: import "tasra-sdk/committee" resolves and exports verifyCompoundToken', esmCommittee !== null)
+  ok('ESM: import "@t3foundry/tasra-sdk/committee" resolves and exports verifyCompoundToken', esmCommittee !== null)
   if (esmCommittee !== null) {
     ok(`ESM: committee entry exports ${esmCommittee} symbols`, Number(esmCommittee) > 0)
   }
@@ -238,7 +238,7 @@ try {
      if (typeof m.createOid4vpSession !== 'function') throw new Error('createOid4vpSession missing')
      console.log(Object.keys(m).length)`,
   )
-  ok('ESM: import "tasra-sdk/verifier-agent" resolves and exports createOid4vpSession', esmRp !== null)
+  ok('ESM: import "@t3foundry/tasra-sdk/verifier-agent" resolves and exports createOid4vpSession', esmRp !== null)
   if (esmRp !== null) {
     ok(`ESM: verifierAgent entry exports ${esmRp} symbols`, Number(esmRp) > 0)
   }
@@ -257,7 +257,7 @@ try {
        if (typeof m.createTasraClient !== 'function') throw new Error('createTasraClient missing')
        console.log('ok')`,
     )
-    ok('CJS: require("tasra-sdk") works on Node >= 22.12 (the `default` condition)', cjs === 'ok')
+    ok('CJS: require("@t3foundry/tasra-sdk") works on Node >= 22.12 (the `default` condition)', cjs === 'ok')
   } else {
     console.log(`  – skipped require(esm) check: Node ${process.versions.node} < 22.12`)
   }
@@ -268,7 +268,7 @@ try {
     'cjs',
     `console.log(require('${pkg.name}/package.json').name)`,
   )
-  ok('require.resolve("tasra-sdk/package.json") works', pkgJson === pkg.name)
+  ok('require.resolve("@t3foundry/tasra-sdk/package.json") works', pkgJson === pkg.name)
 
   // Types ship alongside, and a consumer under NodeNext must find them.
   const types = runInConsumer(
@@ -290,7 +290,7 @@ try {
   )
 
   // ── The optional-peer claim, actually tested ────────────────────────────────
-  // The README says viem is only needed when you import `tasra-sdk/chain`.
+  // The README says viem is only needed when you import `@t3foundry/tasra-sdk/chain`.
   // That is only true if the MAIN entry loads with viem absent from the tree —
   // one stray top-level `import {…} from 'viem'` reachable from src/index.ts
   // would break every core-only consumer, and no other test would notice.

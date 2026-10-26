@@ -21,5 +21,5 @@ await store.withLock('lesson', async () => {
   }, {wallet: creator, onProgress: ({step, phase}) => console.log('Slot creation:', step, phase)})
   await store.save('slot-id', slot.slotId)
   console.log('Slot ready:', slot.slotId)
-  console.log('Before signing: buy TSRA with EURC and fund this slot. Follow node_modules/tasra-sdk/docs/funding.md.')
+  console.log('Before signing: buy TSRA with EURC and fund this slot. Follow node_modules/@t3foundry/tasra-sdk/docs/funding.md.')
 })

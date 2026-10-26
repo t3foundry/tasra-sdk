@@ -14,7 +14,7 @@ are familiar. Install the latest SDK from npm.
 Install the latest SDK from npm:
 
 ```sh
-npm install tasra-sdk@latest
+npm install @t3foundry/tasra-sdk@latest
 ```
 
 Node.js **22.12+**, ESM, and modern browsers with WebCrypto.
@@ -22,7 +22,7 @@ Wallet and credential adapters are included; no separate application dependency 
 [Installation and compatibility](docs/installation.md).
 
 ```ts
-import {TasraClient} from 'tasra-sdk/app'
+import {TasraClient} from '@t3foundry/tasra-sdk/app'
 
 // Use the manifest URL and trusted checksum from the selected tasra-releases pointer.
 const tasra = await TasraClient.fromManifest(manifestUrl, {
@@ -72,7 +72,7 @@ rule as a short Rego policy over the token's claims; the SDK packs it into the s
 rule and checks it with the same policy engine the network runs:
 
 ```ts
-import {packEnvelope, evaluateEnvelope} from 'tasra-sdk'
+import {packEnvelope, evaluateEnvelope} from '@t3foundry/tasra-sdk'
 
 const rule = await packEnvelope(
   'package tasra.slot\n\ndefault allow := false\n\nallow if "treasury-signer" in input.tokens.corp.claims.roles\n',
@@ -91,14 +91,14 @@ called. See [OAuth authorization](docs/flows.md#integrate-oauth-authorization).
 <details>
 <summary>Optional: a complete offline TypeScript example</summary>
 
-Install `tasra-sdk` and `tsx`, save this as `demo.ts`, and run `npx tsx demo.ts`.
+Install `@t3foundry/tasra-sdk` and `tsx`, save this as `demo.ts`, and run `npx tsx demo.ts`.
 It prints `Hello Tasra`. These are public demo keys; never use them for real data.
 This checks local encryption only. For live authorization, use the
 [encrypted notes app](docs/encrypted-notes.md).
 
 <!-- offline-example -->
 ```ts
-import {encryptEnvelope, decryptWithMasterKey, hexToBytes} from 'tasra-sdk'
+import {encryptEnvelope, decryptWithMasterKey, hexToBytes} from '@t3foundry/tasra-sdk'
 
 /** Public, fixed DEMO keys. Never encrypt a real secret with these. */
 function offlineRoundTrip(): string {

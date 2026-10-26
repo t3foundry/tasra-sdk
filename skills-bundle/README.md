@@ -1,4 +1,4 @@
-# Agent skills for tasra-sdk
+# Agent skills for @t3foundry/tasra-sdk
 
 Each folder is one [agent skill](https://agentskills.io): a `SKILL.md` that a coding
 agent loads when the task matches its description. One format serves every agent; the
@@ -7,7 +7,7 @@ installers differ only in where they copy the folder.
 ## Install into your project
 
 Installing the SDK does **not** install skills into your agent. The package includes
-them under `node_modules/tasra-sdk/skills/`. Copy the whole skill folders — not just
+them under `node_modules/@t3foundry/tasra-sdk/skills/`. Copy the whole skill folders — not just
 the `SKILL.md` — into the directory your agent discovers:
 
 ```sh
@@ -27,7 +27,7 @@ start a new session if the installed skills do not appear. Ask the agent to use
 **After each SDK upgrade, refresh the skills by reexecuting the installation.** 
 
 Keep local modifications in separate skills, or review their diff before replacing one. Record
-`node -p "require('tasra-sdk/package.json').version"` alongside the copied set.
+`node -p "require('@t3foundry/tasra-sdk/package.json').version"` alongside the copied set.
 
 Installing these instructions needs no private checkout, global installer or platform
 credentials. Skills do not configure a network or grant access to anything.
@@ -49,14 +49,14 @@ credentials. Skills do not configure a network or grant access to anything.
 | [tasra-oid4vp-wallet-and-verifier-agent](tasra-oid4vp-wallet-and-verifier-agent/SKILL.md) | OpenID4VP wallets, the Verifier Agent, credential issuance |
 
 Skills cite documentation included in the package, so an agent can read the full
-text under `node_modules/tasra-sdk/` and the exact types
-from `node_modules/tasra-sdk/dist/**/*.d.ts`.
+text under `node_modules/@t3foundry/tasra-sdk/` and the exact types
+from `node_modules/@t3foundry/tasra-sdk/dist/**/*.d.ts`.
 
 ## First verified application
 
 Start with `tasra-getting-started`, then load only the skill for the requested task.
-Install with `npm install tasra-sdk@latest`. The application interface is
-`tasra-sdk/app`. See the [application guide](../docs/application-api.md),
+Install with `npm install @t3foundry/tasra-sdk@latest`. The application interface is
+`@t3foundry/tasra-sdk/app`. See the [application guide](../docs/application-api.md),
 [shared account](../docs/shared-account.md), [encrypted notes](../docs/encrypted-notes.md),
 [document signatures](../docs/document-signing.md), and [native approvals](../docs/native-approvals.md).
 

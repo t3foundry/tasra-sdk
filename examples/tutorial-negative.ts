@@ -1,10 +1,10 @@
 /** Adversarial test only: bypass wallet filtering to test the verifier's own refusal. */
-import type {TasraClient, TasraIdentity} from 'tasra-sdk/app'
+import type {TasraClient, TasraIdentity} from '@t3foundry/tasra-sdk/app'
 import {
   openVerifierAgentSession, fetchRequestObject, parseOpenid4vpUri, parseSdJwt,
   sdJwtCredentialView, buildResponse, submitResponse, awaitVerifierAgentResult,
   VerifierAgentSessionError, type TypedDataSigner,
-} from 'tasra-sdk/oid4vp'
+} from '@t3foundry/tasra-sdk/oid4vp'
 
 export async function proveServerRefusal(tasra: TasraClient, signer: TypedDataSigner,
   slotId: `0x${string}`, identity: TasraIdentity, credential: string,
