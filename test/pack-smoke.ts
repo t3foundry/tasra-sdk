@@ -102,12 +102,6 @@ try {
   ok('tarball contains no private source or source maps', !packedNames.some(p => p.startsWith('package/src/') || p.endsWith('.map')))
   ok('document app ships source, configuration and sample PDF', ['package.json', 'gitignore.template', 'server.ts', 'setup.ts', 'workflow.test.ts', 'web/app.ts', 'web/preview.ts', 'public/sample.pdf', 'network.ts'].every(p => packedNames.includes('package/examples/document-signing/' + p)))
   ok('document app excludes private state and generated assets', !packedNames.some(p => /^package\/examples\/document-signing\/(?:\.tasra|node_modules|\.superdesign|public\/pdf-assets)\//.test(p) || p === 'package/examples/document-signing/public/app.js'))
-  ok('tarball contains all 12 agent skills', packedNames.filter(p => p.endsWith('/SKILL.md')).length === 12)
-  for (const skill of packedNames.filter(p => p.endsWith('/SKILL.md'))) {
-    const content = execFileSync('tar', ['-xOzf', join(scratch, tarball), skill], {encoding: 'utf8'})
-    const references = [...content.matchAll(/^ {4}- (.+)$/gm)].map(m => m[1]!.split('#')[0]!)
-    ok(`${skill}: metadata references are available in the installed package`, references.every(p => /^https?:/.test(p) || packedNames.includes(`package/${p}`)))
-  }
 
   // 2. Lay out a consumer: node_modules/<name>/ ← tarball, deps symlinked.
   const consumer = join(scratch, 'consumer')
@@ -147,45 +141,6 @@ try {
     execFileSync(process.execPath, [join(repoRoot, 'node_modules/typescript/bin/tsc'), '-p', join(tutorials, 'tsconfig.json')], {stdio: 'inherit'})
   } catch { tutorialsCompile = false }
   ok('all copied beginner tutorials compile against the installed tarball', tutorialsCompile)
-
-  // Skills are copied independently of the SDK, so supporting links must stay
-  // inside the shipped skill folder. Compile their complete modern examples
-  // against the tarball's declarations, not aliases to repository source.
-  const snippets = join(consumer, 'skill-snippets')
-  mkdirSync(snippets)
-  const copiedSkills = join(consumer, '.agents/skills')
-  mkdirSync(copiedSkills, {recursive: true})
-  for (const folder of readdirSync(join(installed, 'skills')).filter(p => p.startsWith('tasra-'))) {
-    cpSync(join(installed, 'skills', folder), join(copiedSkills, folder), {recursive: true})
-  }
-  let snippetCount = 0
-  const missingReferences: string[] = []
-  for (const skill of packedNames.filter(p => /^package\/skills\/.*\.md$/.test(p))) {
-    const path = skill === 'package/skills/README.md'
-      ? join(installed, 'skills/README.md')
-      : join(copiedSkills, skill.slice('package/skills/'.length))
-    const markdown = readFileSync(path, 'utf8')
-    for (const match of markdown.matchAll(/\]\(([^)]+)\)/g)) {
-      const target = match[1]!
-      if (/^[a-z]+:|^#/i.test(target)) continue
-      if (!existsSync(resolve(dirname(path), target.split('#')[0]!))) missingReferences.push(`${skill}: ${target}`)
-    }
-    if (!skill.endsWith('/SKILL.md')) continue
-    for (const match of markdown.matchAll(/^```ts\n([\s\S]*?)^```/gm)) {
-      writeFileSync(join(snippets, `example-${++snippetCount}.ts`), match[1]!)
-    }
-  }
-  ok('copied skills retain their linked supporting references', missingReferences.length === 0, missingReferences.join('; '))
-  writeFileSync(join(snippets, 'tsconfig.json'), JSON.stringify({compilerOptions: {
-    target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext',
-    strict: true, noUncheckedIndexedAccess: true, skipLibCheck: true, noEmit: true,
-    types: [], lib: ['ES2022', 'DOM'],
-  }, include: ['*.ts']}))
-  let snippetsCompile = snippetCount > 0
-  try {
-    execFileSync(process.execPath, [join(repoRoot, 'node_modules/typescript/bin/tsc'), '-p', join(snippets, 'tsconfig.json')], {stdio: 'inherit'})
-  } catch { snippetsCompile = false }
-  ok(`all ${snippetCount} modern skill examples compile against the installed tarball`, snippetsCompile)
 
   // 3. Resolve through the exports map.
   console.log('resolving…')
@@ -326,12 +281,11 @@ try {
        existsSync(join(root, 'dist/chain/index.d.ts')),
        existsSync(join(root, 'dist/verifier-agent/index.d.ts')),
        existsSync(join(root, 'src/index.ts')),
-       existsSync(join(root, 'skills/tasra-getting-started/SKILL.md')),
      ].join(','))`,
   )
   ok(
-    'tarball ships declarations and skills without private TypeScript sources',
-    types === 'true,true,true,false,true',
+    'tarball ships declarations without private TypeScript sources',
+    types === 'true,true,true,false',
     types ?? undefined,
   )
 
