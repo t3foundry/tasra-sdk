@@ -122,9 +122,11 @@ console.log(offlineRoundTrip()) // Hello Tasra
 
 ## Use with a coding agent
 
-The package includes [task-based skills](skills-bundle/README.md). Follow their installation
-instructions to register them with your agent, and refresh them after SDK upgrades.
-The same guides and examples are available to developers without an agent.
+Agent skills ship separately in the
+[`@t3foundry/tasra-skills`](https://www.npmjs.com/package/@t3foundry/tasra-skills)
+package. Follow its installation instructions to register them with your agent,
+and refresh them after SDK upgrades. The same guides and examples are available
+to developers without an agent.
 
 ## Project
 

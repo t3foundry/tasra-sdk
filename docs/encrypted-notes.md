@@ -23,8 +23,7 @@ the keeper committee provides partial decryptions, the BLS KEM recovers the
 AES data key, and the application decrypts the payload. The slot never sees
 the payload.
 
-This is the `tasra-encrypt/v2` scheme. See the
-[tasra-encryption skill](../skills-bundle/skills/tasra-encryption/SKILL.md)
+This is the `tasra-encrypt/v2` scheme. See the `tasra-encryption` skill
 for the envelope schema and lower-level KEM operations.
 
 ## 1. Create the project
