@@ -48,7 +48,7 @@ Use [the configuration table](prerequisites.md#application-configuration) to set
 
 The direct committee example requires a fleet that accepts compound tokens without
 request binding. For a fleet enforcing request binding, use the
-[verifier-agent presentation flow](api.md#tasra-sdkoid4vp--credential-wallets-against-the-verifier-agent).
+[verifier-agent presentation flow](api.md#t3foundrytasra-sdkoid4vp--credential-wallets-against-the-verifier-agent).
 
 ### Run the complete example
 

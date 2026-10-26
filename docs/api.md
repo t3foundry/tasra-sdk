@@ -71,7 +71,7 @@ workflow and [generated application reference](reference/app.md) for complete si
 | DCQL (OID4VP-DCQL) | `validateDcql`, `evaluateDcql`, `selectDcql`, `canonicalizeDcql`, `isOid4vpRule`, `jsonCredential`, `evaluateIdentityScoped`, `scopeCovers`, `DcqlMalformedError`, `DCQL_MAX_RULE_LEN` + `DcqlQuery`, `CredentialView` |
 | Verifier Agent sessions | `createOid4vpSession`, `pollOid4vpSession`, `waitForSession`, `payloadDigest`, `VerifierAgentSessionError`; `oauth` kind: `createOauthSession`, `submitOauthResponse` + `CreateSessionParams`, `CreateOauthSessionResult`, `SessionStatusResult` |
 | DPoP (RFC 9449) | `createDpopKey`, `auth0DpopSigner`, `jwkThumbprint`, `accessTokenHash`, `isHeaderSafeNonce` + `DpopSigner`, `DpopKey` |
-| Committee tokens | not on the main entry — see [`@t3foundry/tasra-sdk/committee`](#tasra-sdkcommittee--protocol-internals) |
+| Committee tokens | not on the main entry — see [`@t3foundry/tasra-sdk/committee`](#t3foundrytasra-sdkcommittee--protocol-internals) |
 | Slot funding | `httpFaucet` (sovereign slot creation lives in `@t3foundry/tasra-sdk/chain`) |
 | Utils | `hexToBytes` |
 

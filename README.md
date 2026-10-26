@@ -48,7 +48,7 @@ shared accounts, encryption and document signing.
 | Collect Alice's and Bob's document signatures | [Document-signing workflow](docs/document-signing.md) |
 | Require multiple approvers for one signature | [Native approval recipes](docs/native-approvals.md) |
 | Get an Ethereum address and sign transactions | [Shared account app](docs/shared-account.md) |
-| Add a credential wallet or OAuth login | [Authentication APIs](docs/api.md#tasra-sdkoid4vp--credential-wallets-against-the-verifier-agent) |
+| Add a credential wallet or OAuth login | [Authentication APIs](docs/api.md#t3foundrytasra-sdkoid4vp--credential-wallets-against-the-verifier-agent) |
 | Find an API or solve an error | [SDK reference](docs/reference/README.md) · [Errors](docs/errors.md) |
 
 <a id="which-client-do-i-want"></a>

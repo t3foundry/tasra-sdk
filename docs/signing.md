@@ -163,7 +163,7 @@ keeper `k-of-n` alone does not implement two-user approval.
 
 Verify each user separately: sign, broadcast, check the receipt and recovered sender,
 then attempt the same operation with an unauthorized holder and record the denial.
-[Credential presentation APIs](api.md#tasra-sdkoid4vp--credential-wallets-against-the-verifier-agent)
+[Credential presentation APIs](api.md#t3foundrytasra-sdkoid4vp--credential-wallets-against-the-verifier-agent)
 provide the wallet flow. The [shared-account app](shared-account.md) includes assertions
 for both users' transactions and Mallory's server-side refusal.
 
