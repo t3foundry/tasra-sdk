@@ -1,13 +1,10 @@
 ---
 name: tasra-create-slot
 description: Create and provision a Tasra slot using a durable creation journal; resume known transactions and reconcile uncertain submissions. Also covers advanced funding, relay and lifecycle operations when requested.
+compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
 metadata:
-  package: tasra-sdk
-  sources:
-    - docs/application-api.md
-    - examples/encrypted-notes.ts
-    - dist/app/creation.d.ts
-    - dist/chain/write.d.ts
+  package: @t3foundry/tasra-skills
+  sources: "node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/examples/encrypted-notes.ts, node_modules/tasra-sdk/dist/app/creation.d.ts, node_modules/tasra-sdk/dist/chain/write.d.ts"
 ---
 
 # Create and recover a slot

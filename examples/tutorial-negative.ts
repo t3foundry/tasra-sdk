@@ -8,7 +8,7 @@ import {
 
 export async function proveServerRefusal(tasra: TasraClient, signer: TypedDataSigner,
   slotId: `0x${string}`, identity: TasraIdentity, credential: string,
-  operation: {action: 'sign' | 'ibe-extract'; message?: Uint8Array; identity?: string}, queryId = 'access') {
+  operation: {action: 'sign' | 'ibe-extract' | 'decrypt'; message?: Uint8Array; identity?: string; payloadDigest?: Uint8Array}, queryId = 'access') {
   if (!tasra.verifierAgentUrl) throw new Error('Manifest has no verifier agent')
   const session = await openVerifierAgentSession({verifierAgentUrl: tasra.verifierAgentUrl,
     chainId: tasra.deployment.chainId, keyRegistry: tasra.deployment.addresses.KeyRegistry!,

@@ -1,12 +1,10 @@
 ---
 name: tasra-credentials-and-sessions
 description: Choose authorization for a Tasra application and manage credential/holder lifetime. Use for exact-operation grants, registered wallet authorization, token expiry, or maintaining existing JWT renewal/redemption sessions.
+compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
 metadata:
-  package: tasra-sdk
-  sources:
-    - docs/application-api.md
-    - dist/app/authorization.d.ts
-    - dist/app/client.d.ts
+  package: @t3foundry/tasra-skills
+  sources: "node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/dist/app/authorization.d.ts, node_modules/tasra-sdk/dist/app/client.d.ts"
 ---
 
 # Credentials and application authorization

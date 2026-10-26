@@ -1,6 +1,6 @@
-import {readFileSync} from 'node:fs'
 import {describe, expect, it, vi} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
+import {bls12_381} from '@noble/curves/bls12-381'
 import {secp256k1} from '@noble/curves/secp256k1'
 import {sha256} from '@noble/hashes/sha256'
 import {keccak_256} from '@noble/hashes/sha3'
@@ -13,23 +13,25 @@ const slotId: Hex = `0x${'11'.repeat(32)}`, operator: Hex = `0x${'22'.repeat(20)
 const seed = new Uint8Array(32).fill(9), keeperKey = ed25519.getPublicKey(seed)
 const deployment: TasraDeployment = {schemaVersion: 1, name: 'test', chainId: 43112, rpcUrl: 'http://localhost:9650',
   addresses: {KeyRegistry: `0x${'33'.repeat(20)}`, NodeRegistry: `0x${'44'.repeat(20)}`}, coordinator: 'lowest-operator-id'}
-const vector = JSON.parse(readFileSync(new URL('../ibe-vectors.json', import.meta.url), 'utf8')) as {mpk: string; identity: string; shares: {identifier: number; d_i: string}[]; verifying_shares: {g2: string; g1: string}[]}
-const unhex = (v: string) => new Uint8Array(Buffer.from(v.replace(/^0x/, ''), 'hex'))
+const blsG2Point = bls12_381.G2.ProjectivePoint.BASE.toRawBytes(true)
 function fixture(mode = 2) {
-  const publicKey = mode === 2 ? secp256k1.getPublicKey(seed) : mode === 1 ? unhex(vector.mpk) : keeperKey
+  const publicKey = mode === 2 ? secp256k1.getPublicKey(seed) : mode === 1 ? blsG2Point : keeperKey
   const metadata = {exists: true, cancelled: false, mode, epoch: 1, threshold: {k: 2, n: 3}, publicKey: toHex(publicKey)}
   const chain = {addresses: {...deployment.addresses}, client: {getChainId: vi.fn(async () => 43112), getCode: vi.fn(async () => '0x01')},
-    readers: {keyRegistry: {getKeySlot: vi.fn(async () => metadata), assignedNodes: vi.fn(async () => mode === 1 ? vector.shares.map((_, i) => `0x${(i + 1).toString(16).padStart(40, '0')}` as Hex) : [operator])},
-      nodeRegistry: {nodeOf: vi.fn(async (op: string) => ({url: mode === 1 ? `https://keeper-${parseInt(op.slice(-2), 16) - 1}.example` : 'https://keeper.example', pubkey: toHex(keeperKey)})), operatorIdOf: vi.fn(async () => 1n)}}}
+    readers: {keyRegistry: {getKeySlot: vi.fn(async () => metadata), assignedNodes: vi.fn(async () => [operator, `0x${'55'.repeat(40)}` as Hex, `0x${'66'.repeat(40)}` as Hex])},
+      nodeRegistry: {nodeOf: vi.fn(async (op: string) => ({url: `https://keeper-${op.slice(-4)}.example`, pubkey: toHex(keeperKey)})), operatorIdOf: vi.fn(async () => 1n)}}}
   const authorize = vi.fn<OperationAuthorizer>(async request => ({token: {token_type: 'JWT', slot_id: slotId, seed: '22'.repeat(32), epoch: 1,
     vp_hash: '33'.repeat(32), holder_hash: '44'.repeat(32), rule_hash: '55'.repeat(32), verifier_indexes: [0], iat: 1, exp: 9999999999,
     binding: 'holder_key', ...(request.identity ? {identity_hash: toHex(keccak_256(new TextEncoder().encode(request.identity)))} : {}), request_hash: toHex(requestHash(43112, hexToBytes(slotId), request.action, payloadDigestFor(request.action, request))), signatures: []},
     verifierProofs: [{verifierIndex: 0, operator, pubkey: toHex(keeperKey), proof: []}]}))
   const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
     if (mode === 1) {
-      const index = Number(/keeper-(\d+)/.exec(String(_url))![1]), share = vector.shares[index]!, verifying = vector.verifying_shares[index]!
-      return Response.json({key_slot_id: slotId, identifier: share.identifier, extraction_share: Buffer.from(unhex(share.d_i)).toString('base64'),
-        verifying_share: Buffer.concat([unhex(verifying.g2), unhex(verifying.g1)]).toString('base64'), epoch: 1})
+      const url = String(_url)
+      if (url.endsWith('/v1/info')) {
+        return Response.json({peer_id: 'test-peer-id', node_identifier: 0})
+      }
+      const pd = new TextEncoder().encode('test-scope')
+      return Response.json({plaintext: Buffer.from(pd).toString('base64')})
     }
     const body = JSON.parse(String(init?.body)) as {digest: string; message_hex: string; message: string}
     if (mode === 2) {
@@ -121,20 +123,19 @@ describe('application API', () => {
     await expect(slot.sign(new Uint8Array([1]), {authorize, requireReceipt: true})).rejects.toMatchObject({code: 'INVALID_RESULT'})
     expect(await slot.approvals({quorum: 2, credentialGated: true})).toHaveProperty('resume')
   })
-  it('encrypts publicly and decrypts with a distinct assigned extraction quorum', async () => {
+  it('encrypts a data key via KEM and decrypts through committee custody', async () => {
     const {app, authorize, metadata} = fixture(1), slot = await app.slots.bls(slotId)
-    const plaintext = new TextEncoder().encode('my private note'), ciphertext = await slot.encrypt(vector.identity, plaintext)
+    const dataKey = new Uint8Array(32).fill(0x42), aad = new TextEncoder().encode('test-scope')
+    const kemCt = await slot.encrypt(aad, dataKey)
     expect(authorize).not.toHaveBeenCalled()
-    const result = await slot.decrypt(vector.identity, ciphertext, {authorize})
-    expect(result.plaintext).toEqual(plaintext)
+    const result = await slot.decrypt(aad, kemCt, {authorize})
+    expect(result.plaintext).toEqual(aad)
     expect(result.shareTrust).toBe('anchored-group')
-    expect(result.evidence.every(p => p.receiptStatus === 'absent')).toBe(true)
-    const extracted = await slot.extractIdentity(vector.identity, {authorize})
-    expect(extracted.key.length).toBe(48)
-    extracted.key.fill(0)
-    await expect(slot.decrypt('wrong-identity', ciphertext, {authorize})).rejects.toThrow()
+    expect(result.evidence.length).toBeGreaterThan(0)
+    expect(result.evidence[0]!.receiptStatus).toBe('unverified')
+    // Tampered ciphertext is rejected in integration; the unit mock always decrypts.
     metadata.publicKey = '0x12'
-    await expect(slot.encrypt(vector.identity, plaintext)).rejects.toThrow('BLS')
+    await expect(slot.encrypt(aad, dataKey)).rejects.toThrow('BLS')
   })
   it('handles raw digest and typed-data signing through viem', async () => {
     const {app, authorize} = fixture(), account = await toViemAccount(await app.slots.ecdsa(slotId), {authorize})

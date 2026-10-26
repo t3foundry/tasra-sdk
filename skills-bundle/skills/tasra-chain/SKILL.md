@@ -1,13 +1,10 @@
 ---
 name: tasra-chain
 description: Load pinned Tasra deployment manifests and read public registry or slot state. Use for tasra-releases, Fuji configuration, keeper discovery, explorer queries, events and advanced chain integration.
+compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
 metadata:
-  package: tasra-sdk
-  sources:
-    - docs/fuji.md
-    - docs/application-api.md
-    - docs/chain.md
-    - dist/chain/index.d.ts
+  package: @t3foundry/tasra-skills
+  sources: "node_modules/tasra-sdk/docs/fuji.md, node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/docs/chain.md, node_modules/tasra-sdk/dist/chain/index.d.ts"
 ---
 
 # Configure a deployment and read public state

@@ -1,13 +1,10 @@
 ---
 name: tasra-dcql-rules
 description: Define and validate Tasra credential access rules, including issuer/subject restrictions and IBE identity scopes. Use for DCQL policy design, rule commitments, credential alternatives or explicitly requested OAuth rules.
+compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
 metadata:
-  package: tasra-sdk
-  sources:
-    - docs/application-api.md
-    - examples/encrypted-notes.ts
-    - dist/auth/oid4vp.d.ts
-    - dist/chain/write.d.ts
+  package: @t3foundry/tasra-skills
+  sources: "node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/examples/encrypted-notes.ts, node_modules/tasra-sdk/dist/auth/oid4vp.d.ts, node_modules/tasra-sdk/dist/chain/write.d.ts"
 ---
 
 # Write the slot's credential rule

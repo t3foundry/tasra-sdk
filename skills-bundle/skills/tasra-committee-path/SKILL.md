@@ -1,13 +1,10 @@
 ---
 name: tasra-committee-path
 description: Use Tasra native FROST approval quorum or integrate request-bound committee operations. Use for two-person approval, dual-sign create/status/approve/resume, keeper receipts, and advanced compound-token consumers.
+compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
 metadata:
-  package: tasra-sdk
-  sources:
-    - docs/native-approvals.md
-    - examples/credential-approvals.ts
-    - dist/committee/dual-sign.d.ts
-    - dist/committee/receipts.d.ts
+  package: @t3foundry/tasra-skills
+  sources: "node_modules/tasra-sdk/docs/native-approvals.md, node_modules/tasra-sdk/examples/credential-approvals.ts, node_modules/tasra-sdk/dist/committee/dual-sign.d.ts, node_modules/tasra-sdk/dist/committee/receipts.d.ts"
 ---
 
 # Request-bound operations and native approvals

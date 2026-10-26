@@ -1,13 +1,10 @@
 ---
 name: tasra-getting-started
 description: Build a TypeScript application with the installed Tasra SDK. Use for initial setup, choosing a slot API, locating deployment manifests, or selecting a complete signing or encryption tutorial.
+compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
 metadata:
-  package: tasra-sdk
-  sources:
-    - docs/application-api.md
-    - docs/compatibility.md
-    - docs/shared-account.md
-    - dist/app/index.d.ts
+  package: @t3foundry/tasra-skills
+  sources: "node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/docs/compatibility.md, node_modules/tasra-sdk/docs/shared-account.md, node_modules/tasra-sdk/dist/app/index.d.ts"
 ---
 
 # Start a Tasra application
@@ -16,14 +13,15 @@ Use `tasra-sdk/app` for new credential-controlled applications. Keep existing
 advanced clients when their capabilities are required; there is no client-count
 limit or forced migration.
 
-## Install and establish the environment
+## Prerequisites
 
-1. Install with `npm install tasra-sdk@latest`. Inspect
-   `node_modules/tasra-sdk/package.json`, record its resolved version and probe the
-   required exports. Keep the lockfile for reproducibility. Use Node 24 and ESM.
-   The application runtime needs only `tasra-sdk`; TypeScript, tsx and Node types
-   are development tooling.
-2. Download the selected network pointer and manifest from
+Verify `tasra-sdk` is installed before proceeding:
+
+```sh
+node -e "require('tasra-sdk/package.json')" || (echo 'tasra-sdk not found. Install it: npm install tasra-sdk' && exit 1)
+```
+
+1. Download the selected network pointer and manifest from
    https://github.com/t3foundry/tasra-releases. For testnet, read
    `networks/testnet/current.json` and resolve its `manifest` path relative to
    `networks/testnet/`. Fetch both at one reviewed commit and verify the original
@@ -63,16 +61,16 @@ credentials. Create identities, issue credentials and build policy with
 Create ready slots with `tasra.slots.create`; obtain per-operation authorization with
 `tasra.credentials.authorize`. Use `tasra.wallets.fromSlot` for Ethereum transfers.
 
-| Developer task | Skill | Complete installed source / lesson |
-|---|---|---|
-| Alice OR Bob signs an Ethereum transaction | `tasra-sign-and-decrypt` | `examples/shared-account.ts`, `docs/shared-account.md` |
-| Encrypt notes for one credential holder | `tasra-ibe-identity-scoped` | `examples/encrypted-notes.ts`, `docs/encrypted-notes.md` |
-| Alice AND Bob sign the same document separately | `tasra-sign-and-decrypt` | `examples/document-signing/`, `docs/document-signing.md` |
-| Two approvals produce one FROST signature | `tasra-committee-path` | `examples/credential-approvals.ts`, `docs/native-approvals.md` |
-| Create, provision or recover a slot | `tasra-create-slot` | `docs/application-api.md` |
+| Developer task | Skill                                    | Complete installed source / lesson |
+|---|------------------------------------------|---|
+| Alice OR Bob signs an Ethereum transaction | `tasra-sign`                             | `examples/shared-account.ts`, `docs/shared-account.md` |
+| Encrypt notes for one credential holder | `tasraencryption`                        | `examples/encrypted-notes.ts`, `docs/encrypted-notes.md` |
+| Alice AND Bob sign the same document separately | `tasra-sign`                 | `examples/document-signing/`, `docs/document-signing.md` |
+| Two approvals produce one FROST signature | `tasra-committee-path`                   | `examples/credential-approvals.ts`, `docs/native-approvals.md` |
+| Create, provision or recover a slot | `tasra-create-slot`                      | `docs/application-api.md` |
 | Add a wallet or issue development credentials | `tasra-oid4vp-wallet-and-verifier-agent` | `docs/application-api.md` |
-| Discover registries, keepers or events | `tasra-chain` | `docs/chain.md` |
-| Handle refusal, cancellation or uncertain writes | `tasra-handle-errors` | `docs/application-api.md` |
+| Discover registries, keepers or events | `tasra-chain`                            | `docs/chain.md` |
+| Handle refusal, cancellation or uncertain writes | `tasra-handle-errors`                    | `docs/application-api.md` |
 
 Read the chosen complete source before modifying it. Examples run as visible
 TypeScript applications with the installed SDK; do not replace them with a hidden

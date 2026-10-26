@@ -1,13 +1,10 @@
 ---
-name: tasra-sign-and-decrypt
+name: tasra-sign
 description: Use typed Tasra slots for Ethereum or FROST signing and credential-controlled decryption. Use for an EVM address, viem account, shared account, document signatures, or choosing between two signatures and native approval quorum.
+compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
 metadata:
-  package: tasra-sdk
-  sources:
-    - docs/application-api.md
-    - docs/document-signing.md
-    - docs/native-approvals.md
-    - dist/app/index.d.ts
+  package: @t3foundry/tasra-skills
+  sources: "node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/docs/document-signing.md, node_modules/tasra-sdk/docs/native-approvals.md, node_modules/tasra-sdk/dist/app/index.d.ts"
 ---
 
 # Sign with a typed slot
@@ -72,14 +69,3 @@ not automatic re-signing. Keep sender capability and wallet files private.
 provides trusted timestamps or archival verification across key rotations.
 For **one** FROST signature requiring a native approver quorum, use
 `tasra-committee-path` and `examples/credential-approvals.ts` instead.
-
-## Encryption and advanced APIs
-
-For new encrypted-data applications use `slots.bls` and
-`tasra-ibe-identity-scoped`; public encryption and authorized decryption have
-separate inputs. IBE returns an identity capability, never a master key.
-
-For an existing integration needing ethers, legacy sessions, shard-delivery or
-custody primitives, read [advanced signing and decryption](references/advanced.md).
-Check that exact route is supported by its deployment. A refusal never authorizes
-switching to a weaker authorization route. Native multi-approver IBE is unsupported.

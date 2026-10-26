@@ -1,14 +1,10 @@
 ---
 name: tasra-rego-rules
 description: Write, lint, test and commit a Rego access policy (a kk_oauth envelope) for a Tasra slot whose holders sign in with their organization's own identity provider (OAuth, DPoP-bound access tokens). Use when an OAuth slot's decision needs more than DCQL value lists — nested roles, several claims combined, helper rules, case-insensitive matches.
+compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
 metadata:
-  package: tasra-sdk
-  sources:
-    - docs/flows.md
-    - dist/auth/rego.d.ts
-    - dist/chain/write.d.ts
-    - dist/chain/provisionRule.d.ts
-    - dist/committee/oauth.d.ts
+  package: @t3foundry/tasra-skills
+  sources: "node_modules/tasra-sdk/docs/flows.md, node_modules/tasra-sdk/dist/auth/rego.d.ts, node_modules/tasra-sdk/dist/chain/write.d.ts, node_modules/tasra-sdk/dist/chain/provisionRule.d.ts, node_modules/tasra-sdk/dist/committee/oauth.d.ts"
 ---
 
 # Write a Rego policy for an OAuth slot

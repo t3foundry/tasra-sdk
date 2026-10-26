@@ -1963,7 +1963,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L625)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L627)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk'`
 
@@ -3331,7 +3331,7 @@ Fields:
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L527)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L529)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -3359,7 +3359,7 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L545)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L547)
 
 ```ts
 export interface IbeExtractOpts {

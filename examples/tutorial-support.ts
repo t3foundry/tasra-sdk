@@ -62,8 +62,8 @@ export async function createTutorial(name: string, type: string, role: string, n
   // Public evidence is deliberately separate from the SDK's private durable journals.
   const save = (file: string, value: unknown) => writeFileSync(resolve(directory, file),
     JSON.stringify(value, (_, value: unknown) => typeof value === 'bigint' ? value.toString() : value, 2) + '\n', {mode: 0o600})
-  const proveServerRefusal = (slotId: `0x${string}`, name: string, action: 'sign' | 'ibe-extract',
-    payload: {message?: Uint8Array; identity?: string}, queryId = 'access') =>
+  const proveServerRefusal = (slotId: `0x${string}`, name: string, action: 'sign' | 'ibe-extract' | 'decrypt',
+    payload: {message?: Uint8Array; identity?: string; payloadDigest?: Uint8Array}, queryId = 'access') =>
     refuse(tasra, wallet.signer, slotId, users[name]!.identity, users[name]!.credential, {action, ...payload}, queryId)
   console.log(`Fresh creator and identities ready. Private state: ${directory}`)
   return {tasra, wallet, issuer, users, store, directory, save, policy, authorize, proveServerRefusal, awaitUsageCredit}

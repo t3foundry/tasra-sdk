@@ -297,7 +297,7 @@ Returns: ` CommitteeChainReads `.
 
 Decrypt via committee authorization. The slot id is taken from the token.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L495)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L497)
 
 Import: `import {committeeDecrypt} from 'tasra-sdk/committee'`
 
@@ -891,7 +891,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L625)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L627)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk/committee'`
 
@@ -1228,6 +1228,7 @@ export interface CommitteeDecryptOpts {
     clientPubkey?: Uint8Array;
     clientSignature?: Uint8Array;
     evidenceCt?: string;
+    fetchImpl?: typeof fetch;
 }
 ```
 
@@ -1246,6 +1247,7 @@ Fields:
 - **` clientPubkey `**: 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together.
 - **` clientSignature `**: Client signature over the slot and compound token binding.
 - **` evidenceCt `**: the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`), posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`.
+- **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
 
 ### CommitteeDecryptRequestOpts
 
@@ -1787,7 +1789,7 @@ export type HolderProofPerVerifier = (verifier: CommitteeVerifier) => Promise<st
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L527)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L529)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -1815,7 +1817,7 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L545)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L547)
 
 ```ts
 export interface IbeExtractOpts {
@@ -1997,9 +1999,9 @@ Fields:
 - **` requireReceipts `**: Require a valid operation attestation from every share used. Default false.
 - **` signal `**: Optional signal that cancels the request.
 - **` identity `**: The requested IBE identity, in the clear (the node computes Q_ID from it).
-- **` userSignature `**: Owner signature over `keccak256("keykeeper:ibe-extract:v1" || identity)` when the slot has a registered `user_pubkey`.
 - **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
 - **` committeeToken `**: MUST be identity-scoped: the keeper enforces `identity_hash == keccak256(identity)`.
+- **` userSignature `**: Owner signature over `keccak256("keykeeper:ibe-extract:v1" || identity)` when the slot has a registered `user_pubkey`.
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
 - **` clientPubkey `**: 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together.
 - **` clientSignature `**: Client signature over the slot and compound token binding.

@@ -1,13 +1,10 @@
 ---
 name: tasra-handle-errors
 description: Handle Tasra application failures, authorization refusals, cancellation and uncertain write outcomes. Use when deciding whether to reconcile, reauthorize, poll readiness or retry a safe read.
+compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
 metadata:
-  package: tasra-sdk
-  sources:
-    - docs/application-api.md
-    - dist/app/client.d.ts
-    - dist/app/creation.d.ts
-    - dist/committee/dual-sign.d.ts
+  package: @t3foundry/tasra-skills
+  sources: "node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/dist/app/client.d.ts, node_modules/tasra-sdk/dist/app/creation.d.ts, node_modules/tasra-sdk/dist/committee/dual-sign.d.ts"
 ---
 
 # Recover without duplicating operations
