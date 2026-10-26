@@ -52,7 +52,7 @@ Rules that the validator enforces:
   of them satisfy the query on their own. That is how several people share one slot
   (one treasury EOA, one archive) without sharing key material and without either
   needing the other's consent; it is *not* a quorum — for "two must approve", see the
-  dual-control policy in `tasra-sign-and-decrypt`.
+  dual-control policy in `tasra-sign`.
 - Several credentials are combined with `credential_sets`; absent, every listed
   credential is required.
 - Whole rule ≤ `DCQL_MAX_RULE_LEN` (4096 bytes, measured on the raw text before
@@ -127,7 +127,7 @@ A plain rule answers *who* may operate. An identity-scoped rule also answers *wh
 identity they may operate on*, and it is what IBE extraction requires: against a plain
 rule every keeper refuses an extraction with HTTP 403 `rule carries no identity-scope
 binding on any satisfied credential query; it cannot authorize an identity-scoped
-operation` (`tasra-ibe-identity-scoped`).
+operation` (`tasra-encryption`).
 
 ```json
 {
@@ -202,7 +202,7 @@ const canon = canonicalizeDcql(rule)        // string: RFC 8785 form — what is
 ```
 
 `evaluateIdentityScoped(rule, views, identity)` is the identity-scoped variant
-(see `tasra-ibe-identity-scoped`). `RecipientStore` / `canAccess` gate a
+(see `tasra-encryption`). `RecipientStore` / `canAccess` gate a
 recipient's own store against a rule client-side.
 
 ## The rule commitment

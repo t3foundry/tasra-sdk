@@ -26,7 +26,7 @@ export function sharedSignerRule(issuerDid: string, aliceDid: string, bobDid: st
 This admits **Alice OR Bob** with a matching issuer/type/role. It does not require
 two people to approve. Use signer-specific rules on two slots for two detached
 document signatures, or a native FROST approval policy for one quorum-approved
-signature. `tasra-sign-and-decrypt` and `tasra-committee-path` explain that choice.
+signature. `tasra-sign` and `tasra-committee-path` explain that choice.
 
 For IBE, pass `identityScope: {claim: 'documents', namespace: 'issuer'}` to
 `tasra.credentials.policy()` and issue credentials with a `documents` claim

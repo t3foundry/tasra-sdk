@@ -142,7 +142,7 @@ wallet-side refusal by type alone.
   production-posture keeper answers `legacy JWT eoa-digest cannot satisfy committee-only
   or holder-bound operation authorization` to any bearer-JWT EOA signing request, however
   good the token. No credential fixes it — the call has to move to the committee path
-  (`tasra-sign-and-decrypt`).
+  (`tasra-sign`).
 - Retrying `AuthDeniedError`. The same credential will be refused again;
   redeem a new one or re-open the session. A 403 from one verifier on the
   committee path is not always about the credential — that verifier may not have

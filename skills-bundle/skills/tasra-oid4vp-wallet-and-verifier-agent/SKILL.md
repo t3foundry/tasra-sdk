@@ -59,7 +59,7 @@ For receiving credentials, SD-JWT disclosure selection, DID resolution, TLS trus
 issuer APIs, or explicitly requested OAuth/DPoP flows, read
 [wallet, issuer and verifier-agent details](references/advanced.md) and the installed
 declarations. Those specialized flows remain supported; OAuth is not a legacy
-`SessionAuth` mode. `tasra-hovi-issuer` is optional and only relevant when Hovi is chosen.
+`SessionAuth` mode.
 
 A local filter rejecting a credential is good wallet behavior, but server refusal
 acceptance must deliberately reach the verifier as shown by the complete examples.

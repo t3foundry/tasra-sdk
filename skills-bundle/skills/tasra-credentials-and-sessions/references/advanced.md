@@ -180,8 +180,8 @@ cannot be fanned out to several verifiers; for the committee path use
   and `revokeSlotUser` are the only two calls here that take an admin secret, and
   both send it as `X-Admin-Secret`. A production deployment often publishes no
   admin secret at all, and then neither call is open to you: the holder gets
-  signed VCs from a credential issuer (`tasra-hovi-issuer`,
-  `tasra-oid4vp-wallet-and-verifier-agent`) and opens the session with
+  signed VCs from a credential issuer
+  (`tasra-oid4vp-wallet-and-verifier-agent`) and opens the session with
   `{vpJwt}`, or turns the same VCs into a renewal grant with `createRenewal`.
   A renewal token is not self-serve either — it needs those credentials first.
 - Sending one holder proof to several verifiers. Each verifier needs its own.

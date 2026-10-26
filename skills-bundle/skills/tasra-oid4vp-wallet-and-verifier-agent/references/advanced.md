@@ -45,7 +45,7 @@ action — passing the wrong one produces a token the keeper's own recomputation
 | `action` | you pass | the token binds |
 |---|---|---|
 | `sign` | `message: Uint8Array` | `sha256(message)` |
-| `ibe-extract` | `identity: string` | `sha256(identity)` — see `tasra-ibe-identity-scoped` |
+| `ibe-extract` | `identity: string` | `sha256(identity)` — see `tasra-encryption` |
 | `decrypt` | `payloadDigest` from `decryptPayloadDigest(u, aeadCt)` | that digest |
 | `dual-approve` | `payloadDigest: Uint8Array` | that digest |
 

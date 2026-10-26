@@ -8,12 +8,11 @@
     "tasra-credentials-and-sessions",
     "tasra-dcql-rules",
     "tasra-handle-errors",
-    "tasra-sign-and-decrypt",
-    "tasra-ibe-identity-scoped",
+    "tasra-sign",
+    "tasra-encryption",
     "tasra-chain",
     "tasra-committee-path",
     "tasra-oid4vp-wallet-and-verifier-agent",
-    "tasra-hovi-issuer",
     "tasra-rego-rules"
   ]
 }

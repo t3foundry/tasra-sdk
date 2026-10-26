@@ -42,12 +42,11 @@ credentials. Skills do not configure a network or grant access to anything.
 | [tasra-dcql-rules](tasra-dcql-rules/SKILL.md) | writing, validating and evaluating a slot's access rule |
 | [tasra-rego-rules](tasra-rego-rules/SKILL.md) | a Rego policy (`kk_oauth` envelope) for an OAuth slot: write, lint, test, commit |
 | [tasra-handle-errors](tasra-handle-errors/SKILL.md) | refusals, cancellation, readiness polling and uncertain-outcome reconciliation |
-| [tasra-sign-and-decrypt](tasra-sign-and-decrypt/SKILL.md) | public EVM address, viem signing, shared accounts and two independent document signatures |
-| [tasra-ibe-identity-scoped](tasra-ibe-identity-scoped/SKILL.md) | typed BLS encryption/decryption, strict extraction and explicit share trust |
+| [tasra-sign](tasra-sign/SKILL.md) | public EVM address, viem signing, shared accounts, document signatures, FROST signing |
+| [tasra-encryption](tasra-encryption/SKILL.md) | typed BLS KEM encryption/decryption, encrypted notes, share provenance |
 | [tasra-chain](tasra-chain/SKILL.md) | address books, the read client, on-chain discovery, events |
 | [tasra-committee-path](tasra-committee-path/SKILL.md) | native FROST approval quorum, resume and advanced committee operations |
 | [tasra-oid4vp-wallet-and-verifier-agent](tasra-oid4vp-wallet-and-verifier-agent/SKILL.md) | OpenID4VP wallets, the Verifier Agent, credential issuance |
-| [tasra-hovi-issuer](tasra-hovi-issuer/SKILL.md) | an explicitly selected Hovi integration; local development does not require it |
 
 Skills cite documentation included in the package, so an agent can read the full
 text under `node_modules/tasra-sdk/` and the exact types

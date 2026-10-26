@@ -73,11 +73,10 @@ Run `npx tsc --noEmit`, then the lesson's `tsx` command. Explicit Node types mak
 imports such as `node:fs` available to the type checker. This configuration is for
 the Node tutorial apps; browser and extension projects retain their own framework configuration.
 
-**Using a coding agent?** The package ships [agent skills](../skills/README.md) — one
+**Using a coding agent?** The package ships [agent skills](../skills-bundle/README.md) — one
 folder per task (getting started, creating a slot, credentials, DCQL rules, errors,
-signing, IBE, chain reads, the committee path, OID4VP, and getting real credentials
-from a Hovi issuer). Installing the package does not register them; see the
-[installation instructions](../skills/README.md) and refresh copied skills after every
+signing, encryption, chain reads, the committee path, and OID4VP). Installing the package does not register them; see the
+[installation instructions](../skills-bundle/README.md) and refresh copied skills after every
 SDK upgrade.
 
 Runs in the browser (Vite, Webpack, Next.js) and Node **≥22.12**. The SDK writes no state unless you supply a store. Node applications can use

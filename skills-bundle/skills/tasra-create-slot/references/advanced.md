@@ -31,7 +31,7 @@ shared funding key or assume an account is funded because it was created.
 - A funded creator key, or a chain-bound viem `WalletClient` (browser wallet).
 - A DCQL rule string (see `tasra-dcql-rules`). **Decide its shape now**: the rule
   is committed at creation and cannot be amended without a `rulePolicy`, so a slot
-  that will serve identity-scoped operations (IBE extraction — `tasra-ibe-identity-scoped`)
+  that will serve identity-scoped operations (BLS KEM extraction — `tasra-encryption`)
   needs `kk_identity_scope_claim` / `kk_scope_namespace` in the rule from the start.
   Adding them later means a new slot, and anything already sealed to the old slot's
   key is stranded.

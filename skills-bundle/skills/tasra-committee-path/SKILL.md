@@ -60,7 +60,7 @@ Call `request.status()` or bounded `request.wait({timeoutMs, signal})` to observ
 completion. The SDK verifies the final signature against the expected group key
 and original message. Native approval quorum counts people/keys; the keeper
 threshold counts cryptographic shares. Two separate document signatures are a
-third workflow, explained by `tasra-sign-and-decrypt`.
+third workflow, explained by `tasra-sign`.
 
 ## Recovery and evidence
 

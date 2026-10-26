@@ -78,7 +78,7 @@ npx tsx node_modules/tasra-sdk/examples/committee-slot.ts
 These direct committee examples require a slot with a verifier policy and a deployment
 that accepts compound tokens without request binding. If keepers enforce
 `api.require_request_binding`, use the verifier-agent authorization flow described in
-[the wallet skill](../skills/tasra-oid4vp-wallet-and-verifier-agent/SKILL.md).
+[the wallet skill](../skills-bundle/skills/tasra-oid4vp-wallet-and-verifier-agent/SKILL.md).
 Do not weaken the deployment's policy to run an example.
 
 The first command verifies a threshold encrypt/decrypt round trip. The second verifies
