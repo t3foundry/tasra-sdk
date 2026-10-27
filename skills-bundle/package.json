@@ -1,6 +1,6 @@
 {
   "name": "@t3foundry/tasra-skills",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "skills bundle for @t3foundry/tasra-sdk",
   "main": "bundle.json",
   "bin": {
