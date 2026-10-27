@@ -125,3 +125,8 @@ with `KK_NETWORK_DIR` naming the physically claimed checkout and a matching
 by a test remain unchanged, and reference fixtures retain their 600-second default.
 This affects test fixtures only. It neither changes the published SDK/client defaults
 nor shortens an already signed payment. Full native timing qualification is required.
+
+The Rego end-to-end and Hovi live fixtures select this guarded default before
+creating their original payment intents. They retain all authorization, signature,
+refusal and settlement assertions. Reference runs still select 600 seconds;
+explicit boundary lifetimes and held-token freshness probes remain unchanged.

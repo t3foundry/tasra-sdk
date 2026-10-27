@@ -12,11 +12,13 @@ import {committeeSign} from '../../src/committee/client.js'
 import {verify as verifyFrostSignature} from '../../src/crypto/frost.js'
 import {defaultKeyResolver, parseSdJwt, p256DidKeyIssuer, utf8, verifyRequestObject} from '../../src/oid4vp/index.js'
 import {loadFleetConfig} from '../fleet/_fleet.ts'
+import {fixturePaymentTtlSeconds} from '../fleet/_certification-timing.ts'
 import {createWalletSlot} from '../fleet/_wallet.ts'
 import {authorizePaidWallet, paidWalletSettings} from '../fleet/_paid-wallet.ts'
 import {assertHoviScopeQuery, issueHoviWallet} from '../fleet/_hovi-wallet.ts'
 
 const cfg = loadFleetConfig()
+const fixtureTtlSecs = fixturePaymentTtlSeconds(cfg)
 // Fail before issuance or any on-chain write when the paid provider, gas/TASRA
 // ceiling, role draw, original evidence or local-only deployment is absent.
 const settings = paidWalletSettings(cfg)
@@ -49,7 +51,7 @@ try {
   const message = utf8('hello from the SDK wallet')
   let inspected = false
   const grant = await authorizePaidWallet(cfg, slot.slotId, slot.creatorKey,
-    scoped ? {action: 'ibe-extract', identity, ttlSecs: 600} : {action: 'sign', message, ttlSecs: 600}, wallet, false, undefined,
+    scoped ? {action: 'ibe-extract', identity, ttlSecs: fixtureTtlSecs} : {action: 'sign', message, ttlSecs: fixtureTtlSecs}, wallet, false, undefined,
     async (request, fetcher) => {
       assert(request.signerDid.startsWith('did:web:'), 'Live JAR must verify through the platform did:web')
       const resolved = await verifyRequestObject(request.jwt, {resolveKey: defaultKeyResolver({fetchImpl: fetcher}), leewaySecs: 0})

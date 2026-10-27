@@ -33,6 +33,7 @@ import {privateKeyToAccount} from 'viem/accounts'
 import {Suite} from '../fleet/_assert.ts'
 import {discoverCommittee, gate, loadFleetConfig} from '../fleet/_fleet.ts'
 import {paidWalletSettings} from '../fleet/_paid-wallet.ts'
+import {fixturePaymentTtlSeconds} from '../fleet/_certification-timing.ts'
 import {waitForPaidSnapshot} from '../fleet/_paid-wallet-session.ts'
 import {fundFreshWalletSlot} from '../fleet/_prepaid-funding.ts'
 import {withDedicatedPayer} from '../fleet/_payer-queue.ts'
@@ -70,10 +71,11 @@ const SLOT_TASRA_UNITS = 1_000_000_000_000_000_000n   // the new slot's whole cr
 const MAX_TASRA_UNITS = 1_000_000_000_000_000n        // one operation costs at most 0.001 TASRA of it
 const MAX_GAS = 2_000_000n                            // gas limit of each reservation
 const MAX_FEE_PER_GAS = 100_000_000_000n              // at most 100 gwei per unit of gas
-const OPERATION_SECS = 600                            // an unused reservation expires after 10 minutes
 const POLL_TIMEOUT_MS = 120_000                       // longest wait for the verifiers' answer
 
 const cfg = loadFleetConfig()
+// Select the fixture lifetime before signing; reference remains 600s.
+const OPERATION_SECS = fixturePaymentTtlSeconds(cfg)
 const s = new Suite('e2e: Rego kk_oauth slot (OAuth + DPoP → policy → paid committee token → FROST sign)')
 if (!(await gate(s, cfg))) { s.done(); process.exit(process.env.TASRA_FLEET_REQUIRED ? 1 : 0) }
 
