@@ -1,24 +1,24 @@
 ---
 name: tasra-getting-started
 description: Build a TypeScript application with the installed Tasra SDK. Use for initial setup, choosing a slot API, locating deployment manifests, or selecting a complete signing or encryption tutorial.
-compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
+compatibility: Requires @t3foundry/tasra-sdk to be installed (npm install @t3foundry/tasra-sdk)
 metadata:
   package: @t3foundry/tasra-skills
-  sources: "node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/docs/compatibility.md, node_modules/tasra-sdk/docs/shared-account.md, node_modules/tasra-sdk/dist/app/index.d.ts"
+  sources: "node_modules/@t3foundry/tasra-sdk/docs/application-api.md, node_modules/@t3foundry/tasra-sdk/docs/compatibility.md, node_modules/@t3foundry/tasra-sdk/docs/shared-account.md, node_modules/@t3foundry/tasra-sdk/dist/app/index.d.ts"
 ---
 
 # Start a Tasra application
 
-Use `tasra-sdk/app` for new credential-controlled applications. Keep existing
+Use `@t3foundry/tasra-sdk/app` for new credential-controlled applications. Keep existing
 advanced clients when their capabilities are required; there is no client-count
 limit or forced migration.
 
 ## Prerequisites
 
-Verify `tasra-sdk` is installed before proceeding:
+Verify `@t3foundry/tasra-sdk` is installed before proceeding:
 
 ```sh
-node -e "require('tasra-sdk/package.json')" || (echo 'tasra-sdk not found. Install it: npm install tasra-sdk' && exit 1)
+node -e "require('@t3foundry/tasra-sdk/package.json')" || (echo '@t3foundry/tasra-sdk not found. Install it: npm install @t3foundry/tasra-sdk' && exit 1)
 ```
 
 1. Download the selected network pointer and manifest from
@@ -43,7 +43,7 @@ Relative Markdown links to `references/` stay inside the copied skill folder.
 ## Write the application
 
 ```ts
-import {TasraClient, type ApplicationManifest} from 'tasra-sdk/app'
+import {TasraClient, type ApplicationManifest} from '@t3foundry/tasra-sdk/app'
 
 export async function readAccount(manifest: ApplicationManifest, slotId: `0x${string}`) {
   const tasra = new TasraClient({manifest, coordinator: 'lowest-operator-id'})

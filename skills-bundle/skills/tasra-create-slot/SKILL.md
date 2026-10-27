@@ -1,22 +1,22 @@
 ---
 name: tasra-create-slot
 description: Create and provision a Tasra slot using a durable creation journal; resume known transactions and reconcile uncertain submissions. Also covers advanced funding, relay and lifecycle operations when requested.
-compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
+compatibility: Requires @t3foundry/tasra-sdk to be installed (npm install @t3foundry/tasra-sdk)
 metadata:
   package: @t3foundry/tasra-skills
-  sources: "node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/examples/encrypted-notes.ts, node_modules/tasra-sdk/dist/app/creation.d.ts, node_modules/tasra-sdk/dist/chain/write.d.ts"
+  sources: "node_modules/@t3foundry/tasra-sdk/docs/application-api.md, node_modules/@t3foundry/tasra-sdk/examples/encrypted-notes.ts, node_modules/@t3foundry/tasra-sdk/dist/app/creation.d.ts, node_modules/@t3foundry/tasra-sdk/dist/chain/write.d.ts"
 ---
 
 # Create and recover a slot
 
 Use `TasraClient` from a checksum-verified manifest downloaded from
 https://github.com/t3foundry/tasra-releases, SDK wallets and `slots.create` for new
-applications. Install only `tasra-sdk` as the runtime dependency. Before writing,
+applications. Install only `@t3foundry/tasra-sdk` as the runtime dependency. Before writing,
 confirm deployment compatibility and obtain authorization for the live effects.
 
 ```ts
-import {TasraClient, type ApplicationManifest, type TasraWallet} from 'tasra-sdk/app'
-import {createFileStore} from 'tasra-sdk/app/node'
+import {TasraClient, type ApplicationManifest, type TasraWallet} from '@t3foundry/tasra-sdk/app'
+import {createFileStore} from '@t3foundry/tasra-sdk/app/node'
 
 export async function createKey(manifest: ApplicationManifest, wallet: TasraWallet,
   policy: string, directory: string) {
@@ -39,7 +39,7 @@ The SDK rejects a policy whose query family disagrees with the selected type.
 OAuth DCQL is canonicalized for the commitment just like credential DCQL.
 `credentials.authorize` is an OID4VP helper; OAuth operations use
 `createOauthSession`, `submitOauthResponse` and `waitForSession` from
-`tasra-sdk/verifier-agent` with the IdP token and its bound DPoP signer.
+`@t3foundry/tasra-sdk/verifier-agent` with the IdP token and its bound DPoP signer.
 
 `slots.create` persists that intent before submission, commits/reveals, waits for
 the on-chain key, provisions the exact policy to assigned keepers and sets the

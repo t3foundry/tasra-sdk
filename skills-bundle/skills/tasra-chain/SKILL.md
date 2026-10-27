@@ -1,10 +1,10 @@
 ---
 name: tasra-chain
 description: Load pinned Tasra deployment manifests and read public registry or slot state. Use for tasra-releases, Fuji configuration, keeper discovery, explorer queries, events and advanced chain integration.
-compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
+compatibility: Requires @t3foundry/tasra-sdk to be installed (npm install @t3foundry/tasra-sdk)
 metadata:
   package: @t3foundry/tasra-skills
-  sources: "node_modules/tasra-sdk/docs/fuji.md, node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/docs/chain.md, node_modules/tasra-sdk/dist/chain/index.d.ts"
+  sources: "node_modules/@t3foundry/tasra-sdk/docs/fuji.md, node_modules/@t3foundry/tasra-sdk/docs/application-api.md, node_modules/@t3foundry/tasra-sdk/docs/chain.md, node_modules/@t3foundry/tasra-sdk/dist/chain/index.d.ts"
 ---
 
 # Configure a deployment and read public state
@@ -27,7 +27,7 @@ selected network's faucet or a wallet controlled by the user.
 ## Application reads
 
 ```ts
-import {TasraClient, type ApplicationManifest} from 'tasra-sdk/app'
+import {TasraClient, type ApplicationManifest} from '@t3foundry/tasra-sdk/app'
 
 export async function inspectSlot(manifest: ApplicationManifest, slotId: `0x${string}`) {
   const tasra = new TasraClient({manifest, coordinator: 'lowest-operator-id'})
@@ -46,7 +46,7 @@ credentials. Pass `keeperUrl` only for an explicitly approved routing map.
 ## Advanced chain consumers
 
 Explorer/indexer applications should keep `createTasraChainClient` and typed
-readers/events from `tasra-sdk/chain`. An existing read client may be injected into
+readers/events from `@t3foundry/tasra-sdk/chain`. An existing read client may be injected into
 `createTasra({deployment, chain})`; its registry addresses and chain must agree.
 Use `assignedNodes` plus NodeRegistry records for the slot's keeper identities;
 a configured URL list alone is not evidence of assignment.

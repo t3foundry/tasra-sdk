@@ -38,10 +38,10 @@ set once, by the slot creator, with `writer.setVerifierPolicy(slotId, committee,
 (the verifier-policy section of `tasra-create-slot/references/advanced.md`) — not something this side can work around.
 
 ```ts
-import {createHolderProof, fromBytes, type HolderSigner} from 'tasra-sdk'
-import {holderProofPerVerifier} from 'tasra-sdk/committee'
-import {createTasraChainClient, createCommitteeSlotClient, addressBookFromManifest, VERIFIER_TAG} from 'tasra-sdk/chain'
-import {ed25519ClientSigner} from 'tasra-sdk/committee'
+import {createHolderProof, fromBytes, type HolderSigner} from '@t3foundry/tasra-sdk'
+import {holderProofPerVerifier} from '@t3foundry/tasra-sdk/committee'
+import {createTasraChainClient, createCommitteeSlotClient, addressBookFromManifest, VERIFIER_TAG} from '@t3foundry/tasra-sdk/chain'
+import {ed25519ClientSigner} from '@t3foundry/tasra-sdk/committee'
 
 // manifest is the checksum-verified download from tasra-releases.
 const chainId = manifest.chainId
@@ -120,11 +120,11 @@ everywhere holder binding is enforced: it mints a fresh nonce-bound proof for
 each drawn verifier, on every request. `createCommitteeSlotClient` takes it as
 `holderProof`, and so do the lower-level flows (`requestCommitteeToken`,
 `committeeSign`, `committeeDecrypt`) and the one-call `committeeSignRequest`,
-`committeeDecryptRequest` and `ibeDecryptRequest` from `tasra-sdk/committee`.
+`committeeDecryptRequest` and `ibeDecryptRequest` from `@t3foundry/tasra-sdk/committee`.
 A plain string still works where the deployment has a single verifier, and a
 client built around one serves exactly one request.
 
-## `tasra-sdk/committee`
+## `@t3foundry/tasra-sdk/committee`
 
 The internals: `selectVerifierCommittee`, `compoundTokenHash`,
 `assembleCompoundToken`, `verifyCompoundToken`, Merkle proof helpers, wire
@@ -151,5 +151,5 @@ re-implementing the protocol, or to `verifyCompoundToken` offline.
 
 ## Where to read more
 
-- `node_modules/tasra-sdk/dist/chain/committeeClient.d.ts`,
-  `node_modules/tasra-sdk/dist/committee/index.d.ts`.
+- `node_modules/@t3foundry/tasra-sdk/dist/chain/committeeClient.d.ts`,
+  `node_modules/@t3foundry/tasra-sdk/dist/committee/index.d.ts`.

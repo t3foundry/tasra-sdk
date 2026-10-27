@@ -1,10 +1,10 @@
 ---
 name: tasra-oid4vp-wallet-and-verifier-agent
 description: Connect an application authorizer to a credential wallet or issue local development credentials. Use for registered verifier agents, OID4VP presentations, SD-JWT holder binding, OID4VCI receiving or an explicitly requested OAuth/DPoP integration.
-compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
+compatibility: Requires @t3foundry/tasra-sdk to be installed (npm install @t3foundry/tasra-sdk)
 metadata:
   package: @t3foundry/tasra-skills
-  sources: "node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/dist/app/authorization.d.ts, node_modules/tasra-sdk/dist/oid4vp/index.d.ts, node_modules/tasra-sdk/examples/encrypted-notes.ts"
+  sources: "node_modules/@t3foundry/tasra-sdk/docs/application-api.md, node_modules/@t3foundry/tasra-sdk/dist/app/authorization.d.ts, node_modules/@t3foundry/tasra-sdk/dist/oid4vp/index.d.ts, node_modules/@t3foundry/tasra-sdk/examples/encrypted-notes.ts"
 ---
 
 # Connect the application to a credential wallet

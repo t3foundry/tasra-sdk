@@ -12,14 +12,14 @@ native approval POSTs or signing requests with an uncertain outcome.
 
 The typed failures in the table below extend `TasraError` and carry a
 `retryable` flag. Other SDK errors can extend plain `Error`; see
-`node_modules/tasra-sdk/docs/errors.md`, under Uncertain submissions, for relay and
+`node_modules/@t3foundry/tasra-sdk/docs/errors.md`, under Uncertain submissions, for relay and
 agent-session reconciliation. Branch on exported types and fields, not `message`. Pure-crypto helpers (`decryptWithMasterKey`, `ibeDecryptWithKey`,
 `combineDecryptShares`, …) throw a plain `Error` on a bad key or ciphertext;
 `isRetryable` correctly reports `false` for those. All classes below are
-importable from `tasra-sdk`.
+importable from `@t3foundry/tasra-sdk`.
 
 ```ts
-import {isAuthDenied, isRetryable, ThresholdNotMetError, SlotRotatedError, TasraError} from 'tasra-sdk'
+import {isAuthDenied, isRetryable, ThresholdNotMetError, SlotRotatedError, TasraError} from '@t3foundry/tasra-sdk'
 
 try {
   return await readStatus() // An application read with no write effects.
@@ -156,5 +156,5 @@ wallet-side refusal by type alone.
 ## Where to read more
 
 - What a live run needs (endpoints, slot, credential): `tasra-getting-started`.
-- `node_modules/tasra-sdk/dist/errors.d.ts`; `CommitteeAuthorizeError` is declared in
+- `node_modules/@t3foundry/tasra-sdk/dist/errors.d.ts`; `CommitteeAuthorizeError` is declared in
   `dist/committee/client.d.ts` (re-exported from the main entry).

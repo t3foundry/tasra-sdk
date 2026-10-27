@@ -1,10 +1,10 @@
 ---
 name: tasra-rego-rules
 description: Write, lint, test and commit a Rego access policy (a kk_oauth envelope) for a Tasra slot whose holders sign in with their organization's own identity provider (OAuth, DPoP-bound access tokens). Use when an OAuth slot's decision needs more than DCQL value lists — nested roles, several claims combined, helper rules, case-insensitive matches.
-compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
+compatibility: Requires @t3foundry/tasra-sdk to be installed (npm install @t3foundry/tasra-sdk)
 metadata:
   package: @t3foundry/tasra-skills
-  sources: "node_modules/tasra-sdk/docs/flows.md, node_modules/tasra-sdk/dist/auth/rego.d.ts, node_modules/tasra-sdk/dist/chain/write.d.ts, node_modules/tasra-sdk/dist/chain/provisionRule.d.ts, node_modules/tasra-sdk/dist/committee/oauth.d.ts"
+  sources: "node_modules/@t3foundry/tasra-sdk/docs/flows.md, node_modules/@t3foundry/tasra-sdk/dist/auth/rego.d.ts, node_modules/@t3foundry/tasra-sdk/dist/chain/write.d.ts, node_modules/@t3foundry/tasra-sdk/dist/chain/provisionRule.d.ts, node_modules/@t3foundry/tasra-sdk/dist/committee/oauth.d.ts"
 ---
 
 # Write a Rego policy for an OAuth slot
@@ -23,8 +23,8 @@ operations. If the decision is a plain value list (`role` is one of …), an OAu
 query is simpler — see `tasra-dcql-rules`.
 
 ```ts
-import {evaluateEnvelope, lintEnvelope, packEnvelope, type OauthTokens} from 'tasra-sdk'
-import {platformAudience} from 'tasra-sdk/committee'
+import {evaluateEnvelope, lintEnvelope, packEnvelope, type OauthTokens} from '@t3foundry/tasra-sdk'
+import {platformAudience} from '@t3foundry/tasra-sdk/committee'
 
 const POLICY = `package tasra.slot
 
@@ -58,11 +58,11 @@ be allowed.
 
 ## Commit it to a slot
 
-Create the slot with the low-level writer from `tasra-sdk/chain`. The application-level
+Create the slot with the low-level writer from `@t3foundry/tasra-sdk/chain`. The application-level
 `tasra.slots.create({policy})` accepts DCQL policies only and refuses an envelope.
 
 ```ts
-import {provisionRule, type ProvisionRuleArgs, type TasraChainClient, type TasraWriteClient} from 'tasra-sdk/chain'
+import {provisionRule, type ProvisionRuleArgs, type TasraChainClient, type TasraWriteClient} from '@t3foundry/tasra-sdk/chain'
 
 type Journal = (entry: {rule: string; ruleSalt: `0x${string}`; slotId?: `0x${string}`}) => Promise<void>
 
@@ -86,7 +86,7 @@ Provision after the slot's key exists; `tasra-create-slot` covers durable creati
 recovery and retries.
 
 Holders authorize through the Verifier Agent's OAuth session (`createOauthSession`,
-`submitOauthResponse`, `waitForSession` from `tasra-sdk/verifier-agent`), not with a wallet
+`submitOauthResponse`, `waitForSession` from `@t3foundry/tasra-sdk/verifier-agent`), not with a wallet
 presentation — see `tasra-oid4vp-wallet-and-verifier-agent`.
 
 ## What a refused holder sees

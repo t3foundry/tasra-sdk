@@ -1,16 +1,16 @@
 ---
 name: tasra-committee-path
 description: Use Tasra native FROST approval quorum or integrate request-bound committee operations. Use for two-person approval, dual-sign create/status/approve/resume, keeper receipts, and advanced compound-token consumers.
-compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
+compatibility: Requires @t3foundry/tasra-sdk to be installed (npm install @t3foundry/tasra-sdk)
 metadata:
   package: @t3foundry/tasra-skills
-  sources: "node_modules/tasra-sdk/docs/native-approvals.md, node_modules/tasra-sdk/examples/credential-approvals.ts, node_modules/tasra-sdk/dist/committee/dual-sign.d.ts, node_modules/tasra-sdk/dist/committee/receipts.d.ts"
+  sources: "node_modules/@t3foundry/tasra-sdk/docs/native-approvals.md, node_modules/@t3foundry/tasra-sdk/examples/credential-approvals.ts, node_modules/@t3foundry/tasra-sdk/dist/committee/dual-sign.d.ts, node_modules/@t3foundry/tasra-sdk/dist/committee/receipts.d.ts"
 ---
 
 # Request-bound operations and native approvals
 
-For ordinary signing/decryption use typed slots from `tasra-sdk/app`; they validate
-the exact-operation grant and anchored result. Reach for `tasra-sdk/committee`
+For ordinary signing/decryption use typed slots from `@t3foundry/tasra-sdk/app`; they validate
+the exact-operation grant and anchored result. Reach for `@t3foundry/tasra-sdk/committee`
 when an existing application needs the lower-level contract, not simply because it
 uses multiple keepers.
 
@@ -25,7 +25,7 @@ durable store. For static keys, adapt SDK Ed25519 identities with `identityAppro
 
 ```ts
 import {setApprovalPolicy, identityApprover, type TasraClient,
-  type TasraIdentity, type TasraWallet, type ApplicationStore} from 'tasra-sdk/app'
+  type TasraIdentity, type TasraWallet, type ApplicationStore} from '@t3foundry/tasra-sdk/app'
 
 export async function startApproval(tasra: TasraClient, slotId: `0x${string}`,
   alice: TasraIdentity, bob: TasraIdentity, creator: TasraWallet,

@@ -13,7 +13,7 @@ native approval POSTs or signing requests with an uncertain outcome.
 
 A slot is one threshold keypair plus the access policy governing it. Creating
 one is a transaction signed by the creator’s EVM account. Confirm the selected
-network’s creation and usage charges before submitting. Everything below lives in `tasra-sdk/chain`
+network’s creation and usage charges before submitting. Everything below lives in `@t3foundry/tasra-sdk/chain`
 and needs `viem` installed.
 
 Generate and privately save the creator key, then fund its public address through
@@ -48,8 +48,8 @@ when the slot will be used over the committee path. The block below is steps 3 t
 import {
   createTasraChainClient, createTasraWriteClient, addressBookFromManifest,
   resolveSlotKeeperUrls, resolveVerifierDirectory,
-} from 'tasra-sdk/chain'
-import {fetchMpk} from 'tasra-sdk'
+} from '@t3foundry/tasra-sdk/chain'
+import {fetchMpk} from '@t3foundry/tasra-sdk'
 import {keccak256, toHex} from 'viem'
 
 const addresses = addressBookFromManifest(manifest)
@@ -166,9 +166,9 @@ you type: "Registry membership alone never selects a service." A `{url, forwarde
 is the old shape and no longer compiles.
 
 ```ts
-import {SERVICE_TYPES, readApprovedServiceRecord} from 'tasra-sdk/chain'
-import type {RegisteredRelayConfig, ServiceApproval} from 'tasra-sdk/chain'
-import {createNodeRelayTransport} from 'tasra-sdk/chain/node'   // NOTE the /chain/node subpath
+import {SERVICE_TYPES, readApprovedServiceRecord} from '@t3foundry/tasra-sdk/chain'
+import type {RegisteredRelayConfig, ServiceApproval} from '@t3foundry/tasra-sdk/chain'
+import {createNodeRelayTransport} from '@t3foundry/tasra-sdk/chain/node'   // NOTE the /chain/node subpath
 
 // 1. Find the registered relayer. SERVICE_TYPES.gasRelayer = 0; status 0 = active.
 const ids = await chain.readers.serviceRegistry.serviceIds(0n, 20n)
@@ -265,7 +265,7 @@ Use creator-signed provisioning on compatible fleets. The SDK already exposes
 Persist the slot ID, rule salt and clear rule before submitting creation.
 
 ```ts
-import {provisionRule} from 'tasra-sdk/chain'
+import {provisionRule} from '@t3foundry/tasra-sdk/chain'
 
 await provisionRule(chain, {
   slotId, rule, ruleSalt,
@@ -350,7 +350,7 @@ until enough keepers already hold its preimage, so a slot never points at a comm
 nobody can resolve. `ruleAdoptionThreshold(slotId)` and `ruleAdoptionVotes(slotId)` read
 the progress.
 
-`tasra-sdk/chain` covers every step: `proposeRuleUpdate`, `endorseRuleUpdate`,
+`@t3foundry/tasra-sdk/chain` covers every step: `proposeRuleUpdate`, `endorseRuleUpdate`,
 `vetoRuleUpdate` and `activateRuleUpdate` on the write client (each refuses, before signing,
 what the contract would revert), `readRuleAmendment` for the state above, and `amendSlotRule`,
 which drives propose → deliver → adoption → endorse → activate and resumes when called again.
@@ -426,6 +426,6 @@ credential paths (`tasra-committee-path`, `vpJwt` sessions).
 
 ## Where to read more
 
-- `node_modules/tasra-sdk/docs/chain.md` and `docs/prerequisites.md`.
-- `node_modules/tasra-sdk/dist/chain/write.d.ts` (`CreateSlotArgs`,
+- `node_modules/@t3foundry/tasra-sdk/docs/chain.md` and `docs/prerequisites.md`.
+- `node_modules/@t3foundry/tasra-sdk/dist/chain/write.d.ts` (`CreateSlotArgs`,
   `WriteClientConfig`, `RelayConfig`).

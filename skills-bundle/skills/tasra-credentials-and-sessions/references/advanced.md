@@ -43,7 +43,7 @@ Which one a slot accepts is decided by its rule: a rule naming the
 authorization, not at compile time.
 
 ```ts
-import {createTasraClient} from 'tasra-sdk'
+import {createTasraClient} from '@t3foundry/tasra-sdk'
 
 const kk = createTasraClient({        // construction contacts nothing; config is validated in openSession
   nodes: ['https://node-1', 'https://node-2', 'https://node-3'],
@@ -67,7 +67,7 @@ import {
   redeemCredential, redeemRenewalToken, createRenewal, revokeRenewal,
   issueAdminCredential, revokeSlotUser, decodeJwtClaims, jwtExpMs, isJwtExpiringSoon,
   type RedemptionGrant, type IssuedToken, type RenewalGrant, type JwtClaims,
-} from 'tasra-sdk'
+} from '@t3foundry/tasra-sdk'
 
 // `verifierUrl` is the verifier's base URL (a string) in every call below.
 
@@ -124,7 +124,7 @@ Verifiers that require holder binding demand a proof-of-possession signed by
 the holder DID's authentication key, bound to a fresh nonce from that verifier:
 
 ```ts
-import {createHolderProof, ed25519DidKey} from 'tasra-sdk'
+import {createHolderProof, ed25519DidKey} from '@t3foundry/tasra-sdk'
 import {ed25519} from '@noble/curves/ed25519'
 
 // The holder DID is NOT a free choice — see "Which holder DID" below.
@@ -145,7 +145,7 @@ involved:
 `createHolderProof(verifierUrl, {signer, audience, credentials, slotId})` builds the
 proof string directly when you are not going through the managed client. On the wallet
 side the equivalent object is a `HolderKey` from `ed25519HolderKey(seed)` /
-`randomHolderKey()` / `p256HolderKey(seed)` in `tasra-sdk/oid4vp` — a different type
+`randomHolderKey()` / `p256HolderKey(seed)` in `@t3foundry/tasra-sdk/oid4vp` — a different type
 for a different job (KB-JWTs), so do not mix them up.
 
 ### Which holder DID
@@ -169,7 +169,7 @@ placeholder elsewhere in these skills is exactly what a real verifier turns away
 
 A proof is bound to one verifier's nonce and consumed atomically. One proof
 cannot be fanned out to several verifiers; for the committee path use
-`holderProofPerVerifier` from `tasra-sdk/committee`.
+`holderProofPerVerifier` from `@t3foundry/tasra-sdk/committee`.
 
 ## Common mistakes
 
@@ -192,6 +192,6 @@ cannot be fanned out to several verifiers; for the committee path use
 
 ## Where to read more
 
-- `node_modules/tasra-sdk/docs/api.md` and `docs/architecture.md`.
-- `node_modules/tasra-sdk/dist/auth/*.d.ts` (grants, tokens, holder proofs)
+- `node_modules/@t3foundry/tasra-sdk/docs/api.md` and `docs/architecture.md`.
+- `node_modules/@t3foundry/tasra-sdk/dist/auth/*.d.ts` (grants, tokens, holder proofs)
   and `dist/client/client.d.ts` (`TasraClientConfig`, `SessionAuth`).

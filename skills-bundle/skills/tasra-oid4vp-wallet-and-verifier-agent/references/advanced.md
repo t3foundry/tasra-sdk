@@ -12,13 +12,13 @@ native approval POSTs or signing requests with an uncertain outcome.
 
 The platform speaks the OpenID4VP 1.0 wallet contract (DCQL queries, SD-JWT VC
 with key binding, JARM `direct_post.jwt`, OpenID4VCI pre-authorized issuance).
-`tasra-sdk/oid4vp` implements both sides; `tasra-sdk/verifier-agent` is the thin
+`@t3foundry/tasra-sdk/oid4vp` implements both sides; `@t3foundry/tasra-sdk/verifier-agent` is the thin
 session client under the verifier-agent side.
 
 ## Relying party (your app)
 
 ```ts
-import {openVerifierAgentSession, awaitVerifierAgentResult} from 'tasra-sdk/oid4vp'
+import {openVerifierAgentSession, awaitVerifierAgentResult} from '@t3foundry/tasra-sdk/oid4vp'
 import {privateKeyToAccount} from 'viem/accounts'   // this advanced example directly imports viem
 
 const creatorKey = process.env.KK_CREATOR_KEY as `0x${string}`   // the slot creator's EVM private key, 0x-hex
@@ -59,7 +59,7 @@ checks the token's request binding against the session. Errors are
 `VerifierAgentSessionError` with `kind` `timeout | refused | unavailable | protocol | cancelled`
 (see `tasra-handle-errors`); pass an `AbortSignal` to cancel.
 
-Lower level, `tasra-sdk/verifier-agent`: `createOid4vpSession(verifierAgentUrl, {operation,
+Lower level, `@t3foundry/tasra-sdk/verifier-agent`: `createOid4vpSession(verifierAgentUrl, {operation,
 operationSig, messageHex})`, `pollOid4vpSession(verifierAgentUrl, sessionId, pollSecret)`,
 `waitForSession(...)` with bounded jittered polling, and
 `payloadDigest(action, messageHex)`.
@@ -77,8 +77,8 @@ Use it when the slot's rule names the `oauth+access-token+dpop` format
 credential-format rule authorizes nothing.
 
 ```ts
-import {createOauthSession, submitOauthResponse, waitForSession} from 'tasra-sdk/verifier-agent'
-import {createDpopKey} from 'tasra-sdk'
+import {createOauthSession, submitOauthResponse, waitForSession} from '@t3foundry/tasra-sdk/verifier-agent'
+import {createDpopKey} from '@t3foundry/tasra-sdk'
 
 const session = await createOauthSession(verifierAgentUrl, {
   operation, operationSig, messageHex,      // identical to createOid4vpSession
@@ -122,7 +122,7 @@ Four things that bite:
 is why any conformant client library derives the same string from the URL it is about to
 call. `accessTokenHash`, `jwkThumbprint` and `isHeaderSafeNonce` are exported if you are
 building a proof by hand; `platformAudience(origin, chainId)` and `dpopHtu(origin)` from
-`tasra-sdk/committee` derive the two strings rather than hardcoding them.
+`@t3foundry/tasra-sdk/committee` derive the two strings rather than hardcoding them.
 
 Errors are the same `VerifierAgentSessionError` kinds. A verifier-agent too old for this
 kind refuses the session saying it does not support it, rather than failing obscurely
@@ -131,8 +131,8 @@ later.
 ## Wallet
 
 ```ts
-import {ed25519HolderKey, randomHolderKey, receiveCredential, presentToRequestUri, defaultKeyResolver, planPresentation, buildResponse, submitResponse} from 'tasra-sdk/oid4vp'
-import {hexToBytes} from 'tasra-sdk'
+import {ed25519HolderKey, randomHolderKey, receiveCredential, presentToRequestUri, defaultKeyResolver, planPresentation, buildResponse, submitResponse} from '@t3foundry/tasra-sdk/oid4vp'
+import {hexToBytes} from '@t3foundry/tasra-sdk'
 
 // A WALLET PRESENTS WHAT IT HOLDS. Where a deployment issues the credential its slots ask for, it
 // hands you that credential and the holder key it is bound to — read them (KK_CREDENTIALS and the
@@ -186,7 +186,7 @@ nothing is sent: `presentToRequestUri` throws
 ## Issuer (offline)
 
 ```ts
-import {issueSdJwtVc, p256DidKeyIssuer, holderCnf, randomHolderKey} from 'tasra-sdk/oid4vp'
+import {issueSdJwtVc, p256DidKeyIssuer, holderCnf, randomHolderKey} from '@t3foundry/tasra-sdk/oid4vp'
 
 const issuer = p256DidKeyIssuer(crypto.getRandomValues(new Uint8Array(32)))   // {did, signer}; or didJwkIssuer(...)
                                                                               // global crypto: Node >= 19, or lib 'DOM' in tsconfig

@@ -1,10 +1,10 @@
 ---
 name: tasra-encryption
 description: Encrypt and decrypt data with typed BLS KEM slots. Use for encrypted notes, private records, share provenance and large encrypted objects.
-compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
+compatibility: Requires @t3foundry/tasra-sdk to be installed (npm install @t3foundry/tasra-sdk)
 metadata:
   package: @t3foundry/tasra-skills
-  sources: "node_modules/tasra-sdk/dist/app/client.d.ts, node_modules/tasra-sdk/dist/committee/extraction.d.ts, node_modules/tasra-sdk/src/crypto/kem, node_modules/tasra-sdk/dist/crypto/envelope.d.ts"
+  sources: "node_modules/@t3foundry/tasra-sdk/dist/app/client.d.ts, node_modules/@t3foundry/tasra-sdk/dist/committee/extraction.d.ts, node_modules/@t3foundry/tasra-sdk/src/crypto/kem, node_modules/@t3foundry/tasra-sdk/dist/crypto/envelope.d.ts"
 ---
 
 # Encrypt data with BLS KEM
@@ -99,7 +99,7 @@ keys: `manifest` (record identity and cryptographic parameters) and `envelope`
 ## Full example
 
 ```ts
-import { createTasra, createIdentity, issueCredential, credentialPolicy, credentialAuthorization } from 'tasra-sdk/app'
+import { createTasra, createIdentity, issueCredential, credentialPolicy, credentialAuthorization } from '@t3foundry/tasra-sdk/app'
 import { webcrypto } from 'node:crypto'  // or Web Crypto API in the browser
 
 // ── Setup ───────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ Uint8Array`, `evidence` and `shareTrust`. Always zeroize key buffers when done.
 
 ## Integrating an existing application
 
-`decryptIdentityStrict` from `tasra-sdk/committee` accepts an independently
+`decryptIdentityStrict` from `@t3foundry/tasra-sdk/committee` accepts an independently
 anchored group key, expected slot/epoch/threshold and assigned operator
 identities/public keys. Supply the operation's token and verifier membership
 proofs; do not rebuild collection/combination around untrusted response data.

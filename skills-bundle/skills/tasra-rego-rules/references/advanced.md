@@ -30,7 +30,7 @@ every level and duplicate keys (it never resolves a duplicate to the last one).
 | token id (`corp`) | `^[a-z][a-z0-9_]{0,31}$`; **exactly one token per envelope today** — `lintEnvelope` reports a multi-token envelope as not admissible |
 | `format` | `oauth+access-token+dpop` |
 | `iss` | 1–8 entries, each byte-equal to the provider's discovery `issuer` |
-| `aud` | required, 1–8 non-blank entries ≤ 512 bytes; use `platformAudience(agentOrigin, chainId)` from `tasra-sdk/committee` rather than typing it |
+| `aud` | required, 1–8 non-blank entries ≤ 512 bytes; use `platformAudience(agentOrigin, chainId)` from `@t3foundry/tasra-sdk/committee` rather than typing it |
 | `max_age_secs` | 1..=86400 |
 | `ci_claims` | optional, ≤ 8 distinct top-level claim names (1–64 bytes) to expose lower-cased |
 | `policy.lang` | `rego/v1` |
@@ -169,7 +169,7 @@ mismatch (`count(5)`) is undefined too.
 The slot commits to the exact envelope string, and the network accepts nothing else. A
 changed policy (even whitespace) is an amendment and needs the slot's configured amendment
 policy; without one, create a new slot. With one, `amendSlotRule` on the write client
-(`tasra-sdk/chain`) drives propose → `provisionRule({expect: 'pending'})` → adoption →
+(`@t3foundry/tasra-sdk/chain`) drives propose → `provisionRule({expect: 'pending'})` → adoption →
 activation; `proposeRuleUpdate`, `endorseRuleUpdate`, `vetoRuleUpdate` and
 `activateRuleUpdate` are the individual steps. Keep the policy source in version control with the
 exact packed string and its salt, and recover the parts of a deployed rule with

@@ -1,10 +1,10 @@
 ---
 name: tasra-dcql-rules
 description: Define and validate Tasra credential access rules, including issuer/subject restrictions and IBE identity scopes. Use for DCQL policy design, rule commitments, credential alternatives or explicitly requested OAuth rules.
-compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
+compatibility: Requires @t3foundry/tasra-sdk to be installed (npm install @t3foundry/tasra-sdk)
 metadata:
   package: @t3foundry/tasra-skills
-  sources: "node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/examples/encrypted-notes.ts, node_modules/tasra-sdk/dist/auth/oid4vp.d.ts, node_modules/tasra-sdk/dist/chain/write.d.ts"
+  sources: "node_modules/@t3foundry/tasra-sdk/docs/application-api.md, node_modules/@t3foundry/tasra-sdk/examples/encrypted-notes.ts, node_modules/@t3foundry/tasra-sdk/dist/auth/oid4vp.d.ts, node_modules/@t3foundry/tasra-sdk/dist/chain/write.d.ts"
 ---
 
 # Write the slot's credential rule
@@ -15,7 +15,7 @@ provision it with the creator's signature. Existing slots cannot generally be
 changed without their configured amendment policy.
 
 ```ts
-import {credentialPolicy} from 'tasra-sdk/app'
+import {credentialPolicy} from '@t3foundry/tasra-sdk/app'
 
 export function sharedSignerRule(issuerDid: string, aliceDid: string, bobDid: string) {
   return credentialPolicy({issuer: issuerDid, type: 'TreasurySigner',

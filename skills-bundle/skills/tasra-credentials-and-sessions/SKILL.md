@@ -1,10 +1,10 @@
 ---
 name: tasra-credentials-and-sessions
 description: Choose authorization for a Tasra application and manage credential/holder lifetime. Use for exact-operation grants, registered wallet authorization, token expiry, or maintaining existing JWT renewal/redemption sessions.
-compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
+compatibility: Requires @t3foundry/tasra-sdk to be installed (npm install @t3foundry/tasra-sdk)
 metadata:
   package: @t3foundry/tasra-skills
-  sources: "node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/dist/app/authorization.d.ts, node_modules/tasra-sdk/dist/app/client.d.ts"
+  sources: "node_modules/@t3foundry/tasra-sdk/docs/application-api.md, node_modules/@t3foundry/tasra-sdk/dist/app/authorization.d.ts, node_modules/@t3foundry/tasra-sdk/dist/app/client.d.ts"
 ---
 
 # Credentials and application authorization
@@ -19,7 +19,7 @@ credentials with `tasra.credentials.issue()`, and verify pins with
 `tasra.credentials.verify()`. Build the ordinary per-operation callback with:
 
 ```ts
-import type {TasraClient, TasraIdentity, TasraWallet} from 'tasra-sdk/app'
+import type {TasraClient, TasraIdentity, TasraWallet} from '@t3foundry/tasra-sdk/app'
 
 export function authorizeHolder(tasra: TasraClient, creator: TasraWallet,
   identity: TasraIdentity, credential: string) {

@@ -8,7 +8,7 @@ JWT/admin authorization. Retry advice here applies only when the operation is kn
 safe to repeat; it never authorizes blindly repeating transaction submissions,
 native approval POSTs or signing requests with an uncertain outcome.
 
-# `tasra-sdk/chain`
+# `@t3foundry/tasra-sdk/chain`
 
 Everything on-chain, behind its own subpath so the crypto core stays free of
 `viem` imports. The SDK installs viem automatically; declare it in your own
@@ -33,13 +33,13 @@ changes its digest. A trusted local checkout of the same revision works too.
 The pointer's checksum protects the record only when you trust its source; hashing
 an arbitrary download yourself does not establish authenticity.
 
-Complete Node bootstrap (`npm install tasra-sdk@latest`):
+Complete Node bootstrap (`npm install @t3foundry/tasra-sdk@latest`):
 
 ```ts
 import {
   parsePinnedNetworkManifest, addressBookFromManifest, createTasraChainClient,
   observeNetworkManifest, NETWORKS,
-} from 'tasra-sdk/chain'
+} from '@t3foundry/tasra-sdk/chain'
 
 const revision = process.env.TASRA_RELEASES_REF
 if (!revision || !/^[a-f0-9]{40}$/.test(revision)) throw new Error('Set TASRA_RELEASES_REF to a reviewed release-repository commit')
@@ -73,7 +73,7 @@ To use a previously downloaded record with the SDK's live examples, set
 
 ```ts
 import {readFileSync} from 'node:fs'
-import {parsePinnedNetworkManifest, addressBookFromManifest, createTasraChainClient, observeNetworkManifest} from 'tasra-sdk/chain'
+import {parsePinnedNetworkManifest, addressBookFromManifest, createTasraChainClient, observeNetworkManifest} from '@t3foundry/tasra-sdk/chain'
 
 const manifest  = parsePinnedNetworkManifest(readFileSync(path, 'utf8'), expectedSha256)
 const addresses = addressBookFromManifest(manifest)
@@ -108,7 +108,7 @@ no private source checkout is needed.
 ## Address book and read client
 
 ```ts
-import {createTasraChainClient, addressBookFromManifest, addressBookFromObject, requireAddress, NETWORKS} from 'tasra-sdk/chain'
+import {createTasraChainClient, addressBookFromManifest, addressBookFromObject, requireAddress, NETWORKS} from '@t3foundry/tasra-sdk/chain'
 
 // manifest is downloaded from tasra-releases and verified against its trusted checksum.
 const addresses = addressBookFromManifest(manifest)
@@ -173,7 +173,7 @@ turned into a string, so hand its result to `JSON.stringify`.
 ## Discovery
 
 ```ts
-import {resolveSlotKeeperUrls, resolveVerifierDirectory, resolveSlotGroupKey, VERIFIER_TAG} from 'tasra-sdk/chain'
+import {resolveSlotKeeperUrls, resolveVerifierDirectory, resolveSlotGroupKey, VERIFIER_TAG} from '@t3foundry/tasra-sdk/chain'
 
 const keeperUrls = await resolveSlotKeeperUrls(chain, slotId)   // assignedNodes → NodeRegistry.nodeOf(op).url
 const verifiers  = await resolveVerifierDirectory(chain)         // CommitteeVerifier[] {index, url, operator?, pubkey?}, by ascending address
@@ -187,7 +187,7 @@ const {publicKey, epoch, mode} = await resolveSlotGroupKey(chain, slotId)   // m
 `KeyRegistry`; `createTasraSlotClient` uses the first two. The committee path
 also reads `ThresholdRandomBeacon` and `VerifierSetRegistry` (`tasra-committee-path`).
 
-Network-service HTTP readers (`import {nodeApi, verifierApi, parsePrometheus} from 'tasra-sdk/chain'`)
+Network-service HTTP readers (`import {nodeApi, verifierApi, parsePrometheus} from '@t3foundry/tasra-sdk/chain'`)
 are plain objects of functions taking the base URL:
 `nodeApi.info(nodeUrl)` (`version`, `peer_id`, `node_identifier` — the node's BLS
 identifier — and feature gates such as `admin_scope_enabled`; fields are
@@ -200,7 +200,7 @@ reach them, so apply the same mapping yourself to a discovered URL first.
 ## The slot-driven client
 
 ```ts
-import {createTasraSlotClient} from 'tasra-sdk/chain'
+import {createTasraSlotClient} from '@t3foundry/tasra-sdk/chain'
 
 const kk = createTasraSlotClient({
   chain,
@@ -234,4 +234,4 @@ modes are described in the compatibility reference for
 
 ## Where to read more
 
-- `node_modules/tasra-sdk/dist/chain/index.d.ts` and the files it re-exports.
+- `node_modules/@t3foundry/tasra-sdk/dist/chain/index.d.ts` and the files it re-exports.

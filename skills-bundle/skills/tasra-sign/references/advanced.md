@@ -61,15 +61,15 @@ if readiness does not complete.
 
 ## Threshold ECDSA under the production posture
 
-Use `committeeSignEoaDigest` from `tasra-sdk/committee` for
-`POST /v1/committee/sign/eoa-digest`. Install with `npm install tasra-sdk@latest`.
+Use `committeeSignEoaDigest` from `@t3foundry/tasra-sdk/committee` for
+`POST /v1/committee/sign/eoa-digest`. Install with `npm install @t3foundry/tasra-sdk@latest`.
 Load a verified network manifest from tasra-releases and confirm that its services
 support operation-bound ECDSA authorization and signing.
 
 ```ts
 import {keccak256, serializeTransaction, hexToBytes, toHex} from 'viem'
-import {committeeSignEoaDigest} from 'tasra-sdk/committee'
-import {openVerifierAgentSession, awaitVerifierAgentResult, presentToRequestUri} from 'tasra-sdk/oid4vp'
+import {committeeSignEoaDigest} from '@t3foundry/tasra-sdk/committee'
+import {openVerifierAgentSession, awaitVerifierAgentResult, presentToRequestUri} from '@t3foundry/tasra-sdk/oid4vp'
 
 const digest = keccak256(serializeTransaction(tx))
 const session = await openVerifierAgentSession({
@@ -154,7 +154,7 @@ Primitives, when you drive it yourself:
 ### An Ethereum account whose key is split across the fleet
 
 ```ts
-import {signEoaDigest, ethSignatureV, addressFromEoaPubkey, redeemRenewalToken} from 'tasra-sdk'
+import {signEoaDigest, ethSignatureV, addressFromEoaPubkey, redeemRenewalToken} from '@t3foundry/tasra-sdk'
 
 const {groupPublicKey, r, s, yParity} = await signEoaDigest({nodeUrl, jwt, slotId, digest})
 const from = addressFromEoaPubkey(groupPublicKey)
@@ -162,13 +162,13 @@ const v = ethSignatureV(yParity, chainId)          // chainId ONLY for legacy tx
                                                    // messages, EIP-712 and typed transactions
 ```
 
-A viem `Account` adapter is included in `node_modules/tasra-sdk/examples/viem-account.ts`.
+A viem `Account` adapter is included in `node_modules/@t3foundry/tasra-sdk/examples/viem-account.ts`.
 The shape below hashes locally and lets the fleet sign the digest:
 
 ```ts
 import {toAccount} from 'viem/accounts'
 import {hashMessage, hashTypedData, keccak256, serializeTransaction, getTransactionType, numberToHex, bytesToHex, concatHex, hexToBytes} from 'viem'
-import {signEoaDigest, ethSignatureV, addressFromEoaPubkey, redeemRenewalToken, fetchMpk, TasraHttpError} from 'tasra-sdk'
+import {signEoaDigest, ethSignatureV, addressFromEoaPubkey, redeemRenewalToken, fetchMpk, TasraHttpError} from '@t3foundry/tasra-sdk'
 
 // jwt: KK_JWT if set; otherwise redeem the renewal token once and reuse it until shortly before exp (Unix seconds)
 let issued: {token: string; exp: number} | undefined
@@ -281,5 +281,5 @@ takes the original message bytes, not `sig.messageSha256`.
 
 ## Where to read more
 
-- `node_modules/tasra-sdk/dist/signing/*.d.ts`,
-  `node_modules/tasra-sdk/dist/decryption/*.d.ts`.
+- `node_modules/@t3foundry/tasra-sdk/dist/signing/*.d.ts`,
+  `node_modules/@t3foundry/tasra-sdk/dist/decryption/*.d.ts`.

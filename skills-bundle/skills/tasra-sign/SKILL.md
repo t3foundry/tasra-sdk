@@ -1,15 +1,15 @@
 ---
 name: tasra-sign
 description: Use typed Tasra slots for Ethereum or FROST signing and credential-controlled decryption. Use for an EVM address, viem account, shared account, document signatures, or choosing between two signatures and native approval quorum.
-compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
+compatibility: Requires @t3foundry/tasra-sdk to be installed (npm install @t3foundry/tasra-sdk)
 metadata:
   package: @t3foundry/tasra-skills
-  sources: "node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/docs/document-signing.md, node_modules/tasra-sdk/docs/native-approvals.md, node_modules/tasra-sdk/dist/app/index.d.ts"
+  sources: "node_modules/@t3foundry/tasra-sdk/docs/application-api.md, node_modules/@t3foundry/tasra-sdk/docs/document-signing.md, node_modules/@t3foundry/tasra-sdk/docs/native-approvals.md, node_modules/@t3foundry/tasra-sdk/dist/app/index.d.ts"
 ---
 
 # Sign with a typed slot
 
-Use the `tasra-sdk/app` interface for new applications. The installed
+Use the `@t3foundry/tasra-sdk/app` interface for new applications. The installed
 `docs/application-api.md` describes configuration and authorizers; complete sources
 are under `examples/`. Do not lead an operation-bound application through bearer-JWT
 session signing. Existing JWT/ethers and custody APIs are advanced compatibility paths.
@@ -17,7 +17,7 @@ session signing. Existing JWT/ethers and custody APIs are advanced compatibility
 ## Ethereum wallet and durable transfers
 
 ```ts
-import type {TasraClient, OperationAuthorizer, ApplicationStore} from 'tasra-sdk/app'
+import type {TasraClient, OperationAuthorizer, ApplicationStore} from '@t3foundry/tasra-sdk/app'
 
 export async function sendPayment(tasra: TasraClient, slotId: `0x${string}`,
   to: `0x${string}`, authorize: OperationAuthorizer, store: ApplicationStore) {
@@ -44,7 +44,7 @@ DCQL `values: [alice, bob]` list.
 ## Document signatures
 
 ```ts
-import type {TasraClient, OperationAuthorizer} from 'tasra-sdk/app'
+import type {TasraClient, OperationAuthorizer} from '@t3foundry/tasra-sdk/app'
 
 export async function signDocumentStatement(
   tasra: TasraClient, slotId: `0x${string}`, statement: Uint8Array, authorize: OperationAuthorizer,

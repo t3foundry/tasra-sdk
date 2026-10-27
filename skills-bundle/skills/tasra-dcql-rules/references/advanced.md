@@ -56,7 +56,7 @@ Rules that the validator enforces:
 - Several credentials are combined with `credential_sets`; absent, every listed
   credential is required.
 - Whole rule ≤ `DCQL_MAX_RULE_LEN` (4096 bytes, measured on the raw text before
-  parsing; the constant is exported from `tasra-sdk`).
+  parsing; the constant is exported from `@t3foundry/tasra-sdk`).
 - Identity-scoped rules add `kk_identity_scope_claim` and `kk_scope_namespace` —
   see the next section; a slot that serves IBE extraction needs them.
 
@@ -99,7 +99,7 @@ IdP chooses — so the rule is the only place any of it can be pinned:
    type, and accepting them would let a rule look constrained while constraining nothing.
 
 Derive the audience rather than typing it: `platformAudience(origin, chainId)` from
-`tasra-sdk/committee`, which also has the DPoP `htu` derivation. `isOauthFormat(format)`
+`@t3foundry/tasra-sdk/committee`, which also has the DPoP `htu` derivation. `isOauthFormat(format)`
 tells you whether a format is in this family.
 
 **Authorizing against such a slot is a different surface**, not `openSession`: it runs
@@ -163,7 +163,7 @@ operation` (`tasra-encryption`).
   `MAX_IDENTITY_LEN` (1024 bytes, exported) or containing NUL matches nothing.
 
 ```ts
-import {evaluateIdentityScoped, scopeCovers, MAX_IDENTITY_LEN} from 'tasra-sdk'
+import {evaluateIdentityScoped, scopeCovers, MAX_IDENTITY_LEN} from '@t3foundry/tasra-sdk'
 
 scopeCovers('did:web:hr.acme.example/tender/*', 'did:web:hr.acme.example/tender/acme-rfp-014/2026-Q4')  // true
 scopeCovers('did:web:hr.acme.example/tender/acme-rfp-099/*', 'did:web:hr.acme.example/tender/acme-rfp-014')  // false
@@ -178,8 +178,8 @@ scope binding already in it (`tasra-create-slot`).
 Every function takes the rule as **JSON text (a string)**, never as an object.
 
 ```ts
-import {validateDcql, evaluateDcql, selectDcql, canonicalizeDcql, jsonCredential, DcqlMalformedError} from 'tasra-sdk'
-import type {CredentialView, DcqlQuery, DcqlSelection} from 'tasra-sdk'   // DcqlQuery types the object BEFORE you JSON.stringify it
+import {validateDcql, evaluateDcql, selectDcql, canonicalizeDcql, jsonCredential, DcqlMalformedError} from '@t3foundry/tasra-sdk'
+import type {CredentialView, DcqlQuery, DcqlSelection} from '@t3foundry/tasra-sdk'   // DcqlQuery types the object BEFORE you JSON.stringify it
 
 const rule = JSON.stringify({credentials: [/* as above */]})   // or the raw JSON string you store
 
@@ -208,7 +208,7 @@ recipient's own store against a rule client-side.
 ## The rule commitment
 
 The chain never stores the rule, only `ruleCommitment(salt, rule)` from
-`tasra-sdk/chain`, a salted hash over the canonical bytes. `createSlot`
+`@t3foundry/tasra-sdk/chain`, a salted hash over the canonical bytes. `createSlot`
 mints the salt and returns it; `verifyRuleCommitment(rule, ruleSalt, onChainRuleCommitment)`
 checks a candidate rule against a slot. The clear rule is provisioned to the
 keepers separately (see `tasra-create-slot`). This includes OAuth DCQL: adding
@@ -246,7 +246,7 @@ Creation validates that every query belongs to the selected authorization family
 
 ## Where to read more
 
-- `node_modules/tasra-sdk/dist/auth/oid4vp.d.ts` for `Query`, `CredentialView`,
-  `Selection`, `ValidateOptions` — re-exported from `tasra-sdk` as `DcqlQuery`,
+- `node_modules/@t3foundry/tasra-sdk/dist/auth/oid4vp.d.ts` for `Query`, `CredentialView`,
+  `Selection`, `ValidateOptions` — re-exported from `@t3foundry/tasra-sdk` as `DcqlQuery`,
   `CredentialView`, `DcqlSelection`. `types` may be a superset of a `type_values`
   option; `body` needs only the keys the rule's claim paths reference.

@@ -1,10 +1,10 @@
 ---
 name: tasra-handle-errors
 description: Handle Tasra application failures, authorization refusals, cancellation and uncertain write outcomes. Use when deciding whether to reconcile, reauthorize, poll readiness or retry a safe read.
-compatibility: Requires tasra-sdk to be installed (npm install tasra-sdk)
+compatibility: Requires @t3foundry/tasra-sdk to be installed (npm install @t3foundry/tasra-sdk)
 metadata:
   package: @t3foundry/tasra-skills
-  sources: "node_modules/tasra-sdk/docs/application-api.md, node_modules/tasra-sdk/dist/app/client.d.ts, node_modules/tasra-sdk/dist/app/creation.d.ts, node_modules/tasra-sdk/dist/committee/dual-sign.d.ts"
+  sources: "node_modules/@t3foundry/tasra-sdk/docs/application-api.md, node_modules/@t3foundry/tasra-sdk/dist/app/client.d.ts, node_modules/@t3foundry/tasra-sdk/dist/app/creation.d.ts, node_modules/@t3foundry/tasra-sdk/dist/committee/dual-sign.d.ts"
 ---
 
 # Recover without duplicating operations
@@ -15,9 +15,9 @@ a generic retry loop. `isRetryable` is useful for supported error types but does
 prove an operation is safe to repeat.
 
 ```ts
-import {TasraApplicationError, CreationReconciliationRequiredError} from 'tasra-sdk/app'
-import {OperationOutcomeUnknownError} from 'tasra-sdk/committee'
-import {VerifierAgentSessionError} from 'tasra-sdk/oid4vp'
+import {TasraApplicationError, CreationReconciliationRequiredError} from '@t3foundry/tasra-sdk/app'
+import {OperationOutcomeUnknownError} from '@t3foundry/tasra-sdk/committee'
+import {VerifierAgentSessionError} from '@t3foundry/tasra-sdk/oid4vp'
 
 export function recoveryAction(error: unknown) {
   if (error instanceof CreationReconciliationRequiredError) return 'reconcile-transaction'
