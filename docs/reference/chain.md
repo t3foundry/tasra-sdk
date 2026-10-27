@@ -34,13 +34,13 @@ Clients, adapters and error classes.
 
 Session creation may have reached the provider, so automatic retry is unsafe.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L69)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L92)
 
 Import: `import {AgentSessionCreationUnknownError} from 'tasra-sdk/chain'`
 
 ```ts
 declare class AgentSessionCreationUnknownError {
-    constructor(profile: Readonly<ApprovedAgentProfile>, paymentHash?: string);
+    constructor(profile: Readonly<ApprovedAgentProfile>, paymentHash?: string, cause?: unknown);
 }
 ```
 
@@ -430,7 +430,7 @@ declare class PrepaidEscapeUncertainError {
 
 A relay request has no verified terminal result and must be reconciled before replacement.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L153)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L168)
 
 Import: `import {RelayOutcomeUnknownError} from 'tasra-sdk/chain'`
 
@@ -1110,7 +1110,7 @@ Returns: ` PrepaidEscapeClient `.
 
 Selection authenticates public metadata first. Once POSTed, never silently switch providers.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L163)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L188)
 
 Import: `import {createRegisteredAgentClient} from 'tasra-sdk/chain'`
 
@@ -1152,7 +1152,7 @@ Returns:
 
 One signer per instance. Serializes nonces and blocks new signatures after an uncertain result.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L269)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L284)
 
 Import: `import {createRegisteredRelaySubmitter} from 'tasra-sdk/chain'`
 
@@ -2332,7 +2332,7 @@ Returns: ` Promise<PaidReservationResolution> `.
 
 Recover from a lost HTTP response or process restart using the trusted RPC, without broadcasting.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L256)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L271)
 
 Import: `import {reconcileRelayAttempt} from 'tasra-sdk/chain'`
 
@@ -3062,12 +3062,18 @@ export interface AgentTransport extends ServiceDiscoveryTransport {
         maxBytes: number;
         signal: AbortSignal;
     }): Promise<Uint8Array>;
+    agentExchange?(url: string, options: {
+        body: Uint8Array;
+        maxBytes: number;
+        signal: AbortSignal;
+    }): Promise<AgentHttpResponse>;
 }
 ```
 
 Fields:
 
 - **` agentRequest `**: Same socket/TLS policy as discovery; bearer is allowed only on a session GET.
+- **` agentExchange `**: Optional session-creation exchange that also returns a 503 with its status and Retry-After, so the agent's one retryable pre-creation refusal can be retried. Without it creation never retries.
 - **` request `**: Perform a bounded request using the required destination, TLS and cancellation policy; return response bytes.
 
 ### AmendmentPhase
@@ -3156,7 +3162,7 @@ Fields:
 
 Both the application and committee verifiers must independently approve this verifier-agent identity.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L17)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L40)
 
 ```ts
 export interface ApprovedAgentProfile {
@@ -5303,7 +5309,7 @@ Fields:
 
 Session pinned to its authenticated provider, with a closure for polling that provider.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L35)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L58)
 
 ```ts
 export interface RegisteredAgentSession extends Readonly<CreateSessionResult> {
@@ -5470,7 +5476,7 @@ Fields:
 
 JSON-safe reconciliation handle. Persist before POST to resume safely after a client restart.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L135)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L150)
 
 ```ts
 export interface RelayAttempt {
@@ -5577,7 +5583,7 @@ Fields:
 
 Verified forwarded transaction result with optional gas and native-token cost.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L102)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L117)
 
 ```ts
 export interface RelayReceipt {
@@ -5599,7 +5605,7 @@ Fields:
 
 Reconciled relay outcome. A receipt proves execution. Expired means the deadline passed with the nonce unused. Unresolvable means the nonce was consumed beyond the available log window; execution remains unknown and must not be retried as a new operation.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L209)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L224)
 
 ```ts
 export interface RelayReconciliation {
@@ -6455,7 +6461,7 @@ Fields:
 
 Private application state for restoring the original unpaid session, never a provider approval.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L53)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L76)
 
 ```ts
 export interface UnpaidAgentSessionRecovery extends CreateSessionResult {

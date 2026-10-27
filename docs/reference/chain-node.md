@@ -44,7 +44,7 @@ Returns: ` AgentTransport `.
 
 Wallet protocol requests restricted to the selected session and approved DID, with socket checks.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L129)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L130)
 
 Import: `import {createNodeAgentWalletFetch} from 'tasra-sdk/chain/node'`
 
@@ -64,7 +64,7 @@ Returns: ` typeof fetch `.
 Guarded completed-result reads using the same socket-bound destination and verified TLS policy.
 Only the two POST evidence/recovery paths are permitted; this transport cannot submit key work.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L119)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L120)
 
 Import: `import {createNodeKeeperRecoveryTransport} from 'tasra-sdk/chain/node'`
 
@@ -82,7 +82,7 @@ Returns: ` KeeperRecoveryTransport `.
 
 Guarded paid-session creation and owner control, preserving HTTP consent/recovery statuses.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L94)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L95)
 
 Import: `import {createNodePaidAgentTransport} from 'tasra-sdk/chain/node'`
 
@@ -184,7 +184,7 @@ Options, data structures and return types.
 
 Options for [createNodeKeeperRecoveryTransport](#createnodekeeperrecoverytransport).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L104)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L105)
 
 ```ts
 export interface NodeKeeperRecoveryTransportPolicy extends ServiceTransportPolicy {
