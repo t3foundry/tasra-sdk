@@ -204,9 +204,9 @@
     "stress": "npm run stress:crypto && npm run stress:keyops && npm run stress:keyops:committees",
     "clean": "rm -rf dist",
     "ci": "npm run verify",
-    "verify:pkg": "publint && attw --pack . --ignore-rules cjs-resolves-to-esm && tsx test/pack-smoke.ts",
+    "verify:pkg": "publint && node scripts/verify-attw.mjs && tsx test/pack-smoke.ts",
     "prepare": "npm run build && node scripts/install-hooks.mjs",
-    "prepublishOnly": "npm run ci",
+    "prepublishOnly": "npm run verify -- --publish",
     "verify:consumers": "tsx test/consumers.ts",
     "test:acceptance": "tsx test/live/acceptance.ts",
     "example:provision": "tsx examples/provision-slot.ts",
@@ -242,8 +242,7 @@
   "homepage": "https://github.com/t3foundry/tasra-sdk#readme",
   "license": "Apache-2.0",
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "dependencies": {
     "@noble/ciphers": "^1.0.0",
