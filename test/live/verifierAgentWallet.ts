@@ -9,12 +9,13 @@ import {writeFileSync} from 'node:fs'
 import {p256} from '@noble/curves/p256'
 import {bytesToHex, hexToBytes} from '../../src/crypto/hex.js'
 import {committeeSign} from '../../src/committee/client.js'
+import {createDecryptionRecipient} from '../../src/crypto/recipient.js'
 import {verify as verifyFrostSignature} from '../../src/crypto/frost.js'
 import {defaultKeyResolver, parseSdJwt, p256DidKeyIssuer, utf8, verifyRequestObject} from '../../src/oid4vp/index.js'
 import {loadFleetConfig} from '../fleet/_fleet.ts'
 import {fixturePaymentTtlSeconds} from '../fleet/_certification-timing.ts'
 import {createWalletSlot} from '../fleet/_wallet.ts'
-import {authorizePaidWallet, paidWalletSettings} from '../fleet/_paid-wallet.ts'
+import {authorizePaidWallet, paidWalletBlsSharing, paidWalletSettings} from '../fleet/_paid-wallet.ts'
 import {assertHoviScopeQuery, issueHoviWallet} from '../fleet/_hovi-wallet.ts'
 
 const cfg = loadFleetConfig()
@@ -49,9 +50,15 @@ try {
   const slot = await createWalletSlot(cfg, scoped ? 'bls' : 'frost', 2, 3, rule)
   step(`created and funded ${scoped ? 'identity-scoped BLS' : 'FROST'} slot ${slot.slotId}`)
   const message = utf8('hello from the SDK wallet')
+  // Even this verifier-only scoped grant binds a real client recipient before
+  // authorization. It never authorizes a legacy, recipient-free extraction.
+  const recipient = scoped ? await createDecryptionRecipient() : undefined
+  const sharing = scoped ? await paidWalletBlsSharing(cfg, slot.slotId) : undefined
   let inspected = false
   const grant = await authorizePaidWallet(cfg, slot.slotId, slot.creatorKey,
-    scoped ? {action: 'ibe-extract', identity, ttlSecs: fixtureTtlSecs} : {action: 'sign', message, ttlSecs: fixtureTtlSecs}, wallet, false, undefined,
+    scoped ? {action: 'ibe-extract', identity, ttlSecs: fixtureTtlSecs,
+      decryption: {recipient: recipient!.recipient, ciphertext_epoch: sharing!.epoch}}
+      : {action: 'sign', message, ttlSecs: fixtureTtlSecs}, wallet, false, undefined,
     async (request, fetcher) => {
       assert(request.signerDid.startsWith('did:web:'), 'Live JAR must verify through the platform did:web')
       const resolved = await verifyRequestObject(request.jwt, {resolveKey: defaultKeyResolver({fetchImpl: fetcher}), leewaySecs: 0})
