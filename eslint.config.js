@@ -103,7 +103,7 @@ export default tseslint.config(
     files: ['scripts/**/*.mjs'],
     extends: [js.configs.recommended],
     languageOptions: {globals: {URL: 'readonly', process: 'readonly', console: 'readonly', Buffer: 'readonly', AbortController: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly'}},
-    rules: {'no-unused-vars': ['error', {argsIgnorePattern: '^_'}]},
+    rules: {'no-unused-vars': ['error', {argsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_'}]},
   },
 
   // ---------------------------------------------------------------------

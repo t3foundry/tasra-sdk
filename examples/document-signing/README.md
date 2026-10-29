@@ -9,8 +9,8 @@ Copy this directory into your application, rename `gitignore.template` to `.giti
 then run:
 
 ```sh
-npm install tasra-sdk@latest
-cp node_modules/tasra-sdk/examples/fund-slot.ts .
+npm install @t3foundry/tasra-sdk@latest
+cp node_modules/@t3foundry/tasra-sdk/examples/fund-slot.ts .
 npm run build
 npx tsx network.ts
 npm run setup

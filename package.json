@@ -1,6 +1,6 @@
 {
-  "name": "tasra-sdk",
-  "version": "0.3.0-next.1",
+  "name": "@t3foundry/tasra-sdk",
+  "version": "0.3.1-next.1",
   "description": "TypeScript SDK for Tasra network slots, credential-based access, distributed encryption and signing, and on-chain operations.",
   "private": false,
   "type": "module",
@@ -174,31 +174,7 @@
     "examples/slot-creation.ts",
     "examples/tutorial-negative.ts",
     "examples/tutorial-support.ts",
-    "examples/viem-account.ts",
-    "skills/README.md",
-    "skills/tasra-chain/SKILL.md",
-    "skills/tasra-chain/references/advanced.md",
-    "skills/tasra-committee-path/SKILL.md",
-    "skills/tasra-committee-path/references/advanced.md",
-    "skills/tasra-create-slot/SKILL.md",
-    "skills/tasra-create-slot/references/advanced.md",
-    "skills/tasra-credentials-and-sessions/SKILL.md",
-    "skills/tasra-credentials-and-sessions/references/advanced.md",
-    "skills/tasra-dcql-rules/SKILL.md",
-    "skills/tasra-dcql-rules/references/advanced.md",
-    "skills/tasra-getting-started/SKILL.md",
-    "skills/tasra-handle-errors/SKILL.md",
-    "skills/tasra-handle-errors/references/advanced.md",
-    "skills/tasra-hovi-issuer/SKILL.md",
-    "skills/tasra-hovi-issuer/references/advanced.md",
-    "skills/tasra-ibe-identity-scoped/SKILL.md",
-    "skills/tasra-ibe-identity-scoped/references/advanced.md",
-    "skills/tasra-oid4vp-wallet-and-verifier-agent/SKILL.md",
-    "skills/tasra-oid4vp-wallet-and-verifier-agent/references/advanced.md",
-    "skills/tasra-rego-rules/SKILL.md",
-    "skills/tasra-rego-rules/references/advanced.md",
-    "skills/tasra-sign-and-decrypt/SKILL.md",
-    "skills/tasra-sign-and-decrypt/references/advanced.md"
+    "examples/viem-account.ts"
   ],
   "scripts": {
     "build": "npm run clean && tsc && node scripts/copy-rego-wasm.mjs",
@@ -228,9 +204,9 @@
     "stress": "npm run stress:crypto && npm run stress:keyops && npm run stress:keyops:committees",
     "clean": "rm -rf dist",
     "ci": "npm run verify",
-    "verify:pkg": "publint && attw --pack . --ignore-rules cjs-resolves-to-esm && tsx test/pack-smoke.ts",
+    "verify:pkg": "publint && node scripts/verify-attw.mjs && tsx test/pack-smoke.ts",
     "prepare": "npm run build && node scripts/install-hooks.mjs",
-    "prepublishOnly": "npm run ci",
+    "prepublishOnly": "npm run verify -- --publish",
     "verify:consumers": "tsx test/consumers.ts",
     "test:acceptance": "tsx test/live/acceptance.ts",
     "example:provision": "tsx examples/provision-slot.ts",
@@ -266,8 +242,7 @@
   "homepage": "https://github.com/t3foundry/tasra-sdk#readme",
   "license": "Apache-2.0",
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "dependencies": {
     "@noble/ciphers": "^1.0.0",
@@ -287,7 +262,7 @@
     "eslint": "^10.10.0",
     "ethers": "^6.13.0",
     "fast-check": "4.10.2",
-    "next": "^16.3.8",
+    "next": "^16.4.3",
     "playwright": "^1.63.0",
     "publint": "^0.3.24",
     "react": "^19.3.0",
@@ -295,7 +270,7 @@
     "tsx": "^4.23.13",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.70.0",
-    "vite": "^8.3.0",
+    "vite": "^8.3.5",
     "vitest": "^4.1.11",
     "webpack": "^5.111.1",
     "yaml": "^2.9.1"
@@ -324,6 +299,7 @@
   "overrides": {
     "typed-rest-client": {
       "qs": "6.16.0"
-    }
+    },
+    "zod": "4.6.7"
   }
 }

@@ -1,21 +1,19 @@
 import {equalBytes} from '@noble/curves/utils.js'
 import {sha256} from '@noble/hashes/sha256'
-import {keccak_256} from '@noble/hashes/sha3'
-import {utf8ToBytes} from '@noble/hashes/utils'
 import {recoverAddress, toHex, type Hex} from 'viem'
 import {createTasraChainClient, type TasraChainClient} from '../chain/client.js'
 import {addressFromEoaPubkey, type EoaSignature} from '../signing/ecdsa.js'
 import {verify} from '../crypto/frost.js'
-import {ibeEncrypt, type IbeCiphertext} from '../crypto/ibe.js'
+import {kemEncrypt, type Ciphertext} from '../crypto/envelope.js'
 import {TasraError} from '../errors.js'
-import {committeeSign, type VerifierProof} from '../committee/client.js'
+import {committeeSign, committeeDecrypt, type VerifierProof} from '../committee/client.js'
 import {committeeSignEoaDigest} from '../committee/ecdsa.js'
 import {createDualSignClient} from '../committee/dual-sign.js'
-import {decryptIdentityStrict, extractIdentityStrict, type StrictExtractionOptions} from '../committee/extraction.js'
 import {auditOperationId, protocolHex, verifyOperationReceipt} from '../committee/receipts.js'
 import {compoundTokenHash, decodeCompoundToken, type CompoundTokenWire} from '../committee/token.js'
-import {payloadDigestFor, requestHash} from '../oid4vp/binding.js'
+import {payloadDigestFor, requestHash, decryptPayloadDigest} from '../oid4vp/binding.js'
 import type {OperationInput} from '../oid4vp/verifier-agent.js'
+import type {BlsPeer} from '../decryption/client.js'
 import {defineDeployment, type TasraDeployment} from './deployment.js'
 
 /**
@@ -173,8 +171,7 @@ export function createTasra(config: TasraApplicationConfig) {
     options.signal?.throwIfAborted()
     if (grant.token.binding !== 'holder_key' || !Number.isSafeInteger(grant.token.exp) || grant.token.exp * 1000 <= Date.now() ||
       !equalBytes(protocolHex(grant.token.slot_id, 32, 'grant slot'), protocolHex(s.slotId, 32, 'slot')) ||
-      !equalBytes(protocolHex(grant.token.request_hash, 32, 'request hash'), expected) || !grant.verifierProofs.length ||
-      action === 'ibe-extract' && !equalBytes(protocolHex(grant.token.identity_hash, 32, 'identity hash'), keccak_256(utf8ToBytes(payload.identity!)))) {
+      !equalBytes(protocolHex(grant.token.request_hash, 32, 'request hash'), expected) || !grant.verifierProofs.length) {
       throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Grant must be fresh and holder-bound to this exact operation')
     }
     await unchanged(s)
@@ -266,8 +263,8 @@ export function createTasra(config: TasraApplicationConfig) {
           },
         }
       },
-      /**
-       * Open a ready BLS slot for identity encryption and authorized extraction.
+/**
+       * Open a ready BLS slot for KEM key wrapping and committee-authorized unwrapping.
        * @param slotId Identifier of the BLS slot.
        */
       async bls(slotId: Hex) {
@@ -276,30 +273,69 @@ export function createTasra(config: TasraApplicationConfig) {
           if (![194, 290].includes(s.publicKey.length)) throw new TasraError('Invalid anchored BLS public key')
           return protocolHex(s.publicKey, (s.publicKey.length - 2) / 2, 'BLS public key').slice(0, 96)
         }
-        const extraction = async (identity: string, options: AuthorizedOperationOptions & {requireReceipts?: boolean}) => {
-          const s = await ready(slotId, 1), grant = await authorize(s, 'ibe-extract', {identity}, options)
-          const opts: StrictExtractionOptions = {chainId: deployment.chainId, slotId, threshold: s.threshold.k, epoch: s.epoch,
-            groupPublicKey: groupKey(s), keepers: await keepers(slotId), shareTrust: 'anchored-group', committeeToken: grant.token,
-            verifierProofs: grant.verifierProofs, identity, userSignature: options.userSignature, signal: options.signal, fetchImpl, requireReceipts: options.requireReceipts}
-          return opts
-        }
         return {
-          /** Identifier of the BLS identity-encryption slot. */
+          /** Identifier of the BLS key-encryption slot. */
           slotId,
-          /** Public-key encryption; no credential or network authorization is requested. */
-          async encrypt(identity: string, plaintext: Uint8Array) { return ibeEncrypt(groupKey(await ready(slotId, 1)), utf8ToBytes(identity), plaintext) },
           /**
-           * Authorize identity-key extraction and decrypt the ciphertext after verifying threshold shares.
-           * @param identity Exact encryption identity string.
-           * @param ciphertext Encrypted payload bound to that identity.
+           * BLS KEM-wrap a symmetric data key. Local — no credential or network round-trip needed.
+           * @param aad Additional authenticated data binding the key to an application scope.
+           * @param dataKey 32-byte symmetric key to wrap under the slot's group public key.
+           */
+          async encrypt(aad: Uint8Array, dataKey: Uint8Array) {
+            return kemEncrypt(groupKey(await ready(slotId, 1)), aad, dataKey)
+          },
+          /**
+           * Authorize and recover the KEM-wrapped symmetric key via committee custody decrypt.
+           * @param aad Original authenticated data from encryption.
+           * @param kemCt BLS KEM ciphertext wrapping the symmetric key.
            * @param options Fresh authorization and optional verified-receipt requirement.
            */
-          async decrypt(identity: string, ciphertext: IbeCiphertext, options: AuthorizedOperationOptions & {requireReceipts?: boolean}) {
-            return decryptIdentityStrict({...await extraction(identity, options), ciphertext})
-          },
-          /** Explicit custody: the returned identity key persists independently of token expiry. */
-          async extractIdentity(identity: string, options: AuthorizedOperationOptions & {requireReceipts?: boolean}) {
-            return extractIdentityStrict(await extraction(identity, options))
+          async decrypt(aad: Uint8Array, kemCt: Ciphertext, options: AuthorizedOperationOptions & {requireReceipts?: boolean}) {
+            const s = await ready(slotId, 1)
+            const pd = decryptPayloadDigest(kemCt.u, kemCt.aeadCt)
+            const grant = await authorize(s, 'decrypt', {payloadDigest: pd}, options)
+            options.signal?.throwIfAborted()
+            const assigned = await keepers(slotId)
+            const coordinator = assigned[0]!
+            // Resolve BLS peer identifiers from each assigned keeper's public info.
+            const blsPeers: BlsPeer[] = []
+            for (const k of assigned) {
+              try {
+                const res = await (fetchImpl ?? fetch)(`${k.nodeUrl}/v1/info`, {signal: options.signal})
+                if (res.ok) {
+                  const info = await res.json() as {peer_id?: string; node_identifier?: number}
+                  if (info.peer_id && info.node_identifier !== undefined) {
+                    blsPeers.push({id: info.node_identifier, peerId: info.peer_id})
+                  }
+                }
+              } catch { /* skip unreachable keepers */ }
+            }
+            blsPeers.sort((a, b) => a.id - b.id)
+            const decryptingSet = blsPeers.slice(0, s.threshold.k).map(p => p.id)
+            if (decryptingSet.length < s.threshold.k) throw new TasraError('Not enough reachable keeper peers for threshold decryption')
+            const plaintext = await committeeDecrypt({
+              nodeUrl: coordinator.nodeUrl,
+              committeeToken: grant.token,
+              verifierProofs: grant.verifierProofs,
+              ciphertext: kemCt,
+              identity: aad,
+              decryptingSet,
+              blsPeers,
+              ciphertextEpoch: s.epoch,
+              userSignature: options.userSignature,
+              targetKeykeeper: coordinator.operator,
+              fetchImpl,
+            })
+            return {
+              plaintext,
+              shareTrust: 'anchored-group' as const,
+              evidence: assigned.slice(0, 1).map(k => ({
+                operator: k.operator,
+                identifier: 0,
+                nodeUrl: k.nodeUrl,
+                receiptStatus: 'unverified' as const,
+              })),
+            }
           },
         }
       },
@@ -320,6 +356,6 @@ export type EcdsaSlot = Awaited<ReturnType<TasraApplication['slots']['ecdsa']>>
  */
 export type FrostSlot = Awaited<ReturnType<TasraApplication['slots']['frost']>>
 /**
- * Identity-based encryption handle with authorized decryption and explicit identity-key extraction.
+ * BLS KEM handle: wraps/unwraps a symmetric key with authorized custody decryption.
  */
 export type BlsSlot = Awaited<ReturnType<TasraApplication['slots']['bls']>>

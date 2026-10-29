@@ -1,5 +1,5 @@
 import {loadNetwork} from './network.js'
-import {TasraClient} from 'tasra-sdk/app'
+import {TasraClient} from '@t3foundry/tasra-sdk/app'
 
 // Read the checksum-verified manifest downloaded from tasra-releases.
 const network = loadNetwork()

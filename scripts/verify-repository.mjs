@@ -55,7 +55,7 @@ export function checkRepository(root) {
     for (const file of files) if (existsSync(join(root, file)) && /^(?:docs|skills|examples)\//.test(file) && !publicFiles.includes(file)) problems.push(`Unreviewed public content: ${file}; classify it in publication.json or move it to private storage`)
   }
   const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-  const components = ['package.json', 'site/package.json', 'examples/document-signing/package.json']
+  const components = ['package.json', 'site/package.json', 'examples/document-signing/package.json', 'skills-bundle/package.json']
   const discovered = [...new Set(files.filter(file => /(^|\/)package\.json$/.test(file) && existsSync(join(root, file))))].sort()
   if (JSON.stringify(discovered) !== JSON.stringify([...components].sort())) problems.push('Package inventory changed: update verification coverage deliberately: ' + discovered.join(', '))
   for (const file of ['package.json', 'site/package.json']) {

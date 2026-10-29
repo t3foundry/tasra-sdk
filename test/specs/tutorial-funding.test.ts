@@ -7,9 +7,9 @@ const doubles = vi.hoisted(() => {
     slot: '0x' + 'ab'.repeat(32), key: '0x' + 'cd'.repeat(32)}
 })
 vi.mock('../../examples/network.js', () => ({loadNetwork: doubles.loadNetwork}))
-vi.mock('tasra-sdk/app/node', () => ({createFileStore: () => ({load: doubles.load,
+vi.mock('@t3foundry/tasra-sdk/app/node', () => ({createFileStore: () => ({load: doubles.load,
   withLock: async (_: string, run: () => Promise<void>) => run()})}))
-vi.mock('tasra-sdk/app', () => ({TasraClient: class {
+vi.mock('@t3foundry/tasra-sdk/app', () => ({TasraClient: class {
   deployment: {chainId: number; addresses: Record<string, string>}
   constructor(options: {manifest: {addresses?: Record<string, string>}}) {
     this.deployment = {chainId: 43113,
@@ -19,7 +19,7 @@ vi.mock('tasra-sdk/app', () => ({TasraClient: class {
   slots = {get: doubles.getSlot}
   chain = {client: {readContract: doubles.readContract}}
 }}))
-vi.mock('tasra-sdk/chain', () => ({bondingCurveAbi: [], createTasraWriteClient: doubles.createWriter}))
+vi.mock('@t3foundry/tasra-sdk/chain', () => ({bondingCurveAbi: [], createTasraWriteClient: doubles.createWriter}))
 const originalArgs = process.argv
 beforeEach(() => {
   vi.resetModules()

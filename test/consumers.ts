@@ -26,15 +26,15 @@ try {
   run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', join(scratch, tarball)])
   // One SDK install must supply its wallet runtime; the app declares no extra library.
   if (!existsSync(join(scratch, 'node_modules/viem/package.json'))) throw new Error('SDK install is missing its wallet dependency')
-  write('application.mjs', `import {TasraClient, createIdentity, issueCredential, verifyCredential} from 'tasra-sdk/app';
-import {createFileStore} from 'tasra-sdk/app/node';
+  write('application.mjs', `import {TasraClient, createIdentity, issueCredential, verifyCredential} from '@t3foundry/tasra-sdk/app';
+import {createFileStore} from '@t3foundry/tasra-sdk/app/node';
 const issuer=createIdentity(), holder=createIdentity();
 const credential=issueCredential({issuer,holder,type:'Member',claims:{role:'editor'}});
 if(verifyCredential(credential,{issuer,holder,type:'Member'}).role!=='editor')throw new Error('Credential round trip failed');
 const store=createFileStore('./application-state');await store.save('key',holder.exportPrivateKey());
 if(!(await store.load('key') instanceof Uint8Array)||typeof TasraClient!=='function')throw new Error('Application API missing');`)
   run(process.execPath, ['application.mjs'])
-  cpSync(join(scratch, 'node_modules/tasra-sdk/examples'), join(scratch, 'examples'), {recursive: true})
+  cpSync(join(scratch, 'node_modules/@t3foundry/tasra-sdk/examples'), join(scratch, 'examples'), {recursive: true})
   run(process.execPath, ['--import', join(root, 'node_modules/tsx/dist/loader.mjs'), 'examples/minimal.ts'])
   // Execute exactly the complete offline snippet advertised in the README.
   const readme = readFileSync(join(root, 'README.md'), 'utf8')
@@ -45,12 +45,12 @@ if(!(await store.load('key') instanceof Uint8Array)||typeof TasraClient!=='funct
 
   const tooling = ['typescript', 'tsx', 'vite', 'webpack', 'next', 'react', 'react-dom', '@types/react', '@types/react-dom', '@types/node']
   run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...tooling.map(name => `${name}@${version(name)}`)])
-  const imports = `import * as core from 'tasra-sdk';
-import * as app from 'tasra-sdk/app';
-import * as chain from 'tasra-sdk/chain';
-import * as committee from 'tasra-sdk/committee';
-import * as oid4vp from 'tasra-sdk/oid4vp';
-import * as agent from 'tasra-sdk/verifier-agent';`
+  const imports = `import * as core from '@t3foundry/tasra-sdk';
+import * as app from '@t3foundry/tasra-sdk/app';
+import * as chain from '@t3foundry/tasra-sdk/chain';
+import * as committee from '@t3foundry/tasra-sdk/committee';
+import * as oid4vp from '@t3foundry/tasra-sdk/oid4vp';
+import * as agent from '@t3foundry/tasra-sdk/verifier-agent';`
   write('types.ts', `${imports}
 const client: core.TasraClient = core.createTasraClient({nodes: ['https://example.invalid']});
 console.log(client, app.createTasra, chain.createTasraChainClient, committee.verifyCompoundToken, oid4vp, agent.createOid4vpSession);`)
@@ -121,18 +121,18 @@ webpack({mode:'production',target:'web',performance:false,entry:process.cwd()+'/
   write('next-app/app/layout.jsx', 'export default function Layout({children}) { return <html><body>{children}</body></html> }')
   write('next-app/app/client.jsx', `'use client';
 import {useEffect, useState} from 'react';
-import {createDpopKey, createTasraClient} from 'tasra-sdk';
+import {createDpopKey, createTasraClient} from '@t3foundry/tasra-sdk';
 export default function Client() {
   const [status, setStatus] = useState('pending');
   useEffect(() => { createDpopKey().then(() => setStatus(typeof createTasraClient)).catch(() => setStatus('failed')); }, []);
   return <p id="client">{status}</p>;
 }`)
   write('next-app/app/page.jsx', `import Client from './client';
-import {createTasraClient} from 'tasra-sdk';
-import {createTasraChainClient} from 'tasra-sdk/chain';
-import {createNodeServiceDiscoveryTransport} from 'tasra-sdk/chain/node';
-import {createFileStore} from 'tasra-sdk/app/node';
-import {TasraClient} from 'tasra-sdk/app';
+import {createTasraClient} from '@t3foundry/tasra-sdk';
+import {createTasraChainClient} from '@t3foundry/tasra-sdk/chain';
+import {createNodeServiceDiscoveryTransport} from '@t3foundry/tasra-sdk/chain/node';
+import {createFileStore} from '@t3foundry/tasra-sdk/app/node';
+import {TasraClient} from '@t3foundry/tasra-sdk/app';
 export default function Page() {
   if ([createTasraClient, createTasraChainClient, createNodeServiceDiscoveryTransport, createFileStore, TasraClient].some(v => typeof v !== 'function')) throw new Error('Missing server exports');
   return <main>Server imports passed<Client /></main>;

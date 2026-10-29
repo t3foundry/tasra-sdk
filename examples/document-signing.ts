@@ -1,8 +1,8 @@
 /** Two people independently sign the exact same document and request. */
 import {writeFileSync} from 'node:fs'
 import {createHash, randomUUID} from 'node:crypto'
-import {verifyFrostSignature, hexToBytes} from 'tasra-sdk'
-import type {ReadySlotJournal} from 'tasra-sdk/app'
+import {verifyFrostSignature, hexToBytes} from '@t3foundry/tasra-sdk'
+import type {ReadySlotJournal} from '@t3foundry/tasra-sdk/app'
 import {createTutorial} from './tutorial-support.js'
 
 type Hex = `0x${string}`

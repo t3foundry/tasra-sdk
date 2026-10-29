@@ -1,4 +1,4 @@
-import type {CreateSlotArgs, TasraWriteClient} from 'tasra-sdk/chain'
+import type {CreateSlotArgs, TasraWriteClient} from '@t3foundry/tasra-sdk/chain'
 
 /** Keep custody explicit; commit/reveal cannot create an exportable slot. */
 export async function createExampleSlot(writer: TasraWriteClient, requiresCommitReveal: boolean, args: CreateSlotArgs) {

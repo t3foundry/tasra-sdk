@@ -2,12 +2,12 @@ import {afterEach, expect, test, vi} from 'vitest'
 import {createExampleSlot} from '../../examples/slot-creation.ts'
 import {committeeClient, required} from '../../examples/live-config.ts'
 import {expectDenial} from '../live/acceptance-checks.ts'
-import {createCommitteeSlotClient, type CreateSlotArgs, type TasraWriteClient, type TasraChainClient} from 'tasra-sdk/chain'
-import type {CommitteeVerifier, HolderProofPerVerifier} from 'tasra-sdk/committee'
+import {createCommitteeSlotClient, type CreateSlotArgs, type TasraWriteClient, type TasraChainClient} from '@t3foundry/tasra-sdk/chain'
+import type {CommitteeVerifier, HolderProofPerVerifier} from '@t3foundry/tasra-sdk/committee'
 import {offlineRoundTrip} from '../../examples/offline.ts'
 
-vi.mock('tasra-sdk/chain', async importOriginal => ({
-  ...await importOriginal<typeof import('tasra-sdk/chain')>(),
+vi.mock('@t3foundry/tasra-sdk/chain', async importOriginal => ({
+  ...await importOriginal<typeof import('@t3foundry/tasra-sdk/chain')>(),
   createCommitteeSlotClient: vi.fn(),
 }))
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })

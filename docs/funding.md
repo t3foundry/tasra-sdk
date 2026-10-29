@@ -30,7 +30,7 @@ Continue in the same project with its original `network.json`, `network-pin.json
 and private `.tasra/` state. Copy the funding command:
 
 ```sh
-cp node_modules/tasra-sdk/examples/fund-slot.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/fund-slot.ts .
 npx tsc --noEmit
 npx tsx fund-slot.ts .tasra/first-slot status
 ```

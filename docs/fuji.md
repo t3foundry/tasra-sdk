@@ -21,7 +21,7 @@ mkdir my-tasra-app
 cd my-tasra-app
 npm init -y
 npm pkg set type=module
-npm install tasra-sdk@latest
+npm install @t3foundry/tasra-sdk@latest
 npm install --save-dev tsx
 ```
 
@@ -37,7 +37,7 @@ All imports come from the installed SDK; there are no helper scripts to copy.
 import {
   NETWORKS, parsePinnedNetworkManifest, addressBookFromManifest,
   createTasraChainClient,
-} from 'tasra-sdk/chain'
+} from '@t3foundry/tasra-sdk/chain'
 
 // Keep the pointer and manifest at the same reviewed tasra-releases commit.
 const revision = '3b34d86432c4577eef5d8a10e14eda272f87769b'
@@ -101,7 +101,7 @@ Slot creation: commit/reveal
 ```
 
 You have loaded a checksum-verified manifest and read the live KeyRegistry contract
-using `tasra-sdk`. This does not create a slot, authorize a user, or test signing.
+using `@t3foundry/tasra-sdk`. This does not create a slot, authorize a user, or test signing.
 For a check of every deployed contract's code, see [deployment verification](chain.md#verify-a-deployment).
 
 Source: [examples/connect-fuji.ts](../examples/connect-fuji.ts), included in the
@@ -112,7 +112,7 @@ installed SDK package. The inline file can be copied directly.
 | What you see | What to do |
 |---|---|
 | `node` or `npm` is not found | Install Node.js and reopen the IDE terminal. |
-| Cannot find `tasra-sdk` | Run the install commands inside `my-tasra-app`. |
+| Cannot find `@t3foundry/tasra-sdk` | Run the install commands inside `my-tasra-app`. |
 | Download error, timeout, or `fetch failed` | Check access to GitHub and the Fuji RPC; retry after connectivity is restored. |
 | Manifest checksum mismatch | Re-fetch both files at the same revision. Preserve the original manifest bytes; do not bypass the check. |
 | RPC chain mismatch | Use `NETWORKS.testnet.rpcUrl` or your own Fuji RPC (chain 43113). |

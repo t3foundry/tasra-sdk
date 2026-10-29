@@ -1,14 +1,14 @@
 /** Adversarial test only: bypass wallet filtering to test the verifier's own refusal. */
-import type {TasraClient, TasraIdentity} from 'tasra-sdk/app'
+import type {TasraClient, TasraIdentity} from '@t3foundry/tasra-sdk/app'
 import {
   openVerifierAgentSession, fetchRequestObject, parseOpenid4vpUri, parseSdJwt,
   sdJwtCredentialView, buildResponse, submitResponse, awaitVerifierAgentResult,
   VerifierAgentSessionError, type TypedDataSigner,
-} from 'tasra-sdk/oid4vp'
+} from '@t3foundry/tasra-sdk/oid4vp'
 
 export async function proveServerRefusal(tasra: TasraClient, signer: TypedDataSigner,
   slotId: `0x${string}`, identity: TasraIdentity, credential: string,
-  operation: {action: 'sign' | 'ibe-extract'; message?: Uint8Array; identity?: string}, queryId = 'access') {
+  operation: {action: 'sign' | 'ibe-extract' | 'decrypt'; message?: Uint8Array; identity?: string; payloadDigest?: Uint8Array}, queryId = 'access') {
   if (!tasra.verifierAgentUrl) throw new Error('Manifest has no verifier agent')
   const session = await openVerifierAgentSession({verifierAgentUrl: tasra.verifierAgentUrl,
     chainId: tasra.deployment.chainId, keyRegistry: tasra.deployment.addresses.KeyRegistry!,

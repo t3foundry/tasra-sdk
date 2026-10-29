@@ -11,10 +11,10 @@ mkdir my-tasra-app
 cd my-tasra-app
 npm init -y
 npm pkg set type=module
-npm install tasra-sdk@latest
+npm install @t3foundry/tasra-sdk@latest
 npm install --save-dev typescript tsx @types/node
-cp node_modules/tasra-sdk/examples/network.ts .
-cp node_modules/tasra-sdk/examples/connect-network.ts app.ts
+cp node_modules/@t3foundry/tasra-sdk/examples/network.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/connect-network.ts app.ts
 ```
 
 Save **tsconfig.json** in this folder:
@@ -52,7 +52,7 @@ Open **app.ts**:
 <!-- connect-network-example -->
 ```ts
 import {loadNetwork} from './network.js'
-import {TasraClient} from 'tasra-sdk/app'
+import {TasraClient} from '@t3foundry/tasra-sdk/app'
 
 // Verify the manifest downloaded from tasra-releases; no wallet is needed.
 const network = loadNetwork()

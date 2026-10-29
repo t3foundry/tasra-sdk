@@ -1,4 +1,4 @@
-# tasra-sdk/chain
+# @t3foundry/tasra-sdk/chain
 
 Generated from public TypeScript exports.
 
@@ -24,7 +24,7 @@ Session creation may have reached the provider, so automatic retry is unsafe.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L45)
 
-Import: `import {AgentSessionCreationUnknownError} from 'tasra-sdk/chain'`
+Import: `import {AgentSessionCreationUnknownError} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare class AgentSessionCreationUnknownError {
@@ -48,7 +48,7 @@ A relay request has no verified terminal result and must be reconciled before re
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L111)
 
-Import: `import {RelayOutcomeUnknownError} from 'tasra-sdk/chain'`
+Import: `import {RelayOutcomeUnknownError} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare class RelayOutcomeUnknownError {
@@ -73,7 +73,7 @@ caller asked for. Retryable only for `timelock`, `below-threshold` and `timeout`
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/ruleAmendmentCore.ts#L70)
 
-Import: `import {RuleAmendmentError} from 'tasra-sdk/chain'`
+Import: `import {RuleAmendmentError} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare class RuleAmendmentError {
@@ -119,7 +119,7 @@ A creation may keep its slot/rule inputs, but needs a durably saved new commit s
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/commitmentRecovery.ts#L7)
 
-Import: `import {SlotCommitmentExpiredError} from 'tasra-sdk/chain'`
+Import: `import {SlotCommitmentExpiredError} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare class SlotCommitmentExpiredError {
@@ -225,7 +225,7 @@ callers must actually talk to.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L160)
 
-Import: `import {addressBookFromBroadcast} from 'tasra-sdk/chain'`
+Import: `import {addressBookFromBroadcast} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function addressBookFromBroadcast(json: unknown): AddressBook;
@@ -243,7 +243,7 @@ Parse supported deployment environment keys or a KEY=VALUE text blob into contra
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L266)
 
-Import: `import {addressBookFromEnv} from 'tasra-sdk/chain'`
+Import: `import {addressBookFromEnv} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function addressBookFromEnv(src: string | Record<string, string | undefined>): AddressBook;
@@ -263,7 +263,7 @@ Planned and retired records can be displayed, but cannot configure a live client
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/manifest.ts#L159)
 
-Import: `import {addressBookFromManifest} from 'tasra-sdk/chain'`
+Import: `import {addressBookFromManifest} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function addressBookFromManifest(manifest: NetworkManifest): AddressBook;
@@ -281,7 +281,7 @@ Normalise an explicit object into an AddressBook (validates addresses).
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L290)
 
-Import: `import {addressBookFromObject} from 'tasra-sdk/chain'`
+Import: `import {addressBookFromObject} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function addressBookFromObject(obj: Record<string, string>): AddressBook;
@@ -310,7 +310,7 @@ become amendable.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/ruleAmendment.ts#L131)
 
-Import: `import {amendSlotRule} from 'tasra-sdk/chain'`
+Import: `import {amendSlotRule} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function amendSlotRule(writer: TasraWriteClient, chain: TasraChainClient, a: AmendSlotRuleArgs): Promise<AmendSlotRuleResult>;
@@ -330,7 +330,7 @@ Publish only public approvals, with no runtime transport or private key material
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceProfiles.ts#L86)
 
-Import: `import {applicationServiceProfilesDocument} from 'tasra-sdk/chain'`
+Import: `import {applicationServiceProfilesDocument} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function applicationServiceProfilesDocument(profiles: ApplicationServiceProfiles): Record<string, unknown>;
@@ -348,7 +348,7 @@ Recheck the actual RPC chain immediately before any faucet transaction.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L89)
 
-Import: `import {assertEurcFaucetAllowed} from 'tasra-sdk/chain'`
+Import: `import {assertEurcFaucetAllowed} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function assertEurcFaucetAllowed(profile: ResolvedNetworkProfile, actualChainId: number, actualEurcAddress: string): void;
@@ -368,7 +368,7 @@ Read-only recovery gate. The caller must also reconcile every outstanding signed
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/commitmentRecovery.ts#L21)
 
-Import: `import {assertExpiredSlotCommitment} from 'tasra-sdk/chain'`
+Import: `import {assertExpiredSlotCommitment} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function assertExpiredSlotCommitment(chain: TasraChainClient, error: SlotCommitmentExpiredError): Promise<void>;
@@ -387,7 +387,7 @@ Bind the wallet's signed request to the operation and authenticated session befo
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L105)
 
-Import: `import {assertRegisteredWalletRequest} from 'tasra-sdk/chain'`
+Import: `import {assertRegisteredWalletRequest} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function assertRegisteredWalletRequest(session: RegisteredVerifierAgentSession, ro: VerifiedRequestObject, status: SessionStatusResult): void;
@@ -407,7 +407,7 @@ Uncached, bounded discovery only. A result is a short-lived observation, not ver
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L260)
 
-Import: `import {authenticateApprovedService} from 'tasra-sdk/chain'`
+Import: `import {authenticateApprovedService} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function authenticateApprovedService(chain: TasraChainClient, approved: ServiceApproval, transport: ServiceDiscoveryTransport): Promise<AuthenticatedService>;
@@ -427,7 +427,7 @@ Poll the original authenticated session only; no URL reconstruction or provider 
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L54)
 
-Import: `import {awaitRegisteredVerifierAgentResult} from 'tasra-sdk/chain'`
+Import: `import {awaitRegisteredVerifierAgentResult} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function awaitRegisteredVerifierAgentResult(session: RegisteredVerifierAgentSession, opts?: {
@@ -449,7 +449,7 @@ Choose the event category, including event-specific overrides for a contract.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L70)
 
-Import: `import {categoryFor} from 'tasra-sdk/chain'`
+Import: `import {categoryFor} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function categoryFor(contract: ContractName, eventName: string): EventCategory;
@@ -468,7 +468,7 @@ Create registry-discovered threshold signing, encryption and decryption operatio
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L141)
 
-Import: `import {createCommitteeSlotClient} from 'tasra-sdk/chain'`
+Import: `import {createCommitteeSlotClient} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): CommitteeSlotClient;
@@ -488,7 +488,7 @@ Selection authenticates public metadata first. Once POSTed, never silently switc
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L90)
 
-Import: `import {createRegisteredAgentClient} from 'tasra-sdk/chain'`
+Import: `import {createRegisteredAgentClient} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function createRegisteredAgentClient(chain: TasraChainClient, config: {
@@ -524,7 +524,7 @@ One signer per instance. Serializes nonces and blocks new signatures after an un
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L229)
 
-Import: `import {createRegisteredRelaySubmitter} from 'tasra-sdk/chain'`
+Import: `import {createRegisteredRelaySubmitter} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function createRegisteredRelaySubmitter(chain: TasraChainClient, config: RegisteredRelayConfig, wallet: WalletClient<Transport, Chain, Account>, options?: {
@@ -559,7 +559,7 @@ Create a read-only chain client with typed contract readers and windowed event q
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/client.ts#L281)
 
-Import: `import {createTasraChainClient} from 'tasra-sdk/chain'`
+Import: `import {createTasraChainClient} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient;
@@ -579,7 +579,7 @@ Create managed JWT sessions using keeper endpoints and a randomly selected verif
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotClient.ts#L78)
 
-Import: `import {createTasraSlotClient} from 'tasra-sdk/chain'`
+Import: `import {createTasraSlotClient} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function createTasraSlotClient(cfg: TasraSlotClientConfig): TasraSlotClient;
@@ -599,7 +599,7 @@ Create an account-bound client for slot lifecycle, settlement and token transact
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L508)
 
-Import: `import {createTasraWriteClient} from 'tasra-sdk/chain'`
+Import: `import {createTasraWriteClient} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient;
@@ -619,7 +619,7 @@ whose indexed topics can't be fully decoded.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L132)
 
-Import: `import {decodeContractLogs} from 'tasra-sdk/chain'`
+Import: `import {decodeContractLogs} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function decodeContractLogs(contract: ContractName, address: Address, logs: Log[]): DecodedEvent[];
@@ -639,7 +639,7 @@ Matches serviceIdFor on the proxy. Provider transfer does not change this ID.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/services.ts#L95)
 
-Import: `import {deriveServiceId} from 'tasra-sdk/chain'`
+Import: `import {deriveServiceId} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function deriveServiceId(chainId: bigint, registry: Address, creator: Address, salt: Hex): Hex;
@@ -660,7 +660,7 @@ Canonical wire encoding accepted by both responder implementations.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L175)
 
-Import: `import {encodeServiceChallenge} from 'tasra-sdk/chain'`
+Import: `import {encodeServiceChallenge} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function encodeServiceChallenge(challenge: ServiceChallenge): Uint8Array;
@@ -678,7 +678,7 @@ Canonical v1 bytes: fixed field order, compact ASCII JSON, one LF. No optional/u
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L106)
 
-Import: `import {encodeServiceManifest} from 'tasra-sdk/chain'`
+Import: `import {encodeServiceManifest} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function encodeServiceManifest(manifest: ServiceManifest): Uint8Array;
@@ -696,7 +696,7 @@ The set of event names declared by a contract's ABI.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L84)
 
-Import: `import {eventNamesOf} from 'tasra-sdk/chain'`
+Import: `import {eventNamesOf} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function eventNamesOf(contract: ContractName): string[];
@@ -714,7 +714,7 @@ Format a basis-points integer (e.g. 1000) as a percentage string ("10%").
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/format.ts#L45)
 
-Import: `import {formatBps} from 'tasra-sdk/chain'`
+Import: `import {formatBps} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function formatBps(bps: number | bigint): string;
@@ -732,7 +732,7 @@ Format a token amount with thousands separators and truncated fractional digits.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/format.ts#L22)
 
-Import: `import {formatUnits} from 'tasra-sdk/chain'`
+Import: `import {formatUnits} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function formatUnits(value: bigint, decimals?: number, maxFractionDigits?: number): string;
@@ -752,7 +752,7 @@ WAD (1e18 fixed-point) value to a decimal string, e.g. a price.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/format.ts#L55)
 
-Import: `import {formatWad} from 'tasra-sdk/chain'`
+Import: `import {formatWad} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function formatWad(wad: bigint, maxFractionDigits?: number): string;
@@ -771,7 +771,7 @@ Fresh 0x-prefixed 32-byte private key for a new sovereign client account.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L475)
 
-Import: `import {generateClientKey} from 'tasra-sdk/chain'`
+Import: `import {generateClientKey} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function generateClientKey(): Hex;
@@ -785,7 +785,7 @@ Hash the exact downloaded/published bytes; never parse and re-serialize before c
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/services.ts#L120)
 
-Import: `import {hashServiceManifest} from 'tasra-sdk/chain'`
+Import: `import {hashServiceManifest} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function hashServiceManifest(bytes: Uint8Array): Hex;
@@ -804,7 +804,7 @@ serialized / stored. Leaves everything else intact.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L168)
 
-Import: `import {jsonSafe} from 'tasra-sdk/chain'`
+Import: `import {jsonSafe} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function jsonSafe<T>(value: T): unknown;
@@ -822,7 +822,7 @@ Map a supported EVM chain ID to its network profile; reject unknown chains.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L49)
 
-Import: `import {networkNameForChain} from 'tasra-sdk/chain'`
+Import: `import {networkNameForChain} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function networkNameForChain(chainId: number): NetworkName;
@@ -840,7 +840,7 @@ Observe a single finalized block. This verifies code identity, not business wiri
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/manifest.ts#L208)
 
-Import: `import {observeNetworkManifest} from 'tasra-sdk/chain'`
+Import: `import {observeNetworkManifest} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function observeNetworkManifest(manifest: NetworkManifest, rpcUrl: string): Promise<{
@@ -877,7 +877,7 @@ Sign once, authenticate an explicitly approved provider, and retain its pinned p
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L33)
 
-Import: `import {openRegisteredVerifierAgentSession} from 'tasra-sdk/chain'`
+Import: `import {openRegisteredVerifierAgentSession} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function openRegisteredVerifierAgentSession(client: ReturnType<typeof createRegisteredAgentClient>, opts: OperationInput & {
@@ -901,7 +901,7 @@ Parse the public, JSON-safe deployment approval file. Decimal revisions preserve
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceProfiles.ts#L50)
 
-Import: `import {parseApplicationServiceProfiles} from 'tasra-sdk/chain'`
+Import: `import {parseApplicationServiceProfiles} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function parseApplicationServiceProfiles(value: unknown): ApplicationServiceProfiles;
@@ -919,7 +919,7 @@ Validate data only. Authenticity requires a trusted digest or signature separate
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/manifest.ts#L104)
 
-Import: `import {parseNetworkManifest} from 'tasra-sdk/chain'`
+Import: `import {parseNetworkManifest} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function parseNetworkManifest(value: unknown): NetworkManifest;
@@ -937,7 +937,7 @@ The digest must come from a verified release checksum file or application pin.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/manifest.ts#L148)
 
-Import: `import {parsePinnedNetworkManifest} from 'tasra-sdk/chain'`
+Import: `import {parsePinnedNetworkManifest} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function parsePinnedNetworkManifest(text: string, expectedSha256: string): NetworkManifest;
@@ -956,7 +956,7 @@ Parse finite numeric Prometheus samples into a map keyed by metric name and labe
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L200)
 
-Import: `import {parsePrometheus} from 'tasra-sdk/chain'`
+Import: `import {parsePrometheus} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function parsePrometheus(text: string): Record<string, number>;
@@ -974,7 +974,7 @@ Call only after enforcing the same limit while receiving the HTTP body.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L190)
 
-Import: `import {parseServiceChallenge} from 'tasra-sdk/chain'`
+Import: `import {parseServiceChallenge} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function parseServiceChallenge(bytes: Uint8Array): ServiceChallenge;
@@ -992,7 +992,7 @@ Deliver the clear rule and its salt to every assigned keeper using creator autho
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/provisionRule.ts#L207)
 
-Import: `import {provisionRule} from 'tasra-sdk/chain'`
+Import: `import {provisionRule} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function provisionRule(chain: TasraChainClient, args: ProvisionRuleArgs): Promise<ProvisionRuleResult>;
@@ -1013,7 +1013,7 @@ Build the EIP-712 authorization a keeper verifies against the slot creator. The 
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/provisionRule.ts#L144)
 
-Import: `import {provisionRuleTypedData} from 'tasra-sdk/chain'`
+Import: `import {provisionRuleTypedData} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function provisionRuleTypedData(input: {
@@ -1134,7 +1134,7 @@ origin. Those checks must precede sending any credentials, session secrets or tr
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/services.ts#L165)
 
-Import: `import {readApprovedServiceRecord} from 'tasra-sdk/chain'`
+Import: `import {readApprovedServiceRecord} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function readApprovedServiceRecord(chain: ServiceRegistryChainReader, approval: ServiceApproval): Promise<{
@@ -1164,7 +1164,7 @@ keeper adoption votes and the votes activation needs.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/ruleAmendment.ts#L61)
 
-Import: `import {readRuleAmendment} from 'tasra-sdk/chain'`
+Import: `import {readRuleAmendment} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function readRuleAmendment(chain: TasraChainClient, slotId: Hex): Promise<RuleAmendmentStatus>;
@@ -1183,7 +1183,7 @@ Recover from a lost HTTP response or process restart using the trusted RPC, with
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredRelay.ts#L216)
 
-Import: `import {reconcileRelayAttempt} from 'tasra-sdk/chain'`
+Import: `import {reconcileRelayAttempt} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function reconcileRelayAttempt(chain: TasraChainClient, attempt: RelayAttempt, timeoutMs?: number): Promise<RelayReconciliation>;
@@ -1203,7 +1203,7 @@ Request a committee draw seed and compare its digest with the registry. Checks s
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotSeed.ts#L87)
 
-Import: `import {requestSlotSeed} from 'tasra-sdk/chain'`
+Import: `import {requestSlotSeed} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function requestSlotSeed(chain: TasraChainClient, keyRegistry: `0x${string}`, commitment: Hex, opts?: SlotSeedOptions): Promise<SlotSeed | null>;
@@ -1226,7 +1226,7 @@ Resolve a contract address, throwing a clear error if missing.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L327)
 
-Import: `import {requireAddress} from 'tasra-sdk/chain'`
+Import: `import {requireAddress} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function requireAddress(book: AddressBook, name: ContractName): Address;
@@ -1245,7 +1245,7 @@ Resolve the named vesting allocation. The unqualified vault address is accepted 
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L307)
 
-Import: `import {requireVaultAddress} from 'tasra-sdk/chain'`
+Import: `import {requireVaultAddress} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function requireVaultAddress(book: AddressBook, tranche: VaultTranche): Address;
@@ -1266,7 +1266,7 @@ Read active accountant HTTP endpoints through the registry role index, preservin
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L146)
 
-Import: `import {resolveAccountantUrls} from 'tasra-sdk/chain'`
+Import: `import {resolveAccountantUrls} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function resolveAccountantUrls(chain: TasraChainClient): Promise<string[]>;
@@ -1284,7 +1284,7 @@ Validate network overrides and resolve the required EURC token address.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L61)
 
-Import: `import {resolveNetworkProfile} from 'tasra-sdk/chain'`
+Import: `import {resolveNetworkProfile} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function resolveNetworkProfile(environment: NetworkName, options?: {
@@ -1309,7 +1309,7 @@ you hold the key).
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L124)
 
-Import: `import {resolveSlotGroupKey} from 'tasra-sdk/chain'`
+Import: `import {resolveSlotGroupKey} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function resolveSlotGroupKey(chain: TasraChainClient, slotId: `0x${string}`): Promise<SlotGroupKey>;
@@ -1330,7 +1330,7 @@ follows `assignedNodes`; url-less operators are skipped.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L47)
 
-Import: `import {resolveSlotKeeperUrls} from 'tasra-sdk/chain'`
+Import: `import {resolveSlotKeeperUrls} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function resolveSlotKeeperUrls(chain: TasraChainClient, slotId: `0x${string}`): Promise<string[]>;
@@ -1349,7 +1349,7 @@ Read active verifier records in ascending operator-address order. Stable indices
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L68)
 
-Import: `import {resolveVerifierDirectory} from 'tasra-sdk/chain'`
+Import: `import {resolveVerifierDirectory} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function resolveVerifierDirectory(chain: TasraChainClient): Promise<CommitteeVerifier[]>;
@@ -1369,7 +1369,7 @@ Compute the salted rule commitment. OID4VP queries and `kk_oauth` policy envelop
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L449)
 
-Import: `import {ruleCommitment} from 'tasra-sdk/chain'`
+Import: `import {ruleCommitment} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function ruleCommitment(ruleSalt: Hex, rule: string): Hex;
@@ -1388,7 +1388,7 @@ Build validated EIP-712 data binding a challenge to the approved service revisio
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L149)
 
-Import: `import {serviceChallengeTypedData} from 'tasra-sdk/chain'`
+Import: `import {serviceChallengeTypedData} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function serviceChallengeTypedData(challenge: ServiceChallenge): {
@@ -1454,7 +1454,7 @@ Abbreviate an address or hash by retaining its leading and trailing digits.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/format.ts#L9)
 
-Import: `import {truncateHex} from 'tasra-sdk/chain'`
+Import: `import {truncateHex} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function truncateHex(hex: string, lead?: number, tail?: number): string;
@@ -1474,7 +1474,7 @@ Responder must validate against its own configured profile before asking its ded
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L206)
 
-Import: `import {validateServiceChallenge} from 'tasra-sdk/chain'`
+Import: `import {validateServiceChallenge} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function validateServiceChallenge(challenge: ServiceChallenge, approval: ServiceApproval, endpoint: string, now: number): void;
@@ -1495,7 +1495,7 @@ Reject aliases instead of signing a URL which another implementation normalizes 
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L90)
 
-Import: `import {validateServiceEndpoint} from 'tasra-sdk/chain'`
+Import: `import {validateServiceEndpoint} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function validateServiceEndpoint(endpoint: string): URL;
@@ -1513,7 +1513,7 @@ Address-book key for one vesting tranche, e.g. TasraVestingVault_team.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L77)
 
-Import: `import {vaultKey} from 'tasra-sdk/chain'`
+Import: `import {vaultKey} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function vaultKey(tranche: VaultTranche): string;
@@ -1531,7 +1531,7 @@ Return whether the disclosed rule and salt reproduce the on-chain commitment. In
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L462)
 
-Import: `import {verifyRuleCommitment} from 'tasra-sdk/chain'`
+Import: `import {verifyRuleCommitment} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function verifyRuleCommitment(rule: string, ruleSalt: Hex, onChainRuleCommitment: Hex): boolean;
@@ -1551,7 +1551,7 @@ Verify the challenge response against the registry authentication key and expect
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L221)
 
-Import: `import {verifyServiceIdentity} from 'tasra-sdk/chain'`
+Import: `import {verifyServiceIdentity} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function verifyServiceIdentity(challenge: ServiceChallenge, signature: Hex, authKey: Address, now: number): Promise<void>;
@@ -1572,7 +1572,7 @@ Verify exact manifest bytes against the approved hash, canonical encoding and re
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L131)
 
-Import: `import {verifyServiceManifest} from 'tasra-sdk/chain'`
+Import: `import {verifyServiceManifest} from '@t3foundry/tasra-sdk/chain'`
 
 ```ts
 declare function verifyServiceManifest(bytes: Uint8Array, approval: ServiceApproval, record: ServiceRecord): ServiceManifest;

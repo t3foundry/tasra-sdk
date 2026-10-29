@@ -12,47 +12,35 @@ behind them, see [Application flows](flows.md).
 
 ## Install and find the skills
 
-Start in your application's directory:
+Skills ship in a separate package, `@t3foundry/tasra-skills`. Start in your
+application's directory:
 
 ```sh
-npm install tasra-sdk@latest
-node -p "require('tasra-sdk/package.json').version"
-ls node_modules/tasra-sdk/skills
-cat node_modules/tasra-sdk/skills/tasra-getting-started/SKILL.md
+npm install @t3foundry/tasra-sdk@latest
+npx @t3foundry/tasra-skills@latest init
+node -p "require('@t3foundry/tasra-sdk/package.json').version"
 ```
 
-The version command reports the package actually installed. Keep your lockfile
-with the project. You can also open these files in any editor; the shell examples
-use macOS/Linux or Git Bash.
+The version command reports the SDK package actually installed. Keep your
+lockfile with the project. The installer copies the complete skill folders —
+including each skill's `references/` folder — into `.agents/skills/`, or into
+the folder you pass with `--target <dir>` for an agent that discovers skills
+elsewhere.
 
-Installing the SDK places skills in `node_modules/tasra-sdk/skills/`. **It does
-not register them with your agent.** For an agent that discovers project skills
-under `.agents/skills`, copy the complete selected folders:
+Installing the skills places them in `.agents/skills/`. **It does not register
+them with your agent unless that directory is where your agent looks.** Review
+existing folders before copying so you preserve custom instructions, and start a
+new session if the installed skills do not appear. Ask the agent to use
+`tasra-getting-started` and the skill for your task. An agent without skill
+discovery can read the installed `SKILL.md` directly when you provide its path.
 
-```sh
-mkdir -p .agents/skills
-cp -R node_modules/tasra-sdk/skills/tasra-getting-started .agents/skills/
-cp -R node_modules/tasra-sdk/skills/tasra-create-slot .agents/skills/
-```
-
-Review existing folders before copying so you preserve custom instructions. To
-install the whole set in that discovery directory instead:
-
-```sh
-cp -R node_modules/tasra-sdk/skills/tasra-* .agents/skills/
-```
-
-Check your agent's project-skill directory; it may use a different location.
-Start a new session if needed and explicitly ask it to use `tasra-getting-started`
-and the skill for your task. An agent without skill discovery can read the
-installed `SKILL.md` directly when you provide its path. Copying only `SKILL.md`
-is insufficient: some skills also need their `references/` folder.
-
-After an SDK upgrade, refresh copied skills from that installed package and
-record the installed version. npm does not update `.agents/skills` copies.
-Paths beginning `docs/`, `examples/` and `dist/` in skill instructions refer to
-`node_modules/tasra-sdk/`; `references/` stays inside the copied skill folder.
-See the [skill installation guide](../skills/README.md) for the complete convention.
+After an SDK upgrade, refresh the skills by re-running
+`npx @t3foundry/tasra-skills@latest init`, and record the installed version.
+npm does not update `.agents/skills` copies. Paths beginning `docs/`,
+`examples/` and `dist/` in skill instructions refer to `node_modules/@t3foundry/tasra-sdk/`;
+`references/` stays inside the copied skill folder. See the
+[`@t3foundry/tasra-skills`](https://www.npmjs.com/package/@t3foundry/tasra-skills)
+package for the complete convention.
 
 ## Choose a skill
 
@@ -61,18 +49,17 @@ load all instructions for every request.
 
 | Task | Skill |
 |---|---|
-| Set up a TypeScript app and connect to a deployment | [tasra-getting-started](../skills/tasra-getting-started/SKILL.md) |
-| Create, provision or resume a slot | [tasra-create-slot](../skills/tasra-create-slot/SKILL.md) |
-| Give a user operation-specific authorization | [tasra-credentials-and-sessions](../skills/tasra-credentials-and-sessions/SKILL.md) |
-| Define who may use a slot or decrypt a document | [tasra-dcql-rules](../skills/tasra-dcql-rules/SKILL.md) |
-| Write a Rego policy for an OAuth (organization IdP) slot | [tasra-rego-rules](../skills/tasra-rego-rules/SKILL.md) |
-| Handle refusal, cancellation and uncertain results | [tasra-handle-errors](../skills/tasra-handle-errors/SKILL.md) |
-| Build shared Ethereum accounts or document signing | [tasra-sign-and-decrypt](../skills/tasra-sign-and-decrypt/SKILL.md) |
-| Encrypt documents with scoped access | [tasra-ibe-identity-scoped](../skills/tasra-ibe-identity-scoped/SKILL.md) |
-| Inspect deployment, registry and slot state | [tasra-chain](../skills/tasra-chain/SKILL.md) |
-| Collect multiple approvals for one signature | [tasra-committee-path](../skills/tasra-committee-path/SKILL.md) |
-| Integrate a credential wallet, issuer or OAuth provider | [tasra-oid4vp-wallet-and-verifier-agent](../skills/tasra-oid4vp-wallet-and-verifier-agent/SKILL.md) |
-| Integrate an explicitly chosen Hovi issuer | [tasra-hovi-issuer](../skills/tasra-hovi-issuer/SKILL.md) |
+| Set up a TypeScript app and connect to a deployment | `tasra-getting-started` |
+| Create, provision or resume a slot | `tasra-create-slot` |
+| Give a user operation-specific authorization | `tasra-credentials-and-sessions` |
+| Define who may use a slot or decrypt a document | `tasra-dcql-rules` |
+| Write a Rego policy for an OAuth (organization IdP) slot | `tasra-rego-rules` |
+| Handle refusal, cancellation and uncertain results | `tasra-handle-errors` |
+| Build shared Ethereum accounts, document or FROST signing | `tasra-sign` |
+| Encrypt data with BLS KEM and scoped access | `tasra-encryption` |
+| Inspect deployment, registry and slot state | `tasra-chain` |
+| Collect multiple approvals for one signature | `tasra-committee-path` |
+| Integrate a credential wallet, issuer or OAuth provider | `tasra-oid4vp-wallet-and-verifier-agent` |
 
 Skills are instructions, not credentials, network configuration or access grants.
 They contain no operator secrets. Give the agent public deployment configuration
@@ -126,8 +113,8 @@ it does not. Distinguish registered nodes from keepers. Do not create accounts,
 slots or transactions.
 ```
 
-Use [tasra-getting-started](../skills/tasra-getting-started/SKILL.md) and
-[tasra-chain](../skills/tasra-chain/SKILL.md). Start from the [connection tutorial](getting-started.md).
+Use `tasra-getting-started` and
+`tasra-chain`. Start from the [connection tutorial](getting-started.md).
 
 ## 2. Create a wallet for my application
 
@@ -149,7 +136,7 @@ Mallory's attempt did not change the account's transaction count. Either Alice
 or Bob may act; this is not a requirement for both to approve each payment.
 ```
 
-Use [tasra-sign-and-decrypt](../skills/tasra-sign-and-decrypt/SKILL.md);
+Use `tasra-sign`;
 [complete shared-account app](shared-account.md).
 
 ## 4. Encrypt private notes
@@ -162,7 +149,7 @@ successful read, Bob's refusal by the verifier, and detection of changed encrypt
 data. Keep the encrypted note separate from private keys and credentials.
 ```
 
-Use [tasra-ibe-identity-scoped](../skills/tasra-ibe-identity-scoped/SKILL.md);
+Use `tasra-encryption`;
 [complete encrypted-notes app](encrypted-notes.md).
 
 ## 5. Protect document versions separately
@@ -185,7 +172,7 @@ document, expected request and signature bundle. Reject a changed document, a
 signature copied from another request, and two copies of Alice's signature.
 ```
 
-Use [tasra-sign-and-decrypt](../skills/tasra-sign-and-decrypt/SKILL.md);
+Use `tasra-sign`;
 [complete document-signing app](document-signing.md).
 
 ## 7. Require two approvals for one signature
@@ -198,7 +185,7 @@ that an approval cannot be reused for another request. Save the request details
 so the app can resume it. Explain how people approving differ from keepers signing.
 ```
 
-Use [tasra-committee-path](../skills/tasra-committee-path/SKILL.md);
+Use `tasra-committee-path`;
 [complete native approval examples](native-approvals.md).
 
 ## 8. Issue and verify team credentials
@@ -212,8 +199,8 @@ Explain the difference between a valid signature, issuer trust and revocation.
 Keep issuer and holder keys private and use the SDK's supported credential format.
 ```
 
-Use [tasra-credentials-and-sessions](../skills/tasra-credentials-and-sessions/SKILL.md)
-and [tasra-dcql-rules](../skills/tasra-dcql-rules/SKILL.md).
+Use `tasra-credentials-and-sessions`
+and `tasra-dcql-rules`.
 
 ## 9. Connect an existing Ethereum wallet
 
@@ -238,7 +225,7 @@ which wallet, credential format and verifier configuration were actually tested;
 report missing integration inputs instead of claiming universal compatibility.
 ```
 
-Use [tasra-oid4vp-wallet-and-verifier-agent](../skills/tasra-oid4vp-wallet-and-verifier-agent/SKILL.md).
+Use `tasra-oid4vp-wallet-and-verifier-agent`.
 
 ## 11. Use our organization's sign-in provider
 
@@ -266,8 +253,8 @@ unknown, preserve it for reconciliation. Do not delete journals, steal abandoned
 locks or claim unsupported recovery works.
 ```
 
-Use [tasra-create-slot](../skills/tasra-create-slot/SKILL.md) and
-[tasra-handle-errors](../skills/tasra-handle-errors/SKILL.md).
+Use `tasra-create-slot` and
+`tasra-handle-errors`.
 
 ## 13. Prove the application works
 
@@ -290,7 +277,7 @@ without inventing data. Do not expose private credentials or recovery journals,
 and do not suggest that a healthy registry proves protected operations will work.
 ```
 
-Use [tasra-chain](../skills/tasra-chain/SKILL.md). Creating a UI framework project is
+Use `tasra-chain`. Creating a UI framework project is
 an application choice; the SDK supplies the deployment and slot operations.
 
 ## Review what the agent produced

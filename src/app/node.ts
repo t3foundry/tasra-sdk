@@ -1,4 +1,4 @@
-/** Node-only durable private state. Import from tasra-sdk/app/node. */
+/** Node-only durable private state. Import from @t3foundry/tasra-sdk/app/node. */
 import {constants} from 'node:fs'
 import {mkdir, lstat, open, rename, unlink} from 'node:fs/promises'
 import {resolve, join} from 'node:path'

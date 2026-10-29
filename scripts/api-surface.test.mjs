@@ -9,7 +9,7 @@ function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'tasra-api-surface-'))
   t.after(() => rmSync(root, {recursive: true, force: true}))
   mkdirSync(join(root, 'src'))
-  writeFileSync(join(root, 'package.json'), JSON.stringify({name: 'tasra-sdk', exports: {'.': {types: './dist/index.d.ts'}}}))
+  writeFileSync(join(root, 'package.json'), JSON.stringify({name: '@t3foundry/tasra-sdk', exports: {'.': {types: './dist/index.d.ts'}}}))
   writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({compilerOptions: {target: 'ES2022'}, include: ['src']}))
   return root
 }
@@ -22,7 +22,7 @@ void test('public surface detects new exports and changed signatures', t => {
   const after = publicSurface(root)
   assert.equal(after.length, before.length + 1)
   assert.notEqual(after.find(e => e.id === before[0].id).shape, before[0].shape)
-  assert.ok(after.some(e => e.id === 'tasra-sdk#added'))
+  assert.ok(after.some(e => e.id === '@t3foundry/tasra-sdk#added'))
 })
 
 void test('contract snapshot detects changes in a referenced non-exported interface', t => {
@@ -36,7 +36,7 @@ void test('contract snapshot detects changes in a referenced non-exported interf
 
 void test('contract emission accepts JSON imports while requiring every source declaration', t => {
   const root = fixture(t)
-  writeFileSync(join(root, 'package.json'), JSON.stringify({name: 'tasra-sdk', type: 'module', exports: {'.': {types: './dist/index.d.ts'}}}))
+  writeFileSync(join(root, 'package.json'), JSON.stringify({name: '@t3foundry/tasra-sdk', type: 'module', exports: {'.': {types: './dist/index.d.ts'}}}))
   writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({compilerOptions: {target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', resolveJsonModule: true, outDir: 'dist', rootDir: 'src'}, include: ['src']}))
   writeFileSync(join(root, 'src/data.json'), '{"value":1}')
   writeFileSync(join(root, 'src/index.ts'), 'import data from "./data.json" with {type:"json"}; export function readValue(): number {return data.value}')

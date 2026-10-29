@@ -1,5 +1,5 @@
-import {TasraClient} from 'tasra-sdk/app'
-import {createFileStore} from 'tasra-sdk/app/node'
+import {TasraClient} from '@t3foundry/tasra-sdk/app'
+import {createFileStore} from '@t3foundry/tasra-sdk/app/node'
 import {loadNetwork} from './network.js'
 
 const network = loadNetwork()

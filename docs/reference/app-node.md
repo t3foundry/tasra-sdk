@@ -1,4 +1,4 @@
-# tasra-sdk/app/node
+# @t3foundry/tasra-sdk/app/node
 
 Generated from public TypeScript exports.
 
@@ -21,7 +21,7 @@ A state lock is already held and requires reconciliation before manual removal.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L28)
 
-Import: `import {StoreLockedError} from 'tasra-sdk/app/node'`
+Import: `import {StoreLockedError} from '@t3foundry/tasra-sdk/app/node'`
 
 ```ts
 declare class StoreLockedError {
@@ -58,7 +58,7 @@ The directory is private, trusted application state, not an untrusted shared fol
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L67)
 
-Import: `import {createFileStore} from 'tasra-sdk/app/node'`
+Import: `import {createFileStore} from '@t3foundry/tasra-sdk/app/node'`
 
 ```ts
 declare function createFileStore(directory: string): ApplicationStore;

@@ -13,7 +13,7 @@
 // quorum), and the actual committee is drawn per-request from the *global* verifier set
 // by the beacon. So node discovery is per-slot; verifier discovery is network-wide.
 //
-// Lives in the `tasra-sdk/chain` subpath (viem). The resolved directory feeds the
+// Lives in the `@t3foundry/tasra-sdk/chain` subpath (viem). The resolved directory feeds the
 // pure committee primitives in ../committee (which take injected chain reads).
 
 import {keccak256, toHex, type Address} from 'viem'

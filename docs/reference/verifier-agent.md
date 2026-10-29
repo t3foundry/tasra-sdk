@@ -1,4 +1,4 @@
-# tasra-sdk/verifier-agent
+# @t3foundry/tasra-sdk/verifier-agent
 
 Generated from public TypeScript exports.
 
@@ -23,7 +23,7 @@ still complete, so poll again. Extends ` TasraError `.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L134)
 
-Import: `import {VerifierAgentSessionError} from 'tasra-sdk/verifier-agent'`
+Import: `import {VerifierAgentSessionError} from '@t3foundry/tasra-sdk/verifier-agent'`
 
 ```ts
 declare class VerifierAgentSessionError {
@@ -73,7 +73,7 @@ The compound token the verifier-agent hands back must be the wire shape the keep
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L162)
 
-Import: `import {assertCompoundTokenWire} from 'tasra-sdk/verifier-agent'`
+Import: `import {assertCompoundTokenWire} from '@t3foundry/tasra-sdk/verifier-agent'`
 
 ```ts
 declare function assertCompoundTokenWire(raw: unknown, correlation: string): Record<string, unknown>;
@@ -94,7 +94,7 @@ Object, no JWE key: the client presents an access token its own IdP minted.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L278)
 
-Import: `import {createOauthSession} from 'tasra-sdk/verifier-agent'`
+Import: `import {createOauthSession} from '@t3foundry/tasra-sdk/verifier-agent'`
 
 ```ts
 declare function createOauthSession(verifierAgentUrl: string, params: CreateSessionParams): Promise<CreateOauthSessionResult>;
@@ -117,7 +117,7 @@ for the result.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L238)
 
-Import: `import {createOid4vpSession} from 'tasra-sdk/verifier-agent'`
+Import: `import {createOid4vpSession} from '@t3foundry/tasra-sdk/verifier-agent'`
 
 ```ts
 declare function createOid4vpSession(verifierAgentUrl: string, params: CreateSessionParams): Promise<CreateSessionResult>;
@@ -137,7 +137,7 @@ The next polling delay: geometric growth (times1.5) capped at `max`, plus or min
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L499)
 
-Import: `import {nextPollDelay} from 'tasra-sdk/verifier-agent'`
+Import: `import {nextPollDelay} from '@t3foundry/tasra-sdk/verifier-agent'`
 
 ```ts
 declare function nextPollDelay(previousMs: number, baseMs: number, maxMs: number, random?: () => number): number;
@@ -158,7 +158,7 @@ Shared validation for the explicit-URL and registered-agent transports.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L456)
 
-Import: `import {parseVerifierAgentSessionStatus} from 'tasra-sdk/verifier-agent'`
+Import: `import {parseVerifierAgentSessionStatus} from '@t3foundry/tasra-sdk/verifier-agent'`
 
 ```ts
 declare function parseVerifierAgentSessionStatus(data: Record<string, unknown>, sessionId: string): SessionStatusResult;
@@ -180,7 +180,7 @@ Other actions should supply the digest directly.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L215)
 
-Import: `import {payloadDigest} from 'tasra-sdk/verifier-agent'`
+Import: `import {payloadDigest} from '@t3foundry/tasra-sdk/verifier-agent'`
 
 ```ts
 declare function payloadDigest(action: string, messageHex: string): string;
@@ -199,7 +199,7 @@ Fetch and validate one authorization session status. Transport failures and HTTP
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L424)
 
-Import: `import {pollOid4vpSession} from 'tasra-sdk/verifier-agent'`
+Import: `import {pollOid4vpSession} from '@t3foundry/tasra-sdk/verifier-agent'`
 
 ```ts
 declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, pollSecret: string): Promise<SessionStatusResult>;
@@ -237,7 +237,7 @@ this session), `unavailable` for other 502/503/504, `protocol` for any other non
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L346)
 
-Import: `import {submitOauthResponse} from 'tasra-sdk/verifier-agent'`
+Import: `import {submitOauthResponse} from '@t3foundry/tasra-sdk/verifier-agent'`
 
 ```ts
 declare function submitOauthResponse(verifierAgentUrl: string, args: {
@@ -268,7 +268,7 @@ decides how to explain it) - see `awaitVerifierAgentResult` for the version that
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L521)
 
-Import: `import {waitForSession} from 'tasra-sdk/verifier-agent'`
+Import: `import {waitForSession} from '@t3foundry/tasra-sdk/verifier-agent'`
 
 ```ts
 declare function waitForSession(verifierAgentUrl: string, sessionId: string, pollSecret: string, intervalMs?: number, timeoutMs?: number, opts?: WaitOpts): Promise<SessionStatusResult>;

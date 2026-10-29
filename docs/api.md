@@ -9,20 +9,20 @@ provide operation details. Code fragments below assume their named inputs alread
 
 ## Choose a client
 
-Start new applications with `TasraClient` from `tasra-sdk/app`. The runtime class
+Start new applications with `TasraClient` from `@t3foundry/tasra-sdk/app`. The runtime class
 is separate from the root module's existing `TasraClient` session-client type.
-Install the latest SDK with `npm install tasra-sdk@latest`; see
+Install the latest SDK with `npm install @t3foundry/tasra-sdk@latest`; see
 [installation](installation.md) for runtime and TypeScript setup.
 
 | Entry point | Import | Use it for | Requires |
 |---|---|---|---|
-| `new TasraClient({manifest})` / `TasraClient.fromManifest(url)` | `tasra-sdk/app` | Create slots, use wallets and credentials, encrypt and sign | Public deployment manifest; wallet and durable store for slot creation |
-| `createFileStore` | `tasra-sdk/app/node` | Private durable state for a Node application | A private local directory |
-| `createTasraChainClient` | `tasra-sdk/chain` | Read contracts and discover the network | RPC, chain ID, deployment addresses |
-| `createTasraWriteClient` | `tasra-sdk/chain` | Create slots, fund them, change on-chain state | Deployment configuration and funded transaction signer |
-| `createCommitteeSlotClient` | `tasra-sdk/chain` | Credential-gated threshold encryption/decryption and FROST signing | Chain client, slot, holder, credentials and verifier proofs |
-| `createTasraSlotClient` | `tasra-sdk/chain` | Chain-discovered managed sessions | Chain client, identity and session authentication |
-| `createTasraClient` | `tasra-sdk` | Managed sessions with explicit endpoints | Keeper URLs and session authentication; verifier for credential redemption |
+| `new TasraClient({manifest})` / `TasraClient.fromManifest(url)` | `@t3foundry/tasra-sdk/app` | Create slots, use wallets and credentials, encrypt and sign | Public deployment manifest; wallet and durable store for slot creation |
+| `createFileStore` | `@t3foundry/tasra-sdk/app/node` | Private durable state for a Node application | A private local directory |
+| `createTasraChainClient` | `@t3foundry/tasra-sdk/chain` | Read contracts and discover the network | RPC, chain ID, deployment addresses |
+| `createTasraWriteClient` | `@t3foundry/tasra-sdk/chain` | Create slots, fund them, change on-chain state | Deployment configuration and funded transaction signer |
+| `createCommitteeSlotClient` | `@t3foundry/tasra-sdk/chain` | Credential-gated threshold encryption/decryption and FROST signing | Chain client, slot, holder, credentials and verifier proofs |
+| `createTasraSlotClient` | `@t3foundry/tasra-sdk/chain` | Chain-discovered managed sessions | Chain client, identity and session authentication |
+| `createTasraClient` | `@t3foundry/tasra-sdk` | Managed sessions with explicit endpoints | Keeper URLs and session authentication; verifier for credential redemption |
 
 The remaining factories support advanced integrations and existing applications.
 Managed-session local decryption requires an **exportable** BLS slot. Threshold
@@ -49,9 +49,9 @@ For Ethereum signatures, see [`signEoaDigest`](signing.md), not committee FROST 
 
 ## Application entry exports
 
-`tasra-sdk/app` provides `TasraClient`, the manifest loader, wallet and identity
+`@t3foundry/tasra-sdk/app` provides `TasraClient`, the manifest loader, wallet and identity
 adapters, credential helpers, slot creation and native approval helpers.
-`tasra-sdk/app/node` provides `createFileStore`; keep this Node-only import out of
+`@t3foundry/tasra-sdk/app/node` provides `createFileStore`; keep this Node-only import out of
 browser bundles. See the [application guide](application-api.md) for the normal
 workflow and [generated application reference](reference/app.md) for complete signatures.
 
@@ -71,8 +71,8 @@ workflow and [generated application reference](reference/app.md) for complete si
 | DCQL (OID4VP-DCQL) | `validateDcql`, `evaluateDcql`, `selectDcql`, `canonicalizeDcql`, `isOid4vpRule`, `jsonCredential`, `evaluateIdentityScoped`, `scopeCovers`, `DcqlMalformedError`, `DCQL_MAX_RULE_LEN` + `DcqlQuery`, `CredentialView` |
 | Verifier Agent sessions | `createOid4vpSession`, `pollOid4vpSession`, `waitForSession`, `payloadDigest`, `VerifierAgentSessionError`; `oauth` kind: `createOauthSession`, `submitOauthResponse` + `CreateSessionParams`, `CreateOauthSessionResult`, `SessionStatusResult` |
 | DPoP (RFC 9449) | `createDpopKey`, `auth0DpopSigner`, `jwkThumbprint`, `accessTokenHash`, `isHeaderSafeNonce` + `DpopSigner`, `DpopKey` |
-| Committee tokens | not on the main entry — see [`tasra-sdk/committee`](#tasra-sdkcommittee--protocol-internals) |
-| Slot funding | `httpFaucet` (sovereign slot creation lives in `tasra-sdk/chain`) |
+| Committee tokens | not on the main entry — see [`@t3foundry/tasra-sdk/committee`](#t3foundrytasra-sdkcommittee--protocol-internals) |
+| Slot funding | `httpFaucet` (sovereign slot creation lives in `@t3foundry/tasra-sdk/chain`) |
 | Utils | `hexToBytes` |
 
 For new apps, use `tasra.slots.bls(...)` and `tasra.slots.frost(...)` for
@@ -81,7 +81,7 @@ for advanced committee integrations. Managed
 `Session.decrypt` requires an exportable personal-vault slot; the session primitives,
 verifier-auth helpers, and crypto are what it composes (use them directly when you
 need finer control). To resolve endpoints from chain instead of hardcoding them, use the
-`tasra-sdk/chain` clients (`createTasraSlotClient` / `createCommitteeSlotClient`).
+`@t3foundry/tasra-sdk/chain` clients (`createTasraSlotClient` / `createCommitteeSlotClient`).
 Verifier-auth helpers are pure HTTP/JSON; JWT inspection is client-side only (expiry/UX),
 never a signature check. DCQL is a **generic** evaluator — scope *semantics* are the
 consuming product's concern.
@@ -95,7 +95,7 @@ AES-256-GCM in fixed chunks (WebCrypto, default 1 MiB), each chunk's nonce
 — so a chunk cannot be reordered, dropped, truncated or replayed under another identity.
 
 ```ts
-import {ibeSealBlob, ibeOpenBlob, ibeUnwrapBlobKey, ibeBlobDecryptKey, ibeDecryptBlobChunk, ibeBlobChunkRange} from 'tasra-sdk'
+import {ibeSealBlob, ibeOpenBlob, ibeUnwrapBlobKey, ibeBlobDecryptKey, ibeDecryptBlobChunk, ibeBlobChunkRange} from '@t3foundry/tasra-sdk'
 
 // producer (offline, nothing but the slot's public MPK)
 const {header, body} = await ibeSealBlob(mpk, 'did:key:zPatient/imaging/2026-09', pngBytes, {contentType: 'image/png'})
@@ -125,7 +125,7 @@ header. The SDK rejects negative and past-end indices; it does not validate ever
 malformed header or fractional index. Authenticate the header alongside the body
 digest before trusting metadata such as `contentType`.
 
-## `tasra-sdk/oid4vp` — credential wallets against the Verifier Agent
+## `@t3foundry/tasra-sdk/oid4vp` — credential wallets against the Verifier Agent
 
 The wallet protocol uses OpenID4VP 1.0 with DCQL, SD-JWT VC + KB-JWT, JARM
 `direct_post.jwt`, and OpenID4VCI pre-authorized issuance. This subpath supports
@@ -135,7 +135,7 @@ two application roles:
 // APP / RELYING PARTY: sign the operation with the slot creator's EVM key (EIP-712
 // PresentationOperation), open a session on the verifier-agent, hand the openid4vp:// payload to a wallet,
 // collect the compound token — the credentials never come back here.
-import {openVerifierAgentSession, awaitVerifierAgentResult} from 'tasra-sdk/oid4vp'
+import {openVerifierAgentSession, awaitVerifierAgentResult} from '@t3foundry/tasra-sdk/oid4vp'
 const session = await openVerifierAgentSession({verifierAgentUrl, chainId, keyRegistry, slotId, action: 'sign', message, description, signer: creatorAccount})
 showQr(session.qrPayload)
 const {token} = await awaitVerifierAgentResult(session) // checks token.request_hash against the session
@@ -143,7 +143,7 @@ const {token} = await awaitVerifierAgentResult(session) // checks token.request_
 // WALLET: receive a credential from any OpenID4VCI issuer, then answer a request: fetch + verify
 // the JAR (did:web → the verifier-agent's set document), plan against its dcql_query, let the user pick ONE
 // credential, disclose only the claims asked for, bind with a KB-JWT, encrypt, POST.
-import {randomHolderKey, receiveCredential, presentToRequestUri} from 'tasra-sdk/oid4vp'
+import {randomHolderKey, receiveCredential, presentToRequestUri} from '@t3foundry/tasra-sdk/oid4vp'
 const holder = randomHolderKey() // P-256 did:jwk, cnf.kid = did#0
 const {credential} = await receiveCredential({offerUri, holder})
 await presentToRequestUri(qrPayload, [{sdJwt: credential}], holder, {choose: askUser})
@@ -166,7 +166,7 @@ the maximum token age. Create the slot with an `oauthPolicy`; the SDK packs the 
 network's own engine and refuses one keepers would not store, before any chain call:
 
 ```ts
-import {platformAudience} from 'tasra-sdk/committee'
+import {platformAudience} from '@t3foundry/tasra-sdk/committee'
 
 const POLICY = `package tasra.slot
 
@@ -188,11 +188,11 @@ const created = await writer.createSlot({
 re-checks issuer, audience or age. Test it locally with `evaluateEnvelope` before committing it.
 The audience
 is derived, never chosen — `platformAudience(agentOrigin, chainId)` from
-`tasra-sdk/committee`, or read it back from any `createOauthSession` reply.
+`@t3foundry/tasra-sdk/committee`, or read it back from any `createOauthSession` reply.
 
 ```ts
-import {auth0DpopSigner, createOauthSession, submitOauthResponse, waitForSession} from 'tasra-sdk'
-import {presentationOperationTypedData} from 'tasra-sdk/oid4vp'
+import {auth0DpopSigner, createOauthSession, submitOauthResponse, waitForSession} from '@t3foundry/tasra-sdk'
+import {presentationOperationTypedData} from '@t3foundry/tasra-sdk/oid4vp'
 
 const {typedData, operation, messageHex} = presentationOperationTypedData({
   chainId, keyRegistry, slotId, action: 'sign', message, description: 'Treasury payout #42',
@@ -251,7 +251,7 @@ has passed it is activated. `amendSlotRule` drives every step, checks everything
 signing, and resumes where the chain is when called again with the same rule:
 
 ```ts
-import {amendSlotRule, createTasraChainClient, createTasraWriteClient, readRuleAmendment} from 'tasra-sdk/chain'
+import {amendSlotRule, createTasraChainClient, createTasraWriteClient, readRuleAmendment} from '@t3foundry/tasra-sdk/chain'
 import {privateKeyToAccount} from 'viem/accounts'
 
 // The slot was created with rulePolicy {admin: adminAddress, guardian: creatorAddress, timelockSecs: 3600}.
@@ -305,17 +305,17 @@ is unchanged. Hand `evidenceCt` to every keeper call (`committeeSign`, `committe
 `requestIbeExtractionPartials` take an optional `evidenceCt`, posted as `evidence_ct`): a keeper
 with `require_committee_evidence` refuses a token without it, and retains it so a mis-issuance
 can be challenged. Nothing in the ciphertext is readable without a threshold of accountants.
-`evidenceBindingMessage` / `verifyEvidenceBinding` (on `tasra-sdk/committee`) mirror the
+`evidenceBindingMessage` / `verifyEvidenceBinding` (on `@t3foundry/tasra-sdk/committee`) mirror the
 Rust functions and are pinned to `test/committee-evidence-vectors.json`.
 
-## `tasra-sdk/committee` — protocol internals
+## `@t3foundry/tasra-sdk/committee` — protocol internals
 
 The compound-token layer — committee draw, canonical hashing, ed25519 quorum
 verification, verifier-set Merkle proofs, wire codecs, and the
 `/v1/committee-authorize` orchestration — lives behind its own subpath:
 
 ```ts
-import {verifyCompoundToken, selectVerifierCommittee} from 'tasra-sdk/committee'
+import {verifyCompoundToken, selectVerifierCommittee} from '@t3foundry/tasra-sdk/committee'
 ```
 
 It also carries the derivations `platformAudience(origin, chainId)` and
@@ -325,12 +325,12 @@ against `keykeeper-committee`'s `oauth` module (`test/dpop.ts`).
 
 **Most consumers never need it.** Typed slots on `TasraClient` handle these
 operations. Advanced integrations can use `createCommitteeSlotClient` from
-`tasra-sdk/chain`; reach for protocol primitives when implementing or auditing the
+`@t3foundry/tasra-sdk/chain`; reach for protocol primitives when implementing or auditing the
 protocol itself.
 
 These ~35 symbols are deep protocol internals — canonical hashing, Merkle proofs,
 the committee draw, wire codecs — and they are **not** on the main entry, so
-`import {…} from 'tasra-sdk'` autocompletes to the managed surface rather
+`import {…} from '@t3foundry/tasra-sdk'` autocompletes to the managed surface rather
 than to `compoundTokenCanonicalBytes`.
 
 ---

@@ -1,7 +1,7 @@
 import {
   NETWORKS, parsePinnedNetworkManifest, addressBookFromManifest,
   createTasraChainClient,
-} from 'tasra-sdk/chain'
+} from '@t3foundry/tasra-sdk/chain'
 
 // Keep the pointer and manifest at the same reviewed tasra-releases commit.
 const revision = '3b34d86432c4577eef5d8a10e14eda272f87769b'

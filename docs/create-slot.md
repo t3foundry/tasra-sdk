@@ -10,8 +10,8 @@ can resume the same slot.
 ## 1. Add the lesson files
 
 ```sh
-cp node_modules/tasra-sdk/examples/learning-context.ts .
-cp node_modules/tasra-sdk/examples/learning-create-slot.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/learning-context.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/learning-create-slot.ts .
 ```
 
 This file-store example runs on macOS, Linux or WSL.
@@ -83,7 +83,7 @@ await store.withLock('lesson', async () => {
   }, {wallet: creator, onProgress: ({step, phase}) => console.log('Slot creation:', step, phase)})
   await store.save('slot-id', slot.slotId)
   console.log('Slot ready:', slot.slotId)
-  console.log('Before signing: buy TSRA with EURC and fund this slot. Follow node_modules/tasra-sdk/docs/funding.md.')
+  console.log('Before signing: buy TSRA with EURC and fund this slot. Follow node_modules/@t3foundry/tasra-sdk/docs/funding.md.')
 })
 ```
 

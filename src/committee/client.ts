@@ -485,6 +485,8 @@ export interface CommitteeDecryptOpts {
   /** the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
    *  posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`. */
   evidenceCt?: string
+  /** HTTP transport override; defaults to the global fetch implementation. */
+  fetchImpl?: typeof fetch
 }
 
 /**
@@ -511,7 +513,7 @@ export async function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint
   }
 
   const url = `${base(opts.nodeUrl)}/v1/committee/decrypt`
-  const res = await fetch(url, {
+  const res = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),

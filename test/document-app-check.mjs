@@ -15,7 +15,7 @@ try{
  cpSync(join(app,'gitignore.template'),join(app,'.gitignore'))
  cpSync(join(unpacked,'package/examples/fund-slot.ts'),join(app,'fund-slot.ts'))
  const packageFile=join(app,'package.json'),pkg=JSON.parse(readFileSync(packageFile))
- pkg.dependencies['tasra-sdk']='file:'+archive;writeFileSync(packageFile,JSON.stringify(pkg,null,2))
+ pkg.dependencies['@t3foundry/tasra-sdk']='file:'+archive;writeFileSync(packageFile,JSON.stringify(pkg,null,2))
  console.log(run('npm',['install','--no-audit','--no-fund'],app))
  console.log(run('npm',['audit','--include=dev','--include=optional','--audit-level=high'],app))
  console.log(run('npm',['run','build'],app));console.log(run('npm',['test'],app))

@@ -1,7 +1,7 @@
-// tasra-sdk/chain - on-chain + network READ capability for building
+// @t3foundry/tasra-sdk/chain - on-chain + network READ capability for building
 // observability tooling (e.g. an explorer) on top of a Tasra Network.
 //
-// This is a separate subpath export (`tasra-sdk/chain`) so the crypto core
+// This is a separate subpath export (`@t3foundry/tasra-sdk/chain`) so the crypto core
 // entry stays lean and viem is only pulled in when chain features are imported.
 
 // Contract ABIs (generated from the Foundry artifacts) + nametoabi map.
