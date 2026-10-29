@@ -1,4 +1,7 @@
 import {verifyEvidenceBinding} from '../committee/evidence.js'
+import {recipientPayloadDigest, type ClientRecipient, type DecryptionBindingWire, type SealedShareWire} from '../crypto/recipient.js'
+import {sha256} from '@noble/hashes/sha256'
+import {ibeVerifyShare} from '../crypto/ibe.js'
 // One paid committee operation, end to end, from the client side.
 //
 //   billing guard → canonical discovery → creator-signed operation and payment intent →
@@ -94,7 +97,7 @@ export interface PaidOperationRequest {
   /** Slot to operate on. */
   slot: Hex
   /** Committee action and payload: `message` for sign, `identity` for ibe-extract, `payloadDigest` for decrypt/dual-approve. */
-  operation: {action: CommitteeAction; message?: Uint8Array; identity?: string; payloadDigest?: Uint8Array; ttlSecs?: number; description?: string}
+  operation: {action: CommitteeAction; message?: Uint8Array; identity?: string; payloadDigest?: Uint8Array; decryption?: DecryptionBindingWire; ttlSecs?: number; description?: string}
   /** Exact provisioned DCQL rule bytes and salt. The chain commitment uses canonical JSON; the verifier token hash binds these original bytes unchanged. */
   rule: {rule: string; salt: Hex}
   /** Holder strategy: the SDK wallet presents itself, or an external wallet scans the request. */
@@ -145,7 +148,9 @@ export interface PaidOperation {
    */
   refreshStatus(options?: RefreshPaidStatusOptions): Promise<PaidStatusRefresh>
   /** Read the keeper's retained result after an uncertain execution. Performs no new work. */
-  recover(options: {transport: KeeperRecoveryTransport; stage?: Extract<ExecutionStage, 'coordinator' | 'contributor'>; signal?: AbortSignal}): Promise<RecoveredKeeperExecution>
+  recover(options: {transport: KeeperRecoveryTransport; stage?: Extract<ExecutionStage, 'coordinator' | 'contributor'>;
+    /** Original assigned contributor public key; reads sealed result bytes without opening them. */
+    contributorKey?: Hex; signal?: AbortSignal}): Promise<RecoveredKeeperExecution>
   /**
    * After an uncertain `ibe-extract` fan-out, read each assigned contributor's retained,
    * commitment-verified partial (stage `contributor`) until the payment's keeper threshold is
@@ -159,6 +164,12 @@ export interface PaidOperation {
 
 /** Options for {@link PaidOperation.recoverIbePartials}. */
 export interface RecoverIbePartialsOptions {
+  /** Original client-held recipient. Its private key is never written to the operation journal. */
+  recipient?: ClientRecipient
+  /** Original identity and authenticated 144-byte G2 || G1 public shares. */
+  identity?: string
+  /** Original authenticated 144-byte G2 || G1 public shares used to validate recovered contributions. */
+  verifyingShares?: ReadonlyMap<number, Uint8Array>
   /** Caller-approved guarded keeper recovery transport. */
   transport: KeeperRecoveryTransport
   /** Cancellation for the whole recovery; each keeper read also has its own 60-second deadline. */
@@ -312,7 +323,7 @@ interface OperationRecord {
   payer?: Address
   payment: PaymentIntentWire
   expected: ExpectedPaidOperation
-  params: {operation: PresentationOperation; operationSig: Hex; messageHex: string; random: Hex}
+  params: {operation: PresentationOperation; operationSig: Hex; messageHex: string; random: Hex; decryption?: DecryptionBindingWire}
   members: PaidVerifierWitness[]
   rule: string
   ruleSalt: Hex
@@ -433,11 +444,21 @@ function validateConfig(config: PaidOperationConfig): void {
 }
 
 /** Decode a commitment-verified retained IBE result into a combinable partial. */
-function ibePartial(resultJson: string, nodeUrl: string): IbeExtractionPartial {
-  const d = JSON.parse(resultJson) as {identifier: number; extraction_share: string; verifying_share: string; epoch: number; key_slot_id: string}
-  const value = base64Decode(d.extraction_share), verifying = base64Decode(d.verifying_share)
-  if (value.length !== 48 || verifying.length < 96 || !Number.isSafeInteger(d.identifier) || d.identifier < 1 || d.identifier > 65535) throw new Error('Invalid recovered IBE partial encoding')
-  return {keySlotId: d.key_slot_id, identifier: d.identifier, value, verifyingShareG2: verifying.slice(0, 96), epoch: d.epoch, nodeUrl}
+async function ibePartial(resultJson: string, nodeUrl: string, record: OperationRecord, options: RecoverIbePartialsOptions, chainId: number): Promise<IbeExtractionPartial> {
+  const d = JSON.parse(resultJson) as {identifier: number; sealed_share: SealedShareWire; verifying_share: string; epoch: number; key_slot_id: string}
+  const binding = record.params.decryption, trusted = options.verifyingShares?.get(d.identifier)
+  if (!binding || !options.recipient || options.identity === undefined || !trusted || trusted.length !== 144 || d.epoch !== binding.ciphertext_epoch || d.key_slot_id.replace(/^0x/, '').toLowerCase() !== record.payment.slot.replace(/^0x/, '').toLowerCase()) throw new Error('Original recipient, identity, epoch and authenticated sharing required for sealed IBE recovery')
+  const verifying = base64Decode(d.verifying_share)
+  if (verifying.length !== 144 || !trusted.every((b, i) => b === verifying[i])) throw new Error('Recovered verifying share differs from authenticated package')
+  const content = sha256(new TextEncoder().encode(options.identity))
+  const digest = recipientPayloadDigest(content, binding.ciphertext_epoch, options.recipient.recipient)
+  if (toHex(digest).toLowerCase() !== record.payloadDigest.toLowerCase()) throw new Error('Recovery recipient or identity differs from original authorization')
+  const hash = requestHash(chainId, hexToBytes(record.payment.slot), 'ibe-extract', digest)
+  const value = await options.recipient.open(d.sealed_share, hash, d.identifier, d.epoch, trusted)
+  try {
+    ibeVerifyShare(new Map([[d.identifier, trusted.slice(0, 96)]]), new TextEncoder().encode(options.identity), {identifier: d.identifier, value})
+    return {keySlotId: d.key_slot_id, identifier: d.identifier, value, verifyingShareG2: trusted.slice(0, 96), epoch: d.epoch, nodeUrl}
+  } catch (error) { value.fill(0); throw error }
 }
 
 /**
@@ -470,7 +491,7 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
   const ttlSecs = request.operation.ttlSecs ?? 600
   if (!Number.isSafeInteger(ttlSecs) || ttlSecs <= 0 || ttlSecs > 3600) throw new TasraError('Paid operation lifetime must be 1..3600 seconds')
   const built = presentationOperationTypedData({action: request.operation.action, message: request.operation.message, identity: request.operation.identity,
-    payloadDigest: request.operation.payloadDigest, chainId: d.chainId, keyRegistry: d.keyRegistry, slotId: slot,
+    payloadDigest: request.operation.payloadDigest, decryption: request.operation.decryption, chainId: d.chainId, keyRegistry: d.keyRegistry, slotId: slot,
     description: request.operation.description ?? 'Paid Tasra operation', nowSecs: Math.floor(Date.now() / 1000), ttlSecs})
   const randomBytes = random32(), random = toHex(randomBytes); randomBytes.fill(0)
   const operationSig = await config.creator.signTypedData(built.typedData)
@@ -486,7 +507,7 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
     {signal: AbortSignal.any([signal, AbortSignal.timeout(Math.min(150_000, ttlSecs * 1000))]), fetch: config.fetch,
       waitForPublicationMs: Math.min(config.snapshotWaitMs ?? 180_000, 150_000, ttlSecs * 1000)})
   const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: request.rule.rule, ruleSalt: request.rule.salt,
-    params: {operation: built.operation, operationSig, messageHex: built.messageHex, random}, coordinator: context.coordinator, contributors: context.contributors,
+    params: {operation: built.operation, operationSig, messageHex: built.messageHex, random, ...(request.operation.decryption ? {decryption: structuredClone(request.operation.decryption)} : {})}, coordinator: context.coordinator, contributors: context.contributors,
     action: request.operation.action, payloadDigest: toHex(built.payloadDigest), payer: config.gasPayer.account.address}
   const key = recordKey(requestId)
   await config.store.withLock(key, async () => {
@@ -561,7 +582,7 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
     if (record.phase === 'certified') {
       if (!holder) throw new TasraError('Resuming a paid session requires its holder strategy')
       const params: PaidAgentSessionParams = {operation: record.params.operation, operationSig: record.params.operationSig,
-        messageHex: record.params.messageHex, payment: record.payment, random: record.params.random}
+        messageHex: record.params.messageHex, payment: record.payment, random: record.params.random, ...(record.params.decryption ? {decryption: record.params.decryption} : {})}
       let session
       try {
         session = await prepareRegisteredPaidSession(config.chain, {profile: config.agent.profile, deployment: {...d, defaultVerificationPolicy: d.defaultVerificationPolicy},
@@ -822,15 +843,29 @@ function recoveryReads(config: PaidOperationConfig, record: OperationRecord, cer
   signer: ReturnType<typeof createLocalExecutionSigner>): Pick<PaidOperation, 'recover' | 'recoverIbePartials'> {
   const d = {...config.deployment}, route = config.keeperUrl ?? ((url: string) => url)
   return {
-    recover(options) {
+    async recover(options) {
+      let keeper = record.coordinator
+      let stage = options.stage ?? 'coordinator'
+      if (options.contributorKey !== undefined) {
+        const key = options.contributorKey
+        if (!HEX32.test(key) || options.stage !== undefined && options.stage !== 'contributor') throw new TasraError('Assigned contributor key and contributor stage required')
+        const member = record.contributors?.find(candidate => candidate.publicKey.toLowerCase() === key.toLowerCase())
+        if (!member || !record.payment.keeper_assignment.contributors.some(publicKey => toHex(Uint8Array.from(publicKey)).toLowerCase() === key.toLowerCase())) throw new TasraError('Recovery contributor is not in the original signed assignment')
+        keeper = member
+        stage = 'contributor'
+      }
       return recoverKeeperExecution({client: config.chain.client, deployment: d, payment: record.payment, expected: record.expected,
-        keeper: {...record.coordinator, url: route(record.coordinator.url)}, target: {stage: options.stage ?? 'coordinator', executionKey: certificate.execution_key},
+        keeper: {...keeper, url: route(keeper.url)}, target: {stage, executionKey: certificate.execution_key},
         signer, transport: options.transport, transportPolicy: {allowLocalHttp: config.allowLocalHttp}, signal: options.signal})
     },
     async recoverIbePartials(options) {
       if (record.payment.action !== 'ibe-extract') throw new TasraError('IBE partial recovery applies to an ibe-extract operation only')
       // Journals written before contributors were recorded (SDK before dfafff3) can only use `recover`.
       if (!record.contributors?.length) throw new TasraError('Paid operation journal lacks its assigned contributors')
+      const binding = record.params.decryption
+      if (!binding || !options.recipient || options.identity === undefined || !options.verifyingShares) throw new TasraError('Original client recipient, identity and authenticated sharing required for sealed IBE recovery')
+      const digest = recipientPayloadDigest(sha256(new TextEncoder().encode(options.identity)), binding.ciphertext_epoch, options.recipient.recipient)
+      if (toHex(digest).toLowerCase() !== record.payloadDigest.toLowerCase()) throw new TasraError('Recovery recipient or identity differs from original authorization')
       const concurrency = options.concurrency ?? 4, threshold = record.payment.keeper_assignment.threshold
       if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 16) throw new TasraError('IBE partial recovery concurrency must be 1..16')
       const queue = record.contributors.map(member => ({...member, url: route(member.url)}))
@@ -843,15 +878,22 @@ function recoveryReads(config: PaidOperationConfig, record: OperationRecord, cer
             const recovered = await recoverKeeperExecution({client: config.chain.client, deployment: d, payment: record.payment, expected: record.expected,
               keeper, target: {stage: 'contributor', executionKey: certificate.execution_key}, signer, transport: options.transport,
               transportPolicy: {allowLocalHttp: config.allowLocalHttp}, signal: options.signal})
-            partials.push({keeper, partial: ibePartial(recovered.resultJson, keeper.url), recovered})
+            const partial = await ibePartial(recovered.resultJson, keeper.url, record, options, d.chainId)
+            if (partials.length >= threshold || partials.some(p => p.partial.identifier === partial.identifier)) partial.value.fill(0)
+            else partials.push({keeper, partial, recovered})
           } catch (error) {
             options.signal?.throwIfAborted()
             failures.push({operator: keeper.operator, message: error instanceof Error ? error.message : 'unreadable retained result'})
           }
         }
       }
-      await Promise.all(Array.from({length: Math.min(concurrency, queue.length)}, read))
-      if (partials.length < threshold) throw new TasraError(`Recovered ${partials.length} of ${threshold} required IBE partials; ${failures.length} contributor(s) failed`)
+      const reads = await Promise.allSettled(Array.from({length: Math.min(concurrency, queue.length)}, read))
+      const failed = reads.find(r => r.status === 'rejected')
+      if (failed || partials.length < threshold) {
+        for (const p of partials) p.partial.value.fill(0)
+        if (failed?.status === 'rejected') throw failed.reason
+        throw new TasraError(`Recovered ${partials.length} of ${threshold} required IBE partials; ${failures.length} contributor(s) failed`)
+      }
       return {threshold, partials: partials.slice(0, threshold), failures}
     },
   }

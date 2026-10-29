@@ -13,6 +13,8 @@ import * as prepaid from '../../src/chain/prepaid.js'
 import {paymentIntentHash, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {keeperExecutionFixture} from '../support/keeperExecution.js'
 import type {ClientExecutionSigner, ExecutionAuthorization} from '../../src/committee/execution.js'
+import {createDecryptionRecipient, decryptionBinding} from '../../src/crypto/recipient.js'
+import {sealIbeFixture} from '../support/sealedIbe.js'
 
 const executionSigners: (ClientExecutionSigner & {dispose():void})[] = []
 afterEach(() => { executionSigners.splice(0).forEach(signer=>signer.dispose()); vi.restoreAllMocks(); vi.useRealTimers() })
@@ -23,6 +25,9 @@ const deployment: TasraDeployment = {schemaVersion: 1, name: 'test', chainId: 43
   addresses: {KeyRegistry: `0x${'33'.repeat(20)}`, NodeRegistry: `0x${'44'.repeat(20)}`, Settlement: `0x${'55'.repeat(20)}`}, coordinator: 'lowest-operator-id'}
 const vector = JSON.parse(readFileSync(new URL('../ibe-vectors.json', import.meta.url), 'utf8')) as {mpk: string; identity: string; shares: {identifier: number; d_i: string}[]; verifying_shares: {g2: string; g1: string}[]}
 const unhex = (v: string) => new Uint8Array(Buffer.from(v.replace(/^0x/, ''), 'hex'))
+const recipient = await createDecryptionRecipient()
+const binding = decryptionBinding(sha256(new TextEncoder().encode(vector.identity)), 1, recipient)
+const extractionOptions = {recipient, verifyingShares: new Map(vector.shares.map((s, i) => [s.identifier, new Uint8Array([...unhex(vector.verifying_shares[i]!.g2), ...unhex(vector.verifying_shares[i]!.g1)])]))}
 function fixture(mode = 2, options: Partial<Pick<TasraApplicationConfig, 'keeperUrl' | 'allowLocalPaidHttp'>> = {}) {
   const publicKey = mode === 2 ? secp256k1.getPublicKey(seed) : mode === 1 ? unhex(vector.mpk) : keeperKey
   const metadata = {exists: true, cancelled: false, mode, epoch: 1, threshold: {k: 2, n: 3}, publicKey: toHex(publicKey)}
@@ -31,13 +36,14 @@ function fixture(mode = 2, options: Partial<Pick<TasraApplicationConfig, 'keeper
       nodeRegistry: {nodeOf: vi.fn(async (op: string) => ({url: mode === 1 ? `https://keeper-${parseInt(op.slice(-2), 16) - 1}.example` : 'https://keeper.example', pubkey: toHex(keeperKey)})), operatorIdOf: vi.fn(async (_op: string) => 1n)}}}
   const authorize = vi.fn<OperationAuthorizer>(async request => ({token: {token_type: 'JWT', slot_id: slotId, seed: '22'.repeat(32), epoch: 1,
     vp_hash: '33'.repeat(32), holder_hash: '44'.repeat(32), rule_hash: '55'.repeat(32), verifier_indexes: [0], iat: 1, exp: 9999999999,
-    binding: 'holder_key', ...(request.identity ? {identity_hash: toHex(keccak_256(new TextEncoder().encode(request.identity)))} : {}), request_hash: toHex(requestHash(43112, hexToBytes(slotId), request.action, payloadDigestFor(request.action, request))), signatures: []},
+    binding: 'holder_key', ...(request.identity ? {identity_hash: toHex(keccak_256(new TextEncoder().encode(request.identity)))} : {}), request_hash: toHex(requestHash(43112, hexToBytes(slotId), request.action, request.decryption ? request.payloadDigest! : payloadDigestFor(request.action, request))), signatures: []},
     verifierProofs: [{verifierIndex: 0, operator, pubkey: toHex(keeperKey), proof: []}]}))
   const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
     if (mode === 1) {
       const index = Number(/keeper-(\d+)/.exec(String(_url))![1]), share = vector.shares[index]!, verifying = vector.verifying_shares[index]!
-      return Response.json({key_slot_id: slotId, identifier: share.identifier, extraction_share: Buffer.from(unhex(share.d_i)).toString('base64'),
-        verifying_share: Buffer.concat([unhex(verifying.g2), unhex(verifying.g1)]).toString('base64'), epoch: 1})
+      const body = JSON.parse(String(init?.body)) as {committee_token: {request_hash: Hex}}
+      return Response.json(await sealIbeFixture({key_slot_id: slotId, identifier: share.identifier, extraction_share: Buffer.from(unhex(share.d_i)).toString('base64'),
+        verifying_share: Buffer.concat([unhex(verifying.g2), unhex(verifying.g1)]).toString('base64'), epoch: 1}, recipient, hexToBytes(body.committee_token.request_hash)))
     }
     const body = JSON.parse(String(init?.body)) as {digest: string; message_hex: string; message: string}
     if (mode === 2) {
@@ -54,7 +60,7 @@ function fixture(mode = 2, options: Partial<Pick<TasraApplicationConfig, 'keeper
 async function paidFixture(mode = 2, options: Parameters<typeof fixture>[1] = {}) {
   const f = fixture(mode, options), random: Hex = `0x${'66'.repeat(32)}`, message = new Uint8Array(32).fill(1)
   const action = mode === 1 ? 'ibe-extract' : 'sign'
-  const digest = payloadDigestFor(action, mode === 1 ? {identity: vector.identity} : {message})
+  const digest = mode === 1 ? binding.payloadDigest : payloadDigestFor(action, {message})
   const otherKey = ed25519.getPublicKey(new Uint8Array(32).fill(10))
   const consent = await keeperExecutionFixture(mode===2?'eoa-sign':action,toHex(digest),{
     chain_id:deployment.chainId,settlement:deployment.addresses.Settlement!,key_registry:deployment.addresses.KeyRegistry!,slot:slotId,
@@ -100,7 +106,7 @@ describe('paid application execution', () => {
     const f = await paidFixture(1), slot = await f.app.slots.bls(slotId)
     const plaintext = new TextEncoder().encode('paid note')
     const ciphertext = await slot.encrypt(vector.identity, plaintext)
-    const result = await slot.decrypt(vector.identity, ciphertext, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution})
+    const result = await slot.decrypt(vector.identity, ciphertext, {...extractionOptions, authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution})
     expect(result.plaintext).toEqual(plaintext)
     expect(f.fetchImpl.mock.calls.map(([url]) => new URL(String(url)).hostname).sort()).toEqual(['keeper-0.example', 'keeper-1.example'])
     expect(f.chain.readers.keyRegistry.assignedNodes).not.toHaveBeenCalled()
@@ -314,14 +320,14 @@ describe('application API', () => {
     const {app, authorize, metadata} = fixture(1), slot = await app.slots.bls(slotId)
     const plaintext = new TextEncoder().encode('my private note'), ciphertext = await slot.encrypt(vector.identity, plaintext)
     expect(authorize).not.toHaveBeenCalled()
-    const result = await slot.decrypt(vector.identity, ciphertext, {authorize})
+    const result = await slot.decrypt(vector.identity, ciphertext, {...extractionOptions, authorize})
     expect(result.plaintext).toEqual(plaintext)
     expect(result.shareTrust).toBe('anchored-group')
     expect(result.evidence.every(p => p.receiptStatus === 'absent')).toBe(true)
-    const extracted = await slot.extractIdentity(vector.identity, {authorize})
+    const extracted = await slot.extractIdentity(vector.identity, {...extractionOptions, authorize})
     expect(extracted.key.length).toBe(48)
     extracted.key.fill(0)
-    await expect(slot.decrypt('wrong-identity', ciphertext, {authorize})).rejects.toThrow()
+    await expect(slot.decrypt('wrong-identity', ciphertext, {...extractionOptions, authorize})).rejects.toThrow()
     metadata.publicKey = '0x12'
     await expect(slot.encrypt(vector.identity, plaintext)).rejects.toThrow('BLS')
   })
@@ -329,7 +335,7 @@ describe('application API', () => {
     const f = fixture(1), slot = await f.app.slots.bls(slotId), original = f.fetchImpl.getMockImplementation()!
     f.fetchImpl.mockImplementation((url, init) => String(url).includes('keeper-0.')
       ? original(url, init) : new Promise<Response>(() => {}))
-    await expect(slot.extractIdentity(vector.identity, {authorize: f.authorize, timeoutMs: 500})).rejects.toThrow(/deadline|threshold/i)
+    await expect(slot.extractIdentity(vector.identity, {...extractionOptions, authorize: f.authorize, timeoutMs: 500})).rejects.toThrow(/deadline|threshold/i)
     expect(f.fetchImpl.mock.calls.every(([, init]) => init?.signal?.aborted)).toBe(true)
   })
   it('handles raw digest and typed-data signing through viem', async () => {

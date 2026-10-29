@@ -9,6 +9,9 @@ import {ed25519} from '@noble/curves/ed25519'
 import {keccak_256} from '@noble/hashes/sha3'
 import {sha256} from '@noble/hashes/sha256'
 import {toHex} from 'viem'
+import {createDecryptionRecipient, decryptionBinding} from '../../src/crypto/recipient.js'
+import {requestHash} from '../../src/oid4vp/binding.js'
+import {hexToBytes} from '../../src/crypto/hex.js'
 import {
   assembleCompoundToken,
   assertStatusAttestationsWire,
@@ -308,12 +311,17 @@ describe('typed keeper refusal: present again', () => {
   })
 
   it('surfaces it from IBE extraction when every keeper refused for revocation status', async () => {
-    const token = {slot_id: '0x' + '12'.repeat(32)} as CompoundTokenWire
+    const recipient = await createDecryptionRecipient()
+    const binding = decryptionBinding(sha256(new TextEncoder().encode('id')), 0, recipient)
+    const slot = '0x' + '12'.repeat(32)
+    const token = {slot_id: slot, request_hash: toHex(requestHash(43112, hexToBytes(slot), 'ibe-extract', binding.payloadDigest))} as CompoundTokenWire
+    const vector = JSON.parse(readFileSync(new URL('../recipient-vectors.json', import.meta.url), 'utf8')) as {shares: {identifier: number; verifying_share: string}[]}
+    const context = {recipient, chainId: 43112, ciphertextEpoch: 0, verifyingShares: new Map(vector.shares.map(s => [s.identifier, hexToBytes(s.verifying_share)]))}
     const stale = vi.fn<typeof fetch>(async () => refusal('revocation_status_missing'))
-    await expect(requestIbeExtractionPartials({nodeUrls: ['https://k1', 'https://k2'], committeeToken: token, identity: 'id', threshold: 2, fetchImpl: stale}))
+    await expect(requestIbeExtractionPartials({...context, nodeUrls: ['https://k1', 'https://k2'], committeeToken: token, identity: 'id', threshold: 2, fetchImpl: stale}))
       .rejects.toMatchObject({name: 'RevocationStatusError', code: 'revocation_status_missing'})
     const mixed = vi.fn<typeof fetch>(async url => String(url).includes('k1') ? refusal('revocation_status_stale') : new Response('down', {status: 503}))
-    await expect(requestIbeExtractionPartials({nodeUrls: ['https://k1', 'https://k2'], committeeToken: token, identity: 'id', threshold: 2, fetchImpl: mixed}))
+    await expect(requestIbeExtractionPartials({...context, nodeUrls: ['https://k1', 'https://k2'], committeeToken: token, identity: 'id', threshold: 2, fetchImpl: mixed}))
       .rejects.toBeInstanceOf(ThresholdNotMetError)
   })
 })

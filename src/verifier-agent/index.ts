@@ -1,3 +1,4 @@
+import type {DecryptionBindingWire} from '../crypto/recipient.js'
 import {assertEvidenceBinding, evidenceBody} from '../committee/evidence.js'
 // Verifier Agent client - creates OID4VP sessions on the platform verifier-agent and
 // polls for the compound token result.
@@ -59,6 +60,8 @@ export interface PresentationDelegation {
 
 /** Signed operation, optional delegation and payload submitted to the verifier agent. */
 export interface CreateSessionParams {
+  /** Public decryption binding committed by the signed operation; never include private recipient material. */
+  decryption?: DecryptionBindingWire
   /** Creator-signed intent for an already reserved TASRA payment. Requires random. */
   payment?: PaymentIntentWire
   /** Fixed 32-byte hex presentation random committed before reservation. */
@@ -274,6 +277,7 @@ export async function createOid4vpSession(
       operation_sig: params.operationSig,
       delegation: params.delegation,
       message_hex: params.messageHex,
+      decryption:params.decryption,
     }),
   })
   if (!resp.ok) {

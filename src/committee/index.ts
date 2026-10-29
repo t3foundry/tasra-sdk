@@ -1,5 +1,7 @@
 // compound committee authorization - token crypto + HTTP orchestration.
 export {auditOperationId, decodeOperationReceipt, verifyOperationReceipt} from './receipts.js'
+export {discoverBlsSharing} from './blsSharing.js'
+export type {BlsSharing, BlsSharingOptions, BlsSharingKeeper} from './blsSharing.js'
 export type {OperationReceipt, ReceiptExpectation} from './receipts.js'
 export {extractIdentityStrict, decryptIdentityStrict} from './extraction.js'
 export type {StrictExtractionOptions, StrictExtractionResult, ExtractionKeeper, ExtractionEvidence} from './extraction.js'
@@ -153,3 +155,8 @@ export type {PaidExecutionRequest, CompletedPaidExecutionReport, SignedPaidExecu
   ExecutionRecoveryTarget, RecoveredExecutionReply} from './recovery.js'
 export type {KeeperExecutionKind,KeeperExecutionApprovalRequest,KeeperExecutionApprovals,KeeperExecutionApprover} from './keeperExecution.js'
 export type {EvidenceBindingWire} from './evidence.js'
+
+export {createDecryptionRecipient, decryptionBinding, kemContentDigest, recipientPayloadDigest} from '../crypto/recipient.js'
+export type {ClientRecipient, RecipientWire, DecryptionBindingWire, SealedShareWire} from '../crypto/recipient.js'
+export {collectSealedPartials, decryptWithCommitteePartials} from '../decryption/sealed.js'
+export type {SealedRequestOpts, SealedPartial} from '../decryption/sealed.js'

@@ -28,7 +28,7 @@ export function issueWallet(cfg: FleetConfig, opts: {dept?: string; issuer?: str
 }
 
 export async function authorizeWallet(cfg: FleetConfig, slot: Hex, creatorKey: Hex,
-  input: Pick<OperationInput,'action'|'message'|'payloadDigest'|'identity'|'ttlSecs'>,
+  input: Pick<OperationInput,'action'|'message'|'payloadDigest'|'identity'|'decryption'|'ttlSecs'>,
   wallet = issueWallet(cfg), forcePresentation = false, coordinator?: Address) {
   return authorizePaidWallet(cfg, slot, creatorKey, input, wallet, forcePresentation, coordinator)
 }

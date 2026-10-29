@@ -856,7 +856,7 @@ A Verifier Agent session did not produce a compound token. `kind` says why;
 `retryable` is true only for `timeout` and `unavailable` - the session may
 still complete, so poll again. Extends [TasraError](#tasraerror).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L143)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L146)
 
 Import: `import {VerifierAgentSessionError} from 'tasra-sdk'`
 
@@ -887,7 +887,7 @@ declare class VerifierAgentSessionError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 98 functions</summary>
+<summary>Browse 104 functions</summary>
 
 - [accessTokenHash](#accesstokenhash)
 - [addressFromEoaPubkey](#addressfromeoapubkey)
@@ -900,7 +900,9 @@ Operations you can import and call.
 - [classifyRefusal](#classifyrefusal)
 - [classifyRefusedWrite](#classifyrefusedwrite)
 - [classifyRetry](#classifyretry)
+- [collectSealedPartials](#collectsealedpartials)
 - [combineDecryptShares](#combinedecryptshares)
+- [createDecryptionRecipient](#createdecryptionrecipient)
 - [createDpopKey](#createdpopkey)
 - [createHolderProof](#createholderproof)
 - [createOauthSession](#createoauthsession)
@@ -910,6 +912,8 @@ Operations you can import and call.
 - [credentialsCommitment](#credentialscommitment)
 - [decodeJwtClaims](#decodejwtclaims)
 - [decryptCustody](#decryptcustody)
+- [decryptionBinding](#decryptionbinding)
+- [decryptWithCommitteePartials](#decryptwithcommitteepartials)
 - [decryptWithMasterKey](#decryptwithmasterkey)
 - [decryptWithShardDelivery](#decryptwithsharddelivery)
 - [ed25519DidKey](#ed25519didkey)
@@ -956,6 +960,7 @@ Operations you can import and call.
 - [jsonCredential](#jsoncredential)
 - [jwkThumbprint](#jwkthumbprint)
 - [jwtExpMs](#jwtexpms)
+- [kemContentDigest](#kemcontentdigest)
 - [lintEnvelope](#lintenvelope)
 - [loadRego](#loadrego)
 - [packEnvelope](#packenvelope)
@@ -963,6 +968,7 @@ Operations you can import and call.
 - [parseTasraPost](#parsetasrapost)
 - [payloadDigest](#payloaddigest)
 - [pollOid4vpSession](#polloid4vpsession)
+- [recipientPayloadDigest](#recipientpayloaddigest)
 - [redeemCredential](#redeemcredential)
 - [redeemRenewalToken](#redeemrenewaltoken)
 - [requestIbeExtractionPartials](#requestibeextractionpartials)
@@ -1228,6 +1234,29 @@ declare function classifyRetry(error: unknown): RetryDecision;
 
 Returns: ` RetryDecision `.
 
+### collectSealedPartials
+
+Collect the first threshold of distinct, locally opened and verified contributions.
+The whole fan-out is bounded to 15 seconds. Outstanding reads are cancelled at quorum;
+invalid, duplicate and late contributions are cleared. The caller owns returned values.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L74)
+
+Import: `import {collectSealedPartials} from 'tasra-sdk'`
+
+```ts
+declare function collectSealedPartials(opts: SealedRequestOpts, action: 'decrypt' | 'ibe-extract', identity: Uint8Array, ciphertext?: Ciphertext): Promise<SealedPartial[]>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` opts ` | ` SealedRequestOpts ` | - Original recipient-bound grant, trusted public shares and assigned endpoints. |
+| ` action ` | ` 'decrypt' \| 'ibe-extract' ` | - KEM decryption or IBE extraction; must match the signed token binding. |
+| ` identity ` | ` Uint8Array ` | - Original UTF-8 identity bytes bound by authorization. |
+| ` ciphertext? ` | ` Ciphertext ` | - Complete KEM ciphertext, required for the decrypt action. |
+
+Returns: ` Promise<SealedPartial[]> `.
+
 ### combineDecryptShares
 
 Interpolate distinct partial decryptions and authenticate the plaintext. Enable verify to check each share before combining; the caller supplies a sufficient threshold.
@@ -1250,6 +1279,25 @@ declare function combineDecryptShares(shares: DecryptShare[], ct: Ciphertext, id
 | ` opts? ` | ` { verify?: boolean; } ` | - Whether to verify each partial decryption before combining. |
 
 Returns: ` Uint8Array `.
+
+### createDecryptionRecipient
+
+Create BEFORE requesting authorization. The private key stays in this closure and
+is never included in session or keeper requests. Generate a fresh instance per operation.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L74)
+
+Import: `import {createDecryptionRecipient} from 'tasra-sdk'`
+
+```ts
+declare function createDecryptionRecipient(seed?: Uint8Array): Promise<ClientRecipient>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` seed? ` | ` Uint8Array ` | - Optional client-held 32-byte random recovery seed for RFC 9180 DeriveKeyPair. Store it only in the client's private storage; the caller owns and must clear its buffer. |
+
+Returns: ` Promise<ClientRecipient> `.
 
 ### createDpopKey
 
@@ -1300,7 +1348,7 @@ Open an `oauth` session - same creator authorisation, same committee draw, same
 derived nonce, same poll contract as [createOid4vpSession](#createoid4vpsession). No QR, no Request
 Object, no JWE key: the client presents an access token its own IdP minted.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L304)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L308)
 
 Import: `import {createOauthSession} from 'tasra-sdk'`
 
@@ -1323,7 +1371,7 @@ The verifier-agent derives a nonce, generates an ECDH key for JWE, and returns a
 payload the wallet scans. The session ID and poll secret are used to poll
 for the result.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L263)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L266)
 
 Import: `import {createOid4vpSession} from 'tasra-sdk'`
 
@@ -1434,10 +1482,9 @@ Returns: ` JwtClaims | null `.
 
 ### decryptCustody
 
-Decrypt via the custody path: the node runs the whole k-of-n ceremony and
- returns the plaintext (one HTTP round-trip).
+Server-side custody decryption is retired.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L81)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L59)
 
 Import: `import {decryptCustody} from 'tasra-sdk'`
 
@@ -1447,7 +1494,59 @@ declare function decryptCustody(opts: DecryptCustodyOpts): Promise<Uint8Array>;
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` opts ` | ` DecryptCustodyOpts ` | - Keeper endpoint, JWT, ciphertext, associated data and decryption participants. |
+| ` opts ` | ` DecryptCustodyOpts ` | - Historical request options, refused before any HTTP request. |
+
+Returns: ` Promise<Uint8Array> `.
+
+### decryptionBinding
+
+Prepare the digest and public session metadata before requesting authorization.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L118)
+
+Import: `import {decryptionBinding} from 'tasra-sdk'`
+
+```ts
+declare function decryptionBinding(content: Uint8Array, epoch: number, client: ClientRecipient): {
+    payloadDigest: Uint8Array;
+    decryption: DecryptionBindingWire;
+};
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` content ` | ` Uint8Array ` | - Complete KEM content digest or SHA-256 IBE identity digest. |
+| ` epoch ` | ` number ` | - Canonical ciphertext key epoch. |
+| ` client ` | ` ClientRecipient ` | - Original client-held recipient, retained for opening and recovery. |
+
+Returns:
+
+```ts
+{
+    payloadDigest: Uint8Array;
+    decryption: DecryptionBindingWire;
+}
+```
+
+### decryptWithCommitteePartials
+
+Collect and combine recipient-sealed KEM contributions locally, then clear all partials.
+Servers receive only the authorized public recipient and never the recovered plaintext.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L163)
+
+Import: `import {decryptWithCommitteePartials} from 'tasra-sdk'`
+
+```ts
+declare function decryptWithCommitteePartials(opts: SealedRequestOpts & {
+    ciphertext: Ciphertext;
+    identity: Uint8Array;
+}): Promise<Uint8Array>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` opts ` | ` SealedRequestOpts & { ciphertext: Ciphertext; identity: Uint8Array; } ` | - Recipient-bound quorum settings, complete ciphertext and original identity bytes. |
 
 Returns: ` Promise<Uint8Array> `.
 
@@ -1473,10 +1572,9 @@ Returns: ` Uint8Array `.
 
 ### decryptWithShardDelivery
 
-Decrypt via the shard-delivery path: fetch a partial decryption from each
- node and combine the shares locally (the master key is never assembled).
+Unsealed JWT share delivery is retired.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L149)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L67)
 
 Import: `import {decryptWithShardDelivery} from 'tasra-sdk'`
 
@@ -1486,7 +1584,7 @@ declare function decryptWithShardDelivery(opts: ShardDecryptOpts): Promise<Uint8
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` opts ` | ` ShardDecryptOpts ` | - Keeper endpoints, JWT, ciphertext and optional per-share verification. |
+| ` opts ` | ` ShardDecryptOpts ` | - Historical request options, refused before any HTTP request. |
 
 Returns: ` Promise<Uint8Array> `.
 
@@ -1940,7 +2038,7 @@ Returns: ` Promise<Uint8Array> `.
 One-call identity-scoped decrypt (the read path): token to extraction fan-out
 to verify each partial to combine to decrypt. The intermediate `sk_ID` never surfaces.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L478)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L493)
 
 Import: `import {ibeDecryptRequest} from 'tasra-sdk'`
 
@@ -2008,7 +2106,7 @@ compressed G1).
 ciphertext to this identity. Prefer [ibeDecryptRequest](#ibedecryptrequest), which combines,
 decrypts and drops it. Zeroize the returned bytes when done.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L460)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L475)
 
 Import: `import {ibeExtractRequest} from 'tasra-sdk'`
 
@@ -2458,6 +2556,25 @@ declare function jwtExpMs(jwt: string): number | null;
 
 Returns: ` number | null `.
 
+### kemContentDigest
+
+Hash the complete KEM content with unambiguous field lengths.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L99)
+
+Import: `import {kemContentDigest} from 'tasra-sdk'`
+
+```ts
+declare function kemContentDigest(ct: Ciphertext, identity: Uint8Array): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` ct ` | ` Ciphertext ` | - Ciphertext including its group element, nonce and authenticated ciphertext. |
+| ` identity ` | ` Uint8Array ` | - Exact associated-data identity bytes used during encryption. |
+
+Returns: ` Uint8Array `.
+
 ### lintEnvelope
 
 Run the schema and static gate and report whether a keeper would store the envelope today.
@@ -2570,7 +2687,7 @@ Compute the `payload_digest` for a given action and message.
 For `sign` and `ibe-extract`, this is `sha256(message_bytes)` as 0x-hex.
 Other actions should supply the digest directly.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L240)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L243)
 
 Import: `import {payloadDigest} from 'tasra-sdk'`
 
@@ -2589,7 +2706,7 @@ Returns: ` string `.
 
 Fetch and validate one authorization session status. Transport failures and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error. The polling secret is sent in the Authorization header.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L455)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L459)
 
 Import: `import {pollOid4vpSession} from 'tasra-sdk'`
 
@@ -2604,6 +2721,26 @@ declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, 
 | ` pollSecret ` | ` string ` | - Secret returned at session creation; do not expose it in logs. |
 
 Returns: ` Promise<SessionStatusResult> `.
+
+### recipientPayloadDigest
+
+Bind a content digest to the ciphertext epoch and client recipient.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L108)
+
+Import: `import {recipientPayloadDigest} from 'tasra-sdk'`
+
+```ts
+declare function recipientPayloadDigest(content: Uint8Array, epoch: number, recipient: RecipientWire): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` content ` | ` Uint8Array ` | - Complete 32-byte KEM content digest or SHA-256 IBE identity digest. |
+| ` epoch ` | ` number ` | - Nonnegative canonical ciphertext key epoch. |
+| ` recipient ` | ` RecipientWire ` | - Supported suite and client X25519 public key. |
+
+Returns: ` Uint8Array `.
 
 ### redeemCredential
 
@@ -2653,7 +2790,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L787)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L770)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk'`
 
@@ -2938,7 +3075,7 @@ Throws `VerifierAgentSessionError`: `refused` when the agent reports the session
 (the committee refused, or could not be reached — `message` says which; not retryable on
 this session), `unavailable` for other 502/503/504, `protocol` for any other non-2xx.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L377)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L381)
 
 Import: `import {submitOauthResponse} from 'tasra-sdk'`
 
@@ -3162,7 +3299,7 @@ deadline; a `protocol` answer stops at once; the deadline is a `timeout` error; 
 caller's `signal` is a `cancelled` error. A terminal `failed` is RETURNED (the caller
 decides how to explain it) - see `awaitVerifierAgentResult` for the version that throws `refused`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L560)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L564)
 
 Import: `import {waitForSession} from 'tasra-sdk'`
 
@@ -3186,12 +3323,13 @@ Returns: ` Promise<SessionStatusResult> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 76 types</summary>
+<summary>Browse 82 types</summary>
 
 - [BlsPeer](#blspeer)
 - [BuildHolderProofOpts](#buildholderproofopts)
 - [Ciphertext](#ciphertext)
 - [ClaimResult](#claimresult)
+- [ClientRecipient](#clientrecipient)
 - [CreateOauthSessionResult](#createoauthsessionresult)
 - [CreateSessionParams](#createsessionparams)
 - [CreateSessionResult](#createsessionresult)
@@ -3203,6 +3341,7 @@ Options, data structures and return types.
 - [DcqlQuery](#dcqlquery)
 - [DcqlSelection](#dcqlselection)
 - [DecryptCustodyOpts](#decryptcustodyopts)
+- [DecryptionBindingWire](#decryptionbindingwire)
 - [DecryptShare](#decryptshare)
 - [DpopKey](#dpopkey)
 - [DpopSigner](#dpopsigner)
@@ -3242,6 +3381,7 @@ Options, data structures and return types.
 - [PrepaidEscapeCode](#prepaidescapecode)
 - [PresentationDelegation](#presentationdelegation)
 - [PresentationOperation](#presentationoperation)
+- [RecipientWire](#recipientwire)
 - [RedemptionGrant](#redemptiongrant)
 - [RegoEngine](#regoengine)
 - [RenewalGrant](#renewalgrant)
@@ -3250,6 +3390,9 @@ Options, data structures and return types.
 - [RevocationStatusPreflightCode](#revocationstatuspreflightcode)
 - [ScopeNamespace](#scopenamespace)
 - [SealedBlob](#sealedblob)
+- [SealedPartial](#sealedpartial)
+- [SealedRequestOpts](#sealedrequestopts)
+- [SealedShareWire](#sealedsharewire)
 - [Session](#session)
 - [SessionAuth](#sessionauth)
 - [SessionStatusResult](#sessionstatusresult)
@@ -3269,9 +3412,9 @@ Options, data structures and return types.
 
 ### BlsPeer
 
-A node's BLS identifier + its libp2p PeerId, for the custody decrypting set.
+Legacy input retained for explicit runtime refusal.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L42)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L5)
 
 ```ts
 export interface BlsPeer {
@@ -3354,11 +3497,29 @@ Fields:
 
 - **` found `**: Whether the claim path resolves; a present JSON null value counts as found.
 
+### ClientRecipient
+
+Client-held opening capability; only its public recipient belongs in requests or journals.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L39)
+
+```ts
+export interface ClientRecipient {
+    readonly recipient: RecipientWire;
+    open(sealed: SealedShareWire, requestHash: Uint8Array, identifier: number, epoch: number, verifyingShare: Uint8Array): Promise<Uint8Array>;
+}
+```
+
+Fields:
+
+- **` recipient `**: Public recipient metadata that authorization must bind before any keeper work.
+- **` open `**: Open one contribution locally using the exact authorized request and keeper context. The caller must pairing-verify the recovered contribution and clear it after use.
+
 ### CreateOauthSessionResult
 
 an `oauth` session - the client brings a DPoP-bound access token.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L89)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L92)
 
 ```ts
 export interface CreateOauthSessionResult {
@@ -3382,10 +3543,11 @@ Fields:
 
 Signed operation, optional delegation and payload submitted to the verifier agent.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L61)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L62)
 
 ```ts
 export interface CreateSessionParams {
+    decryption?: DecryptionBindingWire;
     payment?: PaymentIntentWire;
     random?: string;
     operation: PresentationOperation;
@@ -3397,6 +3559,7 @@ export interface CreateSessionParams {
 
 Fields:
 
+- **` decryption `**: Public decryption binding committed by the signed operation; never include private recipient material.
 - **` payment `**: Creator-signed intent for an already reserved TASRA payment. Requires random.
 - **` random `**: Fixed 32-byte hex presentation random committed before reservation.
 - **` operation `**: Signed operation details presented for authorization.
@@ -3408,7 +3571,7 @@ Fields:
 
 Wallet presentation link and polling credentials for an opened authorization session.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L77)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L80)
 
 ```ts
 export interface CreateSessionResult {
@@ -3570,9 +3733,9 @@ Fields:
 
 ### DecryptCustodyOpts
 
-JWT-authorized group decryption coordinated by one keeper, including participant selection.
+Legacy input retained for explicit runtime refusal.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L50)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L13)
 
 ```ts
 export interface DecryptCustodyOpts {
@@ -3603,6 +3766,26 @@ Fields:
 - **` ciphertextEpoch `**: Pin the ciphertext epoch; a rotated slot returns 410.
 - **` targetKeykeeper `**: Optional 20-byte operator address to pin the intended keeper.
 - **` requestId `**: Request identifier used to correlate or resume the operation.
+
+### DecryptionBindingWire
+
+Public decryption context included in the signed authorization session.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L23)
+
+```ts
+export interface DecryptionBindingWire {
+    recipient: RecipientWire;
+    ciphertext_epoch: number;
+    content_digest?: string;
+}
+```
+
+Fields:
+
+- **` recipient `**: Client recipient to which every keeper seals its contribution.
+- **` ciphertext_epoch `**: Nonnegative canonical key epoch of the ciphertext.
+- **` content_digest `**: Hex-encoded content digest: complete KEM ciphertext and identity, or SHA-256 of the IBE identity.
 
 ### DecryptShare
 
@@ -4103,7 +4286,7 @@ Fields:
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L650)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L621)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -4131,10 +4314,13 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L668)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L639)
 
 ```ts
 export interface IbeExtractOpts {
+    recipient?: ClientRecipient;
+    chainId?: number | bigint;
+    verifyingShares?: ReadonlyMap<number, Uint8Array>;
     evidenceCt?: string;
     threshold?: number;
     timeoutMs?: number;
@@ -4152,6 +4338,9 @@ export interface IbeExtractOpts {
 
 Fields:
 
+- **` recipient `**: Original client-held recipient bound before authorization; required at runtime.
+- **` chainId `**: Deployment chain identifier used to validate the signed recipient-bound request hash.
+- **` verifyingShares `**: Independently authenticated 144-byte G2 || G1 public shares; reply-supplied keys alone are insufficient.
 - **` evidenceCt `**: Exact sealed presentation ciphertext returned with this authorization.
 - **` threshold `**: Stop after this many distinct, pairing-verified shares. Without this option, collect every successful reply. The low-level check uses returned verifying shares; use extractIdentityStrict for independently pinned keeper provenance.
 - **` timeoutMs `**: Deadline for the complete fan-out, including approvals and response bodies. Default 10000 ms. Cancellation cannot undo work a keeper already started.
@@ -4169,10 +4358,12 @@ Fields:
 
 Operation-specific fields for [ibeDecryptRequest](#ibedecryptrequest) / [ibeExtractRequest](#ibeextractrequest).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L426)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L437)
 
 ```ts
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
+    recipient?: ClientRecipient;
+    verifyingShares?: ReadonlyMap<number, Uint8Array>;
     threshold?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
@@ -4187,6 +4378,8 @@ export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
 
 Fields:
 
+- **` recipient `**: Original client-held recipient bound by the authorization; required at runtime.
+- **` verifyingShares `**: Independently authenticated 144-byte G2 || G1 public shares indexed by participant identifier.
 - **` threshold `**: Keeper threshold from independently read slot metadata. When supplied, finish after that many distinct pairing-verified shares, cancelling the rest.
 - **` timeoutMs `**: Keeper extraction deadline in milliseconds; default 10000.
 - **` signal `**: Cancel the extraction fan-out. Does not undo already started keeper work.
@@ -4196,6 +4389,8 @@ Fields:
 - **` identity `**: The IBE identity to extract for - becomes the token's `scopedIdentity`, so a quorum attests exactly this identity and the keepers enforce the hash binding.
 - **` userSignature `**: Owner signature over the identity-bound extract marker, when the slot has one.
 - **` ciphertextEpoch `**: Expected key epoch of the ciphertext; used to detect rotation.
+- **` binding `**: Exact chain-, slot-, action- and payload-bound authorization preimage; decryption must include the recipient-bound digest.
+- **` payment `**: Original creator-signed payment intent for the already reserved operation.
 - **` chain `**: Reader methods for the beacon and slot verifier policy.
 - **` epochLag `**: Pin the draw to `latest - epochLag` (0 or 1). 1 = the previous epoch, always anchored: no wait for the accountants.
 - **` verifiers `**: The active verifier set (index to URL; add operator+pubkey to enable trustless proofs). Asking the whole set is fine - non-drawn verifiers reply 403 and are skipped.
@@ -4437,7 +4632,7 @@ export type PrepaidEscapeCode = 'escape_disabled' | 'escape_not_open' | 'reserva
 
 EIP-712 delegation from the slot creator to a delegate address.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L43)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L44)
 
 ```ts
 export interface PresentationDelegation {
@@ -4465,7 +4660,7 @@ Fields:
 
 Operation details signed by a slot creator or delegate for credential authorization.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L27)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L28)
 
 ```ts
 export interface PresentationOperation {
@@ -4486,6 +4681,24 @@ Fields:
 - **` payload_digest `**: 0x-hex 32-byte digest (sha256 of the message for sign/ibe-extract)
 - **` description `**: Human-readable description shown in transaction_data
 - **` exp `**: Unix timestamp - when the authorization expires
+
+### RecipientWire
+
+Public recipient metadata bound before holder and client execution authorization.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L16)
+
+```ts
+export interface RecipientWire {
+    suite: string;
+    public_key: string;
+}
+```
+
+Fields:
+
+- **` suite `**: Exact supported RFC 9180 suite name.
+- **` public_key `**: Hex-encoded 32-byte X25519 public key; never a private key or recovery seed.
 
 ### RedemptionGrant
 
@@ -4631,6 +4844,94 @@ Fields:
 - **` header `**: Metadata and wrapped data key required to open the blob.
 - **` body `**: The concatenated encrypted chunks.
 
+### SealedPartial
+
+Locally opened and verified contribution. Clear its value after combining or discarding it.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L51)
+
+```ts
+export interface SealedPartial {
+    receipt?: OperationReceipt;
+    identifier: number;
+    value: Uint8Array;
+    verifyingShare: Uint8Array;
+    epoch: number;
+    nodeUrl: string;
+}
+```
+
+Fields:
+
+- **` receipt `**: Validated operation receipt when the keeper includes one.
+- **` identifier `**: Distinct BLS participant identifier.
+- **` value `**: Sensitive unsealed contribution, held only on the client.
+- **` verifyingShare `**: Independently authenticated 144-byte G2 || G1 public verifying share.
+- **` epoch `**: Authorized canonical key epoch.
+- **` nodeUrl `**: Endpoint from which this verified contribution was received.
+
+### SealedRequestOpts
+
+Recipient-bound authorization and independently authenticated keeper quorum for local decryption.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L17)
+
+```ts
+export interface SealedRequestOpts {
+    approveExecution?: KeeperExecutionApprover;
+    signal?: AbortSignal;
+    fetchImpl?: typeof fetch;
+    nodeUrls: string[];
+    chainId: number | bigint;
+    committeeToken: CompoundTokenWire;
+    recipient: ClientRecipient;
+    ciphertextEpoch: number;
+    verifyingShares: ReadonlyMap<number, Uint8Array>;
+    threshold: number;
+    verifierProofs?: VerifierProof[];
+    targetKeykeeper?: string;
+    userSignature?: Uint8Array;
+    evidenceCt?: string;
+    requestId?: string;
+}
+```
+
+Fields:
+
+- **` approveExecution `**: Client-owned exact-body approval capability, required for paid contributions.
+- **` signal `**: Cancel the complete fan-out, including approvals and response bodies.
+- **` fetchImpl `**: Guarded HTTP transport; defaults to global fetch.
+- **` nodeUrls `**: Distinct keeper endpoints resolved from the assigned operator roster.
+- **` chainId `**: Deployment chain identifier included in the signed request binding.
+- **` committeeToken `**: Holder authorization bound to this content, recipient, slot, chain and action.
+- **` recipient `**: Original client-held recipient created before requesting authorization.
+- **` ciphertextEpoch `**: Canonical key epoch authorized for the ciphertext.
+- **` verifyingShares `**: Authenticate this package against the slot's published commitment before use. Keys are keeper identifiers, values are 144-byte G2 || G1 verifying shares.
+- **` threshold `**: Required number of distinct authenticated and pairing-verified contributions.
+- **` verifierProofs `**: Registry membership proofs for the token's anchored verifier snapshot.
+- **` targetKeykeeper `**: Optional assigned operator address pinned by the operation policy.
+- **` userSignature `**: Slot-owner signature over the canonical KEM request when required by slot policy.
+- **` evidenceCt `**: Original sealed credential evidence associated with the compound token.
+- **` requestId `**: Use the same id when producing the KEM owner signature.
+
+### SealedShareWire
+
+Standard padded-base64 HPKE envelope carrying one encrypted contribution.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L32)
+
+```ts
+export interface SealedShareWire {
+    enc: string;
+    ciphertext: string;
+}
+```
+
+Fields:
+
+- **` enc `**: RFC 9180 encapsulated X25519 key, encoded as padded base64.
+- **` ciphertext `**: Authenticated encrypted contribution, encoded as padded base64.
+
 ### Session
 
 A live, managed access session for one key slot.
@@ -4713,7 +5014,7 @@ Fields:
 
 Authorization session progress and optional committee result or failure detail.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L106)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L109)
 
 ```ts
 export interface SessionStatusResult {
@@ -4739,9 +5040,9 @@ Fields:
 
 ### ShardDecryptOpts
 
-Keeper endpoints, JWT and ciphertext for combining partial decryptions in the caller.
+Legacy input retained for explicit runtime refusal.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L100)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L39)
 
 ```ts
 export interface ShardDecryptOpts {
@@ -4984,7 +5285,7 @@ Fields:
 Why a session did not yield a token - the class the UI explains, with a NON-SECRET
 correlation reference (the session id; the poll secret is never part of an error).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L126)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L129)
 
 ```ts
 export type VerifierAgentSessionErrorKind = 'timeout' | 'refused' | 'unavailable' | 'protocol' | 'cancelled';
@@ -5023,6 +5324,7 @@ Shared values and contract definitions.
 | `MAX_IDENTITY_LEN` | Max BYTE length of a scope grant or an identity (the reference implementation's cap). Anything longer fails closed - a grant or identity this large is a bug or an attack, not a real subject path. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/identityScope.ts#L31) |
 | `MAX_PLAINTEXT_LEN` | Largest plaintext one envelope carries: the AEAD ciphertext cap minus the 16-byte tag. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/envelope.ts#L310) |
 | `OAUTH_ENVELOPE_KEY` | The single top-level member that marks a rule as an OAuth policy envelope. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L28) |
+| `RECIPIENT_SUITE` | RFC 9180 suite accepted for client-sealed decryption contributions. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L12) |
 | `REGO_POLICY_REFUSED` | The refusal text a holder sees when an envelope's policy denies. Deliberately generic: rule contents are confidential to the operator set, so a refusal never names a claim or clause. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L37) |
 | `REGO_WASM_SHA256` | SHA-256 of the vendored `keykeeper_rego_wasm_bg.wasm`, as recorded in its PINS.json. `scripts/check-rego-pins.mjs` asserts the two agree, so this constant cannot drift from the pinned build. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L44) |
 | `RETRY_AFTER_ONLY_STATUSES` | HTTP statuses retried only when the service explicitly sends `Retry-After`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L47) |

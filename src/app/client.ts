@@ -1,5 +1,6 @@
 import {equalBytes} from '@noble/curves/utils.js'
 import {sha256} from '@noble/hashes/sha256'
+import {decryptionBinding, type ClientRecipient} from '../crypto/recipient.js'
 import {keccak_256} from '@noble/hashes/sha3'
 import {utf8ToBytes} from '@noble/hashes/utils'
 import {recoverAddress, toHex, type Hex} from 'viem'
@@ -87,6 +88,10 @@ export interface AuthorizedOperationOptions {
 
 /** Authorization, receipt requirements and fan-out deadline for a BLS identity operation. */
 export interface IdentityExtractionOptions extends AuthorizedOperationOptions {
+  /** Client-held recipient prepared before reserving a paid extraction. */
+  recipient?: ClientRecipient
+  /** Independently authenticated public package; 144-byte G2 || G1 per identifier. */
+  verifyingShares?: ReadonlyMap<number, Uint8Array>
   /** Require an authenticated receipt from every extraction share used. Default false. */
   requireReceipts?: boolean
   /** Complete keeper extraction deadline in milliseconds, including approvals and
@@ -199,13 +204,13 @@ export function createTasra(config: TasraApplicationConfig) {
       && !(allowLocalPaidHttp && deployment.chainId === 43112 && url.protocol === 'http:'))) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Mapped paid keeper endpoint violates transport policy')
     return {operator: member.operator, nodeUrl: url.toString().replace(/\/$/, ''), publicKey: protocolHex(member.publicKey, 32, 'paid keeper identity')}
   }
-  async function authorize(s: SlotMetadata, action: OperationInput['action'], payload: Pick<OperationInput, 'message' | 'identity' | 'payloadDigest'>, options: AuthorizedOperationOptions) {
+  async function authorize(s: SlotMetadata, action: OperationInput['action'], payload: Pick<OperationInput, 'message' | 'identity' | 'payloadDigest' | 'decryption'>, options: AuthorizedOperationOptions) {
     options.signal?.throwIfAborted()
     const payment = options.payment && structuredClone(options.payment), random = options.random
     const execution=options.execution&&{certificate:structuredClone(options.execution.certificate),signer:options.execution.signer}
     if ((payment === undefined) !== (random === undefined) || (random !== undefined && (typeof random !== 'string' || !/^0x[0-9a-f]{64}$/i.test(random)))) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Payment and its fixed presentation random are required together')
     if((payment===undefined)!==(execution===undefined))throw new TasraApplicationError('INVALID_AUTHORIZATION','Paid keeper work requires the original client execution certificate and signer')
-    const expectedDigest = payloadDigestFor(action, payload)
+    const expectedDigest = payload.decryption ? payload.payloadDigest! : payloadDigestFor(action, payload)
     const expected = requestHash(deployment.chainId, protocolHex(s.slotId, 32, 'slot'), action, expectedDigest)
     const paidTarget = async (): Promise<PaidKeeperTarget | undefined> => {
       if (!payment) return undefined
@@ -364,8 +369,13 @@ export function createTasra(config: TasraApplicationConfig) {
           return protocolHex(s.publicKey, (s.publicKey.length - 2) / 2, 'BLS public key').slice(0, 96)
         }
         const extraction = async (identity: string, options: IdentityExtractionOptions) => {
-          const s = await ready(slotId, 1), grant = await authorize(s, 'ibe-extract', {identity}, options)
+          options.signal?.throwIfAborted()
+          if (!options.recipient || !options.verifyingShares) throw new TasraError('Client recipient and authenticated public sharing required before extraction authorization')
+          const s = await ready(slotId, 1)
+          const binding = decryptionBinding(sha256(utf8ToBytes(identity)), s.epoch, options.recipient)
+          const grant = await authorize(s, 'ibe-extract', {identity, ...binding}, options)
           const opts: StrictExtractionOptions = {chainId: deployment.chainId, slotId, threshold: s.threshold.k, epoch: s.epoch,
+            recipient: options.recipient, verifyingShares: options.verifyingShares,
             groupPublicKey: groupKey(s), keepers: grant.paidTarget ? grant.paidTarget.contributors.map(paidNode) : await keepers(slotId, options.signal), shareTrust: 'anchored-group', committeeToken: grant.token, evidenceCt: grant.evidenceCt,
             verifierProofs: grant.verifierProofs, identity, userSignature: options.userSignature, signal: options.signal, fetchImpl, requireReceipts: options.requireReceipts,approveExecution:grant.approveExecution, timeoutMs: options.timeoutMs}
           return opts

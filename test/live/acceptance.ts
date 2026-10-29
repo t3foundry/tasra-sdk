@@ -3,7 +3,7 @@
 import {execFileSync} from 'node:child_process'
 import {readFileSync, writeFileSync} from 'node:fs'
 import {fromBytes, verifyFrostSignature, credentialsCommitment, decodeJwtClaims} from 'tasra-sdk'
-import {committeeClient, decryptPeers, loadHolder, loadNetwork, required, slotId} from '../../examples/live-config.ts'
+import {committeeClient, sealedDecryptOptions, loadHolder, loadNetwork, required, slotId} from '../../examples/live-config.ts'
 import {expectDenial} from './acceptance-checks.ts'
 
 const phase = process.argv[2]
@@ -28,12 +28,9 @@ try {
     if (typeof claims?.exp !== 'number' || claims.exp * 1000 <= Date.now()) throw new Error('Acceptance requires unexpired credentials with exp claims')
   }
   const client = committeeClient(network.chain, bls, identity, 'decrypt')
-  const peers = await decryptPeers(network.chain, bls)
   const message = new TextEncoder().encode('Tasra release acceptance')
   const envelope = fromBytes(await client.encrypt(bls, message, {identity: new TextEncoder().encode(bls)}))
-  const decryptOptions = {ciphertext: envelope.ciphertext, identity: envelope.identity,
-    ciphertextEpoch: envelope.epoch === null ? undefined : Number(envelope.epoch),
-    decryptingSet: peers.map(p => p.id), blsPeers: peers}
+  const decryptOptions = await sealedDecryptOptions(network.chain, bls, envelope)
   if (phase === 'baseline') {
     const plaintext = await client.decrypt(bls, decryptOptions)
     if (!Buffer.from(plaintext).equals(Buffer.from(message))) throw new Error('Decryption mismatch')

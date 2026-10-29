@@ -24,7 +24,7 @@ export async function keeperExecutionFixture(action: PaymentIntentWire['action']
   const signer = createLocalExecutionSigner(new Uint8Array(32).fill(21))
   const certificate = await createExecutionCertificate({payment,policy,publicKey:signer.publicKey,expires:payment.expires,creator})
   const approveExecution: KeeperExecutionApprover = async request => {
-    const stages = request.kind === 'ibe-extract'
+    const stages = (request.kind === 'ibe-extract'||request.kind === 'sealed-decrypt')
       ? [{stage:'contributor' as const,operatorKey:keys[request.nodeUrl.includes('keeper1')?1:0]!}]
       : [{stage:'coordinator' as const,operatorKey:keys[0]!},
         ...payment.keeper_assignment.contributors.map(key=>({stage:'contributor' as const,operatorKey:toHex(Uint8Array.from(key))}))]

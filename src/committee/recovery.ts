@@ -1,3 +1,4 @@
+import {base64Decode} from '../crypto/envelope.js'
 import {ed25519} from '@noble/curves/ed25519'
 import {equalBytes} from '@noble/curves/utils.js'
 import {sha256} from '@noble/hashes/sha256'
@@ -232,12 +233,19 @@ function resultCommitment(payment: PaymentIntentWire, reply: RecoveredExecutionR
   const bytes = new TextEncoder().encode(reply.result_json)
   if (bytes.length === 0 || bytes.length > MAX_EXECUTION_BODY_BYTES
     || new TextDecoder('utf-8', {fatal: true}).decode(bytes) !== reply.result_json) throw new Error('Invalid recovered result encoding')
-  const domain = new TextEncoder().encode(payment.action === 'ibe-extract' ? 'keykeeper/prepaid-ibe-result/v1' : 'keykeeper/prepaid-execution-result/v1')
-  if (payment.action !== 'ibe-extract') {
-    if (reply.encoding !== 'json') throw new Error('Recovered result commitment scheme mismatch')
-    return toHex(sha256(new Uint8Array([...domain, ...bytes])))
+  const genericDomain=new TextEncoder().encode('keykeeper/prepaid-execution-result/v1')
+  if(reply.encoding==='json'){
+    if(payment.action==='ibe-extract'){
+      const v=parseExecutionJson(bytes,MAX_EXECUTION_BODY_BYTES) as Record<string,unknown>
+      const allowed=['key_slot_id','identifier','epoch','verifying_share','sealed_share','op_id','token_hash','op_attestation']
+      if(!v||typeof v!=='object'||Array.isArray(v)||Object.keys(v).some(k=>!allowed.includes(k))||typeof v.key_slot_id!=='string'||v.key_slot_id.replace(/^0x/,'').toLowerCase()!==payment.slot.slice(2).toLowerCase()||typeof v.epoch!=='number'||!Number.isSafeInteger(v.epoch)||v.epoch<0||typeof v.identifier!=='number'||!Number.isInteger(v.identifier)||v.identifier<1||v.identifier>65535||typeof v.verifying_share!=='string'||base64Decode(v.verifying_share).length!==144)throw new Error('Invalid sealed IBE recovery result')
+      const sealed=v.sealed_share as Record<string,unknown>
+      if(!sealed||typeof sealed!=='object'||Array.isArray(sealed)||Object.keys(sealed).sort().join(',')!=='ciphertext,enc'||typeof sealed.enc!=='string'||typeof sealed.ciphertext!=='string'||base64Decode(sealed.enc).length!==32||base64Decode(sealed.ciphertext).length!==64)throw new Error('Unsealed or malformed IBE recovery refused')
+    }
+    return toHex(sha256(new Uint8Array([...genericDomain,...bytes])))
   }
-  if (reply.encoding !== 'ibe-extract') throw new Error('Recovered result commitment scheme mismatch')
+  if(payment.action!=='ibe-extract'||reply.encoding!=='ibe-extract')throw new Error('Recovered result commitment scheme mismatch')
+  const domain=new TextEncoder().encode('keykeeper/prepaid-ibe-result/v1')
   // Inspect only the fields in the existing IBE commitment; later audit metadata is not its preimage.
   const value = parseExecutionJson(bytes, MAX_EXECUTION_BODY_BYTES)
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid recovered IBE result')

@@ -12,6 +12,8 @@ import {collectIbeExtractionPartials, committeeSign, requestIbeExtractionPartial
 import {requestHash} from '../../src/oid4vp/binding.js'
 import {keeperExecutionFixture} from '../support/keeperExecution.js'
 import type {LocalExecutionSigner} from '../../src/committee/execution.js'
+import {createDecryptionRecipient, decryptionBinding} from '../../src/crypto/recipient.js'
+import {sealIbeFixture} from '../support/sealedIbe.js'
 
 const executionSigners:LocalExecutionSigner[]=[]
 afterEach(()=>executionSigners.splice(0).forEach(signer=>signer.dispose()))
@@ -64,6 +66,11 @@ type Vectors = {identity: string; mpk: string; plaintext: string; threshold: {k:
   shares: {identifier: number; d_i: string}[]; verifying_shares: {identifier: number; g2: string; g1: string}[];
   ciphertext: {u: string; nonce: string; aead_ct: string}}
 const vector = JSON.parse(readFileSync(new URL('../ibe-vectors.json', import.meta.url), 'utf8')) as Vectors
+const recipient = await createDecryptionRecipient()
+const binding = decryptionBinding(sha256(new TextEncoder().encode(vector.identity)), 1, recipient)
+const ibeRequestHash = requestHash(43112, protocolHex(slotId, 32, 'slot'), 'ibe-extract', binding.payloadDigest)
+const ibeToken = {...token, request_hash: hex(ibeRequestHash), binding: 'holder_key'}
+const ibeTokenHash = compoundTokenHash(decodeCompoundToken(ibeToken))
 const unhex = (value: string) => new Uint8Array(Buffer.from(value.replace(/^0x/, ''), 'hex'))
 const b64 = (value: string) => Buffer.from(unhex(value)).toString('base64')
 function extraction(overrides: Partial<StrictExtractionOptions> = {}, mutate?: (row: Record<string, unknown>, index: number) => void): StrictExtractionOptions {
@@ -71,15 +78,18 @@ function extraction(overrides: Partial<StrictExtractionOptions> = {}, mutate?: (
     nodeUrl: `https://keeper-${index}.example`, identifier: share.identifier, publicKey: key,
     verifyingShareG2: unhex(vector.verifying_shares[index]!.g2)}))
   return {chainId: 43112, slotId, threshold: vector.threshold.k, epoch: 1, groupPublicKey: unhex(vector.mpk), keepers,
-    identity: vector.identity, committeeToken: token, shareTrust: 'pinned-shares', requireReceipts: true,
+    identity: vector.identity, committeeToken: ibeToken, recipient,
+    verifyingShares: new Map(vector.verifying_shares.map(s => [s.identifier, new Uint8Array([...unhex(s.g2), ...unhex(s.g1)])])),
+    shareTrust: 'pinned-shares', requireReceipts: true,
     fetchImpl: vi.fn(async url => {
       const index = keepers.findIndex(k => String(url).startsWith(k.nodeUrl))
       const share = vector.shares[index]!, verifying = vector.verifying_shares[index]!
+      const op = auditOperationId(protocolHex(slotId, 32, 'slot'), 'ibe-extract', ibeTokenHash, binding.payloadDigest)
       const row: Record<string, unknown> = {key_slot_id: slotId, identifier: share.identifier, extraction_share: b64(share.d_i),
         verifying_share: Buffer.concat([unhex(verifying.g2), unhex(verifying.g1)]).toString('base64'), epoch: 1,
-        ...receiptWire('ibe-extract', new TextEncoder().encode(vector.identity))}
+        op_id: hex(op), token_hash: hex(ibeTokenHash), op_attestation: hex(ed25519.sign(opAttestationHash(43112, op, protocolHex(slotId, 32, 'slot'), ibeTokenHash), seed))}
       mutate?.(row, index)
-      return json(row)
+      return json(await sealIbeFixture(row, recipient, ibeRequestHash))
     }), ...overrides}
 }
 
@@ -161,7 +171,7 @@ describe('strict identity extraction', () => {
       return original(url, init)
     })
     const result = await extractIdentityStrict({...opts, timeoutMs: 500})
-    expect(result.evidence.map(e => e.identifier)).toEqual(vector.shares.slice(0, 2).map(p => p.identifier))
+    expect(result.evidence.map(e => e.identifier).sort()).toEqual(vector.shares.slice(0, 2).map(p => p.identifier).sort())
     expect(stalledSignal?.aborted).toBe(true)
     result.key.fill(0)
     } finally { vi.useRealTimers() }
@@ -175,7 +185,7 @@ describe('strict identity extraction', () => {
       if (field === 'pairing') row.extraction_share = b64(vector.shares[1]!.d_i)
     })
     const result = await extractIdentityStrict(opts)
-    expect(result.evidence.map(e => e.identifier)).toEqual(vector.shares.slice(1).map(p => p.identifier))
+    expect(result.evidence.map(e => e.identifier).sort()).toEqual(vector.shares.slice(1).map(p => p.identifier).sort())
     result.key.fill(0)
   })
 
@@ -188,7 +198,7 @@ describe('strict identity extraction', () => {
     })
     opts.keepers = opts.keepers.map(({identifier: _, verifyingShareG2: __, ...k}) => k)
     const result = await extractIdentityStrict(opts)
-    expect(result.evidence.map(e => e.identifier)).toEqual([vector.shares[0]!.identifier, vector.shares[2]!.identifier])
+    expect(result.evidence.map(e => e.identifier).sort()).toEqual([vector.shares[0]!.identifier, vector.shares[2]!.identifier].sort())
     result.key.fill(0)
   })
 
@@ -279,9 +289,15 @@ describe('extraction collection lifecycle', () => {
   })
 
   it('clears rejected partials while preserving the successful caller-owned quorum', async () => {
-    const opts = lowLevel(), rejected: IbeExtractionPartial[] = []
+    const opts = lowLevel(), original = opts.fetchImpl!, rejected: IbeExtractionPartial[] = []
+    let release!: () => void
+    const gate = new Promise<void>(resolve => {release = resolve})
+    opts.fetchImpl = vi.fn(async (url, init) => {
+      if (!String(url).includes('keeper-0.')) await gate
+      return original(url, init)
+    })
     const accepted = await collectIbeExtractionPartials(opts, p => {
-      if (p.nodeUrl === opts.nodeUrls[0]) { rejected.push(p); throw new Error('independently refused') }
+      if (p.nodeUrl === opts.nodeUrls[0]) { rejected.push(p); release(); throw new Error('independently refused') }
     })
     expect(rejected[0]!.value.every(b => b === 0)).toBe(true)
     expect(accepted).toHaveLength(2)
@@ -328,7 +344,8 @@ describe('extraction collection lifecycle', () => {
       order.push(p.identifier)
       if (order.length === 2) release()
     })
-    expect(order).toEqual([...vector.shares.slice(1), vector.shares[0]!].map(p => p.identifier))
+    expect(order.slice(0, 2).sort()).toEqual(vector.shares.slice(1).map(p => p.identifier).sort())
+    expect(order[2]).toBe(vector.shares[0]!.identifier)
     expect(result.map(p => p.identifier)).toEqual(vector.shares.map(p => p.identifier))
     result.forEach(p => p.value.fill(0))
   })
@@ -359,7 +376,7 @@ describe('extraction collection lifecycle', () => {
       if (field === 'pairing') row.extraction_share = b64(vector.shares[1]!.d_i)
     })
     const result = await requestIbeExtractionPartials({...opts, nodeUrls: opts.keepers.map(k => k.nodeUrl), ciphertextEpoch: 1})
-    expect(result.map(p => p.identifier)).toEqual(vector.shares.slice(1).map(p => p.identifier))
+    expect(result.map(p => p.identifier).sort()).toEqual(vector.shares.slice(1).map(p => p.identifier).sort())
     result.forEach(p => p.value.fill(0))
   })
 })

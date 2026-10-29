@@ -16,6 +16,8 @@ import type {FleetConfig} from './_fleet.ts'
 import {localPrepaidSettings} from './_prepaid-funding.ts'
 import {fixturePaymentTtlSeconds} from './_certification-timing.ts'
 import type {VerifiedRequestObject} from '../../src/oid4vp/request-object.ts'
+import {discoverBlsSharing} from '../../src/committee/blsSharing.ts'
+import {hexToBytes} from '../../src/crypto/hex.ts'
 
 export function readPaidConfigFile(file: string, cap: number): string {
   const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
@@ -92,8 +94,25 @@ export async function paidWalletCoordinator(cfg: FleetConfig, slot: Hex, entry: 
   return context.contributors[entry % context.contributors.length]!.operator
 }
 
+/** Read the canonical assignment and authenticate public reports before creating a wallet grant. */
+export async function paidWalletBlsSharing(cfg: FleetConfig, slot: Hex) {
+  const settings = paidWalletSettings(cfg)
+  assert(cfg.book.Settlement && cfg.book.KeyRegistry && cfg.book.VerifierSetRegistry && cfg.book.AccountantSetRegistry && cfg.book.ThresholdRandomBeacon)
+  const chain = createTasraChainClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, chainId: 43112, multicall3: false})
+  const context = await discoverPaidOperationContext(chain.client, {chainId: 43112, settlement: cfg.book.Settlement, keyRegistry: cfg.book.KeyRegistry,
+    verifierSet: cfg.book.VerifierSetRegistry, accountantSet: cfg.book.AccountantSetRegistry, beacon: cfg.book.ThresholdRandomBeacon}, slot,
+    {allowLocalHttp: true, defaultVerificationPolicy: settings.defaultVerificationPolicy})
+  assert.equal(context.mode, 1, 'Client decryption requires the canonical BLS mode')
+  const assignment = structuredClone(context.intentFields.keeper_assignment)
+  const sharing = await discoverBlsSharing({chainId: 43112, slotId: slot, epoch: assignment.key_epoch,
+    committeeVersion: assignment.committee_version, threshold: assignment.threshold, allowLocalHttp: true,
+    keepers: context.contributors.map(k => ({operator: k.operator, publicKey: hexToBytes(k.publicKey), nodeUrl: settings.keeperUrl(k.url)}))})
+  return {...sharing, assignment, epoch: assignment.key_epoch, threshold: assignment.threshold,
+    groupPublicKey: hexToBytes(context.groupPublicKey).slice(0, 96), nodeUrls: sharing.keepers.map(k => k.nodeUrl)}
+}
+
 export async function authorizePaidWallet(cfg: FleetConfig, slot: Hex, creatorKey: Hex,
-  input: Pick<OperationInput, 'action' | 'message' | 'payloadDigest' | 'identity' | 'ttlSecs'>,
+  input: Pick<OperationInput, 'action' | 'message' | 'payloadDigest' | 'identity' | 'decryption' | 'ttlSecs'>,
   wallet: {holder: HolderKey; sdJwt: string}, forcePresentation: boolean, coordinator?: Address,
   observeRequest?: (request: VerifiedRequestObject, fetcher: typeof fetch) => void | Promise<void>) {
   input = structuredClone(input)

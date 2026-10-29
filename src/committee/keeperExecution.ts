@@ -1,3 +1,4 @@
+import {kemContentDigest,recipientPayloadDigest,type RecipientWire} from '../crypto/recipient.js'
 import {toHex} from 'viem'
 import {sha256} from '@noble/hashes/sha256'
 import {base64Decode} from '../crypto/envelope.js'
@@ -7,7 +8,7 @@ import {protocolHex} from './receipts.js'
 import {executionBodyHash, MAX_EXECUTION_BODY_BYTES, verifyExecutionAuthorization, type ExecutionAuthorization, type ExecutionConsentPolicy} from './execution.js'
 
 /** Exact public route semantics used to reconstruct client-approved keeper inputs. */
-export type KeeperExecutionKind = 'committee-sign' | 'committee-eoa-digest' | 'committee-decrypt' | 'ibe-extract' | 'dual-sign'
+export type KeeperExecutionKind = 'committee-sign' | 'committee-eoa-digest' | 'committee-decrypt' | 'sealed-decrypt' | 'ibe-extract' | 'dual-sign'
 
 /** Complete locally constructed request presented to the client's approval capability. */
 export interface KeeperExecutionApprovalRequest {
@@ -62,10 +63,17 @@ export function requireKeeperExecutionPayload(request: KeeperExecutionApprovalRe
       // The established paid decrypt digest excludes nonce, but the full body signature still binds it.
       digest=decryptPayloadDigest(base64Decode(ct.u),base64Decode(ct.aead_ct));break
     }
+    case 'sealed-decrypt': {
+      action='decrypt'
+      if(!body.ciphertext||typeof body.ciphertext!=='object'||Array.isArray(body.ciphertext)||typeof body.identity!=='string')throw new Error('Invalid client-built sealed ciphertext')
+      const ct=body.ciphertext as Record<string,unknown>
+      if(typeof ct.u!=='string'||typeof ct.nonce!=='string'||typeof ct.aead_ct!=='string')throw new Error('Invalid sealed ciphertext bytes')
+      digest=sealedDigest(body,kemContentDigest({u:base64Decode(ct.u),nonce:base64Decode(ct.nonce),aeadCt:base64Decode(ct.aead_ct)},new TextEncoder().encode(body.identity)));break
+    }
     case 'ibe-extract':
       action='ibe-extract'
       if(typeof body.identity!=='string')throw new Error('Invalid client-built IBE identity')
-      digest=sha256(new TextEncoder().encode(body.identity));break
+      digest=sealedDigest(body,sha256(new TextEncoder().encode(body.identity)));break
     default:throw new Error('Unknown keeper execution route')
   }
   if(action!==payment.action||toHex(digest).toLowerCase()!==payment.payload_digest.toLowerCase())throw new Error('Client-built keeper payload differs from retained payment')
@@ -81,6 +89,13 @@ export function requireKeeperExecutionPayload(request: KeeperExecutionApprovalRe
       ||typeof token.payment_hash!=='string'||token.payment_hash.replace(/^0x/,'').toLowerCase()!==paymentIntentHash(payment).slice(2).toLowerCase()
       ||paymentIntentHash(token.payment)!==paymentIntentHash(payment))throw new Error('Client-built keeper grant differs from retained payment')
   }
+}
+
+function sealedDigest(body:Record<string,unknown>,content:Uint8Array):Uint8Array {
+  if(!body.recipient||typeof body.recipient!=='object'||Array.isArray(body.recipient)||typeof body.ciphertext_epoch!=='number')throw new Error('Recipient and epoch required for sealed keeper approval')
+  const r=body.recipient as Record<string,unknown>
+  if(typeof r.suite!=='string'||typeof r.public_key!=='string')throw new Error('Invalid sealed recipient')
+  return recipientPayloadDigest(content,body.ciphertext_epoch,r as unknown as RecipientWire)
 }
 
 /** Attach proofs only to an immutable copy of the exact client-built body sent to the keeper. */
@@ -108,8 +123,8 @@ export async function withKeeperExecutionApprovals(options: {body:Record<string,
     signal?.throwIfAborted()
   }
   const coordinator=toHex(Uint8Array.from(payment.keeper_assignment.coordinator))
-  if(kind==='ibe-extract'){
-    if(proofs.length!==1||proofs[0]!.stage!=='contributor')throw new Error('IBE extraction requires exactly its targeted contributor approval')
+  if(kind==='ibe-extract'||kind==='sealed-decrypt'){
+    if(proofs.length!==1||proofs[0]!.stage!=='contributor')throw new Error('Sealed contribution requires exactly its targeted contributor approval')
   }else{
     const expected=['coordinator:'+coordinator,...payment.keeper_assignment.contributors.map(key=>'contributor:'+toHex(Uint8Array.from(key)))]
     if(identities.size!==expected.length||expected.some(id=>!identities.has(id)))throw new Error('Keeper client approvals do not cover the signed worker assignment')

@@ -1,3 +1,4 @@
+import {recipientPayloadDigest} from '../crypto/recipient.js'
 import {equalBytes} from '@noble/curves/utils.js'
 import {utf8ToBytes} from '@noble/hashes/utils'
 import {sha256} from '@noble/hashes/sha256'
@@ -101,7 +102,8 @@ export async function extractIdentityStrict(input: StrictExtractionOptions): Pro
   const byUrl = new Map(keepers.map(k => [k.nodeUrl, k]))
   const threshold = input.threshold, epoch = input.epoch, shareTrust = input.shareTrust, required = input.requireReceipts
   const tokenHash = compoundTokenHash(decodeCompoundToken(input.committeeToken))
-  const opId = auditOperationId(slot, 'ibe-extract', tokenHash, sha256(identity))
+  if(!input.recipient)throw new TasraError('Client recipient required for sealed extraction')
+  const opId = auditOperationId(slot, 'ibe-extract', tokenHash, recipientPayloadDigest(sha256(identity),epoch,input.recipient.recipient))
   const evidence: ExtractionEvidence[] = []
   const partials = await collectIbeExtractionPartials({...input, nodeUrls: keepers.map(k => k.nodeUrl), ciphertextEpoch: epoch}, p => {
     const k = byUrl.get(p.nodeUrl)

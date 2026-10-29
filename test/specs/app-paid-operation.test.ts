@@ -5,6 +5,19 @@ import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {defineChain, hexToBytes, keccak256, toHex, type Address, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {ed25519} from '@noble/curves/ed25519'
+import {readFileSync} from 'node:fs'
+import {sha256} from '@noble/hashes/sha256'
+import {createDecryptionRecipient, decryptionBinding} from '../../src/crypto/recipient.js'
+import {requestHash} from '../../src/oid4vp/binding.js'
+import {sealIbeFixture} from '../support/sealedIbe.js'
+
+const ibeVector = JSON.parse(readFileSync(new URL('../ibe-vectors.json', import.meta.url), 'utf8')) as {
+  identity: string; shares: {identifier: number; d_i: string}[]; verifying_shares: {identifier: number; g2: string; g1: string}[]
+}
+const ibeRecipient = await createDecryptionRecipient()
+const ibeBinding = decryptionBinding(sha256(new TextEncoder().encode(ibeVector.identity)), 1, ibeRecipient)
+const ibePublic = new Map(ibeVector.verifying_shares.map(s => [s.identifier, hexToBytes(('0x' + s.g2.replace(/^0x/, '') + s.g1.replace(/^0x/, '')) as Hex)]))
+const ibeRecovery = {recipient: ibeRecipient, identity: ibeVector.identity, verifyingShares: ibePublic}
 
 vi.mock('../../src/chain/billing.js', async original => ({...await original<typeof import('../../src/chain/billing.js')>(), requirePrepaidSlot: vi.fn()}))
 vi.mock('../../src/chain/prepaid.js', async original => ({...await original<typeof import('../../src/chain/prepaid.js')>(),
@@ -589,25 +602,53 @@ describe('paid IBE partial recovery', () => {
       intentFields: {...base.intentFields, keeper_assignment: {...base.intentFields.keeper_assignment, threshold: 2,
         contributors: [12, 21, 22].map(n => Array<number>(32).fill(n))}}})
     const op = await paidOperation({...f.config, keeperUrl: url => url.replace('127.0.0.1', 'localhost')},
-      {...f.request, operation: {action: 'ibe-extract' as const, identity: 'alice@example'}})
+      {...f.request, operation: {action: 'ibe-extract' as const, identity: ibeVector.identity, ...ibeBinding}})
     await op.execute(async () => { throw new Error('fan-out reply lost') }).catch(() => {})
     return {...f, op}
   }
-  const share = (identifier: number) => JSON.stringify({key_slot_id: slot, epoch: 1, identifier,
-    extraction_share: Buffer.alloc(48, identifier).toString('base64'), verifying_share: Buffer.alloc(144, identifier).toString('base64')})
+  const share = async (identifier: number) => {
+    const partial = ibeVector.shares.find(s => s.identifier === identifier)!
+    return JSON.stringify(await sealIbeFixture({key_slot_id: slot, epoch: 1, identifier,
+      extraction_share: Buffer.from(hexToBytes(partial.d_i as Hex)).toString('base64'), verifying_share: Buffer.from(ibePublic.get(identifier)!).toString('base64')},
+      ibeRecipient, requestHash(43112, hexToBytes(slot), 'ibe-extract', ibeBinding.payloadDigest)))
+  }
   const transport = {keeperRecoveryRequest: vi.fn()}
+
+  it('recovers an original contributor sealed reply without a recipient opening key', async () => {
+    const {op, config} = await ibe()
+    const sealed = {resultJson: await share(2)} as Awaited<ReturnType<typeof recoverKeeperExecution>>
+    vi.mocked(recoverKeeperExecution).mockResolvedValue(sealed)
+    const before = vi.mocked(prepareRegisteredPaidSession).mock.calls.length
+    expect(await op.recover({transport, contributorKey: contributors[1]!.publicKey})).toBe(sealed)
+    expect(vi.mocked(recoverKeeperExecution).mock.calls.at(-1)![0]).toMatchObject({
+      keeper: {...contributors[1], url: contributors[1]!.url.replace('127.0.0.1', 'localhost')}, target: {stage: 'contributor'}, payment: op.payment,
+    })
+    expect(vi.mocked(prepareRegisteredPaidSession).mock.calls.length).toBe(before)
+    const recovered = await recoverPaidOperation({...config, keeperUrl: url => url.replace('127.0.0.1','localhost')}, op.requestId)
+    try {expect(await recovered.recover({transport, contributorKey: contributors[1]!.publicKey})).toBe(sealed)} finally {recovered.dispose()}
+  })
+
+  it('refuses unassigned or malformed contributor keys and conflicting recovery stages before I/O', async () => {
+    const {op} = await ibe()
+    for (const options of [{contributorKey: h(99)}, {contributorKey: '0x12' as Hex},
+      {contributorKey: contributors[1]!.publicKey, stage: 'coordinator' as const}]) {
+      await expect(op.recover({transport, ...options})).rejects.toThrow(/contributor/)
+    }
+    expect(recoverKeeperExecution).not.toHaveBeenCalled()
+  })
 
   it('reads retained contributor results until the threshold, never re-sending an extraction', async () => {
     const {op} = await ibe()
+    expect(vi.mocked(prepareRegisteredPaidSession).mock.calls[0]![2].decryption).toEqual(ibeBinding.decryption)
     let n = 0
     vi.mocked(recoverKeeperExecution).mockImplementation(async options => {
       if (options.keeper.operator === contributors[0]!.operator) throw new Error('keeper offline')
-      return {resultJson: share(++n)} as Awaited<ReturnType<typeof recoverKeeperExecution>>
+      return {resultJson: await share(++n)} as Awaited<ReturnType<typeof recoverKeeperExecution>>
     })
-    const result = await op.recoverIbePartials({transport, concurrency: 1})
+    const result = await op.recoverIbePartials({transport, ...ibeRecovery, concurrency: 1})
     expect(result.threshold).toBe(2)
     expect(result.partials.map(p => p.partial.identifier)).toEqual([1, 2])
-    expect(result.partials[0]!.partial).toMatchObject({value: new Uint8Array(48).fill(1), epoch: 1, keySlotId: slot, nodeUrl: 'http://localhost:4021'})
+    expect(result.partials[0]!.partial).toMatchObject({value: hexToBytes(ibeVector.shares[0]!.d_i as Hex), epoch: 1, keySlotId: slot, nodeUrl: 'http://localhost:4021'})
     expect(result.partials[0]!.partial.verifyingShareG2).toHaveLength(96)
     expect(result.failures).toEqual([{operator: contributors[0]!.operator, message: 'keeper offline'}])
     const calls = vi.mocked(recoverKeeperExecution).mock.calls.map(([o]) => o)
@@ -615,19 +656,44 @@ describe('paid IBE partial recovery', () => {
     expect(calls.every(o => o.target.stage === 'contributor' && o.transport === transport)).toBe(true)
   })
 
+  it('refuses missing or substituted recipient and identity before reading any contributor', async () => {
+    const {op} = await ibe()
+    await expect(op.recoverIbePartials({transport})).rejects.toThrow(/Original client recipient/)
+    await expect(op.recoverIbePartials({transport, ...ibeRecovery, recipient: await createDecryptionRecipient()})).rejects.toThrow(/differs from original authorization/)
+    await expect(op.recoverIbePartials({transport, ...ibeRecovery, identity: 'another identity'})).rejects.toThrow(/differs from original authorization/)
+    expect(recoverKeeperExecution).not.toHaveBeenCalled()
+  })
+
+  it('does not form a quorum from duplicate identifiers or untrusted public shares', async () => {
+    const {op} = await ibe()
+    vi.mocked(recoverKeeperExecution).mockResolvedValue({resultJson: await share(1)} as Awaited<ReturnType<typeof recoverKeeperExecution>>)
+    await expect(op.recoverIbePartials({transport, ...ibeRecovery})).rejects.toThrow(/1 of 2/)
+    await expect(op.recoverIbePartials({transport, ...ibeRecovery, verifyingShares: new Map([[1, new Uint8Array(144)]])})).rejects.toThrow(/0 of 2/)
+  })
+
+  it('refuses tampered sealed retained results without repeating a paid operation', async () => {
+    const {op} = await ibe()
+    const row = JSON.parse(await share(1)) as {sealed_share: {ciphertext: string}}
+    row.sealed_share.ciphertext = Buffer.alloc(64).toString('base64')
+    vi.mocked(recoverKeeperExecution).mockResolvedValue({resultJson: JSON.stringify(row)} as Awaited<ReturnType<typeof recoverKeeperExecution>>)
+    await expect(op.recoverIbePartials({transport, ...ibeRecovery})).rejects.toThrow(/0 of 2/)
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(drivePaidSession).toHaveBeenCalledTimes(1)
+  })
+
   it('stops starting reads once the threshold is met and refuses below it', async () => {
     const {op} = await ibe()
     vi.mocked(recoverKeeperExecution).mockImplementation(async options =>
-      ({resultJson: share(parseInt(options.keeper.operator.slice(2, 4), 16))} as Awaited<ReturnType<typeof recoverKeeperExecution>>))
-    expect((await op.recoverIbePartials({transport, concurrency: 1})).partials).toHaveLength(2)
+      ({resultJson: await share(contributors.findIndex(k => k.operator === options.keeper.operator) + 1)} as Awaited<ReturnType<typeof recoverKeeperExecution>>))
+    expect((await op.recoverIbePartials({transport, ...ibeRecovery, concurrency: 1})).partials).toHaveLength(2)
     expect(recoverKeeperExecution).toHaveBeenCalledTimes(2)
     vi.mocked(recoverKeeperExecution).mockReset().mockRejectedValue(new Error('404'))
-    await expect(op.recoverIbePartials({transport})).rejects.toThrow(/0 of 2/)
+    await expect(op.recoverIbePartials({transport, ...ibeRecovery})).rejects.toThrow(/0 of 2/)
     vi.mocked(recoverKeeperExecution).mockReset().mockResolvedValue({resultJson: JSON.stringify({identifier: 1, extraction_share: 'AA==', verifying_share: 'AA==', epoch: 1, key_slot_id: slot})} as Awaited<ReturnType<typeof recoverKeeperExecution>>)
-    await expect(op.recoverIbePartials({transport})).rejects.toThrow(/IBE partials/)
-    await expect(op.recoverIbePartials({transport, concurrency: 17})).rejects.toThrow(/concurrency/)
+    await expect(op.recoverIbePartials({transport, ...ibeRecovery})).rejects.toThrow(/IBE partials/)
+    await expect(op.recoverIbePartials({transport, ...ibeRecovery, concurrency: 17})).rejects.toThrow(/concurrency/)
     const controller = new AbortController(); controller.abort(new Error('stop'))
-    await expect(op.recoverIbePartials({transport, signal: controller.signal})).rejects.toThrow('stop')
+    await expect(op.recoverIbePartials({transport, ...ibeRecovery, signal: controller.signal})).rejects.toThrow('stop')
   })
 
   it('refuses a non-IBE operation', async () => {
@@ -849,7 +915,7 @@ describe('recoverPaidOperation', () => {
 
   it('refuses IBE partial recovery for a journal written before contributors were recorded', async () => {
     const f = setup()
-    const op = await paidOperation(f.config, {...f.request, operation: {action: 'ibe-extract' as const, identity: 'alice@example'}})
+    const op = await paidOperation(f.config, {...f.request, operation: {action: 'ibe-extract' as const, identity: ibeVector.identity, ...ibeBinding}})
     await op.execute(async () => { throw new Error('reply lost') }).catch(() => {})
     const key = `paid-op-${op.requestId.slice(2).toLowerCase()}`
     await f.store.save(key, {...await f.store.load<Record<string, unknown>>(key), contributors: undefined})

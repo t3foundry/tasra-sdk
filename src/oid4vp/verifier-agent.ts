@@ -1,3 +1,5 @@
+import {recipientPayloadDigest,type DecryptionBindingWire} from '../crypto/recipient.js'
+import {sha256} from '@noble/hashes/sha256'
 import {evidenceBody} from '../committee/evidence.js'
 // The RELYING PARTY half against the Verifier Agent: the app that wants an authorization
 // signs the operation tuple with the slot creator's EVM key (EIP-712 `PresentationOperation`),
@@ -51,6 +53,8 @@ export interface TypedDataSigner {
 
 /** Slot operation, payload context and authorization lifetime used to construct EIP-712 typed data. */
 export interface OperationInput {
+  /** Public recipient and epoch metadata bound into the operation digest before creator authorization. */
+  decryption?: DecryptionBindingWire
   /** EVM chain identifier. */
   chainId: number
   /** The KeyRegistry address - the EIP-712 `verifyingContract`. */
@@ -87,7 +91,21 @@ export function presentationOperationTypedData(input: OperationInput): {
   const slot = typeof input.slotId === 'string' ? hexToBytes(input.slotId) : input.slotId
   if (slot.length !== 32) throw new Error('slotId must be 32 bytes')
   const messageBytes = input.action === 'ibe-extract' ? (input.identity !== undefined ? utf8(input.identity) : undefined) : input.message
-  const digest = payloadDigestFor(input.action, {message: input.message, identity: input.identity, payloadDigest: input.payloadDigest})
+  let digest:Uint8Array
+  if(input.action==='decrypt'||input.action==='ibe-extract'){
+    const d=input.decryption;if(!d)throw new Error('Recipient binding required before decryption authorization')
+    if(input.action==='ibe-extract'&&input.identity===undefined)throw new Error('IBE requires identity')
+    const content=input.action==='ibe-extract'?sha256(utf8(input.identity!)):hexToBytes(d.content_digest??'')
+    if(input.action==='ibe-extract'&&d.content_digest!==undefined){
+      const supplied=hexToBytes(d.content_digest)
+      if(supplied.length!==32||!content.every((b,i)=>b===supplied[i]))throw new Error('IBE content digest differs from identity')
+    }
+    digest=recipientPayloadDigest(content,d.ciphertext_epoch,d.recipient)
+    if(input.payloadDigest&&(input.payloadDigest.length!==32||!digest.every((b,i)=>b===input.payloadDigest![i])))throw new Error('Supplied digest differs from recipient binding')
+  }else{
+    if(input.decryption)throw new Error('Recipient binding only applies to decryption')
+    digest=payloadDigestFor(input.action,{message:input.message,identity:input.identity,payloadDigest:input.payloadDigest})
+  }
   // The verifier-agent requires `message_hex` and, for sign / ibe-extract, derives the digest from it; for the
   // other actions the digest is taken as signed, so the digest itself is the message it stores.
   const messageHex = bytesToHex(messageBytes ?? digest)
@@ -153,7 +171,7 @@ export async function openVerifierAgentSession(opts: OpenVerifierAgentSessionOpt
   const slot = typeof opts.slotId === 'string' ? hexToBytes(opts.slotId) : opts.slotId
   const expectedRequestHash = requestHash(opts.chainId, slot, opts.action, payloadDigest)
   const operationSig = await opts.signer.signTypedData(typedData)
-  const session = await createOid4vpSession(verifierAgentUrl, {operation, operationSig, delegation, messageHex, payment, random})
+  const session = await createOid4vpSession(verifierAgentUrl, {operation, operationSig, delegation, messageHex, payment, random, decryption:opts.decryption})
   return {...session, operation, ...(paymentHash ? {paymentHash} : {}), requestHash: expectedRequestHash, verifierAgentUrl}
 }
 

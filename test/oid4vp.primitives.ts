@@ -49,6 +49,7 @@ import {
   type Jwk,
 } from '../src/oid4vp/jose.ts'
 import {concatKdf, decryptJwe, encryptJwe} from '../src/oid4vp/jwe.ts'
+import {RECIPIENT_SUITE, recipientPayloadDigest} from '../src/crypto/recipient.ts'
 import {
   didJwkIssuer,
   holderCnf,
@@ -512,8 +513,8 @@ const fill = (n: number, v: number): Uint8Array => new Uint8Array(n).fill(v)
   // For decrypt/dual-approve there is no message, so the DIGEST is what gets stored.
   eq(
     'with no message, message_hex is the digest itself',
-    presentationOperationTypedData({...base, slotId, action: 'decrypt', message: undefined, payloadDigest: fill(32, 0x5a)}).messageHex,
-    `0x${hex(fill(32, 0x5a))}`,
+    presentationOperationTypedData({...base, slotId, action: 'decrypt', message: undefined, decryption: {recipient: {suite: RECIPIENT_SUITE, public_key: hex(fill(32, 1))}, ciphertext_epoch: 0, content_digest: hex(fill(32, 0x5a))}}).messageHex,
+    `0x${hex(recipientPayloadDigest(fill(32, 0x5a), 0, {suite: RECIPIENT_SUITE, public_key: hex(fill(32, 1))}))}`,
   )
   // A hex slot id and a byte slot id must produce the same operation.
   eq('a byte slot id matches the hex form', hex(presentationOperationTypedData({...base, slotId: fill(32, 0xcd)}).payloadDigest), hex(built.payloadDigest))

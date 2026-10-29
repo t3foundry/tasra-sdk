@@ -317,6 +317,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     owner:a.owner.toLowerCase(),revision:a.revision.toString(),manifestHash:a.manifestHash.toLowerCase(),
     authKey:record.authKey.toLowerCase(),endpoint:profile.endpoint,clientId:profile.clientId}
   const unsigned = {operation:params.operation,operation_sig:params.operationSig,message_hex:params.messageHex,
+    ...(params.decryption ? {decryption:params.decryption} : {}),
     ...(params.delegation ? {delegation:params.delegation} : {}),payment,random:params.random,poll_secret:pollSecret,
     ...(params.kind ? {kind:params.kind} : {})}
   const initialization = await initializeExecutionSession({payment,certificate,signer:activeSigner(preparationSignal),policy:originalPolicy,

@@ -7,6 +7,23 @@ never does.
 
 ## [Unreleased]
 
+### Changed
+
+- Decryption uses recipient-bound, client-sealed contributions. Create the client
+  recipient before authorization; retain its private opening capability locally.
+  KEM authorization binds the complete ciphertext, nonce, identity, key epoch and
+  recipient. IBE authorization binds the identity, key epoch and recipient.
+  `createCommitteeSlotClient().decrypt` discovers assigned endpoints, checks the
+  chain and canonical epoch/quorum, and combines locally with authenticated public
+  shares. Legacy custody, unsealed contribution and raw-key export routes refuse
+  delivery. See [consumer migrations](docs/consumer-migrations.md).
+
+### Added
+
+- Paid recovery can read an original assigned contributor's exact retained sealed
+  reply with `recover({transport, contributorKey})`. This read uses the original
+  journal and signed assignment and performs no HPKE opening or new keeper work.
+
 ### Fixed
 
 - Fresh paid-operation discovery draws its default coordinator uniformly from

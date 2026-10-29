@@ -1049,7 +1049,7 @@ Returns: ` BillingModeDetector `.
 
 Create registry-discovered threshold signing, encryption and decryption operations. Signing and decryption require holder credentials and proofs against an anchored verifier snapshot. Encryption needs only the public group key read from the chain. The master key is not reconstructed by these threshold operations.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L138)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L148)
 
 Import: `import {createCommitteeSlotClient} from 'tasra-sdk/chain'`
 
@@ -3439,7 +3439,7 @@ Fields:
 
 Decryption options for a registry-discovered committee slot.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L108)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L116)
 
 ```ts
 export type CommitteeDecryptOptions = SlotCommitteeDecryptOptions;
@@ -3447,19 +3447,28 @@ export type CommitteeDecryptOptions = SlotCommitteeDecryptOptions;
 
 Fields:
 
+- **` binding `**: Original authorization preimage binding the complete ciphertext, identity, recipient and epoch.
+- **` payment `**: Original creator-signed payment intent; required by paid deployments.
 - **` ciphertext `**: Group ciphertext to decrypt through committee authorization.
 - **` identity `**: Original associated data used when encrypting the group ciphertext.
-- **` decryptingSet `**: BLS identifiers (k..n, distinct) to run the ceremony with.
-- **` blsPeers `**: The libp2p peers for those identifiers.
+- **` decryptingSet `**: Historical coordinator selection; ignored by client-sealed delivery.
+- **` blsPeers `**: Historical coordinator peer map; ignored by client-sealed delivery.
 - **` userSignature `**: Optional Ed25519 slot-owner signature required by the keeper policy.
 - **` ciphertextEpoch `**: Expected slot key epoch for detecting ciphertext-key rotation.
 - **` targetKeykeeper `**: Pin the keeper this request targets (anti-Sybil); an on-chain assigned operator.
+- **` threshold `**: Required number of distinct authenticated and pairing-verified contributions.
+- **` recipient `**: Original client-held recipient created before requesting authorization.
+- **` requestId `**: Use the same id when producing the KEM owner signature.
+- **` signal `**: Cancel the complete fan-out, including approvals and response bodies.
+- **` verifyingShares `**: Authenticate this package against the slot's published commitment before use. Keys are keeper identifiers, values are 144-byte G2 || G1 verifying shares.
+- **` approveExecution `**: Client-owned exact-body approval capability, required for paid contributions.
+- **` fetchImpl `**: Guarded HTTP transport; defaults to global fetch.
 
 ### CommitteeSignOptions
 
 Signing options for a registry-discovered committee slot.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L104)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L112)
 
 ```ts
 export type CommitteeSignOptions = SlotCommitteeSignOptions;
@@ -3475,7 +3484,7 @@ Fields:
 
 Slot-based committee operations that discover keepers and verifiers from the chain.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L113)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L121)
 
 ```ts
 export interface CommitteeSlotClient {
@@ -3493,14 +3502,14 @@ Fields:
 
 - **` sign `**: Committee-authorized threshold FROST signature over `message`.
 - **` encrypt `**: Encrypt to the slot's group key. Local - reads the public key from chain, then does the crypto in-process: no verifier, no JWT, no keeper node, and **no credentials** (a client built with only `{chain}` can call this). BLS (encryption) slots only.
-- **` decrypt `**: Committee-authorized threshold decrypt.
+- **` decrypt `**: Discover assigned keepers, validate canonical epoch/quorum and collect client-sealed contributions. Recipient and request binding are required before holder authorization; no custody fallback exists.
 - **` verifierDirectory `**: The resolved active verifier directory (discovered once, then cached).
 
 ### CommitteeSlotClientConfig
 
 Chain discovery and holder-proof configuration for threshold signing and identity decryption.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L34)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L37)
 
 ```ts
 export interface CommitteeSlotClientConfig {
@@ -4268,6 +4277,7 @@ Fields:
 - **` payment `**: Original creator-signed reserved TASRA intent.
 - **` random `**: Original presentation random committed before reservation.
 - **` kind `**: Credential adapter; omitted means wallet.
+- **` decryption `**: Public decryption binding committed by the signed operation; never include private recipient material.
 - **` operation `**: Signed operation details presented for authorization.
 - **` operationSig `**: 0x-hex 65-byte EIP-712 signature over the operation
 - **` delegation `**: Optional EIP-712 delegation from the slot creator
@@ -6100,35 +6110,46 @@ export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth' | 'governance';
 
 Everything a committee-authorized threshold decrypt needs beyond the slot id.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L77)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L80)
 
 ```ts
-export interface SlotCommitteeDecryptOptions {
+export interface SlotCommitteeDecryptOptions extends Pick<SealedRequestOpts, 'recipient' | 'verifyingShares' | 'threshold' | 'approveExecution' | 'signal' | 'fetchImpl' | 'requestId'> {
+    binding: RequestBindingPreimage;
+    payment?: PaymentIntentWire;
     ciphertext: Ciphertext;
     identity: Uint8Array;
-    decryptingSet: number[];
-    blsPeers: BlsPeer[];
+    decryptingSet?: number[];
+    blsPeers?: BlsPeer[];
     userSignature?: Uint8Array;
-    ciphertextEpoch?: number;
+    ciphertextEpoch: number;
     targetKeykeeper?: string;
 }
 ```
 
 Fields:
 
+- **` binding `**: Original authorization preimage binding the complete ciphertext, identity, recipient and epoch.
+- **` payment `**: Original creator-signed payment intent; required by paid deployments.
 - **` ciphertext `**: Group ciphertext to decrypt through committee authorization.
 - **` identity `**: Original associated data used when encrypting the group ciphertext.
-- **` decryptingSet `**: BLS identifiers (k..n, distinct) to run the ceremony with.
-- **` blsPeers `**: The libp2p peers for those identifiers.
+- **` decryptingSet `**: Historical coordinator selection; ignored by client-sealed delivery.
+- **` blsPeers `**: Historical coordinator peer map; ignored by client-sealed delivery.
 - **` userSignature `**: Optional Ed25519 slot-owner signature required by the keeper policy.
 - **` ciphertextEpoch `**: Expected slot key epoch for detecting ciphertext-key rotation.
 - **` targetKeykeeper `**: Pin the keeper this request targets (anti-Sybil); an on-chain assigned operator.
+- **` threshold `**: Required number of distinct authenticated and pairing-verified contributions.
+- **` recipient `**: Original client-held recipient created before requesting authorization.
+- **` requestId `**: Use the same id when producing the KEM owner signature.
+- **` signal `**: Cancel the complete fan-out, including approvals and response bodies.
+- **` verifyingShares `**: Authenticate this package against the slot's published commitment before use. Keys are keeper identifiers, values are 144-byte G2 || G1 verifying shares.
+- **` approveExecution `**: Client-owned exact-body approval capability, required for paid contributions.
+- **` fetchImpl `**: Guarded HTTP transport; defaults to global fetch.
 
 ### SlotCommitteeSignOptions
 
 Per-call overrides for a committee-authorized FROST signature.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L66)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L69)
 
 ```ts
 export interface SlotCommitteeSignOptions {

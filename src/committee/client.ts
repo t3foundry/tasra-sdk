@@ -1,3 +1,6 @@
+import {checkedDecryptionRequestHash,recipientPayloadDigest,type ClientRecipient} from '../crypto/recipient.js'
+import type {SealedShareWire} from '../crypto/recipient.js'
+import {sha256} from '@noble/hashes/sha256'
 import {ed25519} from '@noble/curves/ed25519'
 import {evidenceBindingMessage, evidenceBody} from './evidence.js'
 // Committee-mode HTTP orchestration - the glue around the pure token
@@ -23,7 +26,7 @@ import {
   type CommitteeSignature,
   type StatusAttestation,
   type TokenType, bindingFromWire, verifyStatusAttestation} from './token.js'
-import {base64Encode, base64Decode} from '../crypto/envelope.js'
+import {base64Decode} from '../crypto/envelope.js'
 import type {Ciphertext} from '../crypto/kem.js'
 import type {FrostSignResult} from '../signing/frost.js'
 import type {BlsPeer} from '../decryption/client.js'
@@ -39,9 +42,6 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((x, i) => x === b[i])
 }
 
-function ctToWire(ct: Ciphertext): {u: string; nonce: string; aead_ct: string} {
-  return {u: base64Encode(ct.u), nonce: base64Encode(ct.nonce), aead_ct: base64Encode(ct.aeadCt)}
-}
 
 /** Trustless verifier-set inclusion proof, passed to the keeper. */
 export interface VerifierProof {
@@ -611,37 +611,8 @@ export interface CommitteeDecryptOpts {
  * @param opts - Keeper endpoint, compound authorization, ciphertext and associated data.
  */
 export async function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint8Array> {
-  return withNetworkDeadline(signal => decryptWithinDeadline({...opts, signal}), opts.signal)
-}
-
-async function decryptWithinDeadline(opts: CommitteeDecryptOpts): Promise<Uint8Array> {
-  opts={...opts,committeeToken:structuredClone(opts.committeeToken)}
-  let body: Record<string, unknown> = {
-    committee_token: opts.committeeToken,
-    ...evidenceBody(opts.committeeToken, opts.evidenceCt),
-    ciphertext: ctToWire(opts.ciphertext),
-    identity: new TextDecoder().decode(opts.identity),
-    decrypting_set: opts.decryptingSet,
-    bls_peers: opts.blsPeers.map(p => ({id: p.id, peer_id: p.peerId})),
-  }
-  if (opts.userSignature) body.user_signature = bareHex(opts.userSignature)
-  if (opts.ciphertextEpoch !== undefined) body.ciphertext_epoch = opts.ciphertextEpoch
-  if (opts.targetKeykeeper) body.target_keykeeper = strip0x(opts.targetKeykeeper)
-  if (opts.verifierProofs) body.verifier_proofs = proofsToWire(opts.verifierProofs)
-
-  body = await withKeeperExecutionApprovals({body,kind:'committee-decrypt',nodeUrl:opts.nodeUrl,payment:opts.committeeToken.payment,
-    approveExecution:opts.approveExecution,signal:opts.signal})
-  const url = `${base(opts.nodeUrl)}/v1/committee/decrypt`
-  const res = await (opts.fetchImpl??fetch)(url, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body),
-    signal:opts.signal,
-    ...(opts.committeeToken.payment ? {redirect:'error' as const,credentials:'omit' as const} : {}),
-  })
-  if (!res.ok) throw await httpError(res, url, 'committee/decrypt')
-  const d = (await res.json()) as {plaintext: string}
-  return base64Decode(d.plaintext)
+  void opts
+  throw new Error('custody decryption is retired; use decryptWithCommitteePartials with a client recipient and authenticated verifying shares')
 }
 
 // keeper: POST /v1/shards/ibe/extract (identity-key extraction)
@@ -666,6 +637,12 @@ export interface IbeExtractionPartial {
 
 /** Committee authorization and keeper endpoints for extracting shares of one IBE identity key. */
 export interface IbeExtractOpts {
+  /** Original client-held recipient bound before authorization; required at runtime. */
+  recipient?: ClientRecipient
+  /** Deployment chain identifier used to validate the signed recipient-bound request hash. */
+  chainId?: number | bigint
+  /** Independently authenticated 144-byte G2 || G1 public shares; reply-supplied keys alone are insufficient. */
+  verifyingShares?: ReadonlyMap<number,Uint8Array>
   /** Exact sealed presentation ciphertext returned with this authorization. */
   evidenceCt?: string
   /** Stop after this many distinct, pairing-verified shares. Without this option,
@@ -701,6 +678,7 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
     committee_token: opts.committeeToken,
     ...evidenceBody(opts.committeeToken, opts.evidenceCt),
     identity: opts.identity,
+    recipient: opts.recipient!.recipient,
   }
   if (opts.userSignature) body.user_signature = bareHex(opts.userSignature)
   if (opts.ciphertextEpoch !== undefined) body.ciphertext_epoch = opts.ciphertextEpoch
@@ -722,7 +700,7 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
   if (!res.ok) throw await httpError(new Response(text, {status: res.status}), url, 'shards/ibe/extract')
   const d = JSON.parse(text) as {
     identifier: number
-    extraction_share: string
+    sealed_share: SealedShareWire
     verifying_share: string
     epoch: number
     key_slot_id?: string
@@ -731,11 +709,16 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
     op_attestation?: unknown
   }
   const vs = base64Decode(d.verifying_share), receipt = decodeOperationReceipt(d)
+  const trusted=opts.verifyingShares!.get(d.identifier)
+  if(!trusted||trusted.length!==144||!bytesEqual(vs,trusted)||d.epoch!==opts.ciphertextEpoch||d.key_slot_id?.replace(/^0x/,'').toLowerCase()!==opts.committeeToken.slot_id.replace(/^0x/,'').toLowerCase())throw new Error('Sealed extraction differs from authenticated slot/sharing')
+  const digest=recipientPayloadDigest(sha256(new TextEncoder().encode(opts.identity)),opts.ciphertextEpoch!,opts.recipient!.recipient)
+  const hash=checkedDecryptionRequestHash(opts.chainId!,opts.committeeToken.slot_id,'ibe-extract',digest,opts.committeeToken.request_hash)
+  const partial=await opts.recipient!.open(d.sealed_share,hash,d.identifier,d.epoch,trusted)
   return {
     ...(d.key_slot_id !== undefined ? {keySlotId: d.key_slot_id} : {}),
     ...(receipt ? {receipt} : {}),
     identifier: Number(d.identifier),
-    value: base64Decode(d.extraction_share),
+    value: partial,
     // The reply is the 144-byte dual-group encoding (96B G2 || 48B G1); the IBE pairing
     // check needs the G2 half.
     verifyingShareG2: vs.slice(0, 96),
@@ -744,7 +727,7 @@ async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<Ibe
   }
 }
 
-async function readIbeReply(response: Response, signal?: AbortSignal): Promise<string> {
+export async function readIbeReply(response: Response, signal?: AbortSignal): Promise<string> {
   const cap = 16 * 1024
   if (Number(response.headers.get('content-length')) > cap) {
     void response.body?.cancel().catch(() => {})
@@ -808,6 +791,10 @@ export async function collectIbeExtractionPartials(
 ): Promise<IbeExtractionPartial[]> {
   opts={...opts,nodeUrls:[...opts.nodeUrls],committeeToken:structuredClone(opts.committeeToken),
     verifierProofs:opts.verifierProofs&&structuredClone(opts.verifierProofs),userSignature:opts.userSignature?.slice()}
+  if(!opts.recipient||opts.chainId===undefined||!opts.verifyingShares||opts.ciphertextEpoch===undefined)throw new Error('Recipient, chain, epoch and authenticated verifying shares required for IBE extraction')
+  opts.verifyingShares=new Map([...opts.verifyingShares].map(([id,share])=>[id,share.slice()]))
+  const recipientDigest=recipientPayloadDigest(sha256(new TextEncoder().encode(opts.identity)),opts.ciphertextEpoch,opts.recipient.recipient)
+  checkedDecryptionRequestHash(opts.chainId,opts.committeeToken.slot_id,'ibe-extract',recipientDigest,opts.committeeToken.request_hash)
   if (opts.nodeUrls.length === 0) throw new Error('requestIbeExtractionPartials: no node URLs')
   const threshold = opts.threshold, timeoutMs = opts.timeoutMs ?? 10_000
   if (threshold !== undefined && (!Number.isSafeInteger(threshold) || threshold < 1 || threshold > opts.nodeUrls.length)) {
@@ -861,7 +848,7 @@ export async function collectIbeExtractionPartials(
       void ibeExtractOne(url, requests).then(p => {
         if (done) { p.value.fill(0); return }
         try {
-          if (threshold !== undefined && ids.has(p.identifier)) throw new Error('Duplicate extraction identifier')
+          if (ids.has(p.identifier)) throw new Error('Duplicate extraction identifier')
           validate?.(p)
           ids.add(p.identifier)
           partials.push(p)

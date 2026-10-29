@@ -28,15 +28,15 @@ import {
 } from '../fleet/_fleet.ts'
 import {assertLocalPrepaidFleet, fundFreshWalletSlot} from '../fleet/_prepaid-funding.ts'
 import {authorizeWallet, WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
-import {decryptPayloadDigest} from '../../src/oid4vp/index.ts'
-import {committeeDecrypt} from '../../src/committee/client.ts'
+import {createDecryptionRecipient, decryptionBinding, kemContentDigest} from '../../src/crypto/recipient.ts'
+import {decryptWithCommitteePartials} from '../../src/decryption/sealed.ts'
+import {paidWalletBlsSharing} from '../fleet/_paid-wallet.ts'
 import {createTasraWriteClient, generateClientKey} from '../../src/chain/write.ts'
 import {bondingCurveAbi} from '../../src/chain/abis/bondingCurve.ts'
 import {mockEurcAbi} from '../../src/chain/abis/mockEurc.ts'
 import {ensureGas} from './_faucet.ts'
 import {fleetConfig} from './_run.ts'
 import {fetchMpk} from '../../src/keys/node-client.ts'
-import {type BlsPeer} from '../../src/decryption/client.ts'
 import {encryptEnvelope, fromBytes, toBytes} from '../../src/crypto/envelope.ts'
 import {hexToBytes} from '../../src/crypto/hex.ts'
 
@@ -141,36 +141,30 @@ s.ok('prepaid the slot on Settlement with the TSRA it bought', settleAfter - set
 const {mpkBytes, epoch} = await fetchMpk(committee[0]!, slotId)
 s.ok('fetched the anchored MPK (96-byte compressed G2)', mpkBytes.length === 96)
 
-// A fresh commit-reveal slot is NOT exportable — raw shard export (`/v1/shards/key`) is refused
-// for any slot not created with client-sovereign custody — so operate it the way production
-// does: encrypt to the MPK, then decrypt through the keepers' k-of-n CUSTODY ceremony. The
-// decrypting set + libp2p peers come from each committee member's public /v1/info.
-const blsPeers: BlsPeer[] = []
-for (const url of committee) {
-  const info = (await (await fetch(`${url}/v1/info`)).json()) as {peer_id: string; node_identifier: number}
-  blsPeers.push({id: info.node_identifier, peerId: info.peer_id})
-}
-blsPeers.sort((a, b) => a.id - b.id)
-s.ok('resolved the committee peers for the custody decrypt', blsPeers.length >= 2, `${blsPeers.length} peers`)
+const sharing = await paidWalletBlsSharing(cfg, slotId)
+s.ok('authenticated the drawn BLS public sharing against registered operator identities',
+  sharing.verifyingShares.size >= sharing.threshold && bytesEq(sharing.groupPublicKey, mpkBytes) && sharing.epoch === epoch)
 
 const enc = new TextEncoder()
 const identity = enc.encode('verify-onboarding')
 const plaintext = enc.encode('onboarded, funded, and operated entirely by a fresh real account 🔐')
 const back = fromBytes(toBytes(encryptEnvelope(hexToBytes(slotId), mpkBytes, identity, plaintext, BigInt(epoch))))
-const grant = await authorizeWallet(cfg,slotId,creatorKey,{action:'decrypt',payloadDigest:decryptPayloadDigest(back.ciphertext.u,back.ciphertext.aeadCt)})
-const out = await committeeDecrypt({
-  nodeUrl: grant.coordinatorUrl,
+const recipient = await createDecryptionRecipient()
+const binding = decryptionBinding(kemContentDigest(back.ciphertext, back.identity), epoch, recipient)
+const grant = await authorizeWallet(cfg,slotId,creatorKey,{action:'decrypt',...binding})
+s.ok('reservation retains the authenticated key epoch and sharing version',
+  grant.payment.keeper_assignment.key_epoch === sharing.epoch && grant.payment.keeper_assignment.committee_version === sharing.assignment.committee_version)
+const out = await decryptWithCommitteePartials({
+  nodeUrls: sharing.nodeUrls, chainId: 43112, recipient, verifyingShares: sharing.verifyingShares, threshold: sharing.threshold,
   committeeToken:grant.compound_token,
   verifierProofs:grant.verifierProofs,
   approveExecution:grant.approveExecution,
   evidenceCt:grant.evidenceCt,
   ciphertext: back.ciphertext,
   identity: back.identity,
-  decryptingSet: blsPeers.map(p => p.id),
-  blsPeers,
   ciphertextEpoch: epoch,
 })
 grant.dispose()
-s.ok('encrypt → k-of-n custody decrypt round-trip on the new slot (production path, no export)', bytesEq(out, plaintext))
+s.ok('encrypt → client-only k-of-n decrypt round-trip on the new slot', bytesEq(out, plaintext))
 
 s.done()

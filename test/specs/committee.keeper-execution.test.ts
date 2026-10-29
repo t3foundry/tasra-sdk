@@ -1,3 +1,7 @@
+import {createDecryptionRecipient,kemContentDigest,recipientPayloadDigest} from '../../src/crypto/recipient.js'
+import {collectSealedPartials} from '../../src/decryption/sealed.js'
+import {requestHash} from '../../src/oid4vp/binding.js'
+import {hexToBytes} from '../../src/crypto/hex.js'
 import {afterEach,describe,expect,it,vi} from 'vitest'
 import {sha256} from '@noble/hashes/sha256'
 import {toHex} from 'viem'
@@ -13,15 +17,18 @@ import {keeperExecutionFixture} from '../support/keeperExecution.js'
 
 const message=Uint8Array.of(1,2,3),digest=new Uint8Array(32).fill(7),identity='client-selected identity'
 const ciphertext={u:Uint8Array.of(8,9),nonce:new Uint8Array(12).fill(10),aeadCt:Uint8Array.of(11,12)}
-const routes:KeeperExecutionKind[]=['committee-sign','committee-eoa-digest','committee-decrypt','ibe-extract','dual-sign']
+const routes:KeeperExecutionKind[]=['committee-sign','committee-eoa-digest','sealed-decrypt','ibe-extract','dual-sign']
 afterEach(()=>vi.restoreAllMocks())
 async function operation(kind:KeeperExecutionKind){
-  const action=kind==='committee-decrypt'?'decrypt':kind==='committee-eoa-digest'?'eoa-sign':kind==='ibe-extract'?'ibe-extract':'sign'
-  const payload=kind==='committee-decrypt'?decryptPayloadDigest(ciphertext.u,ciphertext.aeadCt)
-    :sha256(kind==='committee-eoa-digest'?digest:kind==='ibe-extract'?new TextEncoder().encode(identity):message)
+  const recipient=await createDecryptionRecipient(),sealedOptions={recipient,chainId:43112,ciphertextEpoch:1,verifyingShares:new Map([[1,new Uint8Array(144)]])}
+  const action=kind==='committee-decrypt'||kind==='sealed-decrypt'?'decrypt':kind==='committee-eoa-digest'?'eoa-sign':kind==='ibe-extract'?'ibe-extract':'sign'
+  const payload=kind==='sealed-decrypt'?recipientPayloadDigest(kemContentDigest(ciphertext,new TextEncoder().encode(identity)),1,recipient.recipient)
+    :kind==='ibe-extract'?recipientPayloadDigest(sha256(new TextEncoder().encode(identity)),1,recipient.recipient)
+    :kind==='committee-decrypt'?decryptPayloadDigest(ciphertext.u,ciphertext.aeadCt):sha256(kind==='committee-eoa-digest'?digest:message)
   const f=await keeperExecutionFixture(action,toHex(payload))
   // This fixture isolates the client approval boundary; verifier grant validation has separate tests.
   const token={slot_id:f.payment.slot,payment:f.payment,payment_hash:paymentIntentHash(f.payment)} as CompoundTokenWire
+  if(kind==='sealed-decrypt'||kind==='ibe-extract')token.request_hash=toHex(requestHash(43112,hexToBytes(f.payment.slot),kind==='sealed-decrypt'?'decrypt':'ibe-extract',payload))
   const fetchImpl=vi.fn<typeof fetch>(async()=>new Response('work not performed by this transport fixture',{status:503}))
   const send=(approveExecution:KeeperExecutionApprover|undefined,signal?:AbortSignal)=>{
     const opts={nodeUrl:'https://keeper.example',committeeToken:token,fetchImpl,approveExecution,signal}
@@ -30,12 +37,14 @@ async function operation(kind:KeeperExecutionKind){
       case 'committee-eoa-digest':return committeeSignEoaDigest({...opts,digest})
       case 'committee-decrypt':return committeeDecrypt({...opts,ciphertext,identity:new TextEncoder().encode(identity),
         decryptingSet:[1,2],blsPeers:[{id:1,peerId:'first'},{id:2,peerId:'second'}],ciphertextEpoch:1})
-      case 'ibe-extract':return requestIbeExtractionPartials({...opts,nodeUrls:[opts.nodeUrl],identity,ciphertextEpoch:1})
+      case 'sealed-decrypt':return collectSealedPartials({...opts,...sealedOptions,nodeUrls:[opts.nodeUrl],threshold:1},'decrypt',new TextEncoder().encode(identity),ciphertext)
+      case 'ibe-extract':return requestIbeExtractionPartials({...opts,...sealedOptions,nodeUrls:[opts.nodeUrl],identity,ciphertextEpoch:1})
       case 'dual-sign':return createDualSignClient({chainId:43112,nodeUrl:opts.nodeUrl,slotId:f.payment.slot,
         groupPublicKey:new Uint8Array(32).fill(13),quorum:2,credentialGated:false,payment:f.payment,fetchImpl,approveExecution}).create(message,{signal})
+      default:throw new Error('Unknown test route')
     }
   }
-  return {...f,token,fetchImpl,send}
+  return {...f,token,fetchImpl,send,sealedOptions}
 }
 
 describe('client approvals on outgoing keeper requests',()=>{
@@ -48,9 +57,9 @@ describe('client approvals on outgoing keeper requests',()=>{
       const sent=JSON.parse(String(init?.body)) as Record<string,unknown>&{execution_authorizations:ExecutionAuthorization[]}
       const {execution_authorizations:proofs,...body}=sent
       expect(String(url)).toContain(kind==='dual-sign'?'/v1/dual-sign':kind==='ibe-extract'?'/v1/shards/ibe/extract':
-        kind==='committee-eoa-digest'?'/v1/committee/sign/eoa-digest':kind==='committee-decrypt'?'/v1/committee/decrypt':'/v1/committee/sign')
+        kind==='committee-eoa-digest'?'/v1/committee/sign/eoa-digest':kind==='sealed-decrypt'?'/v1/committee/decrypt/partial':kind==='committee-decrypt'?'/v1/committee/decrypt':'/v1/committee/sign')
       expect(init?.redirect).toBe('error');expect(init?.credentials).toBe('omit')
-      expect(proofs).toHaveLength(kind==='ibe-extract'?1:3)
+      expect(proofs).toHaveLength(kind==='ibe-extract'||kind==='sealed-decrypt'?1:3)
       for(const authorization of proofs){
         expect(authorization.body_hash).toBe(executionBodyHash(body))
         await expect(verifyExecutionAuthorization({payment:f.payment,policy:f.policy,authorization,
@@ -131,7 +140,7 @@ describe('client approvals on outgoing keeper requests',()=>{
     const ready=new Promise<void>(resolve=>{asked=resolve})
     const complete=new Promise<void>(resolve=>{finished=resolve})
     try{
-      const running=requestIbeExtractionPartials({nodeUrls:['https://keeper.example'],committeeToken:f.token,
+      const running=requestIbeExtractionPartials({...f.sealedOptions,nodeUrls:['https://keeper.example'],committeeToken:f.token,
         identity,ciphertextEpoch:1,timeoutMs:20,fetchImpl:f.fetchImpl,approveExecution:async request=>{
           asked();await delayed
           try{return await f.approveExecution(request)}finally{finished()}
