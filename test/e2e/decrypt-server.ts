@@ -1,9 +1,9 @@
-// E2E: BLS threshold server-side DECRYPT correctness on the prod fleet.
+// E2E: BLS threshold client-only DECRYPT correctness on the prod fleet.
 //
 // A sovereign client creates a BLS slot (commit-reveal), encrypts an envelope to
-// the slot's MPK locally, then asks the committee to threshold-decrypt it via
-// /v1/decrypt (the server combines k partial decryptions) and asserts the
-// recovered plaintext matches. Also exercises the BlsId→PeerId committee map.
+// the slot's MPK locally, then opens recipient-sealed contributions locally and
+// asserts the original plaintext. The historical script name is retained;
+// the coordinator never receives an opening key or combines contributions.
 //
 // Authorization: paid original wallet session and explicit keeper-stage consent.
 // Run: tsx test/e2e/decrypt-server.ts
@@ -11,13 +11,14 @@
 import {Suite, bytesEq} from '../fleet/_assert.ts'
 import {discoverCommittee, gate, loadFleetConfig, mintAdminJwt, provisionRule} from '../fleet/_fleet.ts'
 import {authorizeWallet,createWalletSlot, WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
-import {decryptPayloadDigest} from '../../src/oid4vp/index.ts'
+import {createDecryptionRecipient, decryptionBinding, kemContentDigest} from '../../src/crypto/recipient.ts'
+import {paidWalletBlsSharing} from '../fleet/_paid-wallet.ts'
 import {encryptEnvelope} from '../../src/crypto/envelope.ts'
-import {committeeDecrypt} from '../../src/committee/client.ts'
+import {decryptWithCommitteePartials} from '../../src/decryption/sealed.ts'
 import {hexToBytes} from '../../src/crypto/hex.ts'
 
 const cfg = loadFleetConfig()
-const s = new Suite('e2e: BLS server-side threshold decrypt')
+const s = new Suite('e2e: BLS client-only threshold decrypt')
 
 if (!(await gate(s, cfg))) {
   s.done()
@@ -64,15 +65,23 @@ for (const url of committee) {
 peers.sort((a, b) => a.id - b.id)
 s.ok('resolved committee BlsId→PeerId map', peers.length >= K, `peers=${peers.length}`)
 
-const identity = 'decrypt-e2e'
+const identity = new TextEncoder().encode('decrypt-e2e')
 const plaintext = new TextEncoder().encode('threshold-decrypt round-trip 🔐')
-const env = encryptEnvelope(hexToBytes(slotId), hexToBytes(`0x${mpkHex}`), new TextEncoder().encode(identity), plaintext, 0n)
-const grant = await authorizeWallet(cfg,slotId,creatorKey,{action:'decrypt',payloadDigest:decryptPayloadDigest(env.ciphertext.u,env.ciphertext.aeadCt)})
-const recovered = await committeeDecrypt({nodeUrl:grant.coordinatorUrl,committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,
-  approveExecution:grant.approveExecution,ciphertext:env.ciphertext,identity:new TextEncoder().encode(identity),
-  decryptingSet:peers.map(p=>p.id),blsPeers:peers.map(p=>({id:p.id,peerId:p.peer_id})),ciphertextEpoch:0})
-grant.dispose()
-s.ok('/v1/decrypt returned a paid result on the selected coordinator',true)
-s.ok('server-decrypted plaintext matches the original',bytesEq(recovered,plaintext))
-
+const sharing = await paidWalletBlsSharing(cfg, slotId)
+s.ok('signed public sharing matches the independently read group key', bytesEq(sharing.groupPublicKey, hexToBytes(mpkHex)))
+const env = encryptEnvelope(hexToBytes(slotId), sharing.groupPublicKey, identity, plaintext, BigInt(sharing.epoch))
+const recipient = await createDecryptionRecipient()
+const binding = decryptionBinding(kemContentDigest(env.ciphertext, identity), sharing.epoch, recipient)
+const grant = await authorizeWallet(cfg, slotId, creatorKey, {action: 'decrypt', ...binding})
+try {
+  s.ok('original payment retains the discovered epoch and sharing version',
+    grant.payment.keeper_assignment.key_epoch === sharing.epoch
+      && grant.payment.keeper_assignment.committee_version === sharing.assignment.committee_version)
+  const recovered = await decryptWithCommitteePartials({nodeUrls: sharing.nodeUrls, chainId: 43112,
+    recipient, verifyingShares: sharing.verifyingShares, threshold: sharing.threshold,
+    committeeToken: grant.compound_token, verifierProofs: grant.verifierProofs, evidenceCt: grant.evidenceCt,
+    approveExecution: grant.approveExecution, ciphertext: env.ciphertext, identity, ciphertextEpoch: sharing.epoch})
+  try {s.ok('client-reconstructed plaintext matches the original', bytesEq(recovered, plaintext))}
+  finally {recovered.fill(0)}
+} finally {grant.dispose()}
 s.done()
