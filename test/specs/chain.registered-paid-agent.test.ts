@@ -20,6 +20,7 @@ import type {ApprovedAgentProfile} from '../../src/chain/registeredAgent.js'
 import type {PaidAgentTransport} from '../../src/chain/paidAgentTransport.js'
 import type {ServiceRecord} from '../../src/chain/services.js'
 import {RevocationStatusPreflightError} from '../../src/errors.js'
+import {createDecryptionRecipient, decryptionBinding, type DecryptionBindingWire} from '../../src/crypto/recipient.js'
 
 // Policy reads have their own real ABI/RPC regressions in chain.paid-context.test.ts.
 // These tests isolate orchestration while retaining genuine creator/client signatures.
@@ -32,7 +33,7 @@ const cleanups:Array<()=>void>=[]
 beforeEach(()=>{vi.spyOn(Date,'now').mockReturnValue(1_000_000);vi.mocked(authenticateApprovedService).mockReset();vi.mocked(readClientExecutionPolicy).mockReset()})
 afterEach(()=>{cleanups.splice(0).forEach(cleanup=>cleanup());vi.restoreAllMocks();vi.useRealTimers()})
 
-async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestations?:boolean,pacing?:PaidPacingOptions,checksummed=false) {
+async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestations?:boolean,pacing?:PaidPacingOptions,checksummed=false,ibe?:{identity:string;decryption:DecryptionBindingWire}) {
   const creator=privateKeyToAccount(h(11)), signer=createLocalExecutionSigner(new Uint8Array(32).fill(21))
   cleanups.push(()=>signer.dispose())
   const sign=vi.fn(signer.sign), endpoint='https://agent.example'
@@ -49,10 +50,10 @@ async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestat
   const root=keccak256(concatHex([...leaves].sort())), members:PaidVerifierWitness[]=keys.map((publicKey,index)=>({index,publicKey,operator:operators[index]!,proof:[leaves[1-index]!]}))
   const settlement=checksummed?getAddress('0x6023ff0a8203ea32e737819b301d1672dd2ecbe0'):h(1,20)
   const keyRegistry=checksummed?getAddress('0x7ca5543f9b2c35f0e972f1b45b61a2fe53ff1ed9'):h(2,20)
-  const input=presentationOperationTypedData({chainId:43112,keyRegistry,slotId:h(3),action:'sign',message:new Uint8Array([1,2,3]),
+  const input=presentationOperationTypedData({chainId:43112,keyRegistry,slotId:h(3),...(ibe?{action:'ibe-extract',identity:ibe.identity,decryption:ibe.decryption}:{action:'sign',message:new Uint8Array([1,2,3])}),
     description:'Approve these exact bytes',nowSecs:1000,ttlSecs:60})
   const operationSig=await creator.signTypedData(input.typedData), random=h(12)
-  const payment:PaymentIntentWire={chain_id:43112,settlement,key_registry:keyRegistry,slot:h(3),action:'sign',payload_digest:toHex(input.payloadDigest),
+  const payment:PaymentIntentWire={chain_id:43112,settlement,key_registry:keyRegistry,slot:h(3),action:ibe?'ibe-extract':'sign',payload_digest:toHex(input.payloadDigest),
     session_commitment:paymentSessionCommitment(random,profile.clientId,1060),nonce:h(10),max_cost:'10',expires:1060,
     verification_epoch:7,verification_seed:h(9),verification_root:root,verification_registry_size:2,verification_committee:2,verification_quorum:2,
     keeper_assignment:{key_epoch:1,committee_version:2,threshold:2,coordinator:Array<number>(32).fill(9),contributors:[9,10,11].map(n=>Array<number>(32).fill(n))},signature:h(1,65)}
@@ -60,7 +61,7 @@ async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestat
   const policy={chainId:43112,settlement,keyRegistry,creator:creator.address,paymentHash:paymentIntentHash(payment),cost:9n,nowSecs:1000}
   vi.mocked(readClientExecutionPolicy).mockResolvedValue({blockNumber:20n,blockHash:h(20),blockTimestamp:1000n,policy})
   const certificate=await createExecutionCertificate({payment,policy,publicKey:signer.publicKey,expires:1050,creator})
-  const params={operation:input.operation,operationSig,messageHex:input.messageHex,payment,random,...(kind==='oauth'?{kind}:{})}
+  const params={operation:input.operation,operationSig,messageHex:input.messageHex,payment,random,...(kind==='oauth'?{kind}:{}),...(ibe?{decryption:ibe.decryption}:{})}
   const deployment={chainId:43112,settlement,keyRegistry,verifierSet:h(8,20),beacon:h(13,20)}
   // The Rust agent deserializes addresses/bytes32 into Alloy fixed-byte types;
   // their JSON serialization is lowercase, including a checksummed input.
@@ -749,5 +750,21 @@ it('ignores garbage hints and uses its own backoff',async()=>{
     f.send.mockResolvedValueOnce(busy(429,{retryAfter:garbage})).mockResolvedValueOnce(busy(503,{rateLimitAfter:garbage})).mockResolvedValueOnce({status:200,body:bytes({proposals:[]})})
     await f.session.proposals()
     expect(f.state.sleeps,garbage).toEqual([500,1000])
+  }
+})
+
+it('prepares a recipient-bound paid IBE extraction and refuses a missing or substituted recipient binding',async()=>{
+  const identity='vault:0123', client=await createDecryptionRecipient(new Uint8Array(32).fill(41))
+  const {decryption}=decryptionBinding(sha256(new TextEncoder().encode(identity)),3,client)
+  // The client-only digest is not sha256(identity): a sign-style check refused every paid unlock.
+  const f=await fixture('wallet',undefined,undefined,false,{identity,decryption})
+  expect(f.params.operation.action).toBe('ibe-extract')
+  const other=await createDecryptionRecipient(new Uint8Array(32).fill(42))
+  for(const changed of [undefined,{...decryption,recipient:other.recipient},{...decryption,ciphertext_epoch:4},
+    {...decryption,content_digest:toHex(sha256(new TextEncoder().encode('vault:9999'))).slice(2)}]){
+    const original=f.params.decryption
+    if(changed)f.params.decryption=changed;else delete f.params.decryption
+    await expect(f.prepare()).rejects.toThrow(/recipient binding|does not bind its message/)
+    f.params.decryption=original
   }
 })

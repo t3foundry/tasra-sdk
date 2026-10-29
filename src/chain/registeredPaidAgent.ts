@@ -10,6 +10,7 @@ import {approveExecutionRequest, executionBodyHash, executionInitializationTyped
   type ExecutionProposal, type SessionInitialization} from '../committee/execution.js'
 import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 import {protocolHex} from '../committee/receipts.js'
+import {recipientPayloadDigest} from '../crypto/recipient.js'
 import {dpopHtu, platformAudience, isValidSessionId} from '../committee/oauth.js'
 import {BINDING_HOLDER_KEY, assertStatusAttestationsWire, decodeCompoundToken, selectVerifierCommittee, verifierLeaf, verifyCompoundToken, verifyMerkleProof,
   requireStatusAttestations, compoundTokenHash, type CompoundTokenWire} from '../committee/token.js'
@@ -328,7 +329,17 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   const rawMessage = params.messageHex.replace(/^0x/,'')
   if (!/^(?:[0-9a-f]{2})+$/i.test(rawMessage)) throw new Error('Invalid original operation message bytes')
   const message = protocolHex('0x'+rawMessage,rawMessage.length/2,'original message')
-  if (['sign','ibe-extract'].includes(params.operation.action) && toHex(sha256(message)).toLowerCase() !== params.operation.payload_digest.toLowerCase()) throw new Error('Original operation does not bind its message')
+  // `sign` digests the message itself; `ibe-extract` digests the identity bound to the client
+  // recipient (as presentationOperationTypedData builds it and the verifier-agent recomputes it).
+  if (params.operation.action === 'sign' && toHex(sha256(message)).toLowerCase() !== params.operation.payload_digest.toLowerCase()) throw new Error('Original operation does not bind its message')
+  if (params.operation.action === 'ibe-extract') {
+    const d = params.decryption
+    if (!d) throw new Error('Paid IBE extraction requires its client recipient binding')
+    const content = sha256(message), bare = (hex: string) => hex.replace(/^0x/i, '').toLowerCase()
+    if (d.content_digest !== undefined && bare(d.content_digest) !== bare(toHex(content))) throw new Error('Original operation does not bind its message')
+    if (toHex(recipientPayloadDigest(content, d.ciphertext_epoch, d.recipient)).toLowerCase() !== params.operation.payload_digest.toLowerCase())
+      throw new Error('Original operation does not bind its message')
+  }
   const identity = params.operation.action === 'ibe-extract' ? new TextDecoder('utf-8',{fatal:true}).decode(message) : null
   if(!['sign','decrypt','ibe-extract','dual-approve'].includes(params.operation.action))throw new Error('Unsupported presentation operation')
   const rh = requestHash(payment.chain_id,protocolHex(payment.slot,32,'slot'),params.operation.action as CommitteeAction,protocolHex(payment.payload_digest,32,'digest'))
