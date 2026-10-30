@@ -1,11 +1,11 @@
 # Migrate to the application API
 
-Use `tasra-sdk/app` to adopt the application API one operation at a time.
+Use `@t3foundry/tasra-sdk/app` to adopt the application API one operation at a time.
 Existing lower-level SDK imports remain available.
 Creation and provisioning integrations must adopt the required `rule` property
 and migrate any older recovery journals as described below.
 Download the selected network manifest from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases) and verify its checksum.
+[tasra-releases](https://github.com/t3foundry/tasra-releases) and verify its checksum.
 Confirm that the deployment supports the required key modes, authorization formats
 and service routes before executing protected operations.
 
@@ -18,7 +18,7 @@ and service routes before executing protected operations.
 | Manual IBE partial collection and combination | BLS `decrypt` | Use the intended identity and authorization; require receipts when your application depends on them. Keep the anchored-group assurance limits explicit. |
 | Custom create/status/approve transport | `setApprovalPolicy`, `identityApprover`, `approveWithCredential` and native FROST approval lifecycle | Preserve request ID, message, coordinator and policy; distinguish uncertain submission from a confirmed failure. |
 | Ad hoc slot-creation retry state | `slots.create` with a stable name and `createFileStore` | Restore the same wallet, manifest and named request to resume; reconcile unknown outcomes. Expired commitments and abandoned locks still require operator intervention. |
-| Legacy `keykeeper-sdk` package imports | Corresponding `tasra-sdk` entry points | Check exported types and the [SDK reference](reference/README.md); package-name replacement alone does not validate behavior. |
+| Legacy `keykeeper-sdk` package imports | Corresponding `@t3foundry/tasra-sdk` entry points | Check exported types and the [SDK reference](reference/README.md); package-name replacement alone does not validate behavior. |
 
 The [application API guide](application-api.md) shows the typed operations and error
 handling. Complete [shared-account](shared-account.md), [encrypted-notes](encrypted-notes.md),
@@ -66,7 +66,7 @@ OID4VP meaning. Resume with the original policy and authorization type.
 1. Install the [latest SDK from npm](installation.md) and keep
    its exact version and integrity in your application's lockfile.
 2. Typecheck and build your application in its actual Node or browser environment.
-   The application API needs only `tasra-sdk` at runtime; provide browser WebCrypto.
+   The application API needs only `@t3foundry/tasra-sdk` at runtime; provide browser WebCrypto.
    Install `viem` directly only if your own code intentionally imports its adapters.
 3. Exercise the migrated operation on a compatible development deployment with
    newly issued development credentials. Include a refused holder, wrong operation

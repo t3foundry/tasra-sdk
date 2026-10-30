@@ -8,7 +8,7 @@ Use the manifest-based `TasraClient` and `tasra.slots.create()` to create a read
 FROST slot. Then configure the native approval policy through the SDK:
 
 ```ts
-import {setApprovalPolicy, identityApprover} from 'tasra-sdk/app'
+import {setApprovalPolicy, identityApprover} from '@t3foundry/tasra-sdk/app'
 
 const signers = [identityApprover(alice), identityApprover(bob)]
 await setApprovalPolicy(tasra, slot.slotId, {
@@ -32,7 +32,7 @@ For credential-gated approval, pass `{quorum: 2, credentialPolicy: rule}` to
 Approve each holder with:
 
 ```ts
-import {approveWithCredential} from 'tasra-sdk/app'
+import {approveWithCredential} from '@t3foundry/tasra-sdk/app'
 
 await approveWithCredential(tasra, request, exactMessageBytes, {
   identity: alice,
@@ -75,7 +75,7 @@ the old slot does not resume the exited run.
 
 
 Use Node.js **24**. The examples download and checksum-verify the testnet manifest
-from [tasra-releases](https://github.com/t3-foundry/tasra-releases). The deployment
+from [tasra-releases](https://github.com/t3foundry/tasra-releases). The deployment
 must support FROST creation and the selected native approval policy. Credential
 approvals additionally require operation-bound OID4VP, SD-JWT and `did:jwk`
 support. Ensure sufficient keeper/verifier membership and usage credits.
@@ -86,14 +86,14 @@ mkdir my-approval-workflow
 cd my-approval-workflow
 npm init -y
 npm pkg set type=module
-npm install tasra-sdk@latest
+npm install @t3foundry/tasra-sdk@latest
 npm install --save-dev tsx typescript @types/node
-cp node_modules/tasra-sdk/examples/native-approvals.ts .
-cp node_modules/tasra-sdk/examples/credential-approvals.ts .
-cp node_modules/tasra-sdk/examples/tutorial-support.ts .
-cp node_modules/tasra-sdk/examples/tutorial-negative.ts .
-cp node_modules/tasra-sdk/examples/network.ts .
-cp node_modules/tasra-sdk/examples/fund-slot.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/native-approvals.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/credential-approvals.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/tutorial-support.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/tutorial-negative.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/network.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/fund-slot.ts .
 printf '.tasra/\nnode_modules/\n' > .gitignore
 npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --resolveJsonModule native-approvals.ts credential-approvals.ts
 npx tsx network.ts
@@ -101,7 +101,7 @@ npx tsx native-approvals.ts
 npx tsx credential-approvals.ts
 ```
 
-`tasra-sdk` is the only application runtime dependency. The visible tutorial helper
+`@t3foundry/tasra-sdk` is the only application runtime dependency. The visible tutorial helper
 loads the release manifest and creates fresh identities, credentials and a creator
 wallet. Each run prints its creator address and waits up to 15 minutes for funding
 through the network faucet or your own wallet. Each example creates its own slot and approval policy. No precreated

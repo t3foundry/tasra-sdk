@@ -19,7 +19,7 @@ Ethereum or cryptography library for this path.
 | Encrypt documents for authorized holders | `slots.bls`, `encrypt`, `decrypt` |
 | Sign a document independently | `slots.frost`, `sign` |
 | Require distinct people to approve one signature | `setApprovalPolicy`, `identityApprover`, `approveWithCredential`, `slot.approvals` |
-| Keep private state in Node | `createFileStore` from `tasra-sdk/app/node` |
+| Keep private state in Node | `createFileStore` from `@t3foundry/tasra-sdk/app/node` |
 
 [Complete runnable applications](README.md#build-an-app) demonstrate these operations.
 The keeper threshold and the number of human approvals are separate policies.
@@ -35,7 +35,7 @@ before choosing a managed-session or direct committee route.
   assembled key, **auto-renews the JWT**, **re-assembles on rotation**, and exposes
   `encrypt` / `decrypt` / `sign` / `signDigest` / `close`.
 - **…or open one from just a slot id, endpoints resolved from chain** — the chain-driven
-  surface in `tasra-sdk/chain`: `createTasraSlotClient` (JWT path) and
+  surface in `@t3foundry/tasra-sdk/chain`: `createTasraSlotClient` (JWT path) and
   `createCommitteeSlotClient` (committee path) discover the keeper nodes from the
   slot's on-chain committee and **choose the verifier from the on-chain verifier set** — no
   hardcoded node/verifier URLs.
@@ -70,11 +70,11 @@ before choosing a managed-session or direct committee route.
   verifier-committee selection, canonical hashing, ed25519 quorum verification,
   verifier-set Merkle proofs. `selectVerifierCommittee`, `compoundTokenHash`,
   `assembleCompoundToken`, `verifyCompoundToken`, …
-- **Create on-chain Key Slots** — sovereign, self-signed (see [`tasra-sdk/chain`](chain.md):
+- **Create on-chain Key Slots** — sovereign, self-signed (see [`@t3foundry/tasra-sdk/chain`](chain.md):
   `createTasraWriteClient().createSlot`). Confirm the selected network’s creation
   and usage charges. `httpFaucet` calls a compatible faucet supplied by the network;
   it does not discover a faucet or fund an account automatically.
-- **Read & write on-chain + network-service state** — the [`tasra-sdk/chain`](chain.md) subpath.
+- **Read & write on-chain + network-service state** — the [`@t3foundry/tasra-sdk/chain`](chain.md) subpath.
 
 ---
 

@@ -398,6 +398,13 @@ export interface CommitteeSignOpts {
   targetKeykeeper?: string
   /** Verifier membership proofs for the selected snapshot. */
   verifierProofs?: VerifierProof[]
+  /** 32-byte Ed25519 client public key used to verify clientSignature over the slot and token hash; supply both fields together. */
+  clientPubkey?: Uint8Array
+  /** Client signature over the slot and compound token binding. */
+  clientSignature?: Uint8Array
+  /** the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
+   *  posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`. */
+  evidenceCt?: string
 }
 
 /**
@@ -408,12 +415,17 @@ export interface CommitteeSignOpts {
 export async function committeeSign(opts: CommitteeSignOpts): Promise<FrostSignResult> {
   const body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
+    ...(opts.evidenceCt !== undefined ? {evidence_ct: opts.evidenceCt} : {}),
     message_hex: bareHex(opts.message),
   }
   if (opts.signingSet) body.signing_set = opts.signingSet
   if (opts.userSignature) body.user_signature = bareHex(opts.userSignature)
   if (opts.targetKeykeeper) body.target_keykeeper = strip0x(opts.targetKeykeeper)
   if (opts.verifierProofs) body.verifier_proofs = proofsToWire(opts.verifierProofs)
+  if (opts.clientPubkey && opts.clientSignature) {
+    body.client_pubkey = bareHex(opts.clientPubkey)
+    body.client_signature = bareHex(opts.clientSignature)
+  }
 
   const url = `${base(opts.nodeUrl)}/v1/committee/sign`
   const res = await (opts.fetchImpl ?? fetch)(url, {
@@ -466,6 +478,15 @@ export interface CommitteeDecryptOpts {
   targetKeykeeper?: string
   /** Verifier membership proofs for the selected snapshot. */
   verifierProofs?: VerifierProof[]
+  /** 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together. */
+  clientPubkey?: Uint8Array
+  /** Client signature over the slot and compound token binding. */
+  clientSignature?: Uint8Array
+  /** the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
+   *  posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`. */
+  evidenceCt?: string
+  /** HTTP transport override; defaults to the global fetch implementation. */
+  fetchImpl?: typeof fetch
 }
 
 /**
@@ -476,6 +497,7 @@ export interface CommitteeDecryptOpts {
 export async function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint8Array> {
   const body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
+    ...(opts.evidenceCt !== undefined ? {evidence_ct: opts.evidenceCt} : {}),
     ciphertext: ctToWire(opts.ciphertext),
     identity: new TextDecoder().decode(opts.identity),
     decrypting_set: opts.decryptingSet,
@@ -485,9 +507,13 @@ export async function committeeDecrypt(opts: CommitteeDecryptOpts): Promise<Uint
   if (opts.ciphertextEpoch !== undefined) body.ciphertext_epoch = opts.ciphertextEpoch
   if (opts.targetKeykeeper) body.target_keykeeper = strip0x(opts.targetKeykeeper)
   if (opts.verifierProofs) body.verifier_proofs = proofsToWire(opts.verifierProofs)
+  if (opts.clientPubkey && opts.clientSignature) {
+    body.client_pubkey = bareHex(opts.clientPubkey)
+    body.client_signature = bareHex(opts.clientSignature)
+  }
 
   const url = `${base(opts.nodeUrl)}/v1/committee/decrypt`
-  const res = await fetch(url, {
+  const res = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
@@ -536,16 +562,28 @@ export interface IbeExtractOpts {
   ciphertextEpoch?: number
   /** Verifier membership proofs for the selected snapshot. */
   verifierProofs?: VerifierProof[]
+  /** 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together. */
+  clientPubkey?: Uint8Array
+  /** Client signature over the slot and compound token binding. */
+  clientSignature?: Uint8Array
+  /** the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`),
+   *  posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`. */
+  evidenceCt?: string
 }
 
 async function ibeExtractOne(nodeUrl: string, opts: IbeExtractOpts): Promise<IbeExtractionPartial> {
   const body: Record<string, unknown> = {
     committee_token: opts.committeeToken,
+    ...(opts.evidenceCt !== undefined ? {evidence_ct: opts.evidenceCt} : {}),
     identity: opts.identity,
   }
   if (opts.userSignature) body.user_signature = bareHex(opts.userSignature)
   if (opts.ciphertextEpoch !== undefined) body.ciphertext_epoch = opts.ciphertextEpoch
   if (opts.verifierProofs) body.verifier_proofs = proofsToWire(opts.verifierProofs)
+  if (opts.clientPubkey && opts.clientSignature) {
+    body.client_pubkey = bareHex(opts.clientPubkey)
+    body.client_signature = bareHex(opts.clientSignature)
+  }
   const url = `${base(nodeUrl)}/v1/shards/ibe/extract`
   const res = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST',

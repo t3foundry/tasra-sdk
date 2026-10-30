@@ -7,7 +7,7 @@ New to Tasra? Follow the [TypeScript quickstart](getting-started.md) first.
 Install the latest SDK from npm:
 
 ```sh
-npm install tasra-sdk@latest
+npm install @t3foundry/tasra-sdk@latest
 ```
 
 Keep `package-lock.json` with your app to make subsequent installs reproducible.
@@ -27,12 +27,12 @@ npm audit signatures
 ```
 
 The SDK installs its crypto dependencies and viem wallet adapter automatically.
-Apps using `tasra-sdk/app` or `tasra-sdk/chain` need only the SDK as a runtime dependency;
+Apps using `@t3foundry/tasra-sdk/app` or `@t3foundry/tasra-sdk/chain` need only the SDK as a runtime dependency;
 you do not need a separate crypto or Ethereum library to use the application API.
 See the [manifest-first application guide](application-api.md).
 
 For new applications, download a manifest from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases) and load it with
+[tasra-releases](https://github.com/t3foundry/tasra-releases) and load it with
 `TasraClient.fromManifest(url, {sha256, coordinator})`. Remote manifest URLs require HTTPS unless an independently trusted SHA-256 pin is provided; loopback HTTP is allowed for development. Obtain the SHA-256 from a
 trusted release pointer. Pass the deployment's coordinator convention explicitly;
 the release schema does not specify it. Planned and retired manifests cannot
@@ -40,7 +40,7 @@ configure a live client. `check()` verifies the chain and registry availability,
 not support for every service operation.
 
 Advanced chain-only integrations can use `parsePinnedNetworkManifest`,
-`addressBookFromManifest` and `observeNetworkManifest` from `tasra-sdk/chain`.
+`addressBookFromManifest` and `observeNetworkManifest` from `@t3foundry/tasra-sdk/chain`.
 
 ## Typecheck a standalone Node tutorial
 
@@ -73,15 +73,16 @@ Run `npx tsc --noEmit`, then the lesson's `tsx` command. Explicit Node types mak
 imports such as `node:fs` available to the type checker. This configuration is for
 the Node tutorial apps; browser and extension projects retain their own framework configuration.
 
-**Using a coding agent?** The package ships [agent skills](../skills/README.md) — one
-folder per task (getting started, creating a slot, credentials, DCQL rules, errors,
-signing, IBE, chain reads, the committee path, OID4VP, and getting real credentials
-from a Hovi issuer). Installing the package does not register them; see the
-[installation instructions](../skills/README.md) and refresh copied skills after every
+**Using a coding agent?** Agent skills ship separately in the
+[`@t3foundry/tasra-skills`](https://www.npmjs.com/package/@t3foundry/tasra-skills)
+package — one folder per task (getting started, creating a slot, credentials,
+DCQL rules, errors, signing, encryption, chain reads, the committee path, and
+OID4VP). Installing the SDK does not register them; run
+`npx @t3foundry/tasra-skills@latest init` and refresh copied skills after every
 SDK upgrade.
 
 Runs in the browser (Vite, Webpack, Next.js) and Node **≥22.12**. The SDK writes no state unless you supply a store. Node applications can use
-`createFileStore` from `tasra-sdk/app/node` for private, durable recovery state.
+`createFileStore` from `@t3foundry/tasra-sdk/app/node` for private, durable recovery state.
 Browser and database applications provide their own `ApplicationStore` adapter.
 Your product chooses where to keep credentials and exported identity keys.
 
@@ -96,15 +97,15 @@ You do not need a bundler or a transpile step. Modern Node and every current
 bundler consume it directly:
 
 ```ts
-import {TasraClient} from 'tasra-sdk/app' // ESM — application API
+import {TasraClient} from '@t3foundry/tasra-sdk/app' // ESM — application API
 ```
 
 From CommonJS, both of these work on Node ≥22.12:
 
 ```js
-const sdk = require('tasra-sdk/app') // Node ≥22.12 can require() an ES module
+const sdk = require('@t3foundry/tasra-sdk/app') // Node ≥22.12 can require() an ES module
 // Alternatively, load it asynchronously:
-import('tasra-sdk/app').then(sdk => { /* use sdk.TasraClient here */ })
+import('@t3foundry/tasra-sdk/app').then(sdk => { /* use sdk.TasraClient here */ })
 ```
 
 ## Compatibility
@@ -118,7 +119,7 @@ import('tasra-sdk/app').then(sdk => { /* use sdk.TasraClient here */ })
   does not check a node's version or feature set; a mismatch surfaces as an
   HTTP 404/403 at call time (`TasraHttpError`). Some routes are
   per-deployment feature gates — threshold ECDSA (`/v1/sign/eoa-digest`) and
-  the admin scope among them — and `nodeApi.info()` in `tasra-sdk/chain`
+  the admin scope among them — and `nodeApi.info()` in `@t3foundry/tasra-sdk/chain`
   reports which are on.
 
 Confirm operation support on the selected network before using protected routes.

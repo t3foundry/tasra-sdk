@@ -1,6 +1,6 @@
 // A provisioned, non-exportable BLS slot and an issuer credential are prerequisites.
 // No operator/admin credentials are used in this application example.
-import {fromBytes} from 'tasra-sdk'
+import {fromBytes} from '@t3foundry/tasra-sdk'
 import {committeeClient, decryptPeers, loadHolder, loadNetwork, slotId} from './live-config.ts'
 
 const network = await loadNetwork()

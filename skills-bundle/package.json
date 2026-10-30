@@ -1,0 +1,21 @@
+{
+  "name": "@t3foundry/tasra-skills",
+  "version": "1.0.7",
+  "description": "skills bundle for @t3foundry/tasra-sdk",
+  "main": "bundle.json",
+  "bin": {
+    "tasra-skills": "./bin/cli.js",
+    "skills": "./bin/cli.js"
+  },
+  "files": [
+    "bundle.json",
+    "README.md",
+    "skills/",
+    "bin/"
+  ],
+  "scripts": {
+    "publish:registry": "npm publish --access public"
+  },
+  "keywords": ["agent-skills", "developer-tooling", "ai", "tasra"],
+  "license": "MIT"
+}

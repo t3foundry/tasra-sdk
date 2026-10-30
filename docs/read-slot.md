@@ -8,7 +8,7 @@ no credential presentation.
 Copy the reader into the same project:
 
 ```sh
-cp node_modules/tasra-sdk/examples/learning-read-slot.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/learning-read-slot.ts .
 npx tsc --noEmit
 npx tsx learning-read-slot.ts
 ```

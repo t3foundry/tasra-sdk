@@ -48,7 +48,10 @@ const KEEP = on(process.env.KK_KEEP)
 const RUST_PAR = Math.max(1, Number(process.env.KK_VERIFY_RUST_PAR ?? '2') || 2)
 
 // SDK live-fleet suites must fail RED when the fleet is down (no silent skip).
-const FLEET = {KK_FLEET_REQUIRED:'1',KK_CERTIFICATION_REQUIRED:'1'}
+// TASRA_FLEET_REQUIRED is what the suites' `gate()` reads (test/fleet/_fleet.ts); the KK_ name
+// is the explorer reconcile's (test/reconcile/_explorer.ts). With only the KK_ one set, every
+// live suite skipped with exit 0 when its fleet was unreachable.
+const FLEET = {TASRA_FLEET_REQUIRED:'1',KK_FLEET_REQUIRED:'1',KK_CERTIFICATION_REQUIRED:'1'}
 const npm = (script: string): StepSpec => ({name: script, cmd: 'npm', args: ['run', '--silent', script], cwd: sdkRoot, env: FLEET})
 // NB: NOT optional — the whole Rust block is gated by haveCargo/haveForge, so a
 // step that actually RUNS and fails is a real regression and must count red.

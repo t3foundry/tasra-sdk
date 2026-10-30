@@ -3,7 +3,7 @@
 //
 //   npx tsx examples/ethers-signer.ts      # runs the offline self-test below
 //
-// This example imports the published 'tasra-sdk' entry point. The private key never exists anywhere: each
+// This example imports the published '@t3foundry/tasra-sdk' entry point. The private key never exists anywhere: each
 // signature is produced by the k-of-n keykeeper-node fleet via signEoaDigest();
 // this Signer just turns ethers' transaction/message/typed-data hashes into that
 // 32-byte digest call and re-assembles the {r,s,v} result.
@@ -13,7 +13,7 @@
 // key for the fleet to prove the assembly end-to-end without a live backend.
 //
 // ── Usage (ethers) ────────────────────────────────────────────────────────────
-//   import {redeemRenewalToken} from 'tasra-sdk'
+//   import {redeemRenewalToken} from '@t3foundry/tasra-sdk'
 //   const signer = new TasraSigner({
 //     nodes: ['https://node-1', 'https://node-2', 'https://node-3'],
 //     slotId: '0x…', // a tECDSA signing slot
@@ -44,7 +44,7 @@ import {
   type TypedDataField,
 } from 'ethers'
 import {secp256k1} from '@noble/curves/secp256k1'
-import {signEoaDigest, addressFromEoaPubkey, fetchMpk} from 'tasra-sdk'
+import {signEoaDigest, addressFromEoaPubkey, fetchMpk} from '@t3foundry/tasra-sdk'
 
 /** Raw Ethereum ECDSA components as returned by the threshold network. */
 export interface RawEcdsaSig {

@@ -7,7 +7,7 @@ without receiving the master key. A slot is the network-managed key plus its acc
 
 Follow [Build encrypted notes](encrypted-notes.md) for exact installation and run
 commands. It creates a fresh issuer, Alice and Bob, then a BLS slot from the public
-manifest. The only application runtime dependency is `tasra-sdk`.
+manifest. The only application runtime dependency is `@t3foundry/tasra-sdk`.
 
 1. Connect with `new TasraClient({manifest, wallet, store})`.
 2. Issue a holder-bound credential with `tasra.credentials.issue` and define the
@@ -31,7 +31,7 @@ protocol matches your deployment; it is not the setup for the new tutorial.
 
 
 Download and checksum-verify the selected manifest from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases). Confirm that the
+[tasra-releases](https://github.com/t3foundry/tasra-releases). Confirm that the
 deployment supports the chosen authorization and decryption routes, then prepare:
 
 | Input | Where it comes from |
@@ -48,14 +48,14 @@ Use [the configuration table](prerequisites.md#application-configuration) to set
 
 The direct committee example requires a fleet that accepts compound tokens without
 request binding. For a fleet enforcing request binding, use the
-[verifier-agent presentation flow](api.md#tasra-sdkoid4vp--credential-wallets-against-the-verifier-agent).
+[verifier-agent presentation flow](api.md#t3foundrytasra-sdkoid4vp--credential-wallets-against-the-verifier-agent).
 
 ### Run the complete example
 
 From your application directory, after installing the compatible SDK and `tsx` as developer tooling:
 
 ```sh
-npx tsx node_modules/tasra-sdk/examples/getting-started.ts
+npx tsx node_modules/@t3foundry/tasra-sdk/examples/getting-started.ts
 ```
 
 Expected result:

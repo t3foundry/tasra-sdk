@@ -8,8 +8,8 @@ or decrypt a file they are allowed to read. The application API combines the
 protocol steps behind these outcomes so your app does not need to assemble
 transaction state machines, credential presentations and threshold cryptography.
 
-Start with `TasraClient` from `tasra-sdk/app`. Install with
-`npm install tasra-sdk@latest`, then [connect your first app](getting-started.md).
+Start with `TasraClient` from `@t3foundry/tasra-sdk/app`. Install with
+`npm install @t3foundry/tasra-sdk@latest`, then [connect your first app](getting-started.md).
 See [installation](installation.md) for runtime and TypeScript setup. The snippets
 below illustrate individual steps; the linked tutorials contain complete projects,
 including fresh keys, funding, policies and storage.
@@ -34,7 +34,7 @@ to turn these flows into application requests.
 ## Connect to a deployment
 
 ```ts
-import {TasraClient} from 'tasra-sdk/app'
+import {TasraClient} from '@t3foundry/tasra-sdk/app'
 
 // manifest is a checksum-verified download from tasra-releases.
 const tasra = new TasraClient({manifest, coordinator: 'lowest-operator-id'})
@@ -115,7 +115,7 @@ You persist a newly generated local wallet's exported private key before funding
 it, protect that key and keep transaction records. The SDK does not automatically
 fund accounts or choose payment recipients. A browser or database app supplies a
 durable `ApplicationStore`; Node applications can use `createFileStore` from
-`tasra-sdk/app/node`.
+`@t3foundry/tasra-sdk/app/node`.
 
 [Wallet setup and persistence](application-api.md#create-a-wallet-identity-and-slot) ·
 [Shared account tutorial](shared-account.md).
@@ -269,9 +269,19 @@ Create a slot with `authType: 'oauth'` and an OAuth policy using the
 `oauth+access-token+dpop` query format. The creation flow validates the authorization
 family, commits the rule and provisions the slot, just as for credential policies.
 
+When a claim test is more than a value list (a role in a nested array, an organization
+plus an authentication method, a helper rule), write the policy in Rego instead.
+`packEnvelope(policy, tokens)` produces a `kk_oauth` policy envelope that is committed and
+provisioned like any rule; `createSlot` and `createSlotCommitReveal` from
+`@t3foundry/tasra-sdk/chain` also take `oauthPolicy: {policy, tokens}` directly and require
+`authType: 'oauth'`. `lintEnvelope` reports whether keepers would store it, and
+`evaluateEnvelope` previews a decision over a token's claims with the network's own
+engine. A refused holder sees only `kk_oauth policy refused`; the policy itself is
+confidential to the network operators.
+
 IdP sign-in is still an application integration. Obtain the IdP token and its bound
 DPoP signer, then use `createOauthSession`, `submitOauthResponse` and
-`waitForSession` from `tasra-sdk/verifier-agent` inside an `OperationAuthorizer`.
+`waitForSession` from `@t3foundry/tasra-sdk/verifier-agent` inside an `OperationAuthorizer`.
 `credentials.authorize()` handles SD-JWT/OID4VP presentations; it does not acquire
 or present OAuth tokens. Choose the trusted issuer, audience and token age in your
 policy and keep token handling private.

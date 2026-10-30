@@ -1,8 +1,8 @@
 // Creator-authorized setup; no operator/admin credential is needed.
 import {randomBytes} from 'node:crypto'
 import {readFileSync, writeFileSync} from 'node:fs'
-import {fetchMpk} from 'tasra-sdk'
-import {createTasraWriteClient, provisionRule, resolveSlotKeeperUrls, type CreateSlotArgs} from 'tasra-sdk/chain'
+import {fetchMpk} from '@t3foundry/tasra-sdk'
+import {createTasraWriteClient, provisionRule, resolveSlotKeeperUrls, type CreateSlotArgs} from '@t3foundry/tasra-sdk/chain'
 import {privateKeyToAccount} from 'viem/accounts'
 import {loadNetwork, required} from './live-config.ts'
 import {createExampleSlot} from './slot-creation.ts'

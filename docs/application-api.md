@@ -3,7 +3,7 @@
 New to TASRA? Follow the [step-by-step learning path](README.md) first. This page
 is a detailed reference for returning developers.
 
-Start new applications with `TasraClient` from `tasra-sdk/app`. The SDK loads network
+Start new applications with `TasraClient` from `@t3foundry/tasra-sdk/app`. The SDK loads network
 configuration, creates ready-to-use slots, adapts wallets, and issues and presents
 credentials. Existing `createTasra` and lower-level APIs remain available. The application
 chooses its policy, consent behavior and private storage; the SDK handles network
@@ -13,19 +13,19 @@ Install the latest SDK from npm as your application dependency. TypeScript and
 `tsx` are development tools:
 
 ```sh
-npm install tasra-sdk@latest
+npm install @t3foundry/tasra-sdk@latest
 npm install --save-dev typescript tsx @types/node
 ```
 
 ## Connect using the deployment's manifest
 
 Download network configuration from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases). For testnet,
+[tasra-releases](https://github.com/t3foundry/tasra-releases). For testnet,
 `networks/testnet/current.json` names the manifest relative to `networks/testnet/`
 and supplies its SHA-256 checksum. Read both files from the same reviewed commit.
 
 ```ts
-import {TasraClient} from 'tasra-sdk/app'
+import {TasraClient} from '@t3foundry/tasra-sdk/app'
 
 // manifestUrl names the release manifest; sha256 comes from its trusted pointer.
 const tasra = await TasraClient.fromManifest(manifestUrl, {
@@ -51,8 +51,8 @@ fund its printed address through the network's faucet or a wallet you control.
 The SDK generates fresh keys and preserves the same ones on restart.
 
 ```ts
-import {TasraClient, createLocalWallet, createIdentity, credentialPolicy} from 'tasra-sdk/app'
-import {createFileStore} from 'tasra-sdk/app/node'
+import {TasraClient, createLocalWallet, createIdentity, credentialPolicy} from '@t3foundry/tasra-sdk/app'
+import {createFileStore} from '@t3foundry/tasra-sdk/app/node'
 
 const store = createFileStore('.tasra')
 const tasra = await TasraClient.fromManifest(manifestUrl, {sha256, coordinator: 'lowest-operator-id', store})
@@ -112,7 +112,7 @@ commitment calculation as credential DCQL rules.
 `credentials.authorize()` presents SD-JWT credentials through OID4VP; it does not
 obtain or present an OAuth token. For OAuth operations, use the existing
 `createOauthSession`, `submitOauthResponse` and `waitForSession` exports from
-`tasra-sdk/verifier-agent` with a token from your IdP and its bound DPoP signer.
+`@t3foundry/tasra-sdk/verifier-agent` with a token from your IdP and its bound DPoP signer.
 Connect that operation-bound flow to your application's `OperationAuthorizer`;
 selecting `authType` at creation does not implement IdP sign-in for your app.
 
@@ -223,7 +223,7 @@ pinned by the slot. Production enrollment and issuer governance belong to the ap
 ## Use your normal Ethereum library
 
 ```ts
-import {toViemAccount} from 'tasra-sdk/app'
+import {toViemAccount} from '@t3foundry/tasra-sdk/app'
 
 const walletAccount = await toViemAccount(account, {authorize})
 const signature = await walletAccount.signMessage({message: 'Hello Tasra'})
@@ -289,7 +289,7 @@ including distinct approvers and refusal of cross-request replay.
 ## Advanced creation and recovery
 
 ```ts
-import {prepareSlot, createPreparedSlot} from 'tasra-sdk/app'
+import {prepareSlot, createPreparedSlot} from '@t3foundry/tasra-sdk/app'
 
 const journal = prepareSlot(deployment, creatorAddress, {
   rule: JSON.stringify(rule), mode: 'tecdsa', authType: 'oid4vp', k: 2, n: 3,

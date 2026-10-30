@@ -1,11 +1,11 @@
 import {
   NETWORKS, parsePinnedNetworkManifest, addressBookFromManifest,
   createTasraChainClient,
-} from 'tasra-sdk/chain'
+} from '@t3foundry/tasra-sdk/chain'
 
 // Keep the pointer and manifest at the same reviewed tasra-releases commit.
 const revision = '3b34d86432c4577eef5d8a10e14eda272f87769b'
-const base = `https://raw.githubusercontent.com/t3-foundry/tasra-releases/${revision}/networks/testnet/`
+const base = `https://raw.githubusercontent.com/t3foundry/tasra-releases/${revision}/networks/testnet/`
 async function download(path: string): Promise<string> {
   const response = await fetch(`${base}${path}`, {signal: AbortSignal.timeout(15_000)})
   if (!response.ok) throw new Error(`Download ${path}: HTTP ${response.status}`)

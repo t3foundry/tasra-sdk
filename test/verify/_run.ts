@@ -9,7 +9,7 @@ import {dirname, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {loadFleetConfig, type FleetConfig} from '../fleet/_fleet.ts'
 
-const here = dirname(fileURLToPath(import.meta.url)) // .../tasra-sdk/test/verify
+const here = dirname(fileURLToPath(import.meta.url)) // .../@t3foundry/tasra-sdk/test/verify
 export const sdkRoot = resolve(here, '..', '..')
 // ⚠ THIS SDK IS NO LONGER A SIBLING OF THE NETWORK REPO. It moved to t3-foundry/ in 2026-09
 // while keykeeper-network and keykeeper-explorer stayed under managination/, so `../<name>`

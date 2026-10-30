@@ -59,7 +59,7 @@ const sign = async (worker: number) => {
   const message = randomBytes(32)
   const grant = await authorizeWallet(cfg,frost.slotId,frost.creatorKey,{action:'sign',message})
   const result = await committeeSign({nodeUrl:frost.committee[worker % frost.committee.length]!,
-    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,message})
+    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,message})
   assert(frostVerify(result.signature.r,result.signature.z,hexToBytes(frost.publicKey),message))
 }
 await sign(0)
@@ -82,7 +82,7 @@ const decrypt = async (worker: number) => {
   const grant = await authorizeWallet(cfg,bls.slotId,bls.creatorKey,
     {action:'decrypt',payloadDigest:decryptPayloadDigest(envelope.ciphertext.u,envelope.ciphertext.aeadCt)})
   const output = await committeeDecrypt({nodeUrl:bls.committee[worker % bls.committee.length]!,
-    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,
+    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,
     ciphertext:envelope.ciphertext,identity,decryptingSet:peers.map(p=>p.id),blsPeers:peers,ciphertextEpoch:0})
   assert.deepEqual(Buffer.from(output),plaintext)
 }

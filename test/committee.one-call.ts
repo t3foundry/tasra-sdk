@@ -544,9 +544,13 @@ try {
     'platformAudience: a different chain yields a different audience',
     platformAudience('https://agent.example', 43113) !== platformAudience('https://agent.example', 43114),
   )
-  eq('dpopHtu: origin + the response path', dpopHtu('https://agent.example/'), 'https://agent.example/v1/sessions/oauth-response')
-  // Session-independent by design: RFC 9449 defines htu without query or fragment.
-  ok('dpopHtu: carries no session id or query', !dpopHtu('https://agent.example').includes('?'))
+  eq(
+    'dpopHtu: origin + this session\'s response path',
+    dpopHtu('https://agent.example/', 'abc_DEF-123'),
+    'https://agent.example/v1/sessions/abc_DEF-123/oauth-response',
+  )
+  // Per session (the URL the proof is presented at), and still never a query or fragment.
+  ok('dpopHtu: carries no query', !dpopHtu('https://agent.example', 'abc').includes('?'))
 }
 
 if (failures.length > 0) {

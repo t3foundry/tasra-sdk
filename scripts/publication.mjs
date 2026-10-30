@@ -1,12 +1,12 @@
 import {readFileSync, existsSync, lstatSync, realpathSync} from 'node:fs'
 import {join, resolve, relative, sep} from 'node:path'
 
-export const runtimePatterns = ['dist/**/*.js', 'dist/**/*.d.ts', 'dist/**/*.json']
+export const runtimePatterns = ['dist/**/*.js', 'dist/**/*.d.ts', 'dist/**/*.json', 'dist/**/*.wasm']
 export function loadPublication(root) {
   const manifest = JSON.parse(readFileSync(join(root, 'publication.json'), 'utf8'))
   if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.files) || !manifest.files.length) throw new Error('Invalid publication manifest')
   for (const file of manifest.files) {
-    if (typeof file !== 'string' || !/^(?:README\.md|CHANGELOG\.md|LICENSE|SECURITY\.md|(?:docs|skills|examples)\/[a-zA-Z0-9_./-]+)$/.test(file) || file.split('/').some(part => part.startsWith('.')) || /^(?:docs\/(?:evidence|modernization|development-verification|verification|RELEASING)|examples\/.*(?:node_modules|app\.js))/.test(file)) throw new Error(`Forbidden publication path: ${file}`)
+    if (typeof file !== 'string' || !/^(?:README\.md|CHANGELOG\.md|LICENSE|NOTICE|SECURITY\.md|(?:docs|skills|examples)\/[a-zA-Z0-9_./-]+)$/.test(file) || file.split('/').some(part => part.startsWith('.')) || /^(?:docs\/(?:evidence|modernization|development-verification|verification|RELEASING)|examples\/.*(?:node_modules|app\.js))/.test(file)) throw new Error(`Forbidden publication path: ${file}`)
     if (!existsSync(join(root, file)) || !lstatSync(join(root, file)).isFile() || !realpathSync(join(root, file)).startsWith(realpathSync(root) + sep)) throw new Error(`Missing, linked or non-file publication input: ${file}`)
     // Also reject parent directory symlinks, even if their target remains inside root.
     if (relative(realpathSync(root), realpathSync(join(root, file))) !== file) throw new Error(`Linked publication input: ${file}`)

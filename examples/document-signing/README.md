@@ -9,15 +9,15 @@ Copy this directory into your application, rename `gitignore.template` to `.giti
 then run:
 
 ```sh
-npm install tasra-sdk@latest
-cp node_modules/tasra-sdk/examples/fund-slot.ts .
+npm install @t3foundry/tasra-sdk@latest
+cp node_modules/@t3foundry/tasra-sdk/examples/fund-slot.ts .
 npm run build
 npx tsx network.ts
 npm run setup
 ```
 
 `network.ts` downloads the current testnet manifest from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases/tree/main/networks),
+[tasra-releases](https://github.com/t3foundry/tasra-releases/tree/main/networks),
 verifies its SHA-256, and saves `network.json` and `network-pin.json`. Keep those files
 together. The example explicitly selects the `lowest-operator-id` coordinator policy;
 confirm that the chosen services use this policy before creating slots.

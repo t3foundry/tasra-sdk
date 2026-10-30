@@ -23,10 +23,10 @@ const tarball=readdirSync(dir).find(p=>p.endsWith('.tgz'))
 writeFileSync(dir+'/package.json',JSON.stringify({name:'tutorial-acceptance',private:true,type:'module'}))
 run('npm',['install','--ignore-scripts','--no-audit','--no-fund',dir+'/'+tarball])
 run('npm',['install','--save-dev','--ignore-scripts','--no-audit','--no-fund','tsx@4.23.13'])
-for (const file of ['tutorial-support.ts','tutorial-negative.ts','network.ts','fund-slot.ts']) cpSync(dir+'/node_modules/tasra-sdk/examples/'+file,dir+'/'+file)
+for (const file of ['tutorial-support.ts','tutorial-negative.ts','network.ts','fund-slot.ts']) cpSync(dir+'/node_modules/@t3foundry/tasra-sdk/examples/'+file,dir+'/'+file)
 run(process.execPath,['--import','tsx','network.ts'])
-const packedPackage=JSON.parse(readFileSync(dir+'/node_modules/tasra-sdk/package.json','utf8'))
-if(packedPackage.name!=='tasra-sdk'||typeof packedPackage.version!=='string')throw new Error('Installed package identity is invalid')
+const packedPackage=JSON.parse(readFileSync(dir+'/node_modules/@t3foundry/tasra-sdk/package.json','utf8'))
+if(packedPackage.name!=='@t3foundry/tasra-sdk'||typeof packedPackage.version!=='string')throw new Error('Installed package identity is invalid')
 const network=JSON.parse(readFileSync(dir+'/network.json','utf8'))
 const pin=JSON.parse(readFileSync(dir+'/network-pin.json','utf8'))
 if(typeof network.deploymentId!=='string'||!Number.isSafeInteger(network.revision)||typeof pin.sha256!=='string')throw new Error('Downloaded network provenance is invalid')
@@ -34,7 +34,7 @@ const packageSha256=createHash('sha256').update(readFileSync(dir+'/'+tarball)).d
 console.log('Tutorial workspace: '+dir)
 console.log('Use this directory in a second terminal to run fund-slot.ts when a tutorial waits for slot credit.')
 for(const name of selected){
- cpSync(dir+'/node_modules/tasra-sdk/examples/'+name+'.ts',dir+'/'+name+'.ts')
+ cpSync(dir+'/node_modules/@t3foundry/tasra-sdk/examples/'+name+'.ts',dir+'/'+name+'.ts')
  // Creator AVAX and slot TSRA funding each have their own 15-minute wait.
  run(process.execPath,['--import','tsx',name+'.ts'],dir,45*60_000)
  const output=root+'/.tasra/tutorial-evidence/'+name

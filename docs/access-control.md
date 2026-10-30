@@ -13,7 +13,7 @@ Creating an identity alone would not grant access.
 ## Prepare Alice
 
 ```sh
-cp node_modules/tasra-sdk/examples/learning-authorize.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/learning-authorize.ts .
 npx tsc --noEmit
 npx tsx learning-authorize.ts
 ```

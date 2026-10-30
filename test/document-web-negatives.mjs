@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto'
 import {createRequire} from 'node:module'
 import {pathToFileURL} from 'node:url'
 const requireApp=createRequire(new URL('../examples/document-signing/package.json',import.meta.url))
-const {fetchRequestObject,defaultKeyResolver,buildResponse,submitResponse,ed25519HolderKey,planPresentation,signCompactJws,holderSigner}=await import(pathToFileURL(requireApp.resolve('tasra-sdk/oid4vp')).href)
+const {fetchRequestObject,defaultKeyResolver,buildResponse,submitResponse,ed25519HolderKey,planPresentation,signCompactJws,holderSigner}=await import(pathToFileURL(requireApp.resolve('@t3foundry/tasra-sdk/oid4vp')).href)
 const root=new URL('../examples/document-signing/',import.meta.url).pathname,out=new URL('../.verification/document-signing-web/',import.meta.url).pathname
 const origin='http://127.0.0.1:4177',service=JSON.parse(readFileSync(root+'.tasra/service.json')),saved=JSON.parse(readFileSync(out+'checkpoint.json'))
 const checks=[]

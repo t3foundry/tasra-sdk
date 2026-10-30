@@ -2,7 +2,7 @@
 // Revocation is performed separately through the deployment's documented issuer flow.
 import {execFileSync} from 'node:child_process'
 import {readFileSync, writeFileSync} from 'node:fs'
-import {fromBytes, verifyFrostSignature, credentialsCommitment, decodeJwtClaims} from 'tasra-sdk'
+import {fromBytes, verifyFrostSignature, credentialsCommitment, decodeJwtClaims} from '@t3foundry/tasra-sdk'
 import {committeeClient, decryptPeers, loadHolder, loadNetwork, required, slotId} from '../../examples/live-config.ts'
 import {expectDenial} from './acceptance-checks.ts'
 

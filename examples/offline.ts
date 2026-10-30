@@ -1,4 +1,4 @@
-import {encryptEnvelope, decryptWithMasterKey, hexToBytes} from 'tasra-sdk'
+import {encryptEnvelope, decryptWithMasterKey, hexToBytes} from '@t3foundry/tasra-sdk'
 
 /** Public, fixed DEMO keys. Never encrypt a real secret with these. */
 export function offlineRoundTrip(): string {

@@ -14,7 +14,7 @@ are familiar. Install the latest SDK from npm.
 Install the latest SDK from npm:
 
 ```sh
-npm install tasra-sdk@latest
+npm install @t3foundry/tasra-sdk@latest
 ```
 
 Node.js **22.12+**, ESM, and modern browsers with WebCrypto.
@@ -22,7 +22,7 @@ Wallet and credential adapters are included; no separate application dependency 
 [Installation and compatibility](docs/installation.md).
 
 ```ts
-import {TasraClient} from 'tasra-sdk/app'
+import {TasraClient} from '@t3foundry/tasra-sdk/app'
 
 // Use the manifest URL and trusted checksum from the selected tasra-releases pointer.
 const tasra = await TasraClient.fromManifest(manifestUrl, {
@@ -48,7 +48,7 @@ shared accounts, encryption and document signing.
 | Collect Alice's and Bob's document signatures | [Document-signing workflow](docs/document-signing.md) |
 | Require multiple approvers for one signature | [Native approval recipes](docs/native-approvals.md) |
 | Get an Ethereum address and sign transactions | [Shared account app](docs/shared-account.md) |
-| Add a credential wallet or OAuth login | [Authentication APIs](docs/api.md#tasra-sdkoid4vp--credential-wallets-against-the-verifier-agent) |
+| Add a credential wallet or OAuth login | [Authentication APIs](docs/api.md#t3foundrytasra-sdkoid4vp--credential-wallets-against-the-verifier-agent) |
 | Find an API or solve an error | [SDK reference](docs/reference/README.md) · [Errors](docs/errors.md) |
 
 <a id="which-client-do-i-want"></a>
@@ -60,24 +60,45 @@ FROST slots for FROST signatures, and tECDSA slots for Ethereum accounts.
 [All capabilities](docs/capabilities.md) · [Documentation index](docs/README.md).
 
 Deployment addresses and service URLs come from
-[**tasra-releases**](https://github.com/t3-foundry/tasra-releases).
+[**tasra-releases**](https://github.com/t3foundry/tasra-releases).
 The [Fuji configuration guide](docs/fuji.md) loads `networks/testnet/current.json`
 and its manifest from one pinned commit, then verifies the checksum. Confirm service support for the intended signing, authorization or decryption
 operation before executing it. A release record does not establish that support.
+
+## Authorize with your organization's identity provider
+
+A slot can trust access tokens from your own OAuth identity provider. Write the access
+rule as a short Rego policy over the token's claims; the SDK packs it into the slot's
+rule and checks it with the same policy engine the network runs:
+
+```ts
+import {packEnvelope, evaluateEnvelope} from '@t3foundry/tasra-sdk'
+
+const rule = await packEnvelope(
+  'package tasra.slot\n\ndefault allow := false\n\nallow if "treasury-signer" in input.tokens.corp.claims.roles\n',
+  {corp: {format: 'oauth+access-token+dpop', iss: [issuer], aud: [platformAudience], max_age_secs: 300}},
+)
+// Create the slot with {rule, authType: 'oauth'} (or pass oauthPolicy to createSlot),
+// then preview a decision locally before presenting a token:
+console.log(await evaluateEnvelope(rule, {holder, credentials: [{format: 'oauth+access-token+dpop', issuer, claims}]}))
+```
+
+The engine (about 1 MB of WebAssembly) loads only when one of these functions is
+called. See [OAuth authorization](docs/flows.md#integrate-oauth-authorization).
 
 ## Try local encryption without a network
 
 <details>
 <summary>Optional: a complete offline TypeScript example</summary>
 
-Install `tasra-sdk` and `tsx`, save this as `demo.ts`, and run `npx tsx demo.ts`.
+Install `@t3foundry/tasra-sdk` and `tsx`, save this as `demo.ts`, and run `npx tsx demo.ts`.
 It prints `Hello Tasra`. These are public demo keys; never use them for real data.
 This checks local encryption only. For live authorization, use the
 [encrypted notes app](docs/encrypted-notes.md).
 
 <!-- offline-example -->
 ```ts
-import {encryptEnvelope, decryptWithMasterKey, hexToBytes} from 'tasra-sdk'
+import {encryptEnvelope, decryptWithMasterKey, hexToBytes} from '@t3foundry/tasra-sdk'
 
 /** Public, fixed DEMO keys. Never encrypt a real secret with these. */
 function offlineRoundTrip(): string {
@@ -101,9 +122,11 @@ console.log(offlineRoundTrip()) // Hello Tasra
 
 ## Use with a coding agent
 
-The package includes [task-based skills](skills/README.md). Follow their installation
-instructions to register them with your agent, and refresh them after SDK upgrades.
-The same guides and examples are available to developers without an agent.
+Agent skills ship separately in the
+[`@t3foundry/tasra-skills`](https://www.npmjs.com/package/@t3foundry/tasra-skills)
+package. Follow its installation instructions to register them with your agent,
+and refresh them after SDK upgrades. The same guides and examples are available
+to developers without an agent.
 
 ## Project
 
@@ -111,5 +134,5 @@ See [migration guidance](docs/consumer-migrations.md) and
 [deployment compatibility](docs/compatibility.md) before upgrading.
 The package has [not had an independent cryptographic audit](SECURITY.md#cryptographic-posture).
 
-[Contributing](https://github.com/t3-foundry/tasra-sdk/blob/develop/CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·
+[Contributing](https://github.com/t3foundry/tasra-sdk/blob/develop/CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·
 [Security](SECURITY.md) · [Apache-2.0 license](LICENSE)

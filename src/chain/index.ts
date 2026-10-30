@@ -1,7 +1,7 @@
-// tasra-sdk/chain - on-chain + network READ capability for building
+// @t3foundry/tasra-sdk/chain - on-chain + network READ capability for building
 // observability tooling (e.g. an explorer) on top of a Tasra Network.
 //
-// This is a separate subpath export (`tasra-sdk/chain`) so the crypto core
+// This is a separate subpath export (`@t3foundry/tasra-sdk/chain`) so the crypto core
 // entry stays lean and viem is only pulled in when chain features are imported.
 
 // Contract ABIs (generated from the Foundry artifacts) + nametoabi map.
@@ -71,9 +71,15 @@ export {createTasraWriteClient, generateClientKey, ruleCommitment, verifyRuleCom
 export {provisionRule, provisionRuleTypedData, PROVISION_RULE_ACTION} from './provisionRule.js'
 export type {ProvisionRuleArgs, ProvisionRuleResult, KeeperProvisionResult} from './provisionRule.js'
 export type {RuleInput} from './ruleInput.js'
+// Rule amendment: the status read and the end-to-end driver (the four writes live on the write client).
+export {readRuleAmendment, amendSlotRule, RuleAmendmentError} from './ruleAmendment.js'
+export type {RuleAmendmentStatus, RuleAmendmentErrorCode, AmendSlotRuleArgs, AmendSlotRuleResult, AmendmentPhase} from './ruleAmendment.js'
 export type {
   CreateSlotArgs,
+  CreateSlotFromPolicyArgs,
   CommitRevealOptions,
+  ProposeRuleArgs,
+  ProposeRuleResult,
   RelayConfig,
   RelayReceipt,
   TasraWriteClient,

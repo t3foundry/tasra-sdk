@@ -27,6 +27,7 @@ export default tseslint.config(
       'dist/**', // build output
       'node_modules/**',
       'src/chain/abis/**', // AUTO-GENERATED
+      'src/auth/rego/wasm/**', // VENDORED keykeeper-rego wasm-bindgen output, pinned by scripts/check-rego-pins.mjs
       'coverage/**', // vitest coverage report (generated)
     ],
   },
@@ -102,7 +103,7 @@ export default tseslint.config(
     files: ['scripts/**/*.mjs'],
     extends: [js.configs.recommended],
     languageOptions: {globals: {URL: 'readonly', process: 'readonly', console: 'readonly', Buffer: 'readonly', AbortController: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly'}},
-    rules: {'no-unused-vars': ['error', {argsIgnorePattern: '^_'}]},
+    rules: {'no-unused-vars': ['error', {argsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_'}]},
   },
 
   // ---------------------------------------------------------------------

@@ -37,7 +37,7 @@ through [funding](funding.md).
 ## Learn in this order
 
 1. [Connect](getting-started.md) using a manifest downloaded from
-   [tasra-releases](https://github.com/t3-foundry/tasra-releases).
+   [tasra-releases](https://github.com/t3foundry/tasra-releases).
 2. [Create one slot](create-slot.md).
 3. [Read its public state](read-slot.md).
 4. [Manage its lifetime](manage-slot.md). Learn renewal first; keep the slot for

@@ -29,10 +29,11 @@ function load(savedNetwork: unknown) {
   // resolves the SDK as it does after installation, without a network connection.
   cpSync(join(root, 'examples/document-signing'), directory, {recursive: true})
   mkdirSync(join(directory, 'node_modules'), {recursive: true})
-  symlinkSync(root, join(directory, 'node_modules/tasra-sdk'), 'dir')
+  mkdirSync(join(directory, 'node_modules/@t3foundry'), {recursive: true})
+  symlinkSync(root, join(directory, 'node_modules/@t3foundry/tasra-sdk'), 'dir')
   writeFileSync(join(directory, 'network.json'), body)
   writeFileSync(join(directory, 'network-pin.json'), JSON.stringify({sha256,
-    manifestUrl: 'https://raw.githubusercontent.com/t3-foundry/tasra-releases/main/networks/testnet/deployments/document-test.json'}))
+    manifestUrl: 'https://raw.githubusercontent.com/t3foundry/tasra-releases/main/networks/testnet/deployments/document-test.json'}))
   const state = join(directory, '.tasra')
   mkdirSync(state)
   writeFileSync(join(state, 'service.json'), JSON.stringify({network: savedNetwork,

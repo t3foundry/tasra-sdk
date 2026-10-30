@@ -4,4 +4,6 @@ node_modules/
 public/app.js
 package-lock.json
 *.log
+network.json
+network-pin.json
 public/pdf-assets/

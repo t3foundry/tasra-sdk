@@ -8,8 +8,8 @@ import {acquireLock, fingerprint, execute} from './verify-lib.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const args = process.argv.slice(2)
-if (args.length > 1 || (args.length && !['--quick', '--sdk', '--consumers'].includes(args[0]))) {
-  console.error('Usage: npm run verify [-- --quick | -- --sdk | -- --consumers]')
+if (args.length > 1 || (args.length && !['--quick', '--sdk', '--consumers', '--publish'].includes(args[0]))) {
+  console.error('Usage: npm run verify [-- --quick | -- --sdk | -- --consumers | -- --publish]')
   process.exit(2)
 }
 const profile = args[0]?.slice(2) ?? 'full'
@@ -48,7 +48,15 @@ try {
   const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
   if (profile === 'full' && Number(process.versions.node.split('.')[0]) < 24) throw new Error('Full verification requires Node 24+ for the docs/app toolchains; use --sdk to test the SDK on Node 22.12.')
   const selected = profile === 'consumers' ? ['verify:consumers'] :
-    ['verify:infrastructure', 'verify:repository', 'lint', 'typecheck', ...(profile === 'quick' ? [] : ['build', 'verify:docs', 'test:coverage', 'verify:pkg', 'verify:security', ...(profile === 'full' ? ['verify:document-app', 'verify:site'] : [])])]
+    (() => {
+      const stages = ['verify:infrastructure', 'verify:repository', 'lint', 'typecheck']
+      if (profile === 'quick') return stages
+      stages.push('build', 'verify:docs', 'test:coverage')
+      if (profile !== 'publish') stages.push('verify:pkg') // npm pack fails inside npm publish lifecycle
+      stages.push('verify:security')
+      if (profile === 'full') stages.push('verify:document-app', 'verify:site')
+      return stages
+    })()
   for (const id of selected) if (!packageJson.scripts[id]) throw new Error(`Missing mandatory npm script: ${id}`)
   const outcome = await execute(selected.map(id => script(id, id === 'verify:consumers' ? 1_200_000 : 300_000)),
     {cwd: root, directory: runDirectory, signal: controller.signal, output: process.stdout})

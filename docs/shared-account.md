@@ -1,7 +1,7 @@
 # Build an Ethereum account Alice and Bob can use
 
 Create one shared Ethereum account, let Alice and Bob each send a transaction,
-and verify that Mallory is refused. The app uses **tasra-sdk as its only runtime
+and verify that Mallory is refused. The app uses **@t3foundry/tasra-sdk as its only runtime
 dependency**. It creates its own wallets, credentials and slot; no learner account,
 private key, slot ID or CLI setup is copied from another project.
 
@@ -11,7 +11,7 @@ before running the app.
 ## 1. Prepare the network connection
 
 Install Node.js **22.12+** (24 recommended). The example downloads the testnet
-pointer and manifest from [tasra-releases](https://github.com/t3-foundry/tasra-releases)
+pointer and manifest from [tasra-releases](https://github.com/t3foundry/tasra-releases)
 and checks the manifest checksum. It resolves the RPC, contracts and verifier from
 that configuration, with an explicit `lowest-operator-id` coordinator convention.
 
@@ -34,13 +34,13 @@ mkdir my-shared-account
 cd my-shared-account
 npm init -y
 npm pkg set type=module
-npm install tasra-sdk@latest
+npm install @t3foundry/tasra-sdk@latest
 npm install --save-dev typescript tsx @types/node
-cp node_modules/tasra-sdk/examples/shared-account.ts app.ts
-cp node_modules/tasra-sdk/examples/tutorial-support.ts tutorial-support.ts
-cp node_modules/tasra-sdk/examples/tutorial-negative.ts tutorial-negative.ts
-cp node_modules/tasra-sdk/examples/network.ts network.ts
-cp node_modules/tasra-sdk/examples/fund-slot.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/shared-account.ts app.ts
+cp node_modules/@t3foundry/tasra-sdk/examples/tutorial-support.ts tutorial-support.ts
+cp node_modules/@t3foundry/tasra-sdk/examples/tutorial-negative.ts tutorial-negative.ts
+cp node_modules/@t3foundry/tasra-sdk/examples/network.ts network.ts
+cp node_modules/@t3foundry/tasra-sdk/examples/fund-slot.ts .
 ```
 
 These copy commands use a macOS/Linux shell or WSL. You can copy
@@ -149,7 +149,7 @@ files, never the entire directory.
 
 | Symptom | Next action |
 |---|---|
-| Cannot import `tasra-sdk/app` | Run `npm install tasra-sdk@latest` inside your app directory. |
+| Cannot import `@t3foundry/tasra-sdk/app` | Run `npm install @t3foundry/tasra-sdk@latest` inside your app directory. |
 | Missing configuration or helper file | Copy every file listed in step 2 and run from the app folder. |
 | Connection refused | Check RPC access and the downloaded release manifest. |
 | Certificate verification failure | Check the service certificate and system trust; keep TLS verification enabled. |

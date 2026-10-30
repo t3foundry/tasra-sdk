@@ -1,17 +1,17 @@
 // Node example utilities, not part of the SDK's public API.
 import {readFileSync} from 'node:fs'
-import {ed25519DidKey, hexToBytes, type HolderSigner} from 'tasra-sdk'
+import {ed25519DidKey, hexToBytes, type HolderSigner} from '@t3foundry/tasra-sdk'
 import {
   addressBookFromManifest, createTasraChainClient, parsePinnedNetworkManifest,
   observeNetworkManifest, resolveSlotKeeperUrls, nodeApi,
   createCommitteeSlotClient, type TasraChainClient,
-} from 'tasra-sdk/chain'
-import {holderProofPerVerifier} from 'tasra-sdk/committee'
+} from '@t3foundry/tasra-sdk/chain'
+import {holderProofPerVerifier} from '@t3foundry/tasra-sdk/committee'
 import {ed25519} from '@noble/curves/ed25519'
 
 export function required(name: string, env: NodeJS.ProcessEnv = process.env): string {
   const value = env[name]?.trim()
-  if (!value) throw new Error(`Missing ${name}. See docs/prerequisites.md and https://github.com/t3-foundry/tasra-releases for Fuji deployment records.`)
+  if (!value) throw new Error(`Missing ${name}. See docs/prerequisites.md and https://github.com/t3foundry/tasra-releases for Fuji deployment records.`)
   return value
 }
 

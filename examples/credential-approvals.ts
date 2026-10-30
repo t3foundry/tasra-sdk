@@ -1,5 +1,5 @@
 /** Two holder-bound credentials approve the same native FROST request. */
-import {setApprovalPolicy, approveWithCredential, type ReadySlotJournal} from 'tasra-sdk/app'
+import {setApprovalPolicy, approveWithCredential, type ReadySlotJournal} from '@t3foundry/tasra-sdk/app'
 import {createTutorial, stopped} from './tutorial-support.js'
 const hex = (bytes: Uint8Array) => `0x${Buffer.from(bytes).toString('hex')}`
 

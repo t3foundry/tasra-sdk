@@ -6,8 +6,8 @@ and ready slots. No precreated learner account or slot is required.
 
 ## Network configuration
 
-Use Node.js 24 and install `tasra-sdk@latest`. Download the network pointer and
-manifest from [tasra-releases](https://github.com/t3-foundry/tasra-releases).
+Use Node.js 24 and install `@t3foundry/tasra-sdk@latest`. Download the network pointer and
+manifest from [tasra-releases](https://github.com/t3foundry/tasra-releases).
 For Avalanche Fuji, use `networks/testnet/current.json`; resolve its `manifest`
 path relative to `networks/testnet/`, and fetch both files from the same reviewed
 commit. Verify the original manifest bytes against the pointer's trusted SHA-256.
@@ -37,9 +37,9 @@ creator gas. A healthy registry alone does not prove those requirements are met.
 ## Offline first result
 
 ```sh
-npm install tasra-sdk@latest
+npm install @t3foundry/tasra-sdk@latest
 npm install --save-dev tsx
-npx tsx node_modules/tasra-sdk/examples/minimal.ts
+npx tsx node_modules/@t3foundry/tasra-sdk/examples/minimal.ts
 ```
 
 Expected output: `Hello Tasra`. Public demo keys demonstrate local crypto only.
@@ -71,14 +71,14 @@ These Node examples use a file-backed holder; applications can instead supply th
 SDK's `HolderSigner` callback backed by a wallet or key store.
 
 ```sh
-npx tsx node_modules/tasra-sdk/examples/getting-started.ts
-npx tsx node_modules/tasra-sdk/examples/committee-slot.ts
+npx tsx node_modules/@t3foundry/tasra-sdk/examples/getting-started.ts
+npx tsx node_modules/@t3foundry/tasra-sdk/examples/committee-slot.ts
 ```
 
 These direct committee examples require a slot with a verifier policy and a deployment
 that accepts compound tokens without request binding. If keepers enforce
 `api.require_request_binding`, use the verifier-agent authorization flow described in
-[the wallet skill](../skills/tasra-oid4vp-wallet-and-verifier-agent/SKILL.md).
+`tasra-oid4vp-wallet-and-verifier-agent`.
 Do not weaken the deployment's policy to run an example.
 
 The first command verifies a threshold encrypt/decrypt round trip. The second verifies
@@ -107,7 +107,7 @@ In addition to manifest/RPC configuration, provide:
 | `KK_CUSTODY` | `threshold`, or explicitly `exportable` for a personal BLS vault |
 
 ```sh
-npx tsx node_modules/tasra-sdk/examples/provision-slot.ts
+npx tsx node_modules/@t3foundry/tasra-sdk/examples/provision-slot.ts
 ```
 
 Preserve the recovery record even if provisioning fails. Follow deployment instructions

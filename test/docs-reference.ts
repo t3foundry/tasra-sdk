@@ -34,7 +34,27 @@ function parameterType(symbol: ts.Symbol, at: ts.Declaration) {
 // same indentation as source annotations, without altering their public contract.
 function formatDeclaration(value: string) {
   const source = ts.createSourceFile('reference.ts', value, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  return printer.printFile(source).trim()
+  return printer.printFile(source).trim().split('\n').map(wrapUnionAlias).join('\n')
+}
+// The printer puts a union alias on one line however long it is; the site refuses code lines
+// over 240 characters, so a long alias is laid out one member per line, as its source is.
+function wrapUnionAlias(line: string) {
+  const alias = /^(export type \w+(?:<[^=]*>)? =) (.*);$/.exec(line)
+  if (!alias || line.length <= 160) return line
+  const members: string[] = []
+  let depth = 0, quote = '', start = 0
+  const body = alias[2]!
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i]!
+    if (quote) { if (c === quote && body[i - 1] !== '\\') quote = ''; continue }
+    if (c === "'" || c === '"' || c === '`') quote = c
+    else if ('([{'.includes(c) || (c === '<' && body[i - 1] !== '=')) depth++
+    else if (')]}'.includes(c) || (c === '>' && body[i - 1] !== '=')) depth--
+    else if (c === '|' && depth === 0) { members.push(body.slice(start, i).trim()); start = i + 1 }
+  }
+  members.push(body.slice(start).trim())
+  if (members.length < 2 || members.some(member => !member)) return line
+  return `${alias[1]}\n${members.map(member => `  | ${member}`).join('\n')};`
 }
 function formatType(value: string) {
   const source = ts.createSourceFile('reference.ts', `type ReferenceType = ${value}`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
@@ -107,7 +127,7 @@ for (const [name, file] of Object.entries(entries)) {
     anchors.set(title, base + (occurrence ? `-${occurrence}` : ''))
   }
   const documentation = (value: string) => value.replace(/\{@link(?:code|plain)?\s+([^\s|}]+)(?:[\s|]+([^}]*?))?\s*\}/g, (_match, target: string, label: string | undefined) => exportNames.has(target) ? `[${label?.trim() || target}](#${anchors.get(target)})` : inlineCode(label?.trim() || target))
-  const entry = name === 'main' ? 'tasra-sdk' : `tasra-sdk/${name === 'chain-node' ? 'chain/node' : name === 'app-node' ? 'app/node' : name}`
+  const entry = name === 'main' ? '@t3foundry/tasra-sdk' : `@t3foundry/tasra-sdk/${name === 'chain-node' ? 'chain/node' : name === 'app-node' ? 'app/node' : name}`
   let body = `# ${entry}\n\nGenerated from public TypeScript exports.\n\n[SDK reference](README.md) · [Task guides](../README.md) · [Errors](../errors.md)\n\n`
   const sections: {title: string; group: string; start: number}[] = []
   const values: string[] = []
@@ -118,7 +138,7 @@ for (const [name, file] of Object.entries(entries)) {
     if (!declaration) continue
     const location = relative(root, declaration.getSourceFile().fileName).replaceAll('\\', '/')
     const line = declaration.getSourceFile().getLineAndCharacterOfPosition(declaration.getStart()).line + 1
-    const sourceLink = `[Source](https://github.com/t3-foundry/tasra-sdk/blob/develop/${location}#L${line})`
+    const sourceLink = `[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/${location}#L${line})`
     const signatures = checker.getTypeOfSymbolAtLocation(symbol, declaration).getCallSignatures()
     const typeDeclaration = ts.isInterfaceDeclaration(declaration) || ts.isTypeAliasDeclaration(declaration)
     if (!signatures.length && !typeDeclaration && !ts.isClassDeclaration(declaration)) {
@@ -261,8 +281,8 @@ const modules: Record<string, {label: string; purpose: string}> = {
   'verifier-agent': {label: 'Verifier integration', purpose: 'Connect wallet and credential flows to a verifier agent.'},
   'chain-node': {label: 'Chain tools (Node.js)', purpose: 'Load chain configuration from Node.js files.'},
 }
-emit('README.md', `# SDK reference\n\nLook up the TypeScript classes, functions, options and return types you use in your code.\nStart with the [learning path](../README.md) if you are building your first TASRA app.\n\n## Choose a module\n\nMost applications start with **tasra-sdk/app**. Open a module, then choose Classes,\nFunctions, Types or Constants from its page navigation. Each group has its own lookup list.\n\n| Module | Import | What you will find |\n|---|---|---|\n${Object.entries(entries).map(([name]) => {
-  const entry = name === 'main' ? 'tasra-sdk' : `tasra-sdk/${name === 'chain-node' ? 'chain/node' : name === 'app-node' ? 'app/node' : name}`
+emit('README.md', `# SDK reference\n\nLook up the TypeScript classes, functions, options and return types you use in your code.\nStart with the [learning path](../README.md) if you are building your first TASRA app.\n\n## Choose a module\n\nMost applications start with **@t3foundry/tasra-sdk/app**. Open a module, then choose Classes,\nFunctions, Types or Constants from its page navigation. Each group has its own lookup list.\n\n| Module | Import | What you will find |\n|---|---|---|\n${Object.entries(entries).map(([name]) => {
+  const entry = name === 'main' ? '@t3foundry/tasra-sdk' : `@t3foundry/tasra-sdk/${name === 'chain-node' ? 'chain/node' : name === 'app-node' ? 'app/node' : name}`
   return `| [${modules[name]!.label}](${name}.md) | \`${entry}\` | ${modules[name]!.purpose} |`
 }).join('\n')}\n\n## Read a declaration\n\nFunctions show their import, parameters and return value. Classes show constructors,\nproperties and methods. Types describe the data you pass in or receive. Constants\nand contract ABIs link to their definitions. Follow **Source** for the implementation.\n\nThe declarations and descriptions are generated from the SDK source. They describe\nprogramming interfaces; use the [application guides](../README.md) for complete\nrunnable examples and [Errors](../errors.md) for recovery guidance.\n`)
 

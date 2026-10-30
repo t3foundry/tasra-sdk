@@ -86,6 +86,7 @@ async function decryptOn(node: string) {
     body: JSON.stringify({
       committee_token:grant.compound_token,
       verifier_proofs:grant.verifier_proofs,
+      evidence_ct:grant.evidence_ct,
       ciphertext: {u: b64(env.ciphertext.u), nonce: b64(env.ciphertext.nonce), aead_ct: b64(env.ciphertext.aeadCt)},
       identity,
       decrypting_set: peers.map(p => p.id),

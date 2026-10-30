@@ -13,7 +13,7 @@ committee; that threshold is separate from the two-person application workflow.
 Install Node.js **24**. The commands below install the latest SDK from npm.
 
 The application downloads the testnet manifest from
-[tasra-releases](https://github.com/t3-foundry/tasra-releases) and verifies its
+[tasra-releases](https://github.com/t3foundry/tasra-releases) and verifies its
 checksum. The selected deployment must support FROST slot creation, creator-signed
 provisioning, OID4VP, SD-JWT credentials bound to `did:jwk` holders and required
 keeper receipts. It needs sufficient members for 2-of-3 keeper and verifier
@@ -26,18 +26,18 @@ Create an app:
 mkdir my-document-signing
 cd my-document-signing
 npm init -y
-npm install tasra-sdk@latest
+npm install @t3foundry/tasra-sdk@latest
 ```
 
 Using your IDE file explorer, copy the **contents** of
-`node_modules/tasra-sdk/examples/document-signing/` into your app directory,
+`node_modules/@t3foundry/tasra-sdk/examples/document-signing/` into your app directory,
 Accept replacement of the initial `package.json`. Rename `gitignore.template`
 to `.gitignore` in your IDE; npm omits dot-ignore files from package archives.
 Then install the latest SDK and the copied application's dependencies:
 
 ```sh
-npm install tasra-sdk@latest
-cp node_modules/tasra-sdk/examples/fund-slot.ts .
+npm install @t3foundry/tasra-sdk@latest
+cp node_modules/@t3foundry/tasra-sdk/examples/fund-slot.ts .
 npm run build
 ```
 
@@ -206,20 +206,20 @@ mkdir my-document-signatures
 cd my-document-signatures
 npm init -y
 npm pkg set type=module
-npm install tasra-sdk@latest
+npm install @t3foundry/tasra-sdk@latest
 npm install --save-dev tsx typescript @types/node
-cp node_modules/tasra-sdk/examples/document-signing.ts app.ts
-cp node_modules/tasra-sdk/examples/tutorial-support.ts .
-cp node_modules/tasra-sdk/examples/tutorial-negative.ts .
-cp node_modules/tasra-sdk/examples/network.ts .
-cp node_modules/tasra-sdk/examples/fund-slot.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/document-signing.ts app.ts
+cp node_modules/@t3foundry/tasra-sdk/examples/tutorial-support.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/tutorial-negative.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/network.ts .
+cp node_modules/@t3foundry/tasra-sdk/examples/fund-slot.ts .
 printf '.tasra/\nnode_modules/\n' > .gitignore
 npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --resolveJsonModule app.ts
 npx tsx network.ts
 npx tsx app.ts
 ```
 
-The only application dependency is `tasra-sdk`. The shared tutorial helper loads
+The only application dependency is `@t3foundry/tasra-sdk`. The shared tutorial helper loads
 the downloaded release manifest with `TasraClient` and creates fresh identities,
 credentials and a creator wallet. It prints the creator address and waits up to
 15 minutes for funding through the network faucet or your own wallet. The application itself creates both slots,
