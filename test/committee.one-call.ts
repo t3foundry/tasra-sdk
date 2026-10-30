@@ -27,7 +27,6 @@ import {ed25519} from '@noble/curves/ed25519'
 import {
   committeeDecryptRequest,
   committeeSignRequest,
-  ed25519ClientSigner,
   holderProofPerVerifier,
   ibeDecryptRequest,
   ibeExtractRequest,
@@ -251,7 +250,6 @@ try {
   // ─── committeeSignRequest: the token's side-channel results must reach the keeper ──
   {
     sent.length = 0
-    const clientSecret = fill(32, 0x77)
     const res = await committeeSignRequest({
       ...tokenOpts,
       nodeUrl: nodeUrls[0]!,
@@ -259,7 +257,6 @@ try {
       signingSet: [1, 2],
       targetKeykeeper: `0x${'ee'.repeat(32)}`,
       userSignature: fill(64, 0x9),
-      clientSigner: ed25519ClientSigner(clientSecret),
     })
     ok('sign: returns the keeper result', res.keySlotId === slotId && res.epoch === epoch)
     ok('sign: signature halves are decoded', res.signature.r.length === 32 && res.signature.z.length === 32)
@@ -272,17 +269,16 @@ try {
     // would refuse the 0x-prefixed form.
     eq('sign: target_keykeeper is forwarded without 0x', body?.target_keykeeper, 'ee'.repeat(32))
     eq('sign: user_signature is forwarded as bare hex', body?.user_signature, bareHex(fill(64, 0x9)))
-    // The three fields resolved during the token step. Each is a separate keeper check.
-    eq('sign: the client pubkey reaches the keeper', body?.client_pubkey, bareHex(ed25519.getPublicKey(clientSecret)))
-    ok('sign: the client signature reaches the keeper', typeof body?.client_signature === 'string' && String(body.client_signature).length === 128)
+    // The keeper refuses any field its schema does not declare (422 since 2026-10-03): the body
+    // must be EXACTLY the declared keys - the retired `client_*` pair above all.
+    const declared = new Set(['committee_token', 'message_hex', 'signing_set', 'user_signature', 'target_keykeeper', 'verifier_proofs'])
+    eq('sign: only declared keys go on the wire', Object.keys(body ?? {}).filter(k => !declared.has(k)), [])
   }
   {
-    // No clientSigner → the keeper must receive NEITHER half. Sending one alone is what
-    // the "both or neither" contract on the option exists to prevent.
     sent.length = 0
     await committeeSignRequest({...tokenOpts, nodeUrl: nodeUrls[0]!, message: new Uint8Array([1])})
     const body = bodiesTo('/v1/committee/sign')[0]
-    ok('sign: no clientSigner sends neither client half', body?.client_pubkey === undefined && body?.client_signature === undefined)
+    ok('sign: the retired client halves are never sent', !('client_pubkey' in (body ?? {})) && !('client_signature' in (body ?? {})))
     ok('sign: optional fields are omitted, not sent as undefined', !('signing_set' in (body ?? {})) && !('user_signature' in (body ?? {})))
   }
 

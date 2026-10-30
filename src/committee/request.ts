@@ -27,28 +27,12 @@ import {
   merkleRoot,
   merkleProof,
   verifierLeaf,
-  clientBindingHash,
-  compoundTokenHash,
-  decodeCompoundToken,
   type TokenType,
   type CompoundTokenWire,
 } from './token.js'
 import {hexToBytes, bytesToHex} from '../crypto/hex.js'
-import {ed25519} from '@noble/curves/ed25519'
 import {createHolderProof, type HolderSigner} from '../auth/holderProof.js'
 import type {FrostSignResult} from '../signing/frost.js'
-
-/**
- * client request signature. The client (== the credential holder) proves it authorized
- * this exact request by signing `clientBindingHash(slotId, tokenHash)`. Supply an ed25519 signer
- * (the holder's authentication key) - the keeper (hot path) and the accountant (audit) verify it.
- */
-export interface ClientSigner {
-  /** 32-byte ed25519 public key. */
-  publicKey: Uint8Array
-  /** Sign the 32-byte client-binding hash to 64-byte ed25519 signature. */
-  sign(bindingHash: Uint8Array): Uint8Array | Promise<Uint8Array>
-}
 
 /**
  * Callback that mints a separate holder proof for each verifier.
@@ -86,18 +70,6 @@ export function holderProofPerVerifier(opts: {
       action: opts.action,
       ttlSecs: opts.ttlSecs,
     })
-}
-
-/**
- * A {@link ClientSigner} from a 32-byte ed25519 secret key (the common `did:key` holder).
- *
- * @param secretKey - 32-byte Ed25519 secret seed used to sign client request bindings.
- */
-export function ed25519ClientSigner(secretKey: Uint8Array): ClientSigner {
-  return {
-    publicKey: ed25519.getPublicKey(secretKey),
-    sign: (bindingHash: Uint8Array) => ed25519.sign(bindingHash, secretKey),
-  }
 }
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
@@ -193,9 +165,6 @@ export interface RequestCommitteeTokenOpts {
   ttlSecs?: number
   /** Override "now" (unix seconds), mainly for tests. */
   nowSecs?: number
-  /** sign the request bundle with the holder's key so the keeper + audit can verify
-   *  the user authorized this operation. Omit to skip (keeper accepts unless it requires it). */
-  clientSigner?: ClientSigner
   /** Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field. */
   scopedIdentity?: string
 }
@@ -217,10 +186,6 @@ export interface CommitteeTokenResult {
   /** Trustless snapshot-inclusion proofs for the token's signers, when derivable; else
    *  `undefined` (the keeper then uses its configured verifier set). */
   verifierProofs?: VerifierProof[]
-  /** Ed25519 client public key corresponding to clientSignature, when a client signer was supplied. */
-  clientPubkey?: Uint8Array
-  /** Client signature over the slot and compound token binding. */
-  clientSignature?: Uint8Array
   /** Policy version reported by the verifiers, when available. Diagnostic only; the keeper enforces the token rule hash against its current rule. */
   ruleVersion?: number
 }
@@ -363,17 +328,7 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
   const signerIndexes = token.signatures.map(s => s.verifier_index)
   const verifierProofs = buildVerifierProofs(opts.verifiers, registrySize, signerIndexes, snapshotRoot)
 
-  // Sign the request bundle (bound to the token's canonical hash + the slot).
-  let clientPubkey: Uint8Array | undefined
-  let clientSignature: Uint8Array | undefined
-  if (opts.clientSigner) {
-    const tokenHash = compoundTokenHash(decodeCompoundToken(token))
-    const binding = clientBindingHash(hexToBytes(slotId), tokenHash)
-    clientSignature = await opts.clientSigner.sign(binding)
-    clientPubkey = opts.clientSigner.publicKey
-  }
-
-  return {token, committee, quorum, registrySize, seed, epoch, verifierProofs, clientPubkey, clientSignature, ruleVersion}
+  return {token, committee, quorum, registrySize, seed, epoch, verifierProofs, ruleVersion}
 }
 
 /** Operation-specific fields for {@link committeeSignRequest} (everything `committeeSign` needs
@@ -397,7 +352,7 @@ export interface CommitteeSignRequestOpts extends RequestCommitteeTokenOpts {
  * @param opts - Token request settings, keeper endpoint and message to sign.
  */
 export async function committeeSignRequest(opts: CommitteeSignRequestOpts): Promise<FrostSignResult> {
-  const {token, verifierProofs, clientPubkey, clientSignature} = await requestCommitteeToken(opts)
+  const {token, verifierProofs} = await requestCommitteeToken(opts)
   const signOpts: CommitteeSignOpts = {
     nodeUrl: opts.nodeUrl,
     committeeToken: token,
@@ -406,8 +361,6 @@ export async function committeeSignRequest(opts: CommitteeSignRequestOpts): Prom
     userSignature: opts.userSignature,
     targetKeykeeper: opts.targetKeykeeper,
     verifierProofs,
-    clientPubkey,
-    clientSignature,
   }
   return committeeSign(signOpts)
 }
@@ -438,7 +391,7 @@ export interface CommitteeDecryptRequestOpts extends RequestCommitteeTokenOpts {
  * @param opts - Token request settings, keeper endpoint, ciphertext and associated data.
  */
 export async function committeeDecryptRequest(opts: CommitteeDecryptRequestOpts): Promise<Uint8Array> {
-  const {token, verifierProofs, clientPubkey, clientSignature} = await requestCommitteeToken(opts)
+  const {token, verifierProofs} = await requestCommitteeToken(opts)
   const decOpts: CommitteeDecryptOpts = {
     nodeUrl: opts.nodeUrl,
     committeeToken: token,
@@ -450,8 +403,6 @@ export async function committeeDecryptRequest(opts: CommitteeDecryptRequestOpts)
     ciphertextEpoch: opts.ciphertextEpoch,
     targetKeykeeper: opts.targetKeykeeper,
     verifierProofs,
-    clientPubkey,
-    clientSignature,
   }
   return committeeDecrypt(decOpts)
 }
@@ -512,7 +463,7 @@ export async function ibeDecryptRequest(
 }
 
 async function gatherIbePartials(opts: IbeExtractRequestOpts) {
-  const {token, verifierProofs, clientPubkey, clientSignature} = await requestCommitteeToken({
+  const {token, verifierProofs} = await requestCommitteeToken({
     ...opts,
     scopedIdentity: opts.identity,
   })
@@ -523,8 +474,6 @@ async function gatherIbePartials(opts: IbeExtractRequestOpts) {
     userSignature: opts.userSignature,
     ciphertextEpoch: opts.ciphertextEpoch,
     verifierProofs,
-    clientPubkey,
-    clientSignature,
   })
   return {partials, identityBytes: new TextEncoder().encode(opts.identity)}
 }

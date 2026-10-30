@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "exceptions": [
+    {
+      "advisory": "GHSA-ch52-4w7c-c8xp",
+      "package": "http-cache-semantics",
+      "scope": "site",
+      "reason": "No patched release exists (4.2.0 is the latest and is inside the vulnerable range; the advisory lists no fixed version). The package is a build-time dependency of astro's remote-asset fetch cache in the STATIC docs-site build; the flaw is cross-user disclosure from a SHARED HTTP cache serving stale responses, and a one-shot CI build has one user and no served cache. Nothing in the published SDK package depends on it. Re-check for a fix at every release.",
+      "expires": "2026-12-31"
+    }
+  ]
+}

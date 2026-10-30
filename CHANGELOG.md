@@ -7,6 +7,50 @@ never does.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-03
+
+A minor bump: a public option is removed.
+
+### Removed
+- `clientSigner` on `requestCommitteeToken` / `committeeSignRequest` / `committeeDecryptRequest` /
+  `ibeExtractRequest` and on `createCommitteeSlotClient`, with `ClientSigner` and
+  `ed25519ClientSigner`. They put `client_pubkey` + `client_signature` into the keeper's
+  `/v1/committee/sign`, `/v1/committee/decrypt` and `/v1/shards/ibe/extract` bodies - fields the
+  keeper retired when request binding moved INTO the compound token (`request_hash` +
+  `BindingStrength`, enforced by the keeper under `require_request_binding`). The keeper had been
+  silently dropping them; since 2026-10-03 it refuses any undeclared field with a 422, so the
+  option would now make every call fail. Nothing is lost: the holder binding the option claimed
+  to provide is carried by the token on every call already. `clientBindingHash` (a pure
+  function pinned by the conformance vectors) stays exported.
+- `credentials` on `verifyPresentation`'s body type: the verifier's `VerifyBody` declares only
+  `dcql_rule` and `presentation` and refuses anything else.
+
+### Changed
+- The committee sign / decrypt / extract bodies are asserted to carry ONLY the keys the keeper
+  declares (`test/committee.one-call.ts`, `test/committee.guards.ts`) - the SDK-side mirror of the
+  keeper's strict-body test.
+- `verify:security` runs `scripts/audit.mjs`: `npm audit` at high/critical with EXPLICIT, dated,
+  per-advisory exceptions in `security/audit-exceptions.json` (an expired or no-longer-matching
+  exception fails the gate), instead of a lowered audit level. One exception is recorded:
+  GHSA-ch52-4w7c-c8xp on `http-cache-semantics`, a build-time dependency of the docs site's
+  `astro` with no patched release; it does not reach the published package.
+
+## [0.2.4] — 2026-10-01
+
+### Fixed
+
+- Point npm package repository, issues, and homepage metadata to the publishing
+  GitHub repository.
+- Make the funding tutorial resolve the EURC token from the verified BondingCurve
+  when the Fuji release manifest omits a separate token entry; reject conflicting
+  token addresses before writes.
+- Let the Fuji application examples proceed with 0.05 AVAX of creator gas and
+  use a purchase amount that meets the documented 1 TSRA minimum.
+- Avoid failing a consumer's install when Git is unavailable.
+- Update the development Next.js dependency past the `next/og` security advisory.
+
+## [0.2.3] — 2026-09-30
+
 ### Added
 
 - Rule amendment on `tasra-sdk/chain`. The write client gains `proposeRuleUpdate`,
@@ -45,9 +89,6 @@ never does.
   and operation receipt preservation/verification.
 - Complete encrypted-notes, document-signing and native approval TypeScript examples,
   application guides and migration notes.
-
-Install `tasra-sdk@latest` from npm. Network operations require compatible contracts
-and services selected through a verified tasra-releases manifest.
 
 - `committeeSignEoaDigest` in `tasra-sdk/committee` for request-bound threshold
   Ethereum signing with verifier-agent compound tokens and membership proofs.
@@ -106,6 +147,9 @@ and services selected through a verified tasra-releases manifest.
   bootstrap from a pinned repository commit.
 - Narrow slot-creation results before reading the transaction hash in the skill's
   direct/commit-reveal example.
+
+Install `tasra-sdk@latest` from npm. Network operations require compatible contracts
+and services selected through a verified tasra-releases manifest.
 
 ## [0.2.2] — 2026-09-23
 

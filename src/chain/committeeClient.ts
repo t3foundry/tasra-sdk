@@ -17,7 +17,6 @@ import {
   committeeSign,
   committeeDecrypt,
   committeeChainReadsFromClient,
-  type ClientSigner,
   type CommitteeChainReads,
   type CommitteeVerifier,
   type CommitteeTokenResult,
@@ -59,8 +58,6 @@ export interface CommitteeSlotClientConfig {
    * slotId})` there - it mints a fresh proof per drawn verifier, on every request.
    */
   holderProof?: string | HolderProofPerVerifier
-  /** sign the request bundle so keeper + audit can verify you authorized it. */
-  clientSigner?: ClientSigner
   /** Compound-token TTL in seconds (default 300). */
   ttlSecs?: number
 }
@@ -204,7 +201,6 @@ export function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): Commi
       holder: creds.holder,
       credentials: creds.credentials,
       holderProof: creds.holderProof,
-      clientSigner: cfg.clientSigner,
       ttlSecs: cfg.ttlSecs,
     })
 
@@ -244,8 +240,6 @@ export function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): Commi
         userSignature: opts?.userSignature,
         targetKeykeeper: opts?.targetKeykeeper,
         verifierProofs: res.verifierProofs,
-        clientPubkey: res.clientPubkey,
-        clientSignature: res.clientSignature,
       })
     },
 
@@ -273,8 +267,6 @@ export function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): Commi
         ciphertextEpoch: opts.ciphertextEpoch,
         targetKeykeeper: opts.targetKeykeeper,
         verifierProofs: res.verifierProofs,
-        clientPubkey: res.clientPubkey,
-        clientSignature: res.clientSignature,
       })
     },
   }

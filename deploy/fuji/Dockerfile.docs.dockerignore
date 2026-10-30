@@ -1,0 +1,23 @@
+# Scoped to Dockerfile.docs: BuildKit prefers <dockerfile-path>.dockerignore over the context
+# root's .dockerignore, so this withholds ~909 MB from the docs build WITHOUT changing the context
+# seen by the four images that consume this repository as a named `sdk` build context (the vault
+# PWA and relayer, the health API, the explorer API). Those run their own npm install and would
+# break differently if node_modules or dist were hidden from them.
+node_modules
+**/node_modules
+site/dist
+dist
+
+# ⚠ .git is 8.7 MB and, more to the point, npm runs a package's `prepare` for a local install and
+#   scripts/install-hooks.mjs keys off the presence of .git. It is guarded against a missing git
+#   binary since e059c68, but the directory has no business in an image either way.
+.git
+.github
+
+# Nothing below is published by publication.json, so none of it can affect the rendered site.
+site/.astro
+coverage
+*.log
+.env
+**/.env
+.DS_Store

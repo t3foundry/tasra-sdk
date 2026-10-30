@@ -1381,7 +1381,7 @@ Returns: ` Promise<Uint8Array> `.
 One-call identity-scoped decrypt (the read path): token to extraction fan-out
 to verify each partial to combine to decrypt. The intermediate `sk_ID` never surfaces.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L501)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L452)
 
 Import: `import {ibeDecryptRequest} from '@t3foundry/tasra-sdk'`
 
@@ -1449,7 +1449,7 @@ compressed G1).
 ciphertext to this identity. Prefer [ibeDecryptRequest](#ibedecryptrequest), which combines,
 decrypts and drops it. Zeroize the returned bytes when done.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L485)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L436)
 
 Import: `import {ibeExtractRequest} from '@t3foundry/tasra-sdk'`
 
@@ -2352,14 +2352,13 @@ Import: `import {verifyPresentation} from '@t3foundry/tasra-sdk'`
 declare function verifyPresentation(verifierUrl: string, body: {
     dcql_rule: string;
     presentation: unknown;
-    credentials?: unknown;
 }): Promise<IssuedToken>;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` verifierUrl ` | ` string ` | - Verifier HTTP base URL. |
-| ` body ` | ` { dcql_rule: string; presentation: unknown; credentials?: unknown; } ` | - Policy and credential presentation for verifier evaluation. |
+| ` body ` | ` { dcql_rule: string; presentation: unknown; } ` | - Policy and credential presentation for verifier evaluation. |
 
 Returns: ` Promise<IssuedToken> `.
 
@@ -3395,7 +3394,7 @@ Fields:
 
 Operation-specific fields for [ibeDecryptRequest](#ibedecryptrequest) / [ibeExtractRequest](#ibeextractrequest).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L462)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L413)
 
 ```ts
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
@@ -3423,7 +3422,6 @@ Fields:
 - **` tokenType `**: Token type - default `'JWT'`.
 - **` ttlSecs `**: Token TTL in seconds - default 300.
 - **` nowSecs `**: Override "now" (unix seconds), mainly for tests.
-- **` clientSigner `**: sign the request bundle with the holder's key so the keeper + audit can verify the user authorized this operation. Omit to skip (keeper accepts unless it requires it).
 - **` scopedIdentity `**: Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field.
 
 ### IbeVerifyingShares

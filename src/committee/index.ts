@@ -55,7 +55,6 @@ export {
   committeeDecryptRequest,
   buildVerifierProofs,
   committeeChainReadsFromClient,
-  ed25519ClientSigner,
   holderProofPerVerifier,
 } from './request.js'
 export type {
@@ -66,7 +65,6 @@ export type {
   CommitteeTokenResult,
   CommitteeSignRequestOpts,
   CommitteeDecryptRequestOpts,
-  ClientSigner,
 } from './request.js'
 
 

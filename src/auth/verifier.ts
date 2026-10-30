@@ -205,7 +205,7 @@ export async function revokeSlotUser(
  */
 export async function verifyPresentation(
   verifierUrl: string,
-  body: {dcql_rule: string; presentation: unknown; credentials?: unknown},
+  body: {dcql_rule: string; presentation: unknown},
 ): Promise<IssuedToken> {
   const b = (await postJson(`${base(verifierUrl)}/v1/verify`, body)) as {
     token: string
