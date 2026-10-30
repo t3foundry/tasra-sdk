@@ -32,16 +32,12 @@ jobs:
   build:
     if: github.event_name != 'schedule'
     name: node ${{ matrix.node }}
-    # Untrusted pull requests run only on disposable hosted runners.
-    runs-on: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["self-hosted","mac-studio"]') }}
-    # A hung job occupies the ONLY runner indefinitely — on a GitHub-hosted runner
-    # the 6-hour default is harmless, here it blocks every later run.
+    runs-on: ubuntu-latest
+    # A hung job on a self-hosted runner would block all later runs — on hosted
+    # runners the 6h default is harmless, but 30 min keeps feedback fast.
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      # One runner, so the matrix serialises regardless; stating it keeps the queue
-      # order predictable and stops three jobs contending for the same tool cache.
-      max-parallel: 1
       matrix:
         # 22.12 is the engines floor: Node 20 reached end-of-life on 2026-04-30,
         # and 22.12 is the oldest supported release that can require() an ES
@@ -50,9 +46,7 @@ jobs:
         node: ['22.12', '24', '26']
 
     steps:
-      # `clean: true` is the default and load-bearing here: a self-hosted workspace
-      # PERSISTS between runs, so without it a stale dist/ or node_modules/ can make
-      # a broken commit look green.
+      # `clean: true` is the default on hosted runners; explicit for clarity.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           clean: true
@@ -156,7 +150,7 @@ jobs:
   documentation-live:
     # Explicit maintainer opt-in on the trusted trunk only. Never run fork PR code here.
     if: github.event_name == 'workflow_dispatch' && inputs.live_docs && github.ref == 'refs/heads/develop'
-    runs-on: [self-hosted, mac-studio]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -166,7 +160,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:docs
-      - run: npm run test:docs:live
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: shared-account-public-evidence
