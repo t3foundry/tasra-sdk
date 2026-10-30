@@ -22,7 +22,7 @@ command -v jq >/dev/null || { echo "build: jq required" >&2; exit 1; }
 
 SSH_ALIAS="$(jq -r .host.ssh "$cfg")"
 IMAGE="$(jq -r .service.image "$cfg")"
-FQDN="$(jq -r .service.dns "$cfg").$(jq -r '.operator + "." + .domain' "$cfg")"
+FQDN="$(jq -r '.service.fqdn // (.service.dns + "." + .operator + "." + .domain)' "$cfg")"
 
 # The remote user may or may not be in the docker group; on web-server it is not. Resolve once, ON
 # THE HOST, and use $D for every remote docker call.

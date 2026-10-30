@@ -36,6 +36,8 @@
   },
   "service": {
     "dns": "sdk",
+    "fqdn": "docs.tasra.network",
+    "_fqdn_comment": "The public name actually served. Overrides dns.operator.domain in build.sh, up.sh and ingress.sh; must match `site` in ../../site/astro.config.mjs.",
     "container": "tasra-sdk-docs",
     "port": 4321,
     "_port_comment": [

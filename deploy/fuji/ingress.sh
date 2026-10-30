@@ -27,7 +27,7 @@ cmd="${1:-plan}"
 command -v jq >/dev/null || { echo "ingress: jq required" >&2; exit 1; }
 
 DOMAIN="$(jq -r '.operator + "." + .domain' "$cfg")"
-FQDN="$(jq -r .service.dns "$cfg").$DOMAIN"
+FQDN="$(jq -r '.service.fqdn // (.service.dns + "." + .operator + "." + .domain)' "$cfg")"
 ZONE="$(jq -r .domain "$cfg" | sed 's/^.*\.\([^.]*\.[^.]*\)$/\1/')"      # fuji.tasra.network → tasra.network
 IP="$(jq -r .ingress.ip "$cfg")"
 CONTAINER="$(jq -r .service.container "$cfg")"

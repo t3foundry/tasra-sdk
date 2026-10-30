@@ -27,7 +27,7 @@ SSH_ALIAS="$(jq -r .host.ssh "$cfg")"
 WORKDIR="$(jq -r .host.workdir "$cfg")"
 PROJECT="$(jq -r .service.project "$cfg")"
 CONTAINER="$(jq -r .service.container "$cfg")"
-FQDN="$(jq -r .service.dns "$cfg").$(jq -r '.operator + "." + .domain' "$cfg")"
+FQDN="$(jq -r '.service.fqdn // (.service.dns + "." + .operator + "." + .domain)' "$cfg")"
 # The container port the proxy must forward to. Nothing is published to the host, so there is no
 # second number to keep in step.
 PORT="$(jq -r .service.port "$cfg")"
