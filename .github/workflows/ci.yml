@@ -148,8 +148,9 @@ jobs:
           category: /language:javascript-typescript
 
   documentation-live:
-    # Explicit maintainer opt-in on the trusted trunk only. Never run fork PR code here.
-    if: github.event_name == 'workflow_dispatch' && inputs.live_docs && github.ref == 'refs/heads/develop'
+    # Runs on merges to the trusted trunk (push to develop) and explicit maintainer
+    # opt-in. Never run fork PR code here.
+    if: github.ref == 'refs/heads/develop' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.live_docs))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
