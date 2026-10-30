@@ -1,6 +1,6 @@
 {
   "name": "@t3foundry/tasra-sdk",
-  "version": "0.3.1-next.1",
+  "version": "0.3.1",
   "description": "TypeScript SDK for Tasra network slots, credential-based access, distributed encryption and signing, and on-chain operations.",
   "private": false,
   "type": "module",
@@ -136,6 +136,8 @@
     "examples/document-signing/config.ts",
     "examples/document-signing/gitignore.template",
     "examples/document-signing/model.ts",
+    "examples/document-signing/network-pin.json",
+    "examples/document-signing/network.json",
     "examples/document-signing/network.ts",
     "examples/document-signing/package.json",
     "examples/document-signing/public/index.html",

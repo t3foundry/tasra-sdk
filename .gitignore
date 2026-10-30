@@ -21,3 +21,4 @@ coverage/
 
 # Local verification evidence and single-writer lock
 .verification/
+/graphify-out/
