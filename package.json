@@ -136,8 +136,6 @@
     "examples/document-signing/config.ts",
     "examples/document-signing/gitignore.template",
     "examples/document-signing/model.ts",
-    "examples/document-signing/network-pin.json",
-    "examples/document-signing/network.json",
     "examples/document-signing/network.ts",
     "examples/document-signing/package.json",
     "examples/document-signing/public/index.html",

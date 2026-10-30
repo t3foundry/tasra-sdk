@@ -31,12 +31,12 @@ async function main() {
   const aesKey = await nodeWebCrypto.subtle.importKey('raw', dataKey, 'AES-GCM', false, ['encrypt'])
   const aesCt = new Uint8Array(await nodeWebCrypto.subtle.encrypt(
     {name: 'AES-GCM', iv, additionalData: aad}, aesKey, plaintext))
-  const kemCt = await notes.encrypt(aad.toString(), dataKey)
+  const kemCt = await notes.encrypt(aad, dataKey)
   dataKey.fill(0)
   await store.save('encrypted-document', {recordId, aad, kemCt, aesCt, iv})
 
   // Alice presents her credential to authorize decryption.
-  const opened = await notes.decrypt(aad.toString(), kemCt, {authorize: authorize('alice'),
+  const opened = await notes.decrypt(aad, kemCt, {authorize: authorize('alice'),
     signal: AbortSignal.timeout(120_000), requireReceipts: true})
   let openedNote: Uint8Array | undefined
   try {
@@ -56,7 +56,7 @@ async function main() {
     const tamperedAead = kemCt.aeadCt.slice() as Uint8Array
     tamperedAead[0]! ^= 1
     const tampered = {u: kemCt.u.slice(), nonce: kemCt.nonce.slice(), aeadCt: tamperedAead}
-    const bad = await notes.decrypt(aad.toString(), tampered, {authorize: authorize('alice'),
+    const bad = await notes.decrypt(aad, tampered, {authorize: authorize('alice'),
       signal: AbortSignal.timeout(120_000), requireReceipts: true})
     bad.plaintext.fill(0) // unreachable; throw before zeroizing
   } catch (error) {
