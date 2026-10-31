@@ -17,6 +17,7 @@ import {selectVerifierCommittee, verifierLeaf, verifyMerkleProof} from '../commi
 import {protocolHex} from '../committee/receipts.js'
 import {BillingModeError, readBillingMode} from './billing.js'
 import {readAssignmentEpoch, requirePaidEpoch} from './paidEpoch.js'
+import {systemPacingClock, type PaidPacingClock} from './paidPacing.js'
 
 /** Deployment independently selected by the application, not taken from a received intent. */
 export interface PrepaidDeployment {
@@ -293,9 +294,34 @@ export interface PaidContextDeployment extends PrepaidDeployment {
 }
 
 /** Explicit application policy for selecting currently eligible paid workers. */
+/**
+ * How long discovery waits for an admissible complete epoch. The accountants anchor a new epoch's
+ * verifier and accountant snapshots seconds after they push its seed (6-8 s in the local fleet,
+ * where epochs are 8-10 s apart), and keepers accept only the latest or the previous epoch: until
+ * both anchors land, no epoch is both admissible and complete. That is the protocol's timing, not a
+ * refusal, so discovery observes again instead of failing (2026-10-31: a one-shot discovery lost a
+ * certification row to that two-second window).
+ */
+export interface PaidAnchorWait {
+  /** Longest total wait in ms; 0 keeps the single observation. Default 20 000, at most 120 000. */
+  timeoutMs?: number
+  /** Pause between observations in ms. Default 1 000, within 100..10 000. */
+  pollMs?: number
+  /** Time source; the system clock by default. Inject one in tests. */
+  clock?: PaidPacingClock
+}
+const ANCHOR_WAIT_MS = 20_000, ANCHOR_POLL_MS = 1_000
+function anchorWaitPolicy(wait: PaidAnchorWait = {}): {timeoutMs: number; pollMs: number; clock: PaidPacingClock} {
+  const timeoutMs = wait.timeoutMs ?? ANCHOR_WAIT_MS, pollMs = wait.pollMs ?? ANCHOR_POLL_MS, clock = wait.clock ?? systemPacingClock
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 120_000 || !Number.isSafeInteger(pollMs) || pollMs < 100 || pollMs > 10_000) throw new Error('invalid anchor wait')
+  return {timeoutMs, pollMs, clock}
+}
+
 export interface PaidContextOptions extends PaidKeeperTransportOptions {
   /** Requested registered coordinator; otherwise a uniform draw among eligible keepers. Retain the returned context for reservation and recovery. */
   coordinator?: Address
+  /** Bounded wait for an admissible complete epoch; see {@link PaidAnchorWait}. */
+  anchorWait?: PaidAnchorWait
   /** Independently approved deployed verifier defaults; required only for a zero slot override. */
   defaultVerificationPolicy?: {committee: number; quorum: number}
 }
@@ -549,50 +575,67 @@ function safeInteger(value: bigint, name: string): number {
 export async function discoverPaidOperationContext(
   client: PublicClient, deployment: PaidContextDeployment, slotId: Hex, options: PaidContextOptions = {},
 ): Promise<PaidOperationContext> {
-  deployment = {...deployment}; options = structuredClone(options)
+  // The injected clock is a live object; everything else is pinned by value before any read.
+  const {anchorWait, ...pinned} = options
+  deployment = {...deployment}; options = {...structuredClone(pinned), ...(anchorWait ? {anchorWait} : {})}
+  const wait = anchorWaitPolicy(anchorWait)
   validateDeployment(deployment)
   if (!HEX32.test(slotId) || [deployment.verifierSet, deployment.accountantSet, deployment.beacon, ...(options.coordinator ? [options.coordinator] : [])]
     .some(address => !ADDRESS.test(address) || /^0x0{40}$/i.test(address))) throw new Error('invalid payment discovery identity')
-  const at = await observe(client, deployment)
-  const reads = Promise.all([
-    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'randomBeacon') as Promise<Address>,
-    registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'beacon') as Promise<Address>,
-    registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'beacon') as Promise<Address>,
-    registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch') as Promise<bigint>,
-    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'verifierPolicy', [slotId]) as Promise<readonly [number, number]>,
-    readAt(client, deployment.settlement, at, 'prepaidEnabled', slotId),
-    readAt(client, deployment.settlement, at, 'balanceOf', slotId),
-    keeperDirectory(client, at, deployment.keyRegistry, slotId),
-  ])
-  // On a failed read, a legacy or unreadable billing mode is the clearer refusal.
-  const [keyBeacon, snapshotBeacon, accountantBeacon, latest, policy, enabled, available, directory] = await reads.catch(async (error: unknown) => {
-    await refuseUnlessPrepaid(client, deployment, slotId)
-    throw error
-  })
-  if (enabled !== true) {
-    await refuseUnlessPrepaid(client, deployment, slotId)
-    // Prepaid from genesis but never funded: the first funding activates it.
-    if (available === 0n) throw new UnderfundedSlotError({slotId, availableTasraUnits: 0n,
-      message: 'payment discovery requires an activated TASRA-funded slot'})
-  }
-  if ([keyBeacon, snapshotBeacon, accountantBeacon].some(pointer => pointer.toLowerCase() !== deployment.beacon.toLowerCase())) throw new Error('payment discovery beacon pointers differ')
-  if (enabled !== true || typeof available !== 'bigint' || available < 0n) throw new Error('payment discovery requires an activated TASRA-funded slot')
-  if (available === 0n) throw new UnderfundedSlotError({slotId, availableTasraUnits: available,
-    message: 'payment discovery requires an activated TASRA-funded slot'})
-  const seedAt = (epoch: bigint) => registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [epoch]) as Promise<Hex>
-  const snapshotAt = (epoch: bigint) => registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
-  const accountantAt = (epoch: bigint) => registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
   const complete = (seed: Hex, root: Hex, size: number, accountant: readonly [Hex, number]) =>
     seed !== ZERO32 && root !== ZERO32 && size > 0 && accountant[0] !== ZERO32 && accountant[1] > 0 && accountant[1] <= 65535
-  let epoch = latest
-  let [seed, [root, size], accountant] = await Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)])
-  if (seed === ZERO32) throw new Error('current beacon seed unavailable')
-  if (!complete(seed, root, size, accountant)) {
-    if (epoch === 0n) throw new Error('no anchored verifier and accountant snapshots')
-    epoch--
-    ;[seed, [root, size], accountant] = await Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)])
-    if (!complete(seed, root, size, accountant)) throw new Error('no current or previous anchored verifier and accountant snapshots')
-  }
+  const deadline = wait.clock.now() + wait.timeoutMs
+  // One fresh canonical observation per attempt; an attempt that finds no admissible complete
+  // epoch waits (bounded) and observes again at a newer head, never re-reads an old one.
+  const observed = await (async () => {
+    for (;;) {
+      const at = await observe(client, deployment)
+      const reads = Promise.all([
+        registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'randomBeacon') as Promise<Address>,
+        registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'beacon') as Promise<Address>,
+        registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'beacon') as Promise<Address>,
+        registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch') as Promise<bigint>,
+        registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'verifierPolicy', [slotId]) as Promise<readonly [number, number]>,
+        readAt(client, deployment.settlement, at, 'prepaidEnabled', slotId),
+        readAt(client, deployment.settlement, at, 'balanceOf', slotId),
+        keeperDirectory(client, at, deployment.keyRegistry, slotId),
+      ])
+      // On a failed read, a legacy or unreadable billing mode is the clearer refusal.
+      const [keyBeacon, snapshotBeacon, accountantBeacon, latest, policy, enabled, available, directory] = await reads.catch(async (error: unknown) => {
+        await refuseUnlessPrepaid(client, deployment, slotId)
+        throw error
+      })
+      if (enabled !== true) {
+        await refuseUnlessPrepaid(client, deployment, slotId)
+        // Prepaid from genesis but never funded: the first funding activates it.
+        if (available === 0n) throw new UnderfundedSlotError({slotId, availableTasraUnits: 0n,
+          message: 'payment discovery requires an activated TASRA-funded slot'})
+      }
+      if ([keyBeacon, snapshotBeacon, accountantBeacon].some(pointer => pointer.toLowerCase() !== deployment.beacon.toLowerCase())) throw new Error('payment discovery beacon pointers differ')
+      if (enabled !== true || typeof available !== 'bigint' || available < 0n) throw new Error('payment discovery requires an activated TASRA-funded slot')
+      if (available === 0n) throw new UnderfundedSlotError({slotId, availableTasraUnits: available,
+        message: 'payment discovery requires an activated TASRA-funded slot'})
+      const seedAt = (epoch: bigint) => registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [epoch]) as Promise<Hex>
+      const snapshotAt = (epoch: bigint) => registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
+      const accountantAt = (epoch: bigint) => registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
+      let epoch = latest
+      let [seed, [root, size], accountant] = await Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)])
+      if (seed === ZERO32) throw new Error('current beacon seed unavailable')
+      if (!complete(seed, root, size, accountant)) {
+        if (epoch === 0n) throw new Error('no anchored verifier and accountant snapshots')
+        epoch--
+        ;[seed, [root, size], accountant] = await Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)])
+        if (!complete(seed, root, size, accountant)) {
+          // A new epoch's anchors have not landed yet (see PaidAnchorWait): wait and observe again.
+          if (wait.clock.now() + wait.pollMs > deadline) throw new Error('no current or previous anchored verifier and accountant snapshots')
+          await wait.clock.sleep(wait.pollMs)
+          continue
+        }
+      }
+      return {at, policy, available, directory, epoch, seed, root, size}
+    }
+  })()
+  const {at, policy, available, directory, epoch, seed, root, size} = observed
   const [onChainCommittee, onChainQuorum] = policy
   if (onChainCommittee === 0 && onChainQuorum !== 0) throw new Error('invalid on-chain verifier policy')
   const {committee, quorum} = onChainCommittee === 0

@@ -87,7 +87,8 @@ function fixture(change: Changes = {}) {
     }
     return encodeFunctionResult({abi, functionName: name, result: values[name]})
   }}, {retryCount: 0})})
-  return {client, deployment, slotId, creator, keys, operators, calls, run: (options?: PaidContextOptions) => discoverPaidOperationContext(client, deployment, slotId, options)}
+  // Tests observe once unless they ask to wait: the anchor wait is exercised with an injected clock.
+  return {client, deployment, slotId, creator, keys, operators, calls, run: (options?: PaidContextOptions) => discoverPaidOperationContext(client, deployment, slotId, {anchorWait: {timeoutMs: 0}, ...options})}
 }
 afterEach(() => { vi.restoreAllMocks(); vi.mocked(randomness.randomBytes).mockReset() })
 const now = () => vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
@@ -285,4 +286,27 @@ it('requires an anchored drawn key that is still active and tagged before approv
     await expect(readClientExecutionPolicy(f.client,f.deployment,payment,intendedWork,target)).rejects.toThrow(/member/)
     expect(f.calls.some(c=>c.name==='nodeOf')).toBe(false)
   }
+})
+it('waits a bounded time for an admissible complete epoch while a new epoch\'s anchors land, then refuses', async () => {
+  now()
+  // Neither the latest nor the previous epoch is complete for two polls; the anchors then land.
+  const change: Changes = {unanchored: true, noPrevious: true}
+  const f = fixture(change), sleeps: number[] = []
+  let t = 1_000_000
+  const clock = {now: () => t, sleep: async (ms: number) => { sleeps.push(ms); t += ms; if (sleeps.length === 2) { change.unanchored = false; change.noPrevious = false } }, jitter: () => 0}
+  const context = await f.run({anchorWait: {timeoutMs: 5_000, pollMs: 1_000, clock}})
+  expect(sleeps).toEqual([1_000, 1_000])
+  expect(context.intentFields).toMatchObject({verification_epoch: 7, verification_seed: h(9), verification_root: h(18)})
+  // One fresh head per attempt (three observations) plus the closing canonical re-read; never a
+  // re-read of an old block.
+  expect(f.calls.filter(c => c.method === 'eth_getBlockByNumber')).toHaveLength(4)
+  // Past the bound the refusal is unchanged, after exactly the waits that fit.
+  const stuck = fixture({unanchored: true, noPrevious: true}), waits: number[] = []
+  let u = 1_000_000
+  await expect(stuck.run({anchorWait: {timeoutMs: 2_500, pollMs: 1_000, clock: {now: () => u, sleep: async (ms: number) => { waits.push(ms); u += ms }, jitter: () => 0}}}))
+    .rejects.toThrow('no current or previous anchored verifier and accountant snapshots')
+  expect(waits).toEqual([1_000, 1_000])
+  // The default keeps a single observation when told so, and refuses an unbounded or absurd wait.
+  await expect(fixture({unanchored: true, noPrevious: true}).run()).rejects.toThrow(/no current or previous/)
+  for (const bad of [{timeoutMs: -1}, {timeoutMs: 120_001}, {pollMs: 50}, {pollMs: 10_001}]) await expect(f.run({anchorWait: bad})).rejects.toThrow('invalid anchor wait')
 })
