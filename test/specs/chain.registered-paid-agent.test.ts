@@ -768,3 +768,21 @@ it('prepares a recipient-bound paid IBE extraction and refuses a missing or subs
     f.params.decryption=original
   }
 })
+
+it('waits out a busy 503 on creation inside the payment window and resends the identical body, never past expiry',async()=>{
+  const c=pacedClock(), f=await fixture('wallet',undefined,{clock:c.clock,attemptBudgetMs:5_000})
+  const send=vi.mocked(f.transport.paidAgentRequest)
+  send.mockImplementationOnce(async()=>({status:503,body:bytes({error:'canonical TASRA reservation unavailable'}),retryAfterMs:1000}))
+  await f.session.create()
+  const creations=send.mock.calls.filter(([url])=>url===f.profile.endpoint+'/v1/sessions')
+  expect(creations).toHaveLength(2)
+  expect(new TextDecoder().decode(creations[0]![1].body)).toBe(new TextDecoder().decode(creations[1]![1].body))
+  expect(c.state.sleeps).toEqual([1000])
+  await expect(f.session.create()).rejects.toThrow(/already sent/)
+  // Past the payment expiry the creation keeps its single attempt: the refusal is final.
+  const late=pacedClock(); late.state.now=1_061_000
+  const g=await fixture('wallet',undefined,{clock:late.clock,attemptBudgetMs:5_000})
+  vi.mocked(g.transport.paidAgentRequest).mockResolvedValueOnce({status:503,body:bytes({error:'busy'})})
+  await expect(g.session.create()).rejects.toMatchObject({name:'PaidAgentControlError',httpStatus:503})
+  expect(late.state.sleeps).toEqual([])
+})

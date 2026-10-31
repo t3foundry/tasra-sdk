@@ -29,7 +29,9 @@ import {PaidBackoff, paidResponseWaitMs, systemPacingClock, type PaidPacingClock
 /**
  * Pacing of a paid session's definite 429/503 refusals. Repeatable reads (proposals, Request
  * Object, presentations, session poll, approval state) and the continuation POST (429 only) are
- * repeated inside the session's signed expiry; nothing else is.
+ * repeated inside the session's signed expiry; the creation POST (429/503, the agent refuses
+ * both before any session exists) inside the payment's own remaining window, with the identical
+ * body; nothing else is.
  */
 export interface PaidPacingOptions {
   /** Time source; wall-clock ms. Default: the system clock. */
@@ -409,6 +411,10 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   const BUSY=[429,503], LIMITED=[429]
   /** The signed session expiry, once the original context is known: the deadline of every paced read. */
   const sessionDeadline = () => context ? context.expires*1000 : undefined
+  // The creation request has no session yet: its window is the signed payment's remaining time. An
+  // already expired payment keeps the single attempt (its refusal is final anyway). 2026-10-31: the
+  // agent answered 503 on creation right after a keeper was restored and the SDK gave up at once.
+  const creationDeadline = () => payment.expires*1000 > clock.now() ? payment.expires*1000 : undefined
   /**
    * A safely repeatable request: repeated on a status in `retryOn` only while the wait fits before
    * `deadlineMs`, the deadline re-read before EVERY send. No deadline = one attempt (status quo). Any
@@ -609,7 +615,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     async create(signal?:AbortSignal) {
       if(submitted)throw new Error('Paid creation already sent; reconcile by reading the original session')
       signal?.throwIfAborted();submitted=true
-      const response=await control('/v1/sessions','POST',{...unsigned,execution_initialization:initialization},signal,true)
+      const response=await paced('POST /v1/sessions',()=>control('/v1/sessions','POST',{...unsigned,execution_initialization:initialization},signal,true),BUSY,creationDeadline(),signal)
       ok(response,[200,201]);const reply=decode(response.body)
       if(reply.session_id!==sessionId || reply.poll_secret!==pollSecret || executionBodyHash(object(reply.service_profile))!==executionBodyHash(pin)
         || reply.qr_payload!=null || (params.kind!=='oauth' && reply.request_uri!==requestUri)) throw new Error('Initialized paid creation reply changed identity, owner or provider')
