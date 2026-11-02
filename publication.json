@@ -34,6 +34,7 @@
     "docs/prerequisites.md",
     "docs/read-slot.md",
     "docs/reference/README.md",
+    "docs/reference/app-browser.md",
     "docs/reference/app-node.md",
     "docs/reference/app.md",
     "docs/reference/chain-node.md",

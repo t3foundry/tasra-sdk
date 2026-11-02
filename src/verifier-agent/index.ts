@@ -1,3 +1,5 @@
+import type {DecryptionBindingWire} from '../crypto/recipient.js'
+import {assertEvidenceBinding, evidenceBody} from '../committee/evidence.js'
 // Verifier Agent client - creates OID4VP sessions on the platform verifier-agent and
 // polls for the compound token result.
 //
@@ -14,6 +16,10 @@
 import {sha256} from '@noble/hashes/sha256'
 import {bytesToHex} from '@noble/hashes/utils'
 import {TasraError} from '../errors.js'
+import {dpopHtu, platformAudience} from '../committee/oauth.js'
+import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
+import {sessionPaymentFields} from './payment.js'
+import {assertStatusAttestationsWire} from '../committee/token.js'
 
 /** The operation the holder is authorizing - signed by the creator's EIP-712 key. */
 import type {DpopSigner} from '../auth/dpop.js'
@@ -54,6 +60,12 @@ export interface PresentationDelegation {
 
 /** Signed operation, optional delegation and payload submitted to the verifier agent. */
 export interface CreateSessionParams {
+  /** Public decryption binding committed by the signed operation; never include private recipient material. */
+  decryption?: DecryptionBindingWire
+  /** Creator-signed intent for an already reserved TASRA payment. Requires random. */
+  payment?: PaymentIntentWire
+  /** Fixed 32-byte hex presentation random committed before reservation. */
+  random?: string
   /** Signed operation details presented for authorization. */
   operation: PresentationOperation
   /** 0x-hex 65-byte EIP-712 signature over the operation */
@@ -95,6 +107,9 @@ export type SessionPhase = 'awaiting_wallet' | 'verifying' | 'done' | 'failed'
 
 /** Authorization session progress and optional committee result or failure detail. */
 export interface SessionStatusResult {
+  /** Sealed presentation (base64url `bincode(Ciphertext)`) the token's `evidence_hash` names,
+   *  retained unchanged and posted to the keeper beside the token as `evidence_ct`. */
+  evidenceCt?: string
   /** Pending, completed or failed authorization state. */
   status: 'pending' | 'done' | 'failed'
   /** Displayable progress within the authorization lifecycle. */
@@ -107,9 +122,6 @@ export interface SessionStatusResult {
   bindingPreimage?: Record<string, unknown>
   /** Optional failure detail reported by the verifier agent. */
   error?: string
-  /** the sealed presentation (base64url `bincode(Ciphertext)`) the token's
-   *  `evidence_hash` names — post it to the keeper beside the token as `evidence_ct`. */
-  evidenceCt?: string
 }
 
 /** Why a session did not yield a token - the class the UI explains, with a NON-SECRET
@@ -167,7 +179,7 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
   const t = {...raw as Record<string, unknown>}
   // Reference-side optional fields are serialized as null for non-IBE operations. Normalize
   // absence before consumers decode the token; never replace it with a zero hash.
-  for (const key of ['identity_hash', 'request_hash'] as const) if (t[key] === null) delete t[key]
+  for (const key of ['identity_hash', 'request_hash', 'payment_hash', 'payment', 'status_attestations', 'evidence_hash', 'evidence_key_id', 'evidence_signatures'] as const) if (t[key] === null) delete t[key]
   for (const k of ['seed', 'slot_id', 'vp_hash', 'holder_hash', 'rule_hash'] as const) {
     if (typeof t[k] !== 'string' || !HEX32.test(t[k] as string)) bad(`${k} is not a 32-byte hex string`)
   }
@@ -178,6 +190,13 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
   if ((t.exp as number) <= (t.iat as number)) bad('exp is not after iat')
   if (t.request_hash !== undefined && (typeof t.request_hash !== 'string' || !HEX32.test(t.request_hash))) bad('request_hash is not a 32-byte hex string')
   if (t.identity_hash !== undefined && (typeof t.identity_hash !== 'string' || !HEX32.test(t.identity_hash))) bad('identity_hash is not a 32-byte hex string')
+  if (t.payment_hash !== undefined && (typeof t.payment_hash !== 'string' || !HEX32.test(t.payment_hash))) bad('payment_hash is not a 32-byte hex string')
+  if (t.payment !== undefined) {
+    try {
+      assertPaymentIntentWire(t.payment)
+      if (paymentIntentHash(t.payment).toLowerCase() !== (typeof t.payment_hash === 'string' ? t.payment_hash.toLowerCase() : undefined)) bad('payment preimage differs from payment_hash')
+    } catch { bad('invalid payment preimage or commitment') }
+  }
   if (t.binding !== undefined && !['unbound', 'holder_key', 'issuer_asserted'].includes(t.binding as string)) bad('binding is not a known strength')
   if (!Array.isArray(t.verifier_indexes) || !t.verifier_indexes.every(i => Number.isInteger(i) && (i as number) >= 0)) bad('verifier_indexes is not an index list')
   if (!Array.isArray(t.signatures) || t.signatures.length === 0) bad('signatures missing')
@@ -200,6 +219,15 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
     if (!Array.isArray(t.evidence_signatures) || t.evidence_signatures.length === 0) bad('evidence_signatures missing')
     checkSignatures(t.evidence_signatures as unknown[], 'evidence signature')
   }
+  // Revocation-status freshness attestations travel beside `signatures`, outside the token hash.
+  // Keepers verify them; here the shape is checked strictly and the value carried unchanged.
+  if (t.status_attestations !== undefined) {
+    try {
+      t.status_attestations = assertStatusAttestationsWire(t.status_attestations, (t.verifier_indexes as number[]).length)
+    } catch (e) { bad(e instanceof Error ? e.message : String(e)) }
+  }
+  try { assertEvidenceBinding(t as unknown as Parameters<typeof assertEvidenceBinding>[0]) }
+  catch { bad('invalid sealed evidence binding') }
   return t
 }
 
@@ -244,10 +272,12 @@ export async function createOid4vpSession(
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
+      ...sessionPaymentFields(params),
       operation: params.operation,
       operation_sig: params.operationSig,
       delegation: params.delegation,
       message_hex: params.messageHex,
+      decryption:params.decryption,
     }),
   })
   if (!resp.ok) {
@@ -284,6 +314,7 @@ export async function createOauthSession(
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
+      ...sessionPaymentFields(params),
       operation: params.operation,
       operation_sig: params.operationSig,
       delegation: params.delegation,
@@ -310,12 +341,16 @@ export async function createOauthSession(
         'predates and does not support the oauth session kind',
     )
   }
+  if (data.dpop_htu !== dpopHtu(verifierAgentUrl, data.session_id as string)
+      || data.platform_audience !== platformAudience(verifierAgentUrl, params.operation.chain_id)) {
+    throw new Error('createOauthSession: reply changed the original session target or audience')
+  }
   return {
     sessionId: data.session_id as string,
     pollSecret: data.poll_secret as string,
     nonce: data.nonce as string,
-    dpopHtu: data.dpop_htu as string,
-    platformAudience: data.platform_audience as string,
+    dpopHtu: data.dpop_htu,
+    platformAudience: data.platform_audience,
   }
 }
 
@@ -463,15 +498,23 @@ export function parseVerifierAgentSessionStatus(data: Record<string, unknown>, s
   if (status === 'done') data.compound_token = assertCompoundTokenWire(data.compound_token, sessionId)
   // Absent optional fields arrive as JSON `null` from the verifier-agent (serde `Option`): null = absent.
   if (data.error != null && typeof data.error !== 'string') throw new VerifierAgentSessionError('protocol', sessionId, 'poll: error is not a string')
+  // Cheap shape refusal first (a named protocol error), then the binding check proper: the
+  // ciphertext must be canonical base64url and hash to the token's `evidence_hash`, and a
+  // sealed token without its ciphertext (or a ciphertext without a token) is refused.
   if (data.evidence_ct != null && (typeof data.evidence_ct !== 'string' || !/^[A-Za-z0-9_-]+$/.test(data.evidence_ct))) throw new VerifierAgentSessionError('protocol', sessionId, 'poll: evidence_ct is not base64url')
+  let evidenceCt: string | undefined
+  try {
+    if (data.compound_token != null) evidenceCt = evidenceBody(assertCompoundTokenWire(data.compound_token, sessionId) as unknown as Parameters<typeof evidenceBody>[0], data.evidence_ct == null ? undefined : data.evidence_ct as string).evidence_ct
+    else if (data.evidence_ct != null) throw new Error('ciphertext without a token')
+  } catch { throw new VerifierAgentSessionError('protocol', sessionId, 'poll: invalid sealed evidence') }
   return {
+    ...(evidenceCt !== undefined ? {evidenceCt} : {}),
     status,
     phase,
     compoundToken: (data.compound_token ?? undefined) as Record<string, unknown> | undefined,
     verifierProofs: data.verifier_proofs ?? undefined,
     bindingPreimage: (data.binding_preimage ?? undefined) as Record<string, unknown> | undefined,
     error: (data.error ?? undefined) as string | undefined,
-    ...(typeof data.evidence_ct === 'string' ? {evidenceCt: data.evidence_ct} : {}),
   }
 }
 

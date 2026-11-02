@@ -4,10 +4,11 @@ import {sha256} from '@noble/hashes/sha256'
 import {encodeFunctionData, keccak256, toHex, type Hex} from 'viem'
 import {validate} from '../auth/oid4vp.js'
 import {keyRegistryAbi} from '../chain/abis/index.js'
-import {dualSignApprovalPayload, type DualSignApprover, type DualSignRequest} from '../committee/dual-sign.js'
+import {dualSignApprovalPayload, paidDualSignApprovalPayload, type DualSignApprover, type DualSignRequest} from '../committee/dual-sign.js'
 import {protocolHex} from '../committee/receipts.js'
 import {b64urlDecode} from '../oid4vp/jose.js'
 import type {TasraApplication, OperationAuthorizer} from './client.js'
+import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 import type {TasraIdentity} from './identity.js'
 import type {ApplicationStore} from './ready-slot.js'
 import type {TasraWallet} from './wallet.js'
@@ -87,14 +88,45 @@ export function identityApprover(identity: TasraIdentity): DualSignApprover {
  * @param options Approver identity, credential authorizer and cancellation controls.
  */
 export async function approveWithCredential(app: Pick<TasraApplication, 'deployment' | 'slots'>, request: DualSignRequest,
-  message: Uint8Array, options: {identity: TasraIdentity; authorize: OperationAuthorizer; signal?: AbortSignal; description?: string}) {
+  message: Uint8Array, options: {identity: TasraIdentity; authorize: OperationAuthorizer; signal?: AbortSignal; description?: string;
+    /** Separate reserved credential approval intent; never the final keeper Sign intent. */
+    payment?: PaymentIntentWire;
+    /** Fixed presentation random committed by the approval payment. */
+    random?: string}) {
   const {identity, authorize, signal, description} = options
-  const slotId = request.slotId as Hex, canonical = dualSignApprovalPayload(slotId, message.slice(), request.requestId)
+  const slotId = request.slotId as Hex, payment = request.payment
+  const canonical = payment ? paidDualSignApprovalPayload(app.deployment.chainId, slotId, message.slice(), request.requestId, payment)
+    : dualSignApprovalPayload(slotId, message.slice(), request.requestId)
+  signal?.throwIfAborted()
+  const current = await request.status({signal})
+  if (current.status !== 'pending') return current
+  const approvalPayment = options.payment && structuredClone(options.payment)
+  const nowSecs = Math.floor(Date.now() / 1000)
+  if (payment && (!approvalPayment || !options.random)) throw new Error('Paid credential approval needs its own reservation and presentation random')
+  if ((approvalPayment === undefined) !== (options.random === undefined)) throw new Error('Approval payment and presentation random are required together')
+  if (options.random !== undefined && !/^0x[0-9a-f]{64}$/i.test(options.random)) throw new Error('Approval presentation random must contain 32 bytes')
+  if (approvalPayment) {
+    assertPaymentIntentWire(approvalPayment)
+    if (approvalPayment.action !== 'dual-approve' || approvalPayment.chain_id !== app.deployment.chainId || approvalPayment.expires <= nowSecs ||
+      approvalPayment.key_registry.toLowerCase() !== app.deployment.addresses.KeyRegistry!.toLowerCase() ||
+      (payment && approvalPayment.settlement.toLowerCase() !== payment.settlement.toLowerCase()) ||
+      approvalPayment.slot.toLowerCase() !== slotId.toLowerCase() || !equalBytes(protocolHex(approvalPayment.payload_digest, 32, 'approval digest'), sha256(canonical))) {
+      throw new Error('Approval reservation differs from requested credential work')
+    }
+  }
   const signer = identityApprover(identity)
   signal?.throwIfAborted()
   await app.slots.frost(slotId)
   const authorization = await authorize({chainId: app.deployment.chainId, keyRegistry: app.deployment.addresses.KeyRegistry!,
-    slotId, action: 'dual-approve', payloadDigest: sha256(canonical), description: description ?? 'Approve exact document request', signal})
+    slotId, action: 'dual-approve', payloadDigest: sha256(canonical), description: description ?? 'Approve exact document request', signal,
+    ...(approvalPayment ? {payment: structuredClone(approvalPayment), random: options.random, nowSecs, ttlSecs: approvalPayment.expires - nowSecs} : {})})
   signal?.throwIfAborted()
+  if (approvalPayment) {
+    assertPaymentIntentWire(authorization.token.payment)
+    const expected = paymentIntentHash(approvalPayment)
+    if (paymentIntentHash(authorization.token.payment) !== expected ||
+      !equalBytes(protocolHex(authorization.token.payment_hash, 32, 'approval payment hash'), protocolHex(expected, 32, 'payment hash')) ||
+      !Number.isSafeInteger(authorization.token.exp) || authorization.token.exp > approvalPayment.expires) throw new Error('Credential authorization changed the reserved approval payment')
+  }
   return request.approve({signer, authorization, signal})
 }

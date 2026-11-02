@@ -48,7 +48,7 @@ function be64(n: number | bigint): Uint8Array {
  * @param action - Operation name bound into the request.
  * @param payloadDigest - 32-byte action-specific payload digest.
  */
-export function requestHash(chainId: number | bigint, slotId: Uint8Array, action: CommitteeAction, payloadDigest: Uint8Array): Uint8Array {
+export function requestHash(chainId: number | bigint, slotId: Uint8Array, action: CommitteeAction | 'relay', payloadDigest: Uint8Array): Uint8Array {
   if (slotId.length !== 32) throw new Error('requestHash: slotId must be 32 bytes')
   if (payloadDigest.length !== 32) throw new Error('requestHash: payloadDigest must be 32 bytes')
   return keccak_256(concat(utf8(REQUEST_BINDING_DOMAIN), be64(chainId), slotId, be32(action.length), utf8(action), payloadDigest))

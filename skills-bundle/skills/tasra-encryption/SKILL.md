@@ -160,7 +160,9 @@ async function decryptNote(
 
   // 1. BLS KEM-recovers the symmetric key
   const slot = await tasra.slots.bls(slotId)
+  // recipient: createDecryptionRecipient(); verifyingShares: discoverBlsSharing(...).verifyingShares
   const { plaintext: dataKey } = await slot.decrypt(aad, kemCt, {
+    recipient, verifyingShares,
     authorize,
     requireReceipts: true,
     description: `Decrypt note`,

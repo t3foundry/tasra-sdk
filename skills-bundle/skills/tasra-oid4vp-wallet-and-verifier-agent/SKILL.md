@@ -27,6 +27,24 @@ For an independently approved registered provider or separate wallet application
 wallet. Preserve authenticated provider and operation binding; a timeout or refusal
 must not redirect a presentation to a fallback provider.
 
+## Mandatory prepaid deployments
+
+For a deployment requiring client-owned execution consent, read
+[funding and paid authorization](references/advanced.md#mandatory-prepaid-deployments). Use
+`prepareRegisteredPaidSession` with the independently approved provider, original
+mined reservation, complete drawn verifier witnesses and local execution signer.
+Retain the session and owner bearer before creation; reconcile lost replies through
+the original owner-authenticated status. JAR/attest and credential approvals are
+separate stages. Validate every retained credential before accepting a presentation;
+never echo an agent proposal into client consent. Expose a wallet QR only after
+`requestObject()` checks the anchored signer and complete request context.
+
+For OAuth, retain `prepareOAuthPresentation()`'s original access token and proof
+before `submitOAuthPresentation()`. HTTP202/425 require the remaining consent flow;
+unknown outcomes require reconciliation. The client does not automatically retry a
+creation, proof submission or operator delivery. These new sources await the complete
+SDK/native verification gates; they are not a platform certification claim.
+
 ## Local development without an issuer account
 
 Read `examples/encrypted-notes.ts`, `examples/shared-account.ts` and their visible

@@ -13,8 +13,10 @@ manifest. The only application runtime dependency is `@t3foundry/tasra-sdk`.
 2. Issue a holder-bound credential with `tasra.credentials.issue` and define the
    issuer-rooted document scope with `tasra.credentials.policy`.
 3. Call `tasra.slots.create({name, mode: 'bls', policy, threshold, verifiers})`.
-4. Encrypt using `slot.encrypt(identity, bytes)`; decrypt using `slot.decrypt`
-   with `tasra.credentials.authorize(...)` and required keeper receipts.
+4. Encrypt: `slot.encrypt(aad, dataKey)` wraps a data key with BLS KEM, or
+   `slot.encryptForIdentity(identity, bytes)` uses identity-based encryption. Decrypt with
+   `slot.decrypt` or `slot.decryptForIdentity`, passing a client recipient, the slot's
+   authenticated verifying shares and `tasra.credentials.authorize(...)`.
 5. Verify the plaintext, actual server refusal for Bob, and ciphertext tampering.
 
 Creation, rule commitment/delivery, key readiness and verifier setup are SDK

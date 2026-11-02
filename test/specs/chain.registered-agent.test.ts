@@ -4,11 +4,14 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {bytesToHex, type Address, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {openRegisteredVerifierAgentSession, awaitRegisteredVerifierAgentResult, assertRegisteredWalletRequest} from '../../src/chain/registeredOperation.js'
-import {createRegisteredAgentClient, AgentSessionCreationUnknownError, type ApprovedAgentProfile, type AgentTransport} from '../../src/chain/registeredAgent.js'
+import {createRegisteredAgentClient, AgentSessionCreationUnknownError, SNAPSHOT_PENDING_REASON, type ApprovedAgentProfile, type AgentTransport, type AgentHttpResponse, type UnpaidAgentSessionRecovery} from '../../src/chain/registeredAgent.js'
+import {acceptsServiceResponse} from '../../src/chain/serviceRequestPolicy.js'
 import {authenticateApprovedService} from '../../src/chain/serviceIdentity.js'
 import type {ServiceRecord} from '../../src/chain/services.js'
 import type {TasraChainClient} from '../../src/chain/client.js'
 import type {CreateSessionParams} from '../../src/verifier-agent/index.js'
+import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, type PaymentIntentWire} from '../../src/committee/payment.js'
+import {presentationOperationTypedData} from '../../src/oid4vp/verifier-agent.js'
 vi.mock('../../src/chain/serviceIdentity.js', async original => ({...await original<typeof import('../../src/chain/serviceIdentity.js')>(), authenticateApprovedService: vi.fn()}))
 const address = (s: string) => `0x${s.repeat(20)}` as Address
 const hash = (s: string) => `0x${s.repeat(32)}` as Hex
@@ -40,6 +43,85 @@ function harness() {
 beforeEach(() => { vi.mocked(authenticateApprovedService).mockReset() })
 
 describe('registered verifier-agent sessions', () => {
+  it('restores a JSON checkpoint at the original draining provider with no new creation or discovery', async () => {
+    const h = harness(), original = await h.client.createSession(params)
+    const checkpoint = JSON.parse(JSON.stringify(original.unpaidRecovery)) as UnpaidAgentSessionRecovery
+    original.unpaidRecovery!.pollSecret = 'ff'.repeat(32)
+    expect(original.unpaidRecovery!.pollSecret).toBe(original.pollSecret)
+    h.records[0]!.status = 1; h.records[0]!.revision = 2n
+    const restarted = createRegisteredAgentClient(h.chain, {profiles: [...h.profiles].reverse(), transport: h.transport})
+    const restored = await restarted.restoreUnpaidSession(checkpoint)
+    expect(restored.sessionId).toBe(original.sessionId)
+    expect(restored.unpaidRecovery).toEqual(checkpoint)
+    checkpoint.pollSecret = 'ff'.repeat(32)
+    checkpoint.serviceProfile.endpoint = 'https://attacker.example'
+    await restored.poll()
+    const calls = vi.mocked(h.transport.agentRequest).mock.calls
+    expect(calls.filter(([, options]) => options.body !== undefined)).toHaveLength(1)
+    expect(calls.slice(1).every(([url, options]) => url === `${original.profile.endpoint}/v1/sessions/${original.sessionId}` && options.bearer === original.pollSecret)).toBe(true)
+    expect(authenticateApprovedService).toHaveBeenCalledTimes(1)
+    expect(Object.isFrozen(restored)).toBe(true)
+  })
+  it.each(['owner', 'authKey', 'pendingOwner', 'manifestHash', 'endpoint', 'retired', 'chain', 'registry', 'role', 'revision'])('restore refuses live %s changes before bearer disclosure', async change => {
+    const h = harness(), original = await h.client.createSession(params)
+    const checkpoint = original.unpaidRecovery!
+    if (change === 'owner' || change === 'authKey' || change === 'pendingOwner') h.records[0]![change] = address('99')
+    else if (change === 'manifestHash') h.records[0]!.manifestHash = hash('99')
+    else if (change === 'endpoint') h.records[0]!.endpoint = 'https://attacker.example'
+    else if (change === 'retired') h.records[0]!.status = 2
+    else if (change === 'role') h.records[0]!.serviceType = 0
+    else if (change === 'revision') h.records[0]!.revision = 0n
+    else if (change === 'registry') h.chain.addresses.ServiceRegistry = address('99')
+    else vi.mocked(h.chain.client.getChainId).mockResolvedValue(999)
+    await expect(h.client.restoreUnpaidSession(checkpoint)).rejects.toThrow()
+    expect(h.transport.agentRequest).toHaveBeenCalledTimes(1)
+    expect(original.unpaidRecovery).toEqual(checkpoint)
+  })
+  it.each(['version', 'sessionId', 'pollSecret', 'requestUri', 'qrPayload', 'approval', 'paid', 'pendingOwner', 'authKey'])('refuses malformed or substituted recovery %s before network I/O', async field => {
+    const h = harness(), original = await h.client.createSession(params)
+    const checkpoint = original.unpaidRecovery!
+    if (field === 'approval') checkpoint.serviceProfile.manifestHash = hash('99')
+    else if (field === 'paid') Object.assign(checkpoint, {payment: {nonce: hash('99')}})
+    else if (field === 'authKey') checkpoint.serviceProfile.authKey = 'invalid'
+    else Object.assign(checkpoint, {[field]: field === 'version' ? 2 : 'https://attacker.example'})
+    await expect(h.client.restoreUnpaidSession(checkpoint)).rejects.toThrow()
+    expect(h.chain.client.getChainId).not.toHaveBeenCalled()
+    expect(h.transport.agentRequest).toHaveBeenCalledTimes(1)
+  })
+  it('refuses removed approvals and mismatched result profiles without creating or switching sessions', async () => {
+    const h = harness(), original = await h.client.createSession(params), checkpoint = original.unpaidRecovery!
+    const changed = createRegisteredAgentClient(h.chain, {profiles: [h.profiles[1]!], transport: h.transport})
+    await expect(changed.restoreUnpaidSession(checkpoint)).rejects.toThrow('independently approved')
+    expect(h.transport.agentRequest).toHaveBeenCalledTimes(1)
+    vi.mocked(h.transport.agentRequest).mockResolvedValue(encoded({status: 'pending', phase: 'awaiting_wallet', binding_preimage: {service_profile: h.profilePin(1)}}))
+    await expect(h.client.restoreUnpaidSession(checkpoint)).rejects.toThrow('another session profile')
+    const calls = vi.mocked(h.transport.agentRequest).mock.calls
+    expect(calls).toHaveLength(2)
+    expect(calls[1]![1].body).toBeUndefined()
+    expect(calls[1]![0]).toContain('one.example')
+  })
+  it('honors restore cancellation before I/O and blocks a late secret after an ignored abort', async () => {
+    const h = harness(), original = await h.client.createSession(params), controller = new AbortController()
+    controller.abort()
+    await expect(h.client.restoreUnpaidSession(original.unpaidRecovery!, {signal: controller.signal})).rejects.toThrow()
+    expect(h.chain.client.getChainId).not.toHaveBeenCalled()
+    const active = new AbortController()
+    let release!: (id: number) => void
+    vi.mocked(h.chain.client.getChainId).mockImplementation(() => new Promise<number>(resolve => {release = resolve}))
+    const waiting = expect(h.client.restoreUnpaidSession(original.unpaidRecovery!, {signal: active.signal})).rejects.toThrow()
+    active.abort(); await waiting; release(31337); await Promise.resolve(); await Promise.resolve()
+    expect(h.transport.agentRequest).toHaveBeenCalledTimes(1)
+  })
+  it.each(['binding', 'token', 'reply'])('refuses paid %s state through an unpaid checkpoint without recreating the session', async where => {
+    const h = harness(), original = await h.client.createSession(params)
+    const reply: Record<string, unknown> = {status: 'pending', phase: 'awaiting_wallet', binding_preimage: {service_profile: h.profilePin(0)}}
+    if (where === 'binding') Object.assign(reply.binding_preimage as object, {payment: {nonce: hash('99')}})
+    else if (where === 'token') reply.compound_token = {payment_hash: hash('99')}
+    else reply.payment_hash = hash('99')
+    vi.mocked(h.transport.agentRequest).mockResolvedValue(encoded(reply))
+    await expect(h.client.restoreUnpaidSession(original.unpaidRecovery!)).rejects.toThrow('cannot use unpaid')
+    expect(vi.mocked(h.transport.agentRequest).mock.calls.filter(([, opts]) => opts.body)).toHaveLength(1)
+  })
   it('pins the original provider while draining, with no bearer sent during discovery', async () => {
     const h = harness(), session = await h.client.createSession(params)
     h.records[0]!.status = 1; h.records[0]!.revision = 2n
@@ -72,6 +154,70 @@ describe('registered verifier-agent sessions', () => {
     const selected = await h.client.createSession(params)
     expect(selected.profile.endpoint).toContain('two.example')
   })
+  it('names the transport reason behind an uncertain creation without retrying it', async () => {
+    // Certification run 39: the reason (an HTTP refusal status) was dropped, leaving nothing to diagnose.
+    const h = harness(), transport = new Error('Service HTTP status, content type or encoding refused (HTTP 503, application/json)')
+    vi.mocked(h.transport.agentRequest).mockRejectedValue(transport)
+    const error = await h.client.createSession(params).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(AgentSessionCreationUnknownError)
+    expect((error as Error).message).toContain('Transport: Service HTTP status, content type or encoding refused (HTTP 503, application/json)')
+    expect((error as Error).cause).toBe(transport)
+    expect(h.transport.agentRequest).toHaveBeenCalledTimes(1)
+  })
+  describe('a creation refused because no verifier snapshot is anchored yet', () => {
+    // Native certification run 41: a fresh fleet's catch-up epochs outran snapshot anchoring and
+    // the agent's pre-creation 503 was filed as an uncertain creation, which is never retried.
+    const pending = (retryAfterMs: number | null = 1, error = SNAPSHOT_PENDING_REASON): AgentHttpResponse =>
+      ({status: 503, body: new TextEncoder().encode(JSON.stringify({error})), ...(retryAfterMs === null ? {} : {retryAfterMs})})
+    function withExchange(h: ReturnType<typeof harness>, replies: AgentHttpResponse[]) {
+      const exchange = vi.fn(async (url: string, options: {body: Uint8Array}) => {
+        const next = replies.shift()
+        if (next) return next
+        const i = url.startsWith(h.profiles[0]!.endpoint) ? 0 : 1
+        expect(options.body.length).toBeGreaterThan(0)
+        return {status: 201, body: new TextEncoder().encode(JSON.stringify(h.reply(i)))}
+      })
+      h.transport.agentExchange = exchange
+      return {exchange, client: createRegisteredAgentClient(h.chain, {profiles: h.profiles, transport: h.transport})}
+    }
+    it('re-sends the identical creation after the hint and opens exactly one session', async () => {
+      const h = harness(), {exchange, client} = withExchange(h, [pending(), pending()])
+      const session = await client.createSession(params)
+      expect(session.profile.endpoint).toBe(h.profiles[0]!.endpoint)
+      expect(exchange).toHaveBeenCalledTimes(3)
+      const bodies = exchange.mock.calls.map(([, o]) => new TextDecoder().decode(o.body))
+      expect(new Set(bodies).size).toBe(1)
+      expect(h.transport.agentRequest).not.toHaveBeenCalledWith(expect.stringMatching(/\/v1\/sessions$/), expect.anything())
+    })
+    it('never retries a 503 without Retry-After or with another reason', async () => {
+      for (const reply of [pending(null), pending(1, 'beacon read failed: chain error: seed read failed')]) {
+        const h = harness(), {exchange, client} = withExchange(h, [reply])
+        const error = await client.createSession(params).catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(AgentSessionCreationUnknownError)
+        expect((error as Error).message).toContain('Transport: Agent session creation refused (HTTP 503)')
+        expect(exchange).toHaveBeenCalledTimes(1)
+      }
+    })
+    it('stops after five attempts and leaves the creation uncertain', async () => {
+      const h = harness(), {exchange, client} = withExchange(h, Array.from({length: 9}, () => pending()))
+      await expect(client.createSession(params)).rejects.toBeInstanceOf(AgentSessionCreationUnknownError)
+      expect(exchange).toHaveBeenCalledTimes(5)
+    })
+    it('never re-sends a paid creation, even for the snapshot-pending reason', async () => {
+      const h = harness(), request = await paidInput(h.profiles[0]!.clientId), {exchange, client} = withExchange(h, [pending()])
+      await expect(openRegisteredVerifierAgentSession(client, request)).rejects.toMatchObject({
+        name: 'AgentSessionCreationUnknownError', paymentHash: paymentIntentHash(request.payment),
+      })
+      expect(exchange).toHaveBeenCalledTimes(1)
+    })
+    it('admits a session-creation 503 only through the exchange, and only with a body', () => {
+      const shape = {method: 'POST', headers: {}, responseTypes: ['application/json']} as unknown as Parameters<typeof acceptsServiceResponse>[1]
+      expect(acceptsServiceResponse('agent', shape, true, 503, 'application/json')).toBe(false)
+      expect(acceptsServiceResponse('agent', shape, true, 503, 'application/json', true)).toBe(true)
+      expect(acceptsServiceResponse('agent', shape, false, 503, 'application/json', true)).toBe(false)
+      expect(acceptsServiceResponse('agent', shape, true, 201, 'application/json', true)).toBe(true)
+    })
+  })
   it('does not fail over an uncertain creation POST automatically', async () => {
     const h = harness()
     vi.mocked(h.transport.agentRequest).mockRejectedValue(new Error('lost reply'))
@@ -100,10 +246,100 @@ describe('registered verifier-agent sessions', () => {
   })
 })
 
-afterEach(() => vi.useRealTimers())
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
 const input = () => ({chainId: 31337, keyRegistry: address('12'), slotId: hash('11'), action: 'sign' as const,
   message: new Uint8Array([1, 2, 3]), description: 'Approve this exact message', signer: privateKeyToAccount(hash('01'))})
+
+async function paidInput(clientId: string) {
+  const base = {...input(), nowSecs: Math.floor(Date.now() / 1000), ttlSecs: 60}
+  const {operation} = presentationOperationTypedData(base), random = hash('01')
+  const payment: PaymentIntentWire = {chain_id: base.chainId, settlement: address('13'), key_registry: base.keyRegistry,
+    slot: base.slotId, action: 'sign', payload_digest: operation.payload_digest as Hex,
+    session_commitment: paymentSessionCommitment(random, clientId, operation.exp), nonce: hash('06'), max_cost: '10', expires: operation.exp,
+    verification_epoch: 1, verification_seed: hash('03'), verification_root: hash('02'), verification_registry_size: 3, verification_committee: 3, verification_quorum: 2,
+    keeper_assignment: {key_epoch: 1, committee_version: 2, threshold: 2, coordinator: Array<number>(32).fill(9), contributors: [9, 10, 11].map(n => Array<number>(32).fill(n))},
+    signature: `0x${'00'.repeat(65)}`}
+  payment.signature = await base.signer.signTypedData(paymentIntentTypedData(payment))
+  return {...base, payment, random}
+}
+
+describe('registered prepaid sessions', () => {
+  it('does not expose a paid session through the unpaid recovery protocol', async () => {
+    const h = harness(), request = await paidInput(h.profiles[0]!.clientId)
+    const session = await openRegisteredVerifierAgentSession(h.client, request)
+    expect(session.unpaidRecovery).toBeUndefined()
+    expect(session.paymentHash).toBe(paymentIntentHash(request.payment))
+  })
+  it('carries the exact paid intent and random, pins the hash, and refuses result downgrade or substitution', async () => {
+    const h = harness(), request = await paidInput(h.profiles[0]!.clientId)
+    const session = await openRegisteredVerifierAgentSession(h.client, request)
+    const body = JSON.parse(new TextDecoder().decode(vi.mocked(h.transport.agentRequest).mock.calls[0]![1].body)) as CreateSessionParams & {operation_sig: string}
+    expect(body.payment).toEqual(request.payment)
+    expect(body.random).toBe(request.random)
+    expect(body.operation.exp).toBe(request.payment.expires)
+    const original = structuredClone(request.payment), commitment = paymentIntentHash(original)
+    request.payment.max_cost = '999'
+    session.payment!.keeper_assignment.contributors[0]![0] = 42
+    expect(session.paymentHash).toBe(commitment)
+    expect(session.payment).toEqual(original)
+    const token = {token_type: 'JWT', seed: hash('03'), slot_id: hash('11'), vp_hash: hash('12'), holder_hash: hash('12'), rule_hash: hash('12'), epoch: 1, iat: 100,
+      exp: original.expires, request_hash: bytesToHex(session.requestHash), binding: 'holder_key', verifier_indexes: [0], signatures: [{verifier_index: 0, signature: '0x' + '34'.repeat(64)}],
+      payment: original, payment_hash: commitment}
+    const reply = (compound_token: unknown) => encoded({status: 'done', phase: 'done', compound_token, binding_preimage: {service_profile: h.profilePin(0)}})
+    vi.mocked(h.transport.agentRequest).mockResolvedValue(reply(token))
+    expect((await awaitRegisteredVerifierAgentResult(session)).token.payment).toEqual(original)
+    vi.mocked(h.transport.agentRequest).mockResolvedValue(reply({...token, payment: undefined, payment_hash: undefined}))
+    await expect(awaitRegisteredVerifierAgentResult(session)).rejects.toThrow(/payment/)
+    const other = {...original, nonce: hash('99')}
+    vi.mocked(h.transport.agentRequest).mockResolvedValue(reply({...token, payment: other, payment_hash: paymentIntentHash(other)}))
+    await expect(awaitRegisteredVerifierAgentResult(session)).rejects.toThrow(/payment/)
+  })
+  it('refuses wrong audience, random or expiry before disclosing a paid operation', async () => {
+    for (const kind of ['audience', 'random', 'expiry'] as const) {
+      const h = harness(), request = await paidInput(kind === 'audience' ? h.profiles[1]!.clientId : h.profiles[0]!.clientId)
+      if (kind === 'random') request.random = hash('99')
+      if (kind === 'expiry') request.ttlSecs++
+      await expect(openRegisteredVerifierAgentSession(h.client, request)).rejects.toThrow(/payment/)
+      expect(h.transport.agentRequest).not.toHaveBeenCalled()
+      expect(authenticateApprovedService).not.toHaveBeenCalled()
+    }
+  })
+  it('never changes a paid provider when discovery fails before POST', async () => {
+    const h = harness(), request = await paidInput(h.profiles[0]!.clientId)
+    h.records[0]!.status = 1
+    await expect(openRegisteredVerifierAgentSession(h.client, request)).rejects.toThrow(/No approved/)
+    expect(authenticateApprovedService).toHaveBeenCalledTimes(1)
+    expect(h.transport.agentRequest).not.toHaveBeenCalled()
+  })
+  it('retains the payment commitment when the session POST has an uncertain outcome', async () => {
+    const h = harness(), request = await paidInput(h.profiles[0]!.clientId)
+    vi.mocked(h.transport.agentRequest).mockRejectedValue(new Error('lost session reply'))
+    await expect(openRegisteredVerifierAgentSession(h.client, request)).rejects.toMatchObject({
+      name: 'AgentSessionCreationUnknownError', paymentHash: paymentIntentHash(request.payment),
+    })
+    expect(h.transport.agentRequest).toHaveBeenCalledTimes(1)
+    expect(authenticateApprovedService).toHaveBeenCalledTimes(1)
+  })
+  it('refuses a recomputed wallet nonce with any changed prepaid context before presentation', async () => {
+    const h = harness(), request = await paidInput(h.profiles[0]!.clientId)
+    const session = await openRegisteredVerifierAgentSession(h.client, request)
+    const binding = {operation: session.operation, payment: request.payment, random: request.random, seed: hash('03'), snapshot_root: hash('02'), epoch: 1, registry_size: 3, committee_count: 3, quorum: 2, nonce: ''}
+    const check = (changed: Partial<typeof binding> = {}) => {
+      const b = {...binding, ...changed}
+      const nonce = derivedNonce(session.requestHash, new Uint8Array(Buffer.from(b.random.slice(2), 'hex')),
+        {epoch: b.epoch, snapshotRoot: new Uint8Array(Buffer.from(b.snapshot_root.slice(2), 'hex')), registrySize: b.registry_size, committee: b.committee_count, quorum: b.quorum, operationExp: session.operation.exp})
+      const ro = {jwt: 'already-verified', header: {alg: 'EdDSA'}, signerDid: session.profile.clientId.replace('decentralized_identifier:', ''), signerKey: {kty: 'OKP', crv: 'Ed25519', x: ''}, claims: {
+        iss: session.profile.clientId.replace('decentralized_identifier:', ''), state: 'state', client_id: session.profile.clientId, response_mode: 'direct_post.jwt', response_uri: session.profile.endpoint + '/v1/response?session=' + session.sessionId, nonce, exp: session.operation.exp, dcql_query: {credentials: []},
+      }} as VerifiedRequestObject
+      assertRegisteredWalletRequest(session, ro, {status: 'pending', phase: 'awaiting_wallet', bindingPreimage: {...b, nonce}})
+    }
+    expect(() => check()).not.toThrow()
+    for (const changed of [{random: hash('99')}, {seed: hash('99')}, {snapshot_root: hash('99')}, {epoch: 2}, {registry_size: 4}, {committee_count: 2}, {quorum: 1}, {payment: {...request.payment, nonce: hash('99')}}]) {
+      expect(() => check(changed)).toThrow(/reserved payment/)
+    }
+  })
+})
 describe('registered application operation flow', () => {
   it('retains authenticated polling and checks the returned operation binding', async () => {
     const h = harness(), session = await openRegisteredVerifierAgentSession(h.client, input())

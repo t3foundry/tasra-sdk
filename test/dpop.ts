@@ -17,7 +17,7 @@ import {
   auth0DpopSigner,
   isHeaderSafeNonce,
 } from '../src/auth/dpop.js'
-import {platformAudience, dpopHtu, isValidSessionId} from '../src/committee/oauth.js'
+import {platformAudience, dpopHtu, legacyDpopHtu, isValidSessionId} from '../src/committee/oauth.js'
 import {submitOauthResponse, VerifierAgentSessionError} from '../src/verifier-agent/index.js'
 import {TasraError} from '../src/errors.js'
 
@@ -234,6 +234,19 @@ await check('platformAudience vectors match the reference implementation derivat
 
 await check('dpopHtu vectors match the reference implementation derivation', () => {
   assert.equal(
+    dpopHtu('https://agent.kk.example', '0123_ab-CD'),
+    'https://agent.kk.example/v1/sessions/0123_ab-CD/oauth-response',
+  )
+  assert.equal(dpopHtu('HTTPS://Agent.KK.Example:8443/API/', 'a'.repeat(128)),
+    `https://agent.kk.example:8443/API/v1/sessions/${'a'.repeat(128)}/oauth-response`)
+  assert.notEqual(dpopHtu('https://agent.kk.example', 'session-1'),
+    dpopHtu('https://agent.kk.example', 'session-2'))
+  assert.equal(legacyDpopHtu('https://Agent.KK.Example/'),
+    'https://agent.kk.example/v1/sessions/oauth-response')
+  for (const invalid of ['', '.', '..', 'a/b', 'a%2fb', 'a?b', 'a#b', 'a b', 'é', 'a'.repeat(129), 'x\n']) {
+    assert.throws(() => dpopHtu('https://agent.kk.example', invalid), /sessionId/)
+  }
+  assert.equal(
     dpopHtu('https://agent.kk.example', 'sess-oauth_1'),
     'https://agent.kk.example/v1/sessions/sess-oauth_1/oauth-response',
   )
@@ -266,6 +279,7 @@ await check('one deployment has ONE audience whatever the origin spelling', () =
       'https://agent.kk.example/authz/43113',
       spelling,
     )
+    assert.equal(dpopHtu(spelling, '0123_ab-CD'), 'https://agent.kk.example/v1/sessions/0123_ab-CD/oauth-response')
     assert.equal(dpopHtu(spelling, 's1'), 'https://agent.kk.example/v1/sessions/s1/oauth-response')
   }
 })

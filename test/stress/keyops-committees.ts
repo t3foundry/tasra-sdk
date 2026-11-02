@@ -30,7 +30,7 @@ import {randomBytes} from 'node:crypto'
 import {execFile} from 'node:child_process'
 import {keccak256, parseEther, toHex, type Hex} from 'viem'
 import {Suite, metric} from '../fleet/_assert.ts'
-import {discoverCommittee, gate, keeperSlotN, loadFleetConfig, mintLocalJwt, provisionRule, SLOT_DCQL_RULE} from '../fleet/_fleet.ts'
+import {discoverCommittee, gate, keeperSlotN, loadFleetConfig, mintAdminJwt, provisionRule, SLOT_DCQL_RULE} from '../fleet/_fleet.ts'
 import {frostVerify} from '../fleet/_crypto.ts'
 import {encryptEnvelope} from '../../src/crypto/envelope.ts'
 import {hexToBytes} from '../../src/crypto/hex.ts'
@@ -68,7 +68,7 @@ function pickSet(ids: number[], k: number): number[] {
 // ⚠ The whole k/n matrix below derives from this, and every case tags ['keykeeper'], so it must be
 //   the count the REGISTRY can seat — not the count that answers HTTP. See keeperSlotN.
 const NODES = (await keeperSlotN(cfg)).n
-const jwt = mintLocalJwt(cfg)
+const jwt = mintAdminJwt(cfg)
 const H = {'Content-Type': 'application/json', Authorization: `Bearer ${jwt}`}
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 

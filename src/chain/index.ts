@@ -6,7 +6,26 @@
 
 // Contract ABIs (generated from the Foundry artifacts) + nametoabi map.
 export * from './abis/index.js'
+export {UnderfundedSlotError, UnderfundedGasPayerError, PaidBackoffError, PaidApprovalUnresolvedError, PaidReservationQuotaError} from '../errors.js'
+export {readSlotFunding, readPaidOperationReceipt, resolvePaidKeeperTarget, discoverPaidOperationContext} from './prepaid.js'
+export {readBillingMode, createBillingModeDetector, requirePrepaidSlot, BillingModeError} from './billing.js'
+export {drawnVerifierWitnesses, fetchDrawnVerifierWitnesses} from './verifierSnapshot.js'
+export {encodePrepaidFaultContest, contestPrepaidFault, readPrepaidFaultResolution, submitPrepaidFaultClaim, readPrepaidFaultStatus,
+  PREPAID_FAULT_KINDS, MAX_PREPAID_FAULT_BUNDLE_BYTES} from './prepaidFault.js'
+export type {PrepaidFaultKind, PrepaidFaultVerdict, PrepaidFaultHttpOptions} from './prepaidFault.js'
+export type {OriginalVerifierPolicy} from './verifierSnapshot.js'
+export type {BillingMode, BillingModeObservation, BillingDeployment, BillingModeDetector} from './billing.js'
+export type {PrepaidDeployment, PrepaidObservation, SlotFunding, PaidOperationReceipt, ExpectedPaidOperation, PaidKeeperEndpoint, PaidKeeperTarget, PaidKeeperTransportOptions,
+  PaidContextDeployment, PaidContextOptions, DiscoveredPaymentFields, PaidOperationContext} from './prepaid.js'
+export {reservePaidOperation, reconcilePaidReservation, PaidReservationUncertainError, PaidReservationAbortedError} from './reservation.js'
+export type {PaidReservationQuote, PaidReservationRecord, PaidReservationCheckpoint, ReservePaidOperationOptions, PaidReservationResolution} from './reservation.js'
 export {SlotCommitmentExpiredError, assertExpiredSlotCommitment} from './commitmentRecovery.js'
+// Payer-side prepaid timeout escape: refund reservations nobody reconciled within the governed delay.
+export {createPrepaidEscapeClient, decodePrepaidEscapeRevert, decodePrepaidEscapeLogs, prepaidEscapeId, MAX_ESCAPE_PER_CALL, MAX_ESCAPE_REQUESTS} from './prepaidEscape.js'
+export type {PrepaidEscapeClient, PrepaidEscapeDeployment, PrepaidEscapeRequestState, PrepaidEscapeStatus, PrepaidEscapeObservation, PrepaidEscapeRecord,
+  PrepaidEscapeCheckpoint, EscapePrepaidArgs, PrepaidEscapeCallResult, PrepaidEscapeResult, ReconcileEscapeArgs, PrepaidEscapeResolution, PrepaidEscapeEvents} from './prepaidEscape.js'
+export {PrepaidEscapeError, PrepaidEscapeUncertainError, isPrepaidEscapeError} from '../errors.js'
+export type {PrepaidEscapeCode} from '../errors.js'
 
 // Deployment address discovery.
 export {
@@ -138,11 +157,27 @@ export type {ServiceType, ServiceStatus, ServiceRecord, ServiceApproval} from '.
 export {SERVICE_MANIFEST_PATH, SERVICE_IDENTITY_PATH, SERVICE_MANIFEST_MAX_BYTES, SERVICE_IDENTITY_MAX_BYTES, SERVICE_CHALLENGE_SECONDS, SERVICE_CHALLENGE_LIFETIME_SECONDS, SERVICE_IDENTITY_PROTOCOL, validateServiceEndpoint, encodeServiceManifest, verifyServiceManifest, serviceChallengeTypedData, encodeServiceChallenge, parseServiceChallenge, validateServiceChallenge, verifyServiceIdentity, authenticateApprovedService} from './serviceIdentity.js'
 export type {ServiceManifest, ServiceChallenge, ServiceDiscoveryTransport, AuthenticatedService} from './serviceIdentity.js'
 
-export {createRegisteredRelaySubmitter, reconcileRelayAttempt, RelayOutcomeUnknownError} from './registeredRelay.js'
-export type {RegisteredRelayConfig, RelayTransport, RelayAttempt, RelayIntent, RelayReconciliation} from './registeredRelay.js'
+export {createRegisteredRelaySubmitter, reconcileRelayAttempt, RelayOutcomeUnknownError, isRelayBusyReason} from './registeredRelay.js'
+export type {RegisteredRelayConfig, RelayTransport, RelayAttempt, RelayIntent, RelayReconciliation, RelayHttpResponse} from './registeredRelay.js'
+export type {RelayVoucher, RelayVoucherIntent, RelaySponsorshipConfig} from './relayVoucher.js'
+export {assertRelayVoucher, assertRelayVoucherIntent} from './relayVoucher.js'
 
 export {createRegisteredAgentClient, AgentSessionCreationUnknownError} from './registeredAgent.js'
-export type {AgentTransport, ApprovedAgentProfile, RegisteredAgentSession} from './registeredAgent.js'
+export type {AgentTransport, ApprovedAgentProfile, RegisteredAgentSession, UnpaidAgentSessionRecovery} from './registeredAgent.js'
+export type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
+export {prepareRegisteredPaidSession, PaidAgentControlError} from './registeredPaidAgent.js'
+export type {RegisteredPaidAgentSession, PaidAgentSessionParams, ClientApprovedPresentation, PaidRetainedPresentation, PaidAgentProposal,
+  PaidPacingOptions, RetainedPaidApproval, PaidApprovalDelivery} from './registeredPaidAgent.js'
+export {paidServerWaitMs, systemPacingClock} from './paidPacing.js'
+export type {PaidPacingClock} from './paidPacing.js'
+export {readClientExecutionPolicy} from './prepaid.js'
+export type {ClientExecutionDeployment, ClientExecutionObservation, PaidVerifierWitness} from './prepaid.js'
+export {readKeeperExecutionRecoveryPolicy} from './prepaid.js'
+export type {KeeperExecutionRecoveryObservation} from './prepaid.js'
+export {recoverKeeperExecution, KeeperRecoveryError} from './keeperRecovery.js'
+export type {KeeperRecoveryHttpResponse, KeeperRecoveryTransport, RecoveredKeeperExecution, RecoverKeeperExecutionOptions} from './keeperRecovery.js'
+export {createKeeperExecutionApprover} from './keeperExecution.js'
+export type {KeeperExecutionClientConsent,KeeperExecutionApproverOptions} from './keeperExecution.js'
 
 export {parseApplicationServiceProfiles, applicationServiceProfilesDocument} from './serviceProfiles.js'
 export type {ApplicationServiceProfiles, ApprovedServiceProfile} from './serviceProfiles.js'

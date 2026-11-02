@@ -1,8 +1,9 @@
 import {readFileSync} from 'node:fs'
 import {createServer, type Server} from 'node:https'
+import {createServer as createPlainServer, type Server as PlainServer} from 'node:http'
 import {lookup} from 'node:dns'
 import {afterEach, describe, expect, it, vi} from 'vitest'
-import {createNodeServiceStatusTransport, createNodeAgentWalletFetch, createNodeAgentTransport, createNodeRelayTransport, createNodeServiceDiscoveryTransport, isPublicServiceAddress} from '../../src/chain/node.js'
+import {createNodeKeeperRecoveryTransport, createNodePaidAgentTransport, createNodeServiceStatusTransport, createNodeAgentWalletFetch, createNodeAgentTransport, createNodeRelayTransport, createNodeServiceDiscoveryTransport, isPublicServiceAddress} from '../../src/chain/node.js'
 import {authenticateApprovedService, encodeServiceManifest, serviceChallengeTypedData, type ServiceChallenge, type ServiceManifest} from '../../src/chain/serviceIdentity.js'
 import {createTasraChainClient} from '../../src/chain/client.js'
 import {hashServiceManifest, type ServiceApproval, type ServiceRecord} from '../../src/chain/services.js'
@@ -31,6 +32,73 @@ afterEach(async () => {
 })
 
 describe('service HTTPS destination boundary', () => {
+  it('restricts result recovery to two bounded POST reads with verified TLS and no credential headers', async () => {
+    const hits = vi.fn()
+    const endpoint = await serve((req, res) => {hits(req.url, req.method, req.headers); req.resume()
+      res.writeHead(req.url?.endsWith('/recover') ? 403 : 200, {'content-type':'application/json'}); res.end('{}')})
+    const transport = createNodeKeeperRecoveryTransport({allowedPrivateHosts:['localhost'],ca})
+    const args = {...options(), body:new TextEncoder().encode('{}')}
+    expect(await transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).toMatchObject({status:200})
+    expect(await transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution/recover',args)).toMatchObject({status:403})
+    expect(hits.mock.calls.map(([url, method])=>[url,method])).toEqual([['/v1/prepaid/execution','POST'],['/v1/prepaid/execution/recover','POST']])
+    for(const call of hits.mock.calls){expect(call[2].authorization).toBeUndefined();expect(call[2].cookie).toBeUndefined()}
+    for(const path of ['/v1/prepaid/execution/close','/v1/sign','/v1/relay/forward','/v1/prepaid/execution?redirect=1'])
+      expect(()=>transport.keeperRecoveryRequest(endpoint+path,args)).toThrow(/path/)
+    expect(()=>transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',{...args,body:new Uint8Array(65537)})).toThrow(/bounds/)
+    await expect(createNodeKeeperRecoveryTransport({ca}).keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).rejects.toThrow(/destination policy/)
+    await expect(createNodeKeeperRecoveryTransport({allowedPrivateHosts:['localhost']}).keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).rejects.toThrow()
+    expect(hits).toHaveBeenCalledTimes(2)
+  })
+  it('permits plain local-development HTTP only when enabled, only to loopback/private hosts, with the HTTPS route checks', async () => {
+    const hits = vi.fn()
+    const plain: PlainServer = createPlainServer((req, res) => {hits(req.url, req.method, req.headers); req.resume()
+      res.writeHead(200, {'content-type':'application/json'}); res.end('{"ok":true}')})
+    await new Promise<void>(resolve => plain.listen(0, '127.0.0.1', resolve))
+    try {
+      const port = (plain.address() as {port: number}).port
+      const args = {...options(), body:new TextEncoder().encode('{}')}
+      const local = createNodeKeeperRecoveryTransport({allowLocalHttp:true})
+      for (const base of [`http://127.0.0.1:${port}`, `http://localhost:${port}`]) {
+        const reply = await local.keeperRecoveryRequest(base+'/v1/prepaid/execution', args)
+        expect(reply.status).toBe(200); expect(new TextDecoder().decode(reply.body)).toBe('{"ok":true}')
+      }
+      // An approved private host name resolving to a non-public address is also permitted.
+      vi.mocked(lookup).mockImplementationOnce(((_host: string, _o: unknown, callback: (e: null, a: {address: string; family: number}[]) => void) =>
+        callback(null, [{address:'127.0.0.1', family:4}])) as unknown as typeof lookup)
+      expect(await createNodeKeeperRecoveryTransport({allowLocalHttp:true, allowedPrivateHosts:['keeper.internal']})
+        .keeperRecoveryRequest(`http://keeper.internal:${port}/v1/prepaid/execution/recover`, args)).toMatchObject({status:200})
+      expect(hits.mock.calls.map(([url, method])=>[url,method])).toEqual([['/v1/prepaid/execution','POST'],['/v1/prepaid/execution','POST'],['/v1/prepaid/execution/recover','POST']])
+      for (const call of hits.mock.calls) {expect(call[2].authorization).toBeUndefined(); expect(call[2].cookie).toBeUndefined()}
+      // Same route checks as HTTPS.
+      for (const path of ['/v1/prepaid/execution/close','/v1/sign','/v1/prepaid/execution?x=1'])
+        expect(()=>local.keeperRecoveryRequest(`http://127.0.0.1:${port}`+path,args)).toThrow(/path/)
+      // Off by default, and never to a public host name or literal.
+      expect(()=>createNodeKeeperRecoveryTransport().keeperRecoveryRequest(`http://127.0.0.1:${port}/v1/prepaid/execution`,args)).toThrow()
+      expect(()=>createNodeKeeperRecoveryTransport({allowedPrivateHosts:['127.0.0.1']}).keeperRecoveryRequest(`http://127.0.0.1:${port}/v1/prepaid/execution`,args)).toThrow()
+      expect(()=>local.keeperRecoveryRequest('http://8.8.8.8/v1/prepaid/execution',args)).toThrow(/HTTPS/)
+      expect(()=>local.keeperRecoveryRequest('http://keeper.example.com/v1/prepaid/execution',args)).toThrow(/HTTPS/)
+      expect(()=>local.keeperRecoveryRequest('http://[2606:4700::1111]/v1/prepaid/execution',args)).toThrow(/HTTPS/)
+      expect(()=>local.keeperRecoveryRequest(`ftp://127.0.0.1:${port}/v1/prepaid/execution`,args)).toThrow()
+      // An approved name whose DNS answer is public is refused for plaintext.
+      vi.mocked(lookup).mockImplementationOnce(((_host: string, _o: unknown, callback: (e: null, a: {address: string; family: number}[]) => void) =>
+        callback(null, [{address:'8.8.8.8', family:4}])) as unknown as typeof lookup)
+      await expect(createNodeKeeperRecoveryTransport({allowLocalHttp:true, allowedPrivateHosts:['keeper.internal']})
+        .keeperRecoveryRequest(`http://keeper.internal:${port}/v1/prepaid/execution`, args)).rejects.toThrow(/DNS answer/)
+      expect(hits).toHaveBeenCalledTimes(3)
+    } finally { plain.closeAllConnections(); await new Promise<void>(resolve => plain.close(() => resolve())) }
+  })
+  it('refuses redirects and oversized recovery replies without a second request', async () => {
+    const hits=vi.fn()
+    const endpoint=await serve((req,res)=>{hits(req.url);req.resume()
+      if(req.url?.endsWith('/recover'))res.writeHead(307,{location:'/v1/sign','content-type':'application/json'})
+      else res.writeHead(200,{'content-type':'application/json'})
+      res.end('{"large":"'+'x'.repeat(200)+'"}')})
+    const transport=createNodeKeeperRecoveryTransport({allowedPrivateHosts:['localhost'],ca})
+    const args={...options(),body:new TextEncoder().encode('{}')}
+    await expect(transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution/recover',args)).rejects.toThrow(/status/)
+    await expect(transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).rejects.toThrow(/large/)
+    expect(hits).toHaveBeenCalledTimes(2)
+  })
   it('measures plaintext readiness and JSON policy only over bounded, approved TLS destinations', async () => {
     const hits = vi.fn()
     const endpoint = await serve((req, res) => {
@@ -47,6 +115,22 @@ describe('service HTTPS destination boundary', () => {
     expect(hits).toHaveBeenCalledTimes(2)
   })
 
+  it('reports status and Retry-After for relay busy refusals and paid agent waits', async () => {
+    const endpoint = await serve((req, res) => { req.resume()
+      res.writeHead(422, {'content-type': 'application/json', 'retry-after': '3'})
+      res.end('{"id":"","state":"rejected","reason":"relayer busy: the request journal is full; retry shortly or submit directly"}') })
+    const relay = createNodeRelayTransport({allowedPrivateHosts: ['localhost'], ca})
+    const reply = await relay.relayExchange!(endpoint + '/v1/relay/forward', {...options(), maxBytes: 4096, body: new Uint8Array(3)})
+    expect(reply).toMatchObject({status: 422, retryAfterMs: 3000})
+    expect(JSON.parse(new TextDecoder().decode(reply.body))).toMatchObject({state: 'rejected'})
+    // The legacy byte interface is unchanged.
+    expect(await relay.relayRequest(endpoint + '/v1/relay/forward', {...options(), maxBytes: 4096, body: new Uint8Array(3)})).toBeInstanceOf(Uint8Array)
+    const agentEndpoint = await serve((req, res) => { req.resume(); res.writeHead(425, {'content-type': 'application/json', 'retry-after': 'nonsense'}); res.end('{}') })
+    const paid = createNodePaidAgentTransport({allowedPrivateHosts: ['localhost'], ca})
+    const wait = await paid.paidAgentRequest(agentEndpoint + '/v1/sessions/' + 'a'.repeat(64), {method: 'GET', bearer: 'b'.repeat(64), maxBytes: 128, signal: new AbortController().signal})
+    expect(wait.status).toBe(425); expect(wait.retryAfterMs).toBeUndefined()
+  })
+
   it.each([200, 202, 422])('bounds relay JSON separately from discovery (HTTP %s)', async status => {
     const endpoint = await serve((req, res) => { req.resume(); res.writeHead(status, {'content-type': 'application/json'}); res.end('{}') })
     const transport = createNodeRelayTransport({allowedPrivateHosts: ['localhost'], ca})
@@ -61,6 +145,18 @@ describe('service HTTPS destination boundary', () => {
     const body = new TextEncoder().encode('{}')
     await expect(createNodeRelayTransport({ca}).relayRequest(endpoint + '/v1/relay/forward', {...options(), body})).rejects.toThrow('destination policy')
     await expect(createNodeRelayTransport({ca, allowedPrivateHosts: ['localhost']}).relayRequest(endpoint + '/v1/relay/forward', {...options(), body})).rejects.toThrow('status')
+  })
+  it('admits bounded voucher-intent POSTs over guarded TLS without widening status or arbitrary routes', async () => {
+    const hits = vi.fn()
+    const endpoint = await serve((req, res) => { hits(req.url, req.method); req.resume(); res.writeHead(200, {'content-type': 'application/json'}); res.end('{"intent":"' + 'x'.repeat(5000) + '"}') })
+    const transport = createNodeRelayTransport({allowedPrivateHosts: ['localhost'], ca})
+    const args = {...options(), maxBytes: 65_536, body: new TextEncoder().encode('{}')}
+    expect((await transport.relayRequest(endpoint + '/v1/relay/voucher-intent', args)).length).toBeGreaterThan(4096)
+    expect(hits).toHaveBeenCalledWith('/v1/relay/voucher-intent', 'POST')
+    expect(() => transport.relayRequest(endpoint + '/v1/relay/voucher-intent', {...args, body: undefined})).toThrow('method')
+    expect(() => transport.relayRequest(endpoint + '/v1/relay/forward', args)).toThrow('bounds')
+    expect(() => transport.relayRequest(endpoint + '/v1/relay/voucher-intent?next=1', args)).toThrow()
+    expect(() => transport.relayRequest(endpoint + '/v1/relay/voucher-intent', {...args, maxBytes: 65_537})).toThrow('bounds')
   })
   it.each(vector.publicAddresses)('allows public address %s', address => expect(isPublicServiceAddress(address)).toBe(true))
   it.each(vector.privateAddresses)('refuses special address %s', address => expect(isPublicServiceAddress(address)).toBe(false))
@@ -169,6 +265,36 @@ describe('agent session HTTPS transport', () => {
 })
 
 describe('registered wallet HTTPS transport', () => {
+  it.each([200, 202])('preserves HTTP %s and the original callback body without resending', async status => {
+    const hits: Array<{path?: string; bearer?: string; body: string}> = []
+    const endpoint = await serve((req, res) => {
+      const chunks: Buffer[] = []
+      req.on('data', (chunk: Buffer) => chunks.push(chunk))
+      req.on('end', () => {
+        hits.push({path: req.url, bearer: req.headers.authorization, body: Buffer.concat(chunks).toString()})
+        res.writeHead(status, {'content-type': 'application/json'})
+        res.end('{"pending":true}')
+      })
+    })
+    const session = {sessionId: 'aa'.repeat(32), profile: {endpoint, clientId: `decentralized_identifier:did:web:localhost%3A${new URL(endpoint).port}`}, requestUri: endpoint + '/v1/request/' + 'aa'.repeat(32)} as RegisteredAgentSession
+    const fetcher = createNodeAgentWalletFetch(session, {ca, allowedPrivateHosts: ['localhost']})
+    const responseUrl = endpoint + '/v1/response?session=' + session.sessionId
+    const response = await fetcher(responseUrl, {method: 'POST', headers: {authorization: 'owner-secret'}, body: 'response=original%2Bencrypted%2Bpresentation'})
+    expect(response.status).toBe(status)
+    expect(await response.json()).toEqual({pending: true})
+    expect(hits).toEqual([{path: '/v1/response?session=' + session.sessionId, bearer: undefined, body: 'response=original%2Bencrypted%2Bpresentation'}])
+  })
+  it('refuses HTTP202 for approved request objects and DID documents', async () => {
+    const endpoint = await serve((req, res) => {
+      req.resume()
+      res.writeHead(202, {'content-type': req.url?.startsWith('/v1/request/') ? 'application/oauth-authz-req+jwt' : 'application/json'})
+      res.end('{}')
+    })
+    const session = {sessionId: 'aa'.repeat(32), profile: {endpoint, clientId: `decentralized_identifier:did:web:localhost%3A${new URL(endpoint).port}`}, requestUri: endpoint + '/v1/request/' + 'aa'.repeat(32)} as RegisteredAgentSession
+    const fetcher = createNodeAgentWalletFetch(session, {ca, allowedPrivateHosts: ['localhost']})
+    await expect(fetcher(session.requestUri)).rejects.toThrow(/status/)
+    await expect(fetcher(endpoint + '/.well-known/did.json')).rejects.toThrow(/status/)
+  })
   it.each(['application/json', 'application/did+json', 'application/did+ld+json'])('accepts %s only for the approved DID document', async type => {
     const endpoint = await serve((req, res) => {req.resume(); res.writeHead(200, {'content-type': type}); res.end('{}')})
     const session = {sessionId: 'aa'.repeat(32), profile: {endpoint, clientId: `decentralized_identifier:did:web:localhost%3A${new URL(endpoint).port}`}, requestUri: endpoint + '/v1/request/' + 'aa'.repeat(32)} as RegisteredAgentSession
@@ -206,5 +332,113 @@ describe('registered wallet HTTPS transport', () => {
     await expect(fetcher('https://other.example/v1/response', {method: 'POST', body: 'secret'})).rejects.toThrow(/outside/)
     await expect(fetcher(endpoint + '/v1/response?session=' + session.sessionId, {method: 'POST', body: 'x'.repeat(1_048_577)})).rejects.toThrow(/bounds/)
     expect(hits).toHaveLength(3)
+  })
+})
+
+
+describe('paid agent owner-control HTTPS transport', () => {
+  const id = 'ab'.repeat(32), proposal = 'cd'.repeat(32), owner = 'ef'.repeat(32)
+  const session = '/v1/sessions/' + id
+  it('submits OAuth artifacts only on its guarded POST with a separate owner header and preserves HTTP202', async () => {
+    const hits: Array<{authorization?: string; owner?: string; proof?: string; body: string}> = []
+    const endpoint=await serve((req,res)=>{
+      const chunks:Buffer[]=[];req.on('data',(chunk:Buffer)=>chunks.push(chunk));req.on('end',()=>{
+        hits.push({authorization:req.headers.authorization,owner:req.headers['x-poll-secret'] as string|undefined,
+          proof:req.headers.dpop as string|undefined,body:Buffer.concat(chunks).toString()})
+        res.writeHead(202,{'content-type':'application/json'});res.end('{}')
+      })
+    })
+    const t=createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']})
+    const oauth={accessToken:'original.access.token',proof:'original.dpop.proof'}
+    expect((await t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'POST',bearer:owner,oauth})).status).toBe(202)
+    expect(hits).toEqual([{authorization:'DPoP '+oauth.accessToken,owner,proof:oauth.proof,body:''}])
+    for(const path of [session,session+'/execution','/v1/request/'+id,'/v1/sessions']){
+      expect(()=>t.paidAgentRequest(endpoint+path,{...options(),method:'POST',bearer:owner,oauth})).toThrow(/OAuth/)
+    }
+    expect(()=>t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'POST',bearer:owner})).toThrow(/paid agent/)
+    expect(()=>t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'GET',bearer:owner,oauth})).toThrow(/paid agent/)
+    expect(()=>t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'POST',bearer:owner,oauth,body:new Uint8Array()})).toThrow(/paid agent/)
+    for(const artifacts of [{...oauth,accessToken:'token\r\nX-Leak: owner'},{...oauth,proof:'malformed'},
+      {...oauth,accessToken:'x'.repeat(16385)},{...oauth,proof:'x'.repeat(4097)}]){
+      expect(()=>t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'POST',bearer:owner,oauth:artifacts})).toThrow(/OAuth/)
+    }
+    expect(hits).toHaveLength(1)
+  })
+  it('preserves consent and recovery statuses, sends bodyless POSTs and keeps owners off public routes', async () => {
+    const hits: Array<{path?: string; method?: string; bearer?: string; body: string}> = []
+    let createStatus = 201
+    const endpoint = await serve((req,res) => {
+      const chunks: Buffer[] = []
+      req.on('data', (chunk: Buffer) => chunks.push(chunk))
+      req.on('end', () => {
+        hits.push({path: req.url, method: req.method, bearer: req.headers.authorization, body: Buffer.concat(chunks).toString()})
+        if (req.url?.endsWith('/approve')) {res.writeHead(204); res.end(); return}
+        const status = req.url === '/v1/sessions' ? createStatus : req.url?.startsWith('/v1/request/') ? 425 : req.url?.endsWith('/resume') ? 503 : 200
+        res.writeHead(status, {'content-type': 'application/json'}); res.end('{}')
+      })
+    })
+    const transport = createNodePaidAgentTransport({ca, allowedPrivateHosts: ['localhost']})
+    const body = new TextEncoder().encode('{"client":"public consent"}')
+    for (const status of [201,200]) {
+      createStatus = status
+      expect((await transport.paidAgentRequest(endpoint+'/v1/sessions',{...options(),method:'POST',body})).status).toBe(status)
+    }
+    const request = await transport.paidAgentRequest(endpoint+'/v1/request/'+id,{...options(),method:'GET'})
+    expect(request.status).toBe(425)
+    expect(new TextDecoder().decode(request.body)).toBe('{}')
+    const approved = await transport.paidAgentRequest(endpoint+session+'/execution/'+proposal+'/approve',{...options(),method:'POST',bearer:owner,body})
+    expect(approved.status).toBe(204); expect(approved.body.length).toBe(0)
+    expect((await transport.paidAgentRequest(endpoint+session+'/presentations/'+proposal+'/resume',{...options(),method:'POST',bearer:owner})).status).toBe(503)
+    expect(hits.map(h=>h.bearer)).toEqual([undefined,undefined,undefined,'Bearer '+owner,'Bearer '+owner])
+    expect(hits.at(-1)?.method).toBe('POST'); expect(hits.at(-1)?.body).toBe('')
+    expect(hits).toHaveLength(5) // no automatic resend after an unknown delivery
+  })
+  it('refuses wrong paths, methods, bodies and owner-bearer disclosure before connecting', async () => {
+    const hits = vi.fn()
+    const endpoint = await serve((_req,res) => {hits();res.end('{}')})
+    const t = createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']})
+    const body = new TextEncoder().encode('{}')
+    for (const [path,method,secret,bytes] of [
+      [session+'/execution','GET',undefined,undefined],
+      ['/v1/sessions','POST',owner,body],
+      ['/v1/request/'+id,'GET',owner,undefined],
+      [session+'/execution','POST',owner,body],
+      [session+'/execution/'+proposal+'/approve','GET',owner,body],
+      [session+'/execution/'+proposal+'/approve','POST',owner,undefined],
+      [session+'/execution/'+proposal+'/reject','POST',owner,body],
+      [session+'/presentations/'+proposal+'/resume','GET',owner,undefined],
+      [session+'/presentations/'+proposal+'/resume','POST','wrong',undefined],
+      [session+'/execution?elsewhere=1','GET',owner,undefined],
+      [session+'/../execution','GET',owner,undefined],
+    ] as const) {
+      expect(()=>t.paidAgentRequest(endpoint+path,{...options(),method,bearer:secret,body:bytes})).toThrow(/paid agent/)
+    }
+    expect(hits).not.toHaveBeenCalled()
+  })
+  it('applies private-address, TLS and redirect refusal to owner controls', async () => {
+    const hits = vi.fn()
+    const endpoint = await serve((req,res) => {hits(req.headers.authorization);req.resume();res.writeHead(307,{'content-type':'application/json',location:'https://other.example/secret'});res.end('{}')})
+    const opts = {...options(),method:'GET' as const,bearer:owner}
+    await expect(createNodePaidAgentTransport({ca}).paidAgentRequest(endpoint+session+'/execution',opts)).rejects.toThrow(/destination policy/)
+    await expect(createNodePaidAgentTransport({allowedPrivateHosts:['localhost']}).paidAgentRequest(endpoint+session+'/execution',opts)).rejects.toThrow()
+    expect(hits).not.toHaveBeenCalled()
+    await expect(createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']}).paidAgentRequest(endpoint+session+'/execution',opts)).rejects.toThrow(/status/)
+    expect(hits).toHaveBeenCalledExactlyOnceWith('Bearer '+owner)
+  })
+  it('bounds chunked proposals and rejects a JSON success in place of the signed request object', async () => {
+    const endpoint = await serve((req,res) => {req.resume();res.writeHead(200,{'content-type':'application/json'});res.end('x'.repeat(129))})
+    const t = createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']})
+    await expect(t.paidAgentRequest(endpoint+session+'/execution',{...options(),method:'GET',bearer:owner})).rejects.toThrow(/too large/)
+    await expect(t.paidAgentRequest(endpoint+'/v1/request/'+id,{...options(),method:'GET'})).rejects.toThrow(/content type/)
+  })
+  it('cancels an owner control without retrying its POST', async () => {
+    const hits = vi.fn()
+    const endpoint = await serve(req => {hits();req.resume()})
+    const t = createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']})
+    const controller = new AbortController()
+    const pending = t.paidAgentRequest(endpoint+session+'/execution/'+proposal+'/reject',{...options(),method:'POST',bearer:owner,signal:controller.signal})
+    const failed = expect(pending).rejects.toThrow()
+    controller.abort(); await failed
+    expect(hits.mock.calls.length).toBeLessThanOrEqual(1)
   })
 })

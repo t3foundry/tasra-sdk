@@ -1,0 +1,59 @@
+{
+  "chain_id": 31337,
+  "epoch": 0,
+  "ibe": {
+    "aead_ct": "83e65cb2d57381d9f65da9167b6a8de5a411cc02aabbac3ac4d9dbd6b37cd3754232b180ff",
+    "nonce": "776b2e92d8f3b2f0e90240f6",
+    "u": "99efacdc7579a52adafa6f5dfefb49c6cac0d5210db64ca0f842858fad47097acbfb015b0e9e25c11edbb65897e5569008a141aff484f43c2928bb3b87f56aa9a85a618a7afef5feefee885b877b8eae47826e37b508f68e13177c3b12e48812"
+  },
+  "ibe_digest": "3c37d338f21b3b6db7be01012bc82ea5fadccb60db5eb403d3db1183957ecc70",
+  "ibe_request_hash": "fa23c4122371fc9c075eb546d7d5a24b0729a63cb4e1801800d3716a9cb1a244",
+  "identity": "did:example:owner/secrets/test/v1",
+  "kem": {
+    "aead_ct": "305dad21982d73f0f4c98b343bbe894b2411d0eecc3bfd18c920786af011288df01346c184",
+    "nonce": "dee7808d86bc490f2ad189e5",
+    "u": "81357788784ad850a9ec86861c48b4f5931b57448b99d107fbf02fd597dc99a3640f21fcc491e3a8ef356332dc874afb00fe489f0fc040708c8a7e51352d4baefc4787b359aabc72291beec23015e29177450ad1cd261c49290dd17fd2280cf0"
+  },
+  "kem_content_digest": "2649123fc7d8bf9521a6ef66f0f64086ad879564d015fa5283a7b623983611d7",
+  "kem_digest": "4b7305f5eb3b32cf962f3ea92b0b2ef81cd85e966dd89e8a645e2fcfbb2a6ec4",
+  "kem_request_hash": "3b6306328eee5957f580ba345d5b2773bdcf57c4be8d8ce693921c16053e86e1",
+  "notice": "PUBLIC TEST KEYS ONLY",
+  "plaintext": "7075626c6963207465737420706c61696e74657874",
+  "private_key": "7e407f3b8e3b5869eba40161422f80be2fe9e0f1ddcbe033c0e1702722f9581e",
+  "recipient": {
+    "public_key": "0733e57d90577a2dc5acbcd53aeb56e8c7aabb12792c13f0d41cb1801e947124",
+    "suite": "hpke-x25519-sha256-chacha20poly1305"
+  },
+  "shares": [
+    {
+      "ibe_partial": "959c458eb406c458abdf3b49424e273e0704baa2930cda8c0b812de9bec9ed1ae5bd4036e1debfa32e669c0b976c576a",
+      "ibe_sealed": {
+        "ciphertext": "BtKNFadG0shDX7H9QttVlrcp4x+BSKEwzRzCdhaz46S1II+qWW8VsMBjGBBbcn5trS+dXWkEzxEs9NFpNPMWNA==",
+        "enc": "ospMw1DEeDHwgK2zB2723nqebly9+7QszG8D1g1ZfCI="
+      },
+      "identifier": 1,
+      "kem_partial": "80596ca59274374aedca9bd10099de6ba32ef2857182e16aafa63e96e1699bda7cbdfd8f4971e1f34644560ca4f0d28512d25543b34efbffa082e71519a84fa2d5bab737bc3c2aa8ca0411b6f3af86d90635bd48a31908cdf22d9ed4f318d973",
+      "kem_sealed": {
+        "ciphertext": "xf/Ay5QYQPlrES3qHc9KXo2xB5nwRxSpg054eqhKChMqxvrKQ/sYtartHIUq4OcC9pAvBvVHe3Swv8RSuYVr3xnMtUlQqyQQ6cqG30e4TfwV38jQm3paVXImKgdzxS/ptt09dk5Tmif11qpK8KhvYg==",
+        "enc": "aQLs/wiLZ4GRWH4mGge5R5PG1lHGnlkC5/o2rG9MQE0="
+      },
+      "verifying_share": "a294b38060a3ed5d95b4a18f960eb62a057a74586d1e4c4288388c9b65e0949f97ed6656f823555b892c6dadac839513191ef160193a44f5ed396d3c7d5e371118eab76b33014fae84928215f839ce82273cd4579db42b152cf2bd43fdf3ac4bb8615a722a4e52d484df7ee2026dd3c09cb0f50ed4289ea528e661e5700a324234174bfdc78cd3485e8e5780421bc690"
+    },
+    {
+      "ibe_partial": "a53f9dbcd02d7dfb26ee273720487a736ea28920f359b42555105cb1e9aa8f17d4a0231ef58bb44475f2f7c9c5d233b8",
+      "ibe_sealed": {
+        "ciphertext": "BqVAmngDJtjxZm1tI628YpI5wa/WctIndDrUDTIkl8+O6r6Pa50+4WaOQI41RhAlIIY7/A/JSvL+DCzFawRcPw==",
+        "enc": "7SEm6YDBzgCo+BtPpSOmNceTlbJPrYUGiR0yiMgCMS8="
+      },
+      "identifier": 2,
+      "kem_partial": "8987d53f526322c2e4560551fde3e0e752f3d7bfcae88bdf11ec3ea227c95b3a104bc8c008d6bef3557fe12cf449865418f04e863c82978846b5326c56224a10f7e4aaa2fdb8e662305f1a7c06c23c6ee97104d006bdc9f7ef572342bbb53600",
+      "kem_sealed": {
+        "ciphertext": "7lndz7JmTWcLNk0frD2gwERca7MG8fb5k890btQFwVh1wxUovx026RoPnGQOTPtNpJigJcBHlIBVvieLA9bYgj489uriR+bmmJmjWLijLh3u47tCUl8z3rZXZxTJw5ut3lxn9TyWm3Olx7TBtds3oA==",
+        "enc": "01jqO0ntd04qlB0TadD1quJzhGeap/lC+L85NECcDxc="
+      },
+      "verifying_share": "ac7bda44e6fedf4c702de715d3d638a33142974d568ab83367ed5932655aa6bca2ae29aca988437238fcc006f7494c33047e99bbf2ff26eba5e302561e0d666d73a67293bb8a9456d0ebae834a3eca6e0bbac31c246b37f6b3ee2ceb65e08fffafe93af51512a623655ef8e842761068015b5b8aac3d05832527247784f9da12b3c6a2b0fe83e7db3eae045e27ef3b5b"
+    }
+  ],
+  "slot_id": "2222222222222222222222222222222222222222222222222222222222222222",
+  "threshold": 2
+}

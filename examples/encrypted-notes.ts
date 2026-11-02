@@ -4,6 +4,8 @@ import {sha256} from '@noble/hashes/sha256'
 import {utf8ToBytes} from '@noble/hashes/utils'
 import {decryptPayloadDigest} from '@t3foundry/tasra-sdk/oid4vp'
 import type {ReadySlotJournal} from '@t3foundry/tasra-sdk/app'
+import {createDecryptionRecipient, hexToBytes} from '@t3foundry/tasra-sdk'
+import {discoverBlsSharing} from '@t3foundry/tasra-sdk/committee'
 import {createTutorial} from './tutorial-support.js'
 
 async function main() {
@@ -35,8 +37,22 @@ async function main() {
   dataKey.fill(0)
   await store.save('encrypted-document', {recordId, aad, kemCt, aesCt, iv})
 
-  // Alice presents her credential to authorize decryption.
-  const opened = await notes.decrypt(aad, kemCt, {authorize: authorize('alice'),
+  // Alice presents her credential to authorize decryption. The client creates a fresh recipient and
+  // reads the slot's authenticated verifying shares; keepers seal their shares to that recipient and
+  // the client verifies and combines them, so the data key is never assembled on a keeper.
+  const sealed = async () => {
+    const chain = tasra.chain, slot = notes.slotId
+    const [canonical, chainId, operators] = await Promise.all([chain.readers.keyRegistry.getKeySlot(slot),
+      chain.client.getChainId(), chain.readers.keyRegistry.assignedNodes(slot)])
+    const keepers = await Promise.all(operators.map(async operator => {
+      const node = await chain.readers.nodeRegistry.nodeOf(operator)
+      return {operator, nodeUrl: node.url, publicKey: hexToBytes(node.pubkey)}
+    }))
+    const sharing = await discoverBlsSharing({chainId, slotId: slot, epoch: Number(canonical.epoch),
+      committeeVersion: Number(canonical.committeeVersion), threshold: canonical.threshold.k, keepers})
+    return {recipient: await createDecryptionRecipient(), verifyingShares: sharing.verifyingShares}
+  }
+  const opened = await notes.decrypt(aad, kemCt, {...await sealed(), authorize: authorize('alice'),
     signal: AbortSignal.timeout(120_000), requireReceipts: true})
   let openedNote: Uint8Array | undefined
   try {
@@ -56,7 +72,7 @@ async function main() {
     const tamperedAead = kemCt.aeadCt.slice() as Uint8Array
     tamperedAead[0]! ^= 1
     const tampered = {u: kemCt.u.slice(), nonce: kemCt.nonce.slice(), aeadCt: tamperedAead}
-    const bad = await notes.decrypt(aad, tampered, {authorize: authorize('alice'),
+    const bad = await notes.decrypt(aad, tampered, {...await sealed(), authorize: authorize('alice'),
       signal: AbortSignal.timeout(120_000), requireReceipts: true})
     bad.plaintext.fill(0) // unreachable; throw before zeroizing
   } catch (error) {
@@ -73,8 +89,7 @@ async function main() {
   save('evidence.json', {chainId: tasra.deployment.chainId, addresses: tasra.deployment.addresses,
     slotId: notes.slotId, creation: {slotId: notes.slotId, commitTx, revealTx, targetEpoch, seeded},
     createdAt: new Date().toISOString(), alice: 'decrypted', bob: refusal, tamperRejected,
-    shareTrust: opened.shareTrust, receipts: opened.evidence.map(e => ({operator: e.operator, identifier: e.identifier,
-      status: e.receiptStatus}))})
+    shareTrust: opened.shareTrust})
   console.log(`PASS: Alice decrypted, Bob refused by verifier, tamper rejected. Evidence: ${directory}/evidence.json`)
 }
 

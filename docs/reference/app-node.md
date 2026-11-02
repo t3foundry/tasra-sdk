@@ -1,4 +1,4 @@
-# @t3foundry/tasra-sdk/app/node
+# tasra-sdk/app/node
 
 Generated from public TypeScript exports.
 
@@ -19,9 +19,9 @@ Clients, adapters and error classes.
 
 A state lock is already held and requires reconciliation before manual removal.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L28)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/store-errors.ts#L6)
 
-Import: `import {StoreLockedError} from '@t3foundry/tasra-sdk/app/node'`
+Import: `import {StoreLockedError} from 'tasra-sdk/app/node'`
 
 ```ts
 declare class StoreLockedError {
@@ -56,9 +56,9 @@ Operations you can import and call.
 
 The directory is private, trusted application state, not an untrusted shared folder.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L67)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L75)
 
-Import: `import {createFileStore} from '@t3foundry/tasra-sdk/app/node'`
+Import: `import {createFileStore} from 'tasra-sdk/app/node'`
 
 ```ts
 declare function createFileStore(directory: string): ApplicationStore;
@@ -85,13 +85,15 @@ Options, data structures and return types.
 
 Durable private state storage with exclusive locking for each named operation.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L11)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L12)
 
 ```ts
 export interface ApplicationStore {
     load<T>(key: string): Promise<T | undefined>;
     save<T>(key: string, value: T): Promise<void>;
     withLock<T>(key: string, action: () => Promise<T>): Promise<T>;
+    list?(prefix: string): Promise<string[]>;
+    claim?(key: string): Promise<boolean>;
 }
 ```
 
@@ -100,3 +102,5 @@ Fields:
 - **` load `**: Load a saved value, or return undefined when the key does not exist.
 - **` save `**: Atomically persist private state before resolving.
 - **` withLock `**: Exclusively serialize work for the key across all participating processes or tabs.
+- **` list `**: Optional: keys starting with `prefix`, in any order. Used only for one-time maintenance such as backfilling the paid operation index; stores without it still work everywhere else.
+- **` claim `**: Optional: atomically and durably create the record `key` only if it does not exist, across all participating processes or tabs. Resolves true for exactly one caller, false when the key already exists. Paid approvals use it as a one-use, generation-bound send claim; without it a retained approval is sent once and never resent.

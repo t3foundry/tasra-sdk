@@ -1,3 +1,6 @@
+import {recipientPayloadDigest,type DecryptionBindingWire} from '../crypto/recipient.js'
+import {sha256} from '@noble/hashes/sha256'
+import {evidenceBody} from '../committee/evidence.js'
 // The RELYING PARTY half against the Verifier Agent: the app that wants an authorization
 // signs the operation tuple with the slot creator's EVM key (EIP-712 `PresentationOperation`),
 // opens a session, hands the `openid4vp://` payload to a wallet as a QR or deep link, and later
@@ -6,11 +9,13 @@
 // Adds EIP-712 operation signing and action-specific payload binding to the session client.
 
 import {bytesToHex, hexToBytes} from '../crypto/hex.js'
+import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 import type {CompoundTokenWire} from '../committee/token.js'
 import type {VerifierProof} from '../committee/client.js'
-import {VerifierAgentSessionError, createOid4vpSession, waitForSession, type CreateSessionResult, type PresentationDelegation, type PresentationOperation, type WaitOpts, type SessionStatusResult} from '../verifier-agent/index.js'
+import {assertCompoundTokenWire, VerifierAgentSessionError, createOid4vpSession, waitForSession, type CreateSessionResult, type PresentationDelegation, type PresentationOperation, type WaitOpts, type SessionStatusResult} from '../verifier-agent/index.js'
 import {payloadDigestFor, requestHash, type CommitteeAction} from './binding.js'
 import {utf8} from './jose.js'
+import {sessionPaymentFields} from '../verifier-agent/payment.js'
 
 export {createOid4vpSession, pollOid4vpSession, waitForSession, payloadDigest, nextPollDelay, assertCompoundTokenWire, VerifierAgentSessionError} from '../verifier-agent/index.js'
 export type {SessionPhase, VerifierAgentSessionErrorKind, WaitOpts} from '../verifier-agent/index.js'
@@ -48,6 +53,8 @@ export interface TypedDataSigner {
 
 /** Slot operation, payload context and authorization lifetime used to construct EIP-712 typed data. */
 export interface OperationInput {
+  /** Public recipient and epoch metadata bound into the operation digest before creator authorization. */
+  decryption?: DecryptionBindingWire
   /** EVM chain identifier. */
   chainId: number
   /** The KeyRegistry address - the EIP-712 `verifyingContract`. */
@@ -84,7 +91,21 @@ export function presentationOperationTypedData(input: OperationInput): {
   const slot = typeof input.slotId === 'string' ? hexToBytes(input.slotId) : input.slotId
   if (slot.length !== 32) throw new Error('slotId must be 32 bytes')
   const messageBytes = input.action === 'ibe-extract' ? (input.identity !== undefined ? utf8(input.identity) : undefined) : input.message
-  const digest = payloadDigestFor(input.action, {message: input.message, identity: input.identity, payloadDigest: input.payloadDigest})
+  let digest:Uint8Array
+  if(input.action==='decrypt'||input.action==='ibe-extract'){
+    const d=input.decryption;if(!d)throw new Error('Recipient binding required before decryption authorization')
+    if(input.action==='ibe-extract'&&input.identity===undefined)throw new Error('IBE requires identity')
+    const content=input.action==='ibe-extract'?sha256(utf8(input.identity!)):hexToBytes(d.content_digest??'')
+    if(input.action==='ibe-extract'&&d.content_digest!==undefined){
+      const supplied=hexToBytes(d.content_digest)
+      if(supplied.length!==32||!content.every((b,i)=>b===supplied[i]))throw new Error('IBE content digest differs from identity')
+    }
+    digest=recipientPayloadDigest(content,d.ciphertext_epoch,d.recipient)
+    if(input.payloadDigest&&(input.payloadDigest.length!==32||!digest.every((b,i)=>b===input.payloadDigest![i])))throw new Error('Supplied digest differs from recipient binding')
+  }else{
+    if(input.decryption)throw new Error('Recipient binding only applies to decryption')
+    digest=payloadDigestFor(input.action,{message:input.message,identity:input.identity,payloadDigest:input.payloadDigest})
+  }
   // The verifier-agent requires `message_hex` and, for sign / ibe-extract, derives the digest from it; for the
   // other actions the digest is taken as signed, so the digest itself is the message it stores.
   const messageHex = bytesToHex(messageBytes ?? digest)
@@ -112,6 +133,10 @@ export function presentationOperationTypedData(input: OperationInput): {
 
 /** Operation, signing wallet and verifier-agent endpoint for opening a presentation session. */
 export interface OpenVerifierAgentSessionOpts extends OperationInput {
+  /** Already reserved creator payment, fixed before opening the session. */
+  payment?: PaymentIntentWire
+  /** Random committed in payment.session_commitment. Required with payment. */
+  random?: string
   /** Verifier-agent HTTP base URL for the selected network. */
   verifierAgentUrl: string
   /** The slot creator's key, or a delegate's (with `delegation`). */
@@ -122,6 +147,8 @@ export interface OpenVerifierAgentSessionOpts extends OperationInput {
 
 /** Opened wallet session with its signed operation and expected request-binding hash. */
 export interface OpenedVerifierAgentSession extends CreateSessionResult {
+  /** Expected payment commitment; a result may not change or discard it. */
+  paymentHash?: string
   /** Signed operation details presented for authorization. */
   operation: PresentationOperation
   /** The binding hash the token will carry - compare with the token's `request_hash`. */
@@ -137,14 +164,25 @@ export interface OpenedVerifierAgentSession extends CreateSessionResult {
  */
 export async function openVerifierAgentSession(opts: OpenVerifierAgentSessionOpts): Promise<OpenedVerifierAgentSession> {
   const {typedData, operation, messageHex, payloadDigest} = presentationOperationTypedData(opts)
-  const operationSig = await opts.signer.signTypedData(typedData)
-  const session = await createOid4vpSession(opts.verifierAgentUrl, {operation, operationSig, delegation: opts.delegation, messageHex})
+  const payment = opts.payment && structuredClone(opts.payment), random = opts.random
+  const delegation = opts.delegation && structuredClone(opts.delegation), verifierAgentUrl = opts.verifierAgentUrl
+  sessionPaymentFields({operation, operationSig: '0x', messageHex, payment, random})
+  const paymentHash = payment && paymentIntentHash(payment)
   const slot = typeof opts.slotId === 'string' ? hexToBytes(opts.slotId) : opts.slotId
-  return {...session, operation, requestHash: requestHash(opts.chainId, slot, opts.action, payloadDigest), verifierAgentUrl: opts.verifierAgentUrl}
+  const expectedRequestHash = requestHash(opts.chainId, slot, opts.action, payloadDigest)
+  const operationSig = await opts.signer.signTypedData(typedData)
+  const session = await createOid4vpSession(verifierAgentUrl, {operation, operationSig, delegation, messageHex, payment, random, decryption:opts.decryption})
+  return {...session, operation, ...(paymentHash ? {paymentHash} : {}), requestHash: expectedRequestHash, verifierAgentUrl}
 }
 
 /** Compound committee token with optional request preimage and verifier membership proofs. */
 export interface VerifierAgentResult {
+  /**
+   * Sealed presentation ciphertext the token's `evidence_hash` binds, when the committee
+   * sealed one: retain it and forward it unchanged to every keeper call (`evidenceCt`); a keeper
+   * with `require_committee_evidence` refuses the token without it.
+   */
+  evidenceCt?: string
   /** Compound committee authorization token. */
   token: CompoundTokenWire
   /** Operation context used to derive the request-binding hash. */
@@ -155,12 +193,6 @@ export interface VerifierAgentResult {
    * (`api.require_verifier_proofs`) refuses a committee request without them.
    */
   verifierProofs?: VerifierProof[]
-  /**
-   * the sealed presentation the token's `evidence_hash` binds, when the committee
-   * sealed one — hand it to every keeper call (`evidenceCt`); a keeper with
-   * `require_committee_evidence` refuses the token without it.
-   */
-  evidenceCt?: string
 }
 
 /**
@@ -193,7 +225,7 @@ export function verifierAgentVerifierProofs(raw: unknown): VerifierProof[] | und
  * @param session - Opened session credentials and expected request-binding hash.
  * @param opts - Polling intervals, timeout, cancellation and progress callback.
  */
-export async function awaitVerifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'verifierAgentUrl' | 'sessionId' | 'pollSecret' | 'requestHash'>, opts: {intervalMs?: number; timeoutMs?: number} & WaitOpts = {}): Promise<VerifierAgentResult> {
+export async function awaitVerifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'verifierAgentUrl' | 'sessionId' | 'pollSecret' | 'requestHash' | 'paymentHash'>, opts: {intervalMs?: number; timeoutMs?: number} & WaitOpts = {}): Promise<VerifierAgentResult> {
   const {intervalMs, timeoutMs, ...wait} = opts
   const r = await waitForSession(session.verifierAgentUrl, session.sessionId, session.pollSecret, intervalMs, timeoutMs, wait)
   return verifierAgentResult(session, r)
@@ -205,12 +237,19 @@ export async function awaitVerifierAgentResult(session: Pick<OpenedVerifierAgent
  * @param session - Session identifier and expected request-binding hash.
  * @param r - Completed session status to validate and decode.
  */
-export function verifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'sessionId' | 'requestHash'>, r: SessionStatusResult): VerifierAgentResult {
+export function verifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'sessionId' | 'requestHash' | 'paymentHash'>, r: SessionStatusResult): VerifierAgentResult {
   if (r.status !== 'done' || !r.compoundToken) throw new VerifierAgentSessionError('refused', session.sessionId, `presentation ${r.status}: ${r.error ?? 'no token'}`)
-  const token = r.compoundToken as unknown as CompoundTokenWire
+  const token = assertCompoundTokenWire(r.compoundToken, session.sessionId) as unknown as CompoundTokenWire
+  try { evidenceBody(token, r.evidenceCt) }
+  catch { throw new VerifierAgentSessionError('protocol', session.sessionId, 'the token lacks its bound sealed evidence') }
   const rh = (token as unknown as {request_hash?: string}).request_hash
   if (!rh || rh.replace(/^0x/, '').toLowerCase() !== bytesToHex(session.requestHash).replace(/^0x/, '').toLowerCase()) {
     throw new VerifierAgentSessionError('protocol', session.sessionId, 'the token does not bind the request this session opened')
+  }
+  const actualPayment = token.payment_hash?.replace(/^0x/, '').toLowerCase()
+  const expectedPayment = session.paymentHash?.replace(/^0x/, '').toLowerCase()
+  if (actualPayment !== expectedPayment || (expectedPayment && !token.payment)) {
+    throw new VerifierAgentSessionError('protocol', session.sessionId, 'the token does not bind the payment this session opened')
   }
   let verifierProofs: VerifierProof[] | undefined
   try {

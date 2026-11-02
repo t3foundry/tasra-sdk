@@ -1,20 +1,29 @@
 import {equalBytes} from '@noble/curves/utils.js'
 import {sha256} from '@noble/hashes/sha256'
+import {decryptionBinding, kemContentDigest, type ClientRecipient} from '../crypto/recipient.js'
+import {decryptWithCommitteePartials} from '../decryption/sealed.js'
+import {keccak_256} from '@noble/hashes/sha3'
+import {utf8ToBytes} from '@noble/hashes/utils'
 import {recoverAddress, toHex, type Hex} from 'viem'
 import {createTasraChainClient, type TasraChainClient} from '../chain/client.js'
 import {addressFromEoaPubkey, type EoaSignature} from '../signing/ecdsa.js'
 import {verify} from '../crypto/frost.js'
 import {kemEncrypt, type Ciphertext} from '../crypto/envelope.js'
+import {ibeEncrypt, type IbeCiphertext} from '../crypto/ibe.js'
+import {decryptIdentityStrict, extractIdentityStrict, type StrictExtractionOptions} from '../committee/extraction.js'
 import {TasraError} from '../errors.js'
-import {committeeSign, committeeDecrypt, type VerifierProof} from '../committee/client.js'
+import {committeeSign, type VerifierProof} from '../committee/client.js'
 import {committeeSignEoaDigest} from '../committee/ecdsa.js'
 import {createDualSignClient} from '../committee/dual-sign.js'
 import {auditOperationId, protocolHex, verifyOperationReceipt} from '../committee/receipts.js'
 import {compoundTokenHash, decodeCompoundToken, type CompoundTokenWire} from '../committee/token.js'
-import {payloadDigestFor, requestHash, decryptPayloadDigest} from '../oid4vp/binding.js'
+import {payloadDigestFor, requestHash} from '../oid4vp/binding.js'
 import type {OperationInput} from '../oid4vp/verifier-agent.js'
-import type {BlsPeer} from '../decryption/client.js'
 import {defineDeployment, type TasraDeployment} from './deployment.js'
+import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
+import {resolvePaidKeeperTarget, type PaidKeeperEndpoint, type PaidKeeperTarget} from '../chain/prepaid.js'
+import {createKeeperExecutionApprover,type KeeperExecutionClientConsent} from '../chain/keeperExecution.js'
+import {resolveKeeperMembers, withNetworkDeadline} from '../internal/network.js'
 
 /**
  * Failure categories for deployment, slot, authorization and result validation.
@@ -31,6 +40,8 @@ export class TasraApplicationError extends TasraError {
  * Holder-bound committee token and verifier membership proofs for one operation.
  */
 export interface OperationGrant {
+  /** Exact sealed presentation ciphertext for this grant. */
+  evidenceCt?: string
   /** Fresh compound verifier token bound to the holder and exact operation. */
   token: CompoundTokenWire
   /** Membership proofs for the verifiers that authorized the operation. */
@@ -40,6 +51,10 @@ export interface OperationGrant {
  * Immutable operation details presented to the application authorizer.
  */
 export type AuthorizationRequest = Readonly<OperationInput & {
+  /** Fixed creator intent for the already mined reservation; never replace it during authorization. */
+  payment?: PaymentIntentWire
+  /** Presentation random committed by the payment. */
+  random?: string
   /** Cancellation signal propagated to the authorization provider. */
   signal?: AbortSignal
 }>
@@ -49,6 +64,12 @@ export type OperationAuthorizer = (request: AuthorizationRequest) => Promise<Ope
  * Authorization callback, consent description and cancellation controls for a protected operation.
  */
 export interface AuthorizedOperationOptions {
+  /** Required with payment: original creator certificate and client-only execution signer. */
+  execution?:KeeperExecutionClientConsent
+  /** Existing creator-signed reservation intent for this exact operation. Requires random. */
+  payment?: PaymentIntentWire
+  /** Fixed presentation random committed before reservation. Requires payment. */
+  random?: string
   /**
    * Obtain a fresh holder-bound grant for this exact operation.
    */
@@ -66,10 +87,25 @@ export interface AuthorizedOperationOptions {
    */
   userSignature?: Uint8Array
 }
+
+/** Authorization, receipt requirements and fan-out deadline for a BLS identity operation. */
+export interface IdentityExtractionOptions extends AuthorizedOperationOptions {
+  /** Client-held recipient prepared before reserving a paid extraction. */
+  recipient?: ClientRecipient
+  /** Independently authenticated public package; 144-byte G2 || G1 per identifier. */
+  verifyingShares?: ReadonlyMap<number, Uint8Array>
+  /** Require an authenticated receipt from every extraction share used. Default false. */
+  requireReceipts?: boolean
+  /** Complete keeper extraction deadline in milliseconds, including approvals and
+   * response bodies. Default 10000. Does not cover the preceding wallet authorization. */
+  timeoutMs?: number
+}
 /**
  * Deployment, chain reader and transport choices used by the application client.
  */
 export interface TasraApplicationConfig {
+  /** Permit paid keeper HTTP only on local chain43112; otherwise HTTPS is required. */
+  allowLocalPaidHttp?: boolean
   /** Application-approved chain, registry and coordinator configuration. */
   deployment: TasraDeployment
   /** Reuse the read client in an existing app. Its actual chain is checked before use. */
@@ -123,6 +159,7 @@ export function createTasra(config: TasraApplicationConfig) {
     if (chain.addresses[name]?.toLowerCase() !== deployment.addresses[name]!.toLowerCase()) throw new TasraError(`Injected chain client uses a different ${name}`)
   }
   const route = config.keeperUrl ?? ((url: string) => url), fetchImpl = config.fetchImpl
+  const allowLocalPaidHttp = config.allowLocalPaidHttp === true
   async function assertChain() {
     if (await chain.client.getChainId() !== deployment.chainId) throw new TasraApplicationError('CHAIN_MISMATCH', 'RPC chain does not match the application deployment')
   }
@@ -151,22 +188,51 @@ export function createTasra(config: TasraApplicationConfig) {
       throw new TasraApplicationError('SLOT_CHANGED', 'Slot changed while authorization was pending; authorize a new operation')
     }
   }
-  async function keepers(slotId: Hex) {
-    const assigned = await chain.readers.keyRegistry.assignedNodes(slotId)
-    const nodes = await Promise.all(assigned.map(async operator => {
-      const [node, id] = await Promise.all([chain.readers.nodeRegistry.nodeOf(operator), chain.readers.nodeRegistry.operatorIdOf(operator)])
-      return {operator, nodeUrl: route(node.url), publicKey: protocolHex(node.pubkey, 32, 'keeper identity key'), id}
-    }))
-    if (!nodes.length) throw new TasraError('Slot has no assigned keepers')
-    if (deployment.coordinator === 'lowest-operator-id') nodes.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-    return nodes
+  async function keepers(slotId: Hex, caller?: AbortSignal) {
+    return withNetworkDeadline(async signal => {
+      const assigned = await chain.readers.keyRegistry.assignedNodes(slotId)
+      const nodes = await resolveKeeperMembers(assigned, async operator => {
+        const [node, id] = await Promise.all([chain.readers.nodeRegistry.nodeOf(operator), chain.readers.nodeRegistry.operatorIdOf(operator)])
+        return {operator, nodeUrl: route(node.url), publicKey: protocolHex(node.pubkey, 32, 'keeper identity key'), id}
+      }, signal)
+      if (!nodes.length) throw new TasraError('Slot has no assigned keepers')
+      if (deployment.coordinator === 'lowest-operator-id') nodes.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      return nodes
+    }, caller)
   }
-  async function authorize(s: SlotMetadata, action: OperationInput['action'], payload: Pick<OperationInput, 'message' | 'identity' | 'payloadDigest'>, options: AuthorizedOperationOptions) {
+  function paidNode(member: PaidKeeperEndpoint) {
+    const url = new URL(route(member.url))
+    if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:'
+      && !(allowLocalPaidHttp && deployment.chainId === 43112 && url.protocol === 'http:'))) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Mapped paid keeper endpoint violates transport policy')
+    return {operator: member.operator, nodeUrl: url.toString().replace(/\/$/, ''), publicKey: protocolHex(member.publicKey, 32, 'paid keeper identity')}
+  }
+  async function authorize(s: SlotMetadata, action: OperationInput['action'], payload: Pick<OperationInput, 'message' | 'identity' | 'payloadDigest' | 'decryption'>, options: AuthorizedOperationOptions) {
     options.signal?.throwIfAborted()
-    const expectedDigest = payloadDigestFor(action, payload)
+    const payment = options.payment && structuredClone(options.payment), random = options.random
+    const execution=options.execution&&{certificate:structuredClone(options.execution.certificate),signer:options.execution.signer}
+    if ((payment === undefined) !== (random === undefined) || (random !== undefined && (typeof random !== 'string' || !/^0x[0-9a-f]{64}$/i.test(random)))) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Payment and its fixed presentation random are required together')
+    if((payment===undefined)!==(execution===undefined))throw new TasraApplicationError('INVALID_AUTHORIZATION','Paid keeper work requires the original client execution certificate and signer')
+    const expectedDigest = payload.decryption ? payload.payloadDigest! : payloadDigestFor(action, payload)
     const expected = requestHash(deployment.chainId, protocolHex(s.slotId, 32, 'slot'), action, expectedDigest)
+    const paidTarget = async (): Promise<PaidKeeperTarget | undefined> => {
+      if (!payment) return undefined
+      const settlement = deployment.addresses.Settlement
+      if (!settlement || action === 'dual-approve') throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Paid operation needs a pinned Settlement and a supported fee action')
+      const target = await resolvePaidKeeperTarget(chain.client, {chainId: deployment.chainId, settlement, keyRegistry: deployment.addresses.KeyRegistry!}, payment,
+        {slot: s.slotId, action: action === 'sign' && s.mode === 2 ? 'eoa-sign' : action, payloadDigest: toHex(expectedDigest)}, {allowLocalHttp: allowLocalPaidHttp})
+      if (target.mode !== s.mode || target.groupPublicKey.toLowerCase() !== s.publicKey.toLowerCase() || payment.keeper_assignment.key_epoch !== s.epoch) throw new TasraApplicationError('SLOT_CHANGED', 'Paid slot changed before keeper execution')
+      paidNode(target)
+      target.contributors.forEach(paidNode)
+      return target
+    }
+    // Refuse missing funding or changed assignments before asking for credentials. Re-read
+    // afterward too: authorization can take long enough for a rotation, expiry or settlement.
+    await paidTarget()
+    const nowSecs = Math.floor(Date.now() / 1000)
+    if (payment && payment.expires <= nowSecs) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Reserved payment expired before authorization')
     const grant = structuredClone(await options.authorize(Object.freeze({chainId: deployment.chainId, keyRegistry: deployment.addresses.KeyRegistry!, slotId: s.slotId,
       action, ...payload, message: payload.message?.slice(), payloadDigest: payload.payloadDigest?.slice(),
+      ...(payment ? {payment: structuredClone(payment), random, nowSecs, ttlSecs: payment.expires - nowSecs} : {}),
       description: options.description ?? `Tasra ${action}`, signal: options.signal})))
     options.signal?.throwIfAborted()
     if (grant.token.binding !== 'holder_key' || !Number.isSafeInteger(grant.token.exp) || grant.token.exp * 1000 <= Date.now() ||
@@ -174,9 +240,22 @@ export function createTasra(config: TasraApplicationConfig) {
       !equalBytes(protocolHex(grant.token.request_hash, 32, 'request hash'), expected) || !grant.verifierProofs.length) {
       throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Grant must be fresh and holder-bound to this exact operation')
     }
+    if (payment) {
+      const actual = decodeCompoundToken(grant.token).paymentHash
+      if (!grant.token.payment || !actual || !equalBytes(actual, protocolHex(paymentIntentHash(payment), 32, 'payment commitment')) || grant.token.exp > payment.expires) {
+        throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Grant changed or discarded the reserved payment')
+      }
+    } else if (grant.token.payment != null || grant.token.payment_hash != null) {
+      throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Grant introduced an unexpected payment')
+    }
     await unchanged(s)
+    const target = await paidTarget()
     options.signal?.throwIfAborted()
-    return grant
+    const approveExecution=payment&&execution?createKeeperExecutionApprover({client:chain.client,
+      deployment:{chainId:deployment.chainId,settlement:deployment.addresses.Settlement!,keyRegistry:deployment.addresses.KeyRegistry!},
+      payment,expected:{slot:s.slotId,action:action==='sign'&&s.mode===2?'eoa-sign':action,payloadDigest:toHex(expectedDigest)},
+      ...execution,transportPolicy:{allowLocalHttp:allowLocalPaidHttp},keeperUrl:route}):undefined
+    return {...grant, paidTarget: target,approveExecution}
   }
   return {
     /** Validated configuration for the selected deployment. */
@@ -214,10 +293,10 @@ export function createTasra(config: TasraApplicationConfig) {
           async signDigest(input: Uint8Array, options: AuthorizedOperationOptions): Promise<EoaSignature> {
             if (input.length !== 32) throw new TasraError('Ethereum digest must be exactly 32 bytes')
             const digest = input.slice(), s = await ready(slotId, 2)
-            const grant = await authorize(s, 'sign', {message: digest}, options), node = (await keepers(slotId))[0]!
+            const grant = await authorize(s, 'sign', {message: digest}, options), node = grant.paidTarget ? paidNode(grant.paidTarget) : (await keepers(slotId, options.signal))[0]!
             options.signal?.throwIfAborted()
-            const result = await committeeSignEoaDigest({nodeUrl: node.nodeUrl, committeeToken: grant.token, verifierProofs: grant.verifierProofs,
-              digest, userSignature: options.userSignature, targetKeykeeper: node.operator, signal: options.signal, fetchImpl})
+            const result = await committeeSignEoaDigest({nodeUrl: node.nodeUrl, committeeToken: grant.token, evidenceCt: grant.evidenceCt, verifierProofs: grant.verifierProofs,
+              digest, userSignature: options.userSignature, targetKeykeeper: node.operator, signal: options.signal, fetchImpl,approveExecution:grant.approveExecution})
             const publicKey = protocolHex(s.publicKey, 33, 'secp256k1 public key')
             const recovered = await recoverAddress({hash: toHex(digest), signature: {r: toHex(result.r), s: toHex(result.s), yParity: result.yParity}})
             if (!equalBytes(result.groupPublicKey, publicKey) || recovered.toLowerCase() !== addressFromEoaPubkey(publicKey).toLowerCase()) throw new TasraApplicationError('INVALID_RESULT', 'Signature does not match the anchored Ethereum account')
@@ -241,10 +320,10 @@ export function createTasra(config: TasraApplicationConfig) {
            */
           async sign(input: Uint8Array, options: AuthorizedOperationOptions & {requireReceipt?: boolean}) {
             const message = input.slice(), s = await ready(slotId, 0)
-            const grant = await authorize(s, 'sign', {message}, options), node = (await keepers(slotId))[0]!
+            const grant = await authorize(s, 'sign', {message}, options), node = grant.paidTarget ? paidNode(grant.paidTarget) : (await keepers(slotId, options.signal))[0]!
             options.signal?.throwIfAborted()
-            const result = await committeeSign({nodeUrl: node.nodeUrl, committeeToken: grant.token, message, verifierProofs: grant.verifierProofs,
-              targetKeykeeper: node.operator, userSignature: options.userSignature, signal: options.signal, fetchImpl})
+            const result = await committeeSign({nodeUrl: node.nodeUrl, committeeToken: grant.token, evidenceCt: grant.evidenceCt, message, verifierProofs: grant.verifierProofs,
+              targetKeykeeper: node.operator, userSignature: options.userSignature, signal: options.signal, fetchImpl,approveExecution:grant.approveExecution})
             const publicKey = protocolHex(s.publicKey, 32, 'FROST public key')
             if (!equalBytes(result.groupPublicKey, publicKey) || !equalBytes(result.messageSha256, sha256(message)) || result.epoch !== s.epoch ||
               !equalBytes(protocolHex(result.keySlotId, 32, 'result slot'), protocolHex(slotId, 32, 'slot')) || !verify(publicKey, message, result.signature)) {
@@ -257,9 +336,26 @@ export function createTasra(config: TasraApplicationConfig) {
             return {...result, receiptStatus: verified ? 'verified' as const : 'absent' as const}
           },
           /** Quorum and approval mode must come from the application's independently pinned policy. */
-          async approvals(policy: {quorum: number; credentialGated: boolean}) {
-            const s = await ready(slotId, 0), node = (await keepers(slotId))[0]!
-            return createDualSignClient({chainId: deployment.chainId, nodeUrl: node.nodeUrl, slotId, groupPublicKey: protocolHex(s.publicKey, 32, 'FROST public key'), ...policy, fetchImpl})
+          async approvals(policy: {quorum: number; credentialGated: boolean; payment?: PaymentIntentWire;execution?:KeeperExecutionClientConsent}) {
+            const payment = policy.payment && structuredClone(policy.payment)
+            const execution=policy.execution&&{certificate:structuredClone(policy.execution.certificate),signer:policy.execution.signer}
+            if((payment===undefined)!==(execution===undefined))throw new TasraApplicationError('INVALID_AUTHORIZATION','Paid dual creation requires its original client execution certificate and signer')
+            const s = await ready(slotId, 0)
+            let node
+            if (payment) {
+              const settlement = deployment.addresses.Settlement
+              if (!settlement) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Paid dual-control needs a pinned Settlement')
+              const target = await resolvePaidKeeperTarget(chain.client, {chainId: deployment.chainId, settlement, keyRegistry: deployment.addresses.KeyRegistry!}, payment,
+                {slot: slotId, action: 'sign', payloadDigest: payment.payload_digest}, {allowLocalHttp: allowLocalPaidHttp})
+              if (target.mode !== s.mode || target.groupPublicKey.toLowerCase() !== s.publicKey.toLowerCase() || payment.keeper_assignment.key_epoch !== s.epoch) throw new TasraApplicationError('SLOT_CHANGED', 'Paid dual-control sharing changed')
+              node = paidNode(target)
+            } else node = (await keepers(slotId))[0]!
+            const approveExecution=payment&&execution?createKeeperExecutionApprover({client:chain.client,
+              deployment:{chainId:deployment.chainId,settlement:deployment.addresses.Settlement!,keyRegistry:deployment.addresses.KeyRegistry!},
+              payment,expected:{slot:slotId,action:'sign',payloadDigest:payment.payload_digest},...execution,
+              transportPolicy:{allowLocalHttp:allowLocalPaidHttp},keeperUrl:route}):undefined
+            return createDualSignClient({chainId: deployment.chainId, nodeUrl: node.nodeUrl, slotId, groupPublicKey: protocolHex(s.publicKey, 32, 'FROST public key'),
+              quorum: policy.quorum, credentialGated: policy.credentialGated, payment, fetchImpl,approveExecution})
           },
         }
       },
@@ -273,6 +369,18 @@ export function createTasra(config: TasraApplicationConfig) {
           if (![194, 290].includes(s.publicKey.length)) throw new TasraError('Invalid anchored BLS public key')
           return protocolHex(s.publicKey, (s.publicKey.length - 2) / 2, 'BLS public key').slice(0, 96)
         }
+        const extraction = async (identity: string, options: IdentityExtractionOptions) => {
+          options.signal?.throwIfAborted()
+          if (!options.recipient || !options.verifyingShares) throw new TasraError('Client recipient and authenticated public sharing required before extraction authorization')
+          const s = await ready(slotId, 1)
+          const binding = decryptionBinding(sha256(utf8ToBytes(identity)), s.epoch, options.recipient)
+          const grant = await authorize(s, 'ibe-extract', {identity, ...binding}, options)
+          const opts: StrictExtractionOptions = {chainId: deployment.chainId, slotId, threshold: s.threshold.k, epoch: s.epoch,
+            recipient: options.recipient, verifyingShares: options.verifyingShares,
+            groupPublicKey: groupKey(s), keepers: grant.paidTarget ? grant.paidTarget.contributors.map(paidNode) : await keepers(slotId, options.signal), shareTrust: 'anchored-group', committeeToken: grant.token, evidenceCt: grant.evidenceCt,
+            verifierProofs: grant.verifierProofs, identity, userSignature: options.userSignature, signal: options.signal, fetchImpl, requireReceipts: options.requireReceipts,approveExecution:grant.approveExecution, timeoutMs: options.timeoutMs}
+          return opts
+        }
         return {
           /** Identifier of the BLS key-encryption slot. */
           slotId,
@@ -285,57 +393,51 @@ export function createTasra(config: TasraApplicationConfig) {
             return kemEncrypt(groupKey(await ready(slotId, 1)), aad, dataKey)
           },
           /**
-           * Authorize and recover the KEM-wrapped symmetric key via committee custody decrypt.
+           * Authorize and recover the KEM-wrapped symmetric key from verified, recipient-sealed threshold shares.
            * @param aad Original authenticated data from encryption.
            * @param kemCt BLS KEM ciphertext wrapping the symmetric key.
            * @param options Fresh authorization and optional verified-receipt requirement.
            */
-          async decrypt(aad: Uint8Array, kemCt: Ciphertext, options: AuthorizedOperationOptions & {requireReceipts?: boolean}) {
-            const s = await ready(slotId, 1)
-            const pd = decryptPayloadDigest(kemCt.u, kemCt.aeadCt)
-            const grant = await authorize(s, 'decrypt', {payloadDigest: pd}, options)
+          async decrypt(aad: Uint8Array, kemCt: Ciphertext, options: IdentityExtractionOptions) {
+            // Recipient-bound partial decryption: keepers return sealed shares and the client verifies
+            // and combines them. Keeper-side custody decryption (`/v1/committee/decrypt`) is retired
+            // under the production runtime policy, so this path is the only one a production keeper serves.
             options.signal?.throwIfAborted()
-            const assigned = await keepers(slotId)
-            const coordinator = assigned[0]!
-            // Resolve BLS peer identifiers from each assigned keeper's public info.
-            const blsPeers: BlsPeer[] = []
-            for (const k of assigned) {
-              try {
-                const res = await (fetchImpl ?? fetch)(`${k.nodeUrl}/v1/info`, {signal: options.signal})
-                if (res.ok) {
-                  const info = await res.json() as {peer_id?: string; node_identifier?: number}
-                  if (info.peer_id && info.node_identifier !== undefined) {
-                    blsPeers.push({id: info.node_identifier, peerId: info.peer_id})
-                  }
-                }
-              } catch { /* skip unreachable keepers */ }
-            }
-            blsPeers.sort((a, b) => a.id - b.id)
-            const decryptingSet = blsPeers.slice(0, s.threshold.k).map(p => p.id)
-            if (decryptingSet.length < s.threshold.k) throw new TasraError('Not enough reachable keeper peers for threshold decryption')
-            const plaintext = await committeeDecrypt({
-              nodeUrl: coordinator.nodeUrl,
-              committeeToken: grant.token,
-              verifierProofs: grant.verifierProofs,
-              ciphertext: kemCt,
-              identity: aad,
-              decryptingSet,
-              blsPeers,
-              ciphertextEpoch: s.epoch,
-              userSignature: options.userSignature,
-              targetKeykeeper: coordinator.operator,
-              fetchImpl,
-            })
-            return {
-              plaintext,
-              shareTrust: 'anchored-group' as const,
-              evidence: assigned.slice(0, 1).map(k => ({
-                operator: k.operator,
-                identifier: 0,
-                nodeUrl: k.nodeUrl,
-                receiptStatus: 'unverified' as const,
-              })),
-            }
+            if (!options.recipient || !options.verifyingShares) throw new TasraError('Client recipient and authenticated public sharing required before decryption authorization')
+            const s = await ready(slotId, 1)
+            const binding = decryptionBinding(kemContentDigest(kemCt, aad), s.epoch, options.recipient)
+            const grant = await authorize(s, 'decrypt', binding, options)
+            const nodes = grant.paidTarget ? grant.paidTarget.contributors.map(paidNode) : await keepers(slotId, options.signal)
+            const plaintext = await decryptWithCommitteePartials({nodeUrls: nodes.map(k => k.nodeUrl), chainId: deployment.chainId,
+              committeeToken: grant.token, recipient: options.recipient, ciphertextEpoch: s.epoch, verifyingShares: options.verifyingShares,
+              threshold: s.threshold.k, verifierProofs: grant.verifierProofs, userSignature: options.userSignature, evidenceCt: grant.evidenceCt,
+              approveExecution: grant.approveExecution, signal: options.signal, fetchImpl, ciphertext: kemCt, identity: aad})
+            return {plaintext, shareTrust: 'anchored-group' as const}
+          },
+          /**
+           * Identity-based encryption (IBE) to an identity string, such as a patient or document id.
+           * Public-key encryption; no credential or network authorization is requested.
+           * @param identity Exact identity string the ciphertext is bound to.
+           * @param plaintext Bytes to encrypt.
+           */
+          async encryptForIdentity(identity: string, plaintext: Uint8Array) { return ibeEncrypt(groupKey(await ready(slotId, 1)), utf8ToBytes(identity), plaintext) },
+          /**
+           * Authorize identity-key extraction and decrypt an IBE ciphertext after verifying threshold shares.
+           * @param identity Exact encryption identity string.
+           * @param ciphertext Encrypted payload bound to that identity.
+           * @param options Fresh authorization and optional verified-receipt requirement.
+           */
+          async decryptForIdentity(identity: string, ciphertext: IbeCiphertext, options: IdentityExtractionOptions) {
+            return decryptIdentityStrict({...await extraction(identity, options), ciphertext})
+          },
+          /**
+           * Authorize and extract the identity's IBE private key.
+           * Explicit custody: the returned identity key persists independently of token expiry.
+           * @param identity Exact encryption identity string.
+           * @param options Fresh authorization and optional verified-receipt requirement.
+           */
+          async extractIdentityKey(identity: string, options: IdentityExtractionOptions) {
+            return extractIdentityStrict(await extraction(identity, options))
           },
         }
       },
@@ -356,6 +458,6 @@ export type EcdsaSlot = Awaited<ReturnType<TasraApplication['slots']['ecdsa']>>
  */
 export type FrostSlot = Awaited<ReturnType<TasraApplication['slots']['frost']>>
 /**
- * BLS KEM handle: wraps/unwraps a symmetric key with authorized custody decryption.
+ * BLS slot handle: KEM key wrapping (encrypt/decrypt) and identity-based encryption (encryptForIdentity/decryptForIdentity/extractIdentityKey), each decrypted from verified threshold shares.
  */
 export type BlsSlot = Awaited<ReturnType<TasraApplication['slots']['bls']>>

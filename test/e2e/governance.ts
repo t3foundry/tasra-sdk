@@ -22,7 +22,8 @@
 
 import {keccak256, toHex} from 'viem'
 import {Suite} from '../fleet/_assert.ts'
-import {discoverCommittee, gate, loadFleetConfig, mintLocalJwt, provisionRule} from '../fleet/_fleet.ts'
+import {discoverCommittee, gate, loadFleetConfig, mintAdminJwt, provisionRule} from '../fleet/_fleet.ts'
+import {isPinnedGovernanceSlotRefusal} from '../fleet/_production-refusals.ts'
 
 const cfg = loadFleetConfig()
 const s = new Suite('e2e: governance partial-sign')
@@ -33,9 +34,9 @@ if (!(await gate(s, cfg))) {
 }
 
 if (!cfg.governanceSlotId) {
-  s.info('no GOVERNANCE_SLOT_ID in the fleet env — bring the fleet up with GOVERNANCE_K>0')
+  s.ok('fleet published a governance slot id', false, 'GOVERNANCE_SLOT_ID is required for governance acceptance')
   s.done()
-  process.exit(0)
+  process.exit(1)
 }
 
 const K = 2
@@ -60,7 +61,7 @@ if (committee.length === 0) s.done()
 // no bearer JWT satisfies, and partial-sign is JWT-authorized. Without the salt the keeper cannot
 // reproduce ruleCommitment and refuses the rule, and the node then fails partial-sign closed — so an
 // unprovisioned rule is reported HERE, not as an unexplained 403 below.
-const adminJwt = mintLocalJwt(cfg)
+const adminJwt = mintAdminJwt(cfg)
 if (cfg.governanceRule && cfg.governanceRuleSalt) {
   const prov = await provisionRule(committee, slotId, cfg.governanceRule, cfg.governanceRuleSalt, adminJwt)
   s.ok('governance slot rule + salt provisioned on the committee', prov.ok, prov.errors.join('; '))
@@ -72,7 +73,7 @@ if (cfg.governanceRule && cfg.governanceRuleSalt) {
 const digest = keccak256(toHex('keykeeper-governance-action: setParam(quorumBps, 6000)'))
 
 // ── partial-sign with the governance:sign scope ───────────────────────────────
-const jwt = mintLocalJwt(cfg, {scope: ['governance:sign', 'EmployeeOf:dept=Engineering']})
+const jwt = mintAdminJwt(cfg, {scope: ['governance:sign', 'EmployeeOf:dept=Engineering']})
 const partials: Array<{identifier: number; partial: string; epoch: number}> = []
 for (const u of committee) {
   const r = await fetch(`${u}/v1/governance/partial-sign`, {
@@ -111,24 +112,30 @@ s.ok('partials share one epoch (same key version)', got && new Set(partials.map(
 // answers 404 — which would "pass" a refusal check while proving nothing about mode enforcement.
 const blsCommittee = cfg.slotId ? await discoverCommittee(cfg, cfg.slotId) : []
 if (blsCommittee.length > 0) {
+  const publicResponse = await fetch(`${blsCommittee[0]}/v1/keys/${cfg.slotId}/public`, {signal: AbortSignal.timeout(10000)})
+  s.eq('ordinary slot public key is available', publicResponse.status, 200)
+  const ordinary = await publicResponse.json() as {mode?: string}
+  s.eq('ordinary slot is BLS12-381', ordinary.mode, 'bls')
+  s.ok('ordinary slot differs from the governance pin', cfg.slotId.toLowerCase() !== slotId.toLowerCase())
   const wrongMode = await fetch(`${blsCommittee[0]}/v1/governance/partial-sign`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json', Authorization: `Bearer ${jwt}`},
     body: JSON.stringify({key_slot_id: cfg.slotId, digest}),
   })
   const body = await wrongMode.text()
-  // Assert the REASON, not just the status: 400 alone could be a malformed-request path.
+  // SP-02 pins the governance identity before reading mode or policy. Require
+  // that exact refusal; unrelated scope, transport or missing-slot errors fail.
   s.ok(
     'partial-sign refuses a BLS12-381 key slot',
-    wrongMode.status === 400 && /governance signing requires a BN254 governance slot/.test(body),
+    isPinnedGovernanceSlotRefusal(wrongMode.status, body, cfg.slotId),
     `HTTP ${wrongMode.status}: ${body.slice(0, 160)}`,
   )
 } else {
-  s.info('no committee for the demo BLS slot — skipping the wrong-mode refusal check')
+  s.ok('ordinary BLS slot has an assigned committee', false, 'Cannot prove foreign-slot refusal without the original slot')
 }
 
 // ── scope gate: a token WITHOUT governance:sign is rejected ───────────────────
-const noGov = mintLocalJwt(cfg, {scope: ['EmployeeOf:dept=Engineering', 'admin']})
+const noGov = mintAdminJwt(cfg, {scope: ['EmployeeOf:dept=Engineering', 'admin']})
 const denied = await fetch(`${committee[0]}/v1/governance/partial-sign`, {
   method: 'POST',
   headers: {'Content-Type': 'application/json', Authorization: `Bearer ${noGov}`},

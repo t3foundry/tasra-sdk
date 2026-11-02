@@ -174,6 +174,18 @@ it('refuses an unknown authType before anything is signed', async () => {
   expect(mocks.submit).not.toHaveBeenCalled()
 })
 
+it.each(['createSlot', 'createSlotCommitReveal'] as const)('%s binds governance authorization to the BN254 authority mode', async method => {
+  const h = fixture()
+  await expect(h.writer[method]({...h.args, authType: 'governance'})).rejects.toThrow(/governance.*bls-bn254/)
+  await expect(h.writer[method]({...h.args, mode: 'bls-bn254', authType: 'oid4vp'})).rejects.toThrow(/governance.*bls-bn254/)
+  expect(mocks.submit).not.toHaveBeenCalled()
+  expect(mocks.read).not.toHaveBeenCalled()
+  await h.writer[method]({...h.args, mode: 'bls-bn254', authType: 'governance'})
+  const call = relayed().at(-1)!
+  expect(call.args![4]).toBe(3)
+  expect(call.args![5]).toBe(3)
+})
+
 
 it.each(['createSlot', 'createSlotCommitReveal'] as const)('%s accepts a rule with unchanged on-chain commitment', async method => {
   const h = fixture()

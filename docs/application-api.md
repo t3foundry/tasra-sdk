@@ -9,6 +9,12 @@ credentials. Existing `createTasra` and lower-level APIs remain available. The a
 chooses its policy, consent behavior and private storage; the SDK handles network
 operations and cryptographic checks.
 
+For a prepaid deployment, reserve the creator-signed operation with
+`reserveApplicationPayment` and retain its original session. Use one durable store and a
+dedicated gas payer across operations; recover uncertain submissions with
+`reconcileApplicationPayment` before spending again. See [slot funding](funding.md) for
+the required discovery, fee limits, journal guarantees and recovery limits.
+
 Install the latest SDK from npm as your application dependency. TypeScript and
 `tsx` are development tools:
 
@@ -241,9 +247,17 @@ it; after a lost response, look up that hash before considering another submissi
 const notes = await tasra.slots.bls(slotId)
 // issuerDid is the trusted credential issuer pinned by this slot's rule.
 const identity = `${issuerDid}/notes/${crypto.randomUUID()}/version/1`
-const ciphertext = await notes.encrypt(identity, new TextEncoder().encode('Hello'))
-const {plaintext, evidence} = await notes.decrypt(identity, ciphertext, {authorize})
+const ciphertext = await notes.encryptForIdentity(identity, new TextEncoder().encode('Hello'))
+// recipient: createDecryptionRecipient(); verifyingShares: discoverBlsSharing(...).verifyingShares
+const {plaintext, evidence} = await notes.decryptForIdentity(identity, ciphertext, {recipient, verifyingShares, authorize})
 ```
+
+The handle offers two schemes. `encryptForIdentity` / `decryptForIdentity` / `extractIdentityKey`
+are identity-based encryption (IBE): encrypt to an identity string before anyone holds a key,
+and decryption is scoped to that identity. `encrypt(aad, dataKey)` / `decrypt(aad, kemCt, ...)`
+wrap a 32-byte data key with BLS KEM under the slot itself; see the
+[encrypted-notes guide](encrypted-notes.md). Both decrypt on the client from verified,
+recipient-sealed threshold shares.
 
 This uses `kk_scope_namespace: 'issuer'`: the credential must grant this identity,
 and the committed rule must require the scope claim. The complete
@@ -253,6 +267,13 @@ Encryption needs only the anchored public key. Decryption requires a distinct
 assigned keeper quorum, one epoch, valid shares and a combined identity key matching
 the chain-anchored group key. Temporary extraction shares and the intermediate
 identity key are cleared. The returned plaintext belongs to your app.
+
+Extraction completes after the first verified quorum and cancels remaining keeper
+requests. Invalid replies and duplicate share identifiers do not count. A stalled
+fetch, approval or response body cannot hold the fan-out past its deadline (10 seconds
+by default; pass `timeoutMs` in the identity operation options to change it).
+This deadline starts after wallet authorization. Replies are limited to 16 KiB.
+Cancelling a request does not undo paid work a keeper already started.
 
 Use a fresh identity for every immutable document version. An extracted identity
 key is a durable capability: token expiry does not revoke it. `extractIdentity`

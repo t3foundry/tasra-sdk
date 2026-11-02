@@ -49,6 +49,7 @@ import {
   type Jwk,
 } from '../src/oid4vp/jose.ts'
 import {concatKdf, decryptJwe, encryptJwe} from '../src/oid4vp/jwe.ts'
+import {RECIPIENT_SUITE, recipientPayloadDigest} from '../src/crypto/recipient.ts'
 import {
   didJwkIssuer,
   holderCnf,
@@ -512,8 +513,8 @@ const fill = (n: number, v: number): Uint8Array => new Uint8Array(n).fill(v)
   // For decrypt/dual-approve there is no message, so the DIGEST is what gets stored.
   eq(
     'with no message, message_hex is the digest itself',
-    presentationOperationTypedData({...base, slotId, action: 'decrypt', message: undefined, payloadDigest: fill(32, 0x5a)}).messageHex,
-    `0x${hex(fill(32, 0x5a))}`,
+    presentationOperationTypedData({...base, slotId, action: 'decrypt', message: undefined, decryption: {recipient: {suite: RECIPIENT_SUITE, public_key: hex(fill(32, 1))}, ciphertext_epoch: 0, content_digest: hex(fill(32, 0x5a))}}).messageHex,
+    `0x${hex(recipientPayloadDigest(fill(32, 0x5a), 0, {suite: RECIPIENT_SUITE, public_key: hex(fill(32, 1))}))}`,
   )
   // A hex slot id and a byte slot id must produce the same operation.
   eq('a byte slot id matches the hex form', hex(presentationOperationTypedData({...base, slotId: fill(32, 0xcd)}).payloadDigest), hex(built.payloadDigest))
@@ -525,7 +526,13 @@ const fill = (n: number, v: number): Uint8Array => new Uint8Array(n).fill(v)
   // the caller distinguishes a protocol fault from a refusal, and retries only one of them.
   const requestHashBytes = fill(32, 0x77)
   const session = {sessionId: 'sess-1', requestHash: requestHashBytes}
-  const goodToken = {request_hash: `0x${hex(requestHashBytes)}`} as unknown as Parameters<typeof verifierAgentResult>[1]['compoundToken']
+  const field = `0x${'11'.repeat(32)}`
+  const goodToken = {
+    request_hash: `0x${hex(requestHashBytes)}`, token_type: 'JWT', seed: field,
+    slot_id: field, vp_hash: field, holder_hash: field, rule_hash: field,
+    epoch: 1, iat: 1000, exp: 1100, verifier_indexes: [0],
+    signatures: [{verifier_index: 0, signature: `0x${'22'.repeat(64)}`}],
+  }
   throwsWith('a malformed verifier_proofs becomes a protocol session error', /not \{verifier_index/, () =>
     verifierAgentResult(session, {status: 'done', compoundToken: goodToken, verifierProofs: [{verifier_index: 'x'}]} as never),
   )
@@ -540,7 +547,7 @@ const fill = (n: number, v: number): Uint8Array => new Uint8Array(n).fill(v)
   // A token that binds a DIFFERENT request must be refused — that check is the whole point
   // of carrying requestHash through the session.
   throwsWith('a token binding another request is refused', /does not bind the request this session opened/, () =>
-    verifierAgentResult(session, {status: 'done', compoundToken: {request_hash: `0x${'00'.repeat(32)}`}} as never),
+    verifierAgentResult(session, {status: 'done', compoundToken: {...goodToken, request_hash: `0x${'00'.repeat(32)}`}} as never),
   )
   throwsWith('a session that is not done is a refusal', /presentation refused/, () =>
     verifierAgentResult(session, {status: 'refused', error: 'the holder declined'} as never),
