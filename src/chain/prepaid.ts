@@ -317,6 +317,7 @@ function anchorWaitPolicy(wait: PaidAnchorWait = {}): {timeoutMs: number; pollMs
   return {timeoutMs, pollMs, clock}
 }
 
+/** Options for opening a paid operation context: the keeper transport, an optional requested coordinator and the bounded anchor wait. */
 export interface PaidContextOptions extends PaidKeeperTransportOptions {
   /** Requested registered coordinator; otherwise a uniform draw among eligible keepers. Retain the returned context for reservation and recovery. */
   coordinator?: Address
