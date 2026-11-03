@@ -5,7 +5,7 @@ import {afterEach, expect, it, vi} from 'vitest'
 const control = vi.hoisted(() => ({failName: '', calls: [] as string[], configurationCalls: 0, configure: false, specs: [] as {name: string; cmd: string; args: string[]; env?: Record<string, string>}[]}))
 vi.mock('../verify/_run.ts', () => ({
   sdkRoot: '/owned/sdk', networkDir: '/owned/network', explorerDir: '/owned/explorer', chainEnvPath: '/owned/missing-chain.env',
-  have: async () => true, banner: () => {}, log: () => {}, fleetConfig: () => ({}),
+  have: async () => true, banner: () => {}, log: () => {}, fleetConfig: () => ({}), explorerMode: () => 'on',
   sh: async () => {throw new Error('Explorer mutation must not run after a failed prerequisite')},
   runStep: async (phase: string, spec: {name: string; cmd: string; args: string[]}) => {
     control.calls.push(spec.name)

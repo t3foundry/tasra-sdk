@@ -26,7 +26,8 @@ export const explorerDir = process.env.KK_EXPLORER_DIR ?? resolve(SIBLING_ORG, '
  * SDK, and the Explorer is tested in its own pipeline and in the ecosystem tier
  * (keykeeper-network docs/plans/cloud-certification.md). Any other value is refused, never guessed.
  */
-export function explorerMode(value = process.env.KK_VERIFY_EXPLORER): 'on' | 'off' {
+export function explorerMode(env: Record<string, string | undefined> = process.env): 'on' | 'off' {
+  const value = env.KK_VERIFY_EXPLORER
   if (value === undefined || value === 'on') return 'on'
   if (value === 'off') return 'off'
   throw new Error(`KK_VERIFY_EXPLORER must be "on" or "off", not ${JSON.stringify(value)}`)

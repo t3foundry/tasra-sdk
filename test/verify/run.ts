@@ -203,7 +203,8 @@ async function fleetDependentTrack(): Promise<void> {
     for (const f of ['12-verifier-slash.sh','15-verifier-selective-slash.sh','11-slashing.sh']) {
       await run('destructive',scenario(f))
     }
-    await run('destructive',npm('test:slashing'))
+    // test:slashing compares the EXPLORER's /slashing feed with the chain: run only with an Explorer attached.
+    if (explorerMode() === 'on') await run('destructive',npm('test:slashing'))
     await run('destructive',scenario('08b-nuke-and-recover.sh'))
     // Destructive stages can create paid work after the first barrier. Refuse
     // final teardown/profile replacement until its original evidence is retained.

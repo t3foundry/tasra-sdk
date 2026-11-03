@@ -1,7 +1,7 @@
 // Execute the real orchestrator with recorded process boundaries. No fleet writes.
 import {afterEach, expect, it, vi} from 'vitest'
 const control = vi.hoisted(() => ({fail: '', calls: [] as Array<{phase: string; name: string}>, teardown: 0}))
-vi.mock('../verify/_run.ts', () => ({networkDir: '/network', sdkRoot: '/sdk', banner: () => {}, log: () => {}, have: async () => false,
+vi.mock('../verify/_run.ts', () => ({networkDir: '/network', sdkRoot: '/sdk', banner: () => {}, log: () => {}, have: async () => false, explorerMode: () => 'on' as const,
   runStep: async (phase: string, spec: {name: string}) => {
     control.calls.push({phase, name: spec.name})
     return {phase, name: spec.name, status: phase === control.fail ? 'fail' : 'pass', ms: 0, metrics: []}
