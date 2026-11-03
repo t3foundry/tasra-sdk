@@ -15,6 +15,11 @@ import type {LocalExecutionSigner} from '../../src/committee/execution.js'
 import {createDecryptionRecipient, decryptionBinding} from '../../src/crypto/recipient.js'
 import {sealIbeFixture} from '../support/sealedIbe.js'
 
+// A deadline that one in-process keeper reply must BEAT. 30 ms failed under a loaded certification
+// host (keykeeper-network run d704c33e, 2026-11-03: the reply landed after the deadline, got 0 not
+// 1); the hanging keepers still never answer, so the margin changes what is waited for, not what is
+// asserted.
+const KEEPER_REPLY_MARGIN_MS = 1000
 const executionSigners:LocalExecutionSigner[]=[]
 afterEach(()=>executionSigners.splice(0).forEach(signer=>signer.dispose()))
 
@@ -284,7 +289,7 @@ describe('extraction collection lifecycle', () => {
   it('deadline clears accepted partials and refuses an incomplete quorum', async () => {
     const opts = lowLevel(), original = opts.fetchImpl!, accepted: IbeExtractionPartial[] = []
     opts.fetchImpl = vi.fn((url, init) => String(url).includes('keeper-0.') ? original(url, init) : new Promise<Response>(() => {}))
-    await expect(collectIbeExtractionPartials({...opts, timeoutMs: 30}, p => { accepted.push(p) })).rejects.toMatchObject({got: 1, need: 2})
+    await expect(collectIbeExtractionPartials({...opts, timeoutMs: KEEPER_REPLY_MARGIN_MS}, p => { accepted.push(p) })).rejects.toMatchObject({got: 1, need: 2})
     expect(accepted[0]!.value.every(b => b === 0)).toBe(true)
   })
 
@@ -326,7 +331,7 @@ describe('extraction collection lifecycle', () => {
   it('a collect-all deadline returns completed replies in input order', async () => {
     const opts = lowLevel(), original = opts.fetchImpl!, {threshold: _, ...allOpts} = opts
     allOpts.fetchImpl = vi.fn((url, init) => String(url).includes('keeper-0.') ? original(url, init) : new Promise<Response>(() => {}))
-    const result = await requestIbeExtractionPartials({...allOpts, timeoutMs: 30})
+    const result = await requestIbeExtractionPartials({...allOpts, timeoutMs: KEEPER_REPLY_MARGIN_MS})
     expect(result.map(p => p.identifier)).toEqual([vector.shares[0]!.identifier])
     result.forEach(p => p.value.fill(0))
   })
