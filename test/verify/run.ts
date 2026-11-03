@@ -33,7 +33,7 @@
 import os from 'node:os'
 import {SETTLEMENT_STAGE_TIMEOUT_MS} from './settlement-budget.ts'
 import {bringUp, tearDown} from './bringup.ts'
-import {banner, have, log, networkDir, runStep, sdkRoot, type StepResult, type StepSpec} from './_run.ts'
+import {banner, explorerMode, have, log, networkDir, runStep, sdkRoot, type StepResult, type StepSpec} from './_run.ts'
 import {writeReport} from './report.ts'
 
 const off = (v: string | undefined) => v === '0' || v === 'false'
@@ -158,7 +158,8 @@ async function fleetDependentTrack(): Promise<void> {
   // NB: we run `test:prod` (the SIGNED JWT-VC path), NOT `test:e2e` — the prod
   // verifier profile disables the unsigned `/v1/verify` that `test:e2e` uses.
   if (DO_CORRECTNESS) {
-    const sdkSuites = ['test', 'test:prod', 'test:reconcile']
+    // test:reconcile compares the EXPLORER with the chain: an Explorer property, run only when one is attached.
+    const sdkSuites = ['test', 'test:prod', ...(explorerMode() === 'on' ? ['test:reconcile'] : [])]
     if (on(process.env.KK_VERIFY_DEV_E2E)) sdkSuites.splice(1, 0, 'test:e2e')
     for (const sc of sdkSuites) await run('correctness-sdk', npm(sc))
   }

@@ -23,7 +23,7 @@ import {createPublicClient, http, type Hex} from 'viem'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.ts'
 import {explorerRpcUrl, fleetChain} from './_explorerRpc.ts'
 import {configurePaidWalletFleet} from './_paid-wallet-config.ts'
-import {banner, chainEnvPath, explorerDir, fleetConfig, have, log, networkDir, sdkRoot, runStep, type StepResult} from './_run.ts'
+import {banner, chainEnvPath, explorerDir, explorerMode, fleetConfig, have, log, networkDir, sdkRoot, runStep, type StepResult} from './_run.ts'
 
 const FLEET_NETWORK = process.env.KK_FLEET_NETWORK ?? 'keykeeper-swarm_default'
 const ACCOUNTANT_URLS = process.env.KK_ACCOUNTANT_URLS ?? '' // accountant is a polling daemon (no HTTP listener)
@@ -66,8 +66,8 @@ async function probe(url: string, ms = 3000): Promise<number | null> {
   }
 }
 
-/** Poll until nodes + verifiers + explorer answer and the demo slot key is anchored. */
-async function waitHealthy(timeoutMs = 180_000): Promise<{ok: boolean; detail: string}> {
+/** Poll until nodes + verifiers (+ the explorer when attached) answer and the demo slot key is anchored. */
+async function waitHealthy(timeoutMs = 180_000, explorer = explorerMode() === 'on'): Promise<{ok: boolean; detail: string}> {
   const deadline = Date.now() + timeoutMs
   let detail = ''
   while (Date.now() < deadline) {
@@ -76,11 +76,11 @@ async function waitHealthy(timeoutMs = 180_000): Promise<{ok: boolean; detail: s
     const cfg = fleetConfig()
     const node = cfg.nodeUrls[0] ? await probe(`${cfg.nodeUrls[0]}/readyz`) : null
     const ver = cfg.verifierUrls[0] ? await probe(`${cfg.verifierUrls[0]}/health`) : null
-    const exp = await probe(`${cfg.explorerApi}/overview`)
+    const exp = explorer ? await probe(`${cfg.explorerApi}/overview`) : null
     const registry = cfg.book.KeyRegistry
     const keyed = registry && cfg.slotId ? await onchainKeySet(cfg.rpcUrl, registry, cfg.slotId) : false
-    detail = `node/readyz=${node ?? 'DOWN'} verifier/health=${ver ?? 'DOWN'} explorer/overview=${exp ?? 'DOWN'} slotKeyAnchored=${keyed}`
-    if (node === 200 && ver === 200 && exp === 200 && keyed) return {ok: true, detail}
+    detail = `node/readyz=${node ?? 'DOWN'} verifier/health=${ver ?? 'DOWN'} explorer/overview=${explorer ? (exp ?? 'DOWN') : 'not attached'} slotKeyAnchored=${keyed}`
+    if (node === 200 && ver === 200 && (!explorer || exp === 200) && keyed) return {ok: true, detail}
     await new Promise(r => setTimeout(r, 4000))
   }
   return {ok: false, detail}
@@ -143,10 +143,12 @@ export async function bringUp(): Promise<StepResult[]> {
     return results
   }
 
-  // 3. explorer attached to the fleet network
+  // 3. explorer attached to the fleet network (skipped when KK_VERIFY_EXPLORER=off)
   // `chainEnvPath` comes from _run.ts: the SDK's FleetConfig moved to a TASRA_* env-var model
   // and no longer carries it, so the harness owns the path (certify passes KK_CHAIN_ENV).
-  if (!existsSync(chainEnvPath)) {
+  if (explorerMode() === 'off') {
+    log('· explorer not attached (KK_VERIFY_EXPLORER=off)')
+  } else if (!existsSync(chainEnvPath)) {
     results.push({phase, name: 'explorer up', status: 'fail', ms: 0, metrics: [], detail: `fleet chain.env missing at ${chainEnvPath} — fleet-up did not complete`})
   } else {
     const env = explorerEnv()
@@ -167,14 +169,14 @@ export async function bringUp(): Promise<StepResult[]> {
   const t0 = Date.now()
   const h = await waitHealthy()
   log(`${h.ok ? '✓' : '✗'} health: ${h.detail}`)
-  results.push({phase, name: 'stack healthy (nodes + verifier + explorer + slot key anchored)', status: h.ok ? 'pass' : 'fail', ms: Date.now() - t0, metrics: [], detail: h.detail})
+  results.push({phase, name: explorerMode() === 'on' ? 'stack healthy (nodes + verifier + explorer + slot key anchored)' : 'stack healthy (nodes + verifier + slot key anchored)', status: h.ok ? 'pass' : 'fail', ms: Date.now() - t0, metrics: [], detail: h.detail})
   return results
 }
 
 export async function tearDown(): Promise<StepResult[]> {
   const phase = 'teardown'
   const results: StepResult[] = []
-  results.push(await runStep(phase, {name: 'explorer down', cmd: 'bash', args: [resolve(networkDir, 'lab/e2e/repoint-explorer.sh'), explorerDir, 'down'], cwd: networkDir, timeoutMs: 120_000, optional: true}))
+  if (explorerMode() === 'on') results.push(await runStep(phase, {name: 'explorer down', cmd: 'bash', args: [resolve(networkDir, 'lab/e2e/repoint-explorer.sh'), explorerDir, 'down'], cwd: networkDir, timeoutMs: 120_000, optional: true}))
   if (results.at(-1)?.status === 'fail') return results
   results.push(await runStep(phase, {name: 'make fleet-down', cmd: 'make', args: ['fleet-down'], cwd: networkDir, timeoutMs: 180_000, optional: true}))
   return results
