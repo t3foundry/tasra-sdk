@@ -7,6 +7,11 @@ never does.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-04
+
+Everything since 0.3.0. `0.3.1` on npm (2026-10-28, `54e3b1b3`, `next` tag) was an untagged
+snapshot inside this range; 0.4.0 is a minor bump because the API changed (below).
+
 ### Changed
 
 - Decryption uses recipient-bound, client-sealed contributions. Create the client

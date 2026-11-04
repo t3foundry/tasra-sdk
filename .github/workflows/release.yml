@@ -47,7 +47,31 @@ jobs:
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run verify -- --consumers
 
+      # A version already on npm (published by hand, as 0.4.0 was on 2026-11-04, while trusted
+      # publishing is not bound to the package) is verified, not republished — npm refuses a second
+      # publish of a version anyway. Instead the tag must pack EXACTLY the published tarball, so the
+      # registry artifact is tied to this commit even without a provenance attestation.
+      - name: Already on npm?
+        id: published
+        run: |
+          set -euo pipefail
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          published="$(npm view "$name@$version" dist.integrity 2>/dev/null || true)"
+          if [ -z "$published" ]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+          local_integrity="$(npm pack --json --ignore-scripts | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s)[0].integrity))")"
+          if [ "$local_integrity" != "$published" ]; then
+            echo "::error::$name@$version on npm ($published) is not what this tag packs ($local_integrity)"
+            exit 1
+          fi
+          echo "::notice::$name@$version is already on npm and identical to this tag's pack: not republishing"
+
       # `--provenance` attaches a signed attestation linking this tarball to this
       # commit and workflow run, which npm shows on the package page. It requires a
       # public repository — npm cannot attest a publish from a private one.
-      - run: npm publish --provenance --access public --tag "${{ steps.release_tag.outputs.npm_tag }}"
+      - if: steps.published.outputs.exists != 'true'
+        run: npm publish --provenance --access public --tag "${{ steps.release_tag.outputs.npm_tag }}"
