@@ -11,7 +11,7 @@ import type {OperationAuthorizer} from './client.js'
  * @param config Approved agent client, operation signer, wallet presentation callback and polling controls.
  */
 export function registeredWalletAuthorization(config: {
-  client: ReturnType<typeof createRegisteredAgentClient>
+  client: Pick<ReturnType<typeof createRegisteredAgentClient>, 'createSession'>
   signer: TypedDataSigner
   delegation?: PresentationDelegation
   present: (session: RegisteredVerifierAgentSession, signal?: AbortSignal) => Promise<void>
@@ -26,6 +26,6 @@ export function registeredWalletAuthorization(config: {
     request.signal?.throwIfAborted()
     const result = await awaitRegisteredVerifierAgentResult(session, {signal: request.signal, onPhase, timeoutMs})
     if (!result.verifierProofs?.length) throw new Error('Authorization did not include verifier membership proofs')
-    return {token: result.token, verifierProofs: result.verifierProofs}
+    return {token: result.token, verifierProofs: result.verifierProofs, ...(result.evidenceCt !== undefined ? {evidenceCt: result.evidenceCt} : {})}
   }
 }

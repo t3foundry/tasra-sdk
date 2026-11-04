@@ -48,6 +48,18 @@ export interface ApplicationStore {
    * Exclusively serialize work for the key across all participating processes or tabs.
    */
   withLock<T>(key: string, operation: () => Promise<T>): Promise<T>
+  /**
+   * Optional: keys starting with `prefix`, in any order. Used only for one-time maintenance
+   * such as backfilling the paid operation index; stores without it still work everywhere else.
+   */
+  list?(prefix: string): Promise<string[]>
+  /**
+   * Optional: atomically and durably create the record `key` only if it does not exist, across all
+   * participating processes or tabs. Resolves true for exactly one caller, false when the key
+   * already exists. Paid approvals use it as a one-use, generation-bound send claim; without it a
+   * retained approval is sent once and never resent.
+   */
+  claim?(key: string): Promise<boolean>
 }
 /**
  * Named slot intent with an authorization rule, key threshold and verifier quorum.

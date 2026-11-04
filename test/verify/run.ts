@@ -31,8 +31,9 @@
 //   KK_KEEP=1             leave the stack up at the end (no teardown)
 
 import os from 'node:os'
+import {SETTLEMENT_STAGE_TIMEOUT_MS} from './settlement-budget.ts'
 import {bringUp, tearDown} from './bringup.ts'
-import {banner, have, log, networkDir, runStep, sdkRoot, type StepResult, type StepSpec} from './_run.ts'
+import {banner, explorerMode, have, log, networkDir, runStep, sdkRoot, type StepResult, type StepSpec} from './_run.ts'
 import {writeReport} from './report.ts'
 
 const off = (v: string | undefined) => v === '0' || v === 'false'
@@ -60,7 +61,9 @@ const npm = (script: string): StepSpec => ({name: script, cmd: 'npm', args: ['ru
 // accountant suites "passed" in under a second for at least two certs. minPassedTests
 // turns any such vacuous green into a fail instead of trusting the exit code.
 const cargoTest = (pkg: string, test: string, extra: string[] = []): StepSpec => ({name: `cargo ${pkg}::${test}`, cmd: 'cargo', args: ['test', '-p', pkg, ...extra, '--test', test, '--', '--include-ignored'], cwd: networkDir, timeoutMs: 1_800_000, minPassedTests: 1})
-const scenario = (file: string): StepSpec => ({name: file, cmd: 'bash', args: [`lab/fleet/scenarios/${file}`], cwd: networkDir, timeoutMs: 600_000})
+const scenario = (file: string): StepSpec => ({name: file, cmd: 'bash', args: [`lab/fleet/scenarios/${file}`], cwd: networkDir,
+  // Disk loss now observes both original 600s payment windows and their payouts.
+  timeoutMs: file === '08b-nuke-and-recover.sh' ? 3_600_000 : 600_000})
 
 const startedAt = new Date().toISOString()
 const t0 = Date.now()
@@ -92,8 +95,8 @@ const haveForge = await have('forge')
 if (DO_BRINGUP) {
   results.push(...(await bringUp()))
   const healthy = results.find(r => r.name.startsWith('stack healthy'))
-  if (healthy && healthy.status === 'fail') {
-    log('\n✗ stack did not come up healthy — aborting before tests. See report.')
+  if (!healthy || healthy.status !== 'pass' || results.some(r => r.phase === 'bringup' && r.status === 'fail')) {
+    log('\n✗ stack bring-up or paid configuration failed — aborting before tests. See report.')
     await finish(true)
   }
 }
@@ -155,7 +158,8 @@ async function fleetDependentTrack(): Promise<void> {
   // NB: we run `test:prod` (the SIGNED JWT-VC path), NOT `test:e2e` — the prod
   // verifier profile disables the unsigned `/v1/verify` that `test:e2e` uses.
   if (DO_CORRECTNESS) {
-    const sdkSuites = ['test', 'test:prod', 'test:reconcile']
+    // test:reconcile compares the EXPLORER with the chain: an Explorer property, run only when one is attached.
+    const sdkSuites = ['test', 'test:prod', ...(explorerMode() === 'on' ? ['test:reconcile'] : [])]
     if (on(process.env.KK_VERIFY_DEV_E2E)) sdkSuites.splice(1, 0, 'test:e2e')
     for (const sc of sdkSuites) await run('correctness-sdk', npm(sc))
   }
@@ -183,6 +187,14 @@ async function fleetDependentTrack(): Promise<void> {
   // host is still churning the backlog, up to a bounded ceiling. See settleFleet.
   if (DO_PERF && DO_DESTRUCTIVE) await settleFleet()
 
+  // A served operation is not a completed billing lifecycle. Preserve the fleet
+  // if any original payment needs recovery, before slashing or deleting shares.
+  if (DO_BOOTSTRAP || DO_CORRECTNESS || DO_PERF) {
+    const settlement = await run('settlement', {name: 'original paid requests reconciled with zero reserved TASRA',
+      cmd: 'npx', args: ['tsx', 'test/verify/settlement.ts'], cwd: sdkRoot, env: FLEET, timeoutMs: SETTLEMENT_STAGE_TIMEOUT_MS})
+    if (settlement.status !== 'pass') await finish(true)
+  }
+
   // Stage 5: destructive (LAST — degrades the fleet).
   if (DO_DESTRUCTIVE) {
     await run('destructive', {name: 'node-slash-lifecycle (slash + unbond)', cmd: 'npx', args: ['tsx', 'test/slashing/node-slash-lifecycle.ts'], cwd: sdkRoot, env: {...FLEET, KK_DESTRUCTIVE: '1'}, timeoutMs: 600_000})
@@ -191,8 +203,14 @@ async function fleetDependentTrack(): Promise<void> {
     for (const f of ['12-verifier-slash.sh','15-verifier-selective-slash.sh','11-slashing.sh']) {
       await run('destructive',scenario(f))
     }
-    await run('destructive',npm('test:slashing'))
+    // test:slashing compares the EXPLORER's /slashing feed with the chain: run only with an Explorer attached.
+    if (explorerMode() === 'on') await run('destructive',npm('test:slashing'))
     await run('destructive',scenario('08b-nuke-and-recover.sh'))
+    // Destructive stages can create paid work after the first barrier. Refuse
+    // final teardown/profile replacement until its original evidence is retained.
+    const settlement = await run('settlement-final', {name: 'final original paid requests and recipient evidence retained',
+      cmd: 'npx', args: ['tsx', 'test/verify/settlement.ts'], cwd: sdkRoot, env: FLEET, timeoutMs: SETTLEMENT_STAGE_TIMEOUT_MS})
+    if (settlement.status !== 'pass') await finish(true)
   }
 }
 

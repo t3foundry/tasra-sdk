@@ -1,3 +1,8 @@
+import {kemContentDigest,recipientPayloadDigest,type ClientRecipient} from '../crypto/recipient.js'
+import {decryptWithCommitteePartials} from '../decryption/sealed.js'
+import {sha256} from '@noble/hashes/sha256'
+import type {RequestBindingPreimage} from './client.js'
+import type {PaymentIntentWire} from './payment.js'
 // High-level committee-authorization orchestration.
 //
 // The low-level pieces already exist: `gatherCommitteeToken` (fan out + assemble) and
@@ -16,7 +21,6 @@
 import {
   gatherCommitteeToken,
   committeeSign,
-  committeeDecrypt,
   requestIbeExtractionPartials,
   type VerifierProof,
   type CommitteeSignOpts,
@@ -27,28 +31,13 @@ import {
   merkleRoot,
   merkleProof,
   verifierLeaf,
-  clientBindingHash,
-  compoundTokenHash,
-  decodeCompoundToken,
   type TokenType,
   type CompoundTokenWire,
 } from './token.js'
 import {hexToBytes, bytesToHex} from '../crypto/hex.js'
-import {ed25519} from '@noble/curves/ed25519'
 import {createHolderProof, type HolderSigner} from '../auth/holderProof.js'
 import type {FrostSignResult} from '../signing/frost.js'
-
-/**
- * client request signature. The client (== the credential holder) proves it authorized
- * this exact request by signing `clientBindingHash(slotId, tokenHash)`. Supply an ed25519 signer
- * (the holder's authentication key) - the keeper (hot path) and the accountant (audit) verify it.
- */
-export interface ClientSigner {
-  /** 32-byte ed25519 public key. */
-  publicKey: Uint8Array
-  /** Sign the 32-byte client-binding hash to 64-byte ed25519 signature. */
-  sign(bindingHash: Uint8Array): Uint8Array | Promise<Uint8Array>
-}
+import type {KeeperExecutionApprover} from './keeperExecution.js'
 
 /**
  * Callback that mints a separate holder proof for each verifier.
@@ -86,18 +75,6 @@ export function holderProofPerVerifier(opts: {
       action: opts.action,
       ttlSecs: opts.ttlSecs,
     })
-}
-
-/**
- * A {@link ClientSigner} from a 32-byte ed25519 secret key (the common `did:key` holder).
- *
- * @param secretKey - 32-byte Ed25519 secret seed used to sign client request bindings.
- */
-export function ed25519ClientSigner(secretKey: Uint8Array): ClientSigner {
-  return {
-    publicKey: ed25519.getPublicKey(secretKey),
-    sign: (bindingHash: Uint8Array) => ed25519.sign(bindingHash, secretKey),
-  }
 }
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
@@ -170,6 +147,10 @@ export function committeeChainReadsFromClient(readers: {
 
 /** Chain reads, verifier directory, credential presentation and optional request-signing context. */
 export interface RequestCommitteeTokenOpts {
+  /** Exact chain-, slot-, action- and payload-bound authorization preimage; decryption must include the recipient-bound digest. */
+  binding?: RequestBindingPreimage
+  /** Original creator-signed payment intent for the already reserved operation. */
+  payment?: PaymentIntentWire
   /** Reader methods for the beacon and slot verifier policy. */
   chain: CommitteeChainReads
   /** Pin the draw to `latest - epochLag` (0 or 1). 1 = the previous epoch, always anchored: no wait for the accountants. */
@@ -193,15 +174,14 @@ export interface RequestCommitteeTokenOpts {
   ttlSecs?: number
   /** Override "now" (unix seconds), mainly for tests. */
   nowSecs?: number
-  /** sign the request bundle with the holder's key so the keeper + audit can verify
-   *  the user authorized this operation. Omit to skip (keeper accepts unless it requires it). */
-  clientSigner?: ClientSigner
   /** Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field. */
   scopedIdentity?: string
 }
 
 /** Assembled compound token, committee draw and optional proofs and client signature. */
 export interface CommitteeTokenResult {
+  /** Exact sealed presentation ciphertext returned with the token. */
+  evidenceCt?: string
   /** Compound committee authorization token. */
   token: CompoundTokenWire
   /** Number of verifiers selected for the committee. */
@@ -217,10 +197,6 @@ export interface CommitteeTokenResult {
   /** Trustless snapshot-inclusion proofs for the token's signers, when derivable; else
    *  `undefined` (the keeper then uses its configured verifier set). */
   verifierProofs?: VerifierProof[]
-  /** Ed25519 client public key corresponding to clientSignature, when a client signer was supplied. */
-  clientPubkey?: Uint8Array
-  /** Client signature over the slot and compound token binding. */
-  clientSignature?: Uint8Array
   /** Policy version reported by the verifiers, when available. Diagnostic only; the keeper enforces the token rule hash against its current rule. */
   ruleVersion?: number
 }
@@ -323,13 +299,14 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
 
   const now = opts.nowSecs ?? Math.floor(Date.now() / 1000)
   const iat = now - 5
-  const exp = now + (opts.ttlSecs ?? 300)
+  const exp = opts.payment?.expires ?? now + (opts.ttlSecs ?? 300)
 
   // Taken from the REFERENCE reply - the one whose ruleHash built the
   // token - so the version and the hash describe one evaluation. Verifiers that
   // straddle an activation legitimately disagree, and pairing a version from one
   // with a hash from another would describe a state that never existed.
   let ruleVersion: number | undefined
+  let evidenceCt: string | undefined
   // A per-verifier proof function is resolved inside the gather, against each verifier's
   // own URL; a string is the legacy single proof (fine when holder binding is off).
   const byIndex = new Map(opts.verifiers.map(v => [v.index, v]))
@@ -338,13 +315,16 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
       ? (v: {index: number; url: string}) => (opts.holderProof as HolderProofPerVerifier)(byIndex.get(v.index) ?? {index: v.index, url: v.url})
       : undefined
   const token = await gatherCommitteeToken({
-    verifiers: opts.verifiers.map(v => ({index: v.index, url: v.url})),
+    verifiers: opts.verifiers.map(v => ({index: v.index, url: v.url, ...(v.pubkey ? {pubkey: v.pubkey} : {})})),
     quorum,
     holderProofFor,
+    onEvidence: ct => { evidenceCt = ct },
     onReplies: (_all, reference) => {
       ruleVersion = reference.ruleVersion
     },
     authorize: {
+      binding:opts.binding,
+      payment:opts.payment,
       holder: opts.holder,
       credentials: opts.credentials,
       holderProof: typeof opts.holderProof === 'string' ? opts.holderProof : '',
@@ -363,22 +343,14 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
   const signerIndexes = token.signatures.map(s => s.verifier_index)
   const verifierProofs = buildVerifierProofs(opts.verifiers, registrySize, signerIndexes, snapshotRoot)
 
-  // Sign the request bundle (bound to the token's canonical hash + the slot).
-  let clientPubkey: Uint8Array | undefined
-  let clientSignature: Uint8Array | undefined
-  if (opts.clientSigner) {
-    const tokenHash = compoundTokenHash(decodeCompoundToken(token))
-    const binding = clientBindingHash(hexToBytes(slotId), tokenHash)
-    clientSignature = await opts.clientSigner.sign(binding)
-    clientPubkey = opts.clientSigner.publicKey
-  }
-
-  return {token, committee, quorum, registrySize, seed, epoch, verifierProofs, clientPubkey, clientSignature, ruleVersion}
+  return {token, committee, quorum, registrySize, seed, epoch, verifierProofs, ruleVersion, ...(evidenceCt !== undefined ? {evidenceCt} : {})}
 }
 
 /** Operation-specific fields for {@link committeeSignRequest} (everything `committeeSign` needs
  *  except the token, which this resolves). */
 export interface CommitteeSignRequestOpts extends RequestCommitteeTokenOpts {
+  /** Client-owned exact-body approval capability, required when authorization carries payment. */
+  approveExecution?: KeeperExecutionApprover
   /** Keeper HTTP base URL. */
   nodeUrl: string
   /** Raw message bytes to sign. */
@@ -397,33 +369,47 @@ export interface CommitteeSignRequestOpts extends RequestCommitteeTokenOpts {
  * @param opts - Token request settings, keeper endpoint and message to sign.
  */
 export async function committeeSignRequest(opts: CommitteeSignRequestOpts): Promise<FrostSignResult> {
-  const {token, verifierProofs, clientPubkey, clientSignature} = await requestCommitteeToken(opts)
+  const {token, verifierProofs, evidenceCt} = await requestCommitteeToken(opts)
   const signOpts: CommitteeSignOpts = {
     nodeUrl: opts.nodeUrl,
     committeeToken: token,
+    evidenceCt,
     message: opts.message,
     signingSet: opts.signingSet,
     userSignature: opts.userSignature,
     targetKeykeeper: opts.targetKeykeeper,
     verifierProofs,
-    clientPubkey,
-    clientSignature,
+    approveExecution: opts.approveExecution,
   }
   return committeeSign(signOpts)
 }
 
 /** Operation-specific fields for {@link committeeDecryptRequest}. */
 export interface CommitteeDecryptRequestOpts extends RequestCommitteeTokenOpts {
+  /** Original client-held recipient, created before authorization; required at runtime. */
+  recipient?: ClientRecipient
+  /** Distinct assigned keeper endpoints; required for client-sealed contribution collection. */
+  nodeUrls?: string[]
+  /** Independently authenticated 144-byte G2 || G1 public shares indexed by participant identifier. */
+  verifyingShares?: ReadonlyMap<number,Uint8Array>
+  /** Required distinct verified contribution count, matching the canonical sharing. */
+  threshold?: number
+  /** Cancel authorization and contribution collection. */
+  signal?: AbortSignal
+  /** Guarded keeper HTTP transport; defaults to global fetch. */
+  fetchImpl?: typeof fetch
+  /** Client-owned exact-body approval capability, required when authorization carries payment. */
+  approveExecution?: KeeperExecutionApprover
   /** Keeper HTTP base URL. */
-  nodeUrl: string
+  nodeUrl?: string
   /** Ciphertext to decrypt. */
   ciphertext: CommitteeDecryptOpts['ciphertext']
   /** Original encryption associated data. */
   identity: Uint8Array
   /** Threshold participant identifiers for the decryption ceremony. */
-  decryptingSet: number[]
+  decryptingSet?: number[]
   /** Peer identifiers for the selected BLS participants. */
-  blsPeers: CommitteeDecryptOpts['blsPeers']
+  blsPeers?: CommitteeDecryptOpts['blsPeers']
   /** Optional Ed25519 owner signature over the canonical operation request. */
   userSignature?: Uint8Array
   /** Expected key epoch of the ciphertext; used to detect rotation. */
@@ -438,28 +424,32 @@ export interface CommitteeDecryptRequestOpts extends RequestCommitteeTokenOpts {
  * @param opts - Token request settings, keeper endpoint, ciphertext and associated data.
  */
 export async function committeeDecryptRequest(opts: CommitteeDecryptRequestOpts): Promise<Uint8Array> {
-  const {token, verifierProofs, clientPubkey, clientSignature} = await requestCommitteeToken(opts)
-  const decOpts: CommitteeDecryptOpts = {
-    nodeUrl: opts.nodeUrl,
-    committeeToken: token,
-    ciphertext: opts.ciphertext,
-    identity: opts.identity,
-    decryptingSet: opts.decryptingSet,
-    blsPeers: opts.blsPeers,
-    userSignature: opts.userSignature,
-    ciphertextEpoch: opts.ciphertextEpoch,
-    targetKeykeeper: opts.targetKeykeeper,
-    verifierProofs,
-    clientPubkey,
-    clientSignature,
-  }
-  return committeeDecrypt(decOpts)
+  if(!opts.recipient||!opts.binding||opts.ciphertextEpoch===undefined||!opts.verifyingShares||!opts.nodeUrls||opts.threshold===undefined)throw new Error('Client recipient, bound authorization, epoch, authenticated sharing and keeper quorum are required')
+  const digest=recipientPayloadDigest(kemContentDigest(opts.ciphertext,opts.identity),opts.ciphertextEpoch,opts.recipient.recipient)
+  if(opts.binding.action!=='decrypt'||!bytesEqual(opts.binding.payloadDigest,digest))throw new Error('Authorization preimage differs from client recipient/ciphertext')
+  const {token,verifierProofs,evidenceCt}=await requestCommitteeToken(opts)
+  return decryptWithCommitteePartials({nodeUrls:opts.nodeUrls,chainId:opts.binding.chainId,committeeToken:token,recipient:opts.recipient,ciphertextEpoch:opts.ciphertextEpoch,verifyingShares:opts.verifyingShares,threshold:opts.threshold,verifierProofs,evidenceCt,approveExecution:opts.approveExecution,signal:opts.signal,fetchImpl:opts.fetchImpl,userSignature:opts.userSignature,targetKeykeeper:opts.targetKeykeeper,ciphertext:opts.ciphertext,identity:opts.identity})
 }
 
 // identity-key extraction (one-call)
 
 /** Operation-specific fields for {@link ibeDecryptRequest} / {@link ibeExtractRequest}. */
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
+  /** Original client-held recipient bound by the authorization; required at runtime. */
+  recipient?: ClientRecipient
+  /** Independently authenticated 144-byte G2 || G1 public shares indexed by participant identifier. */
+  verifyingShares?: ReadonlyMap<number,Uint8Array>
+  /** Keeper threshold from independently read slot metadata. When supplied,
+   * finish after that many distinct pairing-verified shares, cancelling the rest. */
+  threshold?: number
+  /** Keeper extraction deadline in milliseconds; default 10000. */
+  timeoutMs?: number
+  /** Cancel the extraction fan-out. Does not undo already started keeper work. */
+  signal?: AbortSignal
+  /** HTTP transport override for keeper extraction requests. */
+  fetchImpl?: typeof fetch
+  /** Client-owned exact-body approval capability for each paid extraction contributor. */
+  approveExecution?: KeeperExecutionApprover
   /** Base URLs of at least k keeper nodes holding the slot's BLS shards. */
   nodeUrls: string[]
   /** The IBE identity to extract for - becomes the token's `scopedIdentity`, so a quorum
@@ -484,12 +474,14 @@ export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
  */
 export async function ibeExtractRequest(opts: IbeExtractRequestOpts): Promise<Uint8Array> {
   const {partials, identityBytes} = await gatherIbePartials(opts)
-  const vsMap = new Map(partials.map(p => [p.identifier, p.verifyingShareG2]))
-  return ibeCombineExtract(
-    vsMap,
-    partials.map(p => ({identifier: p.identifier, value: p.value})),
-    identityBytes,
-  )
+  try {
+    const vsMap = new Map(partials.map(p => [p.identifier, p.verifyingShareG2]))
+    return ibeCombineExtract(
+      vsMap,
+      partials.map(p => ({identifier: p.identifier, value: p.value})),
+      identityBytes,
+    )
+  } finally { for (const p of partials) p.value.fill(0) }
 }
 
 /**
@@ -502,29 +494,40 @@ export async function ibeDecryptRequest(
   opts: IbeExtractRequestOpts & {ciphertext: IbeCiphertext},
 ): Promise<Uint8Array> {
   const {partials, identityBytes} = await gatherIbePartials(opts)
-  const vsMap = new Map(partials.map(p => [p.identifier, p.verifyingShareG2]))
-  return ibeCombineDecrypt(
-    vsMap,
-    partials.map(p => ({identifier: p.identifier, value: p.value})),
-    opts.ciphertext,
-    identityBytes,
-  )
+  try {
+    const vsMap = new Map(partials.map(p => [p.identifier, p.verifyingShareG2]))
+    return ibeCombineDecrypt(
+      vsMap,
+      partials.map(p => ({identifier: p.identifier, value: p.value})),
+      opts.ciphertext,
+      identityBytes,
+    )
+  } finally { for (const p of partials) p.value.fill(0) }
 }
 
 async function gatherIbePartials(opts: IbeExtractRequestOpts) {
-  const {token, verifierProofs, clientPubkey, clientSignature} = await requestCommitteeToken({
+  opts.signal?.throwIfAborted()
+  if(!opts.recipient||!opts.binding||opts.ciphertextEpoch===undefined||!opts.verifyingShares)throw new Error('Client recipient, bound authorization, epoch and authenticated IBE sharing are required')
+  const digest=recipientPayloadDigest(sha256(new TextEncoder().encode(opts.identity)),opts.ciphertextEpoch,opts.recipient.recipient)
+  if(opts.binding.action!=='ibe-extract'||!bytesEqual(opts.binding.payloadDigest,digest))throw new Error('Authorization preimage differs from client recipient/identity')
+  const {token, verifierProofs, evidenceCt} = await requestCommitteeToken({
     ...opts,
     scopedIdentity: opts.identity,
   })
   const partials = await requestIbeExtractionPartials({
+    recipient:opts.recipient,chainId:opts.binding.chainId,verifyingShares:opts.verifyingShares,
     nodeUrls: opts.nodeUrls,
     committeeToken: token,
+    evidenceCt,
     identity: opts.identity,
     userSignature: opts.userSignature,
     ciphertextEpoch: opts.ciphertextEpoch,
     verifierProofs,
-    clientPubkey,
-    clientSignature,
+    approveExecution: opts.approveExecution,
+    threshold: opts.threshold,
+    timeoutMs: opts.timeoutMs,
+    signal: opts.signal,
+    fetchImpl: opts.fetchImpl,
   })
   return {partials, identityBytes: new TextEncoder().encode(opts.identity)}
 }

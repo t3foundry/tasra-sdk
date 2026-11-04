@@ -24,13 +24,19 @@
 
 import {bls12_381} from '@noble/curves/bls12-381'
 import {ed25519} from '@noble/curves/ed25519'
+import {sha256} from '@noble/hashes/sha256'
+import {createDecryptionRecipient, kemContentDigest, recipientPayloadDigest} from '../src/crypto/recipient.ts'
+import {encrypt as kemEncrypt, type Ciphertext} from '../src/crypto/kem.ts'
+import {requestHash} from '../src/oid4vp/binding.ts'
+import {hexToBytes} from '../src/crypto/hex.ts'
+import {sealIbeFixture} from './support/sealedIbe.ts'
 import {
   committeeDecryptRequest,
   committeeSignRequest,
-  ed25519ClientSigner,
   holderProofPerVerifier,
   ibeDecryptRequest,
   ibeExtractRequest,
+  requestCommitteeToken,
   type CommitteeChainReads,
   type CommitteeVerifier,
 } from '../src/committee/request.ts'
@@ -39,10 +45,10 @@ import {
   gatherCommitteeToken,
   requestIbeExtractionPartials,
 } from '../src/committee/client.ts'
-import {compoundTokenHash, selectVerifierCommittee, type CompoundTokenPayload} from '../src/committee/token.ts'
+import {BINDING_HOLDER_KEY, compoundTokenHash, selectVerifierCommittee, type CompoundTokenPayload} from '../src/committee/token.ts'
 import {dpopHtu, normalizeOrigin, platformAudience} from '../src/committee/oauth.ts'
 import {ibeEncrypt} from '../src/crypto/ibe.ts'
-import {base64Encode} from '../src/crypto/envelope.ts'
+import {base64Decode, base64Encode} from '../src/crypto/envelope.ts'
 
 let passed = 0
 const failures: string[] = []
@@ -119,6 +125,12 @@ const extractionShare = (i: number, identity: string): string => {
   )
   return base64Encode(qId.multiply(share(i)).toRawBytes(true))
 }
+const recipient = await createDecryptionRecipient()
+const publicShares = new Map([1, 2, 3].map(i => [i, base64Decode(verifyingShareWire(i))]))
+function boundOptions(action: 'decrypt' | 'ibe-extract', content: Uint8Array, keyEpoch: number) {
+  return {recipient, verifyingShares: publicShares, nodeUrls, threshold: 2, ciphertextEpoch: keyEpoch,
+    binding: {chainId: 43112, action, payloadDigest: recipientPayloadDigest(content, keyEpoch, recipient.recipient), random: fill(32, 7), clientId: 'test-wallet'}}
+}
 
 // ─── the mock fleet ───────────────────────────────────────────────────────────
 interface Sent {
@@ -174,7 +186,8 @@ globalThis.fetch = (async (url: string, init?: RequestInit) => {
     }
     const scoped = body.identity as string | undefined
     const identityHash = scoped === undefined ? undefined : fill(32, 0x33)
-    const hash = tokenHashFor(identityHash ? {identityHash} : {})
+    const bound = body.action ? {requestHash: requestHash(Number(body.chain_id), slotIdBytes, body.action as 'decrypt' | 'ibe-extract', hexToBytes(String(body.payload_digest))), binding: BINDING_HOLDER_KEY} : {}
+    const hash = tokenHashFor({...bound, ...(identityHash ? {identityHash} : {})})
     const reply: Record<string, unknown> = {
       verifier_index: idx,
       token_hash: bareHex(hash),
@@ -184,6 +197,7 @@ globalThis.fetch = (async (url: string, init?: RequestInit) => {
       signature: bareHex(ed25519.sign(hash, secrets[idx]!)),
       committee_indexes: drawn,
       ...(identityHash ? {identity_hash: bareHex(identityHash)} : {}),
+      ...(bound.requestHash ? {request_hash: bareHex(bound.requestHash), binding: 'holder_key'} : {}),
     }
     return {ok: true, status: 200, json: async () => bendReply(reply, idx)} as unknown as Response
   }
@@ -194,19 +208,16 @@ globalThis.fetch = (async (url: string, init?: RequestInit) => {
     const i = Number(km[1])
     if (u.includes('/v1/shards/ibe/extract')) {
       if (keeperBehaviour.get(i) === 'refuse') {
-        return {ok: false, status: 503, text: async () => `keeper ${i} unavailable`} as unknown as Response
+        return new Response(`keeper ${i} unavailable`, {status: 503})
       }
       const identity = String(body.identity)
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return Response.json(await sealIbeFixture({
+          key_slot_id: slotId,
           identifier: i,
           extraction_share: extractionShare(i, identity),
           verifying_share: verifyingShareWire(i),
-          epoch,
-        }),
-      } as unknown as Response
+          epoch: Number(body.ciphertext_epoch),
+        }, recipient, hexToBytes((body.committee_token as {request_hash: string}).request_hash)))
     }
     if (u.includes('/v1/committee/sign')) {
       return {
@@ -222,12 +233,12 @@ globalThis.fetch = (async (url: string, init?: RequestInit) => {
         }),
       } as unknown as Response
     }
-    if (u.includes('/v1/committee/decrypt')) {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({plaintext: base64Encode(new TextEncoder().encode('the plaintext'))}),
-      } as unknown as Response
+    if (u.includes('/v1/committee/decrypt/partial')) {
+      const ciphertext = body.ciphertext as {u: string}
+      const partial = G2.fromHex(base64Decode(ciphertext.u)).multiply(share(i)).toRawBytes(true)
+      return Response.json(await sealIbeFixture({key_slot_id: slotId, identifier: i, epoch: Number(body.ciphertext_epoch),
+        extraction_share: base64Encode(partial), verifying_share: verifyingShareWire(i)}, recipient,
+        hexToBytes((body.committee_token as {request_hash: string}).request_hash)))
     }
   }
   return {ok: false, status: 404, text: async () => `no route: ${u}`} as unknown as Response
@@ -251,7 +262,6 @@ try {
   // ─── committeeSignRequest: the token's side-channel results must reach the keeper ──
   {
     sent.length = 0
-    const clientSecret = fill(32, 0x77)
     const res = await committeeSignRequest({
       ...tokenOpts,
       nodeUrl: nodeUrls[0]!,
@@ -259,7 +269,6 @@ try {
       signingSet: [1, 2],
       targetKeykeeper: `0x${'ee'.repeat(32)}`,
       userSignature: fill(64, 0x9),
-      clientSigner: ed25519ClientSigner(clientSecret),
     })
     ok('sign: returns the keeper result', res.keySlotId === slotId && res.epoch === epoch)
     ok('sign: signature halves are decoded', res.signature.r.length === 32 && res.signature.z.length === 32)
@@ -272,57 +281,48 @@ try {
     // would refuse the 0x-prefixed form.
     eq('sign: target_keykeeper is forwarded without 0x', body?.target_keykeeper, 'ee'.repeat(32))
     eq('sign: user_signature is forwarded as bare hex', body?.user_signature, bareHex(fill(64, 0x9)))
-    // The three fields resolved during the token step. Each is a separate keeper check.
-    eq('sign: the client pubkey reaches the keeper', body?.client_pubkey, bareHex(ed25519.getPublicKey(clientSecret)))
-    ok('sign: the client signature reaches the keeper', typeof body?.client_signature === 'string' && String(body.client_signature).length === 128)
+    // The keeper refuses any field its schema does not declare (422 since 2026-10-03): the body
+    // must be EXACTLY the declared keys - the retired `client_*` pair above all.
+    const declared = new Set(['committee_token', 'message_hex', 'signing_set', 'user_signature', 'target_keykeeper', 'verifier_proofs'])
+    eq('sign: only declared keys go on the wire', Object.keys(body ?? {}).filter(k => !declared.has(k)), [])
   }
   {
-    // No clientSigner → the keeper must receive NEITHER half. Sending one alone is what
-    // the "both or neither" contract on the option exists to prevent.
     sent.length = 0
     await committeeSignRequest({...tokenOpts, nodeUrl: nodeUrls[0]!, message: new Uint8Array([1])})
     const body = bodiesTo('/v1/committee/sign')[0]
-    ok('sign: no clientSigner sends neither client half', body?.client_pubkey === undefined && body?.client_signature === undefined)
+    ok('sign: the retired client halves are never sent', !('client_pubkey' in (body ?? {})) && !('client_signature' in (body ?? {})))
     ok('sign: optional fields are omitted, not sent as undefined', !('signing_set' in (body ?? {})) && !('user_signature' in (body ?? {})))
   }
 
   // ─── committeeDecryptRequest ────────────────────────────────────────────────
   {
     sent.length = 0
-    const ciphertext = {u: fill(96, 0x1), nonce: fill(12, 0x2), aeadCt: fill(48, 0x3)}
     const senderIdentity = new TextEncoder().encode('did:example:sender')
+    const ciphertext = kemEncrypt(mpk, senderIdentity, new TextEncoder().encode('the plaintext'))
     const out = await committeeDecryptRequest({
       ...tokenOpts,
-      nodeUrl: nodeUrls[0]!,
+      ...boundOptions('decrypt', kemContentDigest(ciphertext, senderIdentity), 4),
       ciphertext,
       identity: senderIdentity,
-      decryptingSet: [1, 2],
-      blsPeers: [
-        {id: 1, peerId: 'peer-one'},
-        {id: 2, peerId: 'peer-two'},
-      ],
       ciphertextEpoch: 4,
     })
-    eq('decrypt: returns the keeper plaintext', new TextDecoder().decode(out), 'the plaintext')
+    eq('decrypt: client reconstructs the plaintext from sealed partials', new TextDecoder().decode(out), 'the plaintext')
 
     const body = bodiesTo('/v1/committee/decrypt')[0]
     const ct = body?.ciphertext as {u: string; nonce: string; aead_ct: string}
     ok('decrypt: ciphertext goes as base64 u/nonce/aead_ct', !!ct.u && !!ct.nonce && !!ct.aead_ct)
-    eq('decrypt: u is base64, not hex', ct.u, base64Encode(fill(96, 0x1)))
+    eq('decrypt: u is base64, not hex', ct.u, base64Encode(ciphertext.u))
     // ⚠ This `identity` is the KEM SENDER identity (AEAD associated data), sent as TEXT —
     // not the scoped identity of the WHICH-gate. Conflating them is called out in the source.
     eq('decrypt: identity is the sender identity, as text', body?.identity, 'did:example:sender')
-    eq('decrypt: decrypting_set is forwarded', body?.decrypting_set, [1, 2])
-    eq('decrypt: bls peers are renamed to peer_id', body?.bls_peers, [
-      {id: 1, peer_id: 'peer-one'},
-      {id: 2, peer_id: 'peer-two'},
-    ])
+    eq('decrypt: bound public recipient reaches each keeper', body?.recipient, recipient.recipient)
+    ok('decrypt: no custody coordination fields are sent', !('decrypting_set' in body!) && !('bls_peers' in body!))
     eq('decrypt: ciphertext_epoch is forwarded', body?.ciphertext_epoch, 4)
   }
   {
-    // A keeper refusal must surface as an error naming the operation, not as empty output.
+    // Old custody calls fail locally; they must never send an unbound operation.
     sent.length = 0
-    await rejectsWith('decrypt: a keeper refusal names the endpoint', /committee\/decrypt/, () =>
+    await rejectsWith('decrypt: custody is explicitly retired', /retired/, () =>
       committeeDecrypt({
         nodeUrl: 'http://no-such-node',
         committeeToken: {} as never,
@@ -332,30 +332,33 @@ try {
         blsPeers: [],
       }),
     )
+    eq('decrypt: retired API makes no request', sent.length, 0)
   }
   {
     // A trailing slash on the node URL must not produce a double slash in the path.
     sent.length = 0
+    const identity = new TextEncoder().encode('trailing slash')
+    const ciphertext: Ciphertext = kemEncrypt(mpk, identity, new TextEncoder().encode('slash'))
     await committeeDecryptRequest({
       ...tokenOpts,
-      nodeUrl: `${nodeUrls[0]!}/`,
-      ciphertext: {u: fill(96, 1), nonce: fill(12, 2), aeadCt: fill(48, 3)},
-      identity: new Uint8Array(),
-      decryptingSet: [1],
-      blsPeers: [],
+      ...boundOptions('decrypt', kemContentDigest(ciphertext, identity), 0),
+      nodeUrls: nodeUrls.map(url => url + '/'), ciphertext, identity,
     })
     ok(
       'a trailing slash on the node url is normalised away',
-      sent.some(s => s.url === 'http://keeper-1/v1/committee/decrypt'),
+      sent.some(s => s.url === 'http://keeper-1/v1/committee/decrypt/partial'),
     )
   }
 
   // ─── identity-scoped extraction: real crypto end to end ────────────────────
   const scopedIdentity = 'did:example:alice/imaging/2026-09'
+  const ibeOptions = boundOptions('ibe-extract', sha256(new TextEncoder().encode(scopedIdentity)), epoch)
+  const {token: directToken} = await requestCommitteeToken({...tokenOpts, ...ibeOptions, scopedIdentity})
+  const directIbe = {...ibeOptions, committeeToken: directToken, identity: scopedIdentity, chainId: 43112}
   {
     sent.length = 0
     keeperBehaviour.clear()
-    const skId = await ibeExtractRequest({...tokenOpts, nodeUrls, identity: scopedIdentity})
+    const skId = await ibeExtractRequest({...tokenOpts, ...ibeOptions, identity: scopedIdentity})
     eq('extract: returns a 48-byte compressed G1 identity key', skId.length, 48)
 
     // The binding that makes the whole scheme work: the token must carry THIS identity,
@@ -370,7 +373,7 @@ try {
     // The key must actually decrypt something encrypted to that identity — the assertion
     // a mocked combine could not make.
     const ct = ibeEncrypt(mpk, new TextEncoder().encode(scopedIdentity), new TextEncoder().encode('secret'))
-    const viaHelper = await ibeDecryptRequest({...tokenOpts, nodeUrls, identity: scopedIdentity, ciphertext: ct})
+    const viaHelper = await ibeDecryptRequest({...tokenOpts, ...ibeOptions, identity: scopedIdentity, ciphertext: ct})
     eq('ibeDecryptRequest round-trips a real IBE ciphertext', new TextDecoder().decode(viaHelper), 'secret')
   }
   {
@@ -379,9 +382,8 @@ try {
     sent.length = 0
     keeperBehaviour.set(3, 'refuse')
     const partials = await requestIbeExtractionPartials({
-      nodeUrls,
-      committeeToken: {} as never,
-      identity: scopedIdentity,
+      ...directIbe,
+      threshold: undefined, // collect-all retains the original serving-node order
     })
     eq('extract: a refusing node is skipped, not fatal', partials.length, 2)
     eq('extract: partials carry the serving node for identifiable abort', partials.map(p => p.nodeUrl), ['http://keeper-1', 'http://keeper-2'])
@@ -399,17 +401,17 @@ try {
     await rejectsWith(
       'extract: an all-down fan-out names every node and its reason',
       /no node served an extraction.*keeper-1.*keeper-2.*keeper-3/s,
-      () => requestIbeExtractionPartials({nodeUrls, committeeToken: {} as never, identity: scopedIdentity}),
+      () => requestIbeExtractionPartials({...directIbe, threshold: undefined}),
     )
     await rejectsWith(
       'extract: an all-down fan-out reports the HTTP status',
       /503/,
-      () => requestIbeExtractionPartials({nodeUrls, committeeToken: {} as never, identity: scopedIdentity}),
+      () => requestIbeExtractionPartials({...directIbe, threshold: undefined}),
     )
     keeperBehaviour.clear()
   }
   await rejectsWith('extract: an empty node list is refused up front', /no node URLs/, () =>
-    requestIbeExtractionPartials({nodeUrls: [], committeeToken: {} as never, identity: 'x'}),
+    requestIbeExtractionPartials({...directIbe, nodeUrls: []}),
   )
 
   // ─── holderProofPerVerifier ────────────────────────────────────────────────
@@ -548,13 +550,16 @@ try {
     'platformAudience: a different chain yields a different audience',
     platformAudience('https://agent.example', 43113) !== platformAudience('https://agent.example', 43114),
   )
+  eq('dpopHtu: origin + the response path', dpopHtu('https://agent.example/', 'session-1'), 'https://agent.example/v1/sessions/session-1/oauth-response')
+  // The exact session path is bound; query and fragment never enter the target.
+  ok('dpopHtu: carries no query', !dpopHtu('https://agent.example', 'session-1').includes('?'))
   eq(
     'dpopHtu: origin + this session\'s response path',
     dpopHtu('https://agent.example/', 'abc_DEF-123'),
     'https://agent.example/v1/sessions/abc_DEF-123/oauth-response',
   )
   // Per session (the URL the proof is presented at), and still never a query or fragment.
-  ok('dpopHtu: carries no query', !dpopHtu('https://agent.example', 'abc').includes('?'))
+  ok('dpopHtu: carries no query (second vector)', !dpopHtu('https://agent.example', 'abc').includes('?'))
 }
 
 if (failures.length > 0) {

@@ -1,0 +1,76 @@
+# syntax=docker/dockerfile:1
+# The Tasra SDK documentation site, built and served as a self-contained nginx image.
+#
+#   docker buildx build --platform linux/amd64 -f deploy/fuji/Dockerfile.docs \
+#     -t tasra-sdk-docs:fuji --load .          # from the REPOSITORY ROOT
+#
+# ⚠⚠ THE CONTEXT IS THE WHOLE REPOSITORY, NOT site/. The docs are not self-contained: site/sync.mjs
+#    imports ../scripts/publication.mjs and copies every file publication.json lists (README,
+#    CHANGELOG, LICENSE, SECURITY and all of docs/, skills/, examples/) into the content tree. A
+#    context of site/ alone fails at `npm run sync` with a module-resolution error pointing at
+#    publication.mjs, which reads like a broken import rather than a wrong build context.
+#
+# ⚠ loadPublication() REFUSES A SYMLINK for any published file (it compares realpath to the
+#   declared path). COPY dereferences symlinks, so this works here — but a docs file that is a
+#   symlink on a developer's machine will build in Docker and fail `npm run build` locally.
+#
+# ⚠ --platform linux/amd64 IS NOT OPTIONAL ON AN APPLE-SILICON MAC. Without it buildx produces an
+#   arm64 image, `docker load` on web-server accepts it without complaint, and the container dies
+#   with "exec format error" — which reads like a broken entrypoint. build.sh asserts the result.
+
+FROM node:22-alpine AS build
+WORKDIR /build/tasra-sdk
+
+# The site's own dependency tree first, so a docs-only edit reuses this layer.
+# ⚠ npm ci here installs for site/ ONLY. It deliberately never runs at the repository root, whose
+#   `prepare` script builds the SDK and installs git hooks — neither of which the docs need, and
+#   there is no git in this image.
+COPY site/package.json site/package-lock.json ./site/
+RUN npm ci --prefix site
+
+# Everything the published docs are assembled from (see Dockerfile.docs.dockerignore for what is
+# withheld). publication.json is the manifest; the build fails loudly if any entry is missing.
+COPY . .
+
+# astro build also runs check-links.mjs and the check-reference.mjs test suite, so a broken
+# internal link or a reference page that lost its types FAILS THE IMAGE rather than shipping.
+RUN npm run build --prefix site
+RUN test -s site/dist/index.html || { echo 'docs build produced no index.html' >&2; exit 1; }
+# ⚠ Starlight's search is a separate artifact from the pages. If pagefind did not run, every
+#   search returns nothing and no page looks broken — so assert the index exists.
+RUN test -f site/dist/pagefind/pagefind.js || { echo 'no pagefind index — site search would be silently empty' >&2; exit 1; }
+
+# ── Runtime ─────────────────────────────────────────────────────────────────────────────────
+# `astro preview` — the SAME server the site is developed against (`npm run preview`), so what is
+# deployed behaves like what you see locally. No nginx in this image; Nginx Proxy Manager on the
+# host is the only web server in the path, and it proxies to this container.
+FROM node:22-alpine AS run
+WORKDIR /srv/site
+
+# ⚠⚠ astro preview IS NOT A STATIC FILE COPY — it runs Astro, so node_modules must travel with it.
+#    That is what makes this image an order of magnitude larger than an nginx one; it is the price
+#    of running the same server locally and in production rather than two different ones.
+COPY --from=build /build/tasra-sdk/site/node_modules ./node_modules
+COPY --from=build /build/tasra-sdk/site/dist ./dist
+COPY --from=build /build/tasra-sdk/site/package.json ./package.json
+COPY --from=build /build/tasra-sdk/site/astro.config.mjs ./astro.config.mjs
+
+# ⚠⚠ `--host 0.0.0.0`, NOT the 127.0.0.1 in package.json's `preview` script. Bound to loopback the
+#    server answers only inside the container: the proxy gets connection-refused and reports 502,
+#    while `docker logs` shows a server that started perfectly. This is why the CMD calls astro
+#    directly instead of `npm run preview` — appending a second --host to that script is
+#    ambiguous, and the local script should keep binding loopback.
+#
+# ⚠⚠ WITHOUT THIS THE CONTAINER EXITS IMMEDIATELY ON A read_only FILESYSTEM. Astro's telemetry
+#    module runs before the server starts and does mkdir /root/.config/astro, which fails with
+#    "ENOENT: no such file or directory, mkdir '/root/.config/astro'" — an error that names a
+#    missing directory rather than a read-only mount, so it reads like a broken image.
+#    `isDisabled` checks this variable first and returns before touching that config store, so the
+#    directory is never created. Disabling telemetry on a documentation server is right anyway.
+ENV ASTRO_TELEMETRY_DISABLED=1
+
+# ⚠ 4321 is Astro's default preview port and is pinned here so the proxy host has a fixed target.
+EXPOSE 4321
+# ⚠ The local binary, NOT `npx astro`. npx wants a writable cache under /root and prints an update
+#   notice into the container log on every start; the binary is already in this image.
+CMD ["node_modules/.bin/astro", "preview", "--host", "0.0.0.0", "--port", "4321"]

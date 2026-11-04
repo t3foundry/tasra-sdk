@@ -1,12 +1,15 @@
 // Node example utilities, not part of the SDK's public API.
+import {randomBytes} from 'node:crypto'
+import type {Hex} from 'viem'
 import {readFileSync} from 'node:fs'
-import {ed25519DidKey, hexToBytes, type HolderSigner} from '@t3foundry/tasra-sdk'
+import {ed25519DidKey, hexToBytes, createDecryptionRecipient, decryptionBinding, kemContentDigest, type HolderSigner, type Ciphertext} from '@t3foundry/tasra-sdk'
 import {
   addressBookFromManifest, createTasraChainClient, parsePinnedNetworkManifest,
-  observeNetworkManifest, resolveSlotKeeperUrls, nodeApi,
-  createCommitteeSlotClient, type TasraChainClient,
+  observeNetworkManifest,
+  createCommitteeSlotClient, type TasraChainClient, type SlotCommitteeDecryptOptions,
 } from '@t3foundry/tasra-sdk/chain'
-import {ed25519ClientSigner, holderProofPerVerifier} from '@t3foundry/tasra-sdk/committee'
+import {discoverBlsSharing, holderProofPerVerifier} from '@t3foundry/tasra-sdk/committee'
+import {ed25519} from '@noble/curves/ed25519'
 
 export function required(name: string, env: NodeJS.ProcessEnv = process.env): string {
   const value = env[name]?.trim()
@@ -39,7 +42,7 @@ export function loadHolder(prefix = 'KK') {
     if (!Array.isArray(credentials) || !credentials.length || !credentials.every(v => typeof v === 'string' && v.length > 0)) {
       throw new Error('Credentials file must be a nonempty JSON array of compact-JWS credentials')
     }
-    const holder = ed25519DidKey(ed25519ClientSigner(secretKey).publicKey)
+    const holder = ed25519DidKey(ed25519.getPublicKey(secretKey))
     const signer: HolderSigner = {alg: 'EdDSA', did: holder, secretKey}
     return {holder, signer, secretKey, credentials: credentials as string[]}
   } catch (error) {
@@ -50,22 +53,26 @@ export function loadHolder(prefix = 'KK') {
 
 export function committeeClient(chain: TasraChainClient, slot: string, identity: ReturnType<typeof loadHolder>, action: 'sign' | 'decrypt') {
   return createCommitteeSlotClient({chain, holder: identity.holder, credentials: identity.credentials,
-    clientSigner: ed25519ClientSigner(identity.secretKey),
     holderProof: holderProofPerVerifier({signer: identity.signer, credentials: identity.credentials,
       audience: required('KK_VERIFIER_AUDIENCE'), slotId: slot, action}),
   })
 }
 
-export async function decryptPeers(chain: TasraChainClient, slot: `0x${string}`) {
-  const urls = await resolveSlotKeeperUrls(chain, slot)
-  if (!urls.length) throw new Error('Slot has no assigned keeper endpoints')
-  const peers = await Promise.all(urls.map(async url => {
-    const info = await nodeApi.info(url)
-    if (!Number.isSafeInteger(info.node_identifier) || Number(info.node_identifier) <= 0 || !info.peer_id) {
-      throw new Error('Keeper did not publish its BLS identifier and peer ID')
-    }
-    return {id: info.node_identifier!, peerId: info.peer_id}
+/** Prepare the original client recipient and authenticated sharing before holder authorization. */
+export async function sealedDecryptOptions(chain: TasraChainClient, slot: Hex,
+  envelope: {ciphertext: Ciphertext; identity: Uint8Array; epoch: bigint | null}): Promise<SlotCommitteeDecryptOptions> {
+  const [canonical, chainId, operators] = await Promise.all([
+    chain.readers.keyRegistry.getKeySlot(slot), chain.client.getChainId(), chain.readers.keyRegistry.assignedNodes(slot),
+  ])
+  if (!canonical.exists || canonical.mode !== 1 || envelope.epoch === null || envelope.epoch !== BigInt(canonical.epoch)) throw new Error('Envelope is not for the canonical BLS slot epoch')
+  const keepers = await Promise.all(operators.map(async operator => {
+    const node = await chain.readers.nodeRegistry.nodeOf(operator)
+    return {operator, nodeUrl: node.url, publicKey: hexToBytes(node.pubkey)}
   }))
-  if (new Set(peers.map(p => p.id)).size !== peers.length) throw new Error('Duplicate BLS identifiers')
-  return peers.sort((a, b) => a.id - b.id)
+  const epoch = Number(canonical.epoch), threshold = canonical.threshold.k
+  const sharing = await discoverBlsSharing({chainId,slotId:slot,epoch,committeeVersion:Number(canonical.committeeVersion),threshold,keepers})
+  const recipient = await createDecryptionRecipient()
+  const {payloadDigest} = decryptionBinding(kemContentDigest(envelope.ciphertext,envelope.identity),epoch,recipient)
+  return {ciphertext:envelope.ciphertext,identity:envelope.identity,ciphertextEpoch:epoch,recipient,threshold,verifyingShares:sharing.verifyingShares,
+    binding:{chainId,action:'decrypt',payloadDigest,random:randomBytes(32),clientId:required('KK_VERIFIER_AUDIENCE')}}
 }

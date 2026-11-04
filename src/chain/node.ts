@@ -1,13 +1,18 @@
 /** Node-only service discovery transport; never imported by the browser-safe chain barrel. */
 import {didWebUrl} from '../oid4vp/did-web.js'
 import type {RegisteredAgentSession} from './registeredAgent.js'
-import type {AgentTransport} from './registeredAgent.js'
-import type {RelayTransport} from './registeredRelay.js'
+import type {AgentHttpResponse, AgentTransport} from './registeredAgent.js'
+import type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
+import type {KeeperRecoveryHttpResponse, KeeperRecoveryTransport} from './keeperRecovery.js'
+import type {RelayHttpResponse, RelayTransport} from './registeredRelay.js'
+import {parseRetryAfter} from '../internal/retryAfter.js'
 import {lookup} from 'node:dns'
 import {request} from 'node:https'
+import {request as plainRequest, type IncomingMessage} from 'node:http'
 import {rootCertificates} from 'node:tls'
 import {BlockList, isIP, type LookupFunction} from 'node:net'
-import {SERVICE_MANIFEST_PATH, SERVICE_IDENTITY_PATH, validateServiceEndpoint, type ServiceDiscoveryTransport} from './serviceIdentity.js'
+import type {ServiceDiscoveryTransport} from './serviceIdentity.js'
+import {acceptsServiceResponse, serviceRequestShape} from './serviceRequestPolicy.js'
 
 const denied = new BlockList()
 for (const [address, prefix] of [
@@ -19,6 +24,11 @@ for (const [address, prefix] of [
 for (const [address, prefix] of [['2001::', 23], ['2001:db8::', 32], ['2002::', 16], ['3fff::', 20]] as const) denied.addSubnet(address, prefix, 'ipv6')
 const globalV6 = new BlockList()
 globalV6.addSubnet('2000::', 3, 'ipv6')
+
+/** A loopback name or a non-public IP literal (plain local-development HTTP only). */
+function localName(host: string): boolean {
+  return host === 'localhost' || host.endsWith('.localhost') || (isIP(host) !== 0 && !isPublicServiceAddress(host))
+}
 
 /**
  * Conservative globally routable destinations; special-purpose exceptions require explicit policy.
@@ -63,7 +73,8 @@ export function createNodeServiceStatusTransport(policy: ServiceTransportPolicy 
 export function createNodeRelayTransport(policy: ServiceTransportPolicy = {}): RelayTransport {
   const discovery = guardedTransport(policy, 'discovery')
   const relay = guardedTransport(policy, 'relay')
-  return {...discovery, relayRequest: relay.request}
+  return {...discovery, relayRequest: relay.request,
+    relayExchange: (url, options) => relay.request(url, {...options, full: true}) as unknown as Promise<RelayHttpResponse>}
 }
 
 /**
@@ -73,7 +84,42 @@ export function createNodeRelayTransport(policy: ServiceTransportPolicy = {}): R
 export function createNodeAgentTransport(policy: ServiceTransportPolicy = {}): AgentTransport {
   const discovery = guardedTransport(policy, 'discovery')
   const agent = guardedTransport(policy, 'agent')
-  return {...discovery, agentRequest: agent.request}
+  return {...discovery, agentRequest: agent.request,
+    agentExchange: (url, options) => agent.request(url, {...options, full: true}) as unknown as Promise<AgentHttpResponse>}
+}
+
+/**
+ * Guarded paid-session creation and owner control, preserving HTTP consent/recovery statuses.
+ * @param policy Client-approved private hosts and additional CA roots; TLS verification stays enabled.
+ */
+export function createNodePaidAgentTransport(policy: ServiceTransportPolicy = {}): PaidAgentTransport {
+  const discovery = guardedTransport(policy, 'discovery')
+  const paid = guardedTransport(policy, 'paid-agent')
+  return {...discovery, paidAgentRequest: (url, options) => {
+    if (options.body && options.body.length > 2 * 1024 * 1024) throw new Error('Invalid service HTTP bounds')
+    return paid.request(url, {...options, body: options.body?.slice()})
+  }}
+}
+
+/** Options for {@link createNodeKeeperRecoveryTransport}. */
+export interface NodeKeeperRecoveryTransportPolicy extends ServiceTransportPolicy {
+  /**
+   * Local development fleet: also permit plain HTTP to loopback names, private IP literals and
+   * `allowedPrivateHosts` (and only those), resolving only to non-public addresses, with the same
+   * route checks as HTTPS. Default false: HTTPS only. The recovery reads separately permit HTTP
+   * only on the local development chain (43112) with the paid operation's `allowLocalHttp`.
+   */
+  allowLocalHttp?: boolean
+}
+
+/**
+ * Guarded completed-result reads using the same socket-bound destination and verified TLS policy.
+ * Only the two POST evidence/recovery paths are permitted; this transport cannot submit key work.
+ * @param policy Exact client-approved private hosts, additional CA roots and local development HTTP.
+ */
+export function createNodeKeeperRecoveryTransport(policy: NodeKeeperRecoveryTransportPolicy = {}): KeeperRecoveryTransport {
+  const recovery = guardedTransport(policy, 'keeper-recovery', policy.allowLocalHttp === true)
+  return {keeperRecoveryRequest: (url, options) => recovery.request(url, {...options, method: 'POST', body: options.body.slice()})}
 }
 
 /**
@@ -94,40 +140,37 @@ export function createNodeAgentWalletFetch(session: Pick<RegisteredAgentSession,
     if (!(method === 'GET' && (url === requestUri || url === didUrl)) && !post) throw new Error('Wallet request is outside the approved session')
     if (post && typeof init?.body !== 'string' || !post && init?.body != null) throw new Error('Invalid wallet request body')
     const signal = init?.signal ?? AbortSignal.timeout(30_000)
-    const bytes = await transport.request(url, {body: post ? new TextEncoder().encode(init!.body as string) : undefined, maxBytes: post ? 16_384 : 65_536, signal})
-    return new Response(new TextDecoder('utf-8', {fatal: true}).decode(bytes), {status: 200, headers: {'content-type': url === requestUri ? 'application/oauth-authz-req+jwt' : 'application/json'}})
+    const response = await transport.request(url, {body: post ? new TextEncoder().encode(init!.body as string) : undefined, maxBytes: post ? 16_384 : 65_536, signal})
+    return new Response(new TextDecoder('utf-8', {fatal: true}).decode(response.body), {status: response.status, headers: {'content-type': url === requestUri ? 'application/oauth-authz-req+jwt' : 'application/json'}})
   }
 }
 
-function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'relay' | 'agent' | 'wallet' | 'status') {
-  const relay = mode === 'relay', agent = mode === 'agent', wallet = mode === 'wallet', status = mode === 'status'
+type TransportOptions = {body?: Uint8Array; maxBytes: number; signal: AbortSignal; bearer?: string; method?: 'GET' | 'POST'; oauth?: {accessToken: string; proof: string}
+  /** Internal: return status and Retry-After with the bytes (relay busy handling). */
+  full?: boolean}
+function guardedTransport(policy: ServiceTransportPolicy, mode: 'paid-agent' | 'wallet'): {request(url: string, options: TransportOptions): Promise<PaidAgentHttpResponse>}
+function guardedTransport(policy: ServiceTransportPolicy, mode: 'keeper-recovery', localHttp: boolean): {request(url: string, options: TransportOptions): Promise<KeeperRecoveryHttpResponse>}
+function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'relay' | 'agent' | 'status'): {request(url: string, options: TransportOptions): Promise<Uint8Array>}
+function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'relay' | 'agent' | 'wallet' | 'status' | 'paid-agent' | 'keeper-recovery', localHttp = false) {
+  const relay = mode === 'relay', agent = mode === 'agent', wallet = mode === 'wallet'
+  const paid = mode === 'paid-agent'
+  const recovery = mode === 'keeper-recovery'
 
   const allowed = new Set(policy.allowedPrivateHosts ?? [])
   // Snapshot mutable caller configuration before the first asynchronous request.
   const ca = Array.isArray(policy.ca) ? policy.ca.map(c => typeof c === 'string' ? c : Buffer.from(c))
     : typeof policy.ca === 'string' || policy.ca === undefined ? policy.ca : Buffer.from(policy.ca)
   return {
-    request(url: string, {body, maxBytes, signal, bearer}: {body?: Uint8Array; maxBytes: number; signal: AbortSignal; bearer?: string}) {
+    request(url: string, {body, maxBytes, signal, bearer, method, oauth, full}: TransportOptions) {
       signal.throwIfAborted()
-      if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > (agent || wallet ? 1_048_576 : relay ? 4_096 : 16_384) || body && body.length > (wallet ? 1_048_576 : agent || relay ? 65_536 : 2_048)) throw new Error('Invalid service HTTP bounds')
-      // The registry's 512-byte limit applies to the base, excluding appended protocol paths.
-      const relaySuffix = url.match(/\/v1\/relay\/(forward|0x[0-9a-f]{64})$/)?.[0]
-      if (relay && (!relaySuffix || Boolean(body) !== relaySuffix.endsWith('/forward'))) throw new Error('Invalid relay path or method')
-      const agentSuffix = url.match(/\/v1\/sessions(?:\/[0-9a-f]{64})?$/)?.[0]
-      if (agent && (!agentSuffix || (body ? agentSuffix !== '/v1/sessions' || bearer !== undefined : agentSuffix === '/v1/sessions' || !/^[0-9a-f]{64}$/.test(bearer ?? '')))) throw new Error('Invalid agent path, method or poll secret')
-      if (!agent && bearer !== undefined) throw new Error('Bearer is only allowed for agent polling')
-      const walletSuffix = url.match(/(?:\/\.well-known\/did\.json|\/v1\/request\/[0-9a-f]{64}|\/v1\/response\?session=[0-9a-f]{64})$/)?.[0]
-      if (wallet && (!walletSuffix || Boolean(body) !== walletSuffix.startsWith('/v1/response?session='))) throw new Error('Invalid wallet path or method')
-      const statusSuffix = url.match(/(?:\/readyz|\/v1\/relay\/policy)$/)?.[0]
-      if (status && (!statusSuffix || body !== undefined)) throw new Error('Invalid service status path or method')
-      const contentType = status && statusSuffix === '/readyz' ? 'text/plain' : wallet && !body && !url.endsWith('/did.json') ? 'application/oauth-authz-req+jwt' : 'application/json'
-      const responseTypes = wallet && walletSuffix === '/.well-known/did.json'
-        ? ['application/json', 'application/did+json', 'application/did+ld+json'] : [contentType]
-      const suffix = status ? statusSuffix : wallet ? walletSuffix : agent ? agentSuffix : relay ? relaySuffix : [SERVICE_MANIFEST_PATH, SERVICE_IDENTITY_PATH].find(path => url.endsWith(path))
-      validateServiceEndpoint(suffix ? url.slice(0, -suffix.length) : url)
       const parsed = new URL(url)
       const host = parsed.hostname.replace(/^\[|\]$/g, '')
-      const permits = (address: string) => allowed.has(host) || isPublicServiceAddress(address)
+      // Local development HTTP: only to a loopback name, a private IP literal or an approved private
+      // host, checked with the same route policy as its HTTPS form; every answer must be non-public.
+      const plain = localHttp && parsed.protocol === 'http:' && (localName(host) || allowed.has(host))
+      const shape = serviceRequestShape(mode, plain ? 'https:' + url.slice('http:'.length) : url, {body, maxBytes, bearer, method, oauth})
+      if (parsed.protocol !== 'https:' && !plain) throw new Error('Service destination policy requires HTTPS')
+      const permits = (address: string) => plain ? !isPublicServiceAddress(address) : allowed.has(host) || isPublicServiceAddress(address)
       if (isIP(host) && !permits(host)) throw new Error('Service destination policy refuses address')
       const checkedLookup: LookupFunction = (hostname, options, callback) => {
         lookup(hostname, {all: true, verbatim: true}, (error, addresses) => {
@@ -140,18 +183,22 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
           else callback(null, addresses[0]!.address, addresses[0]!.family)
         })
       }
-      return new Promise<Uint8Array>((resolve, reject) => {
-        const req = request(parsed, {
-          method: body ? 'POST' : 'GET', agent: false, lookup: checkedLookup,
-          ca: ca === undefined ? undefined : [...rootCertificates, ...(Array.isArray(ca) ? ca : [ca])], rejectUnauthorized: true, signal, maxHeaderSize: 8_192,
-          headers: {...(bearer ? {authorization: `Bearer ${bearer}`} : {}), accept: responseTypes.join(', '), 'accept-encoding': 'identity', ...(body ? {'content-type': wallet ? 'application/x-www-form-urlencoded' : 'application/json', 'content-length': body.length} : {})},
-        }, res => {
+      return new Promise<Uint8Array | PaidAgentHttpResponse>((resolve, reject) => {
+        const common = {method: shape.method, agent: false as const, lookup: checkedLookup, signal, maxHeaderSize: 8_192,
+          headers: {...shape.headers, 'accept-encoding': 'identity', ...(body ? {'content-length': body.length} : {})}}
+        const req = plain ? plainRequest(parsed, common, res => respond(res)) : request(parsed, {...common,
+          ca: ca === undefined ? undefined : [...rootCertificates, ...(Array.isArray(ca) ? ca : [ca])], rejectUnauthorized: true,
+        }, res => respond(res))
+        function respond(res: IncomingMessage) {
           const fail = (error: Error) => { reject(error); req.destroy(error) }
-          if (!(agent ? res.statusCode === (body ? 201 : 200) : relay ? [200, 202, 422].includes(res.statusCode ?? 0) : res.statusCode === 200) || !responseTypes.includes(res.headers['content-type']?.split(';')[0]?.trim().toLowerCase() ?? '') || res.headers['content-encoding'] && res.headers['content-encoding'] !== 'identity') {
-            fail(new Error('Service HTTP status, content type or encoding refused')); return
+          const noContent = paid && res.statusCode === 204
+          const receivedType = res.headers['content-type']?.split(';')[0]?.trim().toLowerCase() ?? ''
+          if (!acceptsServiceResponse(mode, shape, Boolean(body), res.statusCode ?? 0, receivedType, agent && Boolean(full)) || res.headers['content-encoding'] && res.headers['content-encoding'] !== 'identity') {
+            // The status and type name the refusal without any body bytes (certification run 39).
+            fail(new Error(`Service HTTP status, content type or encoding refused (HTTP ${res.statusCode ?? 0}, ${receivedType || 'no content type'})`)); return
           }
           const advertised = res.headers['content-length']
-          if (advertised && (!/^\d+$/.test(advertised) || Number(advertised) > maxBytes)) {
+          if (advertised && (!/^\d+$/.test(advertised) || Number(advertised) > maxBytes || noContent && Number(advertised) !== 0)) {
             fail(new Error('Service response too large')); return
           }
           const chunks: Buffer[] = []
@@ -162,10 +209,20 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
             chunks.push(chunk)
           })
           res.on('error', reject)
-          res.on('end', () => resolve(Buffer.concat(chunks, size)))
-        })
+          res.on('end', () => {
+            if (noContent && size !== 0) {fail(new Error('Unexpected paid agent response body')); return}
+            const bytes = Buffer.concat(chunks,size)
+            const header = res.headers['retry-after'], retryAfterMs = parseRetryAfter(Array.isArray(header) ? undefined : header)
+            // Paid replies also carry the raw wait headers, parsed strictly by the paid pacer. A
+            // repeated non-standard header arrives comma-joined (or as an array) and is ignored there.
+            const governor = res.headers['x-ratelimit-after']
+            const raw = paid ? {...(typeof header === 'string' ? {retryAfter: header} : {}),
+              ...(governor !== undefined ? {rateLimitAfter: Array.isArray(governor) ? governor.join(', ') : governor} : {})} : {}
+            resolve(paid || recovery || wallet || ((relay || agent) && full) ? {status: res.statusCode!, body: bytes, ...(retryAfterMs !== undefined ? {retryAfterMs} : {}), ...raw} : bytes)
+          })
+        }
         // Absolute request deadline also bounds DNS/TLS and slow trickle responses.
-        const timer = setTimeout(() => req.destroy(new Error('Service HTTP timed out')), agent || wallet ? 30_000 : 5_000)
+        const timer = setTimeout(() => req.destroy(new Error('Service HTTP timed out')), paid || recovery || agent || wallet ? 30_000 : 5_000)
         req.on('close', () => clearTimeout(timer))
         req.on('error', reject)
         req.end(body)

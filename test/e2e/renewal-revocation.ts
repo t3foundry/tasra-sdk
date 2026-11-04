@@ -5,17 +5,17 @@ import {randomBytes} from 'node:crypto'
 import {Suite} from '../fleet/_assert.ts'
 import {gate,loadFleetConfig,mintLocalJwt} from '../fleet/_fleet.ts'
 import {authorizeWallet,createWalletSlot,issueWallet} from '../fleet/_wallet.ts'
-import {VerifierAgentSessionError} from '../../src/oid4vp/index.ts'
+import {isPaidCredentialRefusal} from '../fleet/_credential-refusal.ts'
 import {committeeSign} from '../../src/committee/client.ts'
 
 const cfg=loadFleetConfig(),s=new Suite('e2e: expired credential lockout and fresh wallet presentation')
 if (!(await gate(s,cfg))) { s.done(); process.exit(1) }
 const slot=await createWalletSlot(cfg),message=randomBytes(32)
 await assert.rejects(()=>authorizeWallet(cfg,slot.slotId,slot.creatorKey,{action:'sign',message},issueWallet(cfg,{ttlSecs:-120}),true),
-  error=>error instanceof VerifierAgentSessionError && error.kind==='refused')
-s.ok('expired issuer-signed credential rejected by the verifiers',true)
+  isPaidCredentialRefusal)
+s.ok('expired issuer-signed credential refused before a grant',true)
 const grant=await authorizeWallet(cfg,slot.slotId,slot.creatorKey,{action:'sign',message})
-await committeeSign({nodeUrl:slot.committee[0]!,committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,message})
+await committeeSign({nodeUrl:grant.coordinatorUrl,committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,approveExecution:grant.approveExecution,message})
 s.ok('fresh credential presentation restores the operation',true)
 for (const path of ['renewals','renewals/redeem','renewals/revoke']) {
   const response=await fetch(`${cfg.verifierUrls[0]}/v1/${path}`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})

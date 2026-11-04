@@ -6,7 +6,7 @@
 // the slot's rule admits and still not present it.
 import {expect, it} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
-import {ed25519HolderKey, holderSigner, randomHolderKey, b64url} from '../../src/oid4vp/jose.js'
+import {ed25519HolderKey, p256HolderKey, holderSigner, randomHolderKey, b64url} from '../../src/oid4vp/jose.js'
 import {didJwkIssuer, issueSdJwtVc, parseSdJwt, presentSdJwt, verifyKbJwt} from '../../src/oid4vp/sd-jwt.js'
 
 const seed = new Uint8Array(32).fill(7)
@@ -52,4 +52,24 @@ it('a P-256 holder still presents exactly as before', () => {
   })
   const presentation = presentSdJwt({parsed: parseSdJwt(credential), disclose: 'all', holder, nonce: 'n-2', aud: 'x'})
   expect(verifyKbJwt(presentation, {nonce: 'n-2', aud: 'x'}).holderJwk).toEqual(holder.publicJwk)
+})
+
+// D5 class: a holder key used to keep the caller's bytes by reference, so a caller that built it
+// from a Node Buffer (or any view) and then wiped its buffer zeroed the holder's key while the
+// did:jwk still named the original. The constructors now take an owned, plain Uint8Array copy.
+it.each([
+  ['Ed25519', ed25519HolderKey, 'a Node Buffer'], ['P-256', p256HolderKey, 'a Node Buffer'],
+  ['Ed25519', ed25519HolderKey, 'a subarray view of a larger Buffer'], ['P-256', p256HolderKey, 'a subarray view of a larger Buffer'],
+] as const)('an %s holder keeps presenting after the caller wipes %s', (_alg, make, shape) => {
+  const raw = new Uint8Array(32).map((_, i) => 0x40 + i)
+  const backing = Buffer.alloc(72, 0x77); backing.set(raw, 20)
+  const input = shape === 'a Node Buffer' ? Buffer.from(raw) : backing.subarray(20, 52)
+  const holder = make(input), expected = make(raw)
+  input.fill(0); backing.fill(0)
+  expect(holder.did).toBe(expected.did)
+  expect(holder.privateKey).toEqual(raw)
+  expect(Object.getPrototypeOf(holder.privateKey)).toBe(Uint8Array.prototype)
+  const credential = issueSdJwtVc({issuer: didJwkIssuer(issuerKey), vct: 'EmployeeOf', claims: {dept: 'Engineering'}, cnf: {jwk: holder.publicJwk}, sub: holder.did})
+  const presentation = presentSdJwt({parsed: parseSdJwt(credential), disclose: 'all', holder, nonce: 'n-3', aud: 'x'})
+  expect(verifyKbJwt(presentation, {nonce: 'n-3', aud: 'x'}).holderJwk).toEqual(holder.publicJwk)
 })

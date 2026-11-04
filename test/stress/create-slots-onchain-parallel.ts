@@ -30,7 +30,7 @@
 import {createPublicClient, http, parseEther, type Hex} from 'viem'
 import {WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
 import {Suite, metric} from '../fleet/_assert.ts'
-import {discoverCommittee, gate, keeperSlotN, loadFleetConfig, mintLocalJwt, provisionRule} from '../fleet/_fleet.ts'
+import {discoverCommittee, gate, keeperSlotN, loadFleetConfig, mintAdminJwt, provisionRule} from '../fleet/_fleet.ts'
 import {createTasraWriteClient, generateClientKey, type TasraWriteClient} from '../../src/chain/write.ts'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.ts'
 import {requireAddress} from '../../src/chain/deployments.ts'
@@ -57,7 +57,7 @@ const N = Number(process.env.KK_N || 3)
 // ⚠ The FROST branch below needs the keeper count the REGISTRY can seat, not the count that
 //   answers HTTP — a healthy-but-inactive keeper reverts the create. See keeperSlotN.
 const KEEPER_N = (await keeperSlotN(cfg)).n
-const jwt = mintLocalJwt(cfg) // admin scope → provisions the DCQL rule (ADR-0025)
+const jwt = mintAdminJwt(cfg) // admin scope → provisions the DCQL rule (ADR-0025)
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 // On-chain anchor check (same signal create-slots-onchain.ts uses): a slot's DKG

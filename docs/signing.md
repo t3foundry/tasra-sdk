@@ -53,6 +53,12 @@ Install with `npm install @t3foundry/tasra-sdk@latest`. The application uses
 
 ## Advanced committee signing adapter
 
+Keeper discovery and each committee signing request have separate 15-second
+deadlines. A signing timeout is an uncertain outcome: the keeper may have started
+work. Reconcile the original paid operation before submitting anything again.
+Leave the optional FROST signer set unset to let the keeper select responsive
+eligible participants. A paid request stays pinned to its assigned coordinator.
+
 The lower-level operation below is for integrations that need explicit control
 over the digest and verifier session.
 

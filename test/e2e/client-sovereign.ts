@@ -20,7 +20,7 @@
 import {bls12_381} from '@noble/curves/bls12-381'
 import {parseEther, type Hex} from 'viem'
 import {Suite, bytesEq} from '../fleet/_assert.ts'
-import {discoverCommittee, gate, loadFleetConfig, mintEngineeringJwt, mintLocalJwt, provisionRule, SLOT_DCQL_RULE} from '../fleet/_fleet.ts'
+import {discoverCommittee, gate, loadFleetConfig, mintEngineeringJwt, mintAdminJwt, provisionRule, SLOT_DCQL_RULE} from '../fleet/_fleet.ts'
 import {createTasraWriteClient, generateClientKey} from '../../src/chain/write.ts'
 import {httpFaucet} from '../../src/slots/faucet.ts'
 import {fetchAndAssembleKey, fetchMpk} from '../../src/keys/node-client.ts'
@@ -87,7 +87,7 @@ for (let i = 0; i < 40 && !mpkHex; i++) {
 s.ok('committee auto-DKG anchored the key', /^[0-9a-f]{192}$/i.test(mpkHex), `committee=${committee.length}`)
 
 // 5. provision the clear DCQL rule + prepay the slot on Settlement
-const adminJwt = mintLocalJwt(cfg)
+const adminJwt = mintAdminJwt(cfg)
 const prov = await provisionRule(committee, slotId, SLOT_DCQL_RULE, ruleSalt, adminJwt)
 s.ok('provisioned the rule + salt on the committee', prov.ok, prov.errors.join('; '))
 const settleBefore = await client.settlementBalance(slotId)

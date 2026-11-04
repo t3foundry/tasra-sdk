@@ -204,8 +204,8 @@ approve. Reading the address needs no credential presentation.
 
 ```ts
 const documents = await tasra.slots.bls(slotId)
-const ciphertext = await documents.encrypt(documentIdentity, documentBytes)
-const {plaintext} = await documents.decrypt(documentIdentity, ciphertext, {authorize})
+const ciphertext = await documents.encryptForIdentity(documentIdentity, documentBytes)
+const {plaintext} = await documents.decryptForIdentity(documentIdentity, ciphertext, {recipient, verifyingShares, authorize})
 ```
 
 Encryption uses the slot's anchored public key. Decryption obtains authorization,

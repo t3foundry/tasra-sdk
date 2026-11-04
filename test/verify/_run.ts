@@ -19,6 +19,19 @@ export const sdkRoot = resolve(here, '..', '..')
 const SIBLING_ORG = resolve(sdkRoot, '..', '..', 'managination')
 export const networkDir = process.env.KK_NETWORK_DIR ?? resolve(SIBLING_ORG, 'keykeeper-network')
 export const explorerDir = process.env.KK_EXPLORER_DIR ?? resolve(SIBLING_ORG, 'keykeeper-explorer')
+
+/**
+ * Whether bring-up attaches an Explorer: `KK_VERIFY_EXPLORER=on` (the default, unchanged) or `off`.
+ * The keykeeper-network PLATFORM certification runs `off`: it certifies the network through the
+ * SDK, and the Explorer is tested in its own pipeline and in the ecosystem tier
+ * (keykeeper-network docs/plans/cloud-certification.md). Any other value is refused, never guessed.
+ */
+export function explorerMode(env: Record<string, string | undefined> = process.env): 'on' | 'off' {
+  const value = env.KK_VERIFY_EXPLORER
+  if (value === undefined || value === 'on') return 'on'
+  if (value === 'off') return 'off'
+  throw new Error(`KK_VERIFY_EXPLORER must be "on" or "off", not ${JSON.stringify(value)}`)
+}
 export const outDir = resolve(here, 'out')
 
 /**

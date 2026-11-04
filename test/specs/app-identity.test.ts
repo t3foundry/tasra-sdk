@@ -50,6 +50,45 @@ describe('SDK identities and credentials', () => {
     expect(() => identity.issuer).toThrow('destroyed')
   })
 
+  // D5 class: `options.seed.slice()` on a Node Buffer was a VIEW, so the caller's wipe zeroed the
+  // identity's key, and `exportPrivateKey()` then returned another view of the same memory.
+  it.each([
+    ['Ed25519', 'a Node Buffer'], ['P-256', 'a Node Buffer'],
+    ['Ed25519', 'a subarray view of a larger Buffer'], ['P-256', 'a subarray view of a larger Buffer'],
+  ] as const)('keeps a %s identity signing after the caller wipes %s seed', (algorithm, shape) => {
+    const raw = new Uint8Array(32).map((_, i) => i + 1)
+    const backing = Buffer.alloc(80, 0x33); backing.set(raw, 24)
+    const seed = shape === 'a Node Buffer' ? Buffer.from(raw) : backing.subarray(24, 56)
+    const identity = createIdentity({algorithm, seed}), reference = createIdentity({algorithm, seed: raw})
+    expect(identity.did).toBe(reference.did)
+    seed.fill(0); backing.fill(0)
+    expect(identity.holder.privateKey).toEqual(raw)
+    const jwt = signCompactJws({}, {test: 'after wipe'}, identity.issuer.signer)
+    expect(verifyCompactJws(jwt, identity.holder.publicJwk).payload).toEqual({test: 'after wipe'})
+    const exported = identity.exportPrivateKey()
+    expect(Object.getPrototypeOf(exported)).toBe(Uint8Array.prototype)
+    expect(exported).toEqual(raw)
+    exported.fill(0)
+    expect(identity.exportPrivateKey()).toEqual(raw)
+    const again = signCompactJws({}, {test: 'after export wipe'}, identity.issuer.signer)
+    expect(verifyCompactJws(again, identity.holder.publicJwk).payload).toEqual({test: 'after export wipe'})
+    identity.destroy(); reference.destroy()
+  })
+  it.each(['Ed25519', 'P-256'] as const)('never mutates a caller Buffer seed on destroy (%s)', algorithm => {
+    const raw = new Uint8Array(32).fill(9), seed = Buffer.from(raw)
+    const identity = createIdentity({algorithm, seed}), exported = identity.exportPrivateKey()
+    identity.destroy()
+    expect(seed).toEqual(Buffer.from(raw))
+    expect(exported).toEqual(raw)
+  })
+  it('keeps an exported key usable by identityApprover-style callers that wipe it after each use', () => {
+    const identity = createIdentity({algorithm: 'Ed25519', seed: Buffer.from(new Uint8Array(32).fill(4))})
+    for (let i = 0; i < 2; i++) { const secret = identity.exportPrivateKey(); secret.fill(0) }
+    const jwt = signCompactJws({}, {n: 1}, identity.issuer.signer)
+    expect(verifyCompactJws(jwt, identity.holder.publicJwk).payload).toEqual({n: 1})
+    identity.destroy()
+  })
+
   it('issues credentials with issuer signature, subject, holder binding and selectively disclosed app claims', () => {
     const {issuer, alice, credential} = fixture()
     const parsed = parseSdJwt(credential)

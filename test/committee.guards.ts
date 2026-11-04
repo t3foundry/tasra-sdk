@@ -21,11 +21,16 @@
 //
 //   • THE OPTIONAL FIELDS on committeeDecrypt and the extraction request. Each is a keeper
 //     check the caller can silently lose: a user signature, a ciphertext epoch, verifier
-//     proofs, a client binding. `client_pubkey`/`client_signature` are both-or-neither.
+//     proofs - and NOTHING the keeper does not declare (it refuses unknown fields with a 422
+//     since 2026-10-03; the retired `client_pubkey`/`client_signature` pair must never go out).
 //
 // Run: tsx test/committee.guards.ts — exits non-zero on any failure.
 
 import {ed25519} from '@noble/curves/ed25519'
+import {sha256} from '@noble/hashes/sha256'
+import {createDecryptionRecipient, kemContentDigest, recipientPayloadDigest} from '../src/crypto/recipient.ts'
+import {collectSealedPartials} from '../src/decryption/sealed.ts'
+import {requestHash} from '../src/oid4vp/binding.ts'
 import {
   BINDING_HOLDER_KEY,
   BINDING_ISSUER_ASSERTED,
@@ -353,26 +358,28 @@ const bareHex = (b: Uint8Array): string => Array.from(b).map(x => x.toString(16)
     if (u.includes('/v1/committee/decrypt')) {
       return {ok: true, status: 200, json: async () => ({plaintext: 'AAAA'})} as unknown as Response
     }
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({identifier: 1, extraction_share: 'AAAA', verifying_share: 'AAAA', epoch: 4}),
-    } as unknown as Response
+    return Response.json({identifier: 1, extraction_share: 'AAAA', verifying_share: 'AAAA', epoch: 4})
   }) as typeof globalThis.fetch
 
   try {
-    const token = {} as never
+    const recipient = await createDecryptionRecipient()
+    const context = {recipient, chainId: 43112, verifyingShares: new Map([[1, fill(144, 1)]]), threshold: 1}
+    const boundToken = (content: Uint8Array, epoch: number) => ({slot_id: bytesToHex(fill(32, 7)), request_hash: bytesToHex(requestHash(43112, fill(32, 7), 'decrypt', recipientPayloadDigest(content, epoch, recipient.recipient)))}) as never
     const ciphertext = {u: fill(96, 1), nonce: fill(12, 2), aeadCt: fill(48, 3)}
+    const identity = new TextEncoder().encode('did:example:sender')
     const proofs = [{verifierIndex: 1, operator: `0x${'ab'.repeat(20)}`, pubkey: `0x${'cd'.repeat(32)}`, proof: [`0x${'11'.repeat(32)}`]}]
 
     // Every optional field, present.
     sent.length = 0
-    await committeeDecrypt({
-      nodeUrl: 'http://keeper-1', committeeToken: token, ciphertext,
-      identity: new TextEncoder().encode('did:example:sender'), decryptingSet: [1, 2], blsPeers: [],
+    await rejectsWith('legacy custody refuses before transport', /retired/, () => committeeDecrypt({} as never))
+    eq('retired custody sends no HTTP', sent.length, 0)
+    // Wire-only fixtures deliberately return invalid contributions; crypto success is
+    // covered by recipient vectors and the high-level round-trip suite.
+    await rejectsWith('sealed transport rejects the invalid fixture contribution', /threshold not met/, () => collectSealedPartials({
+      ...context, nodeUrls: ['http://keeper-1'], committeeToken: boundToken(kemContentDigest(ciphertext, identity), 4),
       userSignature: fill(64, 9), ciphertextEpoch: 4, targetKeykeeper: `0x${'ee'.repeat(32)}`,
-      verifierProofs: proofs, clientPubkey: fill(32, 7), clientSignature: fill(64, 8),
-    })
+      verifierProofs: proofs,
+    }, 'decrypt', identity, ciphertext))
     const body = sent[0]!.body
     eq('decrypt: user_signature is bare hex', body.user_signature, bareHex(fill(64, 9)))
     eq('decrypt: ciphertext_epoch is forwarded', body.ciphertext_epoch, 4)
@@ -381,48 +388,37 @@ const bareHex = (b: Uint8Array): string => Array.from(b).map(x => x.toString(16)
     eq('decrypt: verifier_proofs are converted to the wire DTO', body.verifier_proofs, [
       {verifier_index: 1, operator: 'ab'.repeat(20), pubkey: 'cd'.repeat(32), proof: ['11'.repeat(32)]},
     ])
-    eq('decrypt: the client binding is sent as bare hex', [body.client_pubkey, body.client_signature], [bareHex(fill(32, 7)), bareHex(fill(64, 8))])
-
-    // ⚠ BOTH-OR-NEITHER on the client binding: the keeper verifies the signature against the
-    // pubkey, so one without the other is unverifiable and must not be sent at all.
-    for (const [label, half] of [
-      ['only a pubkey', {clientPubkey: fill(32, 7)}],
-      ['only a signature', {clientSignature: fill(64, 8)}],
-    ] as const) {
-      sent.length = 0
-      await committeeDecrypt({
-        nodeUrl: 'http://keeper-1', committeeToken: token, ciphertext,
-        identity: new Uint8Array(), decryptingSet: [1], blsPeers: [], ...half,
-      })
-      ok(`decrypt: ${label} sends neither half`, !('client_pubkey' in sent[0]!.body) && !('client_signature' in sent[0]!.body))
+    // The keeper refuses any key its schema does not declare (422 since 2026-10-03), so the
+    // wire body is EXACTLY the declared set - the retired `client_*` pair above all.
+    {
+      const declared = new Set(['committee_token', 'ciphertext', 'identity', 'recipient', 'user_signature', 'ciphertext_epoch', 'target_keykeeper', 'verifier_proofs'])
+      eq('decrypt: only declared keys go on the wire', Object.keys(body).filter(k => !declared.has(k)), [])
     }
 
     // ciphertextEpoch 0 is a VALUE, not an absence — `!== undefined` rather than truthiness.
     sent.length = 0
-    await committeeDecrypt({
-      nodeUrl: 'http://keeper-1', committeeToken: token, ciphertext,
-      identity: new Uint8Array(), decryptingSet: [1], blsPeers: [], ciphertextEpoch: 0,
-    })
+    await rejectsWith('zero-epoch sealed transport rejects invalid contribution', /threshold not met/, () => collectSealedPartials({
+      ...context, nodeUrls: ['http://keeper-1'], committeeToken: boundToken(kemContentDigest(ciphertext, new Uint8Array()), 0), ciphertextEpoch: 0,
+    }, 'decrypt', new Uint8Array(), ciphertext))
     eq('decrypt: a zero ciphertext_epoch is still sent', sent[0]!.body.ciphertext_epoch, 0)
 
     // The same option set on the extraction request.
     sent.length = 0
-    await requestIbeExtractionPartials({
-      nodeUrls: ['http://keeper-1'], committeeToken: token, identity: 'did:example:alice/imaging',
+    const ibeIdentity = 'did:example:alice/imaging'
+    const token = {slot_id: bytesToHex(fill(32, 7)), request_hash: bytesToHex(requestHash(43112, fill(32, 7), 'ibe-extract', recipientPayloadDigest(sha256(new TextEncoder().encode(ibeIdentity)), 2, recipient.recipient)))} as never
+    await rejectsWith('extraction transport rejects invalid fixture contribution', /threshold not met/, () => requestIbeExtractionPartials({
+      ...context, nodeUrls: ['http://keeper-1'], committeeToken: token, identity: ibeIdentity,
       userSignature: fill(64, 9), ciphertextEpoch: 2, verifierProofs: proofs,
-      clientPubkey: fill(32, 7), clientSignature: fill(64, 8),
-    })
+    }))
     const ex = sent[0]!.body
     eq('extract: identity is sent in the clear', ex.identity, 'did:example:alice/imaging')
     eq('extract: user_signature is bare hex', ex.user_signature, bareHex(fill(64, 9)))
     eq('extract: ciphertext_epoch is forwarded', ex.ciphertext_epoch, 2)
     ok('extract: verifier_proofs are converted', Array.isArray(ex.verifier_proofs))
-    eq('extract: the client binding is sent', [ex.client_pubkey, ex.client_signature], [bareHex(fill(32, 7)), bareHex(fill(64, 8))])
-    sent.length = 0
-    await requestIbeExtractionPartials({
-      nodeUrls: ['http://keeper-1'], committeeToken: token, identity: 'x', clientPubkey: fill(32, 7),
-    })
-    ok('extract: a lone client pubkey sends neither half', !('client_pubkey' in sent[0]!.body))
+    {
+      const declared = new Set(['committee_token', 'identity', 'recipient', 'user_signature', 'ciphertext_epoch', 'verifier_proofs'])
+      eq('extract: only declared keys go on the wire', Object.keys(ex).filter(k => !declared.has(k)), [])
+    }
   } finally {
     globalThis.fetch = realFetch
   }
@@ -615,10 +611,14 @@ const bareHex = (b: Uint8Array): string => Array.from(b).map(x => x.toString(16)
           quorum: 1,
         }),
     )
+    const recipient = await createDecryptionRecipient()
+    const digest = recipientPayloadDigest(sha256(new TextEncoder().encode('x')), 0, recipient.recipient)
+    const context = {recipient, chainId: 43112, ciphertextEpoch: 0, verifyingShares: new Map([[1, fill(144, 1)]]),
+      committeeToken: {slot_id: bytesToHex(fill(32, 7)), request_hash: bytesToHex(requestHash(43112, fill(32, 7), 'ibe-extract', digest))} as never}
     await rejectsWith(
       'the same holds for the extraction fan-out',
       /no node served an extraction.*socket hung up/s,
-      () => requestIbeExtractionPartials({nodeUrls: ['http://keeper-1'], committeeToken: {} as never, identity: 'x'}),
+      () => requestIbeExtractionPartials({...context, nodeUrls: ['http://keeper-1'], identity: 'x'}),
     )
     rejectWithString = false
   } finally {

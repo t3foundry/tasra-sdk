@@ -10,6 +10,51 @@ native approval POSTs or signing requests with an uncertain outcome.
 
 # OpenID4VP wallets and the Verifier Agent
 
+## Durable unpaid relay sponsorship
+
+Use the relayer's original validated sponsorship operation, signature, delegation and
+message with `createRegisteredAgentClient(...).createSession(...)`. Persist the creation
+intent before its POST, then privately save `session.unpaidRecovery` before wallet
+delivery. On restart, `restoreUnpaidSession(checkpoint, {signal})` checks independent
+approvals and live provider identity, and polls the original session without creating
+another one or switching providers. Keep the original operation and verify its Request
+Object binding before presenting and again immediately before delivery. An uncertain
+creation without a saved checkpoint requires recovery; never automatically create another
+session. The checkpoint contains a poll secret and belongs in private durable storage.
+Paid sessions use the separate payment recovery flow below.
+
+## Mandatory prepaid deployments
+
+Slot credit is TASRA. AVAX pays transaction gas and does not fund a slot's work.
+Use the installed `@t3foundry/tasra-sdk/chain` declarations and the package's `docs/funding.md`
+for reservation, certificate and execution types. A reservation locks a fixed fee;
+it does not replace credential, holder, rule or keeper authorization.
+
+Use `prepareRegisteredPaidSession` with a provider approved independently through
+the ServiceRegistry, the original mined reservation, complete drawn verifier
+witnesses, the application-verified rule/query and a local execution signer certified
+by the slot creator. Retain the session, signer and owner bearer before `create()`.
+After a lost reply, read the original session using `reconcile()`; do not create a
+new session, payment or proof to resolve an unknown outcome.
+
+For wallet sessions, approve the assigned JAR signer and separate drawn attesters
+with `approveRequest()`. Display the QR only after `requestObject()` verifies the
+anchored signer and original context. Read retained `presentations()`, independently
+accept the complete presentation, then select it with `resumePresentation()` and
+approve each drawn verifier with `approveCredentials()`. Never copy an untrusted
+proposal body into local consent. HTTP425 requires separate consent; HTTP503 requires
+recovery. Neither status authorizes an automatic resend.
+
+For OAuth, use `kind: 'oauth'`, the locally derived `oauthContext` and the access
+token's bound DPoP key. Retain the result of `prepareOAuthPresentation()` before the
+single `submitOAuthPresentation()` call. HTTP202 means the callback is retained;
+continue through presentation selection and credential approvals. The client checks
+DPoP binding; committee issuer, rule and holder verification is still required.
+
+Use `poll()` to verify completed quorum signatures and the original payment, rule
+and operation. This authorization driver does not deliver keeper work or settle
+fees. Native paid-session and full platform acceptance remain separate gates.
+
 The platform speaks the OpenID4VP 1.0 wallet contract (DCQL queries, SD-JWT VC
 with key binding, JARM `direct_post.jwt`, OpenID4VCI pre-authorized issuance).
 `@t3foundry/tasra-sdk/oid4vp` implements both sides; `@t3foundry/tasra-sdk/verifier-agent` is the thin
@@ -118,10 +163,10 @@ Four things that bite:
   `auth0DpopSigner((args) => auth0.generateDpopProof(args))`, which is the only way an
   Auth0 app produces a proof whose `jkt` matches its token's `cnf.jkt`.
 
-`dpopHtu` is session-independent by RFC 9449 (`htu` excludes query and fragment), which
-is why any conformant client library derives the same string from the URL it is about to
-call. `accessTokenHash`, `jwkThumbprint` and `isHeaderSafeNonce` are exported if you are
-building a proof by hand; `platformAudience(origin, chainId)` and `dpopHtu(origin)` from
+`dpopHtu(origin, sessionId)` names the exact session response URL,
+`{origin}/v1/sessions/{sessionId}/oauth-response`, without query or fragment.
+The session identifier must be a single ASCII path segment; invalid identifiers are refused. `accessTokenHash`, `jwkThumbprint` and `isHeaderSafeNonce` are exported if you are
+building a proof by hand; `platformAudience(origin, chainId)` and `dpopHtu(origin, sessionId)` from
 `@t3foundry/tasra-sdk/committee` derive the two strings rather than hardcoding them.
 
 Errors are the same `VerifierAgentSessionError` kinds. A verifier-agent too old for this
@@ -167,6 +212,14 @@ that CA trusted by the process: `NODE_EXTRA_CA_CERTS=/path/to/ca.pem` for a Node
 wallet, or the call fails with `UNABLE_TO_VERIFY_LEAF_SIGNATURE` before it plans
 anything. A client of your own goes in `fetchImpl` (the JAR and the POST) and in
 `defaultKeyResolver({fetchImpl})` (the `did:web` document).
+
+For a paid session the `request_uri` GET can answer HTTP 503 "paid verifier exchange in
+progress" while the agent's paid exchange runs, or "capacity saturated" when the agent refused
+before sending or billing anything; `fetchRequestObject` repeats the identical GET
+(never a POST, never a second payment) for up to 120 s by default, clamping `Retry-After` to
+0.5–5 s. Pass `signal` to cancel and `inProgressRetry: {notAfterMs}` to stop at the session's
+expiry. Any other 503 — including "paid delivery outcome uncertain" — is final: reconcile, do
+not retry.
 
 Keep HTTPS certificate and hostname verification enabled. A private CA, when
 explicitly required by the chosen service, must be trusted by the process.

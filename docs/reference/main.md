@@ -9,18 +9,28 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 11 classes</summary>
+<summary>Browse 21 classes</summary>
 
 - [RecipientStore](#recipientstore)
 - [AuthDeniedError](#authdeniederror)
 - [CommitteeAuthorizeError](#committeeauthorizeerror)
 - [DcqlMalformedError](#dcqlmalformederror)
 - [NodeUnreachableError](#nodeunreachableerror)
+- [PaidApprovalUnresolvedError](#paidapprovalunresolvederror)
+- [PaidBackoffError](#paidbackofferror)
+- [PaidReservationQuotaError](#paidreservationquotaerror)
+- [PrepaidEscapeError](#prepaidescapeerror)
+- [PrepaidEscapeUncertainError](#prepaidescapeuncertainerror)
 - [RegoEnvelopeError](#regoenvelopeerror)
+- [RevocationStatusError](#revocationstatuserror)
+- [RevocationStatusPreflightError](#revocationstatuspreflighterror)
 - [SlotRotatedError](#slotrotatederror)
+- [StatusRefreshError](#statusrefresherror)
 - [TasraError](#tasraerror)
 - [TasraHttpError](#tasrahttperror)
 - [ThresholdNotMetError](#thresholdnotmeterror)
+- [UnderfundedGasPayerError](#underfundedgaspayererror)
+- [UnderfundedSlotError](#underfundedsloterror)
 - [VerifierAgentSessionError](#verifieragentsessionerror)
 
 </details>
@@ -66,7 +76,7 @@ static fromJwtBodies(bodies: Array<{
 The credential was rejected: 401 or 403. Never retryable - the same token will
 be refused again. Re-claim (redeem a fresh credential or renewal) instead.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L75)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L131)
 
 Import: `import {AuthDeniedError} from '@t3foundry/tasra-sdk'`
 
@@ -86,6 +96,8 @@ declare class AuthDeniedError {
 - ` readonly url: string; ` — Service URL that failed.
 
 - ` readonly body: string; ` — Response body retained as diagnostic information.
+
+- ` readonly retryAfterMs?: number; ` — Service-requested wait from `Retry-After`, in ms, when one was sent.
 
 - ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
@@ -107,7 +119,7 @@ Distinct from a generic HTTP error because the committee flow polls several
 verifiers and tolerates individual refusals as long as a quorum co-signs - see
 [ThresholdNotMetError](#thresholdnotmeterror) for the failure that means the quorum was missed.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L71)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L78)
 
 Import: `import {CommitteeAuthorizeError} from '@t3foundry/tasra-sdk'`
 
@@ -125,6 +137,8 @@ declare class CommitteeAuthorizeError {
 - ` readonly url: string; ` — Service URL that failed.
 
 - ` readonly body: string; ` — Response body retained as diagnostic information.
+
+- ` readonly retryAfterMs?: number; ` — Service-requested wait from `Retry-After`, in ms, when one was sent.
 
 - ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
@@ -167,7 +181,7 @@ declare class DcqlMalformedError {
 The request never got an HTTP answer - DNS failure, connection refused,
 timeout, CORS. Retryable: the service may simply not be up yet.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L85)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L584)
 
 Import: `import {NodeUnreachableError} from '@t3foundry/tasra-sdk'`
 
@@ -182,6 +196,236 @@ declare class NodeUnreachableError {
 ```
 
 - ` readonly url: string; ` — Endpoint that could not be reached.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PaidApprovalUnresolvedError
+
+A retained paid approval's outcome is unresolved, so the SDK will not send it (again).
+
+Code `approval_outcome_unresolved`. An approval is resent only as the byte-identical retained body
+and only under a durable, generation-bound, one-use permit that an exclusive claim consumes before
+every send. Anything else (a lost claim, a moved generation, an unknown outcome, a legacy record)
+lands here. Not retryable: reconcile the delivery by reading it, never by resending or re-signing.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L429)
+
+Import: `import {PaidApprovalUnresolvedError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare class PaidApprovalUnresolvedError {
+    constructor(args: {
+        reason: PaidApprovalUnresolvedReason;
+        proposalId?: string;
+        generation?: number;
+        key?: string;
+        message?: string;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: "approval_outcome_unresolved"; ` — Stable code.
+
+- ` readonly reason: PaidApprovalUnresolvedReason; ` — Why nothing was sent.
+
+- ` readonly proposalId?: string; ` — Agent delivery (proposal) identity, when known.
+
+- ` readonly generation?: number; ` — Send generation concerned, when known.
+
+- ` readonly key?: string; ` — Application-store journal entry of the approval, when known.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PaidBackoffError
+
+A paid request that the service definitely refused before acting on it (HTTP 429 or 503) could
+not be repeated inside its existing deadline. Only requests that are safe to repeat are paced: the
+paid verifier-agent reads, the byte-identical retained approval, the presentation continuation (429
+only) and the accountant reservation `prepare`. The deadline is never extended and a valid
+`Retry-After` / `x-ratelimit-after` hint is never shortened.
+
+Nothing was sent after the refusal this error reports. A retained approval keeps its durable
+permit, so a later resume may resend the identical body; never start the paid operation again.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L361)
+
+Import: `import {PaidBackoffError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare class PaidBackoffError {
+    constructor(args: {
+        code: PaidBackoffCode;
+        route: string;
+        httpStatus?: number;
+        retryAfterMs?: number;
+        remainingMs?: number;
+        neededMs?: number;
+        attempts: number;
+    });
+}
+```
+
+- ` readonly code: PaidBackoffCode; ` — Stable reason.
+
+- ` readonly route: string; ` — Route that was refused, without identifiers (for example `GET /v1/sessions/{id}`).
+
+- ` readonly httpStatus?: number; ` — Last refusal status, when one was answered (absent for `no_time_to_send`).
+
+- ` readonly retryAfterMs?: number; ` — Server-requested wait (strict integer seconds), in ms, when it sent a valid one.
+
+- ` readonly remainingMs?: number; ` — Time left before the deadline when the decision was made, in ms.
+
+- ` readonly neededMs?: number; ` — Time one attempt needs (or wait + attempt), in ms.
+
+- ` readonly attempts: number; ` — Refusals waited out before this decision.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PaidReservationQuotaError
+
+The accountant refused a reservation `prepare` with its per-creator reservation quota (HTTP 429
+with a valid `Retry-After` / `x-ratelimit-after`), and the identical prepare could not be repeated
+inside its window (at most 150 s and half of the payment's remaining signed lifetime).
+
+Code `reservation_quota`. Nothing was prepared, signed or put on chain: no reservation transaction
+exists for this attempt. `reason` says why waiting stopped; `retryAfterMs` is the last hint.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L468)
+
+Import: `import {PaidReservationQuotaError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare class PaidReservationQuotaError {
+    constructor(args: {
+        reason: PaidBackoffCode;
+        url: string;
+        retryAfterMs: number;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: "reservation_quota"; ` — Stable code.
+
+- ` readonly reason: PaidBackoffCode; ` — Why the prepare was not repeated.
+
+- ` readonly url: string; ` — Accountant endpoint that refused.
+
+- ` readonly retryAfterMs: number; ` — The accountant's last requested wait, in ms.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PrepaidEscapeError
+
+A prepaid timeout escape was refused before anything was sent for the refused call: by the local
+preflight (`local: true`, read at one canonical block) or by the contract's own simulation
+(`local: false`). Nothing about the refused call is journaled. In a multi-call escape, calls that
+already confirmed are in their journal (`confirmed` checkpoints) and stay final.
+
+Only `escape_not_open` is retryable: the same call succeeds once chain time reaches `opensAt`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L510)
+
+Import: `import {PrepaidEscapeError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare class PrepaidEscapeError {
+    constructor(args: {
+        code: PrepaidEscapeCode;
+        local: boolean;
+        requestId?: string;
+        opensAt?: Date;
+        delaySeconds?: bigint;
+        message?: string;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: PrepaidEscapeCode; ` — Stable code.
+
+- ` readonly sent: false; ` — Always false: no transaction was sent for the refused call.
+
+- ` readonly local: boolean; ` — True for a local preflight refusal, false for a decoded contract revert.
+
+- ` readonly requestId?: string; ` — Request the refusal names, when it names one.
+
+- ` readonly opensAt?: Date; ` — When the named request's escape opens (`escape_not_open`).
+
+- ` readonly delaySeconds?: bigint; ` — Refused delay in seconds (`invalid_escape_delay`).
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PrepaidEscapeUncertainError
+
+A prepaid escape transaction may have been broadcast and its outcome is not proven. Code
+`escape_uncertain`. Retain the prepared record and reconcile it by reading chain state
+(`reconcileEscape`); never send it again blindly. An escape cannot refund twice (a second one
+reverts `ReservationUnavailable`), but a blind resend still spends gas and can collide on the nonce.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L562)
+
+Import: `import {PrepaidEscapeUncertainError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare class PrepaidEscapeUncertainError {
+    constructor(args: {
+        escapeId: string;
+        requestIds: readonly string[];
+        transactionHash?: string;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: "escape_uncertain"; ` — Stable code.
+
+- ` readonly escapeId: string; ` — Local journal key of the escape call.
+
+- ` readonly requestIds: readonly string[]; ` — Requests the call named.
+
+- ` readonly transactionHash?: string; ` — Transaction hash when known; absence does not prove that nothing was sent.
 
 - ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
@@ -219,13 +463,118 @@ declare class RegoEnvelopeError {
 
 - ` cause?: unknown; `
 
+### RevocationStatusError
+
+A keeper refused a committee grant because its verifiers' revocation-status attestations
+(`keykeeper/committee-status-attestation/v1`) are missing (`revocation_status_missing`) or no
+longer fresh for a quorum (`revocation_status_stale`). The credential was NOT judged revoked:
+the grant outlived the 60 s revocation bound (or came from a path that does not carry the
+attestations).
+
+NOT retryable, and NOT proof that no keeper worked: another keeper of the committee may already
+have started the operation before this one re-checked the grant, and a gateway can blur the
+outcome. Never resend this grant, and never treat this error alone as authority to retry, refund
+or clear a paid operation (its journal keeps the execution as uncertain until original-stage
+evidence settles it). For an UNPAID operation the remedy is a new presentation and a new grant.
+Not an [AuthDeniedError](#authdeniederror), and [isAuthDenied](#isauthdenied) returns false for it.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L151)
+
+Import: `import {RevocationStatusError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare class RevocationStatusError {
+    constructor(args: {
+        status: number;
+        url: string;
+        body?: string;
+        message?: string;
+        code: 'revocation_status_stale' | 'revocation_status_missing';
+        retryAfterMs?: number;
+    });
+}
+```
+
+- ` readonly code: 'revocation_status_stale' | 'revocation_status_missing'; ` — The keeper's stable refusal code.
+
+- ` readonly presentAgain: true; ` — Always true: a fresh grant needs a new presentation, never this token.
+
+- ` readonly status: number; ` — HTTP status code returned by the service.
+
+- ` readonly url: string; ` — Service URL that failed.
+
+- ` readonly body: string; ` — Response body retained as diagnostic information.
+
+- ` readonly retryAfterMs?: number; ` — Service-requested wait from `Retry-After`, in ms, when one was sent.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### RevocationStatusPreflightError
+
+A committee grant was refused LOCALLY, before any keeper call, by the same rule a keeper in
+production posture applies: its revocation-status attestations
+(`keykeeper/committee-status-attestation/v1`) are missing (`revocation_status_missing`: absent,
+`null` or empty), fewer than a quorum are valid and fresh (`revocation_status_stale`), or the
+list is malformed, duplicated or carries a bad signature from a counted verifier
+(`revocation_status_invalid`), or - for a journaled paid operation - an explicit status refresh
+answered `status_refresh_refused` (`revocation_status_refused`: a verifier attests the holder's
+credential status is refused NOW; the grant is refused however fresh its attestations still are,
+until a later refresh succeeds).
+
+Unlike [RevocationStatusError](#revocationstatuserror) (a keeper's reply after a send), nothing was sent: a paid
+operation refused here stays in its pre-execution journal phase. Not retryable with this grant
+and never a reason to start a new session or payment automatically: present again for a fresh
+grant. `allowMissingStatusAttestations` (migration window only) waives `revocation_status_missing`
+and nothing else.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L184)
+
+Import: `import {RevocationStatusPreflightError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare class RevocationStatusPreflightError {
+    constructor(args: {
+        code: RevocationStatusPreflightCode;
+        message: string;
+        requestId?: string;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: RevocationStatusPreflightCode; ` — Stable refusal code.
+
+- ` readonly sent: false; ` — Always false: no keeper received the grant.
+
+- ` readonly presentAgain: true; ` — Always true: a fresh grant needs a new presentation.
+
+- ` readonly requestId?: string; ` — Paid operation identity, when the refusal stopped a journaled paid operation.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ### SlotRotatedError
 
 The slot was re-keyed (rotated) since the key in hand was assembled, so that
 key cannot read anything encrypted after the rotation. Retryable: re-assemble
 at the new epoch and try again - the managed [Session](#session) does this for you.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L133)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L632)
 
 Import: `import {SlotRotatedError} from '@t3foundry/tasra-sdk'`
 
@@ -254,13 +603,66 @@ declare class SlotRotatedError {
 
 - ` cause?: unknown; `
 
+### StatusRefreshError
+
+A status refresh for an already-issued committee grant produced no fresh quorum.
+
+It changes nothing at any keeper and is NEVER evidence about keeper work: for a paid operation
+the journal phase is unchanged (an `authorized` grant was not sent; an `executing` one stays
+uncertain). `retryable` is a coarse hint for 429/503/transport failures only; the SDK never
+retries a refresh automatically, and a new attempt always uses a new, journaled `seq`.
+`status_refresh_refused` means a credential status reference is revoked or no longer
+acceptable: present again (a new grant), never refresh this one.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L297)
+
+Import: `import {StatusRefreshError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare class StatusRefreshError {
+    constructor(args: {
+        code: StatusRefreshCode;
+        message: string;
+        httpStatus?: number;
+        retryAfterMs?: number;
+        reasons?: readonly StatusRefreshFailure[];
+        requestId?: string;
+        seq?: number;
+        retryable?: boolean;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: StatusRefreshCode; ` — Stable code (for a fan-out, the decisive one; see `reasons` for every verifier).
+
+- ` readonly httpStatus?: number; ` — HTTP status of the decisive answer, when there was one.
+
+- ` readonly retryAfterMs?: number; ` — Longest service-requested wait among the failures, in ms.
+
+- ` readonly reasons: readonly StatusRefreshFailure[]; ` — Per-verifier (or relay) failures.
+
+- ` readonly requestId?: string; ` — Paid operation identity, when the refresh belonged to a journaled paid operation.
+
+- ` readonly seq?: number; ` — The journaled sequence number the failed proof used (never reused).
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ### TasraError
 
 Base class for typed SDK failures with a retryability hint.
 Some SDK errors extend plain Error, including relay and agent-session
 reconciliation errors. A retryable failure does not make a write safe to repeat.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L34)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L36)
 
 Import: `import {TasraError} from '@t3foundry/tasra-sdk'`
 
@@ -289,9 +691,10 @@ A node or verifier answered with a non-2xx status. `body` is the response body,
 truncated to 200 characters - enough to carry the service's own error text
 without dumping a page of HTML into a log line.
 
-5xx and 429 are marked retryable; other 4xx are not.
+5xx, 429 and 425 are marked retryable; so is a 409, 410 or 422 that carries
+`Retry-After`. Other 4xx are not. `retryAfterMs` is the service-requested wait.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L52)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L103)
 
 Import: `import {TasraHttpError} from '@t3foundry/tasra-sdk'`
 
@@ -303,6 +706,7 @@ declare class TasraHttpError {
         body?: string;
         message?: string;
         retryable?: boolean;
+        retryAfterMs?: number;
     });
 }
 ```
@@ -312,6 +716,8 @@ declare class TasraHttpError {
 - ` readonly url: string; ` — Service URL that failed.
 
 - ` readonly body: string; ` — Response body retained as diagnostic information.
+
+- ` readonly retryAfterMs?: number; ` — Service-requested wait from `Retry-After`, in ms, when one was sent.
 
 - ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
@@ -333,7 +739,7 @@ signing set.
 this actionable: previously those were collected and then discarded, so a DNS
 failure and a cold DKG produced the same opaque message.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L104)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L603)
 
 Import: `import {ThresholdNotMetError} from '@t3foundry/tasra-sdk'`
 
@@ -365,13 +771,92 @@ declare class ThresholdNotMetError {
 
 - ` cause?: unknown; `
 
+### UnderfundedGasPayerError
+
+The transaction payer lacks native currency for the quoted reservation gas.
+Slot TASRA credit is a separate balance. Nothing was prepared or broadcast;
+this error never authorizes resubmission of an uncertain transaction.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L77)
+
+Import: `import {UnderfundedGasPayerError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare class UnderfundedGasPayerError {
+    constructor(args: {
+        payer: string;
+        availableNativeUnits: bigint;
+        requiredNativeUnits: bigint;
+    });
+}
+```
+
+- ` readonly code: "underfunded-gas-payer"; ` — Stable code distinguishing native gas from slot TASRA credit.
+
+- ` readonly payer: string; ` — Address that would pay the reservation transaction's gas.
+
+- ` readonly availableNativeUnits: bigint; ` — Pending native balance, in the chain's smallest native unit.
+
+- ` readonly requiredNativeUnits: bigint; ` — Estimated gas multiplied by the actual transaction gas price.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### UnderfundedSlotError
+
+A new payment cannot be prepared with the slot's available TASRA. Reserved
+credit belongs to earlier jobs and is not available for a new reservation.
+Top up and read fresh funding before starting another payment; this error
+never authorizes resubmission of an uncertain transaction.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L53)
+
+Import: `import {UnderfundedSlotError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare class UnderfundedSlotError {
+    constructor(args: {
+        slotId: string;
+        availableTasraUnits?: bigint;
+        status?: 402;
+        url?: string;
+        message?: string;
+    });
+}
+```
+
+- ` readonly slotId: string; ` — Slot whose new payment was refused.
+
+- ` readonly availableTasraUnits?: bigint; ` — Unreserved TASRA base units, when observed during on-chain discovery.
+
+- ` readonly status?: 402; ` — Accountant HTTP status, absent for a local funding observation.
+
+- ` readonly url?: string; ` — Accountant endpoint, when a reservation request returned HTTP 402.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ### VerifierAgentSessionError
 
 A Verifier Agent session did not produce a compound token. `kind` says why;
 `retryable` is true only for `timeout` and `unavailable` - the session may
 still complete, so poll again. Extends [TasraError](#tasraerror).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L134)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L146)
 
 Import: `import {VerifierAgentSessionError} from '@t3foundry/tasra-sdk'`
 
@@ -402,7 +887,7 @@ declare class VerifierAgentSessionError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 86 functions</summary>
+<summary>Browse 104 functions</summary>
 
 - [accessTokenHash](#accesstokenhash)
 - [addressFromEoaPubkey](#addressfromeoapubkey)
@@ -412,7 +897,12 @@ Operations you can import and call.
 - [buildTasraText](#buildtasratext)
 - [canAccess](#canaccess)
 - [canonicalizeDcql](#canonicalizedcql)
+- [classifyRefusal](#classifyrefusal)
+- [classifyRefusedWrite](#classifyrefusedwrite)
+- [classifyRetry](#classifyretry)
+- [collectSealedPartials](#collectsealedpartials)
 - [combineDecryptShares](#combinedecryptshares)
+- [createDecryptionRecipient](#createdecryptionrecipient)
 - [createDpopKey](#createdpopkey)
 - [createHolderProof](#createholderproof)
 - [createOauthSession](#createoauthsession)
@@ -422,6 +912,8 @@ Operations you can import and call.
 - [credentialsCommitment](#credentialscommitment)
 - [decodeJwtClaims](#decodejwtclaims)
 - [decryptCustody](#decryptcustody)
+- [decryptionBinding](#decryptionbinding)
+- [decryptWithCommitteePartials](#decryptwithcommitteepartials)
 - [decryptWithMasterKey](#decryptwithmasterkey)
 - [decryptWithShardDelivery](#decryptwithsharddelivery)
 - [ed25519DidKey](#ed25519didkey)
@@ -456,21 +948,32 @@ Operations you can import and call.
 - [isJwtExpiringSoon](#isjwtexpiringsoon)
 - [isOauthEnvelope](#isoauthenvelope)
 - [isOid4vpRule](#isoid4vprule)
+- [isPaidApprovalUnresolved](#ispaidapprovalunresolved)
+- [isPaidBackoffError](#ispaidbackofferror)
+- [isPrepaidEscapeError](#isprepaidescapeerror)
 - [isRetryable](#isretryable)
+- [isRevocationStatusPreflightRefusal](#isrevocationstatuspreflightrefusal)
+- [isRevocationStatusRefusal](#isrevocationstatusrefusal)
+- [isStatusRefreshError](#isstatusrefresherror)
 - [issueAdminCredential](#issueadmincredential)
 - [isTasraPost](#istasrapost)
 - [jsonCredential](#jsoncredential)
 - [jwkThumbprint](#jwkthumbprint)
 - [jwtExpMs](#jwtexpms)
+- [kemContentDigest](#kemcontentdigest)
 - [lintEnvelope](#lintenvelope)
 - [loadRego](#loadrego)
 - [packEnvelope](#packenvelope)
+- [parseRetryAfter](#parseretryafter)
 - [parseTasraPost](#parsetasrapost)
 - [payloadDigest](#payloaddigest)
 - [pollOid4vpSession](#polloid4vpsession)
+- [recipientPayloadDigest](#recipientpayloaddigest)
 - [redeemCredential](#redeemcredential)
 - [redeemRenewalToken](#redeemrenewaltoken)
 - [requestIbeExtractionPartials](#requestibeextractionpartials)
+- [retryDelayMs](#retrydelayms)
+- [retryIdempotent](#retryidempotent)
 - [revokeRenewal](#revokerenewal)
 - [revokeSlotUser](#revokeslotuser)
 - [scopeCovers](#scopecovers)
@@ -591,7 +1094,7 @@ Returns: ` DpopSigner `.
 
 Build a holder-proof compact-JWS (header.payload.signature).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L135)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L138)
 
 Import: `import {buildHolderProof} from '@t3foundry/tasra-sdk'`
 
@@ -671,6 +1174,89 @@ declare function canonicalizeDcql(rule: string): string;
 
 Returns: ` string `.
 
+### classifyRefusal
+
+Retry only explicit "not now" refusals: 425/429/503, or 409/410/422 carrying
+`Retry-After`. Generic 5xx and transport failures are final. Suits requests whose
+repetition is harmless but whose callers expect a prompt failure otherwise.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L115)
+
+Import: `import {classifyRefusal} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function classifyRefusal(error: unknown): RetryDecision;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` error ` | ` unknown ` | Failure thrown by one attempt. |
+
+Returns: ` RetryDecision `.
+
+### classifyRefusedWrite
+
+Classification for a write whose refusal proves it was not processed: only HTTP 429, which
+the verifier uses for SP-11 capacity refusals before it stores anything. A 5xx or lost reply
+may follow processing, so it is final here.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L127)
+
+Import: `import {classifyRefusedWrite} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function classifyRefusedWrite(error: unknown): RetryDecision;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` error ` | ` unknown ` | Failure thrown by one attempt. |
+
+Returns: ` RetryDecision `.
+
+### classifyRetry
+
+Default classification for an idempotent request: retry 425/429/503, a 409/410/422 only
+when the service sent `Retry-After`, other 5xx and unreachable endpoints with backoff.
+Authorization refusals and other 4xx are final.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L99)
+
+Import: `import {classifyRetry} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function classifyRetry(error: unknown): RetryDecision;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` error ` | ` unknown ` | Failure thrown by one attempt. |
+
+Returns: ` RetryDecision `.
+
+### collectSealedPartials
+
+Collect the first threshold of distinct, locally opened and verified contributions.
+The whole fan-out is bounded to 15 seconds. Outstanding reads are cancelled at quorum;
+invalid, duplicate and late contributions are cleared. The caller owns returned values.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L74)
+
+Import: `import {collectSealedPartials} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function collectSealedPartials(opts: SealedRequestOpts, action: 'decrypt' | 'ibe-extract', identity: Uint8Array, ciphertext?: Ciphertext): Promise<SealedPartial[]>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` opts ` | ` SealedRequestOpts ` | - Original recipient-bound grant, trusted public shares and assigned endpoints. |
+| ` action ` | ` 'decrypt' \| 'ibe-extract' ` | - KEM decryption or IBE extraction; must match the signed token binding. |
+| ` identity ` | ` Uint8Array ` | - Original UTF-8 identity bytes bound by authorization. |
+| ` ciphertext? ` | ` Ciphertext ` | - Complete KEM ciphertext, required for the decrypt action. |
+
+Returns: ` Promise<SealedPartial[]> `.
+
 ### combineDecryptShares
 
 Interpolate distinct partial decryptions and authenticate the plaintext. Enable verify to check each share before combining; the caller supplies a sufficient threshold.
@@ -694,6 +1280,25 @@ declare function combineDecryptShares(shares: DecryptShare[], ct: Ciphertext, id
 
 Returns: ` Uint8Array `.
 
+### createDecryptionRecipient
+
+Create BEFORE requesting authorization. The private key stays in this closure and
+is never included in session or keeper requests. Generate a fresh instance per operation.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L74)
+
+Import: `import {createDecryptionRecipient} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function createDecryptionRecipient(seed?: Uint8Array): Promise<ClientRecipient>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` seed? ` | ` Uint8Array ` | - Optional client-held 32-byte random recovery seed for RFC 9180 DeriveKeyPair. Store it only in the client's private storage; the caller owns and must clear its buffer. |
+
+Returns: ` Promise<ClientRecipient> `.
+
 ### createDpopKey
 
 Generate an ES256 DPoP key pair with a non-extractable private key.
@@ -715,7 +1320,7 @@ Convenience: fetch a nonce and build the holder proof in one step. Returns the
 compact-JWS to put in the `holder_proof` field of a `verify-vp-jwt` /
 `committee-authorize` request.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L173)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L176)
 
 Import: `import {createHolderProof} from '@t3foundry/tasra-sdk'`
 
@@ -743,7 +1348,7 @@ Open an `oauth` session - same creator authorisation, same committee draw, same
 derived nonce, same poll contract as [createOid4vpSession](#createoid4vpsession). No QR, no Request
 Object, no JWE key: the client presents an access token its own IdP minted.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L278)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L308)
 
 Import: `import {createOauthSession} from '@t3foundry/tasra-sdk'`
 
@@ -766,7 +1371,7 @@ The verifier-agent derives a nonce, generates an ECDH key for JWE, and returns a
 payload the wallet scans. The session ID and poll secret are used to poll
 for the result.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L238)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L266)
 
 Import: `import {createOid4vpSession} from '@t3foundry/tasra-sdk'`
 
@@ -789,7 +1394,7 @@ replace the presentation's credentials. `slot_ids` (if given) are rotated via
 a webhook when the renewal is revoked.
 POST {verifier}/v1/renewals
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L57)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L58)
 
 Import: `import {createRenewal} from '@t3foundry/tasra-sdk'`
 
@@ -799,13 +1404,14 @@ declare function createRenewal(verifierUrl: string, body: {
     presentation: unknown;
     credentials?: string[];
     slot_ids?: string[];
-}): Promise<RenewalGrant>;
+}, retry?: RetryPolicy | false): Promise<RenewalGrant>;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` verifierUrl ` | ` string ` | - Verifier HTTP base URL. |
 | ` body ` | ` { dcql_rule: string; presentation: unknown; credentials?: string[]; slot_ids?: string[]; } ` | - Policy, presentation and optional signed credentials or revocation-bound slots. |
+| ` retry? ` | ` RetryPolicy \| false ` | Waits on an SP-11 capacity refusal (HTTP 429, nothing stored); `false` fails at once. Other failures are never retried. |
 
 Returns: ` Promise<RenewalGrant> `.
 
@@ -842,7 +1448,7 @@ MUST byte-for-byte match the verifier's `credentials_commitment`
 sides agree without JSON canonicalization. Binds a holder proof to the exact set of
 compact-JWS credentials being presented.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L43)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L44)
 
 Import: `import {credentialsCommitment} from '@t3foundry/tasra-sdk'`
 
@@ -860,7 +1466,7 @@ Returns: ` string `.
 
 Decode JWT claims WITHOUT verifying the signature (for expiry/UX only).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L274)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L278)
 
 Import: `import {decodeJwtClaims} from '@t3foundry/tasra-sdk'`
 
@@ -876,10 +1482,9 @@ Returns: ` JwtClaims | null `.
 
 ### decryptCustody
 
-Decrypt via the custody path: the node runs the whole k-of-n ceremony and
- returns the plaintext (one HTTP round-trip).
+Server-side custody decryption is retired.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L81)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L59)
 
 Import: `import {decryptCustody} from '@t3foundry/tasra-sdk'`
 
@@ -889,7 +1494,59 @@ declare function decryptCustody(opts: DecryptCustodyOpts): Promise<Uint8Array>;
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` opts ` | ` DecryptCustodyOpts ` | - Keeper endpoint, JWT, ciphertext, associated data and decryption participants. |
+| ` opts ` | ` DecryptCustodyOpts ` | - Historical request options, refused before any HTTP request. |
+
+Returns: ` Promise<Uint8Array> `.
+
+### decryptionBinding
+
+Prepare the digest and public session metadata before requesting authorization.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L118)
+
+Import: `import {decryptionBinding} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function decryptionBinding(content: Uint8Array, epoch: number, client: ClientRecipient): {
+    payloadDigest: Uint8Array;
+    decryption: DecryptionBindingWire;
+};
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` content ` | ` Uint8Array ` | - Complete KEM content digest or SHA-256 IBE identity digest. |
+| ` epoch ` | ` number ` | - Canonical ciphertext key epoch. |
+| ` client ` | ` ClientRecipient ` | - Original client-held recipient, retained for opening and recovery. |
+
+Returns:
+
+```ts
+{
+    payloadDigest: Uint8Array;
+    decryption: DecryptionBindingWire;
+}
+```
+
+### decryptWithCommitteePartials
+
+Collect and combine recipient-sealed KEM contributions locally, then clear all partials.
+Servers receive only the authorized public recipient and never the recovered plaintext.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L163)
+
+Import: `import {decryptWithCommitteePartials} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function decryptWithCommitteePartials(opts: SealedRequestOpts & {
+    ciphertext: Ciphertext;
+    identity: Uint8Array;
+}): Promise<Uint8Array>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` opts ` | ` SealedRequestOpts & { ciphertext: Ciphertext; identity: Uint8Array; } ` | - Recipient-bound quorum settings, complete ciphertext and original identity bytes. |
 
 Returns: ` Promise<Uint8Array> `.
 
@@ -915,10 +1572,9 @@ Returns: ` Uint8Array `.
 
 ### decryptWithShardDelivery
 
-Decrypt via the shard-delivery path: fetch a partial decryption from each
- node and combine the shares locally (the master key is never assembled).
+Unsealed JWT share delivery is retired.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L149)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L67)
 
 Import: `import {decryptWithShardDelivery} from '@t3foundry/tasra-sdk'`
 
@@ -928,7 +1584,7 @@ declare function decryptWithShardDelivery(opts: ShardDecryptOpts): Promise<Uint8
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` opts ` | ` ShardDecryptOpts ` | - Keeper endpoints, JWT, ciphertext and optional per-share verification. |
+| ` opts ` | ` ShardDecryptOpts ` | - Historical request options, refused before any HTTP request. |
 
 Returns: ` Promise<Uint8Array> `.
 
@@ -937,7 +1593,7 @@ Returns: ` Promise<Uint8Array> `.
 A did:key identifier for an Ed25519 public key (multicodec 0xed01, base58btc). Useful
  when the holder is identified by a self-certifying did:key.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L202)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L205)
 
 Import: `import {ed25519DidKey} from '@t3foundry/tasra-sdk'`
 
@@ -1114,7 +1770,7 @@ Throws: If no shards are returned or interpolation fails.
 Mint a single-use challenge nonce, optionally bound to a slot id + action (F4).
 POST {verifier}/v1/nonce
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L68)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L69)
 
 Import: `import {fetchHolderNonce} from '@t3foundry/tasra-sdk'`
 
@@ -1122,13 +1778,14 @@ Import: `import {fetchHolderNonce} from '@t3foundry/tasra-sdk'`
 declare function fetchHolderNonce(verifierUrl: string, opts?: {
     slotId?: string;
     action?: string;
+    retry?: RetryPolicy | false;
 }): Promise<HolderNonce>;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` verifierUrl ` | ` string ` | - Verifier HTTP base URL. |
-| ` opts? ` | ` { slotId?: string; action?: string; } ` | - Optional slot and action binding for the single-use challenge. |
+| ` opts? ` | ` { slotId?: string; action?: string; retry?: RetryPolicy \| false; } ` | - Optional slot and action binding for the single-use challenge. |
 
 Returns: ` Promise<HolderNonce> `.
 
@@ -1381,7 +2038,7 @@ Returns: ` Promise<Uint8Array> `.
 One-call identity-scoped decrypt (the read path): token to extraction fan-out
 to verify each partial to combine to decrypt. The intermediate `sk_ID` never surfaces.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L501)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L493)
 
 Import: `import {ibeDecryptRequest} from '@t3foundry/tasra-sdk'`
 
@@ -1449,7 +2106,7 @@ compressed G1).
 ciphertext to this identity. Prefer [ibeDecryptRequest](#ibedecryptrequest), which combines,
 decrypts and drops it. Zeroize the returned bytes when done.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L485)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L475)
 
 Import: `import {ibeExtractRequest} from '@t3foundry/tasra-sdk'`
 
@@ -1563,7 +2220,7 @@ True when `e` is an auth rejection - i.e. retrying is pointless, re-claim
 instead. Keyed on the HTTP status rather than the class, so it also catches
 subclasses that carry their own name (e.g. `CommitteeAuthorizeError`).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L178)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L682)
 
 Import: `import {isAuthDenied} from '@t3foundry/tasra-sdk'`
 
@@ -1599,7 +2256,7 @@ Returns: ` boolean `.
 
 True when the token is expired or within `skewMs` of expiring.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L300)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L304)
 
 Import: `import {isJwtExpiringSoon} from '@t3foundry/tasra-sdk'`
 
@@ -1659,12 +2316,66 @@ declare function isOid4vpRule(rule: string): boolean;
 
 Returns: ` boolean `.
 
+### isPaidApprovalUnresolved
+
+True for a [PaidApprovalUnresolvedError](#paidapprovalunresolvederror).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L456)
+
+Import: `import {isPaidApprovalUnresolved} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function isPaidApprovalUnresolved(e: unknown): e is PaidApprovalUnresolvedError;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` e ` | ` unknown ` | - Caught value to classify. |
+
+Returns: ` e is PaidApprovalUnresolvedError `.
+
+### isPaidBackoffError
+
+True for a [PaidBackoffError](#paidbackofferror).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L404)
+
+Import: `import {isPaidBackoffError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function isPaidBackoffError(e: unknown): e is PaidBackoffError;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` e ` | ` unknown ` | - Caught value to classify. |
+
+Returns: ` e is PaidBackoffError `.
+
+### isPrepaidEscapeError
+
+True for a [PrepaidEscapeError](#prepaidescapeerror).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L552)
+
+Import: `import {isPrepaidEscapeError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function isPrepaidEscapeError(e: unknown): e is PrepaidEscapeError;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` e ` | ` unknown ` | - Caught value to classify. |
+
+Returns: ` e is PrepaidEscapeError `.
+
 ### isRetryable
 
 True when a typed failure may be transient. Errors outside the TasraError
 hierarchy return false. This hint does not make a write safe to repeat.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L188)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L692)
 
 Import: `import {isRetryable} from '@t3foundry/tasra-sdk'`
 
@@ -1678,6 +2389,62 @@ declare function isRetryable(e: unknown): boolean;
 
 Returns: ` boolean `.
 
+### isRevocationStatusPreflightRefusal
+
+True when a grant was refused locally for missing, stale or invalid revocation-status
+attestations before anything was sent.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L207)
+
+Import: `import {isRevocationStatusPreflightRefusal} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function isRevocationStatusPreflightRefusal(e: unknown): e is RevocationStatusPreflightError;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` e ` | ` unknown ` | - Caught value to classify. |
+
+Returns: ` e is RevocationStatusPreflightError `.
+
+### isRevocationStatusRefusal
+
+True when a keeper refused a grant only for stale or missing revocation-status attestations:
+present the credential again for a fresh grant and repeat the call.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L230)
+
+Import: `import {isRevocationStatusRefusal} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function isRevocationStatusRefusal(e: unknown): e is RevocationStatusError;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` e ` | ` unknown ` | - Caught value to classify. |
+
+Returns: ` e is RevocationStatusError `.
+
+### isStatusRefreshError
+
+True for a [StatusRefreshError](#statusrefresherror).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L335)
+
+Import: `import {isStatusRefreshError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function isStatusRefreshError(e: unknown): e is StatusRefreshError;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` e ` | ` unknown ` | - Caught value to classify. |
+
+Returns: ` e is StatusRefreshError `.
+
 ### issueAdminCredential
 
 Admin-mint a single-use credential (redemption token) for the given scopes.
@@ -1685,7 +2452,7 @@ Requires the verifier's admin secret. Pair with redeemCredential() to get a
 JWT whose `sub` is the recipient DID you pass there.
 POST {verifier}/v1/admin/credentials/issue  (header: X-Admin-Secret)
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L145)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L149)
 
 Import: `import {issueAdminCredential} from '@t3foundry/tasra-sdk'`
 
@@ -1775,7 +2542,7 @@ Returns: ` Promise<string> `.
 
 Expiry as epoch-ms, or null if absent/unparseable.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L289)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L293)
 
 Import: `import {jwtExpMs} from '@t3foundry/tasra-sdk'`
 
@@ -1788,6 +2555,25 @@ declare function jwtExpMs(jwt: string): number | null;
 | ` jwt ` | ` string ` | - Compact JWT whose expiration claim will be inspected without verification. |
 
 Returns: ` number | null `.
+
+### kemContentDigest
+
+Hash the complete KEM content with unambiguous field lengths.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L99)
+
+Import: `import {kemContentDigest} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function kemContentDigest(ct: Ciphertext, identity: Uint8Array): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` ct ` | ` Ciphertext ` | - Ciphertext including its group element, nonce and authenticated ciphertext. |
+| ` identity ` | ` Uint8Array ` | - Exact associated-data identity bytes used during encryption. |
+
+Returns: ` Uint8Array `.
 
 ### lintEnvelope
 
@@ -1855,6 +2641,27 @@ Returns: ` Promise<string> `.
 
 Return details: The envelope string to pass as the slot's rule.
 
+### parseRetryAfter
+
+Parse an HTTP `Retry-After` value (delta-seconds or an HTTP-date) into milliseconds.
+Returns undefined for a missing, malformed, negative or absurd (over one day) value; a date
+in the past is zero.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/internal/retryAfter.ts#L12)
+
+Import: `import {parseRetryAfter} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function parseRetryAfter(value: string | null | undefined, nowMs?: number): number | undefined;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` value ` | ` string \| null \| undefined ` | Raw header value, or null/undefined when absent. |
+| ` nowMs? ` | ` number ` | Current time in ms, for the HTTP-date form. |
+
+Returns: ` number | undefined `.
+
 ### parseTasraPost
 
 Decode a Tasra text payload into an envelope; return null for invalid input.
@@ -1880,7 +2687,7 @@ Compute the `payload_digest` for a given action and message.
 For `sign` and `ibe-extract`, this is `sha256(message_bytes)` as 0x-hex.
 Other actions should supply the digest directly.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L215)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L243)
 
 Import: `import {payloadDigest} from '@t3foundry/tasra-sdk'`
 
@@ -1899,7 +2706,7 @@ Returns: ` string `.
 
 Fetch and validate one authorization session status. Transport failures and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error. The polling secret is sent in the Authorization header.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L424)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L459)
 
 Import: `import {pollOid4vpSession} from '@t3foundry/tasra-sdk'`
 
@@ -1915,12 +2722,32 @@ declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, 
 
 Returns: ` Promise<SessionStatusResult> `.
 
+### recipientPayloadDigest
+
+Bind a content digest to the ciphertext epoch and client recipient.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L108)
+
+Import: `import {recipientPayloadDigest} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function recipientPayloadDigest(content: Uint8Array, epoch: number, recipient: RecipientWire): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` content ` | ` Uint8Array ` | - Complete 32-byte KEM content digest or SHA-256 IBE identity digest. |
+| ` epoch ` | ` number ` | - Nonnegative canonical ciphertext key epoch. |
+| ` recipient ` | ` RecipientWire ` | - Supported suite and client X25519 public key. |
+
+Returns: ` Uint8Array `.
+
 ### redeemCredential
 
 Redeem an admin-issued, single-use credential/invite token for a JWT.
 POST {verifier}/v1/credentials/redeem  {redemption_token, recipient_did}
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L113)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L117)
 
 Import: `import {redeemCredential} from '@t3foundry/tasra-sdk'`
 
@@ -1941,7 +2768,7 @@ Returns: ` Promise<IssuedToken> `.
 Redeem a long-lived renewal token for a fresh JWT.
 POST {verifier}/v1/renewals/redeem  {renewal_token}
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L95)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L99)
 
 Import: `import {redeemRenewalToken} from '@t3foundry/tasra-sdk'`
 
@@ -1963,7 +2790,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L627)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L770)
 
 Import: `import {requestIbeExtractionPartials} from '@t3foundry/tasra-sdk'`
 
@@ -1977,12 +2804,83 @@ declare function requestIbeExtractionPartials(opts: IbeExtractOpts): Promise<Ibe
 
 Returns: ` Promise<IbeExtractionPartial[]> `.
 
+### retryDelayMs
+
+The wait before the next attempt, or undefined when the policy says to stop.
+A service `Retry-After` is a floor: the wait adds up to 20% (max 1 s) of jitter on top so
+that refused clients do not return in lockstep, and it is never shortened. A requested wait
+above `maxDelayMs` or beyond the remaining total budget stops retrying instead.
+Without a header the wait is full-jitter exponential backoff from `baseDelayMs`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L73)
+
+Import: `import {retryDelayMs} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function retryDelayMs(attempt: number, retryAfterMs: number | undefined, policy?: RetryPolicy, waitedMs?: number): number | undefined;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` attempt ` | ` number ` | Zero-based index of the attempt that just failed. |
+| ` retryAfterMs ` | ` number \| undefined ` | Service-requested wait, when any. |
+| ` policy? ` | ` RetryPolicy ` | Retry limits. |
+| ` waitedMs? ` | ` number ` | Sum of the waits already spent on this request. |
+
+Returns: ` number | undefined `.
+
+### retryIdempotent
+
+Send one idempotent request, waiting between attempts as the service and policy allow.
+The last failure is rethrown unchanged when the policy is exhausted, the classification says
+stop, or the requested wait is longer than allowed. Only wrap a request that is safe to send
+again; this function cannot tell.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L139)
+
+Import: `import {retryIdempotent} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare function retryIdempotent<T>(work: (attempt: number) => Promise<T>, options?: {
+    policy?: RetryPolicy;
+    signal?: AbortSignal;
+    classify?: (error: unknown) => RetryDecision;
+    onRetry?: (event: {
+        attempt: number;
+        delayMs: number;
+        error: unknown;
+    }) => void;
+}): Promise<T>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` work ` | ` (attempt: number) => Promise<T> ` | Sends the identical request; receives the zero-based attempt number. |
+| ` options? ` | See detailed type below. | Policy, cancellation and an optional classifier (default [classifyRetry](#classifyretry)). |
+
+**` options? ` type**
+
+```ts
+{
+    policy?: RetryPolicy;
+    signal?: AbortSignal;
+    classify?: (error: unknown) => RetryDecision;
+    onRetry?: (event: {
+        attempt: number;
+        delayMs: number;
+        error: unknown;
+    }) => void;
+}
+```
+
+Returns: ` Promise<T> `.
+
 ### revokeRenewal
 
 Revoke a renewal token - future redeems are denied, and any bound slots get a
 rotation webhook. POST {verifier}/v1/renewals/revoke  {renewal_token}
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L77)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L81)
 
 Import: `import {revokeRenewal} from '@t3foundry/tasra-sdk'`
 
@@ -2004,7 +2902,7 @@ Rotation is requested by default. A successful HTTP response confirms request
 acceptance only; callers must confirm the new slot key and epoch before relying
 on completed rotation. Resolve application handles to DIDs before calling.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L175)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L179)
 
 Import: `import {revokeSlotUser} from '@t3foundry/tasra-sdk'`
 
@@ -2177,7 +3075,7 @@ Throws `VerifierAgentSessionError`: `refused` when the agent reports the session
 (the committee refused, or could not be reached — `message` says which; not retryable on
 this session), `unavailable` for other 502/503/504, `protocol` for any other non-2xx.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L346)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L381)
 
 Import: `import {submitOauthResponse} from '@t3foundry/tasra-sdk'`
 
@@ -2344,7 +3242,7 @@ verifier (a DCQL rule + a presentation/credentials); we pass it through
 untouched so this stays agnostic to the credential format.
 POST {verifier}/v1/verify
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L206)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L210)
 
 Import: `import {verifyPresentation} from '@t3foundry/tasra-sdk'`
 
@@ -2352,14 +3250,13 @@ Import: `import {verifyPresentation} from '@t3foundry/tasra-sdk'`
 declare function verifyPresentation(verifierUrl: string, body: {
     dcql_rule: string;
     presentation: unknown;
-    credentials?: unknown;
 }): Promise<IssuedToken>;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` verifierUrl ` | ` string ` | - Verifier HTTP base URL. |
-| ` body ` | ` { dcql_rule: string; presentation: unknown; credentials?: unknown; } ` | - Policy and credential presentation for verifier evaluation. |
+| ` body ` | ` { dcql_rule: string; presentation: unknown; } ` | - Policy and credential presentation for verifier evaluation. |
 
 Returns: ` Promise<IssuedToken> `.
 
@@ -2373,7 +3270,7 @@ evaluates the rule. `credentials` are compact JWS strings (e.g. from
 `tasra-cli vc issue`).
 POST {verifier}/v1/verify-vp-jwt
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L230)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L234)
 
 Import: `import {verifyVpJwt} from '@t3foundry/tasra-sdk'`
 
@@ -2402,7 +3299,7 @@ deadline; a `protocol` answer stops at once; the deadline is a `timeout` error; 
 caller's `signal` is a `cancelled` error. A terminal `failed` is RETURNED (the caller
 decides how to explain it) - see `awaitVerifierAgentResult` for the version that throws `refused`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L521)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L564)
 
 Import: `import {waitForSession} from '@t3foundry/tasra-sdk'`
 
@@ -2426,12 +3323,13 @@ Returns: ` Promise<SessionStatusResult> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 68 types</summary>
+<summary>Browse 82 types</summary>
 
 - [BlsPeer](#blspeer)
 - [BuildHolderProofOpts](#buildholderproofopts)
 - [Ciphertext](#ciphertext)
 - [ClaimResult](#claimresult)
+- [ClientRecipient](#clientrecipient)
 - [CreateOauthSessionResult](#createoauthsessionresult)
 - [CreateSessionParams](#createsessionparams)
 - [CreateSessionResult](#createsessionresult)
@@ -2443,6 +3341,7 @@ Options, data structures and return types.
 - [DcqlQuery](#dcqlquery)
 - [DcqlSelection](#dcqlselection)
 - [DecryptCustodyOpts](#decryptcustodyopts)
+- [DecryptionBindingWire](#decryptionbindingwire)
 - [DecryptShare](#decryptshare)
 - [DpopKey](#dpopkey)
 - [DpopSigner](#dpopsigner)
@@ -2477,13 +3376,23 @@ Options, data structures and return types.
 - [OauthTokens](#oauthtokens)
 - [OauthTokenSpec](#oauthtokenspec)
 - [OpenSessionOpts](#opensessionopts)
+- [PaidApprovalUnresolvedReason](#paidapprovalunresolvedreason)
+- [PaidBackoffCode](#paidbackoffcode)
+- [PrepaidEscapeCode](#prepaidescapecode)
 - [PresentationDelegation](#presentationdelegation)
 - [PresentationOperation](#presentationoperation)
+- [RecipientWire](#recipientwire)
 - [RedemptionGrant](#redemptiongrant)
 - [RegoEngine](#regoengine)
 - [RenewalGrant](#renewalgrant)
+- [RetryDecision](#retrydecision)
+- [RetryPolicy](#retrypolicy)
+- [RevocationStatusPreflightCode](#revocationstatuspreflightcode)
 - [ScopeNamespace](#scopenamespace)
 - [SealedBlob](#sealedblob)
+- [SealedPartial](#sealedpartial)
+- [SealedRequestOpts](#sealedrequestopts)
+- [SealedShareWire](#sealedsharewire)
 - [Session](#session)
 - [SessionAuth](#sessionauth)
 - [SessionStatusResult](#sessionstatusresult)
@@ -2491,6 +3400,8 @@ Options, data structures and return types.
 - [ShardSignOpts](#shardsignopts)
 - [SignCustodyOpts](#signcustodyopts)
 - [SignOpts](#signopts)
+- [StatusRefreshCode](#statusrefreshcode)
+- [StatusRefreshFailure](#statusrefreshfailure)
 - [TasraClient](#tasraclient)
 - [TasraClientConfig](#tasraclientconfig)
 - [UnpackedEnvelope](#unpackedenvelope)
@@ -2501,9 +3412,9 @@ Options, data structures and return types.
 
 ### BlsPeer
 
-A node's BLS identifier + its libp2p PeerId, for the custody decrypting set.
+Legacy input retained for explicit runtime refusal.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L42)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L5)
 
 ```ts
 export interface BlsPeer {
@@ -2521,7 +3432,7 @@ Fields:
 
 Holder signing key, verifier challenge and credentials to bind into a proof.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L111)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L114)
 
 ```ts
 export interface BuildHolderProofOpts {
@@ -2586,11 +3497,29 @@ Fields:
 
 - **` found `**: Whether the claim path resolves; a present JSON null value counts as found.
 
+### ClientRecipient
+
+Client-held opening capability; only its public recipient belongs in requests or journals.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L39)
+
+```ts
+export interface ClientRecipient {
+    readonly recipient: RecipientWire;
+    open(sealed: SealedShareWire, requestHash: Uint8Array, identifier: number, epoch: number, verifyingShare: Uint8Array): Promise<Uint8Array>;
+}
+```
+
+Fields:
+
+- **` recipient `**: Public recipient metadata that authorization must bind before any keeper work.
+- **` open `**: Open one contribution locally using the exact authorized request and keeper context. The caller must pairing-verify the recovered contribution and clear it after use.
+
 ### CreateOauthSessionResult
 
 an `oauth` session - the client brings a DPoP-bound access token.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L80)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L92)
 
 ```ts
 export interface CreateOauthSessionResult {
@@ -2614,10 +3543,13 @@ Fields:
 
 Signed operation, optional delegation and payload submitted to the verifier agent.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L56)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L62)
 
 ```ts
 export interface CreateSessionParams {
+    decryption?: DecryptionBindingWire;
+    payment?: PaymentIntentWire;
+    random?: string;
     operation: PresentationOperation;
     operationSig: string;
     delegation?: PresentationDelegation;
@@ -2627,6 +3559,9 @@ export interface CreateSessionParams {
 
 Fields:
 
+- **` decryption `**: Public decryption binding committed by the signed operation; never include private recipient material.
+- **` payment `**: Creator-signed intent for an already reserved TASRA payment. Requires random.
+- **` random `**: Fixed 32-byte hex presentation random committed before reservation.
 - **` operation `**: Signed operation details presented for authorization.
 - **` operationSig `**: 0x-hex 65-byte EIP-712 signature over the operation
 - **` delegation `**: Optional EIP-712 delegation from the slot creator
@@ -2636,7 +3571,7 @@ Fields:
 
 Wallet presentation link and polling credentials for an opened authorization session.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L68)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L80)
 
 ```ts
 export interface CreateSessionResult {
@@ -2798,9 +3733,9 @@ Fields:
 
 ### DecryptCustodyOpts
 
-JWT-authorized group decryption coordinated by one keeper, including participant selection.
+Legacy input retained for explicit runtime refusal.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L50)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L13)
 
 ```ts
 export interface DecryptCustodyOpts {
@@ -2831,6 +3766,26 @@ Fields:
 - **` ciphertextEpoch `**: Pin the ciphertext epoch; a rotated slot returns 410.
 - **` targetKeykeeper `**: Optional 20-byte operator address to pin the intended keeper.
 - **` requestId `**: Request identifier used to correlate or resume the operation.
+
+### DecryptionBindingWire
+
+Public decryption context included in the signed authorization session.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L23)
+
+```ts
+export interface DecryptionBindingWire {
+    recipient: RecipientWire;
+    ciphertext_epoch: number;
+    content_digest?: string;
+}
+```
+
+Fields:
+
+- **` recipient `**: Client recipient to which every keeper seals its contribution.
+- **` ciphertext_epoch `**: Nonnegative canonical key epoch of the ciphertext.
+- **` content_digest `**: Hex-encoded content digest: complete KEM ciphertext and identity, or SHA-256 of the IBE identity.
 
 ### DecryptShare
 
@@ -3181,7 +4136,7 @@ Fields:
 
 Single-use verifier challenge, expiry and optional disclosed slot policy.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L48)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L49)
 
 ```ts
 export interface HolderNonce {
@@ -3233,7 +4188,7 @@ A signer for the holder DID's `authentication` key. Either the SDK holds the raw
 Ed25519 secret, or the caller supplies a `sign` callback (HSM / wallet / WebCrypto)
 that returns the raw JWS signature bytes for the given signing input.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L98)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/holderProof.ts#L101)
 
 ```ts
 export type HolderSigner = {
@@ -3331,7 +4286,7 @@ Fields:
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L529)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L621)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -3359,10 +4314,17 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L547)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L639)
 
 ```ts
 export interface IbeExtractOpts {
+    recipient?: ClientRecipient;
+    chainId?: number | bigint;
+    verifyingShares?: ReadonlyMap<number, Uint8Array>;
+    evidenceCt?: string;
+    threshold?: number;
+    timeoutMs?: number;
+    approveExecution?: KeeperExecutionApprover;
     signal?: AbortSignal;
     fetchImpl?: typeof fetch;
     nodeUrls: string[];
@@ -3371,14 +4333,18 @@ export interface IbeExtractOpts {
     userSignature?: Uint8Array;
     ciphertextEpoch?: number;
     verifierProofs?: VerifierProof[];
-    clientPubkey?: Uint8Array;
-    clientSignature?: Uint8Array;
-    evidenceCt?: string;
 }
 ```
 
 Fields:
 
+- **` recipient `**: Original client-held recipient bound before authorization; required at runtime.
+- **` chainId `**: Deployment chain identifier used to validate the signed recipient-bound request hash.
+- **` verifyingShares `**: Independently authenticated 144-byte G2 || G1 public shares; reply-supplied keys alone are insufficient.
+- **` evidenceCt `**: Exact sealed presentation ciphertext returned with this authorization.
+- **` threshold `**: Stop after this many distinct, pairing-verified shares. Without this option, collect every successful reply. The low-level check uses returned verifying shares; use extractIdentityStrict for independently pinned keeper provenance.
+- **` timeoutMs `**: Deadline for the complete fan-out, including approvals and response bodies. Default 10000 ms. Cancellation cannot undo work a keeper already started.
+- **` approveExecution `**: Required for paid extraction: approve only the exact targeted assigned contributor.
 - **` signal `**: Optional signal that cancels the request.
 - **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
 - **` nodeUrls `**: Base URLs of at least k keeper nodes holding the slot's BLS shards.
@@ -3387,18 +4353,22 @@ Fields:
 - **` userSignature `**: Owner signature over `keccak256("keykeeper:ibe-extract:v1" || identity)` when the slot has a registered `user_pubkey`.
 - **` ciphertextEpoch `**: Expected key epoch of the ciphertext; used to detect rotation.
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
-- **` clientPubkey `**: 32-byte Ed25519 client public key used to verify clientSignature; supply both fields together.
-- **` clientSignature `**: Client signature over the slot and compound token binding.
-- **` evidenceCt `**: the sealed presentation beside the token (`VerifierAgentResult.evidenceCt`), posted as `evidence_ct`. Required by a keeper with `require_committee_evidence`.
 
 ### IbeExtractRequestOpts
 
 Operation-specific fields for [ibeDecryptRequest](#ibedecryptrequest) / [ibeExtractRequest](#ibeextractrequest).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L462)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L437)
 
 ```ts
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
+    recipient?: ClientRecipient;
+    verifyingShares?: ReadonlyMap<number, Uint8Array>;
+    threshold?: number;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    fetchImpl?: typeof fetch;
+    approveExecution?: KeeperExecutionApprover;
     nodeUrls: string[];
     identity: string;
     userSignature?: Uint8Array;
@@ -3408,10 +4378,19 @@ export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
 
 Fields:
 
+- **` recipient `**: Original client-held recipient bound by the authorization; required at runtime.
+- **` verifyingShares `**: Independently authenticated 144-byte G2 || G1 public shares indexed by participant identifier.
+- **` threshold `**: Keeper threshold from independently read slot metadata. When supplied, finish after that many distinct pairing-verified shares, cancelling the rest.
+- **` timeoutMs `**: Keeper extraction deadline in milliseconds; default 10000.
+- **` signal `**: Cancel the extraction fan-out. Does not undo already started keeper work.
+- **` fetchImpl `**: HTTP transport override for keeper extraction requests.
+- **` approveExecution `**: Client-owned exact-body approval capability for each paid extraction contributor.
 - **` nodeUrls `**: Base URLs of at least k keeper nodes holding the slot's BLS shards.
 - **` identity `**: The IBE identity to extract for - becomes the token's `scopedIdentity`, so a quorum attests exactly this identity and the keepers enforce the hash binding.
 - **` userSignature `**: Owner signature over the identity-bound extract marker, when the slot has one.
 - **` ciphertextEpoch `**: Expected key epoch of the ciphertext; used to detect rotation.
+- **` binding `**: Exact chain-, slot-, action- and payload-bound authorization preimage; decryption must include the recipient-bound digest.
+- **` payment `**: Original creator-signed payment intent for the already reserved operation.
 - **` chain `**: Reader methods for the beacon and slot verifier policy.
 - **` epochLag `**: Pin the draw to `latest - epochLag` (0 or 1). 1 = the previous epoch, always anchored: no wait for the accountants.
 - **` verifiers `**: The active verifier set (index to URL; add operator+pubkey to enable trustless proofs). Asking the whole set is fine - non-drawn verifiers reply 403 and are skipped.
@@ -3423,7 +4402,6 @@ Fields:
 - **` tokenType `**: Token type - default `'JWT'`.
 - **` ttlSecs `**: Token TTL in seconds - default 300.
 - **` nowSecs `**: Override "now" (unix seconds), mainly for tests.
-- **` clientSigner `**: sign the request bundle with the holder's key so the keeper + audit can verify the user authorized this operation. Omit to skip (keeper accepts unless it requires it).
 - **` scopedIdentity `**: Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field.
 
 ### IbeVerifyingShares
@@ -3440,7 +4418,7 @@ export type IbeVerifyingShares = ReadonlyMap<number, Uint8Array>;
 
 Verifier-issued bearer JWT with its holder identifier and expiry in Unix seconds.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L12)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L13)
 
 ```ts
 export interface IssuedToken {
@@ -3460,7 +4438,7 @@ Fields:
 
 Decoded JWT claims for local inspection. Their presence does not establish signature validity.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L248)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L252)
 
 ```ts
 export interface JwtClaims {
@@ -3595,11 +4573,66 @@ Fields:
 - **` identity `**: AAD for envelopes this session encrypts. Default = the 32-byte slot id.
 - **` skewMs `**: JWT refresh skew (ms) for isJwtExpiringSoon. Default 30_000.
 
+### PaidApprovalUnresolvedReason
+
+Why a retained paid approval was not (re)sent (see [PaidApprovalUnresolvedError](#paidapprovalunresolvederror)).
+- `claim_lost`: another caller already claimed this send generation.
+- `generation_moved`: the durable permit is no longer for this generation.
+- `outcome_unknown`: a send had no definite answer (transport error, timeout, abort) or a
+  generation is recorded in flight; it is never resent.
+- `no_permit`: there is no durable permit (crash before it was written) or the agent no longer
+  shows the delivery pending.
+- `legacy_state`: the record or permit was written in an older or unknown format.
+- `conflict`: the agent answered 409 after a busy refusal and its delivery state is not accepted.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L419)
+
+```ts
+export type PaidApprovalUnresolvedReason = 'claim_lost' | 'generation_moved' | 'outcome_unknown' | 'no_permit' | 'legacy_state' | 'conflict';
+```
+
+### PaidBackoffCode
+
+Stable code of a paid backoff refusal (see [PaidBackoffError](#paidbackofferror)).
+- `deadline_exceeded`: waiting the server's hint (or the client's own backoff) and then allowing
+  one attempt would reach the operation deadline; nothing was slept or sent.
+- `server_wait_too_long`: the server asked for longer than the client ever waits (120 s); the
+  hint is never shortened, so nothing was slept or sent.
+- `no_time_to_send`: re-read immediately before a send (for example after an overrunning sleep),
+  too little time was left before the deadline; that send did not happen.
+- `attempts_exhausted`: the attempt ceiling was reached inside the deadline.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L349)
+
+```ts
+export type PaidBackoffCode = 'deadline_exceeded' | 'server_wait_too_long' | 'no_time_to_send' | 'attempts_exhausted';
+```
+
+### PrepaidEscapeCode
+
+Stable code of a prepaid timeout-escape refusal (see [PrepaidEscapeError](#prepaidescapeerror)).
+- `escape_disabled`: the Settlement escape delay is zero (an upgraded deployment before governance
+  enabled it); contract error `EscapeDisabled()`.
+- `escape_not_open`: a request's escape opens later, at `opensAt`; contract error
+  `EscapeNotOpen(requestId, opensAt)`.
+- `reservation_unavailable`: a request was never reserved, or is already complete (reconciled,
+  settled or escaped); contract error `ReservationUnavailable(requestId)`.
+- `invalid_escape_delay`: contract error `InvalidEscapeDelay(delay)` (governance setter only).
+- `too_many_requests`: more than 64 requests in one call; contract error `TooManyCovered`.
+- `empty_request`: no request IDs; contract error `EmptyBundle()`.
+- `escape_unsupported`: the Settlement has no escape getters (a version before "3").
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L499)
+
+```ts
+export type PrepaidEscapeCode = 'escape_disabled' | 'escape_not_open' | 'reservation_unavailable' | 'invalid_escape_delay' | 'too_many_requests' | 'empty_request' | 'escape_unsupported';
+```
+
 ### PresentationDelegation
 
 EIP-712 delegation from the slot creator to a delegate address.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L38)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L44)
 
 ```ts
 export interface PresentationDelegation {
@@ -3627,7 +4660,7 @@ Fields:
 
 Operation details signed by a slot creator or delegate for credential authorization.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L22)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L28)
 
 ```ts
 export interface PresentationOperation {
@@ -3649,11 +4682,29 @@ Fields:
 - **` description `**: Human-readable description shown in transaction_data
 - **` exp `**: Unix timestamp - when the authorization expires
 
+### RecipientWire
+
+Public recipient metadata bound before holder and client execution authorization.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L16)
+
+```ts
+export interface RecipientWire {
+    suite: string;
+    public_key: string;
+}
+```
+
+Fields:
+
+- **` suite `**: Exact supported RFC 9180 suite name.
+- **` public_key `**: Hex-encoded 32-byte X25519 public key; never a private key or recovery seed.
+
 ### RedemptionGrant
 
 Single-use credential redemption token and its expiry in Unix seconds.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L128)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L132)
 
 ```ts
 export interface RedemptionGrant {
@@ -3695,7 +4746,7 @@ Fields:
 
 Long-lived renewal token, authenticated holder, expiry and authorized scopes.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L36)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/verifier.ts#L37)
 
 ```ts
 export interface RenewalGrant {
@@ -3712,6 +4763,58 @@ Fields:
 - **` holder `**: Authenticated holder identifier.
 - **` expiresAt `**: Expiry, Unix seconds.
 - **` scopes `**: Scopes authorized by the renewal grant.
+
+### RetryDecision
+
+Classification of one failed attempt.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L34)
+
+```ts
+export interface RetryDecision {
+    retry: boolean;
+    retryAfterMs?: number;
+}
+```
+
+Fields:
+
+- **` retry `**: Whether sending the same request again may succeed.
+- **` retryAfterMs `**: Service-requested minimum wait in ms, when it sent one.
+
+### RetryPolicy
+
+Limits for one retried request. Every field is optional and bounded.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L20)
+
+```ts
+export interface RetryPolicy {
+    maxAttempts?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    maxTotalWaitMs?: number;
+    random?: () => number;
+}
+```
+
+Fields:
+
+- **` maxAttempts `**: Total sends including the first, 1..10 (default 4).
+- **` baseDelayMs `**: First backoff when the service gives no `Retry-After`, in ms (default 250).
+- **` maxDelayMs `**: Largest single wait in ms (default 10000). A longer `Retry-After` ends retrying.
+- **` maxTotalWaitMs `**: Largest sum of all waits in ms (default 30000, at most 600000).
+- **` random `**: Source of uniform randomness in [0, 1) for jitter; defaults to Math.random.
+
+### RevocationStatusPreflightCode
+
+Stable code of a local revocation-status preflight refusal.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L164)
+
+```ts
+export type RevocationStatusPreflightCode = 'revocation_status_missing' | 'revocation_status_stale' | 'revocation_status_invalid' | 'revocation_status_refused';
+```
 
 ### ScopeNamespace
 
@@ -3740,6 +4843,94 @@ Fields:
 
 - **` header `**: Metadata and wrapped data key required to open the blob.
 - **` body `**: The concatenated encrypted chunks.
+
+### SealedPartial
+
+Locally opened and verified contribution. Clear its value after combining or discarding it.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L51)
+
+```ts
+export interface SealedPartial {
+    receipt?: OperationReceipt;
+    identifier: number;
+    value: Uint8Array;
+    verifyingShare: Uint8Array;
+    epoch: number;
+    nodeUrl: string;
+}
+```
+
+Fields:
+
+- **` receipt `**: Validated operation receipt when the keeper includes one.
+- **` identifier `**: Distinct BLS participant identifier.
+- **` value `**: Sensitive unsealed contribution, held only on the client.
+- **` verifyingShare `**: Independently authenticated 144-byte G2 || G1 public verifying share.
+- **` epoch `**: Authorized canonical key epoch.
+- **` nodeUrl `**: Endpoint from which this verified contribution was received.
+
+### SealedRequestOpts
+
+Recipient-bound authorization and independently authenticated keeper quorum for local decryption.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L17)
+
+```ts
+export interface SealedRequestOpts {
+    approveExecution?: KeeperExecutionApprover;
+    signal?: AbortSignal;
+    fetchImpl?: typeof fetch;
+    nodeUrls: string[];
+    chainId: number | bigint;
+    committeeToken: CompoundTokenWire;
+    recipient: ClientRecipient;
+    ciphertextEpoch: number;
+    verifyingShares: ReadonlyMap<number, Uint8Array>;
+    threshold: number;
+    verifierProofs?: VerifierProof[];
+    targetKeykeeper?: string;
+    userSignature?: Uint8Array;
+    evidenceCt?: string;
+    requestId?: string;
+}
+```
+
+Fields:
+
+- **` approveExecution `**: Client-owned exact-body approval capability, required for paid contributions.
+- **` signal `**: Cancel the complete fan-out, including approvals and response bodies.
+- **` fetchImpl `**: Guarded HTTP transport; defaults to global fetch.
+- **` nodeUrls `**: Distinct keeper endpoints resolved from the assigned operator roster.
+- **` chainId `**: Deployment chain identifier included in the signed request binding.
+- **` committeeToken `**: Holder authorization bound to this content, recipient, slot, chain and action.
+- **` recipient `**: Original client-held recipient created before requesting authorization.
+- **` ciphertextEpoch `**: Canonical key epoch authorized for the ciphertext.
+- **` verifyingShares `**: Authenticate this package against the slot's published commitment before use. Keys are keeper identifiers, values are 144-byte G2 || G1 verifying shares.
+- **` threshold `**: Required number of distinct authenticated and pairing-verified contributions.
+- **` verifierProofs `**: Registry membership proofs for the token's anchored verifier snapshot.
+- **` targetKeykeeper `**: Optional assigned operator address pinned by the operation policy.
+- **` userSignature `**: Slot-owner signature over the canonical KEM request when required by slot policy.
+- **` evidenceCt `**: Original sealed credential evidence associated with the compound token.
+- **` requestId `**: Use the same id when producing the KEM owner signature.
+
+### SealedShareWire
+
+Standard padded-base64 HPKE envelope carrying one encrypted contribution.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L32)
+
+```ts
+export interface SealedShareWire {
+    enc: string;
+    ciphertext: string;
+}
+```
+
+Fields:
+
+- **` enc `**: RFC 9180 encapsulated X25519 key, encoded as padded base64.
+- **` ciphertext `**: Authenticated encrypted contribution, encoded as padded base64.
 
 ### Session
 
@@ -3823,35 +5014,35 @@ Fields:
 
 Authorization session progress and optional committee result or failure detail.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L97)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L109)
 
 ```ts
 export interface SessionStatusResult {
+    evidenceCt?: string;
     status: 'pending' | 'done' | 'failed';
     phase: SessionPhase;
     compoundToken?: Record<string, unknown>;
     verifierProofs?: unknown;
     bindingPreimage?: Record<string, unknown>;
     error?: string;
-    evidenceCt?: string;
 }
 ```
 
 Fields:
 
+- **` evidenceCt `**: Sealed presentation (base64url `bincode(Ciphertext)`) the token's `evidence_hash` names, retained unchanged and posted to the keeper beside the token as `evidence_ct`.
 - **` status `**: Pending, completed or failed authorization state.
 - **` phase `**: Displayable progress within the authorization lifecycle.
 - **` compoundToken `**: Committee token returned after successful authorization.
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
 - **` bindingPreimage `**: Operation context used to derive the request-binding hash.
 - **` error `**: Optional failure detail reported by the verifier agent.
-- **` evidenceCt `**: the sealed presentation (base64url `bincode(Ciphertext)`) the token's `evidence_hash` names — post it to the keeper beside the token as `evidence_ct`.
 
 ### ShardDecryptOpts
 
-Keeper endpoints, JWT and ciphertext for combining partial decryptions in the caller.
+Legacy input retained for explicit runtime refusal.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L100)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/client.ts#L39)
 
 ```ts
 export interface ShardDecryptOpts {
@@ -3926,7 +5117,7 @@ Fields:
 - **` jwt `**: Compact bearer JWT authorizing the request.
 - **` slotId `**: 0x-prefixed (or bare) bytes32 slot id.
 - **` message `**: Raw message bytes to sign.
-- **` signingSet `**: Explicit signer set (u16 ids). Omit to node uses 1..k. Passing MORE than k ids makes the node use the robust ROAST coordinator.
+- **` signingSet `**: Explicit signer set (u16 ids). Omit to let the keeper select responsive eligible signers. Passing MORE than k ids makes the node use the robust ROAST coordinator.
 - **` userSignature `**: 64-byte Ed25519 user signature - required iff the slot has a registered owner pubkey. Build with signUserRequest().
 - **` targetKeykeeper `**: 20-byte operator address to pin (anti-Sybil).
 - **` requestId `**: Idempotency key. Required when userSignature is set.
@@ -3952,6 +5143,75 @@ Fields:
 - **` userSignature `**: 64-byte Ed25519 user signature - required iff the slot has an owner key.
 - **` targetKeykeeper `**: 20-byte operator address to pin (anti-Sybil).
 - **` requestId `**: Idempotency key (required when userSignature is set).
+
+### StatusRefreshCode
+
+Stable code of a status-refresh failure (`keykeeper/committee-status-refresh/v1`).
+
+Server codes (verifier `POST /v1/committee/status-refresh`, or the verifier-agent relay
+`POST /v1/sessions/:id/status-refresh`):
+- `status_refresh_unknown` (404): the verifier holds no issuance record for this token.
+- `status_refresh_unavailable` (409): a legacy record without refresh facts; never clean.
+- `status_refresh_replayed` (409): the proof's `seq` is not above the verifier's last one.
+- `status_refresh_context_changed` (409): the verifier's roster index or the slot rule moved.
+- `status_refresh_expired` (410): a hard cap of the grant (minus the 5 s keeper skew) passed.
+- `status_refresh_unauthenticated` (403, or 401 from the relay): the proof does not verify
+  under the principal recorded at issuance, or is not fresh.
+- `status_refresh_refused` (403): a status reference is revoked or no longer acceptable.
+- `status_refresh_unavailable_status` (503): a status list could not be read.
+- `status_refresh_quorum_unmet` (503 from the relay, or local): fewer than the token's quorum of
+  original signers returned a valid, fresh, capped attestation.
+- `status_refresh_rate_limited` (429): per-token interval/cap or principal quota; see `retryAfterMs`.
+
+Client codes:
+- `status_refresh_invalid_response`: a success reply that is malformed, unsigned, forged, from a
+  signer that did not verify the original token, or past a cap. Never trusted.
+- `status_refresh_unreachable`: no HTTP answer (the verifier may still have consumed the `seq`).
+- `status_refresh_http`: any other HTTP status, or a refusal without a recognised code.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L258)
+
+```ts
+export type StatusRefreshCode =
+    | 'status_refresh_unknown'
+    | 'status_refresh_unavailable'
+    | 'status_refresh_replayed'
+    | 'status_refresh_context_changed'
+    | 'status_refresh_expired'
+    | 'status_refresh_unauthenticated'
+    | 'status_refresh_refused'
+    | 'status_refresh_unavailable_status'
+    | 'status_refresh_quorum_unmet'
+    | 'status_refresh_rate_limited'
+    | 'status_refresh_invalid_response'
+    | 'status_refresh_unreachable'
+    | 'status_refresh_http'
+;
+```
+
+### StatusRefreshFailure
+
+Why one verifier (or the relay) did not contribute a fresh attestation.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L274)
+
+```ts
+export interface StatusRefreshFailure {
+    verifierIndex?: number;
+    code: StatusRefreshCode;
+    httpStatus?: number;
+    retryAfterMs?: number;
+    message: string;
+}
+```
+
+Fields:
+
+- **` verifierIndex `**: Verifier registry index, when the failure belongs to one verifier.
+- **` code `**: Stable code.
+- **` httpStatus `**: HTTP status, when an answer arrived.
+- **` retryAfterMs `**: Service-requested wait (`Retry-After`), in ms.
+- **` message `**: Safe-to-log detail (no secrets, at most 200 characters of a service message).
 
 ### TasraClient
 
@@ -4025,7 +5285,7 @@ Fields:
 Why a session did not yield a token - the class the UI explains, with a NON-SECRET
 correlation reference (the session id; the poll secret is never part of an error).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L117)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L129)
 
 ```ts
 export type VerifierAgentSessionErrorKind = 'timeout' | 'refused' | 'unavailable' | 'protocol' | 'cancelled';
@@ -4064,5 +5324,8 @@ Shared values and contract definitions.
 | `MAX_IDENTITY_LEN` | Max BYTE length of a scope grant or an identity (the reference implementation's cap). Anything longer fails closed - a grant or identity this large is a bug or an attack, not a real subject path. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/identityScope.ts#L31) |
 | `MAX_PLAINTEXT_LEN` | Largest plaintext one envelope carries: the AEAD ciphertext cap minus the 16-byte tag. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/envelope.ts#L310) |
 | `OAUTH_ENVELOPE_KEY` | The single top-level member that marks a rule as an OAuth policy envelope. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L28) |
+| `RECIPIENT_SUITE` | RFC 9180 suite accepted for client-sealed decryption contributions. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L12) |
 | `REGO_POLICY_REFUSED` | The refusal text a holder sees when an envelope's policy denies. Deliberately generic: rule contents are confidential to the operator set, so a refusal never names a claim or clause. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L37) |
 | `REGO_WASM_SHA256` | SHA-256 of the vendored `keykeeper_rego_wasm_bg.wasm`, as recorded in its PINS.json. `scripts/check-rego-pins.mjs` asserts the two agree, so this constant cannot drift from the pinned build. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/auth/rego.ts#L44) |
+| `RETRY_AFTER_ONLY_STATUSES` | HTTP statuses retried only when the service explicitly sends `Retry-After`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L47) |
+| `RETRY_STATUSES` | HTTP statuses that mean "not now" and are retried even without a header. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/retry.ts#L45) |

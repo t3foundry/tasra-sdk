@@ -21,7 +21,9 @@ describe('committeeSignEoaDigest', () => {
     const [url, request] = fetcher.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://keeper.example/v1/committee/sign/eoa-digest')
     expect(request.headers).toEqual({'Content-Type': 'application/json', 'x-request-id': 'req-1'})
-    expect(request.signal).toBe(signal)
+    expect(request.signal).toBeInstanceOf(AbortSignal)
+    expect(request.signal?.aborted).toBe(true) // Completed work releases its combined signal.
+    expect(signal.aborted).toBe(false) // Completion never aborts the caller's controller.
     expect(JSON.parse(request.body as string)).toEqual({committee_token: token, digest: '00'.repeat(32),
       verifier_proofs: [{verifier_index: 3, operator: '12', pubkey: '34', proof: ['56']}],
       user_signature: '00'.repeat(64), target_keykeeper: 'aa'.repeat(20)})

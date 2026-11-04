@@ -10,6 +10,7 @@ import {p256} from '@noble/curves/p256'
 import {privateKeyToAccount} from 'viem/accounts'
 import {recoverTypedDataAddress} from 'viem'
 import {bytesToHex, hexToBytes} from '../src/crypto/hex.ts'
+import {createDecryptionRecipient, decryptionBinding} from '../src/crypto/recipient.ts'
 import {compoundTokenHash, selectVerifierCommittee, type CompoundTokenPayload} from '../src/committee/token.ts'
 import {gatherCommitteeToken} from '../src/committee/client.ts'
 import {select} from '../src/auth/oid4vp.ts'
@@ -291,8 +292,9 @@ let ro: Awaited<ReturnType<typeof verifyRequestObject>>
   const sig = await creator.signTypedData(td.typedData)
   const recovered = await recoverTypedDataAddress({...td.typedData, signature: sig})
   ok('EIP-712 PresentationOperation signs under the mirrored domain/types (recovers to the creator)', recovered.toLowerCase() === creator.address.toLowerCase())
-  const ibe = presentationOperationTypedData({chainId, keyRegistry, slotId: slot, action: 'ibe-extract', identity: 'did:x/labs/2026', description: 'read labs', nowSecs})
-  ok('ibe-extract: message_hex is the identity bytes and the digest is sha256(identity)', ibe.messageHex === bytesToHex(utf8('did:x/labs/2026')) && ibe.operation.payload_digest === bytesToHex(payloadDigestForSign(utf8('did:x/labs/2026'))))
+  const binding = decryptionBinding(payloadDigestForSign(utf8('did:x/labs/2026')), 0, await createDecryptionRecipient())
+  const ibe = presentationOperationTypedData({chainId, keyRegistry, slotId: slot, action: 'ibe-extract', identity: 'did:x/labs/2026', ...binding, description: 'read labs', nowSecs})
+  ok('ibe-extract binds the identity, recipient and key epoch before signing', ibe.messageHex === bytesToHex(utf8('did:x/labs/2026')) && ibe.operation.payload_digest === bytesToHex(binding.payloadDigest))
 
   const calls: Array<{url: string; body?: unknown; auth?: string}> = []
   const tokenWire = {token_type: 'JWT', seed: bytesToHex(fill(32, 1)), epoch: 4, slot_id: bytesToHex(slot), vp_hash: bytesToHex(fill(32, 2)), holder_hash: bytesToHex(fill(32, 3)), rule_hash: bytesToHex(fill(32, 4)), request_hash: bytesToHex(td.payloadDigest.length ? requestHash(chainId, slot, 'sign', td.payloadDigest) : fill(32, 0)), binding: 'holder_key', verifier_indexes: [0, 1, 2], iat: nowSecs, exp: nowSecs + 3600, signatures: [{verifier_index: 0, signature: '0x00'}, {verifier_index: 2, signature: '0x00'}]}

@@ -101,8 +101,9 @@ ID is required. Every full run creates fresh state.
    AAD from the record identifier, and encrypts the plaintext with AES-256-GCM
    (Web Crypto). `notes.encrypt(aad, dataKey)` BLS KEM-wraps the data key
    using only the slot's public key — offline, no credential needed.
-4. **Decrypt and open.** `notes.decrypt(aad, kemCt, {authorize, requireReceipts: true})`
-   verifies Alice's operation authorization, collects keeper partial decryptions,
+4. **Decrypt and open.** `notes.decrypt(aad, kemCt, {recipient, verifyingShares, authorize})`
+   verifies Alice's operation authorization, collects keeper partial decryptions sealed
+   to the client recipient, verifies them against the slot's authenticated verifying shares,
    recovers the AES data key, and zeroizes it after the application decrypts
    the AES-GCM payload.
 5. **Check failures.** Bob's credential is submitted to the real verifier with the

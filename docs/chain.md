@@ -2,9 +2,65 @@
 
 > The chain subpath: reads, writes, slot creation, discovery, and the slot-driven clients.
 
+## User-class gas sponsorship
+
+Configure registered relay writes with `sponsorship: {slotId, authorize}` when the
+relayer's user-class policy requires a holder-bound voucher. Approve `slotId`
+independently of the relayer. Provide durable `persistAttempt` and `resumeAttempt`
+callbacks. The SDK saves the signed forward request before asking the authenticated
+relayer for `/v1/relay/voucher-intent`, then checks the intent's chain, slot, digest,
+expiry and delegation scope. Your `authorize({attempt, intent, signal})` callback
+completes the wallet flow through an independently approved verifier-agent and
+returns `{compound_token, verifier_proofs}` in wire format, optionally with
+`status_attestations` and `evidence_ct`. Do not include session metadata in this bundle.
+Authenticate the agent and its Request Object before presenting credentials; the
+agent must verify the sponsor's creator/delegate authority. Retain session recovery
+under `attempt.id` and honor cancellation.
+
+Create the agent session with the original `intent.operation`, `intent.operation_sig`,
+`intent.delegation` and `intent.message_hex`; do not sign a replacement operation. Persist
+the creation intent under `attempt.id` before its POST, then persist the returned session's
+`unpaidRecovery` checkpoint before wallet delivery. It contains the poll secret: keep it in
+private durable application storage, never logs or public artifacts. After restart,
+`agent.restoreUnpaidSession(checkpoint, {signal})` checks the independently approved profile
+and live registry, then polls only that original session. It performs no creation POST or
+provider failover. Retain the original operation separately, derive its request hash, and
+use `assertRegisteredWalletRequest` before presenting and immediately before submitting.
+If creation was interrupted before its checkpoint was saved, retain that uncertain intent
+and refuse automatic creation of another session. Paid sessions use payment recovery and
+do not expose an unpaid checkpoint.
+
+The SDK checks the returned voucher's request binding and persists the voucher with
+the original signature before submitting. The relayer independently verifies the
+committee signatures, snapshot proofs, standing and revocation freshness. No TASRA
+reservation is created for this relay authorization. TASRA slot funding and AVAX gas
+sponsorship remain separate balances. Busy retries and alternative providers receive
+the same signed request and voucher. Restarting with a retained, unexpired voucher
+does not sign a new request or open another wallet session. A consumed nonce with
+an unresolvable execution outcome refuses replacement; investigate that original
+request before creating another operation. Expired vouchers require explicit recovery
+and are not silently renewed. Native wallet/fleet acceptance is required before rollout.
+
 Download the selected manifest from
 [tasra-releases](https://github.com/t3foundry/tasra-releases), verify its trusted
 checksum, and derive the address book with `addressBookFromManifest`.
+
+## Recover registered relay writes
+
+For sponsored and unsponsored writes, retain the signed `RelayAttempt` before its
+first POST and restore it with `resumeAttempt` after restarting. If its nonce was
+consumed outside the 10,000-block reconciliation window, `submit` refuses another
+signature with `RelayOutcomeUnknownError`. Calling the submitter's `reconcile()`
+returns `{expired: false, unresolvable: true}` and keeps `pendingAttempt()` intact.
+A spent nonce proves that the original signed request cannot execute again; it does
+not prove whether its inner call already ran.
+
+Preserve the original journal and investigate its receipt and resulting chain state.
+Do not delete it, move its starting block or recreate the submitter to bypass this
+fence. Reconciliation automatically releases the signer only for a verified receipt
+or when the deadline passed with the original nonce still unused. This tightens the
+older behavior that released an unresolvable signer; it does not extend the bounded
+log scan or supply automatic recovery of unavailable historical receipts.
 
 ## Create a read client
 
@@ -147,6 +203,26 @@ lower-level flow therefore accepts a proof **per verifier**: pass
 `holderProofPerVerifier({signer, audience, credentials, slotId})` (from
 `@t3foundry/tasra-sdk/committee`) as `holderProof` to `requestCommitteeToken` / `ibeDecryptRequest`
 and each drawn verifier is asked for its own nonce.
+
+## Keeper administrative capability
+
+`nodeApi.info(keeperUrl)` reports the keeper's optional `admin_auth` field:
+
+| Value | Keeper-reported capability |
+|---|---|
+| `separate` | Administrative tokens use an independent operator issuer key. |
+| `unconfigured` | Administrative routes await operator configuration. |
+| absent | The keeper did not report this capability. |
+
+This is service metadata; reading it does not authenticate the keeper or grant
+authority. Provisioning, rotation and governance require an administrative token
+with the keeper's configured issuer, audience and `kk-admin+jwt` type. Obtain that
+token from the operator; its signing seed belongs on the operator's system.
+
+An unconfigured administrative route returns HTTP 503 with
+`admin authentication not configured` in the response body. The SDK preserves
+that diagnostic in `TasraHttpError.body` and the status in `TasraHttpError.status`.
+The operator must configure the administrative issuer before retrying the action.
 
 ---
 

@@ -23,8 +23,9 @@ const ERROR_ITEMS = Object.values(CONTRACT_ABIS)
  * The revert data viem kept somewhere in the error's `cause` chain. RPC transports differ on where
  * they put it (`EstimateGasExecutionError` to `ExecutionRevertedError` to `RpcRequestError.data` on
  * an Avalanche C-chain node), so walk the chain rather than guess a shape.
+ * @param error RPC or viem error whose nested causes may contain revert data.
  */
-function revertData(error: unknown): Hex | undefined {
+export function revertData(error: unknown): Hex | undefined {
   const seen = new Set<unknown>()
   for (let e: unknown = error; e && typeof e === 'object' && !seen.has(e); e = (e as {cause?: unknown}).cause) {
     seen.add(e)

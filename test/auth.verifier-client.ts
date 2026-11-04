@@ -247,12 +247,13 @@ try {
   // ─── presentation endpoints ───────────────────────────────────────────────
   {
     sent.length = 0
-    const issued = await verifyPresentation(VERIFIER, {dcql_rule: 'any', presentation: {vp: 1}, credentials: ['c']})
+    // `VerifyBody` on the verifier declares exactly `dcql_rule` + `presentation` and refuses
+    // anything else (422 since 2026-10-03), so the type no longer admits a `credentials` key.
+    const issued = await verifyPresentation(VERIFIER, {dcql_rule: 'any', presentation: {vp: 1}})
     eq('verifyPresentation returns the issued token', [issued.token, issued.exp], ['presented.jwt.sig', 2_100])
     eq('verifyPresentation POSTs the body untouched', lastTo('/v1/verify')?.body, {
       dcql_rule: 'any',
       presentation: {vp: 1},
-      credentials: ['c'],
     })
 
     sent.length = 0

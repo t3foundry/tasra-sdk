@@ -54,6 +54,14 @@ original coordinator and pinned policy. After an ambiguous POST, catch
 a replacement request. If creation lost its request ID, the current protocol
 cannot discover it through this SDK; preserve that uncertainty for an operator.
 
+Keepers with durable dual-control storage retain approvals and completed replies across
+restart. The approval window still expires after five minutes. If execution may have
+started but no durable result is available, `status()` returns `uncertain`, `approve()`
+sends no approval, and `wait()` raises `OperationOutcomeUnknownError` with the same request
+ID. Preserve that ID and reconcile the work evidence before deciding how to proceed.
+For paid creation, the ID is derived from the pinned final Sign reservation; see
+[paid dual-control signatures](funding.md#paid-dual-control-signatures).
+
 This is separate from two detached signatures in a document workflow. It does
 not enable multi-approver IBE extraction.
 
