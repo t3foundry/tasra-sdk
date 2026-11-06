@@ -20,6 +20,17 @@ never does.
 
 ### Added
 
+- Two-step slot hand-offs on the write client: `proposeSlotTransfer`,
+  `acceptSlotTransfer` and `withdrawSlotTransfer` move the creator;
+  `proposeRuleAdminTransfer`, `acceptRuleAdminTransfer` and
+  `withdrawRuleAdminTransfer` move the rule admin. The roles move separately, the
+  guardian never moves, and the rule admin never goes to the guardian.
+  `proposeSlotTransfer` returns the roles that stay, whether the caller also holds
+  the rule admin, and the slot's prepaid credit when a Settlement is configured.
+  The previous creator's delegations and unused payment intents stop at acceptance.
+  `readSlotHandoff` reads the roles and pending offers. Refusals are a typed
+  `SlotHandoffError` raised before signing; a KeyRegistry without the hand-off
+  refuses `unsupported` (`tasra.fuji.v1` until its upgrade).
 - Paid recovery can read an original assigned contributor's exact retained sealed
   reply with `recover({transport, contributorKey})`. This read uses the original
   journal and signed assignment and performs no HPKE opening or new keeper work.

@@ -93,12 +93,16 @@ export type {RuleInput} from './ruleInput.js'
 // Rule amendment: the status read and the end-to-end driver (the four writes live on the write client).
 export {readRuleAmendment, amendSlotRule, RuleAmendmentError} from './ruleAmendment.js'
 export type {RuleAmendmentStatus, RuleAmendmentErrorCode, AmendSlotRuleArgs, AmendSlotRuleResult, AmendmentPhase} from './ruleAmendment.js'
+// Slot hand-offs: the read and the typed refusal (the six writes live on the write client).
+export {readSlotHandoff, SlotHandoffError} from './slotHandoff.js'
+export type {SlotHandoffStatus, SlotHandoffErrorCode} from './slotHandoff.js'
 export type {
   CreateSlotArgs,
   CreateSlotFromPolicyArgs,
   CommitRevealOptions,
   ProposeRuleArgs,
   ProposeRuleResult,
+  SlotTransferProposal,
   RelayConfig,
   RelayReceipt,
   TasraWriteClient,

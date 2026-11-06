@@ -23,6 +23,7 @@ import {
   http,
   concat,
   encodeFunctionData,
+  isAddress,
   keccak256,
   parseEventLogs,
   toHex,
@@ -51,6 +52,15 @@ import {
   sameAddress,
   type AmendmentOnChain,
 } from './ruleAmendmentCore.js'
+import {
+  SlotHandoffError,
+  adminAcceptVerdict,
+  adminOfferVerdict,
+  creatorAcceptVerdict,
+  creatorOfferVerdict,
+  readHandoffOnChain,
+  type SlotHandoffStatus,
+} from './slotHandoff.js'
 import {nodeRegistryAbi} from './abis/nodeRegistry.js'
 
 /**
@@ -329,6 +339,28 @@ export type ProposeRuleArgs = ({rule: string} | {oauthPolicy: OauthPolicyInput})
   slotId: Hex
   /** The slot's rule salt (from creation). Amendments reuse it; it is never minted here. */
   ruleSalt: Hex
+}
+
+/** Outcome of {@link TasraWriteClient.proposeSlotTransfer}. */
+export interface SlotTransferProposal {
+  /** Slot offered. */
+  slotId: Hex
+  /** Transaction that carried the offer. */
+  txHash: Hex
+  /** Wallet that may accept. */
+  to: Address
+  /** Rule admin, which does not move with the slot; `null` when the rule is immutable. */
+  ruleAdmin: Address | null
+  /** Guardian, which does not move with the slot. */
+  guardian: Address | null
+  /** True when this account is also the rule admin and so needs the second hand-off. */
+  callerIsRuleAdmin: boolean
+  /** Prepaid TSRA base units the slot holds, which go with it; set when a Settlement address is configured. */
+  prepaidBalance?: bigint
+  /** Of that, base units reserved by accepted requests, which still settle; set where the Settlement has reservations. */
+  reservedBalance?: bigint
+  /** Relay receipt, when the offer was gas-sponsored. */
+  relay?: RelayReceipt
 }
 
 /** A confirmed `proposeRuleUpdate`, decoded from its `RuleUpdateProposed` event. */
@@ -1165,6 +1197,111 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     return h
   }
 
+  //  slot hand-offs (KeyRegistry.proposeCreator / acceptCreator / proposeRuleAdmin / acceptRuleAdmin)
+  // Each step judges from one read, refuses before signing, and reads the slot again to confirm.
+  /** Send one hand-off step, then return the slot's state read back. */
+  async function handoffStep(
+    slotId: Hex,
+    what: string,
+    functionName: 'proposeCreator' | 'acceptCreator' | 'proposeRuleAdmin' | 'acceptRuleAdmin',
+    args: readonly unknown[],
+    verdict: (s: SlotHandoffStatus) => void,
+  ): Promise<{txHash: Hex; before: SlotHandoffStatus; after: SlotHandoffStatus}> {
+    requireBytes32(slotId, 'slotId', what)
+    const keyRegistry = requireAddress(addr, 'KeyRegistry')
+    const before = await readHandoffOnChain(pub.readContract, keyRegistry, slotId)
+    verdict(before)
+    const txHash = await sendCall(keyRegistry, keyRegistryAbi, functionName, args, what)
+    await confirmed(pub, txHash, what)
+    return {txHash, before, after: await readHandoffOnChain(pub.readContract, keyRegistry, slotId)}
+  }
+  const notConfirmed = (slotId: Hex, what: string, txHash: Hex, seen: string) =>
+    new SlotHandoffError('not-confirmed', slotId, `${what}: tx ${txHash} confirmed but slot ${slotId} shows ${seen}`)
+  const requireRecipient = (to: Address, what: string, withdraw: string) => {
+    if (typeof to !== 'string' || !isAddress(to, {strict: false}) || sameAddress(to, ZERO_ADDRESS)) {
+      throw new TasraError(`${what}: to must be a non-zero address; withdraw with ${withdraw}`)
+    }
+  }
+
+  /** Offer the slot to `to` as its creator; see {@link TasraWriteClient.proposeSlotTransfer}. */
+  async function proposeSlotTransfer(slotId: Hex, to: Address): Promise<SlotTransferProposal> {
+    const what = 'proposeSlotTransfer'
+    requireRecipient(to, what, 'withdrawSlotTransfer')
+    const {txHash, before, after} = await handoffStep(slotId, what, 'proposeCreator', [slotId, to], s =>
+      creatorOfferVerdict(s, slotId, account.address, to),
+    )
+    if (!after.pendingCreator || !sameAddress(after.pendingCreator, to)) {
+      throw notConfirmed(slotId, what, txHash, `pending creator ${after.pendingCreator ?? 'none'}`)
+    }
+    let prepaidBalance: bigint | undefined
+    let reservedBalance: bigint | undefined
+    if (addr.Settlement) {
+      const settlement = addr.Settlement
+      prepaidBalance = await pub.readContract({address: settlement, abi: settlementAbi, functionName: 'balanceOf', args: [slotId]})
+      // Absent on a Settlement without prepaid reservations.
+      reservedBalance = await pub
+        .readContract({address: settlement, abi: settlementAbi, functionName: 'reservedBalanceOf', args: [slotId]})
+        .catch(() => undefined)
+    }
+    return {
+      slotId,
+      txHash,
+      to,
+      ruleAdmin: before.ruleAdmin,
+      guardian: before.guardian,
+      callerIsRuleAdmin: !!before.ruleAdmin && sameAddress(before.ruleAdmin, account.address),
+      ...(prepaidBalance !== undefined ? {prepaidBalance} : {}),
+      ...(reservedBalance !== undefined ? {reservedBalance} : {}),
+      relay: lastRelay?.txHash === txHash ? lastRelay : undefined,
+    }
+  }
+  /** Withdraw the pending creator offer; creator only. */
+  async function withdrawSlotTransfer(slotId: Hex): Promise<Hex> {
+    const what = 'withdrawSlotTransfer'
+    const {txHash, after} = await handoffStep(slotId, what, 'proposeCreator', [slotId, ZERO_ADDRESS], s =>
+      creatorOfferVerdict(s, slotId, account.address, ZERO_ADDRESS),
+    )
+    if (after.pendingCreator) throw notConfirmed(slotId, what, txHash, `pending creator ${after.pendingCreator}`)
+    return txHash
+  }
+  /** Become the slot's creator; the offered wallet only. */
+  async function acceptSlotTransfer(slotId: Hex): Promise<Hex> {
+    const what = 'acceptSlotTransfer'
+    const {txHash, after} = await handoffStep(slotId, what, 'acceptCreator', [slotId], s => creatorAcceptVerdict(s, slotId, account.address))
+    if (!sameAddress(after.creator, account.address) || after.pendingCreator) throw notConfirmed(slotId, what, txHash, `creator ${after.creator}`)
+    return txHash
+  }
+  /** Offer the slot's rule admin role to `to`; rule admin only, never to the guardian. */
+  async function proposeRuleAdminTransfer(slotId: Hex, to: Address): Promise<Hex> {
+    const what = 'proposeRuleAdminTransfer'
+    requireRecipient(to, what, 'withdrawRuleAdminTransfer')
+    const {txHash, after} = await handoffStep(slotId, what, 'proposeRuleAdmin', [slotId, to], s =>
+      adminOfferVerdict(s, slotId, account.address, to),
+    )
+    if (!after.pendingRuleAdmin || !sameAddress(after.pendingRuleAdmin, to)) {
+      throw notConfirmed(slotId, what, txHash, `pending rule admin ${after.pendingRuleAdmin ?? 'none'}`)
+    }
+    return txHash
+  }
+  /** Withdraw the pending rule admin offer; rule admin only. */
+  async function withdrawRuleAdminTransfer(slotId: Hex): Promise<Hex> {
+    const what = 'withdrawRuleAdminTransfer'
+    const {txHash, after} = await handoffStep(slotId, what, 'proposeRuleAdmin', [slotId, ZERO_ADDRESS], s =>
+      adminOfferVerdict(s, slotId, account.address, ZERO_ADDRESS),
+    )
+    if (after.pendingRuleAdmin) throw notConfirmed(slotId, what, txHash, `pending rule admin ${after.pendingRuleAdmin}`)
+    return txHash
+  }
+  /** Become the slot's rule admin; the offered wallet only. */
+  async function acceptRuleAdminTransfer(slotId: Hex): Promise<Hex> {
+    const what = 'acceptRuleAdminTransfer'
+    const {txHash, after} = await handoffStep(slotId, what, 'acceptRuleAdmin', [slotId], s => adminAcceptVerdict(s, slotId, account.address))
+    if (!after.ruleAdmin || !sameAddress(after.ruleAdmin, account.address) || after.pendingRuleAdmin) {
+      throw notConfirmed(slotId, what, txHash, `rule admin ${after.ruleAdmin ?? 'none'}`)
+    }
+    return txHash
+  }
+
   //  TASRA tokenomics (BondingCurve / TasraToken)
   /** Buy TSRA from the bonding curve. Approve `eurcAmount` of EURC to the
    *  BondingCurve first; read balances for the fill. */
@@ -1239,6 +1376,13 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     endorseRuleUpdate,
     vetoRuleUpdate,
     activateRuleUpdate,
+    // slot hand-offs
+    proposeSlotTransfer,
+    withdrawSlotTransfer,
+    acceptSlotTransfer,
+    proposeRuleAdminTransfer,
+    withdrawRuleAdminTransfer,
+    acceptRuleAdminTransfer,
     // tokenomics
     buyTsra,
     approveEurcForCurve,
@@ -1351,6 +1495,36 @@ export interface TasraWriteClient {
    * Activate the pending amendment; anyone may send it. Refuses `no-pending`, `timelock` (judged on the latest block timestamp, not the local clock) and `below-threshold` before signing.
    */
   activateRuleUpdate(slotId: Hex): Promise<Hex>
+
+  /**
+   * Offer the slot to `to` as its next creator, signed by the current creator. It moves only when `to` accepts with acceptSlotTransfer; a new offer replaces an earlier one.
+   * Only the creator moves: the rule admin and the guardian stay, and the result names them. When this account is also the rule admin, hand that role over separately with proposeRuleAdminTransfer.
+   * At acceptance every delegation and unused prepaid payment intent this account signed for the slot stops working; reservations already accepted still settle. The prepaid credit goes with the slot and nothing is refunded; the result carries the balance when a Settlement address is configured.
+   * Refused before signing, as a `SlotHandoffError`: `no-slot`, `cancelled`, `unsupported` (a KeyRegistry without the hand-off), `not-creator`, `same-holder` and `already-offered`.
+   */
+  proposeSlotTransfer(slotId: Hex, to: Address): Promise<SlotTransferProposal>
+  /**
+   * Withdraw the pending creator offer, signed by the creator. Refuses `not-creator` and `nothing-pending` before signing.
+   */
+  withdrawSlotTransfer(slotId: Hex): Promise<Hex>
+  /**
+   * Become the slot's creator, signed by the offered wallet. Refuses `nothing-pending` and `not-offered` before signing.
+   * Afterwards sign fresh delegations for the apps that use the slot and update their configuration: the previous creator's delegations no longer verify.
+   */
+  acceptSlotTransfer(slotId: Hex): Promise<Hex>
+  /**
+   * Offer the slot's rule admin role to `to`, signed by the rule admin. It moves only when `to` accepts. It can never go to the guardian, and the guardian is not asked.
+   * Refuses `immutable`, `not-admin`, `same-holder`, `guardian` and `already-offered` before signing.
+   */
+  proposeRuleAdminTransfer(slotId: Hex, to: Address): Promise<Hex>
+  /**
+   * Withdraw the pending rule admin offer, signed by the rule admin. Refuses `not-admin` and `nothing-pending` before signing.
+   */
+  withdrawRuleAdminTransfer(slotId: Hex): Promise<Hex>
+  /**
+   * Become the slot's rule admin, signed by the offered wallet. Refuses `nothing-pending`, `not-offered` and `guardian` before signing.
+   */
+  acceptRuleAdminTransfer(slotId: Hex): Promise<Hex>
 
   /**
    * Buy TSRA with approved EURC while enforcing the minimum output amount.
