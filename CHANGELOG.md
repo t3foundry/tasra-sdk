@@ -7,6 +7,20 @@ never does.
 
 ## [Unreleased]
 
+### Added
+
+- Two-step slot hand-offs on the write client: `proposeSlotTransfer`,
+  `acceptSlotTransfer` and `withdrawSlotTransfer` move the creator;
+  `proposeRuleAdminTransfer`, `acceptRuleAdminTransfer` and
+  `withdrawRuleAdminTransfer` move the rule admin. The roles move separately, the
+  guardian never moves, and the rule admin never goes to the guardian.
+  `proposeSlotTransfer` returns the roles that stay, whether the caller also holds
+  the rule admin, and the slot's prepaid credit when a Settlement is configured.
+  The previous creator's delegations and unused payment intents stop at acceptance.
+  `readSlotHandoff` reads the roles and pending offers. Refusals are a typed
+  `SlotHandoffError` raised before signing; a KeyRegistry without the hand-off
+  refuses `unsupported` (`tasra.fuji.v1` until its upgrade).
+
 ## [0.4.0] — 2026-11-04
 
 Everything since 0.3.0. `0.3.1` on npm (2026-10-28, `54e3b1b3`, `next` tag) was an untagged

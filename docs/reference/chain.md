@@ -9,7 +9,7 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 16 classes</summary>
+<summary>Browse 17 classes</summary>
 
 - [AgentSessionCreationUnknownError](#agentsessioncreationunknownerror)
 - [BillingModeError](#billingmodeerror)
@@ -25,6 +25,7 @@ Clients, adapters and error classes.
 - [RelayOutcomeUnknownError](#relayoutcomeunknownerror)
 - [RuleAmendmentError](#ruleamendmenterror)
 - [SlotCommitmentExpiredError](#slotcommitmentexpirederror)
+- [SlotHandoffError](#slothandofferror)
 - [UnderfundedGasPayerError](#underfundedgaspayererror)
 - [UnderfundedSlotError](#underfundedsloterror)
 
@@ -531,6 +532,36 @@ declare class SlotCommitmentExpiredError {
 
 - ` cause?: unknown; `
 
+### SlotHandoffError
+
+A hand-off refused before signing, or one that did not reach the state the caller asked for.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotHandoff.ts#L34)
+
+Import: `import {SlotHandoffError} from 'tasra-sdk/chain'`
+
+```ts
+declare class SlotHandoffError {
+    constructor(code: SlotHandoffErrorCode, slotId: Hex, message: string, opts?: {
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: SlotHandoffErrorCode; ` — Refusal category; never infer it from the message.
+
+- ` readonly slotId: Hex; ` — Slot the refused call targeted.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ### UnderfundedGasPayerError
 
 The transaction payer lacks native currency for the quoted reservation gas.
@@ -615,7 +646,7 @@ declare class UnderfundedSlotError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 89 functions</summary>
+<summary>Browse 90 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -682,6 +713,7 @@ Operations you can import and call.
 - [readPrepaidFaultStatus](#readprepaidfaultstatus)
 - [readRuleAmendment](#readruleamendment)
 - [readSlotFunding](#readslotfunding)
+- [readSlotHandoff](#readslothandoff)
 - [reconcilePaidReservation](#reconcilepaidreservation)
 - [reconcileRelayAttempt](#reconcilerelayattempt)
 - [recoverKeeperExecution](#recoverkeeperexecution)
@@ -1227,7 +1259,7 @@ Return details: Client that opens and tracks managed slot sessions.
 
 Create an account-bound client for slot lifecycle, settlement and token transactions. Use deployed addresses and the chain ID from a tasra-releases network manifest.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L512)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L544)
 
 Import: `import {createTasraWriteClient} from 'tasra-sdk/chain'`
 
@@ -1548,7 +1580,7 @@ Returns: ` string `.
 
 Fresh 0x-prefixed 32-byte private key for a new sovereign client account.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L479)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L511)
 
 Import: `import {generateClientKey} from 'tasra-sdk/chain'`
 
@@ -2295,6 +2327,25 @@ declare function readSlotFunding(client: PublicClient, deployment: PrepaidDeploy
 
 Returns: ` Promise<SlotFunding> `.
 
+### readSlotHandoff
+
+Read a slot's creator, rule admin, guardian and any pending hand-off of either role.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotHandoff.ts#L111)
+
+Import: `import {readSlotHandoff} from 'tasra-sdk/chain'`
+
+```ts
+declare function readSlotHandoff(chain: TasraChainClient, slotId: Hex): Promise<SlotHandoffStatus>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` chain ` | ` TasraChainClient ` | Reader for the deployment that owns the slot. |
+| ` slotId ` | ` Hex ` | Slot to read; refuses `no-slot`, `cancelled` and `unsupported` as a `SlotHandoffError`. |
+
+Returns: ` Promise<SlotHandoffStatus> `.
+
 ### reconcilePaidReservation
 
 Verify a saved reservation transaction after restart without submitting or replacing anything.
@@ -2626,7 +2677,7 @@ Return details: Verifier endpoints, public keys and snapshot indices.
 
 Compute the salted rule commitment. OID4VP queries and `kk_oauth` policy envelopes use canonical JSON; other rule formats retain their exact bytes.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L453)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L485)
 
 Import: `import {ruleCommitment} from 'tasra-sdk/chain'`
 
@@ -2819,7 +2870,7 @@ Returns: ` string `.
 
 Return whether the disclosed rule and salt reproduce the on-chain commitment. Invalid inputs and mismatches return false.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L466)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L498)
 
 Import: `import {verifyRuleCommitment} from 'tasra-sdk/chain'`
 
@@ -2881,7 +2932,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 140 types</summary>
+<summary>Browse 143 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -3010,9 +3061,12 @@ Options, data structures and return types.
 - [SlotCommitteeSignOptions](#slotcommitteesignoptions)
 - [SlotFunding](#slotfunding)
 - [SlotGroupKey](#slotgroupkey)
+- [SlotHandoffErrorCode](#slothandofferrorcode)
+- [SlotHandoffStatus](#slothandoffstatus)
 - [SlotMode](#slotmode)
 - [SlotSeed](#slotseed)
 - [SlotSeedOptions](#slotseedoptions)
+- [SlotTransferProposal](#slottransferproposal)
 - [TasraChainClient](#tasrachainclient)
 - [TasraSlotClient](#tasraslotclient)
 - [TasraSlotClientConfig](#tasraslotclientconfig)
@@ -3399,7 +3453,7 @@ Fields:
 
 Recovery and timing controls for commit-reveal creation. Accountant seed discovery is attempted first; unavailable seeds fall back to a beacon epoch wait.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L188)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L198)
 
 ```ts
 export interface CommitRevealOptions {
@@ -3612,7 +3666,7 @@ Fields:
 
 Slot key mode, keeper threshold, private authorization rule and creation policies.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L222)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L232)
 
 ```ts
 export interface CreateSlotArgs extends RuleInput {
@@ -3650,7 +3704,7 @@ Slot creation from an authored Rego policy instead of a rule string. The SDK pac
 it when a keeper would not store it, and commits the envelope. Requires `authType: 'oauth'`.
 The packed envelope is returned as `rule`: provision exactly that string.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L274)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L284)
 
 ```ts
 export type CreateSlotFromPolicyArgs = Omit<CreateSlotArgs, 'rule'> & {
@@ -5134,7 +5188,7 @@ Fields:
 A rule amendment: the new rule (a clear rule string, or an authored Rego policy the SDK packs
 into a `kk_oauth` envelope) for an existing slot, committed with the slot's saved rule salt.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L327)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L337)
 
 ```ts
 export type ProposeRuleArgs = ({
@@ -5156,7 +5210,7 @@ Fields:
 
 A confirmed `proposeRuleUpdate`, decoded from its `RuleUpdateProposed` event.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L335)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L367)
 
 ```ts
 export interface ProposeRuleResult {
@@ -5526,7 +5580,7 @@ Fields:
 
 Approved relay configuration for gas-sponsored sender-bound contract calls. The creator signs the forward request; the relayer pays gas. ERC-20 approvals still require direct transactions.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L147)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L157)
 
 ```ts
 export type RelayConfig = RegisteredRelayConfig;
@@ -6104,7 +6158,7 @@ Fields:
 
 Authorization family recorded at creation. The default unspecified value declares no family. This label is not included in the committee-selection commitment.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L115)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L125)
 
 ```ts
 export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth' | 'governance';
@@ -6218,6 +6272,41 @@ Fields:
 - **` epoch `**: Slot key epoch associated with the returned group public key.
 - **` mode `**: 0 = frost, 1 = bls (KeyRegistry.Mode). Encrypt applies to BLS slots.
 
+### SlotHandoffErrorCode
+
+Stable refusal categories of the hand-off API; branch on `code`, never on the message.
+None is retryable: each needs a change of key, offer or slot first.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotHandoff.ts#L19)
+
+```ts
+export type SlotHandoffErrorCode = 'no-slot' | 'cancelled' | 'unsupported' | 'not-creator' | 'not-admin' | 'immutable' | 'same-holder' | 'already-offered' | 'guardian' | 'nothing-pending' | 'not-offered' | 'not-confirmed';
+```
+
+### SlotHandoffStatus
+
+A slot's roles and pending hand-offs as the chain records them; `null` means none.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotHandoff.ts#L48)
+
+```ts
+export interface SlotHandoffStatus {
+    creator: Address;
+    pendingCreator: Address | null;
+    ruleAdmin: Address | null;
+    guardian: Address | null;
+    pendingRuleAdmin: Address | null;
+}
+```
+
+Fields:
+
+- **` creator `**: Slot creator.
+- **` pendingCreator `**: Wallet offered the creator role, not yet accepted.
+- **` ruleAdmin `**: Rule admin; `null` means the rule is immutable.
+- **` guardian `**: Rule guardian.
+- **` pendingRuleAdmin `**: Wallet offered the rule admin role, not yet accepted.
+
 ### SlotMode
 
 The slot's key type, mirroring `KeyRegistry.Mode` on-chain:
@@ -6226,7 +6315,7 @@ The slot's key type, mirroring `KeyRegistry.Mode` on-chain:
 `bls-bn254`, and `tecdsa-p256` (ES256). A deployment need not run keepers for
 every mode; creating a slot the network cannot key leaves it without a group key.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L102)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L112)
 
 ```ts
 export type SlotMode = 'frost' | 'bls' | 'tecdsa' | 'bls-bn254' | 'tecdsa-p256';
@@ -6269,6 +6358,38 @@ Fields:
 
 - **` urls `**: Accountant base URLs. Resolved from `NodeRegistry` when omitted.
 - **` timeoutMs `**: Per-accountant HTTP timeout. The round itself is bounded server-side.
+
+### SlotTransferProposal
+
+Outcome of ` TasraWriteClient.proposeSlotTransfer `.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L345)
+
+```ts
+export interface SlotTransferProposal {
+    slotId: Hex;
+    txHash: Hex;
+    to: Address;
+    ruleAdmin: Address | null;
+    guardian: Address | null;
+    callerIsRuleAdmin: boolean;
+    prepaidBalance?: bigint;
+    reservedBalance?: bigint;
+    relay?: RelayReceipt;
+}
+```
+
+Fields:
+
+- **` slotId `**: Slot offered.
+- **` txHash `**: Transaction that carried the offer.
+- **` to `**: Wallet that may accept.
+- **` ruleAdmin `**: Rule admin, which does not move with the slot; `null` when the rule is immutable.
+- **` guardian `**: Guardian, which does not move with the slot.
+- **` callerIsRuleAdmin `**: True when this account is also the rule admin and so needs the second hand-off.
+- **` prepaidBalance `**: Prepaid TSRA base units the slot holds, which go with it; set when a Settlement address is configured.
+- **` reservedBalance `**: Of that, base units reserved by accepted requests, which still settle; set where the Settlement has reservations.
+- **` relay `**: Relay receipt, when the offer was gas-sponsored.
 
 ### TasraChainClient
 
@@ -6366,7 +6487,7 @@ Fields:
 
 Account-bound operations for slot creation, lifecycle management, settlement funding and token transactions.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L1277)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L1421)
 
 <details>
 <summary>Full declaration</summary>
@@ -6413,6 +6534,12 @@ export interface TasraWriteClient {
     endorseRuleUpdate(slotId: Hex): Promise<Hex>;
     vetoRuleUpdate(slotId: Hex): Promise<Hex>;
     activateRuleUpdate(slotId: Hex): Promise<Hex>;
+    proposeSlotTransfer(slotId: Hex, to: Address): Promise<SlotTransferProposal>;
+    withdrawSlotTransfer(slotId: Hex): Promise<Hex>;
+    acceptSlotTransfer(slotId: Hex): Promise<Hex>;
+    proposeRuleAdminTransfer(slotId: Hex, to: Address): Promise<Hex>;
+    withdrawRuleAdminTransfer(slotId: Hex): Promise<Hex>;
+    acceptRuleAdminTransfer(slotId: Hex): Promise<Hex>;
     buyTsra(eurcAmount: bigint, minTsraOut: bigint): Promise<Hex>;
     approveEurcForCurve(amount: bigint): Promise<Hex>;
     mintMockEurc(to: Address, amount: bigint): Promise<Hex>;
@@ -6463,6 +6590,12 @@ Fields:
 - **` endorseRuleUpdate `**: Waive the remaining delay of the pending amendment, signed by the slot's guardian. Refuses `not-guardian` and `no-pending` before signing.
 - **` vetoRuleUpdate `**: Discard the pending amendment, signed by the slot's guardian. Refuses `not-guardian` and `no-pending` before signing.
 - **` activateRuleUpdate `**: Activate the pending amendment; anyone may send it. Refuses `no-pending`, `timelock` (judged on the latest block timestamp, not the local clock) and `below-threshold` before signing.
+- **` proposeSlotTransfer `**: Offer the slot to `to` as its next creator, signed by the current creator. It moves only when `to` accepts with acceptSlotTransfer; a new offer replaces an earlier one. Only the creator moves: the rule admin and the guardian stay, and the result names them. When this account is also the rule admin, hand that role over separately with proposeRuleAdminTransfer. At acceptance every delegation and unused prepaid payment intent this account signed for the slot stops working; reservations already accepted still settle. The prepaid credit goes with the slot and nothing is refunded; the result carries the balance when a Settlement address is configured. Refused before signing, as a `SlotHandoffError`: `no-slot`, `cancelled`, `unsupported` (a KeyRegistry without the hand-off), `not-creator`, `same-holder` and `already-offered`.
+- **` withdrawSlotTransfer `**: Withdraw the pending creator offer, signed by the creator. Refuses `not-creator` and `nothing-pending` before signing.
+- **` acceptSlotTransfer `**: Become the slot's creator, signed by the offered wallet. Refuses `nothing-pending` and `not-offered` before signing. Afterwards sign fresh delegations for the apps that use the slot and update their configuration: the previous creator's delegations no longer verify.
+- **` proposeRuleAdminTransfer `**: Offer the slot's rule admin role to `to`, signed by the rule admin. It moves only when `to` accepts. It can never go to the guardian, and the guardian is not asked. Refuses `immutable`, `not-admin`, `same-holder`, `guardian` and `already-offered` before signing.
+- **` withdrawRuleAdminTransfer `**: Withdraw the pending rule admin offer, signed by the rule admin. Refuses `not-admin` and `nothing-pending` before signing.
+- **` acceptRuleAdminTransfer `**: Become the slot's rule admin, signed by the offered wallet. Refuses `nothing-pending`, `not-offered` and `guardian` before signing.
 - **` buyTsra `**: Buy TSRA with approved EURC while enforcing the minimum output amount.
 - **` approveEurcForCurve `**: Approve the bonding curve to spend the specified EURC base units.
 - **` mintMockEurc `**: Mint test EURC only after verifying the network and mock-token faucet policy.
@@ -6554,7 +6687,7 @@ Fields:
 
 Either a private-key signer or an account-bound wallet with network write configuration.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L183)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L193)
 
 ```ts
 export type WriteClientConfig = WriteClientKeyConfig | WriteClientWalletConfig;
@@ -6573,7 +6706,7 @@ Fields:
 
 Sovereign-key variant: the SDK owns the account and signs with `privateKey`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L163)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L173)
 
 ```ts
 export interface WriteClientKeyConfig extends WriteClientConfigBase {
@@ -6595,7 +6728,7 @@ Fields:
 
 Account-bound and chain-bound viem wallet used for signing without exposing its private key. Reads and receipt polling use the separately configured RPC.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L173)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L183)
 
 ```ts
 export interface WriteClientWalletConfig extends WriteClientConfigBase {
