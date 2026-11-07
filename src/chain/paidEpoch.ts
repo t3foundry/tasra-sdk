@@ -92,26 +92,57 @@ async function readOrUnavailable<T>(what: string, read: () => Promise<T>): Promi
   }
 }
 
+/** The values at one block HASH: its number, its time and `beacon.epoch()` there. They never change. */
+interface AnchorAtHash {blockNumber: bigint; blockTimestamp: bigint; beaconEpoch: bigint}
+/** Most anchors kept per client (one per paid operation in flight is plenty). */
+const MAX_CACHED_ANCHORS = 256
+const anchors = new WeakMap<PublicClient, Map<string, AnchorAtHash>>()
+
+function cachedAnchor(client: PublicClient, key: string): AnchorAtHash | undefined {
+  const known = anchors.get(client), value = known?.get(key)
+  if (value && known) { known.delete(key); known.set(key, value) }
+  return value
+}
+function keepAnchor(client: PublicClient, key: string, value: AnchorAtHash): void {
+  let known = anchors.get(client)
+  if (!known) anchors.set(client, known = new Map())
+  known.delete(key)
+  if (known.size >= MAX_CACHED_ANCHORS) known.delete(known.keys().next().value as string)
+  known.set(key, value)
+}
+
 /**
  * `beacon.epoch()` at `assignmentBlock` (EIP-1898 `requireCanonical`), plus a by-number canonical
  * recheck. A missing block or unservable state is retryable `paid_epoch_unavailable`; a known
  * block that is not canonical (or answers for another hash) is a definite `paid_epoch_refused`.
  * There is no fallback to the head or to logs.
+ *
+ * The block's number and time and the epoch at that HASH are immutable, so once read they are
+ * kept per client (bounded) and the paid operation's later approvals read only the canonical
+ * recheck, which is never kept. A failed or refused read keeps nothing.
  */
 export async function readAssignmentEpoch(client: PublicClient, beacon: Address, assignmentBlock: Hex): Promise<AssignmentEpoch> {
   if (!HEX32.test(assignmentBlock) || assignmentBlock.toLowerCase() === ZERO32
     || !ADDRESS.test(beacon) || /^0x0{40}$/i.test(beacon)) throw refuse('paid epoch anchor needs a nonzero assignment block and beacon')
-  const anchor = assignmentBlock.toLowerCase()
-  const block = await readOrUnavailable('paid epoch assignment block', () => client.getBlock({blockHash: assignmentBlock}))
-  if (block.hash?.toLowerCase() !== anchor || block.number === null) throw refuse('assignment block hash mismatch')
-  const number = block.number
-  const beaconEpoch = await readOrUnavailable('beacon epoch at the paid epoch assignment block', async () => {
-    const data = encodeFunctionData({abi: thresholdRandomBeaconAbi, functionName: 'epoch'})
-    const result = await client.call({to: beacon, data, blockHash: assignmentBlock, requireCanonical: true, batch: false})
-    if (result.data === undefined) throw new Error('empty beacon epoch response')
-    return decodeFunctionResult({abi: thresholdRandomBeaconAbi, functionName: 'epoch', data: result.data})
-  })
+  const anchor = assignmentBlock.toLowerCase(), key = `${beacon.toLowerCase()}|${anchor}`
+  let atHash = cachedAnchor(client, key), fresh: AnchorAtHash | undefined
+  if (!atHash) {
+    // The header first: nothing is read at a hash the node does not serve as this block.
+    const block = await readOrUnavailable('paid epoch assignment block', () => client.getBlock({blockHash: assignmentBlock}))
+    if (block.hash?.toLowerCase() !== anchor || block.number === null) throw refuse('assignment block hash mismatch')
+    const beaconEpoch = await readOrUnavailable('beacon epoch at the paid epoch assignment block', async () => {
+      const data = encodeFunctionData({abi: thresholdRandomBeaconAbi, functionName: 'epoch'})
+      const result = await client.call({to: beacon, data, blockHash: assignmentBlock, requireCanonical: true, batch: false})
+      if (result.data === undefined) throw new Error('empty beacon epoch response')
+      return decodeFunctionResult({abi: thresholdRandomBeaconAbi, functionName: 'epoch', data: result.data})
+    })
+    fresh = {blockNumber: block.number, blockTimestamp: block.timestamp, beaconEpoch}
+    atHash = fresh
+  }
+  const number = atHash.blockNumber
   const canonical = await readOrUnavailable('paid epoch assignment block number', () => client.getBlock({blockNumber: number}))
   if (canonical.hash?.toLowerCase() !== anchor) throw refuse('assignment block is not canonical')
-  return {blockHash: assignmentBlock, blockNumber: number, blockTimestamp: block.timestamp, beaconEpoch}
+  // Kept only once the whole read succeeded.
+  if (fresh) keepAnchor(client, key, fresh)
+  return {blockHash: assignmentBlock, blockNumber: number, blockTimestamp: atHash.blockTimestamp, beaconEpoch: atHash.beaconEpoch}
 }

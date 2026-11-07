@@ -523,10 +523,16 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
     {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator}),
   readiness, () => sleep(1_000, readiness))
   if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
-  // The rule the holder will see must be the one the slot committed to on chain.
-  const original = await client.readContract({address: d.keyRegistry, abi: keyRegistryAbi, functionName: 'getKeySlot', args: [slot], blockNumber: context.blockNumber})
-  if (original.ruleCommitment.toLowerCase() !== ruleCommitment(request.rule.salt, request.rule.rule).toLowerCase()) throw new TasraError('Supplied rule or salt differs from the slot commitment')
-  if ((await client.getBlock({blockNumber: context.blockNumber})).hash !== context.blockHash) throw new TasraError('Rule observation reorganized')
+  // The rule the holder will see must be the one the slot committed to on chain. Discovery read the
+  // slot at its canonical, rechecked block hash; a context without that field is read again here.
+  const expectedCommitment = ruleCommitment(request.rule.salt, request.rule.rule).toLowerCase()
+  if (context.ruleCommitment !== undefined) {
+    if (context.ruleCommitment.toLowerCase() !== expectedCommitment) throw new TasraError('Supplied rule or salt differs from the slot commitment')
+  } else {
+    const original = await client.readContract({address: d.keyRegistry, abi: keyRegistryAbi, functionName: 'getKeySlot', args: [slot], blockNumber: context.blockNumber})
+    if (original.ruleCommitment.toLowerCase() !== expectedCommitment) throw new TasraError('Supplied rule or salt differs from the slot commitment')
+    if ((await client.getBlock({blockNumber: context.blockNumber})).hash !== context.blockHash) throw new TasraError('Rule observation reorganized')
+  }
   // Validate the DCQL JSON, but retain the provisioned bytes. The chain's salted
   // commitment canonicalizes JSON; verifier tokens bind keccak256(raw rule).
   // Rewriting whitespace/key order here changes the expected token hash.

@@ -136,6 +136,18 @@ function reservation(state: ApplicationReservationStatus['state'], payerLocked =
 }
 
 describe('paidOperation', () => {
+  it('checks the rule against the commitment discovery read at its canonical block, without a second slot read', async () => {
+    const f = setup()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockResolvedValueOnce({...base, ruleCommitment: ruleCommitment(salt, rule)})
+    await paidOperation(f.config, f.request)
+    expect(f.client.readContract).not.toHaveBeenCalled()
+    expect(f.client.getBlock).not.toHaveBeenCalled()
+    vi.mocked(discoverPaidOperationContext).mockResolvedValueOnce({...base, ruleCommitment: h(66)})
+    await expect(paidOperation(f.config, f.request)).rejects.toThrow('differs from the slot commitment')
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+  })
+
   it('preserves supplied rule bytes for the verifier token hash across journal and resume', async () => {
     const f = setup()
     const raw = JSON.stringify(JSON.parse(rule), null, 2) + '\n'

@@ -129,19 +129,50 @@ export async function readClientExecutionPolicy(client: PublicClient, deployment
   payment: PaymentIntentWire, expected: ExpectedPaidOperation, target?: PaidVerifierWitness): Promise<ClientExecutionObservation> {
   deployment = structuredClone(deployment); payment = structuredClone(payment); expected = {...expected}; target = target && structuredClone(target)
   if ([deployment.verifierSet, deployment.beacon].some(a => !ADDRESS.test(a) || /^0x0{40}$/i.test(a))) throw new Error('invalid execution registry deployment')
-  const receipt = await readPaidOperationReceipt(client, deployment, payment, expected)
-  if (receipt.settled || BigInt(payment.expires) <= time()) throw new Error('payment cannot approve new work after settlement or expiry')
-  const at = receipt
-  const [slot, keyBeacon, setBeacon, latest, seed, snapshot, verifierPolicy, nodes] = await Promise.all([
-    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'getKeySlot', [payment.slot]) as Promise<ReadContractReturnType<typeof keyRegistryAbi, 'getKeySlot'>>,
-    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'randomBeacon') as Promise<Address>,
-    registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'beacon') as Promise<Address>,
-    registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch') as Promise<bigint>,
-    registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [BigInt(payment.verification_epoch)]) as Promise<Hex>,
-    registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [BigInt(payment.verification_epoch)]) as Promise<readonly [Hex, number]>,
-    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'verifierPolicy', [payment.slot]) as Promise<readonly [number, number]>,
-    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'nodeRegistry') as Promise<Address>,
+  requirePaidOperation(deployment, payment, expected)
+  // ONE fresh canonical observation for the whole decision. Every read below is pinned to its block
+  // hash, and the reservation, the policy reads and (for a target) the verifier's standing are
+  // independent of each other there, so they are issued together and judged in the order a
+  // sequential read would judge them. The target is read at the NodeRegistry this client last saw
+  // the KeyRegistry point to; the pointer read at THIS block decides, and a different one is read
+  // again at it. One canonicality and freshness recheck follows all of them.
+  const member = target !== undefined && drawnMember(payment, target)
+  const at = await observe(client, deployment)
+  // Only a target that is locally a member of the draw is read early; any other is refused below.
+  const hinted = member ? nodeRegistryHint(client, deployment.keyRegistry) : undefined
+  const verifierStanding = (nodes: Address) => Promise.all([
+    registryRead(client,at,nodes,nodeRegistryAbi,'nodeOf',[target!.operator]) as Promise<ReadContractReturnType<typeof nodeRegistryAbi,'nodeOf'>>,
+    registryRead(client,at,nodes,nodeRegistryAbi,'hasTag',[target!.operator,keccak256(toHex('verifier'))]) as Promise<boolean>,
   ])
+  const [reads, policyReads, early] = await Promise.allSettled([
+    receiptReads(client, deployment, at, payment),
+    Promise.all([
+      registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'getKeySlot', [payment.slot]) as Promise<ReadContractReturnType<typeof keyRegistryAbi, 'getKeySlot'>>,
+      registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'randomBeacon') as Promise<Address>,
+      registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'beacon') as Promise<Address>,
+      registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch') as Promise<bigint>,
+      registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [BigInt(payment.verification_epoch)]) as Promise<Hex>,
+      registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [BigInt(payment.verification_epoch)]) as Promise<readonly [Hex, number]>,
+      registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'verifierPolicy', [payment.slot]) as Promise<readonly [number, number]>,
+      registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'nodeRegistry') as Promise<Address>,
+    ]),
+    hinted ? verifierStanding(hinted) : Promise.resolve(undefined),
+  ])
+  if (reads.status === 'rejected') throw reads.reason
+  const receipt = checkReceiptReads(at, payment, reads.value)
+  if (receipt.settled || BigInt(payment.expires) <= time()) throw new Error('payment cannot approve new work after settlement or expiry')
+  if (policyReads.status === 'rejected') throw policyReads.reason
+  const [slot, keyBeacon, setBeacon, latest, seed, snapshot, verifierPolicy, nodes] = policyReads.value
+  // A standing read at the hinted registry counts only when the pointer at THIS block names it;
+  // otherwise the standing is read again at the registry the pointer names.
+  const hintHolds = hinted !== undefined && hinted.toLowerCase() === nodes.toLowerCase()
+  const standingRead = member && !hintHolds && ADDRESS.test(nodes) && !/^0x0{40}$/i.test(nodes) ? verifierStanding(nodes) : undefined
+  // Still to read: the quote block's epoch (its header and value are kept per client; its canonical
+  // recheck is not) and the recheck of `at`, which starts only once every read at `at` has settled.
+  // Both run beside the checks below; their answers are judged in the original order.
+  const anchorRead = readAssignmentEpoch(client, deployment.beacon, receipt.assignmentBlock)
+  const finishRead = (async () => { await standingRead?.catch(() => {}); await finishObservation(client, at) })()
+  anchorRead.catch(() => {}); finishRead.catch(() => {})
   const epoch = BigInt(payment.verification_epoch)
   const [committee, quorum] = verifierPolicy[0] === 0 && verifierPolicy[1] === 0
     ? [deployment.defaultVerificationPolicy?.committee, deployment.defaultVerificationPolicy?.quorum] : verifierPolicy
@@ -154,28 +185,54 @@ export async function readClientExecutionPolicy(client: PublicClient, deployment
     || committee !== payment.verification_committee || quorum !== payment.verification_quorum) throw new Error('payment verification context differs from canonical chain policy')
   // D8: the epoch window is judged at the reservation's stored quote block, where the
   // accountant quorum judged it, not at this later observation (which may be past a boundary).
-  requirePaidEpoch(epoch, receipt, await readAssignmentEpoch(client, deployment.beacon, receipt.assignmentBlock), latest)
+  requirePaidEpoch(epoch, receipt, await anchorRead, latest)
   if (target) {
-    const drawn = selectVerifierCommittee(protocolHex(payment.slot,32,'slot'), payment.verification_epoch,
-      protocolHex(payment.verification_seed,32,'seed'), payment.verification_registry_size, payment.verification_committee)
-    if (!Number.isSafeInteger(target.index) || !drawn.includes(target.index) || target.proof.length > 32
-      || !verifyMerkleProof(verifierLeaf(target.index,protocolHex(target.operator,20,'operator'),protocolHex(target.publicKey,32,'verifier key')),
-        target.proof.map(p=>protocolHex(p,32,'proof')),protocolHex(payment.verification_root,32,'snapshot root'))
-      || !ADDRESS.test(nodes) || /^0x0{40}$/i.test(nodes)) throw new Error('verifier is not an authenticated member of the paid draw')
-    const [node, tagged] = await Promise.all([
-      registryRead(client,at,nodes,nodeRegistryAbi,'nodeOf',[target.operator]) as Promise<ReadContractReturnType<typeof nodeRegistryAbi,'nodeOf'>>,
-      registryRead(client,at,nodes,nodeRegistryAbi,'hasTag',[target.operator,keccak256(toHex('verifier'))]) as Promise<boolean>,
-    ])
+    if (!member || !ADDRESS.test(nodes) || /^0x0{40}$/i.test(nodes)) throw new Error('verifier is not an authenticated member of the paid draw')
+    rememberNodeRegistry(client, deployment.keyRegistry, nodes)
+    let standing: Awaited<ReturnType<typeof verifierStanding>>
+    if (hintHolds) {
+      if (early.status === 'rejected') throw early.reason
+      standing = early.value!
+    } else standing = await standingRead!
+    const [node, tagged] = standing
     if (!node.active || tagged !== true || node.operator.toLowerCase() !== target.operator.toLowerCase()
       || node.pubkey.toLowerCase() !== target.publicKey.toLowerCase()) throw new Error('drawn verifier no longer has its registered key and standing')
   }
-  await finishObservation(client,at)
+  await finishRead
+  // The recheck started beside the checks above; judge freshness again now, at the decision.
+  requireFresh(at)
   const nowSecs = Number(time())
   if (nowSecs >= payment.expires) throw new Error('payment expired during client policy discovery')
   if (slot.expiry !== 0n && slot.expiry <= BigInt(nowSecs)) throw new Error('slot expired during client policy discovery')
   return {blockNumber:at.blockNumber,blockHash:at.blockHash,blockTimestamp:at.blockTimestamp,
     policy:{chainId:deployment.chainId,settlement:deployment.settlement,keyRegistry:deployment.keyRegistry,
       creator:slot.creator,paymentHash:paymentIntentHash(payment),cost:receipt.cost,nowSecs}}
+}
+
+/** Whether `target` is in the payment's recomputed draw with a valid inclusion proof (local only). */
+function drawnMember(payment: PaymentIntentWire, target: PaidVerifierWitness): boolean {
+  const drawn = selectVerifierCommittee(protocolHex(payment.slot,32,'slot'), payment.verification_epoch,
+    protocolHex(payment.verification_seed,32,'seed'), payment.verification_registry_size, payment.verification_committee)
+  return Number.isSafeInteger(target.index) && drawn.includes(target.index) && target.proof.length <= 32
+    && verifyMerkleProof(verifierLeaf(target.index,protocolHex(target.operator,20,'operator'),protocolHex(target.publicKey,32,'verifier key')),
+      target.proof.map(p=>protocolHex(p,32,'proof')),protocolHex(payment.verification_root,32,'snapshot root'))
+}
+
+// The NodeRegistry each KeyRegistry pointed to when this client last read it: a HINT that lets a
+// verifier's standing be read beside the pointer, never a substitute for the pointer read at the
+// observed block. Bounded per client.
+const MAX_NODE_REGISTRY_HINTS = 64
+const nodeRegistryHints = new WeakMap<PublicClient, Map<string, Address>>()
+function nodeRegistryHint(client: PublicClient, keyRegistry: Address): Address | undefined {
+  return nodeRegistryHints.get(client)?.get(keyRegistry.toLowerCase())
+}
+function rememberNodeRegistry(client: PublicClient, keyRegistry: Address, nodes: Address): void {
+  let hints = nodeRegistryHints.get(client)
+  if (!hints) nodeRegistryHints.set(client, hints = new Map())
+  const key = keyRegistry.toLowerCase()
+  hints.delete(key)
+  if (hints.size >= MAX_NODE_REGISTRY_HINTS) hints.delete(hints.keys().next().value as string)
+  hints.set(key, nodes)
 }
 
 /** Currently eligible registered keeper selected in the creator's paid assignment. */
@@ -349,6 +406,8 @@ export interface PaidOperationContext extends PrepaidObservation {
   contributors: PaidKeeperEndpoint[]
   /** Unreserved slot TASRA at this block; it is not a reservation or an operation quote. */
   available: bigint
+  /** The slot's salted rule commitment at this block, from the same canonical slot read. */
+  ruleCommitment?: Hex
 }
 
 const ZERO32 = `0x${'00'.repeat(32)}`
@@ -643,11 +702,19 @@ export async function discoverPaidOperationContext(
   const observed = await (async () => {
     for (;;) {
       const at = await observe(client, deployment)
+      const seedAt = (epoch: bigint) => registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [epoch]) as Promise<Hex>
+      const snapshotAt = (epoch: bigint) => registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
+      const accountantAt = (epoch: bigint) => registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
+      const latestEpoch = registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch') as Promise<bigint>
+      // The latest epoch's anchors depend only on that epoch, not on the keeper directory: read them
+      // beside its second step instead of after it. Judged below, in the original order.
+      const latestAnchors = latestEpoch.then(epoch => Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)]))
+      latestAnchors.catch(() => {})
       const reads = Promise.all([
         registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'randomBeacon') as Promise<Address>,
         registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'beacon') as Promise<Address>,
         registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'beacon') as Promise<Address>,
-        registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch') as Promise<bigint>,
+        latestEpoch,
         registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'verifierPolicy', [slotId]) as Promise<readonly [number, number]>,
         readAt(client, deployment.settlement, at, 'prepaidEnabled', slotId),
         readAt(client, deployment.settlement, at, 'balanceOf', slotId),
@@ -668,11 +735,8 @@ export async function discoverPaidOperationContext(
       if (enabled !== true || typeof available !== 'bigint' || available < 0n) throw new Error('payment discovery requires an activated TASRA-funded slot')
       if (available === 0n) throw new UnderfundedSlotError({slotId, availableTasraUnits: available,
         message: 'payment discovery requires an activated TASRA-funded slot'})
-      const seedAt = (epoch: bigint) => registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [epoch]) as Promise<Hex>
-      const snapshotAt = (epoch: bigint) => registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
-      const accountantAt = (epoch: bigint) => registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
       let epoch = latest
-      let [seed, [root, size], accountant] = await Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)])
+      let [seed, [root, size], accountant] = await latestAnchors
       if (seed === ZERO32) throw new Error('current beacon seed unavailable')
       if (!complete(seed, root, size, accountant)) {
         if (epoch === 0n) throw new Error('no anchored verifier and accountant snapshots')
@@ -710,7 +774,8 @@ export async function discoverPaidOperationContext(
     verification_epoch: safeInteger(epoch, 'verification epoch'), verification_seed: seed, verification_root: root, verification_registry_size: size,
     verification_committee: committee, verification_quorum: quorum, keeper_assignment: assignment}
   await finishObservation(client, at)
-  return {...at, intentFields, creator: directory.slot.creator, mode: directory.slot.mode, groupPublicKey: directory.slot.publicKey, coordinator, contributors: endpoints, available}
+  return {...at, intentFields, creator: directory.slot.creator, mode: directory.slot.mode, groupPublicKey: directory.slot.publicKey, coordinator, contributors: endpoints, available,
+    ruleCommitment: directory.slot.ruleCommitment}
 }
 
 // readKeeperDirectory bounds a slot to 256 members. Reject the excess range so

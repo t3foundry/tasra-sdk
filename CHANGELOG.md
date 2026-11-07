@@ -50,6 +50,23 @@ never does.
   or for proposals not yet listed. `RegisteredPaidAgentSession.poll` takes
   `{wait: true}`; a session whose attempt budget is under 25 s never asks for a hold. The
   paid transports accept `?wait=1` on the owner session status read only.
+- `readClientExecutionPolicy` (run before the execution certificate, the session and every
+  verifier approval) makes ONE fresh canonical observation per decision instead of two: the
+  reservation, the policy reads and the drawn verifier's standing are read together at that
+  block, with one canonicality and freshness recheck after all of them (freshness is judged
+  again at the decision). The verifier's standing is read beside the rest at the
+  NodeRegistry the client last saw; the KeyRegistry pointer read at the observed block still
+  decides, and a moved pointer is read again at the registry it names. Nothing about the
+  answer is cached: the head, the reservation, the policy and every recheck are read for
+  each decision. Paid IBE and KEM approvals: about 9 sequential requests per decision become
+  3 or 4.
+- `readAssignmentEpoch` keeps the quote block's header and its beacon epoch per client
+  (bounded, 256): values at a block hash never change. Its by-number canonical recheck is
+  still read every time, and a failed or refused read keeps nothing.
+- `discoverPaidOperationContext` reads the latest epoch's anchors beside the keeper
+  directory instead of after it, and returns the slot's `ruleCommitment` from the same
+  canonical slot read; `paidOperation` checks the rule against it instead of reading the
+  slot again by number (a context without it is still read again, as before).
 - Paid reservations and prepaid escapes see their transaction mined sooner, with fewer
   requests: the receipt itself is asked for at once and then after 250 ms, growing by half
   up to 1 s, instead of a head read every second followed by a transaction and receipt

@@ -95,13 +95,15 @@ describe('private application file store', () => {
   })
   it('refuses a nested lock on a held key at once, but not a later lock from the same call chain', async () => {
     const dir = await directory(), store = createFileStore(dir)
-    let later: Promise<number> | undefined
+    let later: Promise<number> | undefined, release!: () => void
+    const released = new Promise<void>(done => { release = done })
     await store.withLock('journal', async () => {
       await expect(store.withLock('journal', async () => 1)).rejects.toBeInstanceOf(StoreLockedError)
-      // Started inside the lock, run after it is released: it queues and is granted.
-      later = new Promise<void>(done => setTimeout(done, 20)).then(() => store.withLock('journal', async () => 2))
+      // Started inside the lock, run once it is released: it is granted.
+      later = released.then(() => store.withLock('journal', async () => 2))
       expect(await store.withLock('other', async () => 3)).toBe(3)
     })
+    release()
     expect(await later).toBe(2)
   })
 })

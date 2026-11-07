@@ -32,10 +32,12 @@ interface Changes {
   legacy?: boolean; genesis?: boolean
   // D8: the reservation's stored quote block h(19) (block 19), read for the paid epoch only.
   anchorEpoch?: bigint; anchorReorg?: boolean; anchorPruned?: boolean
+  /** The KeyRegistry now points to another NodeRegistry, where every node is inactive. */
+  movedNodes?: boolean
 }
 function fixture(change: Changes = {}) {
   const deployment = {chainId: change.chainId ?? 43112, settlement: h(1, 20), keyRegistry: h(2, 20), verifierSet: h(5, 20), accountantSet: h(8, 20), beacon: h(6, 20)}
-  const nodes = h(7, 20), approved = {...deployment}, slotId = h(3), creator = privateKeyToAccount(h(11))
+  const nodes = h(7, 20), moved = h(77, 20), approved = {...deployment}, slotId = h(3), creator = privateKeyToAccount(h(11))
   const keys = [1, 2, 3].map(n => toHex(ed25519.getPublicKey(new Uint8Array(32).fill(n))))
   const operators = [11, 12, 13].map(n => h(n, 20)), ids = [30n, 10n, 20n]
   const calls: {method: string; name?: string; args?: readonly unknown[]; at?: unknown; params?: unknown}[] = []
@@ -51,7 +53,7 @@ function fixture(change: Changes = {}) {
     const [call, at] = params as [{to: Hex; data: Hex}, {blockHash?: Hex}]
     const anchorRead = at.blockHash === h(19)
     if (!anchorRead) expect(at).toEqual({blockHash: h(20), requireCanonical: true})
-    const abi: Abi = call.to === nodes ? nodeRegistryAbi : call.to === approved.keyRegistry ? keyRegistryAbi
+    const abi: Abi = call.to === nodes || call.to.toLowerCase() === moved ? nodeRegistryAbi : call.to === approved.keyRegistry ? keyRegistryAbi
       : call.to === approved.beacon ? thresholdRandomBeaconAbi : call.to === approved.verifierSet ? verifierSetRegistryAbi
         : call.to === approved.accountantSet ? accountantSetRegistryAbi : settlementAbi
     const {functionName: name, args} = decodeFunctionData({abi, data: call.data})
@@ -77,13 +79,13 @@ function fixture(change: Changes = {}) {
       snapshotAt: accountant
         ? change.accountantUnanchored && !previous || change.accountantNoPrevious && previous ? [h(0), 0] : [h(19), change.accountantSize ?? 3]
         : change.unanchored && !previous || change.noPrevious && previous ? [h(0), 0] : [change.root ?? (previous ? h(17) : h(18)), change.size ?? 5],
-      verifierPolicy: change.policy ?? [3, 2], nodeRegistry: nodes, assignedNodes: operators,
+      verifierPolicy: change.policy ?? [3, 2], nodeRegistry: change.movedNodes ? moved : nodes, assignedNodes: operators,
       getKeySlot: {creator: change.creator ?? creator.address, ruleCommitment: h(33), threshold: {k: change.insufficient ? 3 : 2, n: 3}, mode: 0,
         publicKey: change.noKey ? '0x' : keys[0], epoch: change.sharingEpoch ?? 1n, committeeVersion: change.sharingVersion ?? 2n,
         exists: true, cancelled: change.cancelled ?? false, expiry: 2000n, ruleVersion: 1n, auth: 0},
       operatorIdOf: change.duplicateId ? 1n : ids[index], hasTag: change.tagged ?? true,
       nodeOf: {operator: operators[index], dns: 'keeper', url: change.url ?? `https://keeper${index}.example`, p2pAddr: '', pubkey: change.registeredKey ?? keys[change.duplicateKey ? 0 : index],
-        stake: 100n, rewardBalance: 0n, unbondingAt: 0n, active: !change.inactive?.includes(index)},
+        stake: 100n, rewardBalance: 0n, unbondingAt: 0n, active: call.to.toLowerCase() !== moved && !change.inactive?.includes(index)},
     }
     return encodeFunctionResult({abi, functionName: name, result: values[name]})
   }}, {retryCount: 0})})
@@ -286,6 +288,24 @@ it('requires an anchored drawn key that is still active and tagged before approv
     await expect(readClientExecutionPolicy(f.client,f.deployment,payment,intendedWork,target)).rejects.toThrow(/member/)
     expect(f.calls.some(c=>c.name==='nodeOf')).toBe(false)
   }
+})
+it('reads a verifier standing early at the last seen NodeRegistry, but judges it at the registry the pointer names now',async()=>{
+  now();const base=fixture(), member={index:0,operator:base.operators[0]!,publicKey:base.keys[0]!,proof:[] as Hex[]}
+  const root=toHex(verifierLeaf(0,Uint8Array.from(Buffer.from(member.operator.slice(2),'hex')),
+    Uint8Array.from(Buffer.from(member.publicKey.slice(2),'hex'))))
+  const payment={...reservedPayment(),verification_root:root,verification_registry_size:1,verification_committee:1,verification_quorum:1}
+  const change:Changes={root,size:1,policy:[1,1]}, f=fixture(change)
+  await readClientExecutionPolicy(f.client,f.deployment,payment,intendedWork,member)
+  // The pointer moves: the early read at the old registry is discarded and the moved one decides.
+  change.movedNodes=true
+  const before=f.calls.length
+  await expect(readClientExecutionPolicy(f.client,f.deployment,payment,intendedWork,member)).rejects.toThrow(/standing/)
+  const standing=f.calls.slice(before).filter(c=>c.name==='nodeOf').map(c=>(c.params as [{to:Hex}])[0].to.toLowerCase())
+  expect(standing).toEqual([h(7,20),h(77,20)])
+  // Learned: the next decision reads the moved registry early, once.
+  const next=f.calls.length
+  await expect(readClientExecutionPolicy(f.client,f.deployment,payment,intendedWork,member)).rejects.toThrow(/standing/)
+  expect(f.calls.slice(next).filter(c=>c.name==='nodeOf').map(c=>(c.params as [{to:Hex}])[0].to.toLowerCase())).toEqual([h(77,20)])
 })
 it('waits a bounded time for an admissible complete epoch while a new epoch\'s anchors land, then refuses', async () => {
   now()

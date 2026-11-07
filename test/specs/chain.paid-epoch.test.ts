@@ -167,6 +167,30 @@ describe('paid epoch through readClientExecutionPolicy and a fake JSON-RPC node 
     await expect(n4().run(65)).resolves.toMatchObject({blockNumber: 355n})
   })
 
+  it('makes one observation per decision; the quote block header and epoch are read once per client, its height every time', async () => {
+    const f = n4()
+    await f.run(64)
+    const first = f.calls.length
+    // One head, one recheck of it and one of the quote height; the reservation and policy reads
+    // all at the head.
+    expect(f.calls.filter(c => c.method === 'eth_getBlockByNumber').map(c => c.params[0]).sort()).toEqual(['0x162', '0x163', 'latest'])
+    await f.run(64)
+    const second = f.calls.slice(first)
+    expect(second.filter(c => c.method === 'eth_getBlockByHash')).toHaveLength(0)
+    expect(second.filter(c => c.method === 'eth_call' && (c.params[1] as {blockHash?: Hex}).blockHash === QUOTE)).toHaveLength(0)
+    // Never cached: the head, the reservation, the policy and both canonical rechecks.
+    expect(second.filter(c => c.method === 'eth_getBlockByNumber').map(c => c.params[0]).sort()).toEqual(['0x162', '0x163', 'latest'])
+    expect(second.filter(c => c.method === 'eth_call')).toHaveLength(13)
+    expect(second.filter(c => c.method === 'eth_chainId')).toHaveLength(1)
+  })
+
+  it('a quote height that stops being canonical is refused even after its epoch was kept', async () => {
+    const change: N4 = {}, f = n4(change)
+    await f.run(64)
+    change.reorg = true
+    await expect(f.run(64)).rejects.toMatchObject({code: 'paid_epoch_refused', message: expect.stringMatching(/not canonical/) as unknown})
+  })
+
   it('refuses 62, 63 and 66 definitely: 66 is the live head but outside the quote window', async () => {
     for (const epoch of [62, 63, 66]) {
       const error = await failure(n4().run(epoch))
