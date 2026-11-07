@@ -18,6 +18,7 @@ import {protocolHex} from '../committee/receipts.js'
 import {BillingModeError, readBillingMode} from './billing.js'
 import {readAssignmentEpoch, requirePaidEpoch} from './paidEpoch.js'
 import {systemPacingClock, type PaidPacingClock} from './paidPacing.js'
+import {SingleFlight} from '../internal/bounded.js'
 
 /** Deployment independently selected by the application, not taken from a received intent. */
 export interface PrepaidDeployment {
@@ -415,9 +416,20 @@ async function finishObservation(client: PublicClient, at: PrepaidObservation): 
   requireFresh(at)
 }
 
+// Concurrent operations on one client often read the same registry value at the same block
+// (the keeper directory above all). A read pinned to a block hash has one answer, so identical
+// in-flight reads share one request. Only pending requests are shared: a settled result, success
+// or failure, is never reused, and `latest` reads and per-operation reservation reads never come here.
+const sharedRegistryReads = new WeakMap<PublicClient, SingleFlight<Hex | undefined>>()
+/** Most identical block-pinned registry reads shared at once per client; beyond it, reads run alone. */
+const MAX_SHARED_REGISTRY_READS = 1024
+
 async function registryRead(client: PublicClient, at: PrepaidObservation, address: Address, abi: Abi, name: string, args: readonly unknown[] = []): Promise<unknown> {
   const data = encodeFunctionData({abi, functionName: name, args})
-  const result = await client.call({to: address, data, blockHash: at.blockHash, requireCanonical: true, batch: false})
+  let shared = sharedRegistryReads.get(client)
+  if (!shared) sharedRegistryReads.set(client, shared = new SingleFlight(MAX_SHARED_REGISTRY_READS))
+  const result = {data: await shared.run(`${at.blockHash.toLowerCase()}|${address.toLowerCase()}|${data}`, async () =>
+    (await client.call({to: address, data, blockHash: at.blockHash, requireCanonical: true, batch: false})).data)}
   if (result.data === undefined) throw new Error(`empty registry ${name} response`)
   return decodeFunctionResult({abi, functionName: name, data: result.data})
 }
@@ -466,24 +478,39 @@ export async function readPaidOperationReceipt(
   client: PublicClient, deployment: PrepaidDeployment, payment: PaymentIntentWire, expected: ExpectedPaidOperation,
 ): Promise<PaidOperationReceipt> {
   deployment = {...deployment}; payment = structuredClone(payment); expected = {...expected}
+  requirePaidOperation(deployment, payment, expected)
+  const at = await observe(client, deployment)
+  const receipt = checkReceiptReads(at, payment, await receiptReads(client, deployment, at, payment))
+  await finishObservation(client, at)
+  return receipt
+}
+
+/** Refuse an intent for another deployment or operation before any read. */
+function requirePaidOperation(deployment: PrepaidDeployment, payment: PaymentIntentWire, expected: ExpectedPaidOperation): void {
   validateDeployment(deployment)
   assertPaymentIntentWire(payment)
   if (payment.chain_id !== deployment.chainId || payment.settlement.toLowerCase() !== deployment.settlement.toLowerCase()
     || payment.key_registry.toLowerCase() !== deployment.keyRegistry.toLowerCase()) throw new Error('payment deployment mismatch')
   if (payment.slot.toLowerCase() !== expected.slot.toLowerCase() || payment.action !== expected.action
     || payment.payload_digest.toLowerCase() !== expected.payloadDigest.toLowerCase()) throw new Error('payment operation mismatch')
+}
+
+/** The reservation's five Settlement reads, all at `at`. */
+function receiptReads(client: PublicClient, deployment: PrepaidDeployment, at: PrepaidObservation, payment: PaymentIntentWire): Promise<unknown[]> {
   const requestId = prepaidRequestId(payment)
-  const at = await observe(client, deployment)
   const names = ['prepaidEnabled', 'prepaidCost', 'prepaidSettled', 'prepaidRefunded', 'prepaidAssignmentBlock'] as const
-  const [enabled, cost, settled, refunded, assignmentBlock] = await Promise.all(names.map(name =>
+  return Promise.all(names.map(name =>
     readAt(client, deployment.settlement, at, name, payment.slot, name === 'prepaidEnabled' ? undefined : requestId)))
+}
+
+function checkReceiptReads(at: PrepaidObservation, payment: PaymentIntentWire, reads: unknown[]): PaidOperationReceipt {
+  const [enabled, cost, settled, refunded, assignmentBlock] = reads
   if (enabled !== true || typeof cost !== 'bigint' || cost <= 0n || cost > BigInt(payment.max_cost)
     || typeof settled !== 'boolean' || typeof refunded !== 'bigint' || refunded < 0n || refunded > cost
     || (!settled && refunded !== 0n) || typeof assignmentBlock !== 'string' || !HEX32.test(assignmentBlock) || assignmentBlock === ZERO32) {
     throw new Error('operation has no valid reserved TASRA fee')
   }
-  await finishObservation(client, at)
-  return {...at, requestId, cost, settled, refunded, assignmentBlock: assignmentBlock as Hex}
+  return {...at, requestId: prepaidRequestId(payment), cost, settled, refunded, assignmentBlock: assignmentBlock as Hex}
 }
 
 /**
@@ -500,10 +527,20 @@ export async function resolvePaidKeeperTarget(
   transport: PaidKeeperTransportOptions = {},
 ): Promise<PaidKeeperTarget> {
   deployment = {...deployment}; payment = structuredClone(payment); expected = {...expected}; transport = {...transport}
-  const receipt = await readPaidOperationReceipt(client, deployment, payment, expected)
+  requirePaidOperation(deployment, payment, expected)
+  const at = await observe(client, deployment)
+  // The reservation and the keeper directory are independent reads at the same block: issue them
+  // together, then judge them in the order a sequential read would have (same refusals, same order).
+  const [reads, directory] = await Promise.allSettled([receiptReads(client, deployment, at, payment),
+    keeperDirectory(client, at, deployment.keyRegistry, payment.slot)])
+  if (reads.status === 'rejected') throw reads.reason
+  const receipt = checkReceiptReads(at, payment, reads.value)
+  // One canonicality and freshness recheck after ALL reads at `at` (both groups have settled).
+  await finishObservation(client, at)
   if (receipt.settled) throw new Error('payment already settled; it cannot start another keeper operation')
   if (BigInt(payment.expires) <= time()) throw new Error('payment expired; reconcile before starting another operation')
-  const {slot, members} = await keeperDirectory(client, receipt, deployment.keyRegistry, payment.slot)
+  if (directory.status === 'rejected') throw directory.reason
+  const {slot, members} = directory.value
   const assignment = payment.keeper_assignment
   if (slot.epoch !== BigInt(assignment.key_epoch) || slot.committeeVersion !== BigInt(assignment.committee_version) || slot.threshold.k !== assignment.threshold) throw new Error('payment keeper sharing or threshold changed')
   const creator = await recoverTypedDataAddress({...paymentIntentTypedData(payment), signature: payment.signature})
@@ -511,7 +548,6 @@ export async function resolvePaidKeeperTarget(
   const endpoint = (key: Hex) => keeperEndpoint(members, key, deployment.chainId, transport)
   const contributors = assignment.contributors.map(key => endpoint(toHex(Uint8Array.from(key))))
   const coordinator = endpoint(toHex(Uint8Array.from(assignment.coordinator)))
-  await finishObservation(client, receipt)
   if (BigInt(payment.expires) <= time()) throw new Error('payment expired during coordinator discovery')
   return {...coordinator, receipt, contributors, groupPublicKey: slot.publicKey, mode: slot.mode}
 }

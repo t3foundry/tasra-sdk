@@ -689,7 +689,7 @@ Returns: ` Jwk `.
 The next polling delay: geometric growth (times1.5) capped at `max`, plus or minus20 % full jitter.
  Pure, so the schedule is testable without timers.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L542)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L583)
 
 Import: `import {nextPollDelay} from 'tasra-sdk/oid4vp'`
 
@@ -976,14 +976,14 @@ Returns: ` PresentationPlan `.
 
 ### pollOid4vpSession
 
-Fetch and validate one authorization session status. Transport failures and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error. The polling secret is sent in the Authorization header.
+Fetch and validate one authorization session status. Transport failures, a request that exceeds its timeout and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error; an aborted signal produces a cancelled error. The polling secret is sent in the Authorization header.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L459)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L477)
 
 Import: `import {pollOid4vpSession} from 'tasra-sdk/oid4vp'`
 
 ```ts
-declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, pollSecret: string): Promise<SessionStatusResult>;
+declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, pollSecret: string, opts?: PollSessionOpts): Promise<SessionStatusResult>;
 ```
 
 | Parameter | Type | Description |
@@ -991,6 +991,7 @@ declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, 
 | ` verifierAgentUrl ` | ` string ` | - Verifier-agent HTTP base URL. |
 | ` sessionId ` | ` string ` | - Opened session identifier. |
 | ` pollSecret ` | ` string ` | - Secret returned at session creation; do not expose it in logs. |
+| ` opts? ` | ` PollSessionOpts ` | - Long-poll request, cancellation and per-request timeout. |
 
 Returns: ` Promise<SessionStatusResult> `.
 
@@ -1453,12 +1454,18 @@ Returns: ` Promise<VerifiedRequestObject> `.
 
 Poll until the session reaches a terminal state (done or failed) - bounded by
 `timeoutMs`, with a growing jittered interval so many clients never poll in lock-step.
+Every request asks the verifier-agent to hold its reply until the session moves
+(`?wait=1`). A reply whose phase moved forward is followed by the next request at once;
+an unchanged reply is followed by the backoff sleep, unless it took 15 s or more (the
+server's hold ended), when the next request also goes at once. A server without long-poll
+support answers at once and is polled on the backoff schedule. Any phase change resets the
+backoff to `intervalMs`.
 A transient `unavailable` answer (a 503, a dropped connection) is retried within the
 deadline; a `protocol` answer stops at once; the deadline is a `timeout` error; the
 caller's `signal` is a `cancelled` error. A terminal `failed` is RETURNED (the caller
 decides how to explain it) - see `awaitVerifierAgentResult` for the version that throws `refused`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L564)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L614)
 
 Import: `import {waitForSession} from 'tasra-sdk/oid4vp'`
 
@@ -2592,7 +2599,7 @@ Fields:
 
 Polling backoff, cancellation, progress callback and randomness options.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L522)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L563)
 
 ```ts
 export interface WaitOpts {

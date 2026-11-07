@@ -80,6 +80,30 @@ describe('independent keeper approval chain boundary',()=>{
       expect(f.hits.every(method=>['eth_chainId','eth_getBlockByNumber','eth_call'].includes(method))).toBe(true)
     }finally{f.signer.dispose()}
   })
+  it('shares one canonical read between the approvals of an operation while it is recent, then reads again',async()=>{
+    const f=await fixture()
+    try{
+      const approve=createKeeperExecutionApprover(f),heads=()=>f.hits.filter(method=>method==='eth_getBlockByNumber').length
+      await Promise.all([approve(f.request),approve(f.request),approve(f.request)])
+      const once=heads()
+      expect(once).toBe(2) // one head + one canonicality recheck, for all three approvals
+      await approve(f.request)
+      expect(heads()).toBe(once)
+      vi.spyOn(Date,'now').mockReturnValue(1_016_000) // the shared read is now 16 s old: read again
+      await approve(f.request)
+      expect(heads()).toBe(2*once)
+    }finally{f.signer.dispose()}
+  })
+  it('never reuses a failed shared read',async()=>{
+    const f=await fixture({unsupported:true})
+    try{
+      const approve=createKeeperExecutionApprover(f)
+      await expect(approve(f.request)).rejects.toThrow()
+      const calls=f.hits.length
+      await expect(approve(f.request)).rejects.toThrow()
+      expect(f.hits.length).toBeGreaterThan(calls)
+    }finally{f.signer.dispose()}
+  })
   it('rejects a different payload, payment, endpoint or aliased routing map before client signing',async()=>{
     const f=await fixture(),sign=vi.fn(f.signer.sign)
     try{

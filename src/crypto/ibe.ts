@@ -31,7 +31,8 @@
 import {chacha20poly1305} from '@noble/ciphers/chacha'
 import {bls12_381} from '@noble/curves/bls12-381'
 import {sha256} from '@noble/hashes/sha256'
-import {randomBytes} from '@noble/hashes/utils'
+import {bytesToHex, randomBytes} from '@noble/hashes/utils'
+import {BoundedCache} from '../internal/bounded.js'
 
 const {Fr, Fp12} = bls12_381.fields
 const G1 = bls12_381.G1
@@ -80,6 +81,22 @@ function decodeG1(bytes: Uint8Array, what: string): G1Point {
   // identifiable abort (it "verifies" against an infinity verifying share).
   if (p.equals(G1.ProjectivePoint.ZERO)) throw new Error(`${what}: point at infinity`)
   return p
+}
+
+// Verifying shares and group keys are static per slot epoch; decoding one (with its subgroup
+// check) costs about as much as a hash to G1, so a bounded set of decoded public points is kept.
+const trustedG2 = new BoundedCache<string, G2Point>(256)
+function decodeTrustedG2(bytes: Uint8Array, what: string): G2Point {
+  if (bytes.length !== 96) throw new Error(`${what}: expected 96 bytes, got ${bytes.length}`)
+  return trustedG2.getOrCompute(bytesToHex(bytes), () => decodeG2(bytes, what))
+}
+
+/**
+ * @internal Hash an identity to its G1 point Q_ID once, for several {@link ibeVerifyShareAt} checks.
+ * @param identity - Exact bytes of the requested identity.
+ */
+export function ibeIdentityPoint(identity: Uint8Array): G1Point {
+  return hashToG1(identity)
 }
 
 function decodeG2(bytes: Uint8Array, what: string): G2Point {
@@ -242,12 +259,28 @@ export function ibeVerifyShare(
   const vsBytes = verifyingShares.get(share.identifier)
   if (!vsBytes) throw new Error(`ibeVerifyShare: unknown identifier ${share.identifier}`)
   const dI = decodeG1(share.value, `share ${share.identifier}`)
-  const yI = decodeG2(vsBytes, `verifying share ${share.identifier}`)
-  const qId = hashToG1(identity)
+  const yI = decodeTrustedG2(vsBytes, `verifying share ${share.identifier}`)
+  verifyShareEquation(dI, yI, hashToG1(identity), share.identifier)
+}
+
+/**
+ * @internal {@link ibeVerifyShare} with Q_ID already computed by {@link ibeIdentityPoint}: the same
+ * check and error, without re-hashing the identity for every share of one operation.
+ * @param verifyingShare - Authenticated 96-byte G2 verifying share for this identifier.
+ * @param qId - Q_ID of the identity the share must belong to.
+ * @param share - The share to check.
+ */
+export function ibeVerifyShareAt(verifyingShare: Uint8Array, qId: G1Point, share: IbeDecryptionShare): void {
+  const dI = decodeG1(share.value, `share ${share.identifier}`)
+  const yI = decodeTrustedG2(verifyingShare, `verifying share ${share.identifier}`)
+  verifyShareEquation(dI, yI, qId, share.identifier)
+}
+
+function verifyShareEquation(dI: G1Point, yI: G2Point, qId: G1Point, identifier: number): void {
   const lhs = bls12_381.pairing(dI, G2.ProjectivePoint.BASE)
   const rhs = bls12_381.pairing(qId, yI)
   if (!Fp12.eql(lhs, rhs)) {
-    throw new Error(`ibeVerifyShare: invalid share from identifier ${share.identifier}`)
+    throw new Error(`ibeVerifyShare: invalid share from identifier ${identifier}`)
   }
 }
 
@@ -275,7 +308,22 @@ export function ibeCombineExtract(
     throw new Error('ibeCombineExtract: duplicate identifier')
   }
   for (const s of shares) ibeVerifyShare(verifyingShares, identity, s)
+  return combineVerifiedIbeShares(shares)
+}
 
+/**
+ * @internal Lagrange-combine distinct partials that THIS caller already pairing-verified with
+ * {@link ibeVerifyShare} against authenticated verifying shares. Never use it for shares from
+ * another caller: {@link ibeCombineExtract} verifies them.
+ *
+ * @param shares - Distinct, already verified identity-key shares sufficient for the slot threshold.
+ */
+export function combineVerifiedIbeShares(shares: IbeDecryptionShare[]): Uint8Array {
+  if (shares.length === 0) throw new Error('ibeCombineExtract: no shares')
+  const ids = shares.map(s => s.identifier)
+  if (new Set(ids).size !== ids.length) {
+    throw new Error('ibeCombineExtract: duplicate identifier')
+  }
   const xs = ids.map(BigInt)
   let skId = G1.ProjectivePoint.ZERO
   for (const s of shares) {

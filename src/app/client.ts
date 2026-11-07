@@ -22,8 +22,17 @@ import type {OperationInput} from '../oid4vp/verifier-agent.js'
 import {defineDeployment, type TasraDeployment} from './deployment.js'
 import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 import {resolvePaidKeeperTarget, type PaidKeeperEndpoint, type PaidKeeperTarget} from '../chain/prepaid.js'
-import {createKeeperExecutionApprover,type KeeperExecutionClientConsent} from '../chain/keeperExecution.js'
+import {createKeeperExecutionApprover,createKeeperExecutionApproverWithTarget,type KeeperExecutionClientConsent} from '../chain/keeperExecution.js'
 import {resolveKeeperMembers, withNetworkDeadline} from '../internal/network.js'
+
+/** Run independent reads together; on failure, surface the error of the first failing read in
+ *  argument order, the one a sequential read would have reported. */
+async function inOrder<A, B>(first: Promise<A>, second: Promise<B>): Promise<[A, B]> {
+  const [a, b] = await Promise.allSettled([first, second])
+  if (a.status === 'rejected') throw a.reason
+  if (b.status === 'rejected') throw b.reason
+  return [a.value, b.value]
+}
 
 /**
  * Failure categories for deployment, slot, authorization and result validation.
@@ -169,8 +178,7 @@ export function createTasra(config: TasraApplicationConfig) {
    */
   async function get(slotId: Hex): Promise<SlotMetadata> {
     protocolHex(slotId, 32, 'slot id')
-    await assertChain()
-    const s = await chain.readers.keyRegistry.getKeySlot(slotId)
+    const [, s] = await inOrder(assertChain(), chain.readers.keyRegistry.getKeySlot(slotId))
     if (!s.exists) throw new TasraApplicationError('SLOT_NOT_FOUND', 'Slot does not exist on this deployment')
     if (s.cancelled) throw new TasraApplicationError('SLOT_CANCELLED', 'Slot is cancelled')
     return {slotId, mode: Number(s.mode), epoch: Number(s.epoch), threshold: {k: Number(s.threshold.k), n: Number(s.threshold.n)},
@@ -248,13 +256,15 @@ export function createTasra(config: TasraApplicationConfig) {
     } else if (grant.token.payment != null || grant.token.payment_hash != null) {
       throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Grant introduced an unexpected payment')
     }
-    await unchanged(s)
-    const target = await paidTarget()
+    // The slot recheck and the paid target re-read are independent; the target read here is the
+    // one every keeper approval of this operation then shares while it stays recent.
+    const [, target] = await inOrder(unchanged(s), paidTarget())
     options.signal?.throwIfAborted()
-    const approveExecution=payment&&execution?createKeeperExecutionApprover({client:chain.client,
+    const approverOptions=payment&&execution&&{client:chain.client,
       deployment:{chainId:deployment.chainId,settlement:deployment.addresses.Settlement!,keyRegistry:deployment.addresses.KeyRegistry!},
-      payment,expected:{slot:s.slotId,action:action==='sign'&&s.mode===2?'eoa-sign':action,payloadDigest:toHex(expectedDigest)},
-      ...execution,transportPolicy:{allowLocalHttp:allowLocalPaidHttp},keeperUrl:route}):undefined
+      payment,expected:{slot:s.slotId,action:action==='sign'&&s.mode===2?'eoa-sign' as const:action,payloadDigest:toHex(expectedDigest)},
+      ...execution,transportPolicy:{allowLocalHttp:allowLocalPaidHttp},keeperUrl:route}
+    const approveExecution=approverOptions?target?createKeeperExecutionApproverWithTarget(approverOptions,target):createKeeperExecutionApprover(approverOptions):undefined
     return {...grant, paidTarget: target,approveExecution}
   }
   return {

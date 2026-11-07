@@ -22,7 +22,8 @@
 import {chacha20poly1305} from '@noble/ciphers/chacha'
 import {bls12_381} from '@noble/curves/bls12-381'
 import {sha256} from '@noble/hashes/sha256'
-import {randomBytes} from '@noble/hashes/utils'
+import {bytesToHex, randomBytes} from '@noble/hashes/utils'
+import {BoundedCache} from '../internal/bounded.js'
 
 import {KEM_DOMAIN} from './constants.js'
 
@@ -258,10 +259,33 @@ export interface DecryptShare {
  * @param u - 96-byte compressed ephemeral G2 key from the ciphertext.
  */
 export function verifyDecryptShare(share: DecryptShare, u: Uint8Array): boolean {
+  return verifyDecryptShareAt(share, decodeKemU(u))
+}
+
+type G2Point = InstanceType<typeof G2.ProjectivePoint>
+// Verifying shares are static per slot epoch; keep a bounded set of decoded public points.
+const verifyingG1 = new BoundedCache<string, InstanceType<typeof G1.ProjectivePoint>>(256)
+
+/**
+ * @internal Decode a ciphertext's U once for every share check of one operation. Undefined when
+ * it is malformed, which makes every {@link verifyDecryptShareAt} check fail, as before.
+ * @param u - 96-byte compressed ephemeral G2 key from the ciphertext.
+ */
+export function decodeKemU(u: Uint8Array): G2Point | undefined {
+  try { return G2.ProjectivePoint.fromHex(u) } catch { return undefined }
+}
+
+/**
+ * @internal {@link verifyDecryptShare} with U already decoded by {@link decodeKemU}.
+ * @param share - Partial decryption and its public verifying share.
+ * @param U - Decoded ephemeral key, or undefined when it did not decode.
+ */
+export function verifyDecryptShareAt(share: DecryptShare, U: G2Point | undefined): boolean {
   try {
     if (!share.verifyingShare || share.verifyingShare.length !== 144) return false
-    const yiG1 = G1.ProjectivePoint.fromHex(share.verifyingShare.subarray(96, 144))
-    const U = G2.ProjectivePoint.fromHex(u)
+    const g1 = share.verifyingShare.subarray(96, 144)
+    const yiG1 = verifyingG1.getOrCompute(bytesToHex(g1), () => G1.ProjectivePoint.fromHex(g1))
+    if (!U) return false
     const di = G2.ProjectivePoint.fromHex(share.decryptionShare)
     return Fp12.eql(
       bls12_381.pairing(yiG1, U),

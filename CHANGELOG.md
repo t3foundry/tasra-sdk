@@ -20,6 +20,45 @@ never does.
   `readSlotHandoff` reads the roles and pending offers. Refusals are a typed
   `SlotHandoffError` raised before signing; a KeyRegistry without the hand-off
   refuses `unsupported` (`tasra.fuji.v1` until its upgrade).
+- `pollOid4vpSession` takes optional `{wait, signal, timeoutMs}` (`PollSessionOpts`): `wait`
+  asks the verifier-agent to hold the reply until the session moves (`?wait=1`), `signal`
+  cancels the request, and every request now has a timeout (default 30 s, covering the
+  server's 20 s hold) that ends in `unavailable`.
+
+### Changed
+
+- `waitForSession` (and `awaitVerifierAgentResult`) see the wallet's result sooner. Each
+  request asks for a long poll (`?wait=1`). A reply whose phase moved forward is followed
+  by the next request at once, and so is an unchanged reply that took 15 s or more (the
+  server's hold ended). Any other unchanged reply waits for the usual backoff, so a
+  verifier-agent without long-poll support is polled on the same schedule as before. Any
+  phase change resets the backoff to `intervalMs`. An abort now also cancels a request
+  in flight, and no request runs past the overall deadline. Each request's timer and abort
+  listener are released when it settles. Re-polls after a server hold are spread by up to
+  10 % of `intervalMs`, so waits that started together do not stay in lock-step.
+- Paid keeper operations make fewer chain reads, and more of them run at the same time.
+  `resolvePaidKeeperTarget` reads the reservation and the keeper directory together at
+  one block and rechecks that block once, after all reads, instead of twice. The keeper
+  approvals of one operation share one canonical read while it is under 15 s old, instead
+  of one read per keeper. The app client's paid flow passes the read it makes after the
+  wallet step to those approvals. The app client also reads the chain ID and the slot
+  together, and rechecks the slot while it re-reads the paid target. A paid IBE decryption
+  with three keepers drops from 103 reads to 43. The checks and refusals are the same, and
+  each approval still requires a read from the last 30 s. Concurrent operations on one
+  chain client share identical in-flight registry reads pinned to the same block hash,
+  such as the keeper directory. Only pending reads are shared, never a settled or failed
+  one, a `latest` read or a reservation read, and at most 1024 per client. An approver
+  also recovers the payment's creator and hashes the payment once, not once per keeper.
+- KEM decryption through `decryptWithCommitteePartials`, and strict IBE extraction
+  through `extractIdentityStrict`/`decryptIdentityStrict`, pairing-check each share once,
+  at collection, where a bad share is refused and named. The combine no longer repeats
+  that check, which halves the per-share pairings. The final AEAD check (KEM) and the check
+  of the combined key against the anchored group key (IBE) stay. `combineDecryptShares`
+  and `ibeCombineExtract` still verify any shares they are given. These paths also hash
+  the identity to G1 once per operation (it was hashed for every share and the group check),
+  and decode the ciphertext's U once rather than once per share. Decoded verifying shares
+  and group keys are kept in a bounded cache of 256 public points per curve group, so
+  repeated operations on a slot skip their subgroup-checked decoding.
 
 ## [0.4.0] — 2026-11-04
 

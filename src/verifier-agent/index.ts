@@ -449,22 +449,63 @@ export async function submitOauthResponse(
   }
 }
 
+/** How long a verifier-agent may hold a `?wait=1` status request before answering unchanged. */
+const LONG_POLL_HOLD_MS = 20_000
+/** A long poll that took at least this long ended on the server's hold timer, not on a change. */
+const LONG_POLL_TIMEOUT_THRESHOLD_MS = 15_000
+/** Per-request ceiling for one status request: the server hold plus network headroom. */
+const POLL_REQUEST_TIMEOUT_MS = LONG_POLL_HOLD_MS + 10_000
+
+/** Options for one session status request. */
+export interface PollSessionOpts {
+  /** Ask the verifier-agent to hold the reply until the session status or phase changes (`?wait=1`, up to 20 s). A server without that support answers at once. */
+  wait?: boolean
+  /** Cancel the request: rejects with `cancelled`. */
+  signal?: AbortSignal
+  /** Per-request ceiling in milliseconds (default 30000, which covers the 20 s hold); a reply that does not arrive in time is `unavailable`. */
+  timeoutMs?: number
+}
+
 /**
- * Fetch and validate one authorization session status. Transport failures and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error. The polling secret is sent in the Authorization header.
+ * Fetch and validate one authorization session status. Transport failures, a request that exceeds its timeout and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error; an aborted signal produces a cancelled error. The polling secret is sent in the Authorization header.
  *
  * @param verifierAgentUrl - Verifier-agent HTTP base URL.
  * @param sessionId - Opened session identifier.
  * @param pollSecret - Secret returned at session creation; do not expose it in logs.
+ * @param opts - Long-poll request, cancellation and per-request timeout.
  */
 export async function pollOid4vpSession(
   verifierAgentUrl: string,
   sessionId: string,
   pollSecret: string,
+  opts: PollSessionOpts = {},
 ): Promise<SessionStatusResult> {
-  const url = `${verifierAgentUrl.replace(/\/$/, '')}/v1/sessions/${encodeURIComponent(sessionId)}`
+  const url = `${verifierAgentUrl.replace(/\/$/, '')}/v1/sessions/${encodeURIComponent(sessionId)}${opts.wait ? '?wait=1' : ''}`
+  const timeoutMs = opts.timeoutMs ?? POLL_REQUEST_TIMEOUT_MS
+  // One timer and one listener per request, both released when it settles: thousands of
+  // concurrent waits leave nothing behind.
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => { timedOut = true; controller.abort() }, Math.max(1, timeoutMs))
+  const cancel = () => controller.abort()
+  opts.signal?.addEventListener('abort', cancel, {once: true})
+  try {
+    if (opts.signal?.aborted) throw new VerifierAgentSessionError('cancelled', sessionId, 'polling cancelled')
+    return await readSessionStatus(url, sessionId, pollSecret, controller.signal)
+  } catch (e) {
+    if (opts.signal?.aborted) throw new VerifierAgentSessionError('cancelled', sessionId, 'polling cancelled')
+    if (timedOut) throw new VerifierAgentSessionError('unavailable', sessionId, `poll: no reply within ${timeoutMs} ms`)
+    throw e
+  } finally {
+    clearTimeout(timer)
+    opts.signal?.removeEventListener('abort', cancel)
+  }
+}
+
+async function readSessionStatus(url: string, sessionId: string, pollSecret: string, signal: AbortSignal): Promise<SessionStatusResult> {
   let resp: Response
   try {
-    resp = await fetch(url, {headers: {'Authorization': `Bearer ${pollSecret}`}})
+    resp = await fetch(url, {headers: {'Authorization': `Bearer ${pollSecret}`}, signal})
   } catch (e) {
     throw new VerifierAgentSessionError('unavailable', sessionId, `poll: ${e instanceof Error ? e.message : String(e)}`)
   }
@@ -545,9 +586,18 @@ export function nextPollDelay(previousMs: number, baseMs: number, maxMs: number,
   return Math.max(1, Math.round(grown + jitter))
 }
 
+/** Progress order of the non-terminal phases; a long poll that answers with a later one saw a change. */
+const PHASE_RANK: Readonly<Record<SessionPhase, number>> = {awaiting_wallet: 0, verifying: 1, done: 2, failed: 2}
+
 /**
  * Poll until the session reaches a terminal state (done or failed) - bounded by
  * `timeoutMs`, with a growing jittered interval so many clients never poll in lock-step.
+ * Every request asks the verifier-agent to hold its reply until the session moves
+ * (`?wait=1`). A reply whose phase moved forward is followed by the next request at once;
+ * an unchanged reply is followed by the backoff sleep, unless it took 15 s or more (the
+ * server's hold ended), when the next request also goes at once. A server without long-poll
+ * support answers at once and is polled on the backoff schedule. Any phase change resets the
+ * backoff to `intervalMs`.
  * A transient `unavailable` answer (a 503, a dropped connection) is retried within the
  * deadline; a `protocol` answer stops at once; the deadline is a `timeout` error; the
  * caller's `signal` is a `cancelled` error. A terminal `failed` is RETURNED (the caller
@@ -573,16 +623,34 @@ export async function waitForSession(
   const max = opts.maxIntervalMs ?? intervalMs * 4
   let delay = 0
   let lastUnavailable: VerifierAgentSessionError | undefined
+  // A session opens awaiting the wallet; a reply in a later phase is a change.
+  let lastPhase: SessionPhase = 'awaiting_wallet'
   while (true) {
     if (opts.signal?.aborted) throw new VerifierAgentSessionError('cancelled', sessionId, 'polling cancelled')
     if (Date.now() >= deadline) {
       throw new VerifierAgentSessionError('timeout', sessionId, lastUnavailable ? `no answer within ${timeoutMs} ms (last: ${lastUnavailable.message})` : `still pending after ${timeoutMs} ms`)
     }
+    let immediate = false, holdJitter = 0
+    const started = Date.now()
     try {
-      const result = await pollOid4vpSession(verifierAgentUrl, sessionId, pollSecret)
+      // The request never outlives the overall deadline.
+      const requestTimeout = Math.min(POLL_REQUEST_TIMEOUT_MS, deadline - started)
+      const result = await pollOid4vpSession(verifierAgentUrl, sessionId, pollSecret, {wait: true, timeoutMs: requestTimeout, ...(opts.signal ? {signal: opts.signal} : {})})
       opts.onPhase?.(result.phase)
       if (result.status !== 'pending') return result
       lastUnavailable = undefined
+      if (result.phase !== lastPhase) {
+        // Progress (the wallet answered): the result is near, so restart the backoff.
+        // Only a FORWARD move skips the sleep, which bounds the immediate requests.
+        immediate = PHASE_RANK[result.phase] > PHASE_RANK[lastPhase]
+        lastPhase = result.phase
+        delay = 0
+      } else if (Date.now() - started >= LONG_POLL_TIMEOUT_THRESHOLD_MS) {
+        // The server's hold ended. Re-poll now, spread by a small jitter so waits that began
+        // together do not keep re-polling in lock-step.
+        immediate = true
+        holdJitter = Math.round((opts.random ?? Math.random)() * 0.1 * intervalMs)
+      }
     } catch (e) {
       if (e instanceof VerifierAgentSessionError && e.kind === 'unavailable') {
         lastUnavailable = e
@@ -590,11 +658,12 @@ export async function waitForSession(
         throw e
       }
     }
-    delay = nextPollDelay(delay, intervalMs, max, opts.random)
+    if (immediate && holdJitter === 0) continue
+    const wait = immediate ? holdJitter : (delay = nextPollDelay(delay, intervalMs, max, opts.random))
     const remaining = deadline - Date.now()
     if (remaining <= 0) continue
     await new Promise<void>((resolve) => {
-      const t = setTimeout(() => { opts.signal?.removeEventListener('abort', onAbort); resolve() }, Math.min(delay, remaining))
+      const t = setTimeout(() => { opts.signal?.removeEventListener('abort', onAbort); resolve() }, Math.min(wait, remaining))
       const onAbort = () => { clearTimeout(t); resolve() }
       opts.signal?.addEventListener('abort', onAbort, {once: true})
     })

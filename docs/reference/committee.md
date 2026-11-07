@@ -849,7 +849,7 @@ Returns: ` OperationReceipt | undefined `.
 
 Decrypt an IBE ciphertext and clear the intermediate identity key on every exit.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L146)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L150)
 
 Import: `import {decryptIdentityStrict} from 'tasra-sdk/committee'`
 
@@ -908,7 +908,7 @@ Returns:
 Collect and combine recipient-sealed KEM contributions locally, then clear all partials.
 Servers receive only the authorized public recipient and never the recovered plaintext.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L163)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L166)
 
 Import: `import {decryptWithCommitteePartials} from 'tasra-sdk/committee'`
 

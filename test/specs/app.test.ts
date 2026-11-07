@@ -11,7 +11,7 @@ import type {TasraChainClient} from '../../src/chain/client.js'
 import {payloadDigestFor, requestHash} from '../../src/oid4vp/binding.js'
 import type {TasraApplicationConfig} from '../../src/app/client.js'
 import * as prepaid from '../../src/chain/prepaid.js'
-import {paymentIntentHash, type PaymentIntentWire} from '../../src/committee/payment.js'
+import {paymentIntentHash, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {keeperExecutionFixture} from '../support/keeperExecution.js'
 import type {ClientExecutionSigner, ExecutionAuthorization} from '../../src/committee/execution.js'
 import {createDecryptionRecipient, decryptionBinding} from '../../src/crypto/recipient.js'
@@ -74,7 +74,7 @@ async function paidFixture(mode = 2, options: Parameters<typeof fixture>[1] = {}
   const contributors=[keeperKey,otherKey].map((key,i)=>({...endpoint,publicKey:toHex(key),
     operator:`0x${(i+1).toString(16).padStart(40,'0')}` as Hex,url:mode===1?`https://keeper-${i}.example`:i===0?endpoint.url:'https://other-keeper.example'}))
   const target: prepaid.PaidKeeperTarget = {...endpoint,contributors,receipt:{blockTimestamp:BigInt(Math.floor(Date.now()/1000)),
-    blockNumber:20n,blockHash:random,assignmentBlock:random,requestId:random,cost:9n,refunded:0n,settled:false},groupPublicKey:f.metadata.publicKey,mode}
+    blockNumber:20n,blockHash:random,assignmentBlock:random,requestId:prepaidRequestId(payment),cost:9n,refunded:0n,settled:false},groupPublicKey:f.metadata.publicKey,mode}
   // Canonical RPC/creator/roster checks have separate chain.paid-route regressions.
   // Here the boundary is controlled to exercise the app's consent and actual crypto results.
   const resolve = vi.spyOn(prepaid, 'resolvePaidKeeperTarget').mockResolvedValue(target)
@@ -94,7 +94,8 @@ describe('paid application execution', () => {
     expect(f.fetchImpl).toHaveBeenCalledTimes(1)
     expect(String(f.fetchImpl.mock.calls[0]![0])).toMatch(/^https:\/\/paid\.example\//)
     expect(f.chain.readers.keyRegistry.assignedNodes).not.toHaveBeenCalled()
-    expect(f.resolve).toHaveBeenCalledTimes(3)
+    // Before and after the wallet step; the keeper approval reuses the second read.
+    expect(f.resolve).toHaveBeenCalledTimes(2)
     const sent=JSON.parse(String(f.fetchImpl.mock.calls[0]![1]?.body)) as {execution_authorizations:ExecutionAuthorization[]}
     expect(sent.execution_authorizations.map(proof=>proof.stage).sort()).toEqual(['contributor','contributor','coordinator'])
     expect(f.resolve.mock.calls[0]![3].action).toBe(mode === 2 ? 'eoa-sign' : 'sign')

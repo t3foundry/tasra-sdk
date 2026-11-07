@@ -303,7 +303,7 @@ let ro: Awaited<ReturnType<typeof verifyRequestObject>>
     const headers = (init?.headers ?? {}) as Record<string, string>
     calls.push({url, body: init?.body ? JSON.parse(String(init.body)) : undefined, auth: headers.Authorization})
     if (url === 'http://verifier-agent/v1/sessions') return new Response(JSON.stringify({session_id: 's1', poll_secret: 'ps', qr_payload: 'openid4vp://?client_id=x&request_uri=y', request_uri: 'y'}), {status: 201})
-    if (url === 'http://verifier-agent/v1/sessions/s1') return new Response(JSON.stringify(++polls < 2 ? {status: 'pending'} : {status: 'done', compound_token: tokenWire, binding_preimage: {random: '0x11'}}), {status: 200})
+    if (url === 'http://verifier-agent/v1/sessions/s1?wait=1') return new Response(JSON.stringify(++polls < 2 ? {status: 'pending'} : {status: 'done', compound_token: tokenWire, binding_preimage: {random: '0x11'}}), {status: 200})
     throw new Error(`unexpected ${url}`)
   }) as unknown as typeof fetch
   const realFetch = globalThis.fetch
