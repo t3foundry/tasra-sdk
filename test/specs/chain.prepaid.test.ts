@@ -103,7 +103,8 @@ describe('canonical prepaid reads', () => {
     await expect(readSlotFunding(client, {...deployment, chainId: 1.5}, h(3))).rejects.toThrow(/chain ID/)
     expect(calls).toHaveLength(0)
     await expect(readSlotFunding(client, deployment, h(3))).rejects.toThrow(/chain mismatch/)
-    expect(calls.map(c => c.method)).toEqual(['eth_chainId'])
+    // The head is read beside the chain check; nothing at that head is read on a mismatch.
+    expect(calls.map(c => c.method).sort()).toEqual(['eth_chainId', 'eth_getBlockByNumber'])
   })
   it('refuses stale/future/invalid heads and a reorg during reads', async () => {
     for (const options of [{age: 31}, {age: -3}, {hash: h(0)}, {orphan: true}]) {
@@ -120,7 +121,7 @@ describe('canonical prepaid reads', () => {
     for (const options of [{unsupported: true}, {empty: true}, {failure: true}]) {
       const {client, calls} = rpc({}, options)
       await expect(readPaidOperationReceipt(client, deployment, intent(), expected)).rejects.toThrow()
-      expect(calls.every(c => ['eth_chainId', 'eth_getBlockByNumber', 'eth_call'].includes(c.method))).toBe(true)
+      expect(calls.every(c => ['eth_chainId', 'eth_getBlockByNumber', 'eth_call', 'eth_getCode'].includes(c.method))).toBe(true)
       expect(calls.filter(c => c.method === 'eth_call').length).toBeLessThanOrEqual(5)
     }
   })

@@ -24,6 +24,7 @@ import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js
 import {resolvePaidKeeperTarget, type PaidKeeperEndpoint, type PaidKeeperTarget} from '../chain/prepaid.js'
 import {createKeeperExecutionApprover,createKeeperExecutionApproverWithTarget,type KeeperExecutionClientConsent} from '../chain/keeperExecution.js'
 import {resolveKeeperMembers, withNetworkDeadline} from '../internal/network.js'
+import {SingleFlight} from '../internal/bounded.js'
 
 /** Run independent reads together; on failure, surface the error of the first failing read in
  *  argument order, the one a sequential read would have reported. */
@@ -169,6 +170,9 @@ export function createTasra(config: TasraApplicationConfig) {
   }
   const route = config.keeperUrl ?? ((url: string) => url), fetchImpl = config.fetchImpl
   const allowLocalPaidHttp = config.allowLocalPaidHttp === true
+  // Concurrent operations on one slot share an in-flight `latest` slot read; an answered read is
+  // never reused, so every later check (including the post-authorization recheck) reads again.
+  const slotReads = new SingleFlight<Awaited<ReturnType<typeof chain.readers.keyRegistry.getKeySlot>>>(1024)
   async function assertChain() {
     if (await chain.client.getChainId() !== deployment.chainId) throw new TasraApplicationError('CHAIN_MISMATCH', 'RPC chain does not match the application deployment')
   }
@@ -178,7 +182,7 @@ export function createTasra(config: TasraApplicationConfig) {
    */
   async function get(slotId: Hex): Promise<SlotMetadata> {
     protocolHex(slotId, 32, 'slot id')
-    const [, s] = await inOrder(assertChain(), chain.readers.keyRegistry.getKeySlot(slotId))
+    const [, s] = await inOrder(assertChain(), slotReads.run(slotId.toLowerCase(), () => chain.readers.keyRegistry.getKeySlot(slotId)))
     if (!s.exists) throw new TasraApplicationError('SLOT_NOT_FOUND', 'Slot does not exist on this deployment')
     if (s.cancelled) throw new TasraApplicationError('SLOT_CANCELLED', 'Slot is cancelled')
     return {slotId, mode: Number(s.mode), epoch: Number(s.epoch), threshold: {k: Number(s.threshold.k), n: Number(s.threshold.n)},

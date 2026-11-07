@@ -115,7 +115,7 @@ it('identifies an exhausted activated slot without inventing an HTTP response or
   if (!(error instanceof UnderfundedSlotError)) throw new Error('Expected the typed funding refusal')
   expect(error.status).toBeUndefined()
   expect(error.url).toBeUndefined()
-  expect(f.calls.every(call => ['eth_chainId', 'eth_getBlockByNumber', 'eth_call'].includes(call.method))).toBe(true)
+  expect(f.calls.every(call => ['eth_chainId', 'eth_getBlockByNumber', 'eth_call', 'eth_getCode'].includes(call.method))).toBe(true)
 })
 
 it('discovers one canonical assignment/policy and produces creator-signable intent fields without mutations', async () => {
@@ -129,7 +129,7 @@ it('discovers one canonical assignment/policy and produces creator-signable inte
     session_commitment: paymentSessionCommitment(h(46), 'did:web:agent.example', 1060)}
   const typed = paymentIntentTypedData(payment), signature = await f.creator.signTypedData(typed)
   expect(await recoverTypedDataAddress({...typed, signature})).toBe(f.creator.address)
-  expect(f.calls.every(call => ['eth_chainId', 'eth_call', 'eth_getBlockByNumber'].includes(call.method))).toBe(true)
+  expect(f.calls.every(call => ['eth_chainId', 'eth_call', 'eth_getBlockByNumber', 'eth_getCode'].includes(call.method))).toBe(true)
 })
 it('uses only the immediately previous anchored snapshot and refuses missing current seed', async () => {
   now(); const f = fixture({unanchored: true})
@@ -222,7 +222,7 @@ it('reads client consent from the original mined reservation and one canonical r
     paymentHash:paymentIntentHash(payment),cost:5n,nowSecs:1000}})
   expect(f.calls.filter(c=>c.name==='prepaidCost')[0]?.args).toHaveLength(2)
   expect(f.calls.filter(c=>c.name==='snapshotAt').map(c=>c.args)).toEqual([[7n]])
-  expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber','eth_getBlockByHash'].includes(c.method))).toBe(true)
+  expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber','eth_getBlockByHash','eth_getCode'].includes(c.method))).toBe(true)
   // D8: the paid epoch is read once at the stored quote block, canonically, then rechecked by number.
   expect(f.calls.filter(c=>c.method==='eth_call'&&(c.at as {blockHash?:Hex}).blockHash===h(19)).map(c=>[c.name,c.at]))
     .toEqual([['epoch',{blockHash:h(19),requireCanonical:true}]])
@@ -237,7 +237,7 @@ it('refuses new client consent on settled, expired, unavailable or changed canon
     {age:31},{orphan:true},{unsupported:true},{chain:43113}]){
     const f=fixture(change)
     await expect(readClientExecutionPolicy(f.client,f.deployment,reservedPayment(),intendedWork)).rejects.toThrow()
-    expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber','eth_getBlockByHash'].includes(c.method))).toBe(true)
+    expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber','eth_getBlockByHash','eth_getCode'].includes(c.method))).toBe(true)
   }
   // D8: quote-block failures carry their exact code, so an assertion thrown inside the fake
   // transport (which would surface as unavailable) cannot pass for a definite refusal.

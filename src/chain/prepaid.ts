@@ -19,6 +19,7 @@ import {BillingModeError, readBillingMode} from './billing.js'
 import {readAssignmentEpoch, requirePaidEpoch} from './paidEpoch.js'
 import {systemPacingClock, type PaidPacingClock} from './paidPacing.js'
 import {SingleFlight} from '../internal/bounded.js'
+import {pinnedCall, pinnedRegistryCall} from './pinnedReads.js'
 
 /** Deployment independently selected by the application, not taken from a received intent. */
 export interface PrepaidDeployment {
@@ -371,10 +372,24 @@ function requireFresh(at: PrepaidObservation): void {
   }
 }
 
+// Concurrent operations on one client share one in-flight `latest` head read. Only the pending
+// request is shared: a head is never reused once answered, so each later observation reads again.
+const sharedHeads = new WeakMap<PublicClient, SingleFlight<Awaited<ReturnType<PublicClient['getBlock']>>>>()
+
+function latestHead(client: PublicClient) {
+  let shared = sharedHeads.get(client)
+  if (!shared) sharedHeads.set(client, shared = new SingleFlight(1))
+  return shared.run('latest', () => client.getBlock({blockTag: 'latest'}))
+}
+
 async function observe(client: PublicClient, d: PrepaidDeployment): Promise<PrepaidObservation> {
   validateDeployment(d)
-  if (await client.getChainId() !== d.chainId) throw new Error('prepaid RPC chain mismatch')
-  const block = await client.getBlock({blockTag: 'latest'})
+  // The chain check and the head read are independent; a mismatch is still refused first.
+  const [chain, head] = await Promise.allSettled([client.getChainId(), latestHead(client)])
+  if (chain.status === 'rejected') throw chain.reason
+  if (chain.value !== d.chainId) throw new Error('prepaid RPC chain mismatch')
+  if (head.status === 'rejected') throw head.reason
+  const block = head.value
   if (block.number === null || block.hash === null || !HEX32.test(block.hash) || block.hash === ZERO32 || block.timestamp < 0n) {
     throw new Error('prepaid canonical head unavailable')
   }
@@ -389,7 +404,8 @@ async function readAt(client: PublicClient, settlement: Address, at: PrepaidObse
   const data = requestId === undefined
     ? encodeFunctionData({abi: settlementAbi, functionName: name, args: [slot]})
     : encodeFunctionData({abi: settlementAbi, functionName: name, args: [slot, requestId]})
-  const result = await client.call({to: settlement, data, blockHash: at.blockHash, requireCanonical: true, batch: false})
+  // Same canonical block-hash read, batched with the other reads at this block where possible.
+  const result = {data: await pinnedCall(client, at.blockHash, settlement, data)}
   if (result.data === undefined) throw new Error(`empty prepaid ${name} response`)
   return decodeFunctionResult({abi: settlementAbi, functionName: name, data: result.data})
 }
@@ -417,19 +433,17 @@ async function finishObservation(client: PublicClient, at: PrepaidObservation): 
 }
 
 // Concurrent operations on one client often read the same registry value at the same block
-// (the keeper directory above all). A read pinned to a block hash has one answer, so identical
-// in-flight reads share one request. Only pending requests are shared: a settled result, success
-// or failure, is never reused, and `latest` reads and per-operation reservation reads never come here.
-const sharedRegistryReads = new WeakMap<PublicClient, SingleFlight<Hex | undefined>>()
-/** Most identical block-pinned registry reads shared at once per client; beyond it, reads run alone. */
-const MAX_SHARED_REGISTRY_READS = 1024
+// (the keeper directory above all). A read pinned to a block hash has one answer: identical
+// in-flight reads share one request, and a result at a block the client has confirmed finalized
+// is kept briefly (bounded) for later operations at that block. Errors are never reused, and
+// `latest` reads, reservation reads and rechecks never come here (see pinnedReads.ts).
+// Observations of a fresh `latest` head made for a paid keeper operation. Only their registry
+// reads use the finalized-block cache; historical and discovery reads never do.
+const operationHeads = new WeakSet<PrepaidObservation>()
 
 async function registryRead(client: PublicClient, at: PrepaidObservation, address: Address, abi: Abi, name: string, args: readonly unknown[] = []): Promise<unknown> {
   const data = encodeFunctionData({abi, functionName: name, args})
-  let shared = sharedRegistryReads.get(client)
-  if (!shared) sharedRegistryReads.set(client, shared = new SingleFlight(MAX_SHARED_REGISTRY_READS))
-  const result = {data: await shared.run(`${at.blockHash.toLowerCase()}|${address.toLowerCase()}|${data}`, async () =>
-    (await client.call({to: address, data, blockHash: at.blockHash, requireCanonical: true, batch: false})).data)}
+  const result = {data: await pinnedRegistryCall(client, at, address, data, operationHeads.has(at))}
   if (result.data === undefined) throw new Error(`empty registry ${name} response`)
   return decodeFunctionResult({abi, functionName: name, data: result.data})
 }
@@ -529,6 +543,7 @@ export async function resolvePaidKeeperTarget(
   deployment = {...deployment}; payment = structuredClone(payment); expected = {...expected}; transport = {...transport}
   requirePaidOperation(deployment, payment, expected)
   const at = await observe(client, deployment)
+  operationHeads.add(at)
   // The reservation and the keeper directory are independent reads at the same block: issue them
   // together, then judge them in the order a sequential read would have (same refusals, same order).
   const [reads, directory] = await Promise.allSettled([receiptReads(client, deployment, at, payment),

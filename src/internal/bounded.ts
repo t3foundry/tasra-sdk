@@ -58,3 +58,43 @@ export class SingleFlight<V> {
     return started
   }
 }
+
+/**
+ * A least-recently-used map of at most `max` entries, each dropped once its own expiry passes.
+ * Store only values that can never change for their key (a read pinned to a finalized block).
+ */
+export class ExpiringCache<V> {
+  readonly #entries = new Map<string, {value: V; expiresAt: number}>()
+  constructor(readonly max: number) {
+    if (!Number.isSafeInteger(max) || max < 1) throw new Error('cache bound must be a positive integer')
+  }
+  /** Number of entries currently held, expired ones included until touched or evicted. */
+  get size(): number { return this.#entries.size }
+  /**
+   * Return an unexpired value, or `undefined`. A hit becomes the most recently used entry.
+   * @param key Cache key.
+   * @param now Current time in milliseconds.
+   */
+  get(key: string, now = Date.now()): V | undefined {
+    const entry = this.#entries.get(key)
+    if (!entry) return undefined
+    this.#entries.delete(key)
+    if (entry.expiresAt <= now) return undefined
+    this.#entries.set(key, entry)
+    return entry.value
+  }
+  /**
+   * Store `value` until `expiresAt`; an already expired value is not stored. At the bound the
+   * least recently used entry is evicted.
+   * @param key Cache key.
+   * @param value Immutable value for the key.
+   * @param expiresAt Expiry in milliseconds.
+   * @param now Current time in milliseconds.
+   */
+  set(key: string, value: V, expiresAt: number, now = Date.now()): void {
+    this.#entries.delete(key)
+    if (!(expiresAt > now)) return
+    if (this.#entries.size >= this.max) this.#entries.delete(this.#entries.keys().next().value as string)
+    this.#entries.set(key, {value, expiresAt})
+  }
+}

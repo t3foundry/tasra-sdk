@@ -68,7 +68,7 @@ describe('client keeper recovery workflow',()=>{
     expect(f.payment.expires).toBeLessThan(Date.now()/1000)
     expect(h.calls.filter(c=>c.method==='eth_getBlockByHash')).toHaveLength(1)
     expect(h.calls.filter(c=>c.method==='eth_getBlockByNumber')).toHaveLength(1)
-    expect(h.calls.every(c=>['eth_chainId','eth_getBlockByHash','eth_getBlockByNumber','eth_call'].includes(c.method))).toBe(true)
+    expect(h.calls.every(c=>['eth_chainId','eth_getBlockByHash','eth_getBlockByNumber','eth_call','eth_getCode'].includes(c.method))).toBe(true)
     expect(h.calls.some(c=>/balanceOf|send|estimate|gas/.test(c.name??c.method))).toBe(false)
     f.signer.dispose()
   })
@@ -79,7 +79,7 @@ describe('client keeper recovery workflow',()=>{
       {assignmentBlock:hex(0)},{creator:hex(99,20)},{cancelled:true},{expiry:1000n},{keyEpoch:2n},{version:3n},
       {threshold:2},{inactive:0},{inactive:1},{untagged:0},{untagged:1},{duplicateIds:true}]
     for(const change of changes){const h=history(f,change);await expect(h.read()).rejects.toThrow()
-      expect(h.calls.every(c=>['eth_chainId','eth_getBlockByHash','eth_getBlockByNumber','eth_call'].includes(c.method))).toBe(true)}
+      expect(h.calls.every(c=>['eth_chainId','eth_getBlockByHash','eth_getBlockByNumber','eth_call','eth_getCode'].includes(c.method))).toBe(true)}
     f.signer.dispose()
   })
   it('rejects another payment, deployment or worker before performing historical RPC reads',async()=>{

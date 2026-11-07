@@ -80,6 +80,7 @@ const slot = await chain.readers.keyRegistry.getKeySlot(slotId)
 | `chainId` | Pass explicitly | Deployment chain ID. The constructor does not query the RPC to verify it. |
 | `logWindow` | No | Maximum block range per `getLogs` query; defaults to 2,000. |
 | `multicall3` | No | Auto-detected by default; pass an address or `false` to disable batching. |
+| `rpcBatch` | No | JSON-RPC batching of small requests; defaults to batches of 32. Pass `{batchSize, wait}` to tune it or `false` for an RPC without batch support. |
 
 **Returns:** a `TasraChainClient`. Use `client` for underlying viem calls and `readers`
 for typed Tasra contract calls. Creating the client performs no network request;

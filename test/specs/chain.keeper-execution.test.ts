@@ -20,11 +20,12 @@ async function fixture(changes:Changes={}){
     :await keeperExecutionFixture('sign',toHex(sha256(Uint8Array.of(1,2,3))))
   const payment=structuredClone(f.payment),operators=[hex(31,20),hex(32,20)],nodes=hex(7,20),hits:string[]=[]
   const client=createPublicClient({transport:custom({request:async({method,params}:{method:string;params?:unknown})=>{
-    hits.push(method)
+    // The finalized head (read for the shared finalized-block cache) is not a head of the observation.
+    hits.push(method==='eth_getBlockByNumber'&&(params as [string])[0]==='finalized'?'finalized-head':method)
     if(method==='eth_chainId'){changes.duringRead?.();return toHex(43112)}
     if(method==='eth_getBlockByNumber'){
       const tag=(params as [string,boolean])[0]
-      expect(['latest','0x14']).toContain(tag)
+      expect(['latest','0x14','finalized']).toContain(tag)
       return {number:'0x14',hash:tag==='0x14'&&changes.orphan?hex(99):hex(20),timestamp:toHex(1000-(changes.age??0)),transactions:[]}
     }
     if(method!=='eth_call')throw new Error('Unexpected keeper approval RPC')
@@ -64,7 +65,7 @@ describe('independent keeper approval chain boundary',()=>{
       expect(result.authorizations).toHaveLength(3);expect(sign).toHaveBeenCalledTimes(3)
       for(const authorization of result.authorizations)await expect(verifyExecutionAuthorization({payment:f.payment,policy:result.policy,
         authorization,expected:{stage:authorization.stage,operatorKey:authorization.operator_key,body:f.request.body}})).resolves.toBeUndefined()
-      expect(f.hits.every(method=>['eth_chainId','eth_getBlockByNumber','eth_call'].includes(method))).toBe(true)
+      expect(f.hits.every(method=>['eth_chainId','eth_getBlockByNumber','eth_call','eth_getCode','finalized-head'].includes(method))).toBe(true)
     }finally{f.signer.dispose()}
   })
   it.each([
@@ -77,7 +78,7 @@ describe('independent keeper approval chain boundary',()=>{
     try{
       await expect(createKeeperExecutionApprover({...f,signer:{publicKey:f.signer.publicKey,sign}})(f.request)).rejects.toThrow()
       expect(sign).not.toHaveBeenCalled()
-      expect(f.hits.every(method=>['eth_chainId','eth_getBlockByNumber','eth_call'].includes(method))).toBe(true)
+      expect(f.hits.every(method=>['eth_chainId','eth_getBlockByNumber','eth_call','eth_getCode','finalized-head'].includes(method))).toBe(true)
     }finally{f.signer.dispose()}
   })
   it('shares one canonical read between the approvals of an operation while it is recent, then reads again',async()=>{

@@ -58,6 +58,7 @@ export type {EventCategory, DecodedEvent} from './events.js'
 export {createTasraChainClient} from './client.js'
 export type {
   ChainClientConfig,
+  RpcBatchOptions,
   GetLogsWindowedOpts,
   TasraChainClient,
 } from './client.js'

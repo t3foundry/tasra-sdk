@@ -59,6 +59,23 @@ never does.
   and decode the ciphertext's U once rather than once per share. Decoded verifying shares
   and group keys are kept in a bounded cache of 256 public points per curve group, so
   repeated operations on a slot skip their subgroup-checked decoding.
+- Paid decryption sends far fewer RPC requests. Block-pinned reads issued together at one
+  block go out as one Multicall3 `aggregate3` call, still pinned to that block hash with
+  `requireCanonical`. Multicall3 is used only where the code at its address matches the
+  canonical deployment's code hash (checked once per client, again a minute after a miss);
+  `multicall3: false` turns it off. A read that fails inside a batch is read again on its
+  own, so it fails with the same error as before. Concurrent operations on one client share
+  an in-flight `latest` head and slot read; an answered read is never reused. Registry
+  reads at a block the client has seen finalized (`eth_getBlockByNumber('finalized')`, read
+  at most once a second) are cached for up to 32 s, at most 4,096 per client. Errors,
+  `latest` reads, reservation reads and rechecks are never cached. With the mock RPC, one
+  paid IBE or KEM decryption with three keepers drops from 43 HTTP requests (43 calls) to
+  11 (15 calls), and 100 concurrent decryptions on one client from 1,429 to 10 (28 calls).
+- `createTasraChainClient` groups small concurrent requests (calls, chain ID, blocks, code,
+  nonces, receipts) into JSON-RPC batches of at most 32 by default, configurable with
+  `rpcBatch: {batchSize, wait}` or turned off with `rpcBatch: false`. Log queries and
+  transactions are never batched. If an RPC refuses a batch, that batch's requests are sent
+  one by one and every later request goes alone.
 
 ## [0.4.0] — 2026-11-04
 
