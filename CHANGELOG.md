@@ -27,6 +27,18 @@ never does.
 
 ### Changed
 
+- `createFileStore` queues `withLock` callers within one process in call order instead of
+  refusing all but the first, so concurrent paid operations in one process no longer fail
+  with `StoreLockedError`. A lock held by another process (or left by a crashed one) is
+  waited for up to the new `lockWaitMs` option (default 10 s, 0 refuses at once) and then
+  still refused with `StoreLockedError`; it is never removed or taken over. A nested lock on
+  a key the same call chain already holds is still refused at once.
+- The paid operation index no longer rewrites one ever-growing list for every operation.
+  New operations go to bounded segments (`paid-op-index-0`, `-1`, …, 256 ids each); the
+  original `paid-op-index` list is still read first and is never dropped or rewritten
+  (except by the one-time `backfill`). `listPaidOperations` lists an id once. An older SDK
+  reading a store written by this one lists only the operations indexed before the upgrade;
+  their journals, and `paidOperationPhase`, are unaffected.
 - `waitForSession` (and `awaitVerifierAgentResult`) see the wallet's result sooner. Each
   request asks for a long poll (`?wait=1`). A reply whose phase moved forward is followed
   by the next request at once, and so is an unchanged reply that took 15 s or more (the

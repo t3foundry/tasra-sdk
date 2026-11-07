@@ -380,21 +380,58 @@ const MAX_STATUS_REFRESH_ATTEMPTS = 64
 /** Deadline of one relayed refresh (the agent fans out to the committee). */
 const RELAY_REFRESH_TIMEOUT_MS = 30_000
 
+// The operation index, oldest first. `paid-op-index` is the original single list: still read, never
+// dropped, and rewritten only by the one-time backfill (and by older SDKs, whose entries are read
+// too). New operations append to bounded segments `paid-op-index-0`, `-1`, … instead, so indexing
+// one operation rewrites at most SEGMENT_IDS entries rather than the whole history. Readers take
+// the legacy list, then the segments in order until the first absent one; an id is listed once.
 const INDEX_KEY = 'paid-op-index'
+/** Most ids in one index segment; a full segment is never rewritten again. */
+const SEGMENT_IDS = 256
+const segmentKey = (n: number) => `${INDEX_KEY}-${n}`
 /** `backfilled` marks a store whose pre-index journals were indexed once. */
 interface OperationIndex { schema: 1; ids: Hex[]; backfilled?: true }
+interface OperationIndexSegment { schema: 1; ids: Hex[] }
+const validIds = (ids: unknown) => Array.isArray(ids) && !ids.some(id => typeof id !== 'string' || !HEX32.test(id))
 async function loadIndexRecord(store: ApplicationStore): Promise<OperationIndex> {
   const index = await store.load<OperationIndex>(INDEX_KEY)
   if (index === undefined) return {schema: 1, ids: []}
-  if (!index || index.schema !== 1 || !Array.isArray(index.ids) || index.ids.some(id => typeof id !== 'string' || !HEX32.test(id))
+  if (!index || index.schema !== 1 || !validIds(index.ids)
     || (index.backfilled !== undefined && index.backfilled !== true)) throw new TasraError('Invalid paid operation index')
   return index
 }
-const loadIndex = async (store: ApplicationStore) => (await loadIndexRecord(store)).ids
+async function loadSegment(store: ApplicationStore, n: number): Promise<OperationIndexSegment | undefined> {
+  const segment = await store.load<OperationIndexSegment>(segmentKey(n))
+  if (segment === undefined) return undefined
+  if (!segment || segment.schema !== 1 || !validIds(segment.ids) || segment.ids.length > SEGMENT_IDS) throw new TasraError('Invalid paid operation index')
+  return segment
+}
+/** First segment that may still have room, per store object: a hint only, always probed forward. */
+const segmentHints = new WeakMap<ApplicationStore, number>()
+/** Every indexed id, oldest first, without duplicates: the legacy list, then each segment. */
+async function loadIndex(store: ApplicationStore): Promise<Hex[]> {
+  const ids = new Set((await loadIndexRecord(store)).ids.map(id => id.toLowerCase() as Hex))
+  for (let n = 0; ; n++) {
+    const segment = await loadSegment(store, n)
+    if (!segment) break
+    for (const id of segment.ids) ids.add(id.toLowerCase() as Hex)
+  }
+  return [...ids]
+}
 async function indexOperation(store: ApplicationStore, requestId: Hex): Promise<void> {
+  const id = requestId.toLowerCase() as Hex
   await store.withLock(INDEX_KEY, async () => {
-    const index = await loadIndexRecord(store), id = requestId.toLowerCase() as Hex
-    if (!index.ids.includes(id)) await store.save(INDEX_KEY, {...index, ids: [...index.ids, id]} satisfies OperationIndex)
+    // Segments fill in order; a crash between filling one and starting the next leaves nothing to
+    // repair, because the next writer probes forward from the hint to the first one with room.
+    for (let n = segmentHints.get(store) ?? 0; ; n++) {
+      const segment = await loadSegment(store, n)
+      if (segment?.ids.includes(id)) return
+      if (!segment || segment.ids.length < SEGMENT_IDS) {
+        await store.save(segmentKey(n), {schema: 1, ids: [...segment?.ids ?? [], id]} satisfies OperationIndexSegment)
+        segmentHints.set(store, n)
+        return
+      }
+    }
   })
 }
 /** Index journals written before the index existed, once per store (by payment expiry). */
@@ -405,11 +442,12 @@ async function backfillIndex(store: ApplicationStore): Promise<void> {
   await store.withLock(INDEX_KEY, async () => {
     const index = await loadIndexRecord(store)
     if (index.backfilled) return
+    const indexed = new Set(await loadIndex(store))
     const found: {id: Hex; expires: number}[] = []
     for (const key of await list(RECORD_PREFIX)) {
       if (!RECORD_KEY.test(key)) continue
       const id = `0x${key.slice(RECORD_PREFIX.length)}` as Hex
-      if (index.ids.includes(id)) continue
+      if (indexed.has(id)) continue
       const record = await loadRecord(store, id)
       if (record) found.push({id, expires: record.payment.expires})
     }
@@ -1186,7 +1224,7 @@ export async function listPaidOperations(store: ApplicationStore, filter: ListPa
   if (filter.backfill) await backfillIndex(store)
   const out: PaidOperationSummary[] = []
   for (const requestId of await loadIndex(store)) {
-    const record = await loadRecord(store, requestId)
+    const record = await loadRecord(store, requestId as Hex)
     if (!record || (phases && !phases.includes(record.phase)) || (record.phase === 'abandoned' && !abandoned)) continue
     out.push({requestId, phase: record.phase, slot: record.payment.slot, action: record.payment.action, expires: record.payment.expires,
       ...(record.payer ? {payer: record.payer} : {}), ...(record.abandoned ? {abandoned: {...record.abandoned}} : {})})

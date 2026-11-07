@@ -131,6 +131,8 @@ or change the slot name to force a retry.
 
 An abrupt process kill can leave a `createFileStore` lock behind. The SDK deliberately
 does not expire or steal locks, and currently has no public stale-lock recovery method.
+A later call waits up to the store's `lockWaitMs` (default 10 s) for such a lock and then
+refuses with `StoreLockedError`; calls within one process queue and never refuse each other.
 Stop, preserve the private store, establish that the owning process has ended, and
 reconcile outstanding transactions before any manual intervention. Do not infer that
 an old lock is safe to remove from its age alone.

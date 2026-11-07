@@ -3,6 +3,7 @@ import {constants} from 'node:fs'
 import {mkdir, lstat, open, readdir, rename, unlink} from 'node:fs/promises'
 import {resolve, join} from 'node:path'
 import {randomUUID} from 'node:crypto'
+import {AsyncLocalStorage} from 'node:async_hooks'
 import {TasraError} from '../errors.js'
 import {StoreLockedError} from './store-errors.js'
 
@@ -68,12 +69,36 @@ function decode(value: Encoded): unknown {
 }
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
 
+// In-process lock queue. Every file store in this process (one directory may have several store
+// objects) queues on the lock FILE's path, in call order, so callers in one process never refuse
+// each other; only a lock file held by ANOTHER process (or left by a crashed one) is waited for,
+// boundedly, and then refused. One entry per path with a waiter or holder; the last one leaving
+// removes it.
+const queues = new Map<string, Promise<void>>()
+/** Locks held by the current async call chain: a nested `withLock` on one of them would wait on itself. */
+const holding = new AsyncLocalStorage<readonly {path: string; released: boolean}[]>()
+const sleep = (ms: number) => new Promise<void>(done => setTimeout(done, ms))
+
+/** Options for {@link createFileStore}. */
+export interface FileStoreOptions {
+  /**
+   * Longest wait, in ms, for a lock held by ANOTHER process before `withLock` refuses with
+   * StoreLockedError (default 10000; 0 refuses at once; at most 600000). A lock left by a crashed
+   * process is never removed or taken over: after the wait it still needs reconciliation. Calls in
+   * this process never refuse each other; they queue in call order.
+   */
+  lockWaitMs?: number
+}
+
 /**
  * The directory is private, trusted application state, not an untrusted shared folder.
  * @param directory Private application state directory owned by the current operating-system user.
+ * @param options Bounded wait for a lock held by another process.
  */
-export function createFileStore(directory: string): ApplicationStore {
+export function createFileStore(directory: string, options: FileStoreOptions = {}): ApplicationStore {
   const root = resolve(directory)
+  const lockWaitMs = options.lockWaitMs ?? 10_000
+  if (!Number.isSafeInteger(lockWaitMs) || lockWaitMs < 0 || lockWaitMs > 600_000) throw new TasraError('Invalid file store lock wait')
   const path = (key: string, suffix = '.json') => {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(key)) throw new TasraError('Invalid state key')
     return join(root, key + suffix)
@@ -86,6 +111,23 @@ export function createFileStore(directory: string): ApplicationStore {
   async function syncDirectory() {
     const dir = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
     try { await dir.sync() } finally { await dir.close() }
+  }
+  /**
+   * Create the lock file exclusively. At the head of this process's queue an existing file belongs
+   * to another process (or a crashed one): wait for it to go, at most `lockWaitMs`, then refuse.
+   * The file is never removed or overwritten here.
+   */
+  async function acquire(key: string, target: string) {
+    const deadline = Date.now() + lockWaitMs
+    for (let delay = 5; ; delay = Math.min(delay * 2, 100)) {
+      try { return await open(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600) }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        const left = deadline - Date.now()
+        if (left <= 0) throw new StoreLockedError(key)
+        await sleep(Math.min(delay, left))
+      }
+    }
   }
   return {
     async load<T>(key: string): Promise<T | undefined> {
@@ -135,16 +177,30 @@ export function createFileStore(directory: string): ApplicationStore {
     },
     async withLock(key, action) {
       const target = path(key, '.lock')
-      await ready()
-      let lock
-      try { lock = await open(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600) }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new StoreLockedError(key); throw error }
+      // A nested lock on a key this call chain already holds can never be granted: refuse at once,
+      // exactly as before, instead of queueing behind itself.
+      if (holding.getStore()?.some(held => held.path === target && !held.released)) throw new StoreLockedError(key)
+      // Join the queue synchronously, so callers are served in call order.
+      const previous = queues.get(target) ?? Promise.resolve()
+      let release!: () => void
+      const turn = new Promise<void>(done => { release = done })
+      const tail = previous.then(() => turn)
+      queues.set(target, tail)
       try {
-        await lock.writeFile(JSON.stringify({pid: process.pid, createdAt: new Date().toISOString()}))
-        await lock.sync()
-        await syncDirectory()
-        return await action()
-      } finally { await lock.close(); await unlink(target); await syncDirectory() }
+        await previous
+        await ready()
+        const lock = await acquire(key, target)
+        const held = {path: target, released: false}
+        try {
+          await lock.writeFile(JSON.stringify({pid: process.pid, createdAt: new Date().toISOString()}))
+          await lock.sync()
+          await syncDirectory()
+          return await holding.run([...(holding.getStore() ?? []), held], action)
+        } finally { held.released = true; await lock.close(); await unlink(target); await syncDirectory() }
+      } finally {
+        release()
+        if (queues.get(target) === tail) queues.delete(target)
+      }
     },
   }
 }

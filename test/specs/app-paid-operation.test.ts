@@ -36,6 +36,10 @@ vi.mock('../../src/chain/keeperRecovery.js', async original => ({...await origin
 import {paidOperation, paidOperationPhase, resumePaidOperation, reconcilePaidOperation, listPaidOperations, abandonPaidOperation, recoverPaidOperation,
   PaidOperationRecoveryError, PaidOperationAbandonRefusedError, type PaidOperationConfig} from '../../src/app/paid-operation.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
+import {createFileStore} from '../../src/app/node.js'
+import {mkdtemp, rm} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {BillingModeError, requirePrepaidSlot} from '../../src/chain/billing.js'
 import {discoverPaidOperationContext, readClientExecutionPolicy} from '../../src/chain/prepaid.js'
 import {fetchDrawnVerifierWitnesses} from '../../src/chain/verifierSnapshot.js'
@@ -931,7 +935,8 @@ describe('paid operation index backfill', () => {
     const f = setup()
     const a = await paidOperation(f.config, f.request)
     const b = await paidOperation(f.config, f.request)
-    await f.store.save('paid-op-index', {schema: 1, ids: [b.requestId.toLowerCase()]})
+    // `a` was journaled before the index existed: only `b` is indexed.
+    await f.store.save('paid-op-index-0', {schema: 1, ids: [b.requestId.toLowerCase()]})
     await f.store.save('paid-op-unrelated', {x: 1})
     expect((await listPaidOperations(f.store)).map(o => o.requestId)).toEqual([b.requestId.toLowerCase()])
     const all = await listPaidOperations(f.store, {backfill: true})
@@ -939,11 +944,54 @@ describe('paid operation index backfill', () => {
     expect(await f.store.load('paid-op-index')).toMatchObject({backfilled: true})
     // Once: a later unindexed journal is not picked up again.
     await f.store.save('paid-op-index', {schema: 1, ids: [], backfilled: true})
+    await f.store.save('paid-op-index-0', {schema: 1, ids: []})
     expect(await listPaidOperations(f.store, {backfill: true})).toEqual([])
     const c = await paidOperation(f.config, f.request)
     expect((await listPaidOperations(f.store)).map(o => o.requestId)).toEqual([c.requestId.toLowerCase()])
     await f.store.save('paid-op-index', {schema: 1, ids: [], backfilled: 'yes'})
     await expect(listPaidOperations(f.store)).rejects.toThrow(/index/)
+  })
+
+  it('keeps reading an existing single-list index and appends new operations to bounded segments', async () => {
+    const f = setup()
+    // A store an earlier SDK wrote: two operations in the original `paid-op-index` list.
+    const x = await paidOperation(f.config, f.request), y = await paidOperation(f.config, f.request)
+    const legacy = {schema: 1, ids: [x.requestId.toLowerCase(), y.requestId.toLowerCase()]}
+    await f.store.save('paid-op-index', legacy)
+    await f.store.save('paid-op-index-0', {schema: 1, ids: Array.from({length: 256}, (_, i) => '0x' + i.toString(16).padStart(64, '0'))})
+    const z = await paidOperation(f.config, f.request)
+    // The legacy list is read first and never rewritten; a full segment is never rewritten either.
+    expect(await f.store.load('paid-op-index')).toEqual(legacy)
+    expect((await f.store.load<{ids: Hex[]}>('paid-op-index-0'))!.ids).toHaveLength(256)
+    expect(await f.store.load('paid-op-index-1')).toEqual({schema: 1, ids: [z.requestId.toLowerCase()]})
+    expect((await listPaidOperations(f.store)).map(o => o.requestId)).toEqual([x, y, z].map(o => o.requestId.toLowerCase()))
+    // An id listed in both the legacy list and a segment is listed once.
+    await f.store.save('paid-op-index-1', {schema: 1, ids: [x.requestId.toLowerCase(), z.requestId.toLowerCase()]})
+    expect((await listPaidOperations(f.store)).map(o => o.requestId)).toEqual([x, y, z].map(o => o.requestId.toLowerCase()))
+    await f.store.save('paid-op-index-1', {schema: 1, ids: ['0x12']})
+    await expect(listPaidOperations(f.store)).rejects.toThrow(/index/)
+  })
+
+  it('continues in the next segment after a crash left it started', async () => {
+    const f = setup()
+    const full = Array.from({length: 256}, (_, i) => ('0x' + i.toString(16).padStart(64, '0')) as Hex)
+    await f.store.save('paid-op-index-0', {schema: 1, ids: full})
+    await f.store.save('paid-op-index-1', {schema: 1, ids: [h(77)]})
+    const op = await paidOperation(f.config, f.request)
+    expect(await f.store.load('paid-op-index-1')).toEqual({schema: 1, ids: [h(77), op.requestId.toLowerCase()]})
+    expect(await f.store.load('paid-op-index-2')).toBeUndefined()
+  })
+
+  it('journals concurrent operations in one process with a file store, none refused on its locks', async () => {
+    const f = setup()
+    const dir = await mkdtemp(join(tmpdir(), 'tasra-paid-index-'))
+    try {
+      const config = {...f.config, store: createFileStore(dir)}
+      const ops = await Promise.all(Array.from({length: 32}, () => paidOperation(config, f.request)))
+      const listed = (await listPaidOperations(config.store)).map(o => o.requestId)
+      expect(new Set(listed)).toEqual(new Set(ops.map(op => op.requestId.toLowerCase())))
+      expect(listed).toHaveLength(32)
+    } finally { await rm(dir, {recursive: true, force: true}) }
   })
 
   it('needs a store that can list its keys', async () => {

@@ -314,8 +314,9 @@ const resolution = await reconcileApplicationPayment(
 
 All reservation callers must share the same store and use a dedicated gas payer. The
 lock spans nonce selection, durable preparation, submission and verification. It covers
-different slots and deployments on the same chain. A concurrent call either waits or is
-refused, depending on the store; the file store refuses with `StoreLockedError`.
+different slots and deployments on the same chain. A concurrent call in the same process
+waits its turn. One in another process waits or is refused, depending on the store: the
+file store waits up to its `lockWaitMs` (default 10 s), then refuses with `StoreLockedError`.
 Unrelated CLI, wallet and low-level `reservePaidOperation` writes are outside this lock.
 
 Once preparation claims a payer, any uncertain outcome retains that claim across restart.

@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, it} from 'vitest'
-import {mkdtemp, rm, stat, readdir, symlink, readFile, chmod} from 'node:fs/promises'
+import {mkdtemp, rm, stat, readdir, symlink, readFile, chmod, writeFile, unlink} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createFileStore, StoreLockedError} from '../../src/app/node.js'
@@ -62,5 +62,46 @@ describe('private application file store', () => {
       await expect(createFileStore(dir).withLock('stale', async () => {})).rejects.toThrow('reconcile')
       expect(await readFile(join(dir, 'stale.lock'), 'utf8')).toBe(beforeLock)
     })
+  })
+  it('queues concurrent locks on one key within the process in call order, never refusing', async () => {
+    const dir = await directory(), stores = [createFileStore(dir), createFileStore(dir)]
+    let inside = 0, most = 0
+    const order: number[] = []
+    const results = await Promise.all(Array.from({length: 32}, (_, i) => stores[i % 2]!.withLock('paid-op-index', async () => {
+      inside++; most = Math.max(most, inside)
+      await new Promise(done => setTimeout(done, 1))
+      order.push(i); inside--
+      return i
+    })))
+    expect(results).toEqual(Array.from({length: 32}, (_, i) => i))
+    expect(order).toEqual(results)
+    expect(most).toBe(1)
+    expect(await readdir(dir)).toEqual([])
+  })
+  it('waits a bounded time for a lock another process holds, then refuses and leaves it untouched', async () => {
+    const dir = await directory(), store = createFileStore(dir, {lockWaitMs: 150})
+    await store.save('seed', 1)
+    // A lock file this process did not create: another process holds it (or crashed holding it).
+    await writeFile(join(dir, 'payer.lock'), '{"pid":1}', {mode: 0o600})
+    const started = Date.now()
+    await expect(store.withLock('payer', async () => 1)).rejects.toBeInstanceOf(StoreLockedError)
+    expect(Date.now() - started).toBeGreaterThanOrEqual(140)
+    expect(await readFile(join(dir, 'payer.lock'), 'utf8')).toBe('{"pid":1}')
+    await expect(createFileStore(dir, {lockWaitMs: 0}).withLock('payer', async () => 1)).rejects.toBeInstanceOf(StoreLockedError)
+    // Released by its holder while this one waits: acquired.
+    setTimeout(() => { void unlink(join(dir, 'payer.lock')) }, 40)
+    expect(await createFileStore(dir, {lockWaitMs: 5_000}).withLock('payer', async () => 7)).toBe(7)
+    expect(() => createFileStore(dir, {lockWaitMs: -1})).toThrow('lock wait')
+  })
+  it('refuses a nested lock on a held key at once, but not a later lock from the same call chain', async () => {
+    const dir = await directory(), store = createFileStore(dir)
+    let later: Promise<number> | undefined
+    await store.withLock('journal', async () => {
+      await expect(store.withLock('journal', async () => 1)).rejects.toBeInstanceOf(StoreLockedError)
+      // Started inside the lock, run after it is released: it queues and is granted.
+      later = new Promise<void>(done => setTimeout(done, 20)).then(() => store.withLock('journal', async () => 2))
+      expect(await store.withLock('other', async () => 3)).toBe(3)
+    })
+    expect(await later).toBe(2)
   })
 })
