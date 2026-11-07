@@ -152,8 +152,13 @@ export interface RegisteredPaidAgentSession {
   rejectProposal(id: string, signal?: AbortSignal): Promise<void>
   /** Fetch and independently verify the drawn signer's JAR and every bound session claim before exposing a QR. */
   requestObject(signal?: AbortSignal): Promise<{request: VerifiedRequestObject; requestUri: string; qrPayload: string}>
-  /** Poll the original provider and verify a completed token against the anchored draw and application's rule hash. */
-  poll(signal?: AbortSignal): Promise<SessionStatusResult>
+  /**
+   * Poll the original provider and verify a completed token against the anchored draw and application's rule hash.
+   * With `wait`, ask the agent to hold the reply until the session's status or phase changes
+   * (`?wait=1`, at most 20 s); an agent without long-poll support answers at once. A session whose
+   * attempt budget is under 25 s never asks for a hold.
+   */
+  poll(signal?: AbortSignal, options?: {wait?: boolean}): Promise<SessionStatusResult>
   /** Pacing this session applies to definite 429/503 refusals (present on sessions from {@link prepareRegisteredPaidSession}). */
   readonly pacing?: Readonly<{clock: PaidPacingClock; attemptBudgetMs: number}>
   /** Sign (once) the approval {@link RegisteredPaidAgentSession.approveRequest} would send, without sending it. Retain it durably before the first send. */
@@ -169,6 +174,9 @@ export interface RegisteredPaidAgentSession {
   /** Read one delivery's state (`pending`, `approved`, `dispatched`, `finished`, …); repeated on 429/503 inside the session expiry. */
   approvalState?(proposalId: string, signal?: AbortSignal): Promise<string>
 }
+
+/** Smallest attempt budget that fits the agent's 20 s long-poll hold plus network headroom. */
+const HELD_POLL_MIN_BUDGET_MS = 25_000
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)
@@ -548,8 +556,10 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     if(!p256.verify(b64urlDecode(proof.split('.')[2]!),sha256(new TextEncoder().encode(proof.split('.').slice(0,2).join('.'))),publicKey,{lowS:false}))throw new Error('Invalid original DPoP signature')
   }
   let oauthSubmitted=false
-  const poll = async (signal?:AbortSignal):Promise<SessionStatusResult> => {
-    const response = await read('GET /v1/sessions/{id}','/v1/sessions/'+sessionId,signal);ok(response,[200])
+  const poll = async (signal?:AbortSignal,options?:{wait?:boolean}):Promise<SessionStatusResult> => {
+    // A held poll needs an attempt budget above the agent's 20 s hold.
+    const held=options?.wait===true&&attemptBudgetMs>=HELD_POLL_MIN_BUDGET_MS
+    const response = await read('GET /v1/sessions/{id}','/v1/sessions/'+sessionId+(held?'?wait=1':''),signal);ok(response,[200])
     const raw = decode(response.body)
     // A malformed status list is a typed `revocation_status_invalid` preflight refusal, checked
     // before the generic protocol parse would fold it into a session error.
@@ -623,7 +633,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
         || reply.qr_payload!=null || (params.kind!=='oauth' && reply.request_uri!==requestUri)) throw new Error('Initialized paid creation reply changed identity, owner or provider')
       if(params.kind==='oauth'&&(reply.nonce!==nonce||reply.dpop_htu!==oauthContext.dpopHtu||reply.platform_audience!==oauthContext.platformAudience||reply.request_uri!=null))throw new Error('OAuth creation reply changed its original nonce or audience')
       checkContext(reply.execution_context)
-    },reconcile:poll,poll,
+    },reconcile:(signal?:AbortSignal)=>poll(signal),poll,
     async proposals(signal?:AbortSignal) {
       const response=await read('GET /v1/sessions/{id}/execution','/v1/sessions/'+sessionId+'/execution',signal);ok(response,[200])
       const values=decode(response.body).proposals

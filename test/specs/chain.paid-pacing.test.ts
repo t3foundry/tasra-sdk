@@ -110,3 +110,13 @@ it('the browser paid transport surfaces a limiter 429 with its raw wait headers'
   expect(reply).toMatchObject({status: 429, retryAfter: '1', rateLimitAfter: '2', retryAfterMs: 1000})
   expect(paidResponseWaitMs(reply)).toBe(2000)
 })
+
+it('permits ?wait=1 only on the owner session status read', () => {
+  const base = 'https://agent.example/v1/sessions/' + 'ab'.repeat(32), bearer = 'cd'.repeat(32)
+  expect(serviceRequestShape('paid-agent', base + '?wait=1', {maxBytes: 1024, bearer, method: 'GET'}).method).toBe('GET')
+  for (const url of [base + '?wait=1&x=1', base + '?wait=2', base + '/execution?wait=1', 'https://agent.example/v1/request/' + 'ab'.repeat(32) + '?wait=1'])
+    expect(() => serviceRequestShape('paid-agent', url, {maxBytes: 1024, bearer, method: 'GET'})).toThrow()
+  // Still an owner read: no bearer or a body is refused.
+  expect(() => serviceRequestShape('paid-agent', base + '?wait=1', {maxBytes: 1024, method: 'GET'})).toThrow()
+  expect(() => serviceRequestShape('paid-agent', base + '?wait=1', {maxBytes: 1024, bearer, method: 'POST', body: new Uint8Array([1])})).toThrow()
+})

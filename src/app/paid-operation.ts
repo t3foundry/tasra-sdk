@@ -81,7 +81,12 @@ export interface PaidOperationConfig {
   fetch?: typeof fetch
   /** Longest wait for the current epoch's snapshots to be anchored, ms (default 180000, max 300000). */
   snapshotWaitMs?: number
-  /** Poll interval while waiting on the agent, ms (default 1000). Agent Retry-After hints take precedence. */
+  /**
+   * Poll interval while waiting on the agent with nothing else to go on, ms (default 1000): a wallet
+   * callback, or proposals not yet listed. Agent Retry-After hints take precedence. Approved
+   * proposals and sent continuations are read back at once, and while the committee works the
+   * session status is long-polled (`?wait=1`) instead.
+   */
   pollIntervalMs?: number
   /**
    * Accept a grant WITHOUT revocation-status attestations (with a warning), only for a deployment

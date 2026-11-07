@@ -48,7 +48,8 @@ export function serviceRequestShape(mode: ServiceTransportMode, url: string, {bo
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > (recovery ? 16 * 1024 * 1024 : paid ? 10 * 1024 * 1024 : agent || wallet ? 1_048_576 : relay ? voucherIntent ? 65_536 : 4_096 : 16_384) || body && body.length > (recovery ? 65_536 : paid ? 2 * 1024 * 1024 : wallet ? 1_048_576 : agent || relay ? 65_536 : 2_048)) throw new Error('Invalid service HTTP bounds')
   const recoverySuffix = url.match(/\/v1\/prepaid\/execution(?:\/recover)?$/)?.[0]
   if (recovery && (!recoverySuffix || method !== 'POST' || !body || bearer !== undefined || oauth !== undefined)) throw new Error('Invalid keeper recovery path, method or body')
-  const paidSuffix = url.match(/(?:\/v1\/request\/[0-9a-f]{64}|\/v1\/sessions(?:\/[0-9a-f]{64}(?:\/(?:oauth-response|execution(?:\/[0-9a-f]{64}(?:\/(?:approve|reject))?)?|presentations(?:\/[0-9a-f]{64}\/resume)?))?)?)$/)?.[0]
+  // `?wait=1` (a held status poll) is the only query, and only on the owner session status read.
+  const paidSuffix = url.match(/(?:\/v1\/request\/[0-9a-f]{64}|\/v1\/sessions(?:\/[0-9a-f]{64}(?:\?wait=1|\/(?:oauth-response|execution(?:\/[0-9a-f]{64}(?:\/(?:approve|reject))?)?|presentations(?:\/[0-9a-f]{64}\/resume)?))?)?)$/)?.[0]
   const paidCreate = paid && paidSuffix === '/v1/sessions'
   const paidJar = paid && paidSuffix?.startsWith('/v1/request/') === true
   const paidOauth = paid && paidSuffix?.endsWith('/oauth-response') === true

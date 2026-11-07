@@ -88,7 +88,7 @@ async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestat
         request_uri:kind==='wallet'?endpoint+'/v1/request/'+sessionId:null,qr_payload:null,nonce:kind==='oauth'?nonce:null,
         dpop_htu:kind==='oauth'?endpoint+'/v1/sessions/'+sessionId+'/oauth-response':null,platform_audience:kind==='oauth'?endpoint+'/authz/43112':null})}
     }
-    if(url===endpoint+'/v1/sessions/'+sessionId)return {status:200,body:bytes({status:'pending',phase:'awaiting_wallet',execution_context:context,binding_preimage:context?.binding_preimage})}
+    if(url===endpoint+'/v1/sessions/'+sessionId||url===endpoint+'/v1/sessions/'+sessionId+'?wait=1')return {status:200,body:bytes({status:'pending',phase:'awaiting_wallet',execution_context:context,binding_preimage:context?.binding_preimage})}
     return {status:204,body:new Uint8Array()}
   })}
   const prepare=(signal?:AbortSignal)=>prepareRegisteredPaidSession(chain,{profile,deployment,transport,members,ruleHash:h(33),dcqlQuery:{credentials:[{id:'all',format:'dc+sd-jwt'}]},
@@ -801,4 +801,17 @@ it('checks the provider registration with one latest read before every agent req
   read.mockResolvedValueOnce({...f.record,status:2})
   await expect(f.session.poll()).rejects.toThrow('Original paid agent provider changed')
   expect(send).toHaveBeenCalledTimes(requests)
+})
+
+it('asks for a held status poll only when the attempt budget fits the agent hold',async()=>{
+  const f=await fixture(), send=vi.mocked(f.transport.paidAgentRequest)
+  await f.session.create()
+  await f.session.poll(undefined,{wait:true})
+  expect(send.mock.calls.at(-1)![0]).toBe(f.profile.endpoint+'/v1/sessions/'+f.session.sessionId+'?wait=1')
+  await f.session.poll()
+  expect(send.mock.calls.at(-1)![0]).toBe(f.profile.endpoint+'/v1/sessions/'+f.session.sessionId)
+  const short=await fixture('wallet',undefined,{attemptBudgetMs:20_000}), shortSend=vi.mocked(short.transport.paidAgentRequest)
+  await short.session.create()
+  await short.session.poll(undefined,{wait:true})
+  expect(shortSend.mock.calls.at(-1)![0]).toBe(short.profile.endpoint+'/v1/sessions/'+short.session.sessionId)
 })

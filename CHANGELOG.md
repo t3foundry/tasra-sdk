@@ -39,6 +39,17 @@ never does.
   (except by the one-time `backfill`). `listPaidOperations` lists an id once. An older SDK
   reading a store written by this one lists only the operations indexed before the upgrade;
   their journals, and `paidOperationPhase`, are unaffected.
+- `drivePaidSession` (and so `paidOperation`) no longer sleeps between approval rounds when
+  something else signals progress. After it approves the proposals a 425 asked for, it fetches
+  the request object again at once (that fetch dispatches them); after it sends a
+  continuation, it reads the session back at once. While committee work is in flight
+  (phase `verifying`) it holds one status poll (`?wait=1`) and continues on the agent's
+  answer; an agent that answers at once unchanged (no long-poll support) is paced as before,
+  and a held request that fails in transport is replaced by one plain poll. The
+  `pollIntervalMs` / `wait` pacing still applies while the drive waits for a wallet callback
+  or for proposals not yet listed. `RegisteredPaidAgentSession.poll` takes
+  `{wait: true}`; a session whose attempt budget is under 25 s never asks for a hold. The
+  paid transports accept `?wait=1` on the owner session status read only.
 - The chain ID of an HTTP or WebSocket client is asked once per client on the paid path
   (paid reads, reservations, billing detection, service authentication, the app client's
   chain check) instead of before every read; an injected wallet transport, which can switch

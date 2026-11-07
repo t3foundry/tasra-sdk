@@ -69,7 +69,12 @@ export interface PaidSessionDriverOptions {
   signal: AbortSignal
   /** Holder strategy. */
   holder: PaidSessionHolder
-  /** Wait between polls; receives the agent's Retry-After hint when it sent one. */
+  /**
+   * Wait between polls when nothing else signals progress; receives the agent's Retry-After hint
+   * when it sent one. While committee work is in flight (phase `verifying`) the driver holds a
+   * status poll instead (`?wait=1`) and continues as soon as the agent answers a change; right
+   * after it approved new proposals it continues at once.
+   */
   wait(retryAfterMs?: number): Promise<void>
   /** Observe the verified request before any credential is disclosed (receives a detached copy). */
   observeRequest?(request: VerifiedRequestObject): void | Promise<void>
@@ -91,6 +96,9 @@ export class PaidSessionRecoveryError extends Error {
     this.name = 'PaidSessionRecoveryError'
   }
 }
+
+/** A held status poll that took this long ended on the agent's hold timer (20 s), not on a change. */
+const HELD_POLL_ENDED_MS = 15_000
 
 const ABSENT_ANCHORS = ['no anchored verifier and accountant snapshots', 'no current or previous anchored verifier and accountant snapshots']
 
@@ -213,12 +221,36 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
   }
   const pendingConsent = (error: unknown) => error instanceof PaidAgentControlError
     && error.sessionId === session.sessionId && error.httpStatus === 425
-  const checkedPoll = async () => {
+  const checkedPoll = async (held = false) => {
     signal.throwIfAborted()
-    const status = await session.poll(signal)
+    const status = await (held ? session.poll(signal, {wait: true}) : session.poll(signal))
     if (status.status === 'failed') throw new VerifierAgentSessionError('refused', session.sessionId,
       'Original paid credential verification refused' + (status.error ? ': ' + status.error.slice(0, 500) : ''))
     return status
+  }
+  /**
+   * Wait, when this drive has nothing to send, until the session may have moved past `last`.
+   * While committee work is in flight (`verifying`) its end is a status or phase change the agent
+   * announces, so one held poll waits for it (O(1) on the agent) and its answer is returned for the
+   * drive to continue on at once. A held answer that came back at once unchanged (an agent without
+   * long-poll support) falls back to the caller's pacing, so no agent is polled in a loop; a held
+   * request that failed in transport returns nothing and the caller's next plain poll decides, as
+   * before. In any other phase (waiting for a wallet callback, which the agent does not announce)
+   * the caller's pacing applies unchanged. Returns the held answer, or undefined when it did not poll.
+   */
+  const settle = async (last: SessionStatusResult, hint?: number): Promise<SessionStatusResult | undefined> => {
+    if (last.phase === 'verifying') {
+      const started = Date.now()
+      let next: SessionStatusResult
+      try { next = await checkedPoll(true) }
+      catch (error) {
+        if (signal.aborted || error instanceof VerifierAgentSessionError || error instanceof PaidAgentControlError) throw error
+        return undefined
+      }
+      if (next.status !== 'pending' || next.phase !== last.phase || Date.now() - started >= HELD_POLL_ENDED_MS) return next
+    }
+    await wait(hint)
+    return undefined
   }
   const resumeCallback = async (callback: string, approved: ClientApprovedPresentation) => {
     try {await session.resumePresentation(callback, approved, signal)}
@@ -253,9 +285,11 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
     try { opened = await session.requestObject(signal); break }
     catch (error) {
       if (!pendingConsent(error)) throw error
-      await checkedPoll()
-      await approve()
-      await wait((error as PaidAgentControlError).retryAfterMs)
+      const status = await checkedPoll()
+      // 425 with proposals: once they are approved the next request-object fetch dispatches them
+      // (and waits for the signer), so fetch again at once. Otherwise wait for the session to move.
+      if (await approve() > 0) continue
+      await settle(status, (error as PaidAgentControlError).retryAfterMs)
     }
   }
   const request = opened.request
@@ -295,10 +329,12 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
 
   let callback: string | undefined
   let approvedCredentialCount = 0
+  let status = await checkedPoll()
   for (;;) {
     signal.throwIfAborted()
-    const status = await checkedPoll()
     if (status.status === 'done') return status
+    // Whether this round sent a write: its effect is read back at once instead of after a wait.
+    let progressed = false
     const retainedCandidates = await session.presentations(signal)
     for (const candidate of retainedCandidates) {
       if (!accepted) {
@@ -320,14 +356,16 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
       if (!initial) {
         // HTTP 425 is an explicit refusal to dispatch without client approval. It creates
         // credential proposals; unknown transport outcomes still stop here.
-        await attempt('resume-initial', {callback, approved}, () => resumeCallback(callback!, approved))
+        progressed = await attempt('resume-initial', {callback, approved}, () => resumeCallback(callback!, approved))
       } else if (initial.phase !== 'confirmed') throw new PaidSessionRecoveryError(prefix + '-resume-initial', 'Original continuation outcome is unknown; reconcile it')
       const approvals = await approve(approved)
       if (approvals > 0) {
         approvedCredentialCount += approvals
         await attempt('resume-' + approvedCredentialCount, {callback, approved}, () => resumeCallback(callback!, approved))
+        progressed = true
       }
     }
-    await wait()
+    // Each write is sent once, so `progressed` is true a bounded number of times.
+    status = (progressed ? undefined : await settle(status)) ?? await checkedPoll()
   }
 }

@@ -25,7 +25,10 @@ function fixture() {
   } as unknown as RegisteredPaidAgentSession
   const members = [{index: 0, operator: ('0x' + '11'.repeat(20)) as Hex, publicKey: key, proof: []}]
   const waits: (number | undefined)[] = []
-  const base = {session, store, members, signal: new AbortController().signal, wait: vi.fn(async (hint?: number) => { waits.push(hint) })}
+  const base = {session, store, members, signal: new AbortController().signal, wait: vi.fn(async (hint?: number) => {
+    // A drive that keeps sleeping without progress is a defect, never a slow agent: stop it.
+    if (waits.push(hint) > 50) throw new Error('drive kept waiting without progress')
+  })}
   return {id, store, session, base, calls, presentation, waits, wallet: () => { sent = true }}
 }
 
@@ -71,7 +74,57 @@ it('drives an external wallet: shows the request, lets the client accept the ret
   expect(accept).toHaveBeenCalledTimes(1)
   expect(vi.mocked(f.session.approveCredentials).mock.calls[0]![2]).toEqual(f.presentation.approved)
   expect(f.calls).toEqual(['create', 'jar', 'resume', 'credential', 'resume'])
-  expect(f.waits[0]).toBe(5) // the agent's Retry-After hint paces the consent wait
+  // Approved proposals and sent continuations are read back at once, never after a sleep.
+  expect(f.waits).toEqual([])
+})
+
+it('fetches the request object again at once after approving 425 proposals; uses the agent hint only when nothing was approved', async () => {
+  const f = fixture()
+  const holder = {kind: 'local' as const, makePresentation: () => structuredClone(f.presentation), submit: async () => {f.wallet()}}
+  // First 425: the agent lists nothing to approve yet, so the consent wait uses its Retry-After hint.
+  vi.mocked(f.session.proposals).mockResolvedValueOnce([])
+  expect((await drivePaidSession({...f.base, holder})).status).toBe('done')
+  expect(f.waits).toEqual([5])
+  expect(f.session.requestObject).toHaveBeenCalledTimes(3)
+  expect(f.calls).toEqual(['create', 'jar', 'resume', 'credential', 'resume'])
+})
+
+it('holds one status poll while committee work is in flight and continues on its answer', async () => {
+  const f = fixture()
+  const holder = {kind: 'local' as const, makePresentation: () => structuredClone(f.presentation), submit: async () => {f.wallet()}}
+  const poll = vi.mocked(f.session.poll), original = poll.getMockImplementation()!
+  // The verifiers are still working after the credential continuation: plain polls show
+  // `verifying` until the held poll answers the completed session.
+  let held = false
+  poll.mockImplementation(async (signal, options) => {
+    const status = await original(signal)
+    if (status.status !== 'done') return status
+    if (options?.wait) { held = true; return status }
+    return held ? status : {status: 'pending', phase: 'verifying'}
+  })
+  expect((await drivePaidSession({...f.base, holder})).status).toBe('done')
+  expect(poll.mock.calls.filter(([, options]) => options?.wait === true)).toHaveLength(1)
+  expect(f.waits).toEqual([])
+})
+
+it.each(['unsupported', 'transport'] as const)('falls back when a held poll is %s: pacing for an unchanged instant answer, a plain poll for a transport failure', async mode => {
+  const f = fixture()
+  const holder = {kind: 'local' as const, makePresentation: () => structuredClone(f.presentation), submit: async () => {f.wallet()}}
+  const poll = vi.mocked(f.session.poll), original = poll.getMockImplementation()!
+  let plainAfterDone = 0, heldFailed = false
+  poll.mockImplementation(async (signal, options) => {
+    const status = await original(signal)
+    if (status.status !== 'done') return status
+    if (options?.wait) {
+      if (mode === 'transport') { heldFailed = true; throw new Error('socket hang up') }
+      return {status: 'pending', phase: 'verifying'}
+    }
+    return (mode === 'transport' ? heldFailed : ++plainAfterDone > 2) ? status : {status: 'pending', phase: 'verifying'}
+  })
+  expect((await drivePaidSession({...f.base, holder})).status).toBe('done')
+  const heldCalls = poll.mock.calls.filter(([, options]) => options?.wait === true).length
+  if (mode === 'unsupported') { expect(f.waits).toEqual([undefined, undefined]); expect(heldCalls).toBe(2) }
+  else { expect(f.waits).toEqual([]); expect(heldCalls).toBe(1) }
 })
 
 it('refuses a retained wallet presentation the client does not accept, without resuming it', async () => {
