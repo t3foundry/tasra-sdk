@@ -67,6 +67,11 @@ never does.
   directory instead of after it, and returns the slot's `ruleCommitment` from the same
   canonical slot read; `paidOperation` checks the rule against it instead of reading the
   slot again by number (a context without it is still read again, as before).
+- A reservation sends its pre-broadcast observations together (quote digest, prior cost,
+  slot, simulation and the four fee reads, formerly four sequential steps) and, after the
+  receipt, reads the mined transaction, the reservation and the mined block together.
+  Each answer is judged in the original order, so the same answer refuses with the same
+  error; the quote-block recheck before signing and the single broadcast are unchanged.
 - Paid reservations and prepaid escapes see their transaction mined sooner, with fewer
   requests: the receipt itself is asked for at once and then after 250 ms, growing by half
   up to 1 s, instead of a head read every second followed by a transaction and receipt

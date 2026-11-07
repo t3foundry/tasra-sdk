@@ -516,27 +516,35 @@ async function reserveOnce(
     if (result.data === undefined) throw new Error('empty reservation observation')
     return result.data
   }
-  const digest = decodeFunctionResult({abi: settlementAbi, functionName: 'prepaidReserveDigest', data: await call(d.settlement,
-    encodeFunctionData({abi: settlementAbi, functionName: 'prepaidReserveDigest', args}))})
+  // Every observation below is independent of the others: they are sent together and judged in the
+  // order they were once read one by one, so the same answer refuses with the same error.
+  const settled = <T>(work: Promise<T>) => work.then(value => ({value}), (error: unknown) => ({error}))
+  const outcome = <T>(result: {value: T} | {error: unknown}): T => { if ('error' in result) throw result.error; return result.value }
+  const [digestRead, costRead, slotRead, simulation, feeReads] = await Promise.all([
+    settled(call(d.settlement, encodeFunctionData({abi: settlementAbi, functionName: 'prepaidReserveDigest', args}))),
+    settled(call(d.settlement, encodeFunctionData({abi: settlementAbi, functionName: 'prepaidCost', args: [payment.slot, requestId]}))),
+    settled(call(d.keyRegistry, encodeFunctionData({abi: keyRegistryAbi, functionName: 'getKeySlot', args: [payment.slot]}))),
+    // Contract simulation verifies the accountant threshold signature and reservation state without gas.
+    settled(client.call({to: d.settlement, data, account: payer, blockHash: quote.quote_block, requireCanonical: true, batch: false})),
+    settled(Promise.all([
+      // A local Account makes viem prepare EIP-1559 fees during estimation, but
+      // this flow signs a bounded legacy transaction below. Estimate execution
+      // with zero simulation fees, then check the actual legacy gas cost. Without
+      // this separation a balance-capped BN254 precompile can report BadSignature.
+      client.getGasPrice(), client.estimateGas({account: payer.address, to: d.settlement, data, value: 0n, gasPrice: 0n, type: 'legacy'}),
+      client.getTransactionCount({address: payer.address, blockTag: 'pending'}),
+      client.getBalance({address: payer.address, blockTag: 'pending'}),
+    ])),
+  ])
+  const digest = decodeFunctionResult({abi: settlementAbi, functionName: 'prepaidReserveDigest', data: outcome(digestRead)})
   if (!same(digest, quote.digest)) throw new Error('deployment reservation digest mismatch')
-  const previousCost = decodeFunctionResult({abi: settlementAbi, functionName: 'prepaidCost', data: await call(d.settlement,
-    encodeFunctionData({abi: settlementAbi, functionName: 'prepaidCost', args: [payment.slot, requestId]}))})
+  const previousCost = decodeFunctionResult({abi: settlementAbi, functionName: 'prepaidCost', data: outcome(costRead)})
   if (previousCost !== 0n) throw new Error('operation already reserved; inspect its receipt instead of spending again')
-  const slot = decodeFunctionResult({abi: keyRegistryAbi, functionName: 'getKeySlot', data: await call(d.keyRegistry,
-    encodeFunctionData({abi: keyRegistryAbi, functionName: 'getKeySlot', args: [payment.slot]}))})
+  const slot = decodeFunctionResult({abi: keyRegistryAbi, functionName: 'getKeySlot', data: outcome(slotRead)})
   const creator = await recoverTypedDataAddress({...paymentIntentTypedData(payment), signature: payment.signature})
   if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= BigInt(now())) || !same(creator, slot.creator)) throw new Error('reservation intent is not from an active slot creator')
-  // Contract simulation verifies the accountant threshold signature and reservation state without gas.
-  await client.call({to: d.settlement, data, account: payer, blockHash: quote.quote_block, requireCanonical: true, batch: false})
-  const [gasPrice, gas, nonce, balance] = await Promise.all([
-    // A local Account makes viem prepare EIP-1559 fees during estimation, but
-    // this flow signs a bounded legacy transaction below. Estimate execution
-    // with zero simulation fees, then check the actual legacy gas cost. Without
-    // this separation a balance-capped BN254 precompile can report BadSignature.
-    client.getGasPrice(), client.estimateGas({account: payer.address, to: d.settlement, data, value: 0n, gasPrice: 0n, type: 'legacy'}),
-    client.getTransactionCount({address: payer.address, blockTag: 'pending'}),
-    client.getBalance({address: payer.address, blockTag: 'pending'}),
-  ])
+  outcome(simulation)
+  const [gasPrice, gas, nonce, balance] = outcome(feeReads)
   if (gas <= 0n || gas > opts.maxGas || gasPrice <= 0n || gasPrice > opts.maxGasPrice) throw new Error('reservation exceeds native gas budget')
   const requiredNativeUnits = gas * gasPrice
   if (balance < requiredNativeUnits) throw new UnderfundedGasPayerError({payer: payer.address, availableNativeUnits: balance, requiredNativeUnits})
@@ -584,14 +592,19 @@ async function reserveOnce(
     const sent = transactionHash
     const mined = await untilAborted(pollTransactionReceipt(client, sent, {confirmations, timeoutMs: receiptTimeout, signal}), signal)
     if (!same(mined.transactionHash, transactionHash) || mined.status !== 'success') throw new Error('reservation transaction reverted or was replaced')
-    const transaction = await untilAborted(client.getTransaction({hash: sent}), signal)
+    // The mined transaction, the reservation it made and its block are read together, and judged
+    // in the order they were once read one by one.
+    const [transactionRead, receiptRead, minedBlockRead] = await untilAborted(Promise.all([
+      settled(client.getTransaction({hash: sent})), settled(readPaidOperationReceipt(client, d, payment, operation)),
+      settled(client.getBlock({blockNumber: mined.blockNumber}))]), signal)
+    const transaction = outcome(transactionRead)
     if (transaction.to === null || !same(transaction.to, d.settlement) || !same(transaction.from, record.transaction.from)
       || !same(transaction.input, data) || transaction.value !== 0n || transaction.nonce !== nonce
       || transaction.type !== 'legacy' || transaction.gas !== gas || transaction.gasPrice !== gasPrice || transaction.chainId !== d.chainId
       || transaction.blockHash === null || !same(transaction.blockHash, mined.blockHash)) throw new Error('mined transaction differs from the durable reservation')
-    const receipt = await untilAborted(readPaidOperationReceipt(client, d, payment, operation), signal)
+    const receipt = outcome(receiptRead)
     if (receipt.blockNumber < mined.blockNumber || receipt.cost !== BigInt(quote.costs[0]!) || !same(receipt.assignmentBlock, quote.quote_block)) throw new Error('mined reservation differs from the saved quote')
-    const minedBlock = await untilAborted(client.getBlock({blockNumber: mined.blockNumber}), signal)
+    const minedBlock = outcome(minedBlockRead)
     if (minedBlock.hash === null || !same(minedBlock.hash, mined.blockHash)) throw new Error('reservation receipt reorganized')
     await opts.persist({phase: 'confirmed', requestId, transactionHash, blockHash: mined.blockHash})
     return {transactionHash, receipt}

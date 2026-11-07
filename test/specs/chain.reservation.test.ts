@@ -21,6 +21,8 @@ const expected = {slot: h(3), action: 'sign' as const, payloadDigest: h(4)}
 const chain = defineChain({id: 43112, name: 'local', nativeCurrency: {name: 'AVAX', symbol: 'AVAX', decimals: 18}, rpcUrls: {default: {http: ['http://127.0.0.1:1']}}})
 const encoded = (abi: Abi, functionName: string, result: unknown) => encodeFunctionResult({abi, functionName, result})
 interface Changes {
+  /** Answer every RPC a macrotask later and record how many were in flight at once. */
+  overlap?: {active: number; most: number}
   paymentNonce?: Hex; payerNonce?: number; applicationJournal?: boolean
   session?: {random: Hex; audience: string}
   quote?: (quote: PaidReservationQuote, method: string, index: number) => void
@@ -63,7 +65,13 @@ async function fixture(change: Changes = {}) {
     return change.response?.clone() ?? Response.json(result)
   })
   vi.stubGlobal('fetch', fetcher)
-  const transport = custom({request: async ({method, params}: {method: string; params?: unknown}) => {
+  const answer = async ({method, params}: {method: string; params?: unknown}): Promise<unknown> => {
+    if (!change.overlap) return respond({method, params})
+    const o = change.overlap
+    o.most = Math.max(o.most, ++o.active)
+    try { await new Promise(resolve => setTimeout(resolve, 1)); return await respond({method, params}) } finally { o.active-- }
+  }
+  const respond = async ({method, params}: {method: string; params?: unknown}): Promise<unknown> => {
     trace.push(method)
     if (method === 'eth_chainId') {change.onChainId?.(); return toHex(change.chain ?? 43112)}
     if (method === 'eth_getBlockByHash') return {number: '0x13', hash: h(19), timestamp: toHex(change.stale ? 960 : 1000), transactions: []}
@@ -124,7 +132,8 @@ async function fixture(change: Changes = {}) {
     }
     if (method === 'eth_getTransactionReceipt') return change.receiptMissing ? null : {transactionHash, blockHash: h(20), blockNumber: '0x14', transactionIndex: '0x0', from: creator.address, to: deployment.settlement, cumulativeGasUsed: '0x186a0', gasUsed: '0x186a0', contractAddress: null, logs: [], logsBloom: '0x' + '00'.repeat(256), status: change.reverted ? '0x0' : '0x1', effectiveGasPrice: '0x19', type: '0x0'}
     throw new Error(`unexpected RPC ${method}`)
-  }}, {retryCount: 0})
+  }
+  const transport = custom({request: answer}, {retryCount: 0})
   const client = createPublicClient({chain, transport})
   const wallet = createWalletClient({chain, account: change.localSigner ? creator : creator.address, transport})
   const options: ReservePaidOperationOptions = {accountantUrls: ['https://acct0.example', 'https://acct1.example'], maxGas: 200000n, maxGasPrice: 50n,
@@ -144,6 +153,15 @@ async function fixture(change: Changes = {}) {
     recover: (confirmations = 1) => reconcilePaidReservation(client, deployment, record(), expected, transactionHash, confirmations)}
 }
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it('sends the pre-broadcast observations together and the post-receipt reads together', async () => {
+  const overlap = {active: 0, most: 0}
+  const f = await fixture({localSigner: true, overlap})
+  await f.run()
+  // Digest, prior cost, slot, simulation and the four fee reads at once (8); before, one at a time.
+  expect(overlap.most).toBeGreaterThanOrEqual(8)
+  expect(f.transactions).toHaveLength(1)
+})
 
 it('reports insufficient native gas separately from TASRA before preparation or broadcast', async () => {
   const f = await fixture({localSigner: true, gas: 100000n, price: 25n, balance: 2499999n})
