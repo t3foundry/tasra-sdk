@@ -105,7 +105,7 @@ function cachedAnchor(client: PublicClient, key: string): AnchorAtHash | undefin
 }
 function keepAnchor(client: PublicClient, key: string, value: AnchorAtHash): void {
   let known = anchors.get(client)
-  if (!known) anchors.set(client, known = new Map())
+  if (!known) anchors.set(client, known = new Map<string, AnchorAtHash>())
   known.delete(key)
   if (known.size >= MAX_CACHED_ANCHORS) known.delete(known.keys().next().value as string)
   known.set(key, value)

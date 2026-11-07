@@ -228,7 +228,7 @@ function nodeRegistryHint(client: PublicClient, keyRegistry: Address): Address |
 }
 function rememberNodeRegistry(client: PublicClient, keyRegistry: Address, nodes: Address): void {
   let hints = nodeRegistryHints.get(client)
-  if (!hints) nodeRegistryHints.set(client, hints = new Map())
+  if (!hints) nodeRegistryHints.set(client, hints = new Map<string, Address>())
   const key = keyRegistry.toLowerCase()
   hints.delete(key)
   if (hints.size >= MAX_NODE_REGISTRY_HINTS) hints.delete(hints.keys().next().value as string)
