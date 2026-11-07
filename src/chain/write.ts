@@ -101,6 +101,7 @@ import {
   type AddressBook,
   type VaultTranche,
 } from './deployments.js'
+import {WRITE_POLL_INTERVAL_MS} from './receipt.js'
 
 /**
  * The slot's key type, mirroring `KeyRegistry.Mode` on-chain:
@@ -558,7 +559,9 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
   // Reads and receipt-waiting always go through OUR PublicClient, never the
   // supplied wallet's transport - an injected provider is rate-limited, may be on
   // a different node, and can be unavailable while the user's tab is backgrounded.
-  const pub = createPublicClient({chain, transport: http(cfg.rpcUrl)}) as PublicClient
+  // Receipt waits poll every second (viem's default is 4 s without a chain block time); the
+  // block-number cache keeps viem's 4 s default so nothing else reads the head more often.
+  const pub = createPublicClient({chain, transport: http(cfg.rpcUrl), pollingInterval: WRITE_POLL_INTERVAL_MS, cacheTime: 4_000}) as PublicClient
   const addr = cfg.addresses
   const relay = cfg.relay
   let lastRelay: RelayReceipt | undefined

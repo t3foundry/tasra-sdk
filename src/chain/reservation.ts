@@ -6,6 +6,7 @@ import {readPaidOperationReceipt, type ExpectedPaidOperation, type PaidOperation
 import {PaidBackoffError, PaidReservationQuotaError, UnderfundedSlotError, UnderfundedGasPayerError} from '../errors.js'
 import {PaidBackoff, paidServerWaitMs, systemPacingClock, type PaidPacingClock} from './paidPacing.js'
 import {chainIdOf} from './chainId.js'
+import {pollTransactionReceipt} from './receipt.js'
 
 /** Accountant authorization for a single operation. This is not a mined reservation. */
 export interface PaidReservationQuote {
@@ -581,7 +582,7 @@ async function reserveOnce(
     await opts.persist({phase: 'submitted', requestId, transactionHash})
     // A broadcast transaction cannot be cancelled: an abort only ends this wait, as uncertain.
     const sent = transactionHash
-    const mined = await untilAborted(client.waitForTransactionReceipt({hash: sent, confirmations, timeout: receiptTimeout, pollingInterval: 1000, retryCount: 0}), signal)
+    const mined = await untilAborted(pollTransactionReceipt(client, sent, {confirmations, timeoutMs: receiptTimeout, signal}), signal)
     if (!same(mined.transactionHash, transactionHash) || mined.status !== 'success') throw new Error('reservation transaction reverted or was replaced')
     const transaction = await untilAborted(client.getTransaction({hash: sent}), signal)
     if (transaction.to === null || !same(transaction.to, d.settlement) || !same(transaction.from, record.transaction.from)

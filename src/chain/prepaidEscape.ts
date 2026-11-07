@@ -20,6 +20,7 @@ import {PrepaidEscapeError, PrepaidEscapeUncertainError, TasraError} from '../er
 import {revertData, revertError} from './revertReason.js'
 import {untilAborted} from './reservation.js'
 import {chainIdOf} from './chainId.js'
+import {pollTransactionReceipt} from './receipt.js'
 
 /** Most requests one `escapePrepaid` transaction may name (the contract's `MAX_ESCAPE_PER_CALL`). */
 export const MAX_ESCAPE_PER_CALL = 64
@@ -525,8 +526,7 @@ async function escapeCall(client: PublicClient, d: PrepaidEscapeDeployment, slot
     if (typeof transactionHash !== 'string' || !HEX32.test(transactionHash) || ZERO32.test(transactionHash)) throw new TasraError('invalid prepaid escape transaction hash')
     const sent = transactionHash
     await opts.persist({phase: 'submitted', escapeId, transactionHash: sent})
-    const mined = await untilAborted(client.waitForTransactionReceipt({hash: sent, confirmations: opts.confirmations, timeout: opts.receiptTimeout,
-      pollingInterval: 1000, retryCount: 0}), signal)
+    const mined = await untilAborted(pollTransactionReceipt(client, sent, {confirmations: opts.confirmations, timeoutMs: opts.receiptTimeout, signal}), signal)
     if (!same(mined.transactionHash, sent) || mined.status !== 'success') throw new TasraError('prepaid escape transaction reverted or was replaced')
     const transaction = await untilAborted(client.getTransaction({hash: sent}), signal)
     if (!sameTransaction(transaction, record.transaction) || transaction.blockHash === null || !same(transaction.blockHash, mined.blockHash)) throw new TasraError('mined transaction differs from the prepared escape')

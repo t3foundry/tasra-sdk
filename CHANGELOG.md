@@ -50,6 +50,12 @@ never does.
   or for proposals not yet listed. `RegisteredPaidAgentSession.poll` takes
   `{wait: true}`; a session whose attempt budget is under 25 s never asks for a hold. The
   paid transports accept `?wait=1` on the owner session status read only.
+- Paid reservations and prepaid escapes see their transaction mined sooner, with fewer
+  requests: the receipt itself is asked for at once and then after 250 ms, growing by half
+  up to 1 s, instead of a head read every second followed by a transaction and receipt
+  read. The deadline, single broadcast and every check of the mined transaction are
+  unchanged. The write client's and the application wallet's receipt waits poll every
+  second instead of viem's 4 s default (the head-number cache keeps its 4 s).
 - The chain ID of an HTTP or WebSocket client is asked once per client on the paid path
   (paid reads, reservations, billing detection, service authentication, the app client's
   chain check) instead of before every read; an injected wallet transport, which can switch

@@ -7,6 +7,7 @@ import {defineDeployment, type TasraDeployment} from './deployment.js'
 import type {AuthorizedOperationOptions, TasraApplication} from './client.js'
 import {toViemAccount} from './viem.js'
 import type {ApplicationStore} from './ready-slot.js'
+import {WRITE_POLL_INTERVAL_MS} from '../chain/receipt.js'
 
 /**
  * Recipient, native-token value and optional calldata, gas limit and nonce.
@@ -116,7 +117,7 @@ async function verifySignedTransaction(journal: WalletTransactionJournal) {
 }
 function wrap(deployment: TasraDeployment, wallet: TasraWallet['wallet'], local?: LocalAccount): TasraWallet {
   const config = defineDeployment(deployment), address = wallet.account.address
-  const pub = createPublicClient({chain: chainFor(config), transport: http(config.rpcUrl, {retryCount: 0})})
+  const pub = createPublicClient({chain: chainFor(config), transport: http(config.rpcUrl, {retryCount: 0}), pollingInterval: WRITE_POLL_INTERVAL_MS, cacheTime: 4_000})
   async function assertChain() {
     if (await pub.getChainId() !== config.chainId || await wallet.getChainId() !== config.chainId) throw new TasraError('Wallet or RPC chain differs from the deployment')
     if (!local && !(await wallet.getAddresses()).some(a => a.toLowerCase() === address.toLowerCase())) throw new TasraError('Connected wallet account changed')
