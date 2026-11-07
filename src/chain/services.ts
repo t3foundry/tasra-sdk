@@ -1,6 +1,7 @@
 import {encodeAbiParameters, keccak256, type Address, type Hex, type PublicClient, type ReadContractReturnType} from 'viem'
 import {serviceRegistryAbi} from './abis/serviceRegistry.js'
 import {requireAddress, type AddressBook} from './deployments.js'
+import {chainIdOf} from './chainId.js'
 
 /** Permanent ServiceRegistry ABI ordinals. Registration grants no operator privileges. */
 export const SERVICE_TYPES = {gasRelayer: 0, verifierAgent: 1, vaultService: 2} as const
@@ -168,7 +169,7 @@ export async function readApprovedServiceRecord(
 ): Promise<{record: ServiceRecord; blockNumber: bigint}> {
   const registry = requireAddress(chain.addresses, 'ServiceRegistry')
   if (registry.toLowerCase() !== approval.registry.toLowerCase()) throw new Error('Service registry approval mismatch')
-  const chainId = await chain.client.getChainId()
+  const chainId = await chainIdOf(chain.client)
   if (chainId !== approval.chainId || (chain.client.chain && chain.client.chain.id !== chainId)) {
     throw new Error('Service chain approval mismatch')
   }

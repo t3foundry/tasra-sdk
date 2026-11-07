@@ -25,6 +25,7 @@ import {resolvePaidKeeperTarget, type PaidKeeperEndpoint, type PaidKeeperTarget}
 import {createKeeperExecutionApprover,createKeeperExecutionApproverWithTarget,type KeeperExecutionClientConsent} from '../chain/keeperExecution.js'
 import {resolveKeeperMembers, withNetworkDeadline} from '../internal/network.js'
 import {SingleFlight} from '../internal/bounded.js'
+import {chainIdOf} from '../chain/chainId.js'
 
 /** Run independent reads together; on failure, surface the error of the first failing read in
  *  argument order, the one a sequential read would have reported. */
@@ -174,7 +175,7 @@ export function createTasra(config: TasraApplicationConfig) {
   // never reused, so every later check (including the post-authorization recheck) reads again.
   const slotReads = new SingleFlight<Awaited<ReturnType<typeof chain.readers.keyRegistry.getKeySlot>>>(1024)
   async function assertChain() {
-    if (await chain.client.getChainId() !== deployment.chainId) throw new TasraApplicationError('CHAIN_MISMATCH', 'RPC chain does not match the application deployment')
+    if (await chainIdOf(chain.client) !== deployment.chainId) throw new TasraApplicationError('CHAIN_MISMATCH', 'RPC chain does not match the application deployment')
   }
   /**
    * Read slot metadata after checking the deployment chain and slot status.

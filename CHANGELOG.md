@@ -39,6 +39,14 @@ never does.
   (except by the one-time `backfill`). `listPaidOperations` lists an id once. An older SDK
   reading a store written by this one lists only the operations indexed before the upgrade;
   their journals, and `paidOperationPhase`, are unaffected.
+- The chain ID of an HTTP or WebSocket client is asked once per client on the paid path
+  (paid reads, reservations, billing detection, service authentication, the app client's
+  chain check) instead of before every read; an injected wallet transport, which can switch
+  chains, is still asked every time, and a failed read is never kept. Every comparison with
+  the expected chain still runs on every use.
+- Registered verifier-agent sessions (paid and unpaid) check the provider's registration
+  before every request with one `getService` call at the latest block, instead of a head
+  number read followed by a call at that number.
 - `waitForSession` (and `awaitVerifierAgentResult`) see the wallet's result sooner. Each
   request asks for a long poll (`?wait=1`). A reply whose phase moved forward is followed
   by the next request at once, and so is an unchanged reply that took 15 s or more (the

@@ -19,6 +19,7 @@ import {settlementAbi} from './abis/settlement.js'
 import {PrepaidEscapeError, PrepaidEscapeUncertainError, TasraError} from '../errors.js'
 import {revertData, revertError} from './revertReason.js'
 import {untilAborted} from './reservation.js'
+import {chainIdOf} from './chainId.js'
 
 /** Most requests one `escapePrepaid` transaction may name (the contract's `MAX_ESCAPE_PER_CALL`). */
 export const MAX_ESCAPE_PER_CALL = 64
@@ -313,7 +314,7 @@ function fresh(at: At): void {
 }
 
 async function observeHead(client: PublicClient, d: PrepaidEscapeDeployment, depth = 0n): Promise<At> {
-  if (await client.getChainId() !== d.chainId) throw new TasraError('prepaid escape RPC chain mismatch')
+  if (await chainIdOf(client) !== d.chainId) throw new TasraError('prepaid escape RPC chain mismatch')
   const head = await client.getBlock({blockTag: 'latest'})
   if (head.number === null || head.hash === null || !HEX32.test(head.hash) || head.timestamp < 0n) throw new TasraError('prepaid escape canonical head unavailable')
   fresh({blockNumber: head.number, blockHash: head.hash, blockTimestamp: head.timestamp})
@@ -549,7 +550,7 @@ async function escape(client: PublicClient, d: PrepaidEscapeDeployment, original
   if (!Number.isSafeInteger(confirmations) || confirmations < 1 || confirmations > 64
     || !Number.isSafeInteger(receiptTimeout) || receiptTimeout < 1 || receiptTimeout > 120_000) throw new TasraError('Invalid prepaid escape confirmations or timeout')
   if (payer.type !== 'local' && payer.type !== 'json-rpc') throw new TasraError('prepaid escape requires an EOA gas payer')
-  if (payerChain.id !== d.chainId || await signer.getChainId() !== d.chainId) throw new TasraError('prepaid escape signer chain mismatch')
+  if (payerChain.id !== d.chainId || await chainIdOf(signer) !== d.chainId) throw new TasraError('prepaid escape signer chain mismatch')
   args.signal?.throwIfAborted()
   refuseUnlessOpen(await observe(client, d, slot, ids))
   const calls: PrepaidEscapeCallResult[] = []

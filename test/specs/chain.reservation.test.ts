@@ -429,10 +429,14 @@ it('serializes different operations for one payer and retains uncertain claims a
     const attempt = f.run(slow).catch((error: unknown) => error)
     await waiting
     const different = {...f.payment, nonce: h(44)}, before = f.trace.length
-    await expect(f.run(createFileStore(f.directory), different)).rejects.toThrow(/locked/)
+    // Another store instance in this process queues behind the held payer lock: nothing runs yet.
+    const queued = f.run(createFileStore(f.directory), different).catch((error: unknown) => error)
+    await new Promise(resolve => setTimeout(resolve, 50))
     expect(f.trace).toHaveLength(before)
     resume()
     expect(await attempt).toBeInstanceOf(PaidReservationUncertainError)
+    // Once granted, it sees the uncertain claim and refuses without sending.
+    expect(await queued).toBeInstanceOf(ApplicationPayerRecoveryError)
     await expect(f.run(createFileStore(f.directory), different)).rejects.toBeInstanceOf(ApplicationPayerRecoveryError)
     expect(f.transactions).toHaveLength(1)
     expect(await f.store.load(f.payerKey)).toMatchObject({pending: {requestId: prepaidRequestId(f.payment), nonce: 4}})

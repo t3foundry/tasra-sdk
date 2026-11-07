@@ -5,6 +5,7 @@ import {keyRegistryAbi} from './abis/keyRegistry.js'
 import {readPaidOperationReceipt, type ExpectedPaidOperation, type PaidOperationReceipt, type PrepaidDeployment} from './prepaid.js'
 import {PaidBackoffError, PaidReservationQuotaError, UnderfundedSlotError, UnderfundedGasPayerError} from '../errors.js'
 import {PaidBackoff, paidServerWaitMs, systemPacingClock, type PaidPacingClock} from './paidPacing.js'
+import {chainIdOf} from './chainId.js'
 
 /** Accountant authorization for a single operation. This is not a mined reservation. */
 export interface PaidReservationQuote {
@@ -243,7 +244,7 @@ export async function reconcilePaidReservation(
     || !same(tx.to, d.settlement) || !same(tx.data, data) || tx.value !== '0'
     || !Number.isSafeInteger(tx.nonce) || tx.nonce < 0 || typeof tx.gas !== 'string' || !/^[1-9][0-9]{0,77}$/.test(tx.gas) || BigInt(tx.gas) >= 1n << 64n
     || typeof tx.gasPrice !== 'string' || !/^[1-9][0-9]{0,77}$/.test(tx.gasPrice) || BigInt(tx.gasPrice) >= 1n << 128n) throw new Error('invalid saved reservation transaction')
-  if (await client.getChainId() !== d.chainId) throw new Error('reservation recovery chain mismatch')
+  if (await chainIdOf(client) !== d.chainId) throw new Error('reservation recovery chain mismatch')
   const [transaction, mined, head, quoteBlock] = await Promise.all([
     client.getTransaction({hash: transactionHash}), client.getTransactionReceipt({hash: transactionHash}),
     client.getBlock({blockTag: 'latest'}), client.getBlock({blockHash: quote.quote_block}),
@@ -496,7 +497,7 @@ async function reserveOnce(
   signal?.throwIfAborted()
   const urls = endpoints(opts, d.chainId)
   if (payer.type !== 'local' && payer.type !== 'json-rpc') throw new Error('reservation requires an EOA gas payer')
-  if (payerChain.id !== d.chainId || await wallet.getChainId() !== d.chainId || await client.getChainId() !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
+  if (payerChain.id !== d.chainId || await chainIdOf(wallet) !== d.chainId || await chainIdOf(client) !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
   const clock = opts.clock ?? systemPacingClock
   const {quote, authorized} = await collectQuote(urls, payment, requestTimeout, signal, clock)
   const requestId = prepaidRequestId(payment)

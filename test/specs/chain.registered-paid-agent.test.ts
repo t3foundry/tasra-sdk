@@ -786,3 +786,19 @@ it('waits out a busy 503 on creation inside the payment window and resends the i
   await expect(g.session.create()).rejects.toMatchObject({name:'PaidAgentControlError',httpStatus:503})
   expect(late.state.sleeps).toEqual([])
 })
+
+it('checks the provider registration with one latest read before every agent request, never a head read',async()=>{
+  const f=await fixture(), send=vi.mocked(f.transport.paidAgentRequest), read=vi.mocked(f.chain.readers.serviceRegistry.getService)
+  read.mockClear();vi.mocked(f.chain.client.getBlockNumber).mockClear()
+  await f.session.create()
+  await f.session.poll()
+  await f.session.proposals().catch(()=>{})
+  const requests=send.mock.calls.length
+  expect(read).toHaveBeenCalledTimes(requests)
+  for(const call of read.mock.calls)expect(call).toEqual([f.profile.approval.serviceId])
+  expect(f.chain.client.getBlockNumber).not.toHaveBeenCalled()
+  // A changed registration is still refused before the request is sent.
+  read.mockResolvedValueOnce({...f.record,status:2})
+  await expect(f.session.poll()).rejects.toThrow('Original paid agent provider changed')
+  expect(send).toHaveBeenCalledTimes(requests)
+})

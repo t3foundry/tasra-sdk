@@ -7,6 +7,7 @@ import {createPaidReservationJournal, loadPaidReservationJournal, type PaidReser
 import type {ApplicationStore} from './ready-slot.js'
 import {dedicatedPayerBusy} from './payer-queue.js'
 import {recordedPaidOperationPayer} from './paid-keys.js'
+import {chainIdOf} from '../chain/chainId.js'
 
 /** Durable application reservation controls, shared by every use of this gas payer. */
 export interface ApplicationReservationOptions extends Omit<ReservePaidOperationOptions, 'persist'> {
@@ -171,7 +172,7 @@ export interface ReconcileApplicationReservationOptions {
 
 const HEX32 = /^0x[0-9a-f]{64}$/i
 async function observeReservation(client: PublicClient, d: PrepaidDeployment, slot: Hex, requestId: Hex, confirmations: number) {
-  if (await client.getChainId() !== d.chainId) throw new Error('reservation reconciliation chain mismatch')
+  if (await chainIdOf(client) !== d.chainId) throw new Error('reservation reconciliation chain mismatch')
   const head = await client.getBlock({blockTag: 'latest'})
   const now = BigInt(Math.floor(Date.now() / 1000))
   if (head.number === null || head.hash === null || !HEX32.test(head.hash) || now - head.timestamp > 30n || head.timestamp - now > 2n) throw new Error('reservation reconciliation head is stale or unavailable')

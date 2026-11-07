@@ -20,6 +20,7 @@ import {readAssignmentEpoch, requirePaidEpoch} from './paidEpoch.js'
 import {systemPacingClock, type PaidPacingClock} from './paidPacing.js'
 import {SingleFlight} from '../internal/bounded.js'
 import {pinnedCall, pinnedRegistryCall} from './pinnedReads.js'
+import {chainIdOf} from './chainId.js'
 
 /** Deployment independently selected by the application, not taken from a received intent. */
 export interface PrepaidDeployment {
@@ -248,7 +249,7 @@ export async function readKeeperExecutionRecoveryPolicy(client: PublicClient, de
   if (point.isSmallOrder() || !point.isTorsionFree()
     || !ed25519.verify(protocolHex(execution.signature, 64, 'original keeper report signature'), protocolHex(hash, 32, 'report hash'), key,
       {zip215: false})) throw new Error('invalid original keeper report signature')
-  if (await client.getChainId() !== deployment.chainId) throw new Error('recovery RPC chain mismatch')
+  if (await chainIdOf(client) !== deployment.chainId) throw new Error('recovery RPC chain mismatch')
   const blockHash = toHex(Uint8Array.from(execution.report.reservation_block))
   const block = await client.getBlock({blockHash})
   const accepted = execution.consent.verified_at
@@ -385,7 +386,7 @@ function latestHead(client: PublicClient) {
 async function observe(client: PublicClient, d: PrepaidDeployment): Promise<PrepaidObservation> {
   validateDeployment(d)
   // The chain check and the head read are independent; a mismatch is still refused first.
-  const [chain, head] = await Promise.allSettled([client.getChainId(), latestHead(client)])
+  const [chain, head] = await Promise.allSettled([chainIdOf(client), latestHead(client)])
   if (chain.status === 'rejected') throw chain.reason
   if (chain.value !== d.chainId) throw new Error('prepaid RPC chain mismatch')
   if (head.status === 'rejected') throw head.reason

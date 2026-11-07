@@ -73,7 +73,8 @@ describe('paid decryption RPC cost', () => {
 
   it('groups requests into bounded JSON-RPC batches when Multicall3 is unavailable', async () => {
     const f = await measured({transport: 'http', newBlockPerHead: true})
-    expect(f.rpc).toBe(45)
+    // 45 before the HTTP client's chain ID was kept per client (3 eth_chainId calls).
+    expect(f.rpc).toBe(42)
     expect(f.http).toBe(11)
     expect(count(f.log, 'call:aggregate3')).toBe(0)
   })

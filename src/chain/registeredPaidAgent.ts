@@ -23,6 +23,7 @@ import type {TasraChainClient} from './client.js'
 import type {ApprovedAgentProfile} from './registeredAgent.js'
 import {readClientExecutionPolicy, type ClientExecutionDeployment, type PaidVerifierWitness} from './prepaid.js'
 import {authenticateApprovedService, validateServiceEndpoint} from './serviceIdentity.js'
+import {chainIdOf} from './chainId.js'
 import type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
 import {PaidBackoff, paidResponseWaitMs, systemPacingClock, type PaidPacingClock} from './paidPacing.js'
 
@@ -386,12 +387,13 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     if(context.expires<=Math.floor(Date.now()/1000))throw new Error('Original paid session context expired')
     return context
   }
+  // Before EVERY agent request: the provider's current registration, read at the latest block (one
+  // eth_call; formerly a head-number read and then a call at that number, which is no fresher).
+  // The chain ID is the client's (see chainIdOf); only the registry record is read each time.
   const checkProvider = async (signal: AbortSignal) => {
-    if (chain.addresses.ServiceRegistry?.toLowerCase() !== a.registry.toLowerCase() || await chain.client.getChainId() !== a.chainId) throw new Error('Paid agent chain or registry changed')
+    if (chain.addresses.ServiceRegistry?.toLowerCase() !== a.registry.toLowerCase() || await chainIdOf(chain.client) !== a.chainId) throw new Error('Paid agent chain or registry changed')
     signal.throwIfAborted()
-    const block = await chain.client.getBlockNumber({cacheTime:0})
-    signal.throwIfAborted()
-    const current = await chain.readers.serviceRegistry.getService(a.serviceId,block)
+    const current = await chain.readers.serviceRegistry.getService(a.serviceId)
     signal.throwIfAborted()
     if (current.status > 1 || current.revision < a.revision || current.serviceType !== 1
       || current.owner.toLowerCase() !== record.owner.toLowerCase() || current.authKey.toLowerCase() !== record.authKey.toLowerCase()

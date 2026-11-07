@@ -13,6 +13,7 @@
 
 import {decodeFunctionResult, encodeFunctionData, parseAbi, type Abi, type Address, type Hex, type PublicClient} from 'viem'
 import {TasraError} from '../errors.js'
+import {chainIdOf} from './chainId.js'
 
 /** Billing a slot uses; `unknown` means the chain could not be read consistently. */
 export type BillingMode = 'legacy' | 'prepaid' | 'unknown'
@@ -105,7 +106,7 @@ export async function readBillingMode(client: PublicClient, deployment: BillingD
   validate(d, slot)
   let blockNumber: bigint, blockHash: Hex
   try {
-    if (await client.getChainId() !== d.chainId) return unknown(slot, 'RPC chain mismatch')
+    if (await chainIdOf(client) !== d.chainId) return unknown(slot, 'RPC chain mismatch')
     const block = await client.getBlock({blockTag: 'latest'})
     if (block.number === null || block.hash === null || !HEX32.test(block.hash)) return unknown(slot, 'canonical head unavailable')
     blockNumber = block.number; blockHash = block.hash
