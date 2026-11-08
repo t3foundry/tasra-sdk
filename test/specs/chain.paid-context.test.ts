@@ -15,6 +15,7 @@ import {thresholdRandomBeaconAbi} from '../../src/chain/abis/thresholdRandomBeac
 import {verifierSetRegistryAbi} from '../../src/chain/abis/verifierSetRegistry.js'
 import {accountantSetRegistryAbi} from '../../src/chain/abis/accountantSetRegistry.js'
 import {attachHeadFollower, createHeadFollower, unfollowHeads} from '../../src/chain/headFollower.js'
+import {readAccountantGroupKey} from '../../src/chain/allowance.js'
 
 vi.mock('@noble/hashes/utils', async importOriginal => {
   const actual = await importOriginal<typeof import('@noble/hashes/utils')>()
@@ -81,7 +82,7 @@ function fixture(change: Changes = {}) {
       snapshotAt: accountant
         ? change.accountantUnanchored && !previous || change.accountantNoPrevious && previous ? [h(0), 0] : [h(19), change.accountantSize ?? 3]
         : change.unanchored && !previous || change.noPrevious && previous ? [h(0), 0] : [change.root ?? (previous ? h(17) : h(18)), change.size ?? 5],
-      verifierPolicy: change.policy ?? [3, 2], nodeRegistry: change.movedNodes ? moved : nodes, assignedNodes: operators,
+      mpk: `0x${'11'.repeat(128)}`, verifierPolicy: change.policy ?? [3, 2], nodeRegistry: change.movedNodes ? moved : nodes, assignedNodes: operators,
       getKeySlot: {creator: change.creator ?? creator.address, ruleCommitment: h(33), threshold: {k: change.insufficient ? 3 : 2, n: 3}, mode: 0,
         publicKey: change.noKey ? '0x' : keys[0], epoch: change.sharingEpoch ?? 1n, committeeVersion: change.sharingVersion ?? 2n,
         exists: true, cancelled: change.cancelled ?? false, expiry: 2000n, ruleVersion: 1n, auth: 0},
@@ -493,3 +494,21 @@ it('rechecks a kept assignment block by RPC unless the follower is live under de
     } finally { unfollowHeads(f.client) }
   }
 })
+
+it('pre-reads the accountant group key at each followed head, so a debit quoted there verifies its voucher without a read', async () => {
+  now()
+  const f = fixture()
+  attachHeadFollower(f.client, createHeadFollower(f.client, {finality: 'instant', now: () => 1_000_000}))
+  try {
+    await headFollowerIngest(f, 20)
+    await f.run()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const before = f.calls.length
+    expect(await readAccountantGroupKey(f.client, f.deployment, h(20))).toHaveLength(128)
+    expect(f.calls.slice(before).filter(c => c.method === 'eth_call')).toEqual([])
+  } finally { unfollowHeads(f.client) }
+})
+async function headFollowerIngest(f: ReturnType<typeof fixture>, n: number) {
+  const {headFollowerOf} = await import('../../src/chain/headFollower.js')
+  await headFollowerOf(f.client)!.ingest({number: BigInt(n), hash: h(n), parentHash: h(n - 1), timestamp: 1000n})
+}

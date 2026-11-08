@@ -23,7 +23,7 @@ import {pinnedCall, pinnedRegistryCall} from './pinnedReads.js'
 import {headFollowerOf} from './headFollower.js'
 import {registerHeadPrefetch} from './headPrefetch.js'
 import {chainIdOf} from './chainId.js'
-import {verifyDebitVoucher} from './allowance.js'
+import {readAccountantGroupKey, verifyDebitVoucher} from './allowance.js'
 
 /** Deployment independently selected by the application, not taken from a received intent. */
 export interface PrepaidDeployment {
@@ -792,7 +792,7 @@ function slotReads(client: PublicClient, deployment: PaidContextDeployment, slot
 
 /**
  * Pre-read `slotId`'s discovery state at every new followed head (the current and previous
- * epoch's anchors included), so an operation at that head reads it from the cache. Errors are
+ * epoch's anchors and the accountant group key included), so an operation at that head reads it from the cache. Errors are
  * dropped: the operation's own read surfaces them.
  */
 function followPaidSlot(client: PublicClient, deployment: PaidContextDeployment, slotId: Hex): void {
@@ -800,7 +800,8 @@ function followPaidSlot(client: PublicClient, deployment: PaidContextDeployment,
   registerHeadPrefetch(client, `paid-slot:${d.settlement}:${slotId}`.toLowerCase(), async tip => {
     const at: PrepaidObservation = {blockNumber: tip.blockNumber, blockHash: tip.blockHash, blockTimestamp: tip.blockTimestamp}
     const {seedAt, snapshotAt, accountantAt, latestEpoch, latestAnchors, reads} = slotReads(client, d, slotId, at)
-    const current = Promise.allSettled([reads, latestAnchors])
+    // The accountant group key at this head: an allowance debit quoted here verifies its voucher against it.
+    const current = Promise.allSettled([reads, latestAnchors, readAccountantGroupKey(client, d, at.blockHash)])
     const epoch = await latestEpoch.catch(() => undefined)
     await Promise.allSettled([current, ...(epoch ? [seedAt(epoch - 1n), snapshotAt(epoch - 1n), accountantAt(epoch - 1n)] : [])])
   })
