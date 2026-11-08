@@ -1,5 +1,6 @@
 import {decodeFunctionResult, encodeFunctionData, type Address, type Hex, type PublicClient} from 'viem'
 import {TasraError} from '../errors.js'
+import {headFollowerOf} from './headFollower.js'
 import {thresholdRandomBeaconAbi} from './abis/thresholdRandomBeacon.js'
 
 /**
@@ -140,8 +141,16 @@ export async function readAssignmentEpoch(client: PublicClient, beacon: Address,
     atHash = fresh
   }
   const number = atHash.blockNumber
-  const canonical = await readOrUnavailable('paid epoch assignment block number', () => client.getBlock({blockNumber: number}))
-  if (canonical.hash?.toLowerCase() !== anchor) throw refuse('assignment block is not canonical')
+  // The canonical recheck by number, unless it is already proven: the head follower vouches for the
+  // block, or (declared instant finality, where an accepted block never reorganizes) this anchor was
+  // kept only after an earlier full read confirmed it canonical.
+  const follower = headFollowerOf(client)
+  const proven = follower?.isCanonical({blockNumber: number, blockHash: assignmentBlock, blockTimestamp: atHash.blockTimestamp}) === true
+    || (fresh === undefined && follower?.finality === 'instant' && follower.live())
+  if (!proven) {
+    const canonical = await readOrUnavailable('paid epoch assignment block number', () => client.getBlock({blockNumber: number}))
+    if (canonical.hash?.toLowerCase() !== anchor) throw refuse('assignment block is not canonical')
+  }
   // Kept only once the whole read succeeded.
   if (fresh) keepAnchor(client, key, fresh)
   return {blockHash: assignmentBlock, blockNumber: number, blockTimestamp: atHash.blockTimestamp, beaconEpoch: atHash.beaconEpoch}

@@ -603,7 +603,9 @@ function receiptReads(client: PublicClient, deployment: PrepaidDeployment, at: P
   if (payment.allowance_id !== undefined) {
     const voucher = payment.debit_voucher
     if (!voucher) return Promise.reject(new Error('allowance-backed payment carries no debit voucher'))
-    const allowance = pinnedCall(client, at.blockHash, deployment.settlement, encodeFunctionData({abi: settlementAbi, functionName: 'prepaidAllowance', args: [payment.allowance_id]}))
+    const allowanceData = encodeFunctionData({abi: settlementAbi, functionName: 'prepaidAllowance', args: [payment.allowance_id]})
+    const allowance = (headFollowerOf(client)?.isCanonical(at) === true
+      ? pinnedRegistryCall(client, at, deployment.settlement, allowanceData, false) : pinnedCall(client, at.blockHash, deployment.settlement, allowanceData))
       .then(data => { if (data === undefined) throw new Error('empty prepaidAllowance response'); return decodeFunctionResult({abi: settlementAbi, functionName: 'prepaidAllowance', data}) })
     return Promise.all([readAt(client, deployment.settlement, at, 'prepaidEnabled', payment.slot), allowance,
       readAt(client, deployment.settlement, at, 'prepaidCost', payment.slot, requestId), readAt(client, deployment.settlement, at, 'prepaidSettled', payment.slot, requestId),
@@ -612,6 +614,26 @@ function receiptReads(client: PublicClient, deployment: PrepaidDeployment, at: P
   const names = ['prepaidEnabled', 'prepaidCost', 'prepaidSettled', 'prepaidRefunded', 'prepaidAssignmentBlock'] as const
   return Promise.all(names.map(name =>
     readAt(client, deployment.settlement, at, name, payment.slot, name === 'prepaidEnabled' ? undefined : requestId))).then(reads => ({kind: 'reservation', reads}))
+}
+
+/**
+ * Pre-read one in-flight paid operation's own settlement state (its request's cost, settlement,
+ * refund and assignment block; for an allowance-backed one also the allowance record) at every
+ * new followed head until the payment expires, so the receipt, client policy and keeper target
+ * checks at that head find it cached. Without a head follower this does nothing.
+ * @param client Trusted client with a head follower attached.
+ * @param deployment Approved deployment.
+ * @param payment The operation's creator-signed intent.
+ */
+export function followPaidRequest(client: PublicClient, deployment: PrepaidDeployment, payment: PaymentIntentWire): void {
+  if (!headFollowerOf(client)) return
+  const d = {...deployment}, slot = payment.slot, requestId = prepaidRequestId(payment), allowanceId = payment.allowance_id
+  registerHeadPrefetch(client, `paid-request:${d.settlement}:${requestId}`.toLowerCase(), tip => {
+    const at: PrepaidObservation = {blockNumber: tip.blockNumber, blockHash: tip.blockHash, blockTimestamp: tip.blockTimestamp}
+    const names = ['prepaidCost', 'prepaidSettled', 'prepaidRefunded', 'prepaidAssignmentBlock'] as const
+    return Promise.allSettled([readAt(client, d.settlement, at, 'prepaidEnabled', slot), ...names.map(name => readAt(client, d.settlement, at, name, slot, requestId)),
+      ...(allowanceId ? [pinnedRegistryCall(client, at, d.settlement, encodeFunctionData({abi: settlementAbi, functionName: 'prepaidAllowance', args: [allowanceId]}), false)] : [])])
+  }, payment.expires * 1000)
 }
 
 function checkReceiptReads(at: PrepaidObservation, payment: PaymentIntentWire, observed: ReceiptReads): PaidOperationReceipt {

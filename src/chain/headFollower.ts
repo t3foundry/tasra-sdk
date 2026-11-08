@@ -37,6 +37,8 @@ export interface HeadFollowerOptions {
 
 /** A started (or startable) head follower for one client. */
 export interface HeadFollower {
+  /** The finality the deployment was declared with. */
+  readonly finality: 'instant' | 'probabilistic'
   /** The newest header while live, otherwise undefined. */
   tip(): FollowedHead | undefined
   /** True only when `at` is provably canonical (see module comment); false or undefined means: recheck by RPC. */
@@ -122,6 +124,7 @@ export function createHeadFollower(client: PublicClient, options: HeadFollowerOp
     settle([head])
   }
   const follower: HeadFollower = {
+    finality,
     tip: () => live() ? {...chain[chain.length - 1]!} : undefined,
     isCanonical(at) {
       if (finality !== 'instant' || !live() || chain.length === 0) return undefined

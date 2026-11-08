@@ -3,7 +3,7 @@ import {ed25519} from '@noble/curves/ed25519'
 import * as randomness from '@noble/hashes/utils'
 import {createPublicClient, custom, decodeFunctionData, encodeFunctionResult, getAddress, keccak256, recoverTypedDataAddress, toHex, type Abi, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {discoverPaidOperationContext, readClientExecutionPolicy, type PaidContextOptions} from '../../src/chain/prepaid.js'
+import {discoverPaidOperationContext, followPaidRequest, readClientExecutionPolicy, type PaidContextOptions} from '../../src/chain/prepaid.js'
 import {UnderfundedSlotError} from '../../src/errors.js'
 import {BillingModeError} from '../../src/chain/billing.js'
 import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, type PaymentIntentWire} from '../../src/committee/payment.js'
@@ -437,4 +437,59 @@ describe('observation from a followed head', () => {
       await expect(f.run()).rejects.toThrow(/reorganized/)
     } finally { unfollowHeads(f.client) }
   })
+})
+
+it('answers an in-flight request\'s client policy check at a followed head from its pre-reads, with no RPC', async () => {
+  now()
+  const f = fixture(), payment = reservedPayment()
+  const source = {getBlock: async () => { throw new Error('no parents needed') }, transport: {type: 'custom'}}
+  const follower = createHeadFollower(source as unknown as typeof f.client, {finality: 'instant', now: () => 1_000_000})
+  attachHeadFollower(f.client, follower)
+  try {
+    await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+    // The slot's interest comes from a discovery; the request's from followPaidRequest (as paidOperation does).
+    await f.run()
+    followPaidRequest(f.client, f.deployment, payment)
+    // The quote block's epoch is kept per client after its first read; warm it, then let pre-reads settle.
+    await readClientExecutionPolicy(f.client, f.deployment, payment, intendedWork)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const before = f.calls.length
+    const observation = await readClientExecutionPolicy(f.client, f.deployment, payment, intendedWork)
+    expect(observation).toMatchObject({blockHash: h(20), policy: {cost: 5n}})
+    // No chain read at all (a custom transport's chain ID is asked per call; HTTP clients keep it).
+    expect(f.calls.slice(before).map(c => c.name ?? c.method).filter(m => m !== 'eth_chainId')).toEqual([])
+  } finally { unfollowHeads(f.client) }
+})
+
+it('pre-reads a new in-flight request at the current followed head, before any check asks for it', async () => {
+  now()
+  const f = fixture(), payment = reservedPayment()
+  const follower = createHeadFollower(f.client, {finality: 'instant', now: () => 1_000_000})
+  attachHeadFollower(f.client, follower)
+  try {
+    await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+    followPaidRequest(f.client, f.deployment, payment)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(f.calls.filter(c => c.name === 'prepaidCost' || c.name === 'prepaidSettled' || c.name === 'prepaidRefunded').map(c => c.name).sort())
+      .toEqual(['prepaidCost', 'prepaidRefunded', 'prepaidSettled'])
+  } finally { unfollowHeads(f.client) }
+})
+
+it('rechecks a kept assignment block by RPC unless the follower is live under declared instant finality', async () => {
+  for (const [finality, liveMs, rechecks] of [['probabilistic', 0, true], ['instant', 10_000, true], ['instant', 0, false]] as const) {
+    now()
+    let ms = 0
+    const f = fixture(), payment = reservedPayment()
+    const follower = createHeadFollower(f.client, {finality, liveAfterMs: 5000, now: () => ms})
+    attachHeadFollower(f.client, follower)
+    try {
+      await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+      await readClientExecutionPolicy(f.client, f.deployment, payment, intendedWork)
+      ms = liveMs
+      const before = f.calls.length
+      await readClientExecutionPolicy(f.client, f.deployment, payment, intendedWork)
+      const byNumber = f.calls.slice(before).filter(c => c.method === 'eth_getBlockByNumber' && (c.params as [string])[0] === '0x13')
+      expect(byNumber.length > 0, `${finality} live=${liveMs === 0}`).toBe(rechecks)
+    } finally { unfollowHeads(f.client) }
+  }
 })

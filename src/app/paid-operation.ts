@@ -19,7 +19,7 @@ import {hexToBytes, keccak256, toHex, type Account, type Address, type Chain, ty
 import type {TasraChainClient} from '../chain/client.js'
 import {keyRegistryAbi} from '../chain/abis/keyRegistry.js'
 import type {BillingModeDetector} from '../chain/billing.js'
-import {discoverPaidOperationContext, readClientExecutionPolicy, type ExpectedPaidOperation, type PaidContextDeployment,
+import {discoverPaidOperationContext, followPaidRequest, readClientExecutionPolicy, type ExpectedPaidOperation, type PaidContextDeployment,
   type PaidKeeperEndpoint, type PaidVerifierWitness} from '../chain/prepaid.js'
 import {fetchDrawnVerifierWitnesses} from '../chain/verifierSnapshot.js'
 import {prepareRegisteredPaidSession, type PaidAgentSessionParams} from '../chain/registeredPaidAgent.js'
@@ -611,6 +611,8 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
   const payment: PaymentIntentWire = {...unsigned, signature: await config.creator.signTypedData(paymentIntentTypedData(unsigned))}
   const expected: ExpectedPaidOperation = {slot, action: payment.action, payloadDigest: payment.payload_digest}
   const requestId = prepaidRequestId(payment)
+  // With a head follower, this request's own settlement state is pre-read at each new head.
+  followPaidRequest(client, d, payment)
   await request.onRequestId?.(requestId)
   signal.throwIfAborted()
   const {witnesses} = await fetchDrawnVerifierWitnesses(config.accountantUrls, payment, d.verifierSet,
