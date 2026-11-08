@@ -144,6 +144,10 @@ export {
 
 export {keeperAssignmentCommitment, paymentIntentTypedData, paymentIntentHash, prepaidRequestId, paymentSessionCommitment, assertPaymentIntentWire} from './payment.js'
 export type {PaidKeeperAssignment, PaymentIntentWire} from './payment.js'
+// ADR-0090 prepaid allowances and debit vouchers (the shared Encodings table).
+export {ALLOWANCE_ACTIONS, PREPAID_ALLOWANCE_DOMAINS, allowanceActionBits, allowanceFunds, prepaidAllowanceIntentTypedData, prepaidAllowanceIntentHash, allowanceId,
+  allowanceReserveDigest, debitVoucherDigest, debitVoucherWireDigest, allowanceSettleDigest, allowanceCloseDigest, assertDebitVoucherWire} from './payment.js'
+export type {AllowanceAction, PrepaidAllowanceIntentWire, DebitVoucherWire, DebitVoucherFields, AllowanceReserveArgs, AllowanceSettleArgs} from './payment.js'
 export {EXECUTION_CERTIFICATE_DOMAIN, EXECUTION_APPROVAL_DOMAIN, EXECUTION_INITIALIZATION_DOMAIN, MAX_EXECUTION_BODY_BYTES,
   executionCertificateTypedData, executionApprovalTypedData, executionInitializationTypedData, initializeExecutionSession, verifySessionInitialization, executionBodyHash,
   createExecutionCertificate, approveExecutionRequest, verifyExecutionAuthorization, executionConsentBinding, verifyExecutionConsent, createLocalExecutionSigner} from './execution.js'
