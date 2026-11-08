@@ -163,6 +163,18 @@ it('sends the pre-broadcast observations together and the post-receipt reads tog
   expect(f.transactions).toHaveLength(1)
 })
 
+it('reads the quote block header beside the pre-broadcast observations and still refuses a stale quote before preparing', async () => {
+  const overlap = {active: 0, most: 0}
+  const f = await fixture({localSigner: true, overlap})
+  await f.run()
+  // The header joins the eight observations in one round (9), instead of a round of its own before them.
+  expect(overlap.most).toBeGreaterThanOrEqual(9)
+  const stale = await fixture({localSigner: true, stale: true})
+  await expect(stale.run()).rejects.toThrow(/stale or invalid/)
+  expect(stale.checkpoints).toEqual([])
+  expect(stale.transactions).toHaveLength(0)
+})
+
 it('reports insufficient native gas separately from TASRA before preparation or broadcast', async () => {
   const f = await fixture({localSigner: true, gas: 100000n, price: 25n, balance: 2499999n})
   const error: unknown = await f.run().catch((e: unknown) => e)

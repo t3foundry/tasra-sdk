@@ -553,13 +553,10 @@ async function reserveOnce(
   const requestId = prepaidRequestId(payment)
   const args = [payment.slot, BigInt(quote.legacy_nonce), quote.quote_block, [requestId], [BigInt(quote.costs[0]!)], BigInt(quote.deadline)] as const
   const data = encodeFunctionData({abi: settlementAbi, functionName: 'reservePrepaidBls', args: [...args, authorized.signature!]})
-  const block = await client.getBlock({blockHash: quote.quote_block})
-  const fresh = () => {
-    if (block.number === null || block.hash === null || !same(block.hash, quote.quote_block)
-      || BigInt(now()) - block.timestamp > 30n || block.timestamp - BigInt(now()) > 2n) throw new Error('reservation quote block is stale or invalid')
-    live(payment, quote)
-  }
-  fresh()
+  // The quote block's header is read beside the observations below (all pinned to that same hash)
+  // and judged before them, as when it was read first on its own.
+  const blockRead = client.getBlock({blockHash: quote.quote_block})
+  blockRead.catch(() => {})
   const call = async (to: Address, data: Hex) => {
     const result = await client.call({to, data, account: payer, blockHash: quote.quote_block, requireCanonical: true, batch: false})
     if (result.data === undefined) throw new Error('empty reservation observation')
@@ -585,6 +582,13 @@ async function reserveOnce(
       client.getBalance({address: payer.address, blockTag: 'pending'}),
     ])),
   ])
+  const block = await blockRead
+  const fresh = () => {
+    if (block.number === null || block.hash === null || !same(block.hash, quote.quote_block)
+      || BigInt(now()) - block.timestamp > 30n || block.timestamp - BigInt(now()) > 2n) throw new Error('reservation quote block is stale or invalid')
+    live(payment, quote)
+  }
+  fresh()
   const digest = decodeFunctionResult({abi: settlementAbi, functionName: 'prepaidReserveDigest', data: outcome(digestRead)})
   if (!same(digest, quote.digest)) throw new Error('deployment reservation digest mismatch')
   const previousCost = decodeFunctionResult({abi: settlementAbi, functionName: 'prepaidCost', data: outcome(costRead)})
