@@ -537,6 +537,19 @@ async function registryRead(client: PublicClient, at: PrepaidObservation, addres
 }
 
 /**
+ * The beacon's current epoch at a fresh observed head (the followed tip when live, else `latest`),
+ * through the same block-pinned read discovery uses. Performs no transaction.
+ * @param client - Trusted bounded Viem RPC client for the selected deployment.
+ * @param deployment - Independently approved chain and contract addresses, the beacon included.
+ */
+export async function readCurrentBeaconEpoch(client: PublicClient, deployment: PaidContextDeployment): Promise<bigint> {
+  const at = await observe(client, deployment)
+  const epoch = await registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch')
+  if (typeof epoch !== 'bigint') throw new Error('invalid beacon epoch')
+  return epoch
+}
+
+/**
  * Read available, reserved and total slot TASRA at one fresh canonical block. Performs no transaction.
  * @param client - Trusted bounded Viem RPC client for the selected deployment.
  * @param deployment - Independently approved chain and contract addresses.

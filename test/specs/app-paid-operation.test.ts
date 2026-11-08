@@ -21,7 +21,7 @@ const ibeRecovery = {recipient: ibeRecipient, identity: ibeVector.identity, veri
 
 vi.mock('../../src/chain/billing.js', async original => ({...await original<typeof import('../../src/chain/billing.js')>(), requirePrepaidSlot: vi.fn()}))
 vi.mock('../../src/chain/prepaid.js', async original => ({...await original<typeof import('../../src/chain/prepaid.js')>(),
-  discoverPaidOperationContext: vi.fn(), readClientExecutionPolicy: vi.fn()}))
+  discoverPaidOperationContext: vi.fn(), readClientExecutionPolicy: vi.fn(), readCurrentBeaconEpoch: vi.fn()}))
 vi.mock('../../src/chain/verifierSnapshot.js', () => ({fetchDrawnVerifierWitnesses: vi.fn()}))
 vi.mock('../../src/app/paid-reservation.js', async original => ({...await original<typeof import('../../src/app/paid-reservation.js')>(),
   reserveApplicationPayment: vi.fn(), reconcileApplicationPayment: vi.fn(), reconcileApplicationReservation: vi.fn()}))
@@ -43,7 +43,7 @@ import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {BillingModeError, requirePrepaidSlot} from '../../src/chain/billing.js'
-import {discoverPaidOperationContext, readClientExecutionPolicy} from '../../src/chain/prepaid.js'
+import {discoverPaidOperationContext, readClientExecutionPolicy, readCurrentBeaconEpoch} from '../../src/chain/prepaid.js'
 import {fetchDrawnVerifierWitnesses} from '../../src/chain/verifierSnapshot.js'
 import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, selectApplicationGasPayer, ApplicationPayerRecoveryError,
   type ApplicationReservationStatus} from '../../src/app/paid-reservation.js'
@@ -130,6 +130,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(requirePrepaidSlot).mockResolvedValue({slot, mode: 'prepaid'})
   vi.mocked(loadPaidReservationJournal).mockResolvedValue(undefined)
+  // The beacon at the payment's own epoch: no reservation waited past it.
+  vi.mocked(readCurrentBeaconEpoch).mockReset().mockResolvedValue(7n)
   reservation('none')
 })
 const observedAt = {blockNumber: 20n, blockHash: h(20), blockTimestamp: 1n}
@@ -585,6 +587,43 @@ describe('paid operation error classification', () => {
     // If someone lands it meanwhile, reconciliation finds it on chain: it is reserved, never forgotten.
     reservation('reserved')
     expect(await reconcilePaidOperation(f.config, ids[0]!)).toMatchObject({phase: 'reserved'})
+  })
+
+  it('signs once more when the payer freed up two epochs after discovery and nothing was prepared yet', async () => {
+    const f = setup(), ids: Hex[] = []
+    vi.mocked(readCurrentBeaconEpoch).mockResolvedValueOnce(9n).mockResolvedValue(7n)
+    const op = await paidOperation(f.config, {...f.request, onRequestId: (id: Hex) => { ids.push(id) }})
+    expect(ids).toHaveLength(2)
+    expect(op.requestId).toBe(ids[1])
+    // The stale intent never reached an accountant: no reservation was attempted for it.
+    expect(vi.mocked(reserveApplicationPayment)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(reserveApplicationPayment).mock.calls[0]![3]).toMatchObject({nonce: op.payment.nonce})
+    expect(vi.mocked(discoverPaidOperationContext)).toHaveBeenCalledTimes(2)
+    expect(await paidOperationPhase(f.store, ids[0]!)).toBe('failed')
+  })
+
+  it('keeps an intent one epoch behind (still admissible) and never re-signs once a preparation is journaled', async () => {
+    const f = setup(), ids: Hex[] = []
+    vi.mocked(readCurrentBeaconEpoch).mockResolvedValue(8n)
+    await paidOperation(f.config, {...f.request, onRequestId: (id: Hex) => { ids.push(id) }})
+    expect(ids).toHaveLength(1)
+    const g = setup(), later: Hex[] = []
+    vi.mocked(readCurrentBeaconEpoch).mockResolvedValue(50n)
+    vi.mocked(loadPaidReservationJournal).mockResolvedValue({phase: 'prepared'} as Awaited<ReturnType<typeof loadPaidReservationJournal>>)
+    vi.mocked(reserveApplicationPayment).mockClear()
+    await paidOperation(g.config, {...g.request, onRequestId: (id: Hex) => { later.push(id) }})
+    expect(later).toHaveLength(1)
+    expect(vi.mocked(reserveApplicationPayment)).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a second wait past two epochs as a refusal, with both unsent intents journaled failed', async () => {
+    const f = setup(), ids: Hex[] = []
+    vi.mocked(readCurrentBeaconEpoch).mockResolvedValue(9n)
+    const error = await paidOperation(f.config, {...f.request, onRequestId: (id: Hex) => { ids.push(id) }}).catch((e: unknown) => e)
+    expect(error).toMatchObject({phase: 'reservation', code: 'reservation-refused', resumable: false})
+    expect(ids).toHaveLength(2)
+    expect(vi.mocked(reserveApplicationPayment)).not.toHaveBeenCalled()
+    for (const id of ids) expect(await paidOperationPhase(f.store, id)).toBe('failed')
   })
 
   it('codes resume outcomes and execution uncertainty', async () => {

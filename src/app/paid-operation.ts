@@ -19,7 +19,7 @@ import {hexToBytes, keccak256, toHex, type Account, type Address, type Chain, ty
 import type {TasraChainClient} from '../chain/client.js'
 import {keyRegistryAbi} from '../chain/abis/keyRegistry.js'
 import type {BillingModeDetector} from '../chain/billing.js'
-import {discoverPaidOperationContext, followPaidRequest, readClientExecutionPolicy, type ExpectedPaidOperation, type PaidContextDeployment,
+import {discoverPaidOperationContext, followPaidRequest, readClientExecutionPolicy, readCurrentBeaconEpoch, type ExpectedPaidOperation, type PaidContextDeployment,
   type PaidKeeperEndpoint, type PaidVerifierWitness} from '../chain/prepaid.js'
 import {fetchDrawnVerifierWitnesses} from '../chain/verifierSnapshot.js'
 import {prepareRegisteredPaidSession, type PaidAgentSessionParams} from '../chain/registeredPaidAgent.js'
@@ -541,7 +541,7 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
   if (!config.allowances?.enabled) return paymentAttempt(config, request, false)
   // ADR-0090: at most one allowance attempt; a definite refusal (journaled `failed`, no voucher)
   // falls back to a fresh per-operation payment with its own request ID.
-  try { return await paidOperationAttempt(config, request, true) }
+  try { return await paymentAttempt(config, request, true) }
   catch (error) {
     if (!(error instanceof AllowanceFallback)) throw error
     return paymentAttempt(config, request, false)
@@ -557,8 +557,26 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
  * not abandonable until that window has passed; a reservation that lands meanwhile is found by
  * reconciliation, and one left unused is refunded by the accountants' unused-reservation close.
  */
-function paymentAttempt(config: PaidOperationConfig, request: PaidOperationRequest, useAllowance: boolean): Promise<PaidOperation> {
-  return paidOperationAttempt(config, request, useAllowance)
+/**
+ * A per-operation reservation that waited for its payer past its verifier epoch, refused BEFORE the
+ * first prepare (see {@link reserve}): the signed intent never left this process, so it is
+ * journaled `failed` and the operation is signed once more at a current epoch.
+ */
+class NewerVerifierEpoch extends Error {
+  constructor(readonly requestId: Hex) { super('the verifier epoch moved on while this reservation waited for its payer; nothing was sent') }
+}
+
+async function paymentAttempt(config: PaidOperationConfig, request: PaidOperationRequest, useAllowance: boolean): Promise<PaidOperation> {
+  try { return await paidOperationAttempt(config, request, useAllowance) }
+  catch (error) {
+    if (!(error instanceof NewerVerifierEpoch)) throw error
+    // Once only: a second wait past two epochs is reported like any other refusal.
+    try { return await paidOperationAttempt(config, request, useAllowance) }
+    catch (again) {
+      if (again instanceof NewerVerifierEpoch) throw new PaidOperationRecoveryError(again.requestId, 'reservation', again, {code: 'reservation-refused', resumable: false})
+      throw again
+    }
+  }
 }
 
 async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOperationRequest, useAllowance: boolean): Promise<PaidOperation> {
@@ -640,12 +658,28 @@ async function reserve(config: PaidOperationConfig, record: OperationRecord, sig
     // Under the journal's lock, so abandonPaidOperation cannot close it while a reservation runs.
     await config.store.withLock(key, async () => {
       if ((await config.store.load<OperationRecord>(key))?.phase !== 'reserving') throw new NoLongerReserving()
-      await withDedicatedPayer(`${d.chainId}-${config.gasPayer.account.address.toLowerCase()}`, () => reserveApplicationPayment(config.chain.client, config.gasPayer, d,
-        record.payment, record.expected, {store: config.store, session: {random: record.params.random, audience: config.agent.profile.clientId},
-          accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, maxGas: config.limits.maxGas, maxGasPrice: config.limits.maxGasPrice, signal}))
+      await withDedicatedPayer(`${d.chainId}-${config.gasPayer.account.address.toLowerCase()}`, async () => {
+        // The intent was signed at discovery and may have queued behind this payer for longer than
+        // the accountants' window ({latest-1, latest} at their own head). Until its first prepare it
+        // exists only here - the witness fetch carries no payment - so an epoch already two behind
+        // is certain to be refused and is safely signed again instead. Once a preparation is
+        // journaled the intent may have been seen, and it is never replaced (it could still land).
+        // A failed epoch read changes nothing: the accountants judge the epoch themselves.
+        let current: bigint | undefined
+        try { current = await readCurrentBeaconEpoch(config.chain.client, d) } catch { current = undefined }
+        if (typeof current === 'bigint' && current >= BigInt(record.payment.verification_epoch) + 2n
+          && await loadPaidReservationJournal(config.store, requestId) === undefined) throw new NewerVerifierEpoch(requestId)
+        return reserveApplicationPayment(config.chain.client, config.gasPayer, d,
+          record.payment, record.expected, {store: config.store, session: {random: record.params.random, audience: config.agent.profile.clientId},
+            accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, maxGas: config.limits.maxGas, maxGasPrice: config.limits.maxGasPrice, signal})
+      })
     })
   } catch (error) {
     if (error instanceof NoLongerReserving) throw new TasraError('Paid operation was closed before its reservation; it is not reserved again')
+    if (error instanceof NewerVerifierEpoch) {
+      await advance(config.store, requestId, 'reserving', {phase: 'failed', failure: {reason: 'superseded before its first prepare: the verifier epoch moved on; never sent'}})
+      throw error
+    }
     const journal = await loadPaidReservationJournal(config.store, requestId).catch(() => 'unreadable' as const)
     // Another request holds the payer and this one journaled nothing: refuse without uncertainty.
     if (error instanceof ApplicationPayerRecoveryError && journal === undefined) throw error
