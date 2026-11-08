@@ -8,12 +8,12 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {recoverTypedDataAddress, type Hex, type PublicClient} from 'viem'
 
 vi.mock('../../src/chain/allowance.js', async original => ({...await original<typeof import('../../src/chain/allowance.js')>(),
-  collectDebitVoucher: vi.fn(), reservePrepaidAllowance: vi.fn(), reconcilePrepaidAllowance: vi.fn()}))
+  collectDebitVoucher: vi.fn(), reservePrepaidAllowance: vi.fn(), reconcilePrepaidAllowance: vi.fn(), pushDebitVoucher: vi.fn()}))
 
-import {collectDebitVoucher, DebitVoucherError, prepaidAllowanceId, reconcilePrepaidAllowance, reservePrepaidAllowance, type DebitPartialWire} from '../../src/chain/allowance.js'
+import {collectDebitVoucher, DebitVoucherError, prepaidAllowanceId, pushDebitVoucher, reconcilePrepaidAllowance, reservePrepaidAllowance, type DebitPartialWire} from '../../src/chain/allowance.js'
 import {PaidReservationUncertainError} from '../../src/chain/reservation.js'
 import {AllowanceRefusedError, AllowanceUnavailableError, inspectAllowanceLanes, journaledAllowanceVoucher, obtainAllowanceVoucher, reserveForLane,
-  selectAllowanceLane, settleAllowanceRefills, allowanceLaneCount, validateAllowanceOptions, type AllowanceEnv} from '../../src/app/paid-allowance.js'
+  selectAllowanceLane, settleAllowanceRefills, settleAllowanceVoucherPushes, inspectAllowanceVoucherPush, allowanceLaneCount, validateAllowanceOptions, type AllowanceEnv} from '../../src/app/paid-allowance.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
 import {paidRecordKey} from '../../src/app/paid-keys.js'
 import {paymentIntentTypedData, prepaidAllowanceIntentTypedData, prepaidRequestId, type DebitVoucherWire, type PaymentIntentWire} from '../../src/committee/payment.js'
@@ -21,8 +21,8 @@ import type {PaidOperationContext} from '../../src/chain/prepaid.js'
 import {assignment, creator, deployment, h, NOW, slot} from '../support/allowanceFixture.js'
 
 let clock = NOW
-beforeEach(() => { clock = NOW; vi.spyOn(Date, 'now').mockImplementation(() => clock * 1000); vi.mocked(collectDebitVoucher).mockReset(); vi.mocked(reservePrepaidAllowance).mockReset() })
-afterEach(() => vi.restoreAllMocks())
+beforeEach(() => { clock = NOW; vi.spyOn(Date, 'now').mockImplementation(() => clock * 1000); vi.mocked(collectDebitVoucher).mockReset(); vi.mocked(reservePrepaidAllowance).mockReset(); vi.mocked(pushDebitVoucher).mockReset() })
+afterEach(async () => { await settleAllowanceVoucherPushes(); vi.restoreAllMocks() })
 
 const context = (over: Partial<PaidOperationContext['intentFields']['keeper_assignment']> = {}): PaidOperationContext => ({blockNumber: 20n, blockHash: h(20), blockTimestamp: BigInt(NOW),
   creator: creator.address, mode: 1, groupPublicKey: h(40), coordinator: {operator: h(11, 20), publicKey: h(10), url: 'http://127.0.0.1:4001'}, contributors: [], available: 10_000n,
@@ -252,5 +252,75 @@ describe('reserve ahead and replacement', () => {
     expect(reservePrepaidAllowance).toHaveBeenCalledTimes(1)
     expect(await world.store.load(payerKey)).toEqual({schema: 1, chainId: 43112, payer: creator.address, nextNonce: 5})
     expect((await inspectAllowanceLanes(world.store, deployment, slot, 1))[0]!.next?.phase).toBe('confirmed')
+  })
+})
+
+describe('voucher push to every accountant (background)', () => {
+  const urls = ['https://acct0.example', 'https://acct1.example', 'https://acct2.example']
+  const acceptedBy = (only: string[]) => vi.mocked(pushDebitVoucher).mockImplementation(async (_chain, _voucher, o) =>
+    o.accountantUrls.map(url => only.includes(url) ? {url, kind: 'accepted' as const, recorded: 'attached'} : {url, kind: 'failed' as const, status: 0, reason: 'down'}))
+
+  it('pushes every aggregated voucher, exactly as aggregated, to every member and journals who acknowledged it', async () => {
+    const {env, store, allowance} = await seeded()
+    acceptedBy(urls)
+    const a = await payment(allowance, 0x41)
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(a, 1, 40), partials: [], outcomes: []})
+    await obtainAllowanceVoucher(env, {lane: 0}, a)
+    await settleAllowanceVoucherPushes()
+    expect(pushDebitVoucher).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(pushDebitVoucher).mock.calls[0]).toEqual([43112, voucherFor(a, 1, 40), {accountantUrls: urls, allowLocalHttp: undefined, requestTimeoutMs: 10_000, concurrency: 4}])
+    expect(await inspectAllowanceVoucherPush(store, allowance)).toEqual({seq: 1, acked: urls, repushed: false})
+  })
+
+  it('a hanging or failing push neither blocks nor fails the operation', async () => {
+    const {env, store, allowance} = await seeded()
+    let release!: () => void
+    vi.mocked(pushDebitVoucher).mockImplementationOnce(() => new Promise(resolve => { release = () => resolve([]) }))
+      .mockRejectedValueOnce(new Error('push exploded'))
+    const a = await payment(allowance, 0x41), b = await payment(allowance, 0x42)
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(a, 1, 40), partials: [], outcomes: []})
+      .mockResolvedValueOnce({voucher: voucherFor(b, 2, 80), partials: [], outcomes: []})
+    // The first push never answers: the operation still returns, and the next one runs.
+    expect(await obtainAllowanceVoucher(env, {lane: 0}, a)).toEqual(voucherFor(a, 1, 40))
+    expect(await obtainAllowanceVoucher(env, {lane: 0}, b)).toEqual(voucherFor(b, 2, 80))
+    release()
+    await settleAllowanceVoucherPushes()
+    expect(pushDebitVoucher).toHaveBeenCalledTimes(2)
+    expect(await inspectAllowanceVoucherPush(store, allowance)).toEqual({seq: 2, acked: [], repushed: false})
+  })
+
+  it('a retiring lane re-pushes its last voucher once, only to the members that did not acknowledge it', async () => {
+    const {env, store, allowance} = await seeded()
+    acceptedBy(['https://acct0.example'])
+    const a = await payment(allowance, 0x41), b = await payment(allowance, 0x42)
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(a, 1, 40), partials: [], outcomes: []})
+      .mockRejectedValueOnce(new DebitVoucherError([{url: urls[0]!, kind: 'refused', status: 402, reason: 'exceeds'}, {url: urls[1]!, kind: 'refused', status: 402, reason: 'exceeds'}], 0, 2))
+    await obtainAllowanceVoucher(env, {lane: 0}, a)
+    await settleAllowanceVoucherPushes()
+    acceptedBy(urls)
+    await expect(obtainAllowanceVoucher(env, {lane: 0}, b)).rejects.toBeInstanceOf(AllowanceRefusedError)
+    await settleAllowanceVoucherPushes()
+    expect(pushDebitVoucher).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(pushDebitVoucher).mock.calls[1]!.slice(0, 2)).toEqual([43112, voucherFor(a, 1, 40)])
+    expect(vi.mocked(pushDebitVoucher).mock.calls[1]![2].accountantUrls).toEqual(urls.slice(1))
+    expect(await inspectAllowanceVoucherPush(store, allowance)).toEqual({seq: 1, acked: urls, repushed: true})
+  })
+
+  it('an allowance near expiry re-pushes its last voucher once, however often lanes are selected', async () => {
+    const {env, store, allowance} = await seeded()
+    acceptedBy([])
+    const a = await payment(allowance, 0x41)
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(a, 1, 40), partials: [], outcomes: []})
+    await obtainAllowanceVoucher(env, {lane: 0}, a)
+    await settleAllowanceVoucherPushes()
+    await selectAllowanceLane(env, context(), {action: 'decrypt', expires: NOW + 600})
+    await settleAllowanceVoucherPushes()
+    expect(pushDebitVoucher).toHaveBeenCalledTimes(1) // an hour of life left: no re-push
+    clock = NOW + 3600 - 300
+    for (let i = 0; i < 3; i++) await selectAllowanceLane(env, context(), {action: 'decrypt', expires: clock + 60})
+    await settleAllowanceVoucherPushes()
+    expect(pushDebitVoucher).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(pushDebitVoucher).mock.calls[1]![2].accountantUrls).toEqual(urls)
+    expect(await inspectAllowanceVoucherPush(store, allowance)).toMatchObject({seq: 1, acked: [], repushed: true})
   })
 })

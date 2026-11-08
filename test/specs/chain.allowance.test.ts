@@ -4,7 +4,7 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 import {decodeFunctionData, parseTransaction, type Hex} from 'viem'
 import {allowanceWorld, assignment, deployment, h, NOW, signedAllowanceIntent, slot, creator, partialOf, groupKey} from '../support/allowanceFixture.js'
-import {collectDebitVoucher, DebitVoucherError, prepaidAllowanceId, readPrepaidAllowance, reconcilePrepaidAllowance, reservePrepaidAllowance, verifyDebitVoucher,
+import {collectDebitVoucher, DebitVoucherError, prepaidAllowanceId, pushDebitVoucher, readPrepaidAllowance, reconcilePrepaidAllowance, reservePrepaidAllowance, verifyDebitVoucher,
   type PrepaidAllowanceCheckpoint} from '../../src/chain/allowance.js'
 import {PaidReservationUncertainError} from '../../src/chain/reservation.js'
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
@@ -126,6 +126,33 @@ describe('collectDebitVoucher', () => {
     const wrongKey = allowanceWorld({mpk: partialOf(0, h(1)).padEnd(258, '0') as Hex})
     await expect(collectDebitVoucher(wrongKey.client, deployment, {payment, seq: 1, quoteBlock, maxOpCost: 100n}, {accountantUrls: wrongKey.accountantUrls})).rejects.toThrow()
   }, 30_000)
+})
+
+describe('pushDebitVoucher', () => {
+  it('posts exactly the seven DebitVoucher wire fields to every member\'s vouchers route and reports each answer', async () => {
+    const world = allowanceWorld(), intent = await signedAllowanceIntent(), allowance = prepaidAllowanceId(intent)
+    const {voucher} = await collectDebitVoucher(world.client, deployment, {payment: await allowancePayment(allowance), seq: 1, quoteBlock: h(0x77), maxOpCost: 100n},
+      {accountantUrls: world.accountantUrls})
+    // The member's body is deny_unknown_fields: a voucher with an extra field is refused before any request.
+    await expect(pushDebitVoucher(43112, {...voucher, note: 'local'} as typeof voucher, {accountantUrls: world.accountantUrls})).rejects.toThrow(/fields/)
+    expect(world.pushes).toHaveLength(0)
+    const outcomes = await pushDebitVoucher(43112, voucher, {accountantUrls: world.accountantUrls})
+    expect(outcomes).toEqual(world.accountantUrls.map(url => ({url, kind: 'accepted', recorded: 'attached'})))
+    expect(world.pushes.map(p => p.url)).toEqual(world.accountantUrls.map(u => `${u}/v1/prepaid/allowances/${allowance}/vouchers`))
+    for (const p of world.pushes) {
+      expect(Object.keys(JSON.parse(p.raw) as object)).toEqual(['allowance_id', 'seq', 'request_id', 'cost', 'cumulative', 'quote_block', 'signature'])
+      expect(JSON.parse(p.raw)).toEqual(voucher)
+    }
+  }, 30_000)
+
+  it('never rejects for a member: transport loss, a refusal and a wrong answer are outcomes', async () => {
+    const world = allowanceWorld({members: [{down: true}, {status: 409}]})
+    const voucher = {allowance_id: h(0x44), seq: 3, request_id: h(0x45), cost: '40', cumulative: '120', quote_block: h(0x77), signature: h(5, 64)}
+    const outcomes = await pushDebitVoucher(43112, voucher, {accountantUrls: world.accountantUrls, concurrency: 1})
+    expect(outcomes.map(o => o.kind === 'failed' ? o.status : o.recorded)).toEqual([0, 409, 'attached'])
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({seq: 2, recorded: 'attached'})))
+    expect((await pushDebitVoucher(43112, voucher, {accountantUrls: world.accountantUrls}))[0]).toMatchObject({kind: 'failed', reason: 'invalid voucher push answer'})
+  })
 })
 
 describe('the allowance-backed paid receipt (reader arm)', () => {

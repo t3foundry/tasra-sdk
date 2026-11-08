@@ -696,3 +696,78 @@ function* subsets(n: number, k: number, limit: number): Generator<number[]> {
     for (let j = i + 1; j < k; j++) index[j] = index[j - 1]! + 1
   }
 }
+
+// ---- Voucher push --------------------------------------------------------------------------
+
+/** One member's answer to `POST /v1/prepaid/allowances/{id}/vouchers`. */
+export type VoucherPushOutcome =
+  | {
+    /** Endpoint. */
+    url: string
+    /** The member verified the voucher against the group key and journaled it (`recorded`: unchanged, attached or observed). */
+    kind: 'accepted'
+    /** The member's decision. */
+    recorded: string
+  }
+  | {
+    /** Endpoint. */
+    url: string
+    /** Transport loss, timeout, a non-2xx answer or an invalid answer. */
+    kind: 'failed'
+    /** HTTP status (0 = transport or invalid answer). */
+    status: number
+    /** Safe reason. */
+    reason: string
+  }
+
+/** Options for {@link pushDebitVoucher}. */
+export interface PushDebitVoucherOptions {
+  /** Accountant endpoints to push to. */
+  accountantUrls: readonly string[]
+  /** HTTP only on local chain 43112. */
+  allowLocalHttp?: boolean
+  /** Per-member timeout, 1..60000 ms (default 10000). */
+  requestTimeoutMs?: number
+  /** Members pushed at once, 1..32 (default 4). */
+  concurrency?: number
+}
+
+/**
+ * Push an aggregated debit voucher to accountant members (`POST /v1/prepaid/allowances/{id}/vouchers`).
+ * A member learns a seq's aggregate from the next debit's `previous`; the last seq of a lane is
+ * never anyone's `previous`, so this is how members that will never see it as `previous` learn it.
+ * Each member verifies it against the group key at its quote block; the push is idempotent.
+ * Never rejects for a member failure: every member's answer is returned as an outcome.
+ * @param chainId - Deployment chain (endpoint transport policy).
+ * @param voucher - A verified aggregated voucher.
+ * @param options - Endpoints, timeout and concurrency.
+ */
+export async function pushDebitVoucher(chainId: number, voucher: DebitVoucherWire, options: PushDebitVoucherOptions): Promise<VoucherPushOutcome[]> {
+  assertDebitVoucherWire(voucher)
+  const timeout = options.requestTimeoutMs ?? 10_000, concurrency = options.concurrency ?? 4
+  if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new Error('invalid voucher push timeout')
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 32) throw new Error('invalid voucher push concurrency')
+  const urls = accountantEndpoints(options, chainId)
+  // Exactly the DebitVoucher wire fields: the member's body is deny_unknown_fields.
+  const body = {allowance_id: voucher.allowance_id, seq: voucher.seq, request_id: voucher.request_id, cost: voucher.cost,
+    cumulative: voucher.cumulative, quote_block: voucher.quote_block, signature: voucher.signature}
+  const outcomes = new Array<VoucherPushOutcome>(urls.length)
+  let next = 0
+  const worker = async () => {
+    for (let i = next++; i < urls.length; i = next++) {
+      const url = urls[i]!
+      try {
+        const answer = await post(`${url}/v1/prepaid/allowances/${voucher.allowance_id}/vouchers`, body, timeout)
+        const json = answer.json as {seq?: unknown; recorded?: unknown} | undefined
+        if (json === undefined) outcomes[i] = {url, kind: 'failed', status: answer.status, reason: answer.text}
+        else if (!json || typeof json !== 'object' || json.seq !== voucher.seq || typeof json.recorded !== 'string' || !['unchanged', 'attached', 'observed'].includes(json.recorded)) {
+          outcomes[i] = {url, kind: 'failed', status: 0, reason: 'invalid voucher push answer'}
+        } else outcomes[i] = {url, kind: 'accepted', recorded: json.recorded}
+      } catch (error) {
+        outcomes[i] = {url, kind: 'failed', status: 0, reason: error instanceof Error ? error.message.slice(0, 256) : 'voucher push failed'}
+      }
+    }
+  }
+  await Promise.all(Array.from({length: Math.min(concurrency, urls.length)}, worker))
+  return outcomes
+}

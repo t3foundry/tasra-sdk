@@ -16,7 +16,11 @@ never does.
   every voucher request, background replacement below 25 % or 10 minutes, and fallback to the
   per-operation reservation. `PaymentIntentWire` gains optional `allowance_id` /
   `debit_voucher`; an allowance payment is the distinct `SlotAllowancePaymentIntent`. The
-  allowance digests are pinned against the shared conformance vectors.
+  allowance digests are pinned against the shared conformance vectors. Every aggregated
+  voucher is pushed in the background to every accountant (`POST .../vouchers`, bounded,
+  never failing the operation), so members also learn a lane's last seq; a retiring lane or
+  an allowance near expiry re-pushes its last voucher once to members that did not
+  acknowledge it.
 - Two-step slot hand-offs on the write client: `proposeSlotTransfer`,
   `acceptSlotTransfer` and `withdrawSlotTransfer` move the creator;
   `proposeRuleAdminTransfer`, `acceptRuleAdminTransfer` and

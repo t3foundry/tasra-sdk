@@ -65,6 +65,8 @@ export interface ChainChanges {
 export interface AllowanceWorld {
   client: PublicClient; wallet: WalletClient<Transport, Chain, Account>; fetcher: ReturnType<typeof vi.fn>; trace: string[]
   debits: {url: string; body: {intent: PaymentIntentWire; seq: number; previous: unknown; quote_block: Hex}}[]
+  /** Bodies of `POST .../vouchers`, raw. */
+  pushes: {url: string; raw: string}[]
   mined: {record?: MinedAllowance}; transactions: Hex[]; accountantUrls: string[]
 }
 export function allowanceWorld(change: ChainChanges = {}): AllowanceWorld {
@@ -72,11 +74,19 @@ export function allowanceWorld(change: ChainChanges = {}): AllowanceWorld {
   const trace: string[] = []
   const debits: {url: string; body: {intent: PaymentIntentWire; seq: number; previous: unknown; quote_block: Hex}}[] = []
   const mined: {record?: MinedAllowance} = {}
+  const pushes: {url: string; raw: string}[] = []
   let txHash = h(77)
   const transactions: Hex[] = []
   const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input), body = JSON.parse(init?.body as string) as Record<string, unknown>
     trace.push(url)
+    if (url.endsWith('/vouchers')) {
+      const member = Number(/acct(\d)/.exec(url)![1]), behaviour = change.members?.[member] ?? {}
+      pushes.push({url, raw: init?.body as string})
+      if (behaviour.down) throw new TypeError('fetch failed')
+      if (behaviour.status) return new Response('refused by test', {status: behaviour.status})
+      return Response.json({seq: (body as {seq: number}).seq, recorded: 'attached'})
+    }
     if (url.includes('/v1/prepaid/allowances/') && url.endsWith('/debits')) {
       const member = Number(/acct(\d)/.exec(url)![1])
       const behaviour = change.members?.[member] ?? {}
@@ -155,5 +165,5 @@ export function allowanceWorld(change: ChainChanges = {}): AllowanceWorld {
   const client = createPublicClient({chain: localChain, transport}) as PublicClient
   configurePinnedReads(client, false)
   const wallet = createWalletClient({chain: localChain, account: creator, transport})
-  return {client, wallet, fetcher, trace, debits, mined, transactions, accountantUrls: ['https://acct0.example', 'https://acct1.example', 'https://acct2.example']}
+  return {client, wallet, fetcher, trace, debits, pushes, mined, transactions, accountantUrls: ['https://acct0.example', 'https://acct1.example', 'https://acct2.example']}
 }

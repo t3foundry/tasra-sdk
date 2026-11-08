@@ -17,6 +17,14 @@
 //   lane: its seq may be claimed at some members by a request that can now never complete. The
 //   operation then falls back to a per-operation reservation (paid-operation.ts). Unreachable
 //   members leave the debit pending for the same seq and request.
+// - Every aggregated voucher is pushed to every accountant in the background
+//   (`POST .../vouchers`, fire-and-forget, bounded). Members learn a seq's aggregate from the next
+//   debit's `previous`, but the LAST seq of a lane is nobody's `previous`, and which seq is last is
+//   unknowable when it is made (the lane may retire, the allowance expire, the process stop), so
+//   each one is pushed; the push is one small idempotent request per member. The outcome is
+//   journaled per allowance (`pap-<allowance>`): a retiring lane or an allowance close to expiry
+//   re-pushes its last voucher once to the members that did not acknowledge it. A push never
+//   blocks or fails an operation.
 //
 // Reservations use the dedicated gas payer under the same durable payer claim as per-operation
 // reservations (paid-reservation.ts), and the same in-process payer queue.
@@ -28,9 +36,9 @@
 import {keccak256, toHex, type Account, type Address, type Chain, type Hex, type LocalAccount, type PublicClient, type Transport, type WalletClient} from 'viem'
 import {allowanceActionBits, allowanceFunds, ALLOWANCE_ACTIONS, prepaidAllowanceIntentTypedData, prepaidRequestId, type AllowanceAction, type DebitVoucherWire,
   type PaymentIntentWire, type PrepaidAllowanceIntentWire} from '../committee/payment.js'
-import {collectDebitVoucher, DebitVoucherError, prepaidAllowanceId, reconcilePrepaidAllowance, reservePrepaidAllowance, ALLOWANCE_MAX_LIFETIME_SECS,
+import {collectDebitVoucher, DebitVoucherError, prepaidAllowanceId, pushDebitVoucher, reconcilePrepaidAllowance, reservePrepaidAllowance, ALLOWANCE_MAX_LIFETIME_SECS,
   type DebitPartialWire, type PrepaidAllowanceReservationRecord} from '../chain/allowance.js'
-import {PaidReservationUncertainError} from '../chain/reservation.js'
+import {accountantEndpoints, PaidReservationUncertainError} from '../chain/reservation.js'
 import type {DiscoveredPaymentFields, PaidOperationContext, PrepaidDeployment} from '../chain/prepaid.js'
 import {TasraError} from '../errors.js'
 import type {ApplicationStore} from './ready-slot.js'
@@ -248,6 +256,8 @@ export async function selectAllowanceLane(env: AllowanceEnv, context: PaidOperat
     const key = laneKey(env.deployment, slot, lane)
     const state = await loadLane(env.store, key, lane, slot)
     if (env.options.reserveAhead !== false && (low(state.current) || state.current?.phase !== 'confirmed') && !state.next) refillLane(env, context, lane)
+    // Close to expiry the current allowance may see no further debit: make sure its last voucher reached the members.
+    if (state.current?.phase === 'confirmed' && state.current.seq > 0 && state.current.intent.expires_at - now() < LOW_LIFE_SECS) repushLast(env, state.current.id)
     if (!chosen && (usable(state.current, env, context, operation.action, operation.expires) || (state.next?.phase === 'confirmed' && !state.current?.pending))) {
       const current = usable(state.current, env, context, operation.action, operation.expires) ? state.current! : await promote(env, key, lane, slot, context, operation)
       if (current) {
@@ -268,6 +278,7 @@ async function promote(env: AllowanceEnv, key: string, lane: number, slot: Hex, 
     const next: LaneCurrent = {...state.next, seq: 0, cumulative: '0'}
     if (!usable(next, env, context, operation.action, operation.expires)) return undefined
     await env.store.save(key, {...state, current: next, next: undefined, retired: retire(state)} satisfies LaneState)
+    repushLast(env, state.current?.id)
     return next
   })
 }
@@ -359,6 +370,7 @@ export async function reserveForLane(env: AllowanceEnv, context: PaidOperationCo
       if (s.next?.phase !== 'confirmed' || !same(s.next.id, id) || s.current?.pending) return
       if (s.current && s.current.phase === 'confirmed' && remaining(s.current) >= env.limits.maxCost && s.current.intent.expires_at - now() > LOW_LIFE_SECS / 2) return
       await store.save(key, {...s, current: {...s.next, seq: 0, cumulative: '0'}, next: undefined, retired: retire(s)} satisfies LaneState)
+      repushLast(env, s.current?.id)
     })
     return 'reserved'
   } catch (error) {
@@ -406,14 +418,15 @@ export async function obtainAllowanceVoucher(env: AllowanceEnv, ticket: {lane: n
       let state = await loadLane(store, key, ticket.lane, slot)
       const save = async (next: LaneState) => { await store.save(key, next); state = next }
       const retireLane = async (why: string, cause?: unknown): Promise<never> => {
-        const promoted = state.next?.phase === 'confirmed' ? {...state.next, seq: 0, cumulative: '0'} : undefined
+        const promoted = state.next?.phase === 'confirmed' ? {...state.next, seq: 0, cumulative: '0'} : undefined, retiring = state.current?.id
         await save({...state, current: promoted, next: promoted ? undefined : state.next, retired: retire(state)})
+        repushLast(env, retiring)
         throw new AllowanceRefusedError(why, cause)
       }
       const current = state.current
       if (!current || !same(current.id, payment.allowance_id!)) throw new AllowanceRefusedError('the lane no longer holds this allowance')
       // A completed round of another request whose lane advance was interrupted.
-      if (current.pending?.voucher && !same(current.pending.requestId, requestId)) await finalize(store, key, state, current, current.pending, save)
+      if (current.pending?.voucher && !same(current.pending.requestId, requestId)) await finalize(env, state, current, current.pending, save)
       const other = state.current?.pending
       if (other && !same(other.requestId, requestId)) {
         if (!await resumable(store, other)) return retireLane('a debit of an abandoned or expired operation holds this lane')
@@ -421,7 +434,7 @@ export async function obtainAllowanceVoucher(env: AllowanceEnv, ticket: {lane: n
         await runRound(env, state, state.current!, other, save, retireLane, signal)
       }
       const lane = state.current!
-      if (lane.pending && lane.pending.voucher) return (await finalize(store, key, state, lane, lane.pending, save))
+      if (lane.pending && lane.pending.voucher) return (await finalize(env, state, lane, lane.pending, save))
       let debit = lane.pending
       if (!debit) {
         // The accountants judge cost against the remainder; an empty allowance cannot fund anything.
@@ -445,14 +458,13 @@ export async function obtainAllowanceVoucher(env: AllowanceEnv, ticket: {lane: n
 /** One voucher round for `debit` on the lane's current allowance; advances the lane on success. */
 async function runRound(env: AllowanceEnv, state: LaneState, lane: LaneCurrent, debit: LaneDebit, save: (s: LaneState) => Promise<void>,
   retireLane: (why: string, cause?: unknown) => Promise<never>, signal?: AbortSignal): Promise<DebitVoucherWire> {
-  const key = laneKey(env.deployment, lane.intent.slot, state.lane)
   try {
     const {voucher, partials} = await collectDebitVoucher(env.client, env.deployment, {payment: debit.payment, seq: debit.seq, previous: lane.previous,
       quoteBlock: debit.quoteBlock, maxOpCost: BigInt(lane.intent.max_op_cost)}, {accountantUrls: env.accountantUrls, allowLocalHttp: env.allowLocalHttp,
       requestTimeoutMs: env.options.debitTimeoutMs, signal, known: debit.partials})
     const done: LaneDebit = {...debit, partials, voucher}
     await save({...state, current: {...lane, pending: done}})
-    return await finalize(env.store, key, state, {...lane, pending: done}, done, save)
+    return await finalize(env, state, {...lane, pending: done}, done, save)
   } catch (error) {
     if (error instanceof DebitVoucherError) {
       const known = new Map(debit.partials.map(p => [p.identifier, p]))
@@ -466,12 +478,102 @@ async function runRound(env: AllowanceEnv, state: LaneState, lane: LaneCurrent, 
   }
 }
 
-/** Journal the voucher under its request, then advance the lane past its seq. */
-async function finalize(store: ApplicationStore, _key: string, state: LaneState, lane: LaneCurrent, debit: LaneDebit, save: (s: LaneState) => Promise<void>): Promise<DebitVoucherWire> {
-  const voucher = debit.voucher!
+/** Journal the voucher under its request, then advance the lane past its seq, then push it (background). */
+async function finalize(env: AllowanceEnv, state: LaneState, lane: LaneCurrent, debit: LaneDebit, save: (s: LaneState) => Promise<void>): Promise<DebitVoucherWire> {
+  const voucher = debit.voucher!, store = env.store
   if (!await journaledAllowanceVoucher(store, debit.requestId)) await store.save(voucherKey(debit.requestId), {schema: 1, voucher} satisfies StoredVoucher)
   await save({...state, current: {...lane, seq: debit.seq, cumulative: voucher.cumulative, previous: voucher, pending: undefined}})
+  await pushVoucher(env, voucher)
   return voucher
+}
+
+// ---- Voucher push (background) --------------------------------------------------------------
+
+/** The last voucher of one allowance and which members acknowledged it. */
+interface PushRecord { schema: 1; voucher: DebitVoucherWire; acked: string[]; repushed: boolean }
+const PUSH_TIMEOUT_MS = 10_000
+const PUSH_CONCURRENCY = 4
+/** Background push jobs in this process; beyond it a push is skipped (the journal keeps it unacknowledged for the re-push). */
+const MAX_PUSHES = 64
+const pushes = new Set<Promise<void>>()
+
+function pushKey(allowance: Hex): string {
+  if (!HEX32.test(allowance)) throw new TasraError('Invalid allowance ID')
+  return `pap-${allowance.slice(2).toLowerCase()}`
+}
+async function loadPush(store: ApplicationStore, allowance: Hex): Promise<PushRecord | undefined> {
+  const r = await store.load<PushRecord>(pushKey(allowance))
+  if (r === undefined) return undefined
+  if (!r || r.schema !== 1 || !same(r.voucher.allowance_id, allowance) || !Array.isArray(r.acked)) throw new TasraError('Invalid voucher push journal')
+  return r
+}
+function background(work: () => Promise<void>): void {
+  if (pushes.size >= MAX_PUSHES) return
+  const job: Promise<void> = Promise.resolve().then(work).catch(() => {}).finally(() => pushes.delete(job))
+  pushes.add(job)
+}
+/** Send `voucher` to `urls` and merge the acknowledgements into its journal (when it is still the allowance's last). */
+async function sendAndJournal(env: AllowanceEnv, voucher: DebitVoucherWire, urls: string[]): Promise<void> {
+  if (urls.length === 0) return
+  const outcomes = await pushDebitVoucher(env.deployment.chainId, voucher, {accountantUrls: urls, allowLocalHttp: env.allowLocalHttp,
+    requestTimeoutMs: PUSH_TIMEOUT_MS, concurrency: PUSH_CONCURRENCY})
+  const accepted = outcomes.filter(o => o.kind === 'accepted').map(o => o.url)
+  if (accepted.length === 0) return
+  const key = pushKey(voucher.allowance_id)
+  await env.store.withLock(key, async () => {
+    const r = await loadPush(env.store, voucher.allowance_id)
+    if (!r || r.voucher.seq !== voucher.seq) return
+    await env.store.save(key, {...r, acked: [...new Set([...r.acked, ...accepted])]} satisfies PushRecord)
+  })
+}
+/**
+ * Journal `voucher` as its allowance's last (unacknowledged) now, then push it to every member in
+ * the background. Never throws: a journal failure only costs the later re-push.
+ */
+async function pushVoucher(env: AllowanceEnv, voucher: DebitVoucherWire): Promise<void> {
+  try {
+    const key = pushKey(voucher.allowance_id)
+    const fresh = await env.store.withLock(key, async () => {
+      const r = await loadPush(env.store, voucher.allowance_id).catch(() => undefined)
+      if (r && r.voucher.seq >= voucher.seq) return false
+      await env.store.save(key, {schema: 1, voucher, acked: [], repushed: false} satisfies PushRecord)
+      return true
+    })
+    if (fresh) background(() => sendAndJournal(env, voucher, accountantEndpoints(env, env.deployment.chainId)))
+  } catch { /* the operation never depends on the push */ }
+}
+/** Re-push an allowance's last voucher ONCE to the members that did not acknowledge it (lane retiring, allowance near expiry). Never throws. */
+function repushLast(env: AllowanceEnv, allowance: Hex | undefined): void {
+  if (!allowance) return
+  background(async () => {
+    const urls = accountantEndpoints(env, env.deployment.chainId), key = pushKey(allowance)
+    const todo = await env.store.withLock(key, async () => {
+      const r = await loadPush(env.store, allowance)
+      if (!r || r.repushed) return undefined
+      const missing = urls.filter(u => !r.acked.includes(u))
+      if (missing.length === 0) return undefined
+      // Marked before sending: once, even if this process stops mid-push.
+      await env.store.save(key, {...r, repushed: true} satisfies PushRecord)
+      return {voucher: r.voucher, missing}
+    })
+    if (todo) await sendAndJournal(env, todo.voucher, todo.missing)
+  })
+}
+
+/**
+ * The voucher push journal of an allowance: its last voucher, the members that acknowledged it and
+ * whether the one re-push was spent (diagnostics).
+ * @param store - Application store.
+ * @param allowance - Allowance ID.
+ */
+export async function inspectAllowanceVoucherPush(store: ApplicationStore, allowance: Hex): Promise<{seq: number; acked: string[]; repushed: boolean} | undefined> {
+  const r = await loadPush(store, allowance)
+  return r && {seq: r.voucher.seq, acked: [...r.acked], repushed: r.repushed}
+}
+
+/** Test hook: wait for every background voucher push started in this process. */
+export async function settleAllowanceVoucherPushes(): Promise<void> {
+  while (pushes.size > 0) await Promise.all([...pushes])
 }
 
 /**
