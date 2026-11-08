@@ -340,6 +340,8 @@ interface OperationRecord {
   allowance?: {lane: number}
   /** A final dual-control Sign payment ({@link paidFinalSign}): no presentation, session or grant follows. */
   finalSign?: true
+  /** An ADR-0090 D7 session-grant decrypt payment ({@link paidSessionDecrypt}): the grant, not a presentation, authorizes it. */
+  sessionDecrypt?: true
   payment: PaymentIntentWire
   expected: ExpectedPaidOperation
   params: {operation: PresentationOperation; operationSig: Hex; messageHex: string; random: Hex; decryption?: DecryptionBindingWire}
@@ -746,6 +748,7 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
   let record = await store.load<OperationRecord>(recordKey(requestId))
   if (!record || record.schema !== 1 || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('No paid operation journal for this request')
   if (record.finalSign) throw new TasraError('A final Sign payment has no session; resume it with resumePaidFinalSign')
+  if (record.sessionDecrypt) throw new TasraError('A session-grant decrypt payment has no presentation; resume it with resumePaidSessionDecrypt')
   if (signal.aborted && (record.phase === 'reserved' || record.phase === 'certified')) throw abortedError(requestId, 'session', record.payment, signal, signal.reason)
   if (record.phase === 'reserved') {
     const {policy} = await readClientExecutionPolicy(client, {...d, defaultVerificationPolicy: d.defaultVerificationPolicy}, record.payment, record.expected)
@@ -1380,39 +1383,62 @@ export async function paidFinalSign(config: PaidOperationConfig, request: PaidFi
 }
 
 async function finalSignAttempt(config: PaidOperationConfig, request: PaidFinalSignRequest, useAllowance: boolean): Promise<PaidFinalSign> {
+  if (!(request.message instanceof Uint8Array) || request.message.length === 0) throw new TasraError('Final Sign requires the exact message')
+  const requestId = await presentationlessAttempt(config, request, useAllowance, {marker: 'finalSign', action: 'sign', mode: 0,
+    modeError: 'A final dual-control Sign requires a FROST slot', description: 'Paid final dual-control Sign',
+    build: (d, nowSecs, ttlSecs) => {
+      const built = presentationOperationTypedData({action: 'sign', message: request.message, chainId: d.chainId, keyRegistry: d.keyRegistry, slotId: request.slot,
+        description: 'Paid final dual-control Sign', nowSecs, ttlSecs})
+      if (toHex(built.payloadDigest).toLowerCase() !== toHex(sha256(request.message)).toLowerCase()) throw new TasraError('Final Sign payload differs from its message digest')
+      return built
+    }})
+  return continueFinalSign(config, requestId)
+}
+
+/** What a presentationless paid operation pays for: its journal marker, action, slot mode and operation. */
+interface PresentationlessSpec {
+  marker: 'finalSign' | 'sessionDecrypt'
+  action: 'sign' | 'decrypt'
+  mode: number
+  modeError: string
+  description: string
+  build(d: PaidContextDeployment & {chainId: number; keyRegistry: Address}, nowSecs: number, ttlSecs: number): ReturnType<typeof presentationOperationTypedData>
+  decryption?: DecryptionBindingWire
+}
+
+/** Pay one operation without any presentation (final dual Sign, ADR-0090 D7 session decrypt): journaled, reserved, never presented. */
+async function presentationlessAttempt(config: PaidOperationConfig, request: {slot: Hex; ttlSecs?: number; coordinator?: Address; signal?: AbortSignal;
+  onRequestId?(requestId: Hex): void | Promise<void>}, useAllowance: boolean, spec: PresentationlessSpec): Promise<Hex> {
   const d = {...config.deployment}, client = config.chain.client, signal = request.signal ?? new AbortController().signal
   const slot = request.slot
   if (!HEX32.test(slot)) throw new TasraError('Invalid paid operation slot')
-  if (!(request.message instanceof Uint8Array) || request.message.length === 0) throw new TasraError('Final Sign requires the exact message')
   if (config.billing) await config.billing.requirePrepaid(slot)
   const readiness = AbortSignal.any([signal, AbortSignal.timeout(config.snapshotWaitMs ?? 180_000)])
   const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(client, d, slot,
     {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator, fundedByAllowance: useAllowance}),
   readiness, () => sleep(1_000, readiness))
   if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
-  if (context.mode !== 0) throw new TasraError('A final dual-control Sign requires a FROST slot')
+  if (context.mode !== spec.mode) throw new TasraError(spec.modeError)
   const ttlSecs = request.ttlSecs ?? 600
   if (!Number.isSafeInteger(ttlSecs) || ttlSecs <= 0 || ttlSecs > 3600) throw new TasraError('Paid operation lifetime must be 1..3600 seconds')
   // The operation record keeps the presentation shape; nothing is signed or presented for it.
-  const built = presentationOperationTypedData({action: 'sign', message: request.message, chainId: d.chainId, keyRegistry: d.keyRegistry, slotId: slot,
-    description: 'Paid final dual-control Sign', nowSecs: Math.floor(Date.now() / 1000), ttlSecs})
-  const payloadDigest = sha256(request.message)
-  if (toHex(built.payloadDigest).toLowerCase() !== toHex(payloadDigest).toLowerCase()) throw new TasraError('Final Sign payload differs from its message digest')
+  const built = spec.build(d, Math.floor(Date.now() / 1000), ttlSecs)
+  const payloadDigest = built.payloadDigest
   const randomBytes = random32(), random = toHex(randomBytes); randomBytes.fill(0)
   const env = useAllowance ? allowanceEnv(config) : undefined
-  const ticket = env ? await selectAllowanceLane(env, context, {action: 'sign', expires: built.operation.exp}) : undefined
-  const unsigned = {...ticket ? ticket.fields : context.intentFields, action: 'sign' as const,
+  const ticket = env ? await selectAllowanceLane(env, context, {action: spec.action, expires: built.operation.exp}) : undefined
+  const unsigned = {...ticket ? ticket.fields : context.intentFields, action: spec.action,
     payload_digest: toHex(payloadDigest), session_commitment: paymentSessionCommitment(random, config.agent.profile.clientId, built.operation.exp),
     nonce: toHex(random32()), max_cost: config.limits.maxCost.toString(), expires: built.operation.exp, ...ticket ? {allowance_id: ticket.allowanceId} : {}}
   const payment: PaymentIntentWire = {...unsigned, signature: await config.creator.signTypedData(paymentIntentTypedData(unsigned))}
-  const expected: ExpectedPaidOperation = {slot, action: 'sign', payloadDigest: payment.payload_digest}
+  const expected: ExpectedPaidOperation = {slot, action: spec.action, payloadDigest: payment.payload_digest}
   const requestId = prepaidRequestId(payment)
   followPaidRequest(client, d, payment)
   await request.onRequestId?.(requestId)
   signal.throwIfAborted()
-  const record: OperationRecord = {schema: 1, phase: 'reserving', finalSign: true, payment, expected, members: [], rule: '', ruleSalt: `0x${'00'.repeat(32)}`,
-    params: {operation: built.operation, operationSig: '0x', messageHex: built.messageHex, random}, coordinator: context.coordinator, contributors: context.contributors,
-    action: 'sign', payloadDigest: toHex(payloadDigest), payer: config.gasPayer.account.address, ...ticket ? {allowance: {lane: ticket.lane}} : {}}
+  const record: OperationRecord = {schema: 1, phase: 'reserving', ...spec.marker === 'finalSign' ? {finalSign: true as const} : {sessionDecrypt: true as const}, payment, expected, members: [], rule: '', ruleSalt: `0x${'00'.repeat(32)}`,
+    params: {operation: built.operation, operationSig: '0x', messageHex: built.messageHex, random, ...spec.decryption ? {decryption: spec.decryption} : {}},
+    coordinator: context.coordinator, contributors: context.contributors, action: spec.action, payloadDigest: toHex(payloadDigest), payer: config.gasPayer.account.address, ...ticket ? {allowance: {lane: ticket.lane}} : {}}
   const key = recordKey(requestId)
   await config.store.withLock(key, async () => {
     if (await config.store.load(key) !== undefined) throw new TasraError('Paid operation already journaled; resume it')
@@ -1424,7 +1450,7 @@ async function finalSignAttempt(config: PaidOperationConfig, request: PaidFinalS
     if (ticket && error instanceof PaidOperationRecoveryError && error.code === 'reservation-failed' && error.cause instanceof AllowanceRefusedError) throw new AllowanceFallback(requestId, error)
     throw error
   }
-  return continueFinalSign(config, requestId)
+  return requestId
 }
 
 /**
@@ -1460,6 +1486,94 @@ async function continueFinalSign(config: PaidOperationConfig, requestId: Hex): P
     certificate: record.certificate, signer, keeperUrl: config.keeperUrl, transportPolicy: {allowLocalHttp: config.allowLocalHttp}})
   const route = config.keeperUrl ?? ((url: string) => url)
   return {requestId, payment: structuredClone(record.payment), coordinatorUrl: route(record.coordinator.url), approveExecution, dispose: () => signer.dispose()}
+}
+
+/** One ADR-0090 D7 session-grant KEM decrypt to pay: the slot and the exact recipient binding. */
+export interface PaidSessionDecryptRequest {
+  /** KEM (BLS) slot named by the session grant. */
+  slot: Hex
+  /** Recipient binding of this ciphertext ({@link decryptionBinding}); fixes the payload digest. */
+  decryption: DecryptionBindingWire
+  /** Payment lifetime, 1..3600 seconds (default 600). */
+  ttlSecs?: number
+  /** Cancellation (discovery, debit or reservation). */
+  signal?: AbortSignal
+  /** Receive the request identity before anything is debited or reserved; a throw stops it. */
+  onRequestId?(requestId: Hex): void | Promise<void>
+}
+
+/** A paid session-grant decrypt ready for the session partials client. */
+export interface PaidSessionDecrypt {
+  /** Request identity. */
+  requestId: Hex
+  /** The backed decrypt payment (with its debit voucher when allowance-backed). */
+  payment: PaymentIntentWire
+  /** Approves each keeper's contribution for exactly this payment (kind `session-decrypt`). */
+  approveExecution: KeeperExecutionApprover
+  /** Erase the execution key from memory. */
+  dispose(): void
+}
+
+/**
+ * Pay one KEM decrypt that a session grant (ADR-0090 D7) authorizes: no presentation and no
+ * verifier round, because the grant and the session-key proof authorize the keeper work. With
+ * `config.allowances` it is debited from an allowance lane and falls back to a per-operation
+ * reservation exactly as {@link paidOperation}; journal, certificate and keeper approvals are the
+ * ones every paid operation uses. Resume an interrupted one with {@link resumePaidSessionDecrypt}.
+ * @param config - Paid operation configuration (its agent settings are not used).
+ * @param request - Slot, recipient binding, lifetime and cancellation.
+ */
+export async function paidSessionDecrypt(config: PaidOperationConfig, request: PaidSessionDecryptRequest): Promise<PaidSessionDecrypt> {
+  validateConfig(config)
+  const attempt = (useAllowance: boolean) => presentationlessAttempt(config, request, useAllowance, {marker: 'sessionDecrypt', action: 'decrypt', mode: 1,
+    modeError: 'A session-grant decrypt requires a BLS slot', description: 'Paid session-grant decrypt', decryption: structuredClone(request.decryption),
+    build: (d, nowSecs, ttlSecs) => presentationOperationTypedData({action: 'decrypt', decryption: request.decryption, chainId: d.chainId, keyRegistry: d.keyRegistry,
+      slotId: request.slot, description: 'Paid session-grant decrypt', nowSecs, ttlSecs})})
+  if (!request.decryption || typeof request.decryption.content_digest !== 'string') throw new TasraError('A session-grant decrypt requires the complete recipient binding')
+  let requestId: Hex
+  if (!config.allowances?.enabled) requestId = await attempt(false)
+  else {
+    try { requestId = await attempt(true) }
+    catch (error) {
+      if (!(error instanceof AllowanceFallback)) throw error
+      requestId = await attempt(false)
+    }
+  }
+  return continueSessionDecrypt(config, requestId)
+}
+
+/**
+ * Resume a journaled session-grant decrypt payment ({@link paidSessionDecrypt}): a `reserving`
+ * one is reconciled through the same debit or reservation path (never a second payment).
+ * @param config - The original configuration.
+ * @param requestId - The decrypt's request identity.
+ * @param signal - Cancellation.
+ */
+export async function resumePaidSessionDecrypt(config: PaidOperationConfig, requestId: Hex, signal?: AbortSignal): Promise<PaidSessionDecrypt> {
+  validateConfig(config)
+  const record = await config.store.load<OperationRecord>(recordKey(requestId))
+  if (!record || record.schema !== 1 || !record.sessionDecrypt) throw new TasraError('No session-grant decrypt journal for this request')
+  if (record.phase === 'reserving') await reserve(config, record, signal ?? new AbortController().signal)
+  return continueSessionDecrypt(config, requestId)
+}
+
+async function continueSessionDecrypt(config: PaidOperationConfig, requestId: Hex): Promise<PaidSessionDecrypt> {
+  const d = {...config.deployment}, store = config.store
+  let record = await store.load<OperationRecord>(recordKey(requestId))
+  if (!record || record.schema !== 1 || !record.sessionDecrypt || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('No session-grant decrypt journal for this request')
+  if (record.phase === 'reserved') {
+    const {policy} = await readClientExecutionPolicy(config.chain.client, {...d, defaultVerificationPolicy: d.defaultVerificationPolicy}, record.payment, record.expected)
+    const seed = random32(), signer = createLocalExecutionSigner(seed)
+    try {
+      const certificate = await createExecutionCertificate({payment: record.payment, policy, publicKey: signer.publicKey, expires: record.payment.expires, creator: config.creator})
+      record = await advance(store, requestId, 'reserved', {phase: 'certified', seed: Uint8Array.from(seed), certificate, pollSecret: toHex(random32()).slice(2)})
+    } finally { signer.dispose(); seed.fill(0) }
+  }
+  if (record.phase !== 'certified' || !record.seed || !record.certificate) throw new TasraError(`Session-grant decrypt journal is ${record.phase}, not payable`)
+  const signer = createLocalExecutionSigner(record.seed)
+  const approveExecution = createKeeperExecutionApprover({client: config.chain.client, deployment: d, payment: record.payment, expected: record.expected,
+    certificate: record.certificate, signer, keeperUrl: config.keeperUrl, transportPolicy: {allowLocalHttp: config.allowLocalHttp}})
+  return {requestId, payment: structuredClone(record.payment), approveExecution, dispose: () => signer.dispose()}
 }
 
 export async function paidOperationPhase(store: ApplicationStore, requestId: Hex): Promise<PaidOperationJournalPhase | undefined> {
