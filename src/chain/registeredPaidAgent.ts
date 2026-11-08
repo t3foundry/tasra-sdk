@@ -319,10 +319,18 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   return bounded(consent.signal,async preparationSignal=>{
   sessionPaymentFields(params,profile.clientId)
   preparationSignal.throwIfAborted()
-  const authenticated = await authenticateApprovedService(chain,profile.approval,{request:(url,opts)=>transport.request(url,{...opts,signal:AbortSignal.any([opts.signal,preparationSignal])})})
+  // The provider authentication (registry record, manifest, identity challenge, record recheck) and
+  // the client execution policy are independent: both only read, and the policy read contacts no
+  // agent. Run them together and judge them in the original order: authentication refuses first.
+  const [authenticatedRead,policyRead] = await Promise.allSettled([
+    authenticateApprovedService(chain,profile.approval,{request:(url,opts)=>transport.request(url,{...opts,signal:AbortSignal.any([opts.signal,preparationSignal])})}),
+    readClientExecutionPolicy(chain.client,deployment,payment,expected)])
+  if (authenticatedRead.status === 'rejected') throw authenticatedRead.reason
+  const authenticated = authenticatedRead.value
   if (authenticated.record.endpoint !== profile.endpoint || !authenticated.manifest.capabilities.includes('oid4vp')) throw new Error('Paid agent endpoint/capability mismatch')
   preparationSignal.throwIfAborted()
-  const {policy:originalPolicy} = await readClientExecutionPolicy(chain.client,deployment,payment,expected)
+  if (policyRead.status === 'rejected') throw policyRead.reason
+  const {policy:originalPolicy} = policyRead.value
   preparationSignal.throwIfAborted()
   const a = profile.approval, record = authenticated.record
   const pin = {chainId:a.chainId,registry:a.registry.toLowerCase(),serviceId:a.serviceId.toLowerCase(),serviceType:1,

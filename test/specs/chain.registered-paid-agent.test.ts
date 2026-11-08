@@ -815,3 +815,22 @@ it('asks for a held status poll only when the attempt budget fits the agent hold
   await short.session.poll(undefined,{wait:true})
   expect(shortSend.mock.calls.at(-1)![0]).toBe(short.profile.endpoint+'/v1/sessions/'+short.session.sessionId)
 })
+
+it('reads the client execution policy beside the provider authentication and still refuses on authentication first',async()=>{
+  const f=await fixture()
+  // Overlap: the policy read starts while the authentication is still pending (one round trip, not two in sequence).
+  let finish:(value:Awaited<ReturnType<typeof authenticateApprovedService>>)=>void=()=>{}
+  vi.mocked(authenticateApprovedService).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve}))
+  vi.mocked(readClientExecutionPolicy).mockClear()
+  const pending=f.prepare()
+  await vi.waitFor(()=>expect(readClientExecutionPolicy).toHaveBeenCalledTimes(1))
+  finish({record:{...f.record},manifest:{capabilities:['oid4vp']}} as Awaited<ReturnType<typeof authenticateApprovedService>>)
+  await expect(pending).resolves.toMatchObject({sessionId:f.session.sessionId})
+  // Both fail: the authentication refusal is the one reported, as when they ran one after the other.
+  vi.mocked(authenticateApprovedService).mockRejectedValueOnce(new Error('Service changed during authentication'))
+  vi.mocked(readClientExecutionPolicy).mockRejectedValueOnce(new Error('payment verification context differs from canonical chain policy'))
+  await expect(f.prepare()).rejects.toThrow(/Service changed during authentication/)
+  // A policy refusal after a good authentication still refuses.
+  vi.mocked(readClientExecutionPolicy).mockRejectedValueOnce(new Error('payment verification context differs from canonical chain policy'))
+  await expect(f.prepare()).rejects.toThrow(/canonical chain policy/)
+})
