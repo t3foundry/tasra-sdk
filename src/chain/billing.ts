@@ -72,8 +72,9 @@ const probeAbi = parseAbi([
   'function prepaidEnabled(bytes32 slot) view returns (bool)',
   'function prepaidFromGenesis() view returns (bool)',
 ])
-/** Settlement versions with prepaid billing. "3" adds only the payer timeout escape. Any other version is unknown. */
-const PREPAID_SETTLEMENT_VERSIONS: ReadonlySet<string> = new Set(['2', '3'])
+/** Settlement versions with prepaid billing. "3" adds only the payer timeout escape; "4" adds only the ADR-0090
+ *  allowances beside the unchanged per-request path. Any other version is unknown. */
+const PREPAID_SETTLEMENT_VERSIONS: ReadonlySet<string> = new Set(['2', '3', '4'])
 const HEX32 = /^0x[0-9a-f]{64}$/i
 const ADDRESS = /^0x[0-9a-f]{40}$/i
 
