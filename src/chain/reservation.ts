@@ -146,9 +146,13 @@ export class PaidReservationUncertainError extends Error {
 }
 
 /**
- * The accountant's `prepare` refused the intent because its signed verifier epoch is no longer the
- * beacon's current or previous one (the reservation waited past an epoch tick). Nothing was recorded
- * or sent, and this intent can never be accepted again: only a fresh intent at the current epoch can.
+ * The accountant's unpinned `prepare` refused the intent because its signed verifier epoch is no
+ * longer the beacon's current or previous one at the accountant's own latest block (the reservation
+ * waited past an epoch tick). This client sent no transaction, but the intent is NOT dead: an
+ * accountant judges the epoch at a client-pinned quote block up to MAX_QUOTE_AGE (30 s) old, and
+ * `reservePrepaid*` is permissionless, so whoever holds the intent may still get it reserved until
+ * its payment expires. Keep its journal and reconcile it; never replace it with a re-signed intent
+ * while it can still land.
  */
 export class PaidReservationStaleEpochError extends Error {
   /** Stable machine-readable reason. */

@@ -28,7 +28,6 @@ import type {ApprovedAgentProfile} from '../chain/registeredAgent.js'
 import {createKeeperExecutionApprover} from '../chain/keeperExecution.js'
 import {recoverKeeperExecution, type KeeperRecoveryTransport, type RecoveredKeeperExecution} from '../chain/keeperRecovery.js'
 import {ruleCommitment} from '../chain/write.js'
-import {PaidReservationStaleEpochError} from '../chain/reservation.js'
 import {loadPaidReservationJournal} from './paid-journal.js'
 import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, ApplicationPayerRecoveryError,
   type ApplicationReservationState} from './paid-reservation.js'
@@ -550,20 +549,16 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
 }
 
 /**
- * One per-operation payment, re-signed at most once when its reservation waited (for the payer
- * or the accountant) past a beacon tick: the accountant refused the signed verifier epoch before
- * recording anything and nothing was sent, so the unsent journal is closed and a fresh discovery
- * signs a new intent (its own request ID, reported again through `onRequestId`) that every check
- * judges at the current epoch. The accountant's {latest-1, latest} window is unchanged.
+ * One per-operation payment. A refused reservation is never replaced by a re-signed intent here:
+ * an intent that reached an accountant can still be reserved by anyone holding it (the accountant
+ * accepts a client-pinned quote block up to MAX_QUOTE_AGE old, and `reservePrepaid*` is
+ * permissionless) until its payment expires, so a second intent could be charged as well. The
+ * journal stays `reserving`, reconcilable (`reconcilePaidOperation`, `resumePaidOperation`) and
+ * not abandonable until that window has passed; a reservation that lands meanwhile is found by
+ * reconciliation, and one left unused is refunded by the accountants' unused-reservation close.
  */
-async function paymentAttempt(config: PaidOperationConfig, request: PaidOperationRequest, useAllowance: boolean): Promise<PaidOperation> {
-  try { return await paidOperationAttempt(config, request, useAllowance) }
-  catch (error) {
-    if (!(error instanceof PaidOperationRecoveryError) || error.code !== 'reservation-refused' || !error.resumable
-      || !(error.cause instanceof PaidReservationStaleEpochError)) throw error
-    await abandonPaidOperation(config.store, error.requestId, {reason: 'verifier epoch went stale before the reservation was sent; replaced by a fresh payment'})
-    return paidOperationAttempt(config, request, useAllowance)
-  }
+function paymentAttempt(config: PaidOperationConfig, request: PaidOperationRequest, useAllowance: boolean): Promise<PaidOperation> {
+  return paidOperationAttempt(config, request, useAllowance)
 }
 
 async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOperationRequest, useAllowance: boolean): Promise<PaidOperation> {
@@ -1386,6 +1381,9 @@ export interface AbandonedPaidOperation {
   at: number
 }
 
+/** The accountants accept a client-pinned reservation quote block at most this old (accountant `MAX_QUOTE_AGE`). */
+const RESERVATION_QUOTE_MAX_AGE_SECS = 30
+
 /**
  * Close a paid operation for good, only when nothing can still land under it: no reservation,
  * session write or keeper work can still be accepted. The journal is kept (phase `abandoned`),
@@ -1393,7 +1391,9 @@ export interface AbandonedPaidOperation {
  * Abandoning an already abandoned operation returns its original record.
  *
  * Allowed when the journal proves it:
- * - `reserving` with no reservation ever prepared (nothing was sent);
+ * - `reserving` with no reservation ever prepared, once the payment has expired plus the quote
+ *   window (MAX_QUOTE_AGE, 30 s) and the skew margin: until then the signed intent the accountants
+ *   saw could still be reserved by whoever holds it;
  * - `failed` (the reservation provably never happened);
  * - `executed` (completed and recorded);
  * - `reserved`, `certified`, `authorized` or `executing` once the creator-signed payment has
@@ -1423,6 +1423,11 @@ export async function abandonPaidOperation(store: ApplicationStore, requestId: H
       if (await loadPaidReservationJournal(store, requestId).catch(() => 'unreadable' as const) !== undefined) {
         throw refuse('its reservation was prepared and may have been sent; reconcile it first')
       }
+      // Even with nothing of ours prepared, the signed intent reached the accountants: anyone holding
+      // it can still have it reserved at a quote block up to MAX_QUOTE_AGE old, and never once the
+      // payment has expired (its quote block cannot postdate the expiry). Wait out both.
+      const notBefore = record.payment.expires + RESERVATION_QUOTE_MAX_AGE_SECS + ABANDON_EXPIRY_MARGIN_SECS
+      if (now < notBefore) throw refuse('its signed intent can still be reserved by its holder; reconcile it, or abandon it after the payment and quote windows', notBefore)
     } else if (from !== 'failed' && from !== 'executed') {
       const notBefore = record.payment.expires + ABANDON_EXPIRY_MARGIN_SECS
       if (now < notBefore) throw refuse('its payment has not expired, so its reservation, session or keeper work can still be accepted', notBefore)

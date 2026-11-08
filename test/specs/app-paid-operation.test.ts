@@ -567,26 +567,24 @@ describe('paid operation error classification', () => {
     expect(expiredError).toMatchObject({code: 'reservation-refused', resumable: false})
   })
 
-  it('re-signs once at the current epoch when the reservation waited past a beacon tick, closing the unsent journal', async () => {
+  it('never replaces a stale-epoch refusal with a re-signed intent: the journal stays reconcilable and is found if it lands', async () => {
     const f = setup(), ids: Hex[] = []
     vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new PaidReservationStaleEpochError(7))
-    const op = await paidOperation(f.config, {...f.request, onRequestId: (id: Hex) => { ids.push(id) }})
-    expect(vi.mocked(discoverPaidOperationContext)).toHaveBeenCalledTimes(2)
-    expect(vi.mocked(reserveApplicationPayment)).toHaveBeenCalledTimes(2)
-    expect(ids).toHaveLength(2); expect(ids[0]).not.toBe(ids[1])
-    expect(op.requestId).toBe(ids[1])
-    expect(await paidOperationPhase(f.store, ids[0]!)).toBe('abandoned')
-    await expect(resumePaidOperation(f.config, ids[0]!, {holder: f.holder})).rejects.toThrow()
-    // Only once: a second stale refusal is reported, resumable, like any refused reservation.
-    const g = setup()
-    vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new PaidReservationStaleEpochError(7)).mockRejectedValueOnce(new PaidReservationStaleEpochError(8))
-    expect(await paidOperation(g.config, g.request).catch((e: unknown) => e)).toMatchObject({phase: 'reservation', code: 'reservation-refused', resumable: true})
-    expect(vi.mocked(reserveApplicationPayment)).toHaveBeenCalledTimes(4)
-    // Other refusals are never re-signed.
-    const k = setup()
-    vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new UnderfundedSlotError({slotId: slot, status: 402, url: 'https://a', message: 'x'}))
-    expect(await paidOperation(k.config, k.request).catch((e: unknown) => e)).toMatchObject({code: 'reservation-refused'})
-    expect(vi.mocked(reserveApplicationPayment)).toHaveBeenCalledTimes(5)
+    const error = await paidOperation(f.config, {...f.request, onRequestId: (id: Hex) => { ids.push(id) }}).catch((e: unknown) => e)
+    expect(error).toMatchObject({phase: 'reservation', code: 'reservation-refused', resumable: true})
+    // One intent only: no second discovery, signature or reservation.
+    expect(vi.mocked(discoverPaidOperationContext)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(reserveApplicationPayment)).toHaveBeenCalledTimes(1)
+    expect(ids).toHaveLength(1)
+    expect(await paidOperationPhase(f.store, ids[0]!)).toBe('reserving')
+    // Not abandonable while whoever holds the intent could still get it reserved (payment expiry + 30 s quote age).
+    const refused = await abandonPaidOperation(f.store, ids[0]!, {reason: 'retry'}).catch((e: unknown) => e) as PaidOperationAbandonRefusedError
+    expect(refused).toBeInstanceOf(PaidOperationAbandonRefusedError)
+    const record = await f.store.load<{payment: {expires: number}}>('paid-op-' + ids[0]!.slice(2).toLowerCase())
+    expect(refused.notBefore).toBeGreaterThanOrEqual(record!.payment.expires + 30)
+    // If someone lands it meanwhile, reconciliation finds it on chain: it is reserved, never forgotten.
+    reservation('reserved')
+    expect(await reconcilePaidOperation(f.config, ids[0]!)).toMatchObject({phase: 'reserved'})
   })
 
   it('codes resume outcomes and execution uncertainty', async () => {
@@ -760,6 +758,10 @@ describe('abandonPaidOperation', () => {
 
   it('closes an unsent reservation, hides it from the list and refuses to resume or reserve it', async () => {
     const f = await unsent()
+    // The signed intent reached the accountants: not before its payment and quote windows have passed.
+    const early = await abandonPaidOperation(f.store, f.requestId, {reason: 'user cancelled'}).catch((e: unknown) => e) as PaidOperationAbandonRefusedError
+    expect(early).toBeInstanceOf(PaidOperationAbandonRefusedError)
+    vi.spyOn(Date, 'now').mockReturnValue(early.notBefore! * 1000)
     const closed = await abandonPaidOperation(f.store, f.requestId, {reason: 'user cancelled'})
     expect(closed).toMatchObject({requestId: f.requestId.toLowerCase(), from: 'reserving', reason: 'user cancelled'})
     expect(await paidOperationPhase(f.store, f.requestId)).toBe('abandoned')
