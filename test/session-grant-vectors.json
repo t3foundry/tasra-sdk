@@ -1,0 +1,161 @@
+{
+  "cases": [
+    {
+      "batch_proof_hash": "0x1f08e3b75e196c02fd0f91befb16adc3808ceaaa9603aeafc50bc4bf7a1abf49",
+      "batch_proof_signature": "0xb468666d5ccfbeb1facac8a2b94184ce2c8182c35dac46f39056a300b8a71b1657f7880c56c7824493e411057b38301945b6abe68b77efe5aa4ac49e2d9ba60e",
+      "grant": {
+        "absolute_exp": 1800003600,
+        "action": "decrypt",
+        "binding": "holder_key",
+        "chain_id": 43112,
+        "epoch": 42,
+        "exp": 1800000030,
+        "holder_hash": "0x4848484848484848484848484848484848484848484848484848484848484848",
+        "iat": 1800000000,
+        "idle_timeout_secs": 600,
+        "seed": "0x5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
+        "session_id": "0x5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+        "session_key_thumbprint": "0xc4876dc99d339ca1e340c2ce84fbfaf58dea0dd353cc24db133595b49022e2ce",
+        "signatures": [
+          {
+            "signature": "0xbefaae8148fb8619405ec018483546796593d2cfce2c3aed8902bb394bd4b8192789994628999863fcc3cc1b062e45e2a1bb399d7f1ca65c22c552983d164c02",
+            "verifier_index": 0
+          },
+          {
+            "signature": "0x2ebc9bf4d4efc6227402ecd060c36b396fcad30b1dceb7b445c8bacbbdd85fb15615d4d067c8f9c394b8a705056a698a8ecf424eb09d15b0c9215d9d6bf29c06",
+            "verifier_index": 1
+          },
+          {
+            "signature": "0xdaaec8c78cf28e02ffbbf21d38a146de3fc8588a7a74814bd0196cee740e0ebd4c14261de349854e5f1aced94436b6f20d1827f6fcf6321af0651580a56f0a0f",
+            "verifier_index": 2
+          },
+          {
+            "signature": "0xd681e36fcfd3e88f34a2ccaf43b70b7535435bc681ca2419286be464d9decc38c47530621ab456132dac6dd8863e790deab0bf49d8a975f1e1fd7d22e241800e",
+            "verifier_index": 5
+          },
+          {
+            "signature": "0x6ca9aa59bb80c4a934173d27e716428282fbe0e6a5794faa97b7267d67b5a6f1df67253dcd9f16f0c9d8201fd58922ff02ccdfd62e105ecef561bec1c4501004",
+            "verifier_index": 6
+          }
+        ],
+        "slots": [
+          {
+            "rule_hash": "0xfefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe",
+            "slot_id": "0x0101010101010101010101010101010101010101010101010101010101010101"
+          },
+          {
+            "rule_hash": "0xfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfd",
+            "slot_id": "0x0202020202020202020202020202020202020202020202020202020202020202"
+          }
+        ]
+      },
+      "grant_canonical_bytes": "0x6b65796b65657065722d636f6d6d69747465652f73657373696f6e2d6772616e742f7631000000000000a8685a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a4848484848484848484848484848484848484848484848484848484848484848c4876dc99d339ca1e340c2ce84fbfaf58dea0dd353cc24db133595b49022e2ce0100000007646563727970745e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e000000000000002a000000020101010101010101010101010101010101010101010101010101010101010101fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe0202020202020202020202020202020202020202020202020202020202020202fdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfd000000006b49d200000000006b49d21e00000258000000006b49e010",
+      "grant_hash": "0x43ef2f808aea449a3ca54ca712dfb71fbf74dd1b548c4035669435fd4fcc633d",
+      "name": "ed25519",
+      "proof_iat": 1800000000,
+      "proof_jti": "jti-0123456789abcdef",
+      "request_hashes": [
+        "0x401ab0ee9def31dce1480c609a4352cde02b62d2c11fa4a5f7be6add9db8ea97",
+        "0x5b5168466e15aa83da35a8bc9a0d908419a2b04fc2322369c9ea2dbe5339ad05",
+        "0x90189787227169b60fe882d469ae2729e57a2358056a44e4b33ede3dd14250d3"
+      ],
+      "session_key_jwk": {
+        "crv": "Ed25519",
+        "kty": "OKP",
+        "x": "yFOtDwzSthmuqSzuxP1Wok1kmdWEznklfkXP2BObYKc"
+      },
+      "session_key_secret_for_tests_only": "0x7777777777777777777777777777777777777777777777777777777777777777",
+      "session_key_thumbprint": "0xc4876dc99d339ca1e340c2ce84fbfaf58dea0dd353cc24db133595b49022e2ce",
+      "single_proof_hash": "0xc2002d9c0e645933989692c459e25d31653d451baf0f3c09c23add4aee6d1dc5",
+      "single_proof_signature": "0x6b76a4b40423fd1bce911f7d8eb8ee8f8975e2f9b21b0ca3f401df143077f3211a0a1d00978e25cd5c50f3244a9c566cec4bd6394f347d65da902f296c6c7f09"
+    },
+    {
+      "batch_proof_hash": "0xe130f487a1e67814a993a73b2731ee1a374136181bf7a632f62af19ac7d7f8e7",
+      "batch_proof_signature": "0xa9586667f9e17627685d2062865c55393fd755b8c3bc12fbaf99f85b629cb4e52f837bc47b213ad282f7b95be5677f66fd0e0ab2f1cd089ef38acee3f4f10412",
+      "grant": {
+        "absolute_exp": 1800003600,
+        "action": "decrypt",
+        "binding": "holder_key",
+        "chain_id": 43112,
+        "epoch": 42,
+        "exp": 1800000030,
+        "holder_hash": "0x4848484848484848484848484848484848484848484848484848484848484848",
+        "iat": 1800000000,
+        "idle_timeout_secs": 600,
+        "seed": "0x5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
+        "session_id": "0x5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+        "session_key_thumbprint": "0x43a8adc89c39852131b354edd41b531d9575565449e9aec2b9e0f95b58452c23",
+        "signatures": [
+          {
+            "signature": "0x0591e69a9f79dc2856a184146fcff4b405785e8a4418859802d21f04b89bcd7e211e482fe5083480fbee281e65a217a3ede3226e3e9e519f0b5df88197cbad0f",
+            "verifier_index": 0
+          },
+          {
+            "signature": "0x9e1151151c24f2e29c76d4d676ae76b12c34491a656d30c8fa67eb687b899ee90f6b698af17f71185aae9462e4a4b8fc427ea18825715bad323dea9eeb60f801",
+            "verifier_index": 1
+          },
+          {
+            "signature": "0x435f77c53fe0a3cd574d522709b0fc359282c2ead5538ca8f1afa8701df670453ef300a0bf62a05ee552d634695ea25635715a41b46023d7faf6f58be940b00b",
+            "verifier_index": 2
+          },
+          {
+            "signature": "0xb4e37692e5d05f248736549ce00a619c66c598040f726a4c4f0dfab72cea980202bc9587bcfb4cbbbef393c6d67b1263a574a9669da47a62f59f2a9a3d192c09",
+            "verifier_index": 5
+          },
+          {
+            "signature": "0xf2fd41cc98a39d4223e8da721c542136b42b9fc1254d1a8e2a3c2cb09a57a74b520eb0e0445380f4afb89b1b5430678d70e68929f40c9058cdf401e4ad0b8a00",
+            "verifier_index": 6
+          }
+        ],
+        "slots": [
+          {
+            "rule_hash": "0xfefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe",
+            "slot_id": "0x0101010101010101010101010101010101010101010101010101010101010101"
+          },
+          {
+            "rule_hash": "0xfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfd",
+            "slot_id": "0x0202020202020202020202020202020202020202020202020202020202020202"
+          }
+        ]
+      },
+      "grant_canonical_bytes": "0x6b65796b65657065722d636f6d6d69747465652f73657373696f6e2d6772616e742f7631000000000000a8685a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a484848484848484848484848484848484848484848484848484848484848484843a8adc89c39852131b354edd41b531d9575565449e9aec2b9e0f95b58452c230100000007646563727970745e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e000000000000002a000000020101010101010101010101010101010101010101010101010101010101010101fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe0202020202020202020202020202020202020202020202020202020202020202fdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfd000000006b49d200000000006b49d21e00000258000000006b49e010",
+      "grant_hash": "0xaeffe09129b6611443b5591192daa037abd8e1529fe6cb03404db945d223d04d",
+      "name": "p256",
+      "proof_iat": 1800000000,
+      "proof_jti": "jti-0123456789abcdef",
+      "request_hashes": [
+        "0x401ab0ee9def31dce1480c609a4352cde02b62d2c11fa4a5f7be6add9db8ea97",
+        "0x5b5168466e15aa83da35a8bc9a0d908419a2b04fc2322369c9ea2dbe5339ad05",
+        "0x90189787227169b60fe882d469ae2729e57a2358056a44e4b33ede3dd14250d3"
+      ],
+      "session_key_jwk": {
+        "crv": "P-256",
+        "kty": "EC",
+        "x": "Ri26GuT8GpaLTazyDN1tvh-uNKqXFRSmPTQFw9HP04M",
+        "y": "tYu7CMEzg0KMWFPHHEyFHhNLBWgh5Gj-Cpd6v0MT3eE"
+      },
+      "session_key_secret_for_tests_only": "0x2121212121212121212121212121212121212121212121212121212121212121",
+      "session_key_thumbprint": "0x43a8adc89c39852131b354edd41b531d9575565449e9aec2b9e0f95b58452c23",
+      "single_proof_hash": "0x3b1cb3053ff5504efe0adb200a22dc3c572f0d303e27634db92199ee7b96bad0",
+      "single_proof_signature": "0x05176699c2ac70394532a1768efbd8f481b7e597c753bb1522f24ad65cd8ad56037ac8060abff069e62df38728ba82c08e3b87e0d512a90204fa7a2d7bf3f3b7"
+    }
+  ],
+  "committee": 3,
+  "description": "ADR-0090 D7 session grants. Grant layout and proof hashes: crates/protocol/keykeeper-committee/src/session_grant.rs. Verifier i signs with the Ed25519 seed [0x10+i; 32]; registry size 7, committee 3, quorum 2.",
+  "domains": {
+    "session_batch_proof": "keykeeper-committee/session-batch-proof/v1",
+    "session_grant": "keykeeper-committee/session-grant/v1",
+    "session_proof": "keykeeper-committee/session-proof/v1"
+  },
+  "quorum": 2,
+  "registry_size": 7,
+  "verifier_pubkeys": [
+    "0x5c9c6df261c9cb840475776aaefcd944b405328fab28f9b3a95ef40490d3de84",
+    "0xd04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+    "0x204040e364c10f2bec9c1fe500a1cd4c247c89d650a01ed7e82caba867877c21",
+    "0x66cd608b928b88e50e0efeaa33faf1c43cefe07294b0b87e9fe0aba6a3cf7633",
+    "0x20828bf5c5bdcacb684863336c202fb5599da48be5596615742170705beca9f7",
+    "0xd54207da194977dcf46adbfec2bc2e75b52d5a8a42184fedfdc00024f0e3e8da",
+    "0x511c34a1a2cb521df16bb246b8de8e7997ce235c7e76b22a3d7503a24819dd8a"
+  ]
+}

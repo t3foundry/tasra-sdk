@@ -2,7 +2,7 @@
 // FROST-Ed25519 signature aggregation, [KK] envelope detection, hex helpers.
 export {encryptEnvelope, toBytes, fromBytes, MAX_PLAINTEXT_LEN} from './envelope.js'
 export type {GroupEnvelope} from './envelope.js'
-export {decryptWithMasterKey, combineDecryptShares, verifyDecryptShare} from './kem.js'
+export {decryptWithMasterKey, combineDecryptShares, verifyDecryptShare, verifyDecryptSharesBatch, decodeKemU} from './kem.js'
 export type {DecryptShare, Ciphertext} from './kem.js'
 // BF-IBE: real identity-bound encryption (pairing-level), not the KEM above.
 export {
