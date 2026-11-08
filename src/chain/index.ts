@@ -19,6 +19,11 @@ export type {PrepaidDeployment, PrepaidObservation, SlotFunding, PaidOperationRe
   PaidContextDeployment, PaidContextOptions, DiscoveredPaymentFields, PaidOperationContext} from './prepaid.js'
 export {reservePaidOperation, reconcilePaidReservation, PaidReservationUncertainError, PaidReservationAbortedError} from './reservation.js'
 export type {PaidReservationQuote, PaidReservationRecord, PaidReservationCheckpoint, ReservePaidOperationOptions, PaidReservationResolution} from './reservation.js'
+// ADR-0090 prepaid allowances: reserve once, debit per operation by accountant-quorum voucher.
+export {reservePrepaidAllowance, reconcilePrepaidAllowance, readPrepaidAllowance, prepaidAllowanceId, collectDebitVoucher, verifyDebitVoucher, readAccountantGroupKey,
+  DebitVoucherError, ALLOWANCE_MAX_LIFETIME_SECS, ALLOWANCE_QUOTE_MAX_AGE_SECS} from './allowance.js'
+export type {PrepaidAllowanceState, PrepaidAllowanceQuote, PrepaidAllowanceReservationRecord, PrepaidAllowanceCheckpoint, ReservePrepaidAllowanceOptions,
+  DebitPartialWire, DebitRequest, DebitMemberOutcome, CollectDebitVoucherOptions} from './allowance.js'
 export {SlotCommitmentExpiredError, assertExpiredSlotCommitment} from './commitmentRecovery.js'
 // Payer-side prepaid timeout escape: refund reservations nobody reconciled within the governed delay.
 export {createPrepaidEscapeClient, decodePrepaidEscapeRevert, decodePrepaidEscapeLogs, prepaidEscapeId, MAX_ESCAPE_PER_CALL, MAX_ESCAPE_REQUESTS} from './prepaidEscape.js'

@@ -21,6 +21,7 @@ import {systemPacingClock, type PaidPacingClock} from './paidPacing.js'
 import {SingleFlight} from '../internal/bounded.js'
 import {pinnedCall, pinnedRegistryCall} from './pinnedReads.js'
 import {chainIdOf} from './chainId.js'
+import {verifyDebitVoucher} from './allowance.js'
 
 /** Deployment independently selected by the application, not taken from a received intent. */
 export interface PrepaidDeployment {
@@ -298,6 +299,9 @@ export async function readKeeperExecutionRecoveryPolicy(client: PublicClient, de
   validateDeployment(deployment)
   if (payment.chain_id !== deployment.chainId || payment.settlement.toLowerCase() !== deployment.settlement.toLowerCase()
     || payment.key_registry.toLowerCase() !== deployment.keyRegistry.toLowerCase()) throw new Error('recovery payment deployment mismatch')
+  // ADR-0090: an allowance-backed operation has no per-request reservation at its admission block
+  // (its backing is the voucher); historical recovery of one is not built and fails closed here.
+  if (payment.allowance_id !== undefined) throw new Error('recovery of allowance-backed keeper work is not supported yet')
   if (payment.slot.toLowerCase() !== expected.slot.toLowerCase() || payment.action !== expected.action
     || payment.payload_digest.toLowerCase() !== expected.payloadDigest.toLowerCase()) throw new Error('recovery payment operation mismatch')
   if ((target.stage !== 'coordinator' && target.stage !== 'contributor') || execution.report.stage !== target.stage
@@ -385,6 +389,12 @@ export interface PaidContextOptions extends PaidKeeperTransportOptions {
   anchorWait?: PaidAnchorWait
   /** Independently approved deployed verifier defaults; required only for a zero slot override. */
   defaultVerificationPolicy?: {committee: number; quorum: number}
+  /**
+   * ADR-0090: the operation may be funded by an already reserved allowance, so an activated slot
+   * whose whole balance is escrowed (`balanceOf` 0) is not refused here. Activation is still required;
+   * a per-operation reservation from such a slot is refused by the accountants (402).
+   */
+  fundedByAllowance?: boolean
 }
 
 /** Chain-derived fields safe to copy into the creator's independently bounded payment intent. */
@@ -569,22 +579,55 @@ function requirePaidOperation(deployment: PrepaidDeployment, payment: PaymentInt
     || payment.payload_digest.toLowerCase() !== expected.payloadDigest.toLowerCase()) throw new Error('payment operation mismatch')
 }
 
-/** The reservation's five Settlement reads, all at `at`. */
-function receiptReads(client: PublicClient, deployment: PrepaidDeployment, at: PrepaidObservation, payment: PaymentIntentWire): Promise<unknown[]> {
+/** Backing reads at `at`: a reservation's five Settlement reads, or (ADR-0090) an allowance's record, the request's settlement state and the voucher check. */
+type ReceiptReads = {kind: 'reservation'; reads: unknown[]} | {kind: 'allowance'; reads: unknown[]}
+function receiptReads(client: PublicClient, deployment: PrepaidDeployment, at: PrepaidObservation, payment: PaymentIntentWire): Promise<ReceiptReads> {
   const requestId = prepaidRequestId(payment)
+  if (payment.allowance_id !== undefined) {
+    const voucher = payment.debit_voucher
+    if (!voucher) return Promise.reject(new Error('allowance-backed payment carries no debit voucher'))
+    const allowance = pinnedCall(client, at.blockHash, deployment.settlement, encodeFunctionData({abi: settlementAbi, functionName: 'prepaidAllowance', args: [payment.allowance_id]}))
+      .then(data => { if (data === undefined) throw new Error('empty prepaidAllowance response'); return decodeFunctionResult({abi: settlementAbi, functionName: 'prepaidAllowance', data}) })
+    return Promise.all([readAt(client, deployment.settlement, at, 'prepaidEnabled', payment.slot), allowance,
+      readAt(client, deployment.settlement, at, 'prepaidCost', payment.slot, requestId), readAt(client, deployment.settlement, at, 'prepaidSettled', payment.slot, requestId),
+      readAt(client, deployment.settlement, at, 'prepaidRefunded', payment.slot, requestId), verifyDebitVoucher(client, deployment, voucher)]).then(reads => ({kind: 'allowance', reads}))
+  }
   const names = ['prepaidEnabled', 'prepaidCost', 'prepaidSettled', 'prepaidRefunded', 'prepaidAssignmentBlock'] as const
   return Promise.all(names.map(name =>
-    readAt(client, deployment.settlement, at, name, payment.slot, name === 'prepaidEnabled' ? undefined : requestId)))
+    readAt(client, deployment.settlement, at, name, payment.slot, name === 'prepaidEnabled' ? undefined : requestId))).then(reads => ({kind: 'reservation', reads}))
 }
 
-function checkReceiptReads(at: PrepaidObservation, payment: PaymentIntentWire, reads: unknown[]): PaidOperationReceipt {
-  const [enabled, cost, settled, refunded, assignmentBlock] = reads
+function checkReceiptReads(at: PrepaidObservation, payment: PaymentIntentWire, observed: ReceiptReads): PaidOperationReceipt {
+  if (observed.kind === 'allowance') return checkAllowanceBacking(at, payment, observed.reads)
+  const [enabled, cost, settled, refunded, assignmentBlock] = observed.reads
   if (enabled !== true || typeof cost !== 'bigint' || cost <= 0n || cost > BigInt(payment.max_cost)
     || typeof settled !== 'boolean' || typeof refunded !== 'bigint' || refunded < 0n || refunded > cost
     || (!settled && refunded !== 0n) || typeof assignmentBlock !== 'string' || !HEX32.test(assignmentBlock) || assignmentBlock === ZERO32) {
     throw new Error('operation has no valid reserved TASRA fee')
   }
   return {...at, requestId: prepaidRequestId(payment), cost, settled, refunded, assignmentBlock: assignmentBlock as Hex}
+}
+
+/**
+ * ADR-0090 D3 from the client side: the allowance is mined and canonical at `at`, for this slot,
+ * open, unexpired and funding the action; the (already signature-verified) voucher debits THIS
+ * request within the per-operation cap and the escrow; the request is not per-operation reserved
+ * (`prepaidCost` is 0 until the allowance settle writes the voucher's cost). The voucher's cost and
+ * the allowance's immutable assignment block stand in for a reservation's.
+ */
+function checkAllowanceBacking(at: PrepaidObservation, payment: PaymentIntentWire, reads: unknown[]): PaidOperationReceipt {
+  const [enabled, record, reservedCost, settled, refunded] = reads as [unknown, readonly [Hex, Hex, bigint, bigint, bigint, bigint, bigint, number, boolean], unknown, unknown, unknown]
+  const voucher = payment.debit_voucher!
+  const [slotId, assignmentBlock, amount, , maxOpCost, expiresAt, , actions, closed] = record
+  const cost = BigInt(voucher.cost)
+  const bit = ({'sign': 0, 'decrypt': 1, 'eoa-sign': 2, 'ibe-extract': 3, 'dual-approve': 6} as const)[payment.action]
+  if (enabled !== true || !HEX32.test(assignmentBlock) || assignmentBlock.toLowerCase() === ZERO32 || amount === 0n || slotId.toLowerCase() !== payment.slot.toLowerCase()
+    || closed || at.blockTimestamp >= expiresAt || (actions & (1 << bit)) === 0 || cost > maxOpCost || cost > BigInt(payment.max_cost) || BigInt(voucher.cumulative) > amount
+    || typeof reservedCost !== 'bigint' || (reservedCost !== 0n && reservedCost !== cost) || typeof settled !== 'boolean' || typeof refunded !== 'bigint'
+    || refunded < 0n || refunded > cost || (!settled && (refunded !== 0n || reservedCost !== 0n))) {
+    throw new Error('operation has no valid allowance-backed TASRA debit')
+  }
+  return {...at, requestId: prepaidRequestId(payment), cost, settled, refunded, assignmentBlock}
 }
 
 /**
@@ -733,7 +776,7 @@ export async function discoverPaidOperationContext(
       }
       if ([keyBeacon, snapshotBeacon, accountantBeacon].some(pointer => pointer.toLowerCase() !== deployment.beacon.toLowerCase())) throw new Error('payment discovery beacon pointers differ')
       if (enabled !== true || typeof available !== 'bigint' || available < 0n) throw new Error('payment discovery requires an activated TASRA-funded slot')
-      if (available === 0n) throw new UnderfundedSlotError({slotId, availableTasraUnits: available,
+      if (available === 0n && options.fundedByAllowance !== true) throw new UnderfundedSlotError({slotId, availableTasraUnits: available,
         message: 'payment discovery requires an activated TASRA-funded slot'})
       let epoch = latest
       let [seed, [root, size], accountant] = await latestAnchors

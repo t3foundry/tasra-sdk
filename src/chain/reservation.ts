@@ -289,7 +289,12 @@ export async function reconcilePaidReservation(
 function unsigned(q: PaidReservationQuote): string {
   return JSON.stringify([q.slot.toLowerCase(), q.quote_block.toLowerCase(), q.request_ids.map(s => s.toLowerCase()), q.costs.map(s => BigInt(s).toString()), q.legacy_nonce, q.deadline, q.digest.toLowerCase()])
 }
-function endpoints(options: ReservePaidOperationOptions, chainId: number): string[] {
+/**
+ * Validated, de-duplicated accountant base URLs (HTTPS; HTTP only on local chain 43112 when allowed).
+ * @param options Endpoints and the local HTTP exception.
+ * @param chainId Deployment chain.
+ */
+export function accountantEndpoints(options: Pick<ReservePaidOperationOptions, 'accountantUrls' | 'allowLocalHttp'>, chainId: number): string[] {
   if (options.accountantUrls.length < 1 || options.accountantUrls.length > 32) throw new Error('supply 1..32 accountant endpoints')
   const urls = options.accountantUrls.map(value => {
     const url = new URL(value)
@@ -496,7 +501,7 @@ async function reserveOnce(
   live(payment)
   progress.requestId = prepaidRequestId(payment)
   signal?.throwIfAborted()
-  const urls = endpoints(opts, d.chainId)
+  const urls = accountantEndpoints(opts, d.chainId)
   if (payer.type !== 'local' && payer.type !== 'json-rpc') throw new Error('reservation requires an EOA gas payer')
   if (payerChain.id !== d.chainId || await chainIdOf(wallet) !== d.chainId || await chainIdOf(client) !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
   const clock = opts.clock ?? systemPacingClock
