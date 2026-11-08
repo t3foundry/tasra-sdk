@@ -79,6 +79,71 @@ const queues = new Map<string, Promise<void>>()
 const holding = new AsyncLocalStorage<readonly {path: string; released: boolean}[]>()
 const sleep = (ms: number) => new Promise<void>(done => setTimeout(done, ms))
 
+// Group commit. Every durable write keeps the crash model it always had: a file's data is on
+// stable storage BEFORE the rename (or lock/claim entry) that publishes it can become durable,
+// and a caller is acknowledged only after the directory entry itself is synced. What changes is
+// who pays for the device flush:
+//   1. each file's data is written with O_DSYNC, so write() returns only once the data reached
+//      the device (synchronized data integrity, as fdatasync; on Linux this is already a FUA or
+//      flush, so durable on its own);
+//   2. ONE `FileHandle.sync()` per group of concurrent writers - on macOS libuv issues it as
+//      `F_FULLFSYNC`, which flushes the drive's whole write cache, so every group member's
+//      O_DSYNC data is now on stable storage;
+//   3. only then the rename / entry, and ONE directory sync per group before anyone is told.
+// Before this, each write paid its own F_FULLFSYNC and directory sync; macOS serializes those
+// device-wide (about 5 ms each), which capped a process at a few hundred durable writes per
+// second however many callers were waiting. Without O_DSYNC (Windows) every file is synced on
+// its own exactly as before and the barrier is skipped.
+const DSYNC: number = (constants as {O_DSYNC?: number}).O_DSYNC ?? 0
+/**
+ * Coalesce one asynchronous step among concurrent callers. A caller joins the next step that has
+ * NOT started yet, so the step always begins after that caller's own preceding work completed;
+ * while a step runs, new callers queue for the following one. A failed step rejects exactly the
+ * callers that joined it.
+ */
+function coalescer<A>(step: (args: A[]) => Promise<void>) {
+  let running: Promise<void> = Promise.resolve()
+  let waiting: {args: A[]; done: Promise<void>} | undefined
+  return (arg: A): Promise<void> => {
+    if (waiting) { waiting.args.push(arg); return waiting.done }
+    const batch: {args: A[]; done: Promise<void>} = {args: [arg], done: Promise.resolve()}
+    batch.done = running.catch(() => {}).then(() => {
+      if (waiting === batch) waiting = undefined
+      return step(batch.args)
+    })
+    waiting = batch
+    running = batch.done
+    return batch.done
+  }
+}
+interface DirectoryCommit {
+  /** Resolves once the data of `file` (written through an O_DSYNC handle, still open) is on stable storage. */
+  barrier(file: import('node:fs/promises').FileHandle): Promise<void>
+  /** Resolves once every entry created, renamed or removed in the directory before the call is durable. */
+  directory(): Promise<void>
+}
+// One committer per directory path, shared by every store object on it in this process.
+const committers = new Map<string, DirectoryCommit>()
+/** Durable-write steps the store counts (for tests and measurement); never part of the stored state. */
+export const fileStoreSyncCounters = {barriers: 0, fileSyncs: 0, directorySyncs: 0}
+function committer(root: string): DirectoryCommit {
+  let found = committers.get(root)
+  if (found) return found
+  // Any member's handle carries the flush: F_FULLFSYNC empties the drive cache for all of them.
+  const barrier = coalescer<import('node:fs/promises').FileHandle>(async files => {
+    fileStoreSyncCounters.barriers++
+    await files[0]!.sync()
+  })
+  const directory = coalescer<void>(async () => {
+    fileStoreSyncCounters.directorySyncs++
+    const dir = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+    try { await dir.sync() } finally { await dir.close() }
+  })
+  found = {barrier, directory: () => directory(undefined)}
+  committers.set(root, found)
+  return found
+}
+
 /** Options for {@link createFileStore}. */
 export interface FileStoreOptions {
   /**
@@ -108,9 +173,12 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
     const stat = await lstat(root)
     if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0 || stat.uid !== process.getuid?.()) throw new TasraError('State directory must be owned by this user with mode 0700')
   }
-  async function syncDirectory() {
-    const dir = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
-    try { await dir.sync() } finally { await dir.close() }
+  const commit = committer(root)
+  const syncDirectory = () => commit.directory()
+  /** Make the data written through `file` (opened with {@link DSYNC}) durable before anything publishes it. */
+  async function durable(file: import('node:fs/promises').FileHandle) {
+    if (DSYNC === 0) { fileStoreSyncCounters.fileSyncs++; await file.sync(); return }
+    await commit.barrier(file)
   }
   /**
    * Create the lock file exclusively. At the head of this process's queue an existing file belongs
@@ -120,7 +188,7 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
   async function acquire(key: string, target: string) {
     const deadline = Date.now() + lockWaitMs
     for (let delay = 5; ; delay = Math.min(delay * 2, 100)) {
-      try { return await open(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600) }
+      try { return await open(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW | DSYNC, 0o600) }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
         const left = deadline - Date.now()
@@ -148,9 +216,9 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
       const target = path(key), contents = JSON.stringify({schemaVersion: 1, value: encode(value)}) + '\n'
       await ready()
       const temporary = join(root, `.${randomUUID()}.tmp`)
-      const file = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600)
+      const file = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW | DSYNC, 0o600)
       try {
-        try { await file.writeFile(contents, 'utf8'); await file.sync() } finally { await file.close() }
+        try { await file.writeFile(contents, 'utf8'); await durable(file) } finally { await file.close() }
         await rename(temporary, target)
         await syncDirectory()
       } finally { await unlink(temporary).catch(error => { if (!missing(error)) throw error }) }
@@ -169,9 +237,9 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
       const target = path(key), contents = JSON.stringify({schemaVersion: 1, value: encode({claimed: true})}) + '\n'
       await ready()
       let file
-      try { file = await open(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600) }
+      try { file = await open(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW | DSYNC, 0o600) }
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false; throw error }
-      try { await file.writeFile(contents, 'utf8'); await file.sync() } finally { await file.close() }
+      try { await file.writeFile(contents, 'utf8'); await durable(file) } finally { await file.close() }
       await syncDirectory()
       return true
     },
@@ -193,7 +261,7 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
         const held = {path: target, released: false}
         try {
           await lock.writeFile(JSON.stringify({pid: process.pid, createdAt: new Date().toISOString()}))
-          await lock.sync()
+          await durable(lock)
           await syncDirectory()
           return await holding.run([...(holding.getStore() ?? []), held], action)
         } finally { held.released = true; await lock.close(); await unlink(target); await syncDirectory() }
