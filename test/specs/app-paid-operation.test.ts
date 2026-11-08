@@ -35,7 +35,7 @@ vi.mock('../../src/app/paid-allowance.js', async original => ({...await original
   selectAllowanceLane: vi.fn(async () => undefined), obtainAllowanceVoucher: vi.fn()}))
 vi.mock('../../src/chain/keeperRecovery.js', async original => ({...await original<typeof import('../../src/chain/keeperRecovery.js')>(), recoverKeeperExecution: vi.fn()}))
 
-import {paidOperation, paidOperationPhase, resumePaidOperation, reconcilePaidOperation, listPaidOperations, abandonPaidOperation, recoverPaidOperation,
+import {paidOperation, paidFinalSign, resumePaidFinalSign, paidOperationPhase, resumePaidOperation, reconcilePaidOperation, listPaidOperations, abandonPaidOperation, recoverPaidOperation,
   PaidOperationRecoveryError, PaidOperationAbandonRefusedError, type PaidOperationConfig} from '../../src/app/paid-operation.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
 import {createFileStore} from '../../src/app/node.js'
@@ -404,6 +404,14 @@ describe('paidOperation edges', () => {
       .mockResolvedValue({...resolved, mode: 2})
     const op = await paidOperation(f.config, f.request)
     expect(discoverPaidOperationContext).toHaveBeenCalledTimes(2)
+    expect(op.payment.action).toBe('eoa-sign')
+  })
+
+  it('pays a sign on a threshold P-256 slot (mode 4) as eoa-sign, the keeper eoa-digest route', async () => {
+    const f = setup()
+    const resolved = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockReset().mockResolvedValue({...resolved, mode: 4})
+    const op = await paidOperation(f.config, f.request)
     expect(op.payment.action).toBe('eoa-sign')
   })
 
@@ -1505,5 +1513,74 @@ describe('paidOperation with ADR-0090 allowances (default off)', () => {
     expect(reconcileApplicationReservation).not.toHaveBeenCalled()
     expect(reserveApplicationPayment).not.toHaveBeenCalled()
     op.dispose()
+  })
+})
+
+describe('paidFinalSign: a final dual-control Sign paid without any presentation', () => {
+  const allowance = h(0x45), message = new TextEncoder().encode('dual final')
+  const enabled = (f: ReturnType<typeof setup>) => ({...f.config, allowances: {enabled: true, amount: 1_000n}})
+  function lane() {
+    vi.mocked(selectAllowanceLane).mockImplementation(async (_env, context) => ({lane: 2, allowanceId: allowance, fields: {...context.intentFields}}))
+    vi.mocked(obtainAllowanceVoucher).mockImplementation(async (_env, _ticket, payment) => ({allowance_id: allowance, seq: 1, request_id: prepaidRequestId(payment),
+      cost: '40', cumulative: '40', quote_block: h(70), signature: h(5, 64)}))
+  }
+
+  it('debits the final Sign from an allowance lane, certifies it and never opens a session or presentation', async () => {
+    const f = setup()
+    lane()
+    const paid = await paidFinalSign(enabled(f), {slot, message})
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    expect(fetchDrawnVerifierWitnesses).not.toHaveBeenCalled()
+    expect(prepareRegisteredPaidSession).not.toHaveBeenCalled()
+    expect(drivePaidSession).not.toHaveBeenCalled()
+    expect(f.holder.makePresentation).not.toHaveBeenCalled()
+    expect(vi.mocked(selectAllowanceLane).mock.calls[0]![2]).toMatchObject({action: 'sign'})
+    expect(paid.payment).toMatchObject({action: 'sign', allowance_id: allowance, payload_digest: toHex(sha256(message)), debit_voucher: {seq: 1, request_id: paid.requestId}})
+    const {debit_voucher: _voucher, ...signed} = paid.payment
+    expect(await recoverTypedDataAddress({...paymentIntentTypedData(signed), signature: paid.payment.signature})).toBe(creator.address)
+    expect(createExecutionCertificate).toHaveBeenCalledTimes(1)
+    expect(paid.coordinatorUrl).toBe(coordinator.url)
+    expect(typeof paid.approveExecution).toBe('function')
+    expect(await f.store.load(`paid-op-${paid.requestId.slice(2)}`)).toMatchObject({phase: 'certified', finalSign: true, allowance: {lane: 2}})
+    // A final Sign has no session to resume through paidOperation's path.
+    await expect(resumePaidOperation(enabled(f), paid.requestId, {holder: f.holder})).rejects.toThrow(/no session/)
+    paid.dispose()
+  })
+
+  it('falls back to a per-operation reservation when no lane has room, like paidOperation', async () => {
+    const f = setup()
+    vi.mocked(selectAllowanceLane).mockResolvedValue(undefined)
+    const paid = await paidFinalSign(enabled(f), {slot, message})
+    expect(paid.payment.allowance_id).toBeUndefined()
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
+    paid.dispose()
+  })
+
+  it('an interrupted debit resumes the SAME payment, never a second one', async () => {
+    const f = setup()
+    lane()
+    vi.mocked(obtainAllowanceVoucher).mockRejectedValueOnce(new AllowanceUnavailableError('accountants unavailable'))
+    const error = await paidFinalSign(enabled(f), {slot, message}).catch((e: unknown) => e) as PaidOperationRecoveryError
+    expect(error).toMatchObject({code: 'reservation-refused', resumable: true})
+    const paid = await resumePaidFinalSign(enabled(f), error.requestId)
+    const [first, second] = vi.mocked(obtainAllowanceVoucher).mock.calls
+    expect(second![2]).toEqual(first![2])
+    expect(paid.requestId).toBe(error.requestId)
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    paid.dispose()
+  })
+
+  it('refuses a non-FROST slot and a slot it is not the creator of, before any payment', async () => {
+    const f = setup()
+    lane()
+    const resolved = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockResolvedValueOnce({...resolved, mode: 2})
+    await expect(paidFinalSign(enabled(f), {slot, message})).rejects.toThrow(/FROST/)
+    const g = setup({creator: h(77, 20)})
+    await expect(paidFinalSign(enabled(g), {slot, message})).rejects.toThrow(/creator/)
+    await expect(paidFinalSign(enabled(g), {slot, message: new Uint8Array(0)})).rejects.toThrow(/message/)
+    expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
   })
 })

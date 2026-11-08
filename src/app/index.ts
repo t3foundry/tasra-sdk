@@ -30,9 +30,9 @@ export type {ApplicationReservationOptions, ApplicationReservationState, Applica
 // ADR-0090 allowance lanes (PaidOperationConfig.allowances, default off).
 export {AllowanceRefusedError, AllowanceUnavailableError, inspectAllowanceLanes, journaledAllowanceVoucher, allowanceLaneCount} from './paid-allowance.js'
 export type {PaidAllowanceOptions} from './paid-allowance.js'
-export {paidOperation, resumePaidOperation, reconcilePaidOperation, recoverPaidOperation, abandonPaidOperation, paidOperationPhase, listPaidOperations,
+export {paidOperation, paidFinalSign, resumePaidFinalSign, resumePaidOperation, reconcilePaidOperation, recoverPaidOperation, abandonPaidOperation, paidOperationPhase, listPaidOperations,
   PaidOperationRecoveryError, PaidOperationAbandonRefusedError} from './paid-operation.js'
-export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PaidOperationPhase, PaidOperationJournalPhase, PaidOperationStatus,
+export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PaidFinalSign, PaidFinalSignRequest, PaidOperationPhase, PaidOperationJournalPhase, PaidOperationStatus,
   PaidOperationNextStep, ResumePaidOperationOptions, PaidOperationErrorCode, PaidOperationSummary, ListPaidOperationsOptions,
   RecoverIbePartialsOptions, RecoveredIbePartial, RecoveredIbePartials, PaidOperationRecovery, AbandonPaidOperationOptions, AbandonedPaidOperation,
   RefreshPaidStatusOptions, PaidStatusRefresh} from './paid-operation.js'

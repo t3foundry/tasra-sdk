@@ -338,6 +338,8 @@ interface OperationRecord {
   payer?: Address
   /** ADR-0090: the allowance lane this payment is debited on (absent for a per-operation reservation). */
   allowance?: {lane: number}
+  /** A final dual-control Sign payment ({@link paidFinalSign}): no presentation, session or grant follows. */
+  finalSign?: true
   payment: PaymentIntentWire
   expected: ExpectedPaidOperation
   params: {operation: PresentationOperation; operationSig: Hex; messageHex: string; random: Hex; decryption?: DecryptionBindingWire}
@@ -613,7 +615,8 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
     description: request.operation.description ?? 'Paid Tasra operation', nowSecs: Math.floor(Date.now() / 1000), ttlSecs})
   const randomBytes = random32(), random = toHex(randomBytes); randomBytes.fill(0)
   const operationSig = await config.creator.signTypedData(built.typedData)
-  const action = request.operation.action === 'sign' && context.mode === 2 ? 'eoa-sign' as const : request.operation.action
+  // Threshold ECDSA slots (mode 2 secp256k1, mode 4 P-256) sign through the keeper's eoa-digest route, paid as `eoa-sign`.
+  const action = request.operation.action === 'sign' && (context.mode === 2 || context.mode === 4) ? 'eoa-sign' as const : request.operation.action
   // ADR-0090: a lane with room funds this operation by voucher; its verification and keeper
   // fields are the allowance's (the readers judge them at the allowance's assignment block).
   const env = useAllowance ? allowanceEnv(config) : undefined
@@ -742,6 +745,7 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
   const d = {...config.deployment}, client = config.chain.client, store = config.store
   let record = await store.load<OperationRecord>(recordKey(requestId))
   if (!record || record.schema !== 1 || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('No paid operation journal for this request')
+  if (record.finalSign) throw new TasraError('A final Sign payment has no session; resume it with resumePaidFinalSign')
   if (signal.aborted && (record.phase === 'reserved' || record.phase === 'certified')) throw abortedError(requestId, 'session', record.payment, signal, signal.reason)
   if (record.phase === 'reserved') {
     const {policy} = await readClientExecutionPolicy(client, {...d, defaultVerificationPolicy: d.defaultVerificationPolicy}, record.payment, record.expected)
@@ -1325,6 +1329,139 @@ export async function resumePaidOperation(config: PaidOperationConfig, requestId
  * @param store Store the operation was journaled in.
  * @param requestId Reservation identity.
  */
+/** A final dual-control Sign: the message whose SHA-256 the payment binds, and its lifetime. */
+export interface PaidFinalSignRequest {
+  /** FROST slot under a dual-control policy. */
+  slot: Hex
+  /** Exact message the dual-control request will sign. */
+  message: Uint8Array
+  /** Payment lifetime, 1..3600 seconds (default 600). */
+  ttlSecs?: number
+  /** Pin the coordinator keeper (operator address); otherwise the drawn one. */
+  coordinator?: Address
+  /** Cancellation (discovery, debit or reservation). */
+  signal?: AbortSignal
+  /** Receive the request identity before anything is debited or reserved; a throw stops it. */
+  onRequestId?(requestId: Hex): void | Promise<void>
+}
+
+/** A paid final Sign ready for `createDualSignClient`: its payment, keeper and execution approvals. */
+export interface PaidFinalSign {
+  /** Request identity (the dual-sign request id without `0x`). */
+  requestId: Hex
+  /** The backed final Sign payment (with its debit voucher when allowance-backed). */
+  payment: PaymentIntentWire
+  /** The payment's coordinator keeper URL (after `keeperUrl` routing). */
+  coordinatorUrl: string
+  /** Approves the keeper's final work for exactly this payment (the dual-sign `approveExecution`). */
+  approveExecution: KeeperExecutionApprover
+  /** Erase the execution key from memory. */
+  dispose(): void
+}
+
+/**
+ * Pay a final dual-control Sign without any presentation: no verifier-agent session and no
+ * credential grant follows, because a static-key dual-control quorum authorizes the work at the
+ * keeper. With `config.allowances` it is debited from an allowance lane (ADR-0090) and falls back
+ * to a per-operation reservation exactly as {@link paidOperation} does; the journal, the execution
+ * certificate and the keeper approvals are the ones paidOperation uses. Resume an interrupted one
+ * with {@link resumePaidFinalSign}.
+ * @param config - Paid operation configuration (its agent settings are not used).
+ * @param request - Slot, message, lifetime and cancellation.
+ */
+export async function paidFinalSign(config: PaidOperationConfig, request: PaidFinalSignRequest): Promise<PaidFinalSign> {
+  validateConfig(config)
+  if (!config.allowances?.enabled) return finalSignAttempt(config, request, false)
+  try { return await finalSignAttempt(config, request, true) }
+  catch (error) {
+    if (!(error instanceof AllowanceFallback)) throw error
+    return finalSignAttempt(config, request, false)
+  }
+}
+
+async function finalSignAttempt(config: PaidOperationConfig, request: PaidFinalSignRequest, useAllowance: boolean): Promise<PaidFinalSign> {
+  const d = {...config.deployment}, client = config.chain.client, signal = request.signal ?? new AbortController().signal
+  const slot = request.slot
+  if (!HEX32.test(slot)) throw new TasraError('Invalid paid operation slot')
+  if (!(request.message instanceof Uint8Array) || request.message.length === 0) throw new TasraError('Final Sign requires the exact message')
+  if (config.billing) await config.billing.requirePrepaid(slot)
+  const readiness = AbortSignal.any([signal, AbortSignal.timeout(config.snapshotWaitMs ?? 180_000)])
+  const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(client, d, slot,
+    {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator, fundedByAllowance: useAllowance}),
+  readiness, () => sleep(1_000, readiness))
+  if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
+  if (context.mode !== 0) throw new TasraError('A final dual-control Sign requires a FROST slot')
+  const ttlSecs = request.ttlSecs ?? 600
+  if (!Number.isSafeInteger(ttlSecs) || ttlSecs <= 0 || ttlSecs > 3600) throw new TasraError('Paid operation lifetime must be 1..3600 seconds')
+  // The operation record keeps the presentation shape; nothing is signed or presented for it.
+  const built = presentationOperationTypedData({action: 'sign', message: request.message, chainId: d.chainId, keyRegistry: d.keyRegistry, slotId: slot,
+    description: 'Paid final dual-control Sign', nowSecs: Math.floor(Date.now() / 1000), ttlSecs})
+  const payloadDigest = sha256(request.message)
+  if (toHex(built.payloadDigest).toLowerCase() !== toHex(payloadDigest).toLowerCase()) throw new TasraError('Final Sign payload differs from its message digest')
+  const randomBytes = random32(), random = toHex(randomBytes); randomBytes.fill(0)
+  const env = useAllowance ? allowanceEnv(config) : undefined
+  const ticket = env ? await selectAllowanceLane(env, context, {action: 'sign', expires: built.operation.exp}) : undefined
+  const unsigned = {...ticket ? ticket.fields : context.intentFields, action: 'sign' as const,
+    payload_digest: toHex(payloadDigest), session_commitment: paymentSessionCommitment(random, config.agent.profile.clientId, built.operation.exp),
+    nonce: toHex(random32()), max_cost: config.limits.maxCost.toString(), expires: built.operation.exp, ...ticket ? {allowance_id: ticket.allowanceId} : {}}
+  const payment: PaymentIntentWire = {...unsigned, signature: await config.creator.signTypedData(paymentIntentTypedData(unsigned))}
+  const expected: ExpectedPaidOperation = {slot, action: 'sign', payloadDigest: payment.payload_digest}
+  const requestId = prepaidRequestId(payment)
+  followPaidRequest(client, d, payment)
+  await request.onRequestId?.(requestId)
+  signal.throwIfAborted()
+  const record: OperationRecord = {schema: 1, phase: 'reserving', finalSign: true, payment, expected, members: [], rule: '', ruleSalt: `0x${'00'.repeat(32)}`,
+    params: {operation: built.operation, operationSig: '0x', messageHex: built.messageHex, random}, coordinator: context.coordinator, contributors: context.contributors,
+    action: 'sign', payloadDigest: toHex(payloadDigest), payer: config.gasPayer.account.address, ...ticket ? {allowance: {lane: ticket.lane}} : {}}
+  const key = recordKey(requestId)
+  await config.store.withLock(key, async () => {
+    if (await config.store.load(key) !== undefined) throw new TasraError('Paid operation already journaled; resume it')
+    await config.store.save(key, record)
+  })
+  await indexOperation(config.store, requestId)
+  try { await reserve(config, record, signal) }
+  catch (error) {
+    if (ticket && error instanceof PaidOperationRecoveryError && error.code === 'reservation-failed' && error.cause instanceof AllowanceRefusedError) throw new AllowanceFallback(requestId, error)
+    throw error
+  }
+  return continueFinalSign(config, requestId)
+}
+
+/**
+ * Resume a journaled final Sign ({@link paidFinalSign}) after an interruption: a `reserving` one is
+ * reconciled through the same debit or reservation path (never a second payment), then certified.
+ * @param config - The original configuration.
+ * @param requestId - The final Sign's request identity.
+ * @param signal - Cancellation.
+ */
+export async function resumePaidFinalSign(config: PaidOperationConfig, requestId: Hex, signal?: AbortSignal): Promise<PaidFinalSign> {
+  validateConfig(config)
+  const record = await config.store.load<OperationRecord>(recordKey(requestId))
+  if (!record || record.schema !== 1 || !record.finalSign) throw new TasraError('No final Sign journal for this request')
+  if (record.phase === 'reserving') await reserve(config, record, signal ?? new AbortController().signal)
+  return continueFinalSign(config, requestId)
+}
+
+async function continueFinalSign(config: PaidOperationConfig, requestId: Hex): Promise<PaidFinalSign> {
+  const d = {...config.deployment}, store = config.store
+  let record = await store.load<OperationRecord>(recordKey(requestId))
+  if (!record || record.schema !== 1 || !record.finalSign || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('No final Sign journal for this request')
+  if (record.phase === 'reserved') {
+    const {policy} = await readClientExecutionPolicy(config.chain.client, {...d, defaultVerificationPolicy: d.defaultVerificationPolicy}, record.payment, record.expected)
+    const seed = random32(), signer = createLocalExecutionSigner(seed)
+    try {
+      const certificate = await createExecutionCertificate({payment: record.payment, policy, publicKey: signer.publicKey, expires: record.payment.expires, creator: config.creator})
+      record = await advance(store, requestId, 'reserved', {phase: 'certified', seed: Uint8Array.from(seed), certificate, pollSecret: toHex(random32()).slice(2)})
+    } finally { signer.dispose(); seed.fill(0) }
+  }
+  if (record.phase !== 'certified' || !record.seed || !record.certificate) throw new TasraError(`Final Sign journal is ${record.phase}, not payable`)
+  const signer = createLocalExecutionSigner(record.seed)
+  const approveExecution = createKeeperExecutionApprover({client: config.chain.client, deployment: d, payment: record.payment, expected: record.expected,
+    certificate: record.certificate, signer, keeperUrl: config.keeperUrl, transportPolicy: {allowLocalHttp: config.allowLocalHttp}})
+  const route = config.keeperUrl ?? ((url: string) => url)
+  return {requestId, payment: structuredClone(record.payment), coordinatorUrl: route(record.coordinator.url), approveExecution, dispose: () => signer.dispose()}
+}
+
 export async function paidOperationPhase(store: ApplicationStore, requestId: Hex): Promise<PaidOperationJournalPhase | undefined> {
   const record = await store.load<OperationRecord>(recordKey(requestId))
   return record?.phase

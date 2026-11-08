@@ -232,7 +232,7 @@ export function createTasra(config: TasraApplicationConfig) {
       const settlement = deployment.addresses.Settlement
       if (!settlement || action === 'dual-approve') throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Paid operation needs a pinned Settlement and a supported fee action')
       const target = await resolvePaidKeeperTarget(chain.client, {chainId: deployment.chainId, settlement, keyRegistry: deployment.addresses.KeyRegistry!}, payment,
-        {slot: s.slotId, action: action === 'sign' && s.mode === 2 ? 'eoa-sign' : action, payloadDigest: toHex(expectedDigest)}, {allowLocalHttp: allowLocalPaidHttp})
+        {slot: s.slotId, action: action === 'sign' && (s.mode === 2 || s.mode === 4) ? 'eoa-sign' : action, payloadDigest: toHex(expectedDigest)}, {allowLocalHttp: allowLocalPaidHttp})
       if (target.mode !== s.mode || target.groupPublicKey.toLowerCase() !== s.publicKey.toLowerCase() || payment.keeper_assignment.key_epoch !== s.epoch) throw new TasraApplicationError('SLOT_CHANGED', 'Paid slot changed before keeper execution')
       paidNode(target)
       target.contributors.forEach(paidNode)
@@ -267,7 +267,7 @@ export function createTasra(config: TasraApplicationConfig) {
     options.signal?.throwIfAborted()
     const approverOptions=payment&&execution&&{client:chain.client,
       deployment:{chainId:deployment.chainId,settlement:deployment.addresses.Settlement!,keyRegistry:deployment.addresses.KeyRegistry!},
-      payment,expected:{slot:s.slotId,action:action==='sign'&&s.mode===2?'eoa-sign' as const:action,payloadDigest:toHex(expectedDigest)},
+      payment,expected:{slot:s.slotId,action:action==='sign'&&(s.mode===2||s.mode===4)?'eoa-sign' as const:action,payloadDigest:toHex(expectedDigest)},
       ...execution,transportPolicy:{allowLocalHttp:allowLocalPaidHttp},keeperUrl:route}
     const approveExecution=approverOptions?target?createKeeperExecutionApproverWithTarget(approverOptions,target):createKeeperExecutionApprover(approverOptions):undefined
     return {...grant, paidTarget: target,approveExecution}
