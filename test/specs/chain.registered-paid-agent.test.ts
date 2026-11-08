@@ -982,3 +982,31 @@ it('drops a reused authentication at a provider mismatch before any further requ
   const second=await f.prepare();await second.create()
   expect(log).toEqual(['authenticate','request /v1/sessions'])
 })
+
+it('with a head follower: a provider mismatch at a newer head drops the reused authentication before any further request',async()=>{
+  const f=await fixture()
+  const log:string[]=[]
+  vi.mocked(authenticateApprovedService).mockReset().mockImplementation(async()=>{log.push('authenticate');return {record:{...f.record},manifest:{capabilities:['oid4vp']},expiresAt:1025} as unknown as Awaited<ReturnType<typeof authenticateApprovedService>>})
+  const send=vi.mocked(f.transport.paidAgentRequest), original=send.getMockImplementation()!
+  send.mockImplementation(async(url,opts)=>{log.push('request '+new URL(url).pathname.replace(/[0-9a-f]{64}/,':id'));return original(url,opts)})
+  const client=f.chain.client as unknown as PublicClient
+  const raw=f.chain.client as unknown as {call:ReturnType<typeof vi.fn>}
+  // The registered record per block: rotated in 41, rotated back in 42.
+  const records:Record<string,ServiceRecord>={[h(40)]:{...f.record},[h(41)]:{...f.record,authKey:h(73,20)},[h(42)]:{...f.record}}
+  raw.call=vi.fn(async({blockHash}:{blockHash:Hex})=>({data:encodeFunctionResult({abi:serviceRegistryAbi,functionName:'getService',result:records[blockHash]!})}))
+  const follower=createHeadFollower(client,{finality:'instant',now:()=>Date.now()})
+  attachHeadFollower(client,follower)
+  try{
+    await follower.ingest({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n})
+    const first=await f.prepare();await first.create()
+    await follower.ingest({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n})
+    log.length=0
+    await expect(first.poll()).rejects.toThrow(/provider changed/)
+    expect(log).toEqual([])
+    await follower.ingest({number:42n,hash:h(42),parentHash:h(41),timestamp:1002n})
+    const second=await f.prepare();await second.create()
+    expect(log).toEqual(['authenticate','request /v1/sessions'])
+    // Every provider read was pinned to a followed head; none read latest by RPC.
+    expect(vi.mocked(f.chain.readers.serviceRegistry.getService)).not.toHaveBeenCalled()
+  }finally{unfollowHeads(client)}
+})

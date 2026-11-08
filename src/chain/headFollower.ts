@@ -6,10 +6,13 @@
 // to a header it holds; one it cannot link within the window restarts the chain at that header (a
 // gap): nothing before it is vouched for again. It never invents an answer:
 //
-// - `tip()` is the newest header only while the follower is FRESH: a head or an unchanged-tip poll
-//   confirmed within `liveAfterMs`, AND the tip's own block timestamp within `maxTipAgeMs` of now
-//   (both at most 2000 ms, about one block interval). Otherwise undefined, and callers read
-//   `latest` from the RPC as before: no security decision acts on an older tip.
+// - `tip()` is the newest header only while the follower is LIVE: a head, or a poll answering the
+//   same tip as `latest`, confirmed it within `liveAfterMs` (at most 2000 ms, about one block
+//   interval). Otherwise undefined, and callers read `latest` from the RPC as before: no security
+//   decision acts on a head confirmed longer ago. A block's own age is NOT part of this: with no
+//   newer block, chain state cannot have changed, so a tip re-confirmed 1 s ago is as fresh as a
+//   `latest` read 1 s ago. Block-timestamp freshness rules (quote age, observation age) stay the
+//   decisions' own checks. `maxTipAgeMs` adds a block-age bound only when a caller opts in.
 // - `isCanonical(at)` is true only for a deployment declared with instant finality (Avalanche
 //   C-Chain: an accepted block is final), while live, for a block inside the gap-free chain whose
 //   hash is the one held at its number. Anything else is undefined (outside the chain, a gap, not
@@ -29,11 +32,11 @@ export interface HeadFollowerOptions {
   finality?: 'instant' | 'probabilistic'
   /** Headers held, 2..1024 (default 64); also the deepest reorg or gap it links back. */
   window?: number
-  /** A follower with no head or unchanged-tip poll for this long is not live (default and maximum 2000 ms). */
+  /** A follower whose tip no head or poll confirmed for this long is not live (default and maximum 2000 ms). */
   liveAfterMs?: number
-  /** A tip whose block timestamp is older than this is not used (default and maximum 2000 ms). */
+  /** Opt-in: also refuse a tip whose block timestamp is older than this (1..2000 ms; default off). */
   maxTipAgeMs?: number
-  /** Poll interval on HTTP transports (default 1000 ms). WebSocket transports subscribe instead. */
+  /** Poll interval on HTTP transports, below `liveAfterMs` (default min(1000, liveAfterMs / 2) ms). WebSocket transports subscribe instead. */
   pollMs?: number
   /** Clock in ms (tests). */
   now?: () => number
@@ -47,7 +50,7 @@ export interface HeadFollower {
   tip(): FollowedHead | undefined
   /** True only when `at` is provably canonical (see module comment); false or undefined means: recheck by RPC. */
   isCanonical(at: PinnedBlock): boolean | undefined
-  /** Whether the follower is fresh: heard from the chain within `liveAfterMs` and its tip is at most `maxTipAgeMs` old. */
+  /** Whether a head or poll confirmed the tip within `liveAfterMs` (and, when opted in, its block is at most `maxTipAgeMs` old). */
   live(): boolean
   /** Feed one header (the poller, a newHeads subscription or tests). Serialized; never throws. */
   ingest(header: unknown): Promise<void>
@@ -77,14 +80,16 @@ function parseHead(value: unknown): FollowedHead | undefined {
  */
 export function createHeadFollower(client: PublicClient, options: HeadFollowerOptions = {}): HeadFollower {
   const finality = options.finality ?? 'probabilistic', window = options.window ?? 64
-  const liveAfterMs = options.liveAfterMs ?? 2_000, maxTipAgeMs = options.maxTipAgeMs ?? 2_000, pollMs = options.pollMs ?? 1_000, now = options.now ?? Date.now
+  const liveAfterMs = options.liveAfterMs ?? 2_000, maxTipAgeMs = options.maxTipAgeMs
+  const pollMs = options.pollMs ?? Math.max(50, Math.min(1_000, Math.floor(liveAfterMs / 2))), now = options.now ?? Date.now
   if (finality !== 'instant' && finality !== 'probabilistic') throw new Error('Invalid head follower finality')
   if (!Number.isSafeInteger(window) || window < 2 || window > 1024) throw new Error('Invalid head follower window')
   // Both bounds stay within about one block interval: a looser follower would let a security
   // decision act on an older head than the per-request `latest` read it replaces.
   if (!Number.isSafeInteger(liveAfterMs) || liveAfterMs < 1 || liveAfterMs > 2_000) throw new Error('Invalid head follower liveness')
-  if (!Number.isSafeInteger(maxTipAgeMs) || maxTipAgeMs < 1 || maxTipAgeMs > 2_000) throw new Error('Invalid head follower tip age')
-  if (!Number.isSafeInteger(pollMs) || pollMs < 50 || pollMs > 60_000) throw new Error('Invalid head follower poll interval')
+  if (maxTipAgeMs !== undefined && (!Number.isSafeInteger(maxTipAgeMs) || maxTipAgeMs < 1 || maxTipAgeMs > 2_000)) throw new Error('Invalid head follower tip age')
+  // A healthy follower re-confirms its tip before it stops being live, idle chain included.
+  if (!Number.isSafeInteger(pollMs) || pollMs < 50 || pollMs >= liveAfterMs) throw new Error('Invalid head follower poll interval')
   let chain: FollowedHead[] = []
   let heardAt = -Infinity, gapCount = 0
   let queue: Promise<void> = Promise.resolve()
@@ -93,7 +98,7 @@ export function createHeadFollower(client: PublicClient, options: HeadFollowerOp
   const live = () => {
     if (chain.length === 0) return false
     const at = now()
-    return at - heardAt <= liveAfterMs && at - Number(chain[chain.length - 1]!.blockTimestamp) * 1000 <= maxTipAgeMs
+    return at - heardAt <= liveAfterMs && (maxTipAgeMs === undefined || at - Number(chain[chain.length - 1]!.blockTimestamp) * 1000 <= maxTipAgeMs)
   }
   const indexOf = (hash: Hex) => {
     for (let i = chain.length - 1; i >= 0; i--) if (chain[i]!.blockHash === hash) return i

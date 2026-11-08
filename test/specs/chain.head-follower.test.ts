@@ -97,24 +97,48 @@ it('runs listeners on each new tip only and refuses invalid options', async () =
   for (const bad of [{window: 1}, {liveAfterMs: 0}, {pollMs: 10}, {finality: 'maybe' as 'instant'}]) expect(() => fixture(bad)).toThrow(/head follower/)
 })
 
-it('never hands out a tip older than one block interval: unconfirmed for over 2 s, or a block over 2 s old', async () => {
-  // Defaults: confirmed within 2000 ms, block timestamp within 2000 ms of now.
+it('never hands out a tip that no head or poll confirmed within 2 s, and refuses looser bounds', async () => {
   let ms = 1_001_000
   const client = {getBlock: vi.fn(), transport: {type: 'custom'}} as unknown as PublicClient
   const follower = createHeadFollower(client, {finality: 'instant', now: () => ms})
   await follower.ingest({number: 1n, hash: H(0, 1), parentHash: H(0, 0), timestamp: 1001n})
   const at = {blockNumber: 1n, blockHash: H(0, 1), blockTimestamp: 1001n}
+  ms += 2000
   expect(follower.tip()).toBeDefined()
-  // A poll that kept confirming the same tip does not make an aging block usable.
-  ms = 1_003_001; await follower.ingest({number: 1n, hash: H(0, 1), parentHash: H(0, 0), timestamp: 1001n})
+  ms += 1
   expect(follower.tip()).toBeUndefined()
   expect(follower.isCanonical(at)).toBeUndefined()
-  // A fresh block, but no confirmation for 2 s: not used either.
-  await follower.ingest({number: 2n, hash: H(0, 2), parentHash: H(0, 1), timestamp: 1003n})
-  expect(follower.tip()).toMatchObject({blockNumber: 2n})
-  ms += 2001
-  expect(follower.tip()).toBeUndefined()
-  // The bounds cannot be loosened past one block interval.
+  // The bound cannot be loosened past one block interval, and the poll must re-confirm inside it.
   expect(() => createHeadFollower(client, {liveAfterMs: 2001})).toThrow(/liveness/)
+  expect(() => createHeadFollower(client, {liveAfterMs: 1000, pollMs: 1000})).toThrow(/poll interval/)
   expect(() => createHeadFollower(client, {maxTipAgeMs: 5000})).toThrow(/tip age/)
+})
+
+it('stays live on an idle chain whose old tip is re-confirmed every second by the poller', async () => {
+  let ms = 5_000_000
+  vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+  try {
+    // The only block is 4000 s old; every poll answers it again as latest.
+    const idle = {number: 7n, hash: H(0, 7), parentHash: H(0, 6), timestamp: 1000n}
+    const getBlock = vi.fn(async () => idle)
+    const client = {getBlock, transport: {type: 'http'}} as unknown as PublicClient
+    const follower = createHeadFollower(client, {finality: 'instant', now: () => ms})
+    follower.start()
+    await vi.advanceTimersByTimeAsync(0)
+    for (let second = 0; second < 10; second++) {
+      ms += 1000; await vi.advanceTimersByTimeAsync(1000)
+      expect(follower.tip(), String(second)).toMatchObject({blockHash: H(0, 7)})
+    }
+    expect(getBlock.mock.calls.length).toBeGreaterThanOrEqual(10)
+    // Polls stop answering: within 2 s the follower is no longer live.
+    getBlock.mockRejectedValue(new Error('rpc down'))
+    ms += 2001; await vi.advanceTimersByTimeAsync(2001)
+    expect(follower.tip()).toBeUndefined()
+    follower.stop()
+    // Opted-in block-age bound: the same idle tip is refused.
+    const strict = createHeadFollower(client, {finality: 'instant', maxTipAgeMs: 2000, now: () => ms})
+    getBlock.mockResolvedValue(idle)
+    await strict.ingest(idle)
+    expect(strict.tip()).toBeUndefined()
+  } finally { vi.useRealTimers() }
 })
