@@ -916,3 +916,49 @@ it('drops a reused authentication at the first followed head whose registration 
     expect(authenticateApprovedService).toHaveBeenCalledTimes(2)
   }finally{unfollowHeads(client)}
 })
+
+it('sends a batch of retained approvals in one request only to an agent advertising it, and holds a proposal listing only then',async()=>{
+  const f=await fixture()
+  const send=vi.mocked(f.transport.paidAgentRequest), original=send.getMockImplementation()!
+  vi.mocked(authenticateApprovedService).mockResolvedValue({record:{...f.record},manifest:{capabilities:['oid4vp','execution-approve-batch','execution-wait']}} as Awaited<ReturnType<typeof authenticateApprovedService>>)
+  const session=await f.prepare();await session.create()
+  expect(session.batchApprovals).toBe(true);expect(session.proposalWait).toBe(true)
+  const signer=f.members[f.jarIndex]!, attester=f.members[1-f.jarIndex]!
+  const a=await session.prepareRequestApproval!(f.proposal('presentation_sign'),'presentation_sign',signer)
+  const b={...await session.prepareRequestApproval!(f.proposal('presentation_attest'),'presentation_attest',attester),proposalId:'ce'.repeat(32)}
+  send.mockClear()
+  send.mockImplementationOnce(async(url,opts)=>{
+    expect(url).toBe(f.profile.endpoint+'/v1/sessions/'+session.sessionId+'/execution/approve');expect(opts.method).toBe('POST')
+    return {status:200,body:bytes({results:[{delivery:b.proposalId,status:409},{delivery:a.proposalId,status:204}]})}
+  })
+  const reply=await session.sendRetainedApprovals!([a,b])
+  expect(reply).toEqual({kind:'results',results:new Map([[b.proposalId,409],[a.proposalId,204]])})
+  // One request; each entry carries exactly the authorization its retained body holds (never re-signed).
+  expect(send).toHaveBeenCalledTimes(1)
+  const body=JSON.parse(new TextDecoder().decode(send.mock.calls[0]![1].body)) as {authorizations:{delivery:string;authorization:unknown}[]}
+  expect(body).toEqual({authorizations:[{delivery:a.proposalId,authorization:(JSON.parse(a.body) as {authorization:unknown}).authorization},
+    {delivery:b.proposalId,authorization:(JSON.parse(b.body) as {authorization:unknown}).authorization}]})
+  // The provider is still checked before the request.
+  expect(vi.mocked(f.chain.readers.serviceRegistry.getService)).toHaveBeenCalled()
+  // Busy before processing; a reply that does not answer every delivery is refused.
+  send.mockResolvedValueOnce({status:429,body:new Uint8Array()})
+  expect(await session.sendRetainedApprovals!([a,b])).toMatchObject({kind:'busy',httpStatus:429})
+  send.mockResolvedValueOnce({status:200,body:bytes({results:[{delivery:a.proposalId,status:204}]})})
+  await expect(session.sendRetainedApprovals!([a,b])).rejects.toThrow(/every delivery/)
+  send.mockResolvedValueOnce({status:200,body:bytes({results:[{delivery:a.proposalId,status:204},{delivery:a.proposalId,status:204}]})})
+  await expect(session.sendRetainedApprovals!([a,b])).rejects.toThrow(/batch result/)
+  await expect(session.sendRetainedApprovals!([a,a])).rejects.toThrow(/batch/)
+  // The held listing asks the agent to wait.
+  send.mockImplementation(original);send.mockClear()
+  const empty={status:200,body:bytes({proposals:[]})}
+  send.mockResolvedValueOnce(empty)
+  await session.proposals(undefined,{waitMs:60_000})
+  expect(send.mock.calls[0]![0]).toBe(f.profile.endpoint+'/v1/sessions/'+session.sessionId+'/execution?wait_ms=25000')
+  // An agent without the capabilities: no batch, no held listing.
+  vi.mocked(authenticateApprovedService).mockResolvedValue({record:{...f.record},manifest:{capabilities:['oid4vp']}} as Awaited<ReturnType<typeof authenticateApprovedService>>)
+  const plain=await f.prepare();await plain.create()
+  expect(plain.batchApprovals).toBe(false)
+  await expect(plain.sendRetainedApprovals!([a])).rejects.toThrow(/does not advertise/)
+  send.mockClear();send.mockResolvedValueOnce(empty);await plain.proposals(undefined,{waitMs:5000})
+  expect(send.mock.calls[0]![0]).toBe(f.profile.endpoint+'/v1/sessions/'+plain.sessionId+'/execution')
+})

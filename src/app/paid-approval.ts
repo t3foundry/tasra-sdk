@@ -225,3 +225,95 @@ export async function reconcileRetainedApproval(ctx: DurableApprovalContext, rec
   await deliverRetainedApproval(ctx, approval, ledger.generation)
   return 'resent'
 }
+
+const BATCH_ROUTE = 'POST /v1/sessions/{id}/execution/approve'
+
+/** One first approval of a batch: its own journal entry, original identity and one-time signer. */
+export interface BatchedApproval {
+  /** Durable approval context of this entry (its own journal key). */
+  ctx: DurableApprovalContext
+  /** The stage's original identity. */
+  original: unknown
+  /** Signs this approval without sending it. */
+  sign: () => Promise<RetainedPaidApproval>
+}
+
+/**
+ * First approvals of several stages in ONE agent request (agents advertising batch approvals).
+ * Each entry is handled exactly as {@link retainAndDeliverApproval} handles one: signed once, its
+ * record and exact body retained under its own key with one permit, then its permit claimed and
+ * marked in flight; only the send is shared. Per entry: 204 confirms; 409 is resolved by reading
+ * the delivery state (accepted confirms, anything else is unresolved); 404/410/422 are decided
+ * refusals (in flight stays, never resent); a transport failure or malformed reply leaves every
+ * entry in flight, unresolved. A busy refusal of the whole request permits each entry's next
+ * generation, and after one wait each continues alone through the single-approval route.
+ * Resolves, once every entry has settled, to whether each entry was retained (false: a record
+ * already existed and nothing was sent for it); rejects with the first entry's error in order.
+ * @param items Entries in proposal order; distinct journal keys.
+ */
+export async function retainAndDeliverApprovals(items: readonly BatchedApproval[]): Promise<boolean[]> {
+  if (items.length === 0) return []
+  const session = items[0]!.ctx.session, signal = items[0]!.ctx.signal
+  if (new Set(items.map(i => i.ctx.key)).size !== items.length || items.some(i => i.ctx.session !== session)) throw new Error('Invalid approval batch')
+  // Signed before anything is retained: a signing failure retains and sends nothing.
+  const approvals = await Promise.all(items.map(i => i.sign()))
+  signal.throwIfAborted()
+  const pacing = session.pacing!
+  const backoff = new PaidBackoff(pacing.clock, BATCH_ROUTE, Math.min(...approvals.map(a => a.expires)) * 1000, pacing.attemptBudgetMs)
+  // Not sent yet: a refusal here retains and sends nothing.
+  backoff.readyToSend()
+  const outcome: ({ok: true; value: boolean} | {ok: false; error: unknown})[] = items.map(() => ({ok: true, value: false}))
+  const live: {index: number; approval: RetainedPaidApproval}[] = []
+  await Promise.all(items.map(async (item, index) => {
+    const approval = approvals[index]!
+    try {
+      const retained = await item.ctx.store.withLock(item.ctx.key, async () => {
+        if (await item.ctx.store.load(item.ctx.key) !== undefined) return false
+        await item.ctx.store.save(item.ctx.key, {original: item.original, phase: 'prepared', approval: {schema: APPROVAL_LEDGER_SCHEMA, ...approval}} satisfies ApprovalJournalRecord)
+        await writeLedger(item.ctx.store, item.ctx.key, approval.proposalId, 'permit', FIRST_APPROVAL_GENERATION)
+        return true
+      })
+      if (!retained) return
+      outcome[index] = {ok: true, value: true}
+      const kept = retainedOf(await item.ctx.store.load<ApprovalJournalRecord>(item.ctx.key))
+      if (!kept) throw unresolved(item.ctx, 'no_permit', approval.proposalId)
+      await beginApprovalSend(item.ctx, kept.proposalId, FIRST_APPROVAL_GENERATION)
+      live.push({index, approval: kept})
+    } catch (error) { outcome[index] = {ok: false, error} }
+  }))
+  live.sort((a, b) => a.index - b.index)
+  if (live.length > 0) {
+    let reply: Awaited<ReturnType<NonNullable<RegisteredPaidAgentSession['sendRetainedApprovals']>>> | undefined, failure: unknown
+    try { reply = await session.sendRetainedApprovals!(live.map(l => l.approval), signal) } catch (cause) { failure = cause }
+    if (reply === undefined) {
+      // Unknown outcome for every entry of the request: in flight stays, nothing is resent.
+      for (const l of live) outcome[l.index] = {ok: false, error: unresolved(items[l.index]!.ctx, 'outcome_unknown', l.approval.proposalId, FIRST_APPROVAL_GENERATION, failure)}
+    } else if (reply.kind === 'busy') {
+      // Refused before processing: each entry's next generation is permitted; after the wait each
+      // continues alone under the single route's permit rules.
+      const next = await Promise.all(live.map(l => releaseBusy(items[l.index]!.ctx, l.approval.proposalId, FIRST_APPROVAL_GENERATION).then(g => ({g}), (error: unknown) => ({error}))))
+      let waited: unknown
+      try { await backoff.wait(reply.httpStatus, reply.hintMs, signal) } catch (error) { waited = error }
+      await Promise.all(live.map(async (l, i) => {
+        const n = next[i]!
+        if ('error' in n) { outcome[l.index] = {ok: false, error: n.error}; return }
+        if (waited !== undefined) { outcome[l.index] = {ok: false, error: waited}; return }
+        try { await deliverRetainedApproval(items[l.index]!.ctx, l.approval, n.g) } catch (error) { outcome[l.index] = {ok: false, error} }
+      }))
+    } else {
+      await Promise.all(live.map(async l => {
+        const ctx = items[l.index]!.ctx, status = reply.results.get(l.approval.proposalId)
+        try {
+          if (status === 204) await confirm(ctx)
+          else if (status === 409) {
+            // Already decided: read it, never assume.
+            if (accepted(await session.approvalState!(l.approval.proposalId, signal))) await confirm(ctx)
+            else throw unresolved(ctx, 'conflict', l.approval.proposalId, FIRST_APPROVAL_GENERATION, new PaidAgentControlError(session.sessionId, 409))
+          } else throw new PaidAgentControlError(session.sessionId, status ?? 0)
+        } catch (error) { outcome[l.index] = {ok: false, error} }
+      }))
+    }
+  }
+  for (const o of outcome) if (!o.ok) throw o.error
+  return outcome.map(o => (o as {value: boolean}).value)
+}

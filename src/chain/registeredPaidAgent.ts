@@ -57,6 +57,22 @@ export interface RetainedPaidApproval {
 }
 
 /** Outcome of one send of a retained approval. Any other answer throws {@link PaidAgentControlError}. */
+/**
+ * Answer to one batch of retained approvals (`POST /v1/sessions/{id}/execution/approve`):
+ * `busy` when the whole request was refused before processing (HTTP 429/503), otherwise the
+ * per-delivery HTTP status the agent decided (204 accepted; 404, 409, 410 or 422 refused).
+ */
+export type PaidApprovalBatchReply =
+  | {kind: 'busy'; httpStatus: 429 | 503; hintMs?: number}
+  | {kind: 'results'; results: ReadonlyMap<string, 204 | 404 | 409 | 410 | 422>}
+
+/** Manifest capability of an agent that accepts a batch of approvals in one request. */
+export const BATCH_APPROVAL_CAPABILITY = 'execution-approve-batch'
+/** Manifest capability of an agent that holds a proposal listing until one is pending (`?wait_ms=`). */
+export const PROPOSAL_WAIT_CAPABILITY = 'execution-wait'
+/** Longest proposal hold the client asks for (the agent's own cap). */
+export const MAX_PROPOSAL_WAIT_MS = 25_000
+
 export interface PaidApprovalDelivery {
   /** `accepted`: HTTP 204, the agent accepted the approval. `busy`: HTTP 429/503, definitely refused before processing. */
   status: 'accepted' | 'busy'
@@ -140,8 +156,22 @@ export interface RegisteredPaidAgentSession {
   create(signal?: AbortSignal): Promise<void>
   /** Recover the original public context via authenticated GET after a lost creation reply. */
   reconcile(signal?: AbortSignal): Promise<SessionStatusResult>
-  /** Read owner-only complete-body proposals, without approving or sending operator work. */
-  proposals(signal?: AbortSignal): Promise<PaidAgentProposal[]>
+  /**
+   * Read owner-only complete-body proposals, without approving or sending operator work. With
+   * `waitMs` and an agent advertising {@link PROPOSAL_WAIT_CAPABILITY}, the agent holds the
+   * answer until one is pending (at most `waitMs`, capped at {@link MAX_PROPOSAL_WAIT_MS}).
+   */
+  proposals(signal?: AbortSignal, options?: {waitMs?: number}): Promise<PaidAgentProposal[]>
+  /** Whether the authenticated agent's manifest advertises {@link BATCH_APPROVAL_CAPABILITY}. */
+  readonly batchApprovals?: boolean
+  /** Whether the authenticated agent's manifest advertises {@link PROPOSAL_WAIT_CAPABILITY}. */
+  readonly proposalWait?: boolean
+  /**
+   * Send several retained approvals' authorizations in ONE request (agents advertising
+   * {@link BATCH_APPROVAL_CAPABILITY}); each authorization is the one its retained body carries,
+   * never re-signed. Distinct deliveries, at most 256.
+   */
+  sendRetainedApprovals?(approvals: readonly RetainedPaidApproval[], signal?: AbortSignal): Promise<PaidApprovalBatchReply>
   /** Approve one JAR signer or distinct attester after canonical member/policy checks and local body reconstruction. */
   approveRequest(proposal: PaidAgentProposal, stage: 'presentation_sign' | 'presentation_attest', member: PaidVerifierWitness, signal?: AbortSignal): Promise<void>
   /** Read retained callback candidates; application acceptance must precede selection or signing. */
@@ -532,6 +562,31 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     if(response.status===204&&response.body.length)throw new Error('Approval reply unexpectedly contains a body')
     return response
   }
+  const batchApprovals = authenticated.manifest.capabilities.includes(BATCH_APPROVAL_CAPABILITY)
+  const proposalWait = authenticated.manifest.capabilities.includes(PROPOSAL_WAIT_CAPABILITY)
+  /** ONE send of several retained approvals; each entry's authorization is its retained body's, unchanged. */
+  const sendRetainedApprovals = async (approvals:readonly RetainedPaidApproval[],signal?:AbortSignal):Promise<PaidApprovalBatchReply> => {
+    if(!batchApprovals)throw new Error('Paid agent does not advertise batch approvals')
+    const deliveries=approvals.map(a=>a.proposalId)
+    if(!approvals.length||approvals.length>256||new Set(deliveries).size!==deliveries.length)throw new Error('Invalid paid approval batch')
+    const authorizations=approvals.map(approval=>{
+      const parsed=object(JSON.parse(new TextDecoder().decode(retainedBytes(approval))) as unknown)
+      return {delivery:approval.proposalId,authorization:object(parsed.authorization)}
+    })
+    const response=await control('/v1/sessions/'+sessionId+'/execution/approve','POST',{authorizations},signal)
+    if(response.status===429||response.status===503){const hintMs=paidResponseWaitMs(response);return {kind:'busy',httpStatus:response.status,...(hintMs!==undefined?{hintMs}:{})}}
+    ok(response,[200])
+    const reply=decode(response.body);exact(reply,['results'])
+    const values=reply.results
+    if(!Array.isArray(values)||values.length!==deliveries.length)throw new Error('Paid approval batch reply does not answer every delivery')
+    const results=new Map<string,204|404|409|410|422>()
+    for(const value of values){
+      const r=object(value);exact(r,['delivery','status'])
+      if(typeof r.delivery!=='string'||!deliveries.includes(r.delivery)||results.has(r.delivery)||![204,404,409,410,422].includes(r.status as number))throw new Error('Invalid paid approval batch result')
+      results.set(r.delivery,r.status as 204|404|409|410|422)
+    }
+    return {kind:'results',results}
+  }
   const sendRetainedApproval = async (approval:RetainedPaidApproval,signal?:AbortSignal):Promise<PaidApprovalDelivery> => {
     const response = await deliver(approval,signal)
     if(response.status===204)return {status:'accepted'}
@@ -683,8 +738,11 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
       if(params.kind==='oauth'&&(reply.nonce!==nonce||reply.dpop_htu!==oauthContext.dpopHtu||reply.platform_audience!==oauthContext.platformAudience||reply.request_uri!=null))throw new Error('OAuth creation reply changed its original nonce or audience')
       checkContext(reply.execution_context)
     },reconcile:(signal?:AbortSignal)=>poll(signal),poll,
-    async proposals(signal?:AbortSignal) {
-      const response=await read('GET /v1/sessions/{id}/execution','/v1/sessions/'+sessionId+'/execution',signal);ok(response,[200])
+    async proposals(signal?:AbortSignal,options?:{waitMs?:number}) {
+      // A held listing only from an agent advertising it, and only inside this attempt's budget.
+      const wait=proposalWait&&options?.waitMs!==undefined&&Number.isSafeInteger(options.waitMs)&&options.waitMs>0
+        ?Math.min(options.waitMs,MAX_PROPOSAL_WAIT_MS,attemptBudgetMs-5_000):0
+      const response=await read('GET /v1/sessions/{id}/execution','/v1/sessions/'+sessionId+'/execution'+(wait>0?'?wait_ms='+wait:''),signal);ok(response,[200])
       const values=decode(response.body).proposals
       if(!Array.isArray(values)||values.length>256)throw new Error('Invalid paid proposals')
       return values.map(value=>{const p=object(value);exact(p,['id','stage','operator_key','unsigned_body','expires']);id(p.id);object(p.unsigned_body);return structuredClone(p) as unknown as PaidAgentProposal})
@@ -698,7 +756,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     prepareCredentialApproval(proposal:PaidAgentProposal,member:PaidVerifierWitness,approved:ClientApprovedPresentation,signal?:AbortSignal) {
       return signApproval(proposal,member,'credential',credentialBody(approved),signal)
     },
-    sendRetainedApproval,
+    sendRetainedApproval,sendRetainedApprovals,batchApprovals,proposalWait,
     async approvalState(proposal:string,signal?:AbortSignal) {
       id(proposal)
       const response=await read('GET /v1/sessions/{id}/execution/{delivery}','/v1/sessions/'+sessionId+'/execution/'+proposal,signal);ok(response,[200])

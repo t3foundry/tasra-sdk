@@ -311,3 +311,19 @@ it('reads the status beside the proposal listing and beside the retained present
     .rejects.toBeInstanceOf(VerifierAgentSessionError)
   expect(g.session.approveRequest).not.toHaveBeenCalled()
 })
+
+it('asks an agent advertising held listings to hold an empty proposal listing instead of pacing locally', async () => {
+  for (const proposalWait of [true, false]) {
+    const f = fixture()
+    ;(f.session as unknown as Record<string, unknown>).proposalWait = proposalWait
+    const plain = vi.mocked(f.session.proposals).getMockImplementation()!
+    // The first listing beside the 425 poll is empty; the next one (held or not) has the proposal.
+    vi.mocked(f.session.proposals).mockResolvedValueOnce([]).mockImplementation(plain)
+    const holder = {kind: 'local' as const, makePresentation: () => structuredClone(f.presentation), submit: async () => {f.wallet()}}
+    expect((await drivePaidSession({...f.base, holder})).status).toBe('done')
+    const held = vi.mocked(f.session.proposals).mock.calls.filter(c => c[1]?.waitMs !== undefined)
+    expect(held.length > 0, String(proposalWait)).toBe(proposalWait)
+    // Held: no local wait for the request stage; not held: the agent's Retry-After hint paces it.
+    expect(f.waits, String(proposalWait)).toEqual(proposalWait ? [] : [5])
+  }
+})

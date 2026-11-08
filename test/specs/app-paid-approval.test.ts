@@ -7,7 +7,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import type {Hex} from 'viem'
 import {APPROVAL_LEDGER_SCHEMA, approvalClaimKey, approvalLedgerKey, beginApprovalSend, deliverRetainedApproval, readApprovalLedger,
-  reconcileRetainedApproval, retainAndDeliverApproval, supportsDurableApproval, type ApprovalJournalRecord, type DurableApprovalContext} from '../../src/app/paid-approval.js'
+  reconcileRetainedApproval, retainAndDeliverApproval, retainAndDeliverApprovals, supportsDurableApproval, type ApprovalJournalRecord, type DurableApprovalContext} from '../../src/app/paid-approval.js'
 import {drivePaidSession, PaidSessionRecoveryError, type PaidWalletPresentation} from '../../src/app/paid-session.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
 import {createFileStore} from '../../src/app/node.js'
@@ -378,5 +378,124 @@ describe('drivePaidSession with durable approvals', () => {
     expect(d.session.approveRequest).toHaveBeenCalledTimes(1)
     expect(d.session.prepareRequestApproval).not.toHaveBeenCalled()
     expect(d.sent).toEqual([])
+  })
+})
+
+describe('batched first approvals', () => {
+  const OTHER = 'ce'.repeat(32), KEY2 = 'wallet-' + SESSION + '-presentation_attest-1'
+  const RETAINED2: RetainedPaidApproval = {proposalId: OTHER, body: '{"authorization":{"signature":"0x02","expires":1030}}', expires: 1030}
+  const ORIGINAL2 = {...ORIGINAL, stage: 'presentation_attest'}
+  function batch(store: ApplicationStore = createMemoryStore()) {
+    const h = harness(store)
+    const batches: RetainedPaidApproval[][] = [], replies: (() => unknown)[] = []
+    const states: Record<string, string> = {}
+    const session = h.session as unknown as Record<string, unknown>
+    session.sendRetainedApprovals = vi.fn(async (approvals: RetainedPaidApproval[]) => {
+      batches.push(structuredClone(approvals))
+      const next = replies.shift()
+      if (!next) throw new Error('unscripted batch')
+      return next()
+    })
+    session.approvalState = vi.fn(async (id: string) => states[id] ?? 'pending')
+    const signs = [vi.fn(async () => structuredClone(RETAINED)), vi.fn(async () => structuredClone(RETAINED2))]
+    const items = [{ctx: h.ctx, original: ORIGINAL, sign: signs[0]!}, {ctx: {...h.ctx, key: KEY2}, original: ORIGINAL2, sign: signs[1]!}]
+    const results = (a: number, b: number) => () => ({kind: 'results', results: new Map([[PROPOSAL, a], [OTHER, b]])})
+    return {...h, batches, replies, states, signs, items, results, run: () => retainAndDeliverApprovals(items),
+      record2: () => store.load<ApprovalJournalRecord>(KEY2), ledger2: () => readApprovalLedger(store, KEY2, OTHER)}
+  }
+
+  it('retains each approval under its own key and permit, then sends them in ONE request', async () => {
+    const b = batch()
+    b.replies.push(b.results(204, 204))
+    expect(await b.run()).toEqual([true, true])
+    expect(b.batches).toEqual([[RETAINED, RETAINED2]])
+    expect(b.signs.map(s => s.mock.calls.length)).toEqual([1, 1])
+    expect(await b.record()).toEqual({original: ORIGINAL, phase: 'confirmed'})
+    expect(await b.record2()).toEqual({original: ORIGINAL2, phase: 'confirmed'})
+    expect(await b.ledger()).toEqual({state: 'in_flight', generation: 1})
+    expect(await b.ledger2()).toEqual({state: 'in_flight', generation: 1})
+    expect(b.session.sendRetainedApproval).not.toHaveBeenCalled()
+  })
+
+  it('resolves a per-entry 409 by reading the delivery state, and keeps a decided refusal in flight', async () => {
+    const b = batch()
+    b.states[PROPOSAL] = 'approved'
+    b.replies.push(b.results(409, 422))
+    await expect(b.run()).rejects.toMatchObject({httpStatus: 422})
+    expect(await b.record()).toEqual({original: ORIGINAL, phase: 'confirmed'})
+    expect((await b.record2())?.phase).toBe('prepared')
+    expect(await b.ledger2()).toEqual({state: 'in_flight', generation: 1})
+    const c = batch()
+    c.replies.push(c.results(204, 409))
+    await expect(c.run()).rejects.toMatchObject({reason: 'conflict'})
+    expect((await c.record2())?.phase).toBe('prepared')
+  })
+
+  it('leaves every entry in flight on an unknown outcome and never resends it', async () => {
+    const b = batch()
+    b.replies.push(() => { throw new Error('socket hang up') })
+    await expect(b.run()).rejects.toMatchObject({reason: 'outcome_unknown'})
+    expect(await b.ledger()).toEqual({state: 'in_flight', generation: 1})
+    expect(await b.ledger2()).toEqual({state: 'in_flight', generation: 1})
+    expect(b.batches).toHaveLength(1)
+    expect(b.session.sendRetainedApproval).not.toHaveBeenCalled()
+  })
+
+  it('after a busy refusal of the whole request, waits once and continues each entry alone under its next permit', async () => {
+    const b = batch()
+    b.replies.push(() => ({kind: 'busy', httpStatus: 429, hintMs: 1000}))
+    b.session.sendRetainedApproval = vi.fn(async () => ({status: 'accepted' as const}))
+    expect(await b.run()).toEqual([true, true])
+    expect(b.time.sleeps).toEqual([1000])
+    expect(vi.mocked(b.session.sendRetainedApproval).mock.calls.map(([a]) => a.body).sort()).toEqual([RETAINED.body, RETAINED2.body].sort())
+    expect(await b.ledger()).toEqual({state: 'in_flight', generation: 2})
+    expect(await b.ledger2()).toEqual({state: 'in_flight', generation: 2})
+    expect(await b.record2()).toEqual({original: ORIGINAL2, phase: 'confirmed'})
+  })
+
+  it('sends nothing for an entry whose record already exists and reports it', async () => {
+    const b = batch()
+    await b.store.save(KEY2, {original: ORIGINAL2, phase: 'prepared'})
+    b.replies.push(() => ({kind: 'results', results: new Map([[PROPOSAL, 204]])}))
+    expect(await b.run()).toEqual([true, false])
+    expect(b.batches).toEqual([[RETAINED]])
+  })
+})
+
+describe('drivePaidSession: batch approvals when the agent advertises them', () => {
+  function twoMembers(batchApprovals: boolean) {
+    const d = driver(), other = ('0x' + 'ef'.repeat(32)) as Hex, OTHER = 'ce'.repeat(32)
+    const second: PaidAgentProposal = {id: OTHER, stage: 'presentation_attest', operator_key: other, unsigned_body: {stage: 'presentation_attest'}, expires: 1030}
+    const first: PaidAgentProposal = {id: PROPOSAL, stage: 'presentation_sign', operator_key: '0x' + 'ee'.repeat(32) as Hex, unsigned_body: {stage: 'presentation_sign'}, expires: 1030}
+    const s = d.session as unknown as Record<string, unknown>
+    s.proposals = vi.fn(async () => d.flags.jar ? [] : [first, second])
+    s.prepareRequestApproval = vi.fn(async (p: PaidAgentProposal) => ({...structuredClone(RETAINED), proposalId: p.id}))
+    s.batchApprovals = batchApprovals
+    const batches: string[][] = []
+    s.sendRetainedApprovals = vi.fn(async (approvals: RetainedPaidApproval[]) => {
+      batches.push(approvals.map(a => a.proposalId)); d.flags.jar = true
+      return {kind: 'results', results: new Map(approvals.map(a => [a.proposalId, 204]))}
+    })
+    vi.mocked(d.session.sendRetainedApproval!).mockImplementation(async () => { d.flags.jar = true; return {status: 'accepted'} })
+    const members = [{index: 0, operator: ('0x' + '11'.repeat(20)) as Hex, publicKey: first.operator_key, proof: []}, {index: 1, operator: ('0x' + '22'.repeat(20)) as Hex, publicKey: other, proof: []}]
+    const drive = () => drivePaidSession({session: d.session, store: d.store, members, signal: new AbortController().signal, holder: d.holder, wait: async () => {}})
+    return {...d, drive, batches, OTHER}
+  }
+
+  it('approves both stages in one batch request, each with its own journal entry', async () => {
+    const d = twoMembers(true)
+    expect((await d.drive()).status).toBe('done')
+    expect(d.batches).toEqual([[PROPOSAL, d.OTHER]])
+    expect(d.session.sendRetainedApproval).not.toHaveBeenCalled()
+    expect(d.session.prepareRequestApproval).toHaveBeenCalledTimes(2)
+    expect(await d.store.load(KEY)).toEqual({original: expect.objectContaining({stage: 'presentation_sign'}), phase: 'confirmed'})
+    expect(await d.store.load('wallet-' + SESSION + '-presentation_attest-1')).toEqual({original: expect.objectContaining({stage: 'presentation_attest'}), phase: 'confirmed'})
+  })
+
+  it('falls back to one request per approval, unchanged, when the agent does not advertise batches', async () => {
+    const d = twoMembers(false)
+    expect((await d.drive()).status).toBe('done')
+    expect(d.batches).toEqual([])
+    expect(d.session.sendRetainedApproval).toHaveBeenCalledTimes(2)
   })
 })

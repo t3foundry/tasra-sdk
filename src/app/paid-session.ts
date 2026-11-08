@@ -12,9 +12,9 @@
 // expiry (paid-approval.ts). Repeatable reads are paced the same way by the session itself.
 
 import {executionBodyHash} from '../committee/execution.js'
-import {PaidAgentControlError, type ClientApprovedPresentation, type PaidAgentProposal,
+import {MAX_PROPOSAL_WAIT_MS, PaidAgentControlError, type ClientApprovedPresentation, type PaidAgentProposal,
   type PaidRetainedPresentation, type RegisteredPaidAgentSession, type RetainedPaidApproval} from '../chain/registeredPaidAgent.js'
-import {reconcileRetainedApproval, retainAndDeliverApproval, supportsDurableApproval, type ApprovalJournalRecord} from './paid-approval.js'
+import {reconcileRetainedApproval, retainAndDeliverApproval, retainAndDeliverApprovals, supportsDurableApproval, type ApprovalJournalRecord} from './paid-approval.js'
 import type {PaidVerifierWitness} from '../chain/prepaid.js'
 import type {VerifiedRequestObject} from '../oid4vp/request-object.js'
 import {VerifierAgentSessionError, type SessionStatusResult} from '../verifier-agent/index.js'
@@ -197,6 +197,25 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
       return count
     }
     signal.throwIfAborted()
+    // An agent advertising batch approvals takes a batch of FIRST approvals in one request. Each
+    // keeps its own signing, journal entry, permit and outcome (paid-approval.ts); only the send is
+    // shared. Anything else (one proposal, a retained record to reconcile, a store or session
+    // without durable approvals) goes one by one, as before.
+    if (planned.length > 1 && session.batchApprovals === true && typeof session.sendRetainedApprovals === 'function'
+      && planned.every(p => supportsDurableApproval(store, session, prefix + '-' + p.name))
+      && (await Promise.all(planned.map(p => store.load(prefix + '-' + p.name)))).every(r => r === undefined)) {
+      const kept = await retainAndDeliverApprovals(planned.map(({proposed, member, name}) => {
+        const key = prefix + '-' + name
+        const original = {stage: proposed.stage, operator_key: member.publicKey, unsigned_body: proposed.unsigned_body}
+        const stage = proposed.stage === 'presentation_sign' ? 'presentation_sign' as const : 'presentation_attest' as const
+        return {ctx: {store, session, key, signal}, original, sign: proposed.stage === 'credential'
+          ? () => session.prepareCredentialApproval!(proposed, member, presentation!, signal)
+          : () => session.prepareRequestApproval!(proposed, stage, member, signal)}
+      }))
+      const raced = kept.findIndex(k => !k)
+      if (raced !== -1) throw new PaidSessionRecoveryError(prefix + '-' + planned[raced]!.name, 'Original paid write already attempted with an unknown or different outcome; reconcile it without redelivery')
+      return planned.length
+    }
     const results = await Promise.allSettled(planned.map(one))
     // Every send has settled (none is left in flight); report the first refusal in proposal order.
     for (const result of results) if (result.status === 'rejected') throw result.reason
@@ -307,6 +326,12 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
       if (polled.status === 'rejected') throw polled.reason
       if (listed.status === 'rejected') throw listed.reason
       const status = polled.value
+      // Nothing listed yet from an agent that can hold the listing: ask it to answer when one is
+      // pending instead of pacing locally (the same owner-only read, judged the same way).
+      if (listed.value.length === 0 && session.proposalWait === true) {
+        const held = await session.proposals(signal, {waitMs: MAX_PROPOSAL_WAIT_MS})
+        if (await approve(undefined, held) > 0) continue
+      }
       // 425 with proposals: once they are approved the next request-object fetch dispatches them
       // (and waits for the signer), so fetch again at once. Otherwise wait for the session to move.
       if (await approve(undefined, listed.value) > 0) continue
