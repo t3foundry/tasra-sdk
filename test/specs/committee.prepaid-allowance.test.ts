@@ -20,7 +20,7 @@ const raw = readFileSync(new URL('../prepaid-allowance-vectors.json', import.met
 const v = JSON.parse(raw) as Vectors
 const s = (section: string, key: string) => v[section]![key] as Hex
 const n = (section: string, key: string) => v[section]![key] as number
-const rep = (b: number, len = 32) => `0x${b.toString(16).padStart(2, '0').repeat(len)}`
+const rep = (b: number, len = 32): Hex => `0x${b.toString(16).padStart(2, '0').repeat(len)}`
 const bytes = (b: number) => Array<number>(32).fill(b)
 // The vectors' fixed keeper assignment (tests/prepaid_allowance_vectors.rs `assignment()`).
 const assignment = {key_epoch: 1, committee_version: 2, threshold: 2, coordinator: bytes(9), contributors: [bytes(9), bytes(10), bytes(11)]}

@@ -307,3 +307,61 @@ export async function selectApplicationGasPayer<W extends WalletClient<Transport
   cursors.set(pool, (chosen.index + 1) % wallets.length)
   return chosen.wallet
 }
+
+/**
+ * Internal (ADR-0090 allowance reservations): run one gas-payer transaction under the same durable
+ * payer claim as {@link reserveApplicationPayment}. `claim(nonce)` must be awaited from the
+ * caller's `prepared` checkpoint, before broadcast: it refuses a nonce below the durable floor and
+ * records the pending claim. On success the floor advances past the claimed nonce; on failure
+ * after a claim the payer stays claimed until {@link releaseApplicationPayerClaim} proves it free.
+ * @param store - Private store shared by every user of this payer.
+ * @param chainId - Payer chain.
+ * @param payer - Dedicated gas payer.
+ * @param claimId - 32-byte identity of the transaction (an allowance id).
+ * @param run - The reservation, given the claim hook.
+ */
+export async function withApplicationPayerClaim<T>(store: ApplicationStore, chainId: number, payer: Address, claimId: Hex,
+  run: (claim: (nonce: number) => Promise<void>) => Promise<T>): Promise<T> {
+  if (!HEX32.test(claimId)) throw new Error('invalid payer claim identity')
+  const name = payerKey(chainId, payer)
+  return store.withLock(name, async () => {
+    const state = await loadPayer(store, chainId, payer)
+    if (state.pending) throw new ApplicationPayerRecoveryError(state.pending.requestId)
+    let claimed: number | undefined
+    const result = await run(async nonce => {
+      if (claimed !== undefined || !Number.isSafeInteger(nonce) || nonce < state.nextNonce || nonce >= Number.MAX_SAFE_INTEGER) throw new Error('payer nonce is below the durable floor or invalid')
+      await store.save(name, {...state, pending: {requestId: claimId, nonce}} satisfies PayerState)
+      claimed = nonce
+    })
+    if (claimed === undefined) throw new Error('payer transaction completed without a durable payer claim')
+    await store.save(name, {schema: 1, chainId, payer, nextNonce: claimed + 1} satisfies PayerState)
+    return result
+  })
+}
+
+/**
+ * Internal: release a payer claim held by `claimId` once the chain proves it free: the claimed
+ * nonce is consumed at the head (floor = nonce + 1), or `dead` (the claimed transaction can never
+ * apply) and no transaction at that nonce is pending (floor = nonce). Otherwise it stays claimed.
+ * @param client - Trusted RPC client.
+ * @param store - The same store.
+ * @param chainId - Payer chain.
+ * @param payer - Gas payer.
+ * @param claimId - Identity that holds the claim.
+ * @param dead - The caller proved the claimed transaction can never apply.
+ */
+export async function releaseApplicationPayerClaim(client: PublicClient, store: ApplicationStore, chainId: number, payer: Address, claimId: Hex, dead: boolean): Promise<boolean> {
+  const name = payerKey(chainId, payer)
+  return store.withLock(name, async () => {
+    const state = await loadPayer(store, chainId, payer)
+    if (!state.pending) return true
+    if (!same(state.pending.requestId, claimId)) return false
+    const nonce = state.pending.nonce
+    let nextNonce: number | undefined
+    if (await client.getTransactionCount({address: payer, blockTag: 'latest'}) > nonce) nextNonce = nonce + 1
+    else if (dead && await client.getTransactionCount({address: payer, blockTag: 'pending'}) <= nonce) nextNonce = nonce
+    if (nextNonce === undefined) return false
+    await store.save(name, {schema: 1, chainId, payer, nextNonce} satisfies PayerState)
+    return true
+  })
+}

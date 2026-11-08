@@ -52,6 +52,8 @@ import {PaidApprovalUnresolvedError, RevocationStatusPreflightError, StatusRefre
 import {base64Decode} from '../crypto/envelope.js'
 import type {IbeExtractionPartial} from '../committee/client.js'
 import {HEX32, RECORD_KEY, RECORD_PREFIX, paidRecordKey as recordKey} from './paid-keys.js'
+import {AllowanceRefusedError, journaledAllowanceVoucher, obtainAllowanceVoucher, selectAllowanceLane, validateAllowanceOptions,
+  type AllowanceEnv, type PaidAllowanceOptions} from './paid-allowance.js'
 
 /** Approved deployment, signers, services and spending limits shared by paid operations. */
 export interface PaidOperationConfig {
@@ -95,6 +97,14 @@ export interface PaidOperationConfig {
    * attestations are always refused.
    */
   allowMissingStatusAttestations?: boolean
+  /**
+   * ADR-0090 prepaid allowances, DEFAULT OFF. With `enabled: true` an operation whose slot has a
+   * lane with room is paid by an accountant-quorum debit voucher against a reserved allowance
+   * instead of its own on-chain reservation; otherwise (no usable lane, exhausted, expired or
+   * refused) it falls back to the per-operation reservation. Enable only when every reader on the
+   * deployment is at the ADR-0090 version: the network advertises no capability for it.
+   */
+  allowances?: PaidAllowanceOptions
 }
 
 /** The one operation to authorize and how its holder presents. */
@@ -326,6 +336,8 @@ interface OperationRecord {
   abandoned?: {reason: string; at: number; phase: Exclude<Phase, 'abandoned'>}
   /** Gas payer the reservation uses (absent from journals written before payers were recorded). */
   payer?: Address
+  /** ADR-0090: the allowance lane this payment is debited on (absent for a per-operation reservation). */
+  allowance?: {lane: number}
   payment: PaymentIntentWire
   expected: ExpectedPaidOperation
   params: {operation: PresentationOperation; operationSig: Hex; messageHex: string; random: Hex; decryption?: DecryptionBindingWire}
@@ -484,6 +496,18 @@ function validateConfig(config: PaidOperationConfig): void {
   if (config.chain.addresses.ServiceRegistry?.toLowerCase() !== config.agent.profile.approval.registry.toLowerCase()) throw new TasraError('Agent profile is approved on another ServiceRegistry')
   const wait = config.snapshotWaitMs ?? 180_000, poll = config.pollIntervalMs ?? 1_000
   if (!Number.isSafeInteger(wait) || wait < 1 || wait > 300_000 || !Number.isSafeInteger(poll) || poll < 10 || poll > 60_000) throw new TasraError('Invalid paid operation timing')
+  if (config.allowances?.enabled) validateAllowanceOptions(config.allowances, config.limits)
+}
+
+function allowanceEnv(config: PaidOperationConfig): AllowanceEnv | undefined {
+  if (!config.allowances?.enabled) return undefined
+  return {client: config.chain.client, deployment: config.deployment, creator: config.creator, gasPayer: config.gasPayer, store: config.store,
+    accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, limits: config.limits, options: config.allowances}
+}
+
+/** The allowance path refused this operation for good; it was journaled `failed` and is retried once per operation. */
+class AllowanceFallback extends Error {
+  constructor(readonly requestId: Hex, cause: unknown) { super('allowance debit refused; falling back to a per-operation reservation', {cause}) }
 }
 
 /** Decode a commitment-verified retained IBE result into a combinable partial. */
@@ -514,13 +538,24 @@ async function ibePartial(resultJson: string, nodeUrl: string, record: Operation
  */
 export async function paidOperation(config: PaidOperationConfig, request: PaidOperationRequest): Promise<PaidOperation> {
   validateConfig(config)
+  if (!config.allowances?.enabled) return paidOperationAttempt(config, request, false)
+  // ADR-0090: at most one allowance attempt; a definite refusal (journaled `failed`, no voucher)
+  // falls back to a fresh per-operation payment with its own request ID.
+  try { return await paidOperationAttempt(config, request, true) }
+  catch (error) {
+    if (!(error instanceof AllowanceFallback)) throw error
+    return paidOperationAttempt(config, request, false)
+  }
+}
+
+async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOperationRequest, useAllowance: boolean): Promise<PaidOperation> {
   const d = {...config.deployment}, client = config.chain.client, signal = request.signal ?? new AbortController().signal
   const slot = request.slot
   if (!HEX32.test(slot)) throw new TasraError('Invalid paid operation slot')
   if (config.billing) await config.billing.requirePrepaid(slot); else await requirePrepaidSlot(client, d, slot)
   const readiness = AbortSignal.any([signal, AbortSignal.timeout(config.snapshotWaitMs ?? 180_000)])
   const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(client, d, slot,
-    {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator}),
+    {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator, fundedByAllowance: useAllowance}),
   readiness, () => sleep(1_000, readiness))
   if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
   // The rule the holder will see must be the one the slot committed to on chain. Discovery read the
@@ -544,9 +579,14 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
     description: request.operation.description ?? 'Paid Tasra operation', nowSecs: Math.floor(Date.now() / 1000), ttlSecs})
   const randomBytes = random32(), random = toHex(randomBytes); randomBytes.fill(0)
   const operationSig = await config.creator.signTypedData(built.typedData)
-  const unsigned = {...context.intentFields, action: request.operation.action === 'sign' && context.mode === 2 ? 'eoa-sign' as const : request.operation.action,
+  const action = request.operation.action === 'sign' && context.mode === 2 ? 'eoa-sign' as const : request.operation.action
+  // ADR-0090: a lane with room funds this operation by voucher; its verification and keeper
+  // fields are the allowance's (the readers judge them at the allowance's assignment block).
+  const env = useAllowance ? allowanceEnv(config) : undefined
+  const ticket = env ? await selectAllowanceLane(env, context, {action, expires: built.operation.exp}) : undefined
+  const unsigned = {...ticket ? ticket.fields : context.intentFields, action,
     payload_digest: toHex(built.payloadDigest), session_commitment: paymentSessionCommitment(random, config.agent.profile.clientId, built.operation.exp),
-    nonce: toHex(random32()), max_cost: config.limits.maxCost.toString(), expires: built.operation.exp}
+    nonce: toHex(random32()), max_cost: config.limits.maxCost.toString(), expires: built.operation.exp, ...ticket ? {allowance_id: ticket.allowanceId} : {}}
   const payment: PaymentIntentWire = {...unsigned, signature: await config.creator.signTypedData(paymentIntentTypedData(unsigned))}
   const expected: ExpectedPaidOperation = {slot, action: payment.action, payloadDigest: payment.payload_digest}
   const requestId = prepaidRequestId(payment)
@@ -557,14 +597,18 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
       waitForPublicationMs: Math.min(config.snapshotWaitMs ?? 180_000, 150_000, ttlSecs * 1000)})
   const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: request.rule.rule, ruleSalt: request.rule.salt,
     params: {operation: built.operation, operationSig, messageHex: built.messageHex, random, ...(request.operation.decryption ? {decryption: structuredClone(request.operation.decryption)} : {})}, coordinator: context.coordinator, contributors: context.contributors,
-    action: request.operation.action, payloadDigest: toHex(built.payloadDigest), payer: config.gasPayer.account.address}
+    action: request.operation.action, payloadDigest: toHex(built.payloadDigest), payer: config.gasPayer.account.address, ...ticket ? {allowance: {lane: ticket.lane}} : {}}
   const key = recordKey(requestId)
   await config.store.withLock(key, async () => {
     if (await config.store.load(key) !== undefined) throw new TasraError('Paid operation already journaled; resume it')
     await config.store.save(key, record)
   })
   await indexOperation(config.store, requestId)
-  await reserve(config, record, signal)
+  try { await reserve(config, record, signal) }
+  catch (error) {
+    if (ticket && error instanceof PaidOperationRecoveryError && error.code === 'reservation-failed' && error.cause instanceof AllowanceRefusedError) throw new AllowanceFallback(requestId, error)
+    throw error
+  }
   return continueOperation(config, requestId, request.holder, signal, request.observeRequest)
 }
 
@@ -573,6 +617,7 @@ class NoLongerReserving extends Error {}
 async function reserve(config: PaidOperationConfig, record: OperationRecord, signal: AbortSignal): Promise<void> {
   const d = {...config.deployment}, requestId = prepaidRequestId(record.payment), key = recordKey(requestId)
   if (signal.aborted) throw abortedError(requestId, 'reservation', record.payment, signal, signal.reason)
+  if (record.payment.allowance_id !== undefined) return debit(config, record, signal)
   try {
     // Under the journal's lock, so abandonPaidOperation cannot close it while a reservation runs.
     await config.store.withLock(key, async () => {
@@ -595,6 +640,36 @@ async function reserve(config: PaidOperationConfig, record: OperationRecord, sig
     throw new PaidOperationRecoveryError(requestId, 'reservation', error, {code: 'reservation-uncertain'})
   }
   await advance(config.store, requestId, 'reserving', {phase: 'reserved'})
+}
+
+/**
+ * ADR-0090: obtain this payment's debit voucher on its lane instead of a reservation, and journal
+ * the payment WITH the voucher (`reserved`). A definite refusal journals `failed` (no voucher can
+ * exist: fewer than k members signed and the lane is retired); unreachable accountants leave the
+ * debit pending for the same seq and request (`reservation-refused`, resumable).
+ */
+async function debit(config: PaidOperationConfig, record: OperationRecord, signal: AbortSignal): Promise<void> {
+  const requestId = prepaidRequestId(record.payment), key = recordKey(requestId), env = allowanceEnv(config)
+  if (!env || !record.allowance) {
+    const saved = await journaledAllowanceVoucher(config.store, requestId)
+    if (!saved) throw new PaidOperationRecoveryError(requestId, 'reservation', new TasraError('Resuming an allowance-backed operation needs the allowances option'), {code: 'reservation-refused'})
+  }
+  let voucher
+  try {
+    voucher = await config.store.withLock(key, async () => {
+      if ((await config.store.load<OperationRecord>(key))?.phase !== 'reserving') throw new NoLongerReserving()
+      return await journaledAllowanceVoucher(config.store, requestId) ?? await obtainAllowanceVoucher(env!, record.allowance!, record.payment, signal)
+    })
+  } catch (error) {
+    if (error instanceof NoLongerReserving) throw new TasraError('Paid operation was closed before its debit; it is not debited again')
+    if (error instanceof AllowanceRefusedError) {
+      await advance(config.store, requestId, 'reserving', {phase: 'failed', failure: {reason: `allowance debit refused: ${error.message}`}})
+      throw new PaidOperationRecoveryError(requestId, 'reservation', error, {code: 'reservation-failed'})
+    }
+    if (signal.aborted) throw abortedError(requestId, 'reservation', record.payment, signal, error)
+    throw new PaidOperationRecoveryError(requestId, 'reservation', error, expired(record.payment) ? {code: 'reservation-refused', resumable: false} : {code: 'reservation-refused'})
+  }
+  await advance(config.store, requestId, 'reserving', {phase: 'reserved', payment: {...record.payment, debit_voucher: voucher}})
 }
 
 async function advance(store: ApplicationStore, requestId: Hex, from: Phase | Phase[], patch: Partial<OperationRecord>,
@@ -1109,6 +1184,15 @@ export async function reconcilePaidOperation(config: PaidOperationConfig, reques
   const record = await loadRecord(config.store, requestId)
   if (!record) throw new TasraError('No paid operation journal for this request')
   const payer = record.payer ? {payer: record.payer} : {}
+  if (record.phase === 'reserving' && record.payment.allowance_id !== undefined) {
+    // ADR-0090: a journaled voucher completes the debit; otherwise resume requests the same seq and request.
+    const voucher = await journaledAllowanceVoucher(config.store, requestId)
+    if (voucher) {
+      const phase = (await advance(config.store, requestId, 'reserving', {phase: 'reserved', payment: {...record.payment, debit_voucher: voucher}})).phase
+      return {requestId, phase, ...payer, reservation: 'reserved', payerLocked: false, next: NEXT[phase]}
+    }
+    return {requestId, phase: record.phase, ...payer, reservation: 'none', payerLocked: false, next: 'reserve', reason: 'allowance debit not completed; resume requests the same voucher'}
+  }
   if (record.phase !== 'reserving') {
     return {requestId, phase: record.phase, ...payer, reservation: impliedReservation(record), payerLocked: false, next: NEXT[record.phase],
       ...(record.abandoned ? {reason: record.abandoned.reason} : record.failure ? {reason: record.failure.reason} : {})}
@@ -1165,7 +1249,10 @@ export async function resumePaidOperation(config: PaidOperationConfig, requestId
   if (!record) throw new TasraError('No paid operation journal for this request')
   if (record.phase === 'failed') throw new PaidOperationRecoveryError(requestId, 'reservation', new Error(record.failure?.reason ?? 'reservation never happened'), {code: 'reservation-failed'})
   if (record.phase === 'abandoned') throw new TasraError('Paid operation was abandoned; it is never resumed')
-  if (record.phase === 'reserving') {
+  if (record.phase === 'reserving' && record.payment.allowance_id !== undefined) {
+    // ADR-0090: no per-operation reservation to reconcile; resume the same journaled debit.
+    await reserve(config, record, signal)
+  } else if (record.phase === 'reserving') {
     // The reservation must use the payer the journal recorded (its claim and nonce live there).
     if (record.payer && record.payer.toLowerCase() !== config.gasPayer.account.address.toLowerCase()) {
       throw new TasraError(`Paid operation was journaled with gas payer ${record.payer}; resume it with that payer`)

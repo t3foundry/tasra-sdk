@@ -27,6 +27,9 @@ export type {PaidReservationJournal, PaidReservationSession, ApplicationReservat
 export {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, selectApplicationGasPayer, ApplicationPayerRecoveryError} from './paid-reservation.js'
 export type {ApplicationReservationOptions, ApplicationReservationState, ApplicationReservationStatus, ReconcileApplicationReservationOptions,
   SelectApplicationGasPayerOptions} from './paid-reservation.js'
+// ADR-0090 allowance lanes (PaidOperationConfig.allowances, default off).
+export {AllowanceRefusedError, AllowanceUnavailableError, inspectAllowanceLanes, journaledAllowanceVoucher, allowanceLaneCount} from './paid-allowance.js'
+export type {PaidAllowanceOptions} from './paid-allowance.js'
 export {paidOperation, resumePaidOperation, reconcilePaidOperation, recoverPaidOperation, abandonPaidOperation, paidOperationPhase, listPaidOperations,
   PaidOperationRecoveryError, PaidOperationAbandonRefusedError} from './paid-operation.js'
 export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PaidOperationPhase, PaidOperationJournalPhase, PaidOperationStatus,

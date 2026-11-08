@@ -31,6 +31,8 @@ vi.mock('../../src/app/paid-session.js', async original => ({...await original<t
 vi.mock('../../src/oid4vp/verifier-agent.js', async original => ({...await original<typeof import('../../src/oid4vp/verifier-agent.js')>(), verifierAgentResult: vi.fn()}))
 vi.mock('../../src/committee/execution.js', async original => ({...await original<typeof import('../../src/committee/execution.js')>(), createExecutionCertificate: vi.fn()}))
 vi.mock('../../src/chain/keeperExecution.js', () => ({createKeeperExecutionApprover: vi.fn(() => vi.fn())}))
+vi.mock('../../src/app/paid-allowance.js', async original => ({...await original<typeof import('../../src/app/paid-allowance.js')>(),
+  selectAllowanceLane: vi.fn(async () => undefined), obtainAllowanceVoucher: vi.fn()}))
 vi.mock('../../src/chain/keeperRecovery.js', async original => ({...await original<typeof import('../../src/chain/keeperRecovery.js')>(), recoverKeeperExecution: vi.fn()}))
 
 import {paidOperation, paidOperationPhase, resumePaidOperation, reconcilePaidOperation, listPaidOperations, abandonPaidOperation, recoverPaidOperation,
@@ -61,7 +63,9 @@ import {verifierAgentResult} from '../../src/oid4vp/verifier-agent.js'
 import {createExecutionCertificate} from '../../src/committee/execution.js'
 import {recoverKeeperExecution} from '../../src/chain/keeperRecovery.js'
 import {ruleCommitment} from '../../src/chain/write.js'
-import {paymentIntentHash, prepaidRequestId} from '../../src/committee/payment.js'
+import {paymentIntentHash, paymentIntentTypedData, prepaidRequestId} from '../../src/committee/payment.js'
+import {selectAllowanceLane, obtainAllowanceVoucher, AllowanceRefusedError, AllowanceUnavailableError} from '../../src/app/paid-allowance.js'
+import {recoverTypedDataAddress} from 'viem'
 
 const h = (n: number, len = 32): Hex => `0x${n.toString(16).padStart(2, '0').repeat(len)}`
 const creator = privateKeyToAccount(h(7)), payer = privateKeyToAccount(h(8))
@@ -1347,6 +1351,92 @@ describe('explicit status refresh of a paid grant', () => {
     await expect(op.refreshStatus()).rejects.toThrow(/predates recorded agent sessions/)
     expect(paidAgentRequest).not.toHaveBeenCalled()
     expect((await journal(f, op.requestId)).statusRefresh).toBeUndefined()
+    op.dispose()
+  })
+})
+
+describe('paidOperation with ADR-0090 allowances (default off)', () => {
+  const allowance = h(0x44)
+  const enabled = (f: ReturnType<typeof setup>) => ({...f.config, allowances: {enabled: true, amount: 1_000n}})
+  function lane() {
+    vi.mocked(selectAllowanceLane).mockImplementation(async (_env, context) => ({lane: 1, allowanceId: allowance,
+      fields: {...context.intentFields, verification_epoch: 6, verification_seed: h(46)}}))
+    vi.mocked(obtainAllowanceVoucher).mockImplementation(async (_env, _ticket, payment) => ({allowance_id: allowance, seq: 3, request_id: prepaidRequestId(payment),
+      cost: '40', cumulative: '120', quote_block: h(70), signature: h(5, 64)}))
+  }
+
+  it('stays on the per-operation reservation unless explicitly enabled', async () => {
+    const f = setup()
+    lane()
+    await paidOperation(f.config, f.request)
+    expect(selectAllowanceLane).not.toHaveBeenCalled()
+    expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(discoverPaidOperationContext).mock.calls[0]![3]).toMatchObject({fundedByAllowance: false})
+  })
+
+  it('signs the allowance payment intent on a lane with room and is debited by voucher, never reserved', async () => {
+    const f = setup()
+    lane()
+    const op = await paidOperation(enabled(f), f.request)
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    expect(vi.mocked(discoverPaidOperationContext).mock.calls[0]![3]).toMatchObject({fundedByAllowance: true})
+    expect(op.payment).toMatchObject({allowance_id: allowance, verification_epoch: 6, verification_seed: h(46), debit_voucher: {seq: 3, request_id: op.requestId}})
+    // The creator signed the distinct SlotAllowancePaymentIntent; the request ID binds the allowance.
+    const {debit_voucher: _voucher, ...signed} = op.payment
+    expect(paymentIntentTypedData(signed).primaryType).toBe('SlotAllowancePaymentIntent')
+    expect(await recoverTypedDataAddress({...paymentIntentTypedData(signed), signature: op.payment.signature})).toBe(creator.address)
+    expect(op.requestId).toBe(prepaidRequestId(signed))
+    expect(vi.mocked(obtainAllowanceVoucher).mock.calls[0]![1]).toEqual({lane: 1})
+    expect(vi.mocked(obtainAllowanceVoucher).mock.calls[0]![2].debit_voucher).toBeUndefined()
+    // Execution consent reads the backing with the voucher attached.
+    expect(vi.mocked(readClientExecutionPolicy).mock.calls[0]![2].debit_voucher).toMatchObject({seq: 3})
+    expect(await f.store.load(`paid-op-${op.requestId.slice(2)}`)).toMatchObject({phase: 'authorized', allowance: {lane: 1}})
+    op.dispose()
+  })
+
+  it('falls back to a per-operation reservation when no lane has room', async () => {
+    const f = setup()
+    vi.mocked(selectAllowanceLane).mockResolvedValue(undefined)
+    const op = await paidOperation(enabled(f), f.request)
+    expect(op.payment.allowance_id).toBeUndefined()
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
+    op.dispose()
+  })
+
+  it('a refused debit is journaled failed and the operation falls back once to a fresh per-operation payment', async () => {
+    const f = setup()
+    lane()
+    vi.mocked(obtainAllowanceVoucher).mockRejectedValueOnce(new AllowanceRefusedError('the accountants refused the debit'))
+    const ids: Hex[] = []
+    const op = await paidOperation(enabled(f), {...f.request, onRequestId: id => { ids.push(id) }})
+    expect(ids).toHaveLength(2)
+    expect(op.requestId).toBe(ids[1])
+    expect(op.payment.allowance_id).toBeUndefined()
+    expect(await paidOperationPhase(f.store, ids[0]!)).toBe('failed')
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(selectAllowanceLane).toHaveBeenCalledTimes(1)
+    await expect(resumePaidOperation(enabled(f), ids[0]!)).rejects.toMatchObject({code: 'reservation-failed'})
+    op.dispose()
+  })
+
+  it('unreachable accountants leave the debit resumable; resume asks for the SAME payment and continues', async () => {
+    const f = setup()
+    lane()
+    vi.mocked(obtainAllowanceVoucher).mockRejectedValueOnce(new AllowanceUnavailableError('accountants unavailable'))
+    const error = await paidOperation(enabled(f), f.request).catch((e: unknown) => e) as PaidOperationRecoveryError
+    expect(error).toBeInstanceOf(PaidOperationRecoveryError)
+    expect(error).toMatchObject({code: 'reservation-refused', resumable: true, phase: 'reservation'})
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    expect(await reconcilePaidOperation(enabled(f), error.requestId)).toMatchObject({phase: 'reserving', next: 'reserve'})
+    const op = await resumePaidOperation(enabled(f), error.requestId, {holder: f.holder})
+    const [first, second] = vi.mocked(obtainAllowanceVoucher).mock.calls
+    expect(second![2]).toEqual(first![2])
+    expect(op.requestId).toBe(error.requestId)
+    expect(op.payment.debit_voucher).toMatchObject({request_id: error.requestId})
+    expect(reconcileApplicationReservation).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
     op.dispose()
   })
 })
