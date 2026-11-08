@@ -9,7 +9,7 @@ import {collectDebitVoucher, DebitVoucherError, prepaidAllowanceId, pushDebitVou
 import {PaidReservationUncertainError} from '../../src/chain/reservation.js'
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
 import {debitVoucherWireDigest, paymentIntentTypedData, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
-import {readPaidOperationReceipt} from '../../src/chain/prepaid.js'
+import {readClientExecutionPolicy, readPaidOperationReceipt, resolvePaidKeeperTarget} from '../../src/chain/prepaid.js'
 import {combineBn254} from '../../src/crypto/bn254.js'
 import {hexToBytes} from '../../src/crypto/hex.js'
 
@@ -192,6 +192,28 @@ describe('the allowance-backed paid receipt (reader arm)', () => {
     await expect(readPaidOperationReceipt(world.client, deployment, {...payment, debit_voucher: {...voucher, signature: partialOf(0, h(5))}}, expected)).rejects.toThrow(/does not verify/)
     const reserved = allowanceWorld({allowance: mined, prepaidCost: 40n})
     await expect(readPaidOperationReceipt(reserved.client, deployment, payment, expected)).rejects.toThrow(/allowance-backed/)
+  }, 30_000)
+
+  it('treats a range-settled voucher (ADR-0092, Settlement "5") as settled at every call site, although its per-request records were never written', async () => {
+    // The voucher is seq 1; the allowance's settled seq reached 1 by range settlement; prepaidSettled is still false.
+    const {world, payment, expected} = await backed({allowance: mined, version: '5', settledSeq: 1n})
+    // Reconcile / recovery surface: the receipt reports it settled.
+    expect(await readPaidOperationReceipt(world.client, deployment, payment, expected)).toMatchObject({settled: true, cost: 40n})
+    // Keeper target: no keeper operation starts on it.
+    await expect(resolvePaidKeeperTarget(world.client, deployment, payment, expected, {allowLocalHttp: true})).rejects.toThrow(/already settled/)
+    // Client execution policy: no new work is approved for it.
+    await expect(readClientExecutionPolicy(world.client, {...deployment, verifierSet: h(5, 20)}, payment, expected)).rejects.toThrow(/after settlement/)
+    // Below the settled seq only: a later voucher of the same allowance is not settled.
+    const open = await backed({allowance: mined, version: '5', settledSeq: 0n})
+    expect(await readPaidOperationReceipt(open.world.client, deployment, open.payment, open.expected)).toMatchObject({settled: false})
+  }, 30_000)
+
+  it('judges the backing by version: a "4" Settlement never consults the settled seq; an unknown version is refused', async () => {
+    // "4" has no getter (the mock reverts it): the receipt still reads, unaffected.
+    const v4 = await backed({allowance: mined, version: '4', settledSeq: 9n})
+    expect(await readPaidOperationReceipt(v4.world.client, deployment, v4.payment, v4.expected)).toMatchObject({settled: false})
+    const v6 = await backed({allowance: mined, version: '6'})
+    await expect(readPaidOperationReceipt(v6.world.client, deployment, v6.payment, v6.expected)).rejects.toThrow(/unknown Settlement version/)
   }, 30_000)
 
   it('reads the allowance getter at a block', async () => {

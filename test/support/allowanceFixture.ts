@@ -60,6 +60,10 @@ export interface ChainChanges {
   cost?: bigint
   /** Group key the beacon reports (default the fixture key). */
   mpk?: Hex
+  /** Settlement.version() (default "4", which has no settled-seq getter: it reverts). */
+  version?: string
+  /** ADR-0092 (version "5"): the allowance's range-settled seq (default 0). */
+  settledSeq?: bigint
 }
 
 export interface AllowanceWorld {
@@ -128,12 +132,15 @@ export function allowanceWorld(change: ChainChanges = {}): AllowanceWorld {
       const abi: Abi = call.to.toLowerCase() === deployment.keyRegistry ? keyRegistryAbi : call.to.toLowerCase() === deployment.beacon ? thresholdRandomBeaconAbi : settlementAbi
       const {functionName} = decodeFunctionData({abi, data: call.data})
       if (functionName === 'reservePrepaidAllowanceBls') return '0x'
+      const version = change.version ?? '4'
+      if (functionName === 'prepaidAllowanceSettledSeq' && version !== '5') throw new Error('execution reverted')
       const record = {...(mined.record ?? zeroAllowance()), ...change.allowance}
       const values: Record<string, unknown> = {
         prepaidAllowance: [record.slotId, record.assignmentBlock, record.amount, record.spent, record.maxOpCost, record.expiresAt, record.reservedAt, record.actions, record.closed],
         getKeySlot: {creator: creator.address, ruleCommitment: h(33), threshold: {k: 2, n: 3}, mode: 0, publicKey: h(44), epoch: 1n, committeeVersion: 2n, exists: true,
           cancelled: false, expiry: 0n, ruleVersion: 1n, auth: 0},
         beacon: deployment.beacon, mpk: change.mpk ?? groupKey,
+        version, prepaidAllowanceSettledSeq: change.settledSeq ?? 0n,
         prepaidEnabled: true, prepaidCost: change.prepaidCost ?? 0n, prepaidSettled: change.settled ?? false, prepaidRefunded: 0n,
       }
       return encodeFunctionResult({abi, functionName, result: values[functionName]})

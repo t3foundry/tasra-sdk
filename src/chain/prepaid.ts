@@ -603,17 +603,28 @@ function receiptReads(client: PublicClient, deployment: PrepaidDeployment, at: P
   if (payment.allowance_id !== undefined) {
     const voucher = payment.debit_voucher
     if (!voucher) return Promise.reject(new Error('allowance-backed payment carries no debit voucher'))
-    const allowanceData = encodeFunctionData({abi: settlementAbi, functionName: 'prepaidAllowance', args: [payment.allowance_id]})
-    const allowance = (headFollowerOf(client)?.isCanonical(at) === true
-      ? pinnedRegistryCall(client, at, deployment.settlement, allowanceData, false) : pinnedCall(client, at.blockHash, deployment.settlement, allowanceData))
-      .then(data => { if (data === undefined) throw new Error('empty prepaidAllowance response'); return decodeFunctionResult({abi: settlementAbi, functionName: 'prepaidAllowance', data}) })
+    const allowance = allowanceRead(client, deployment.settlement, at, 'prepaidAllowance', payment.allowance_id)
+    // ADR-0092 (Settlement "5"): a range-settled allowance advances its settled seq and writes no
+    // per-request records, so the request's own `prepaidSettled` stays false. The settled seq is
+    // read beside the rest at the same block; an older version (no getter) never consults it.
+    const settledSeq = allowanceRead(client, deployment.settlement, at, 'prepaidAllowanceSettledSeq', payment.allowance_id)
+      .then(value => ({value}), (error: unknown) => ({error}))
     return Promise.all([readAt(client, deployment.settlement, at, 'prepaidEnabled', payment.slot), allowance,
       readAt(client, deployment.settlement, at, 'prepaidCost', payment.slot, requestId), readAt(client, deployment.settlement, at, 'prepaidSettled', payment.slot, requestId),
-      readAt(client, deployment.settlement, at, 'prepaidRefunded', payment.slot, requestId), verifyDebitVoucher(client, deployment, voucher)]).then(reads => ({kind: 'allowance', reads}))
+      readAt(client, deployment.settlement, at, 'prepaidRefunded', payment.slot, requestId), verifyDebitVoucher(client, deployment, voucher),
+      settlementVersionAt(client, at, deployment.settlement), settledSeq]).then(reads => ({kind: 'allowance', reads}))
   }
   const names = ['prepaidEnabled', 'prepaidCost', 'prepaidSettled', 'prepaidRefunded', 'prepaidAssignmentBlock'] as const
   return Promise.all(names.map(name =>
     readAt(client, deployment.settlement, at, name, payment.slot, name === 'prepaidEnabled' ? undefined : requestId))).then(reads => ({kind: 'reservation', reads}))
+}
+
+/** One allowance-keyed Settlement read at `at` (block-hash cached only where the head follower vouches). */
+function allowanceRead(client: PublicClient, settlement: Address, at: PrepaidObservation, name: 'prepaidAllowance' | 'prepaidAllowanceSettledSeq', allowanceId: Hex): Promise<unknown> {
+  const data = encodeFunctionData({abi: settlementAbi, functionName: name, args: [allowanceId]})
+  return (headFollowerOf(client)?.isCanonical(at) === true
+    ? pinnedRegistryCall(client, at, settlement, data, false) : pinnedCall(client, at.blockHash, settlement, data))
+    .then(result => { if (result === undefined) throw new Error(`empty ${name} response`); return decodeFunctionResult({abi: settlementAbi, functionName: name, data: result}) })
 }
 
 /**
@@ -632,7 +643,8 @@ export function followPaidRequest(client: PublicClient, deployment: PrepaidDeplo
     const at: PrepaidObservation = {blockNumber: tip.blockNumber, blockHash: tip.blockHash, blockTimestamp: tip.blockTimestamp}
     const names = ['prepaidCost', 'prepaidSettled', 'prepaidRefunded', 'prepaidAssignmentBlock'] as const
     return Promise.allSettled([readAt(client, d.settlement, at, 'prepaidEnabled', slot), ...names.map(name => readAt(client, d.settlement, at, name, slot, requestId)),
-      ...(allowanceId ? [pinnedRegistryCall(client, at, d.settlement, encodeFunctionData({abi: settlementAbi, functionName: 'prepaidAllowance', args: [allowanceId]}), false)] : [])])
+      ...(allowanceId ? [allowanceRead(client, d.settlement, at, 'prepaidAllowance', allowanceId), allowanceRead(client, d.settlement, at, 'prepaidAllowanceSettledSeq', allowanceId),
+        settlementVersionAt(client, at, d.settlement)] : [])])
   }, payment.expires * 1000)
 }
 
@@ -655,7 +667,19 @@ function checkReceiptReads(at: PrepaidObservation, payment: PaymentIntentWire, o
  * the allowance's immutable assignment block stand in for a reservation's.
  */
 function checkAllowanceBacking(at: PrepaidObservation, payment: PaymentIntentWire, reads: unknown[]): PaidOperationReceipt {
-  const [enabled, record, reservedCost, settled, refunded] = reads as [unknown, readonly [Hex, Hex, bigint, bigint, bigint, bigint, bigint, number, boolean], unknown, unknown, unknown]
+  const [enabled, record, reservedCost, perRequestSettled, refunded, , version, settledSeqRead] = reads as [unknown, readonly [Hex, Hex, bigint, bigint, bigint, bigint, bigint, number, boolean], unknown, unknown, unknown,
+    unknown, unknown, {value: unknown} | {error: unknown}]
+  // The backing is judged per Settlement version at this block: "5" adds range settlement (ADR-0092),
+  // under which a voucher at or below the allowance's settled seq is settled even though its
+  // per-request records were never written. Any other version is refused here.
+  if (!isPrepaidSettlementVersion(version)) throw new Error('operation backing read at an unknown Settlement version')
+  let settled = perRequestSettled
+  if (version === '5') {
+    if ('error' in settledSeqRead) throw settledSeqRead.error
+    const settledSeq = settledSeqRead.value
+    if (typeof settledSeq !== 'bigint' || typeof perRequestSettled !== 'boolean') throw new Error('operation has no valid allowance-backed TASRA debit')
+    settled = perRequestSettled || BigInt(payment.debit_voucher!.seq) <= settledSeq
+  }
   const voucher = payment.debit_voucher!
   const [slotId, assignmentBlock, amount, , maxOpCost, expiresAt, , actions, closed] = record
   const cost = BigInt(voucher.cost)
@@ -666,7 +690,7 @@ function checkAllowanceBacking(at: PrepaidObservation, payment: PaymentIntentWir
     || refunded < 0n || refunded > cost || (!settled && (refunded !== 0n || reservedCost !== 0n))) {
     throw new Error('operation has no valid allowance-backed TASRA debit')
   }
-  return {...at, requestId: prepaidRequestId(payment), cost, settled, refunded, assignmentBlock}
+  return {...at, requestId: prepaidRequestId(payment), cost, settled: settled as boolean, refunded, assignmentBlock}
 }
 
 /**

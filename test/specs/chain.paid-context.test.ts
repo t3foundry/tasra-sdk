@@ -114,12 +114,12 @@ it('refuses a legacy Settlement or a slot not cut over with a typed billing refu
 
 it('judges billing inside discovery: an unknown Settlement version is refused even with prepaidEnabled, and no separate billing observation runs', async () => {
   now()
-  for (const version of ['5', '2.1']) {
+  for (const version of ['6', '2.1']) {
     const refused: unknown = await fixture({version}).run().catch((error: unknown) => error)
     expect(refused, version).toBeInstanceOf(BillingModeError)
     expect(refused).toMatchObject({mode: 'unknown', settlementVersion: version})
   }
-  for (const version of ['2', '3', '4']) {
+  for (const version of ['2', '3', '4', '5']) {
     const f = fixture({version}); await f.run()
     // One head observation and one canonical recheck: the version is read at discovery's own block.
     expect(f.calls.filter(c => c.method === 'eth_getBlockByNumber'), version).toHaveLength(2)
