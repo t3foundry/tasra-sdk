@@ -20,6 +20,8 @@ import {readAssignmentEpoch, requirePaidEpoch} from './paidEpoch.js'
 import {systemPacingClock, type PaidPacingClock} from './paidPacing.js'
 import {SingleFlight} from '../internal/bounded.js'
 import {pinnedCall, pinnedRegistryCall} from './pinnedReads.js'
+import {headFollowerOf} from './headFollower.js'
+import {registerHeadPrefetch} from './headPrefetch.js'
 import {chainIdOf} from './chainId.js'
 import {verifyDebitVoucher} from './allowance.js'
 
@@ -474,8 +476,9 @@ async function readAt(client: PublicClient, settlement: Address, at: PrepaidObse
   const data = requestId === undefined
     ? encodeFunctionData({abi: settlementAbi, functionName: name, args: [slot]})
     : encodeFunctionData({abi: settlementAbi, functionName: name, args: [slot, requestId]})
-  // Same canonical block-hash read, batched with the other reads at this block where possible.
-  const result = {data: await pinnedCall(client, at.blockHash, settlement, data)}
+  // Same canonical block-hash read, batched with the other reads at this block where possible (and
+  // answered from the head follower's pre-reads when it vouches for the block).
+  const result = {data: await pinnedRegistryCall(client, at, settlement, data, false)}
   if (result.data === undefined) throw new Error(`empty prepaid ${name} response`)
   return decodeFunctionResult({abi: settlementAbi, functionName: name, data: result.data})
 }
@@ -718,6 +721,54 @@ function safeInteger(value: bigint, name: string): number {
   return Number(value)
 }
 
+function settlementVersionAt(client: PublicClient, at: PrepaidObservation, settlement: Address): Promise<unknown> {
+  return pinnedRegistryCall(client, at, settlement, encodeFunctionData({abi: settlementAbi, functionName: 'version'}), false)
+    .then(data => { if (data === undefined) throw new Error('empty Settlement version response'); return decodeFunctionResult({abi: settlementAbi, functionName: 'version', data}) })
+}
+
+/**
+ * Every block-pinned read discovery makes for `slotId` at `at` (also the head follower's pre-read).
+ * The latest epoch's anchors depend only on that epoch, not on the keeper directory: they are read
+ * beside its second step. Callers judge the answers in the original order.
+ */
+function slotReads(client: PublicClient, deployment: PaidContextDeployment, slotId: Hex, at: PrepaidObservation) {
+  const seedAt = (epoch: bigint) => registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [epoch]) as Promise<Hex>
+  const snapshotAt = (epoch: bigint) => registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
+  const accountantAt = (epoch: bigint) => registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
+  const latestEpoch = registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch') as Promise<bigint>
+  const latestAnchors = latestEpoch.then(epoch => Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)]))
+  latestAnchors.catch(() => {})
+  const reads = Promise.all([
+    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'randomBeacon') as Promise<Address>,
+    registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'beacon') as Promise<Address>,
+    registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'beacon') as Promise<Address>,
+    latestEpoch,
+    registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'verifierPolicy', [slotId]) as Promise<readonly [number, number]>,
+    readAt(client, deployment.settlement, at, 'prepaidEnabled', slotId),
+    readAt(client, deployment.settlement, at, 'balanceOf', slotId),
+    keeperDirectory(client, at, deployment.keyRegistry, slotId),
+    // The billing check (what requirePrepaidSlot read in its own rounds before discovery): the
+    // Settlement version at this same block. Only "2" | "3" | "4" bill prepaid.
+    settlementVersionAt(client, at, deployment.settlement),
+  ])
+  return {seedAt, snapshotAt, accountantAt, latestEpoch, latestAnchors, reads}
+}
+
+/**
+ * Pre-read `slotId`'s discovery state at every new followed head (the current and previous
+ * epoch's anchors included), so an operation at that head reads it from the cache. Errors are
+ * dropped: the operation's own read surfaces them.
+ */
+function followPaidSlot(client: PublicClient, deployment: PaidContextDeployment, slotId: Hex): void {
+  const d = {...deployment}
+  registerHeadPrefetch(client, `paid-slot:${d.settlement}:${slotId}`.toLowerCase(), async tip => {
+    const at: PrepaidObservation = {blockNumber: tip.blockNumber, blockHash: tip.blockHash, blockTimestamp: tip.blockTimestamp}
+    const {seedAt, snapshotAt, accountantAt, latestEpoch, latestAnchors, reads} = slotReads(client, d, slotId, at)
+    const epoch = await latestEpoch
+    await Promise.allSettled([reads, latestAnchors, ...(epoch > 0n ? [seedAt(epoch - 1n), snapshotAt(epoch - 1n), accountantAt(epoch - 1n)] : [])])
+  })
+}
+
 /**
  * Discover keeper sharing and verifier policy from one fresh canonical block before creating an intent.
  * Selects the current epoch with both verifier and accountant snapshots, otherwise its immediate predecessor.
@@ -745,28 +796,8 @@ export async function discoverPaidOperationContext(
   const observed = await (async () => {
     for (;;) {
       const at = await observe(client, deployment)
-      const seedAt = (epoch: bigint) => registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [epoch]) as Promise<Hex>
-      const snapshotAt = (epoch: bigint) => registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
-      const accountantAt = (epoch: bigint) => registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'snapshotAt', [epoch]) as Promise<readonly [Hex, number]>
-      const latestEpoch = registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch') as Promise<bigint>
-      // The latest epoch's anchors depend only on that epoch, not on the keeper directory: read them
-      // beside its second step instead of after it. Judged below, in the original order.
-      const latestAnchors = latestEpoch.then(epoch => Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)]))
-      latestAnchors.catch(() => {})
-      const reads = Promise.all([
-        registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'randomBeacon') as Promise<Address>,
-        registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'beacon') as Promise<Address>,
-        registryRead(client, at, deployment.accountantSet, accountantSetRegistryAbi, 'beacon') as Promise<Address>,
-        latestEpoch,
-        registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'verifierPolicy', [slotId]) as Promise<readonly [number, number]>,
-        readAt(client, deployment.settlement, at, 'prepaidEnabled', slotId),
-        readAt(client, deployment.settlement, at, 'balanceOf', slotId),
-        keeperDirectory(client, at, deployment.keyRegistry, slotId),
-        // The billing check (what requirePrepaidSlot read in its own rounds before discovery): the
-        // Settlement version at this same block. Only "2" | "3" | "4" bill prepaid.
-        pinnedCall(client, at.blockHash, deployment.settlement, encodeFunctionData({abi: settlementAbi, functionName: 'version'}))
-          .then(data => { if (data === undefined) throw new Error('empty Settlement version response'); return decodeFunctionResult({abi: settlementAbi, functionName: 'version', data}) }),
-      ])
+      if (headFollowerOf(client)) followPaidSlot(client, deployment, slotId)
+      const {seedAt, snapshotAt, accountantAt, latestAnchors, reads} = slotReads(client, deployment, slotId, at)
       // On a failed read, a legacy or unreadable billing mode is the clearer refusal.
       const [keyBeacon, snapshotBeacon, accountantBeacon, latest, policy, enabled, available, directory, version] = await reads.catch(async (error: unknown) => {
         await refuseUnlessPrepaid(client, deployment, slotId)

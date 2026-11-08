@@ -14,6 +14,7 @@ import {settlementAbi} from '../../src/chain/abis/settlement.js'
 import {thresholdRandomBeaconAbi} from '../../src/chain/abis/thresholdRandomBeacon.js'
 import {verifierSetRegistryAbi} from '../../src/chain/abis/verifierSetRegistry.js'
 import {accountantSetRegistryAbi} from '../../src/chain/abis/accountantSetRegistry.js'
+import {attachHeadFollower, createHeadFollower, unfollowHeads} from '../../src/chain/headFollower.js'
 
 vi.mock('@noble/hashes/utils', async importOriginal => {
   const actual = await importOriginal<typeof import('@noble/hashes/utils')>()
@@ -344,4 +345,30 @@ it('waits a bounded time for an admissible complete epoch while a new epoch\'s a
   // The default keeps a single observation when told so, and refuses an unbounded or absurd wait.
   await expect(fixture({unanchored: true, noPrevious: true}).run()).rejects.toThrow(/no current or previous/)
   for (const bad of [{timeoutMs: -1}, {timeoutMs: 120_001}, {pollMs: 50}, {pollMs: 10_001}]) await expect(f.run({anchorWait: bad})).rejects.toThrow('invalid anchor wait')
+})
+
+it('serves a repeated discovery at a followed, vouched-for head from the block-pinned cache and its pre-reads', async () => {
+  now()
+  const f = fixture()
+  const follower = createHeadFollower(f.client, {finality: 'instant', now: () => 1_000_000})
+  attachHeadFollower(f.client, follower)
+  try {
+    await follower.ingest({number: 20n, hash: h(20), parentHash: h(21), timestamp: 1000n})
+    const first = await f.run()
+    // Let the slot's pre-read (registered by the first discovery) settle.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const before = f.calls.filter(c => c.method === 'eth_call').length
+    const second = await f.run()
+    const {keeper_assignment: _a, ...rest} = first.intentFields
+    expect(second.intentFields).toMatchObject(rest)
+    expect(f.calls.filter(c => c.method === 'eth_call').length - before).toBe(0)
+  } finally { unfollowHeads(f.client) }
+  // A follower that cannot vouch (probabilistic finality) never serves the cache: every read is sent.
+  const g = fixture()
+  attachHeadFollower(g.client, createHeadFollower(g.client, {now: () => 1_000_000}))
+  try {
+    await g.run(); const before = g.calls.filter(c => c.method === 'eth_call').length
+    await g.run()
+    expect(g.calls.filter(c => c.method === 'eth_call').length - before).toBeGreaterThan(10)
+  } finally { unfollowHeads(g.client) }
 })

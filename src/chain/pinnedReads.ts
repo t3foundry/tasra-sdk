@@ -17,6 +17,7 @@
 //   bounded per-client cache. Errors, empty responses, `latest` reads, reservation reads and
 //   freshness rechecks are never cached; only finalized-pinned registry reads come here.
 
+import {headFollowerOf} from './headFollower.js'
 import {decodeFunctionResult, encodeFunctionData, keccak256, multicall3Abi, type Address, type Hex, type PublicClient} from 'viem'
 import {ExpiringCache, SingleFlight} from '../internal/bounded.js'
 
@@ -185,12 +186,16 @@ async function multicallAt(client: PublicClient, s: ClientState, blockHash: Hex)
 export async function pinnedRegistryCall(client: PublicClient, at: PinnedBlock, to: Address, data: Hex, cache: boolean): Promise<Hex | undefined> {
   const s = state(client)
   const key = `${at.blockHash.toLowerCase()}|${to.toLowerCase()}|${data.toLowerCase()}`
-  const cached = cache ? s.cache.get(key) : undefined
+  // A block the head follower proves canonical under instant finality is as fixed as a finalized
+  // one: its pinned results (and the follower's pre-reads of them) are served from the cache.
+  const followed = headFollowerOf(client)?.isCanonical(at) === true
+  const cached = cache || followed ? s.cache.get(key) : undefined
   if (cached !== undefined) return cached
   const result = await s.shared.run(key, () => pinnedCall(client, at.blockHash, to, data))
-  if (cache && result !== undefined) {
+  if (result !== undefined) {
     const expiresAt = Number(at.blockTimestamp) * 1000 + CACHE_TTL_AFTER_BLOCK_MS
-    void finalizedBlock(client, s, at).then(final => { if (final) s.cache.set(key, result, expiresAt) })
+    if (followed) s.cache.set(key, result, expiresAt)
+    else if (cache) void finalizedBlock(client, s, at).then(final => { if (final) s.cache.set(key, result, expiresAt) })
   }
   return result
 }
