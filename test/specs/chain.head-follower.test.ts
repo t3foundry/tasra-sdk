@@ -183,3 +183,17 @@ it('never links to a parent hash held at another height', async () => {
   await f.follower.ingestFinalized(header(0, 9))
   expect(f.follower.isCanonical(f.at(header(0, 2)))).toBeUndefined()
 })
+
+it('hands out no tip older than a block this process saw its own transaction mined in', async () => {
+  // The poller confirms about once a second: right after a reservation mines, the tip can still be
+  // the block before, where the reservation does not exist yet. Callers then read the RPC head.
+  const f = fixture()
+  for (let n = 1; n <= 3; n++) await f.follower.ingest(header(0, n))
+  expect(f.follower.tip()).toMatchObject({blockNumber: 3n})
+  f.follower.noteMinedBlock(4n)
+  expect(f.follower.tip()).toBeUndefined()
+  f.follower.noteMinedBlock(2n) // never lowers the floor
+  expect(f.follower.tip()).toBeUndefined()
+  await f.follower.ingest(header(0, 4))
+  expect(f.follower.tip()).toMatchObject({blockNumber: 4n, blockHash: H(0, 4)})
+})

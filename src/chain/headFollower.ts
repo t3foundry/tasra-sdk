@@ -61,6 +61,12 @@ export interface HeadFollower {
   ingestFinalized(header: unknown): Promise<void>
   /** Run `listener` after every new tip; returns the unsubscribe function. */
   onHead(listener: (tip: FollowedHead) => void): () => void
+  /**
+   * A block this process saw one of its own transactions mined in. Until the followed tip reaches
+   * it, `tip()` answers undefined (callers read the RPC head): an older tip cannot show that
+   * transaction's effects, so a read at it would contradict what the caller just observed.
+   */
+  noteMinedBlock(blockNumber: bigint): void
   /** Number of gaps (unlinkable headers) seen; diagnostics only. */
   gaps(): number
   /** Start polling (HTTP) or subscribing (WebSocket). Idempotent. */
@@ -97,7 +103,7 @@ export function createHeadFollower(client: PublicClient, options: HeadFollowerOp
   if (!Number.isSafeInteger(pollMs) || pollMs < 50 || pollMs >= liveAfterMs) throw new Error('Invalid head follower poll interval')
   let chain: FollowedHead[] = []
   let finalized: {blockNumber: bigint; blockHash: Hex} | undefined
-  let heardAt = -Infinity, gapCount = 0
+  let heardAt = -Infinity, gapCount = 0, minedFloor = 0n
   let queue: Promise<void> = Promise.resolve()
   let timer: ReturnType<typeof setTimeout> | undefined, unwatch: (() => void) | undefined, running = false
   const listeners = new Set<(tip: FollowedHead) => void>()
@@ -151,7 +157,8 @@ export function createHeadFollower(client: PublicClient, options: HeadFollowerOp
   }
   const follower: HeadFollower = {
     finality,
-    tip: () => live() ? {...chain[chain.length - 1]!} : undefined,
+    tip: () => live() && chain[chain.length - 1]!.blockNumber >= minedFloor ? {...chain[chain.length - 1]!} : undefined,
+    noteMinedBlock(blockNumber) { if (typeof blockNumber === 'bigint' && blockNumber > minedFloor) minedFloor = blockNumber },
     isCanonical(at) {
       if (finality !== 'instant' || !live() || chain.length === 0) return undefined
       const first = chain[0]!.blockNumber, last = chain[chain.length - 1]!.blockNumber

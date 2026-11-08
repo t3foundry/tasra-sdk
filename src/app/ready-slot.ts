@@ -1,4 +1,5 @@
 import type {Hex} from 'viem'
+import {headFollowerOf} from '../chain/headFollower.js'
 import {isOauthFormat, validate as validateRule} from '../auth/oid4vp.js'
 import type {TasraApplication} from './client.js'
 import {prepareSlot, createPreparedSlot, type SlotCreationJournal} from './creation.js'
@@ -284,6 +285,7 @@ export async function createApplicationSlot(app: TasraApplication, input: Create
     if (state.verifierPolicy?.hash && state.verifierPolicy.phase !== 'confirmed') {
       progress({step: 'verifier_policy', phase: 'submitted', slotId, transactionHash: state.verifierPolicy.hash})
       const receipt = await chain.client.waitForTransactionReceipt({hash: state.verifierPolicy.hash, timeout: timeoutMs, pollingInterval: WRITE_POLL_INTERVAL_MS})
+      headFollowerOf(chain.client)?.noteMinedBlock(receipt.blockNumber)
       if (receipt.status !== 'success') throw new ApplicationSlotRecoveryError('VERIFIER_POLICY_REVERTED', request.name, 'Verifier policy transaction reverted; reconcile before resuming', {slotId, transactionHash: state.verifierPolicy.hash})
       state.verifierPolicy.phase = 'confirmed'
       await save()

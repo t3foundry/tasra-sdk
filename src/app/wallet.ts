@@ -1,5 +1,6 @@
 import {createPublicClient, createWalletClient, custom, defineChain, http, keccak256, toHex, parseTransaction, recoverTransactionAddress,
   type Account, type Address, type Chain, type EIP1193Provider, type Hex, type LocalAccount, type TransactionReceipt, type TransactionSerialized, type Transport, type WalletClient} from 'viem'
+import {headFollowerOf} from '../chain/headFollower.js'
 import {generatePrivateKey, privateKeyToAccount} from 'viem/accounts'
 import {TasraError} from '../errors.js'
 import type {TypedDataSigner} from '../oid4vp/verifier-agent.js'
@@ -174,6 +175,7 @@ function wrap(deployment: TasraDeployment, wallet: TasraWallet['wallet'], local?
       await verifySignedTransaction(journal)
       await assertChain()
       const receipt = await pub.waitForTransactionReceipt({hash: journal.hash, timeout: timeoutMs, checkReplacement: false})
+      headFollowerOf(pub)?.noteMinedBlock(receipt.blockNumber)
       journal.phase = 'confirmed'
       journal.receipt = receipt
       await persist?.(structuredClone(journal))

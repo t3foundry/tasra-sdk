@@ -9,6 +9,7 @@
 // ends the wait, and the caller still verifies the transaction, its block and its effects.
 
 import {TransactionReceiptNotFoundError, WaitForTransactionReceiptTimeoutError, type Hash, type PublicClient, type TransactionReceipt} from 'viem'
+import {headFollowerOf} from './headFollower.js'
 
 /** First pause before asking again, ms. */
 const FIRST_POLL_MS = 250
@@ -62,7 +63,12 @@ export async function pollTransactionReceipt(client: PublicClient, hash: Hash, o
     let receipt: TransactionReceipt | undefined
     for (;;) {
       active.throwIfAborted()
-      try { receipt = await client.getTransactionReceipt({hash}); break }
+      try {
+        receipt = await client.getTransactionReceipt({hash})
+        // Reads after this must not use a followed tip from before the transaction.
+        headFollowerOf(client)?.noteMinedBlock(receipt.blockNumber)
+        break
+      }
       catch (error) { if (!(error instanceof TransactionReceiptNotFoundError)) throw error }
       await next()
     }
