@@ -258,3 +258,30 @@ it.each([undefined, '', 'x'.repeat(2048)])('bounds terminal refusal detail and p
   expect(f.session.approveCredentials).not.toHaveBeenCalled()
   expect(f.session.resumePresentation).not.toHaveBeenCalled()
 })
+
+it('sends independent operator approvals of one batch together, and refuses the whole batch before any send', async () => {
+  const f = fixture()
+  const other = ('0x' + 'ee'.repeat(32)) as Hex
+  const members = [...f.base.members, {index: 1, operator: ('0x' + '22'.repeat(20)) as Hex, publicKey: other, proof: []}]
+  const jar = vi.mocked(f.session.approveRequest).getMockImplementation()!
+  let inFlight = 0, overlap = 0
+  vi.mocked(f.session.approveRequest).mockImplementation(async (...args) => {
+    inFlight++; overlap = Math.max(overlap, inFlight)
+    await new Promise(r => setTimeout(r, 20))
+    inFlight--
+    return jar(...args)
+  })
+  const sign = (operator_key: Hex, stage: PaidAgentProposal['stage']): PaidAgentProposal => ({id: 'ef'.repeat(32), stage, operator_key, unsigned_body: {stage}, expires: 1030})
+  vi.mocked(f.session.proposals).mockResolvedValueOnce([sign(f.base.members[0]!.publicKey, 'presentation_sign'), sign(other, 'presentation_attest')])
+  const holder = {kind: 'local' as const, makePresentation: () => structuredClone(f.presentation), submit: async () => {f.wallet()}}
+  expect((await drivePaidSession({...f.base, members, holder})).status).toBe('done')
+  expect(f.session.approveRequest).toHaveBeenCalledTimes(2)
+  // Both approvals were in flight at once: one round trip for the batch, not one per operator.
+  expect(overlap).toBe(2)
+  // An operator outside the draw in the same batch refuses every approval of it, sending none.
+  const g = fixture()
+  vi.mocked(g.session.proposals).mockResolvedValueOnce([sign(g.base.members[0]!.publicKey, 'presentation_sign'), sign(('0x' + '99'.repeat(32)) as Hex, 'presentation_attest')])
+  await expect(drivePaidSession({...g.base, holder: {kind: 'local' as const, makePresentation: () => structuredClone(g.presentation), submit: async () => {g.wallet()}}}))
+    .rejects.toThrow(/outside the original anchored draw/)
+  expect(g.session.approveRequest).not.toHaveBeenCalled()
+})
