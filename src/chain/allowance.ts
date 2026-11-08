@@ -153,6 +153,12 @@ export interface ReservePrepaidAllowanceOptions {
   confirmations?: number
   /** Cancellation: honoured until the `prepared` checkpoint; afterwards it only ends the receipt wait (uncertain). */
   signal?: AbortSignal
+  /**
+   * Canonical block the intent's verifier epoch was observed at. The first prepare is pinned to
+   * it, so a member whose own head is a block older (before the epoch's anchors landed) judges
+   * the same anchors; if no member accepts it (stale), the members choose as before.
+   */
+  quoteBlock?: Hex
   /** Await durable storage. `prepared` must create a unique record keyed by allowance id and survive process loss. */
   persist: (checkpoint: PrepaidAllowanceCheckpoint) => Promise<void>
 }
@@ -257,11 +263,15 @@ async function askAllowance(url: string, method: 'prepare' | 'authorize', intent
 }
 
 /** Prepare at every responsive member at one quote block, then a quorum signature from a prepared one. */
-async function collectAllowanceQuote(urls: string[], intent: PrepaidAllowanceIntentWire, d: PrepaidDeployment, timeout: number, signal?: AbortSignal) {
+async function collectAllowanceQuote(urls: string[], intent: PrepaidAllowanceIntentWire, d: PrepaidDeployment, timeout: number, signal?: AbortSignal, pin?: Hex) {
   let seed: {quote: PrepaidAllowanceQuote; index: number} | undefined, last: Error | undefined
-  for (const [index, url] of urls.entries()) {
-    try { seed = {quote: await askAllowance(url, 'prepare', intent, null, d, timeout, signal), index}; break }
-    catch (error) { if (!(error instanceof Unavailable)) throw error; last = error }
+  // Pinned first (the observed block), then unpinned: every member still verifies the block itself.
+  for (const block of pin ? [pin, null] : [null]) {
+    for (const [index, url] of urls.entries()) {
+      try { seed = {quote: await askAllowance(url, 'prepare', intent, block, d, timeout, signal), index}; break }
+      catch (error) { if (!(error instanceof Unavailable)) throw error; last = error }
+    }
+    if (seed) break
   }
   if (!seed) throw last ?? new Error('no reachable accountant prepared the allowance')
   const {quote, index} = seed, prepared = [urls[index]!], rest = urls.slice(index + 1)
@@ -336,12 +346,13 @@ export async function reservePrepaidAllowance(client: PublicClient, wallet: Wall
   const requestTimeout = opts.requestTimeoutMs ?? 85000, receiptTimeout = opts.receiptTimeoutMs ?? 60000, confirmations = opts.confirmations ?? 1
   if (!Number.isSafeInteger(requestTimeout) || requestTimeout < 1 || requestTimeout > 85000 || !Number.isSafeInteger(receiptTimeout) || receiptTimeout < 1
     || receiptTimeout > 120000 || !Number.isSafeInteger(confirmations) || confirmations < 1 || confirmations > 64) throw new Error('invalid allowance timeout or confirmations')
+  if (opts.quoteBlock !== undefined && (typeof opts.quoteBlock !== 'string' || !HEX32.test(opts.quoteBlock) || same(opts.quoteBlock, ZERO32))) throw new Error('invalid allowance quote block')
   const id = prepaidAllowanceId(intent)
   signal?.throwIfAborted()
   const urls = accountantEndpoints(opts, d.chainId)
   if (payer.type !== 'local' && payer.type !== 'json-rpc') throw new Error('allowance reservation requires an EOA gas payer')
   if (payerChain.id !== d.chainId || await chainIdOf(wallet) !== d.chainId || await chainIdOf(client) !== d.chainId) throw new Error('allowance RPC/wallet chain mismatch')
-  const {quote, authorized} = await collectAllowanceQuote(urls, intent, d, requestTimeout, signal)
+  const {quote, authorized} = await collectAllowanceQuote(urls, intent, d, requestTimeout, signal, opts.quoteBlock)
   const args = reservationArgs(quote, intent)
   const data = encodeFunctionData({abi: settlementAbi, functionName: 'reservePrepaidAllowanceBls', args: [args, authorized.signature!]})
   const block = await client.getBlock({blockHash: quote.quote_block})

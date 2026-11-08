@@ -334,7 +334,9 @@ export async function reserveForLane(env: AllowanceEnv, context: PaidOperationCo
   const unsigned: Omit<PrepaidAllowanceIntentWire, 'signature'> = {chain_id: d.chainId, settlement: d.settlement, key_registry: d.keyRegistry, slot,
     intent_nonce: toHex(globalThis.crypto.getRandomValues(new Uint8Array(32))), amount: options.amount.toString(),
     max_op_cost: (options.maxOpCost ?? env.limits.maxCost).toString(), actions: options.actions ? allowanceActionBits(options.actions) : ALLOWANCE_ACTIONS,
-    expires_at: now() + life, verification_epoch: context.intentFields.verification_epoch, verification_seed: context.intentFields.verification_seed,
+    // Members measure the one-hour bound from the quote block (pinned to this observation below),
+    // whose timestamp trails the clock: never exceed it, or every member refuses the archive.
+    expires_at: Math.min(now() + life, Number(context.blockTimestamp) + ALLOWANCE_MAX_LIFETIME_SECS), verification_epoch: context.intentFields.verification_epoch, verification_seed: context.intentFields.verification_seed,
     verification_root: context.intentFields.verification_root, verification_registry_size: context.intentFields.verification_registry_size,
     verification_committee: context.intentFields.verification_committee, verification_quorum: context.intentFields.verification_quorum,
     keeper_assignment: structuredClone(context.intentFields.keeper_assignment)}
@@ -355,7 +357,7 @@ export async function reserveForLane(env: AllowanceEnv, context: PaidOperationCo
   })
   try {
     const result = await withDedicatedPayer(`${d.chainId}-${payer.toLowerCase()}`, () => withApplicationPayerClaim(store, d.chainId, payer, id, claim =>
-      reservePrepaidAllowance(env.client, env.gasPayer, d, intent, {accountantUrls: env.accountantUrls, allowLocalHttp: env.allowLocalHttp,
+      reservePrepaidAllowance(env.client, env.gasPayer, d, intent, {accountantUrls: env.accountantUrls, allowLocalHttp: env.allowLocalHttp, quoteBlock: context.blockHash,
         maxGas: env.limits.maxGas, maxGasPrice: env.limits.maxGasPrice, signal, persist: async checkpoint => {
           if (checkpoint.phase === 'prepared') {
             // Journal first: a crash before the payer claim cannot have broadcast.

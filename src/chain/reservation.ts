@@ -294,7 +294,7 @@ export async function reconcilePaidReservation(
   const slot = decodeFunctionResult({abi: keyRegistryAbi, functionName: 'getKeySlot', data: result.data})
   const creator = await recoverTypedDataAddress({...paymentIntentTypedData(payment), signature: payment.signature})
   if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= quoteBlock.timestamp) || !same(creator, slot.creator)) throw new Error('saved payment is not from the original active slot creator')
-  const receipt = mined.status === 'success' ? await readPaidOperationReceipt(client, d, payment, operation) : undefined
+  const receipt = mined.status === 'success' ? await readPaidOperationReceipt(client, d, payment, operation, {atLeastBlock: mined.blockNumber}) : undefined
   if (receipt && (receipt.blockNumber < mined.blockNumber || receipt.cost !== BigInt(quote.costs[0]!) || !same(receipt.assignmentBlock, quote.quote_block))) throw new Error('recovered reservation differs from the saved quote')
   const [canonicalMined, canonicalQuote, canonicalHead] = await Promise.all([
     client.getBlock({blockNumber: mined.blockNumber}), client.getBlock({blockNumber: quoteBlock.number}), client.getBlock({blockNumber: head.number}),
@@ -652,7 +652,7 @@ async function reserveOnce(
     // The mined transaction, the reservation it made and its block are read together, and judged
     // in the order they were once read one by one.
     const [transactionRead, receiptRead, minedBlockRead] = await untilAborted(Promise.all([
-      settled(client.getTransaction({hash: sent})), settled(readPaidOperationReceipt(client, d, payment, operation)),
+      settled(client.getTransaction({hash: sent})), settled(readPaidOperationReceipt(client, d, payment, operation, {atLeastBlock: mined.blockNumber})),
       settled(client.getBlock({blockNumber: mined.blockNumber}))]), signal)
     const transaction = outcome(transactionRead)
     if (transaction.to === null || !same(transaction.to, d.settlement) || !same(transaction.from, record.transaction.from)

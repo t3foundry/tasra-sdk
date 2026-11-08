@@ -126,3 +126,22 @@ describe('canonical prepaid reads', () => {
     }
   })
 })
+
+describe('a receipt read after the caller saw its own transaction mined', () => {
+  it('does not use a followed tip older than the mined block', async () => {
+    // The follower polls about once a second: right after a reservation mines, its tip can still be
+    // the block before, where the reservation does not exist yet ("no valid reserved TASRA fee").
+    const {attachHeadFollower, unfollowHeads} = await import('../../src/chain/headFollower.js')
+    const {client, calls} = rpc()
+    const stale = {blockNumber: 19n, blockHash: h(21), blockTimestamp: BigInt(Math.floor(Date.now() / 1000)), parentHash: h(22)}
+    attachHeadFollower(client, {finality: 'instant', tip: () => stale, isCanonical: () => undefined, live: () => true,
+      ingest: async () => {}, ingestFinalized: async () => {}, start: () => {}, stop: () => {}} as never)
+    try {
+      const receipt = await readPaidOperationReceipt(client, deployment, intent(), expected, {atLeastBlock: 20n})
+      expect(receipt).toMatchObject({blockHash: h(20), cost: 10n})
+      expect(calls.some(c => c.method === 'eth_getBlockByNumber' && JSON.stringify(c.params) === JSON.stringify(['latest', false]))).toBe(true)
+      // Without the bound the followed tip is used as before (its block is pinned on every read).
+      await expect(readPaidOperationReceipt(client, deployment, intent(), expected)).rejects.toThrow()
+    } finally { unfollowHeads(client) }
+  })
+})

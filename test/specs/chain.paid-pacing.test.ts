@@ -120,3 +120,22 @@ it('permits ?wait=1 only on the owner session status read', () => {
   expect(() => serviceRequestShape('paid-agent', base + '?wait=1', {maxBytes: 1024, method: 'GET'})).toThrow()
   expect(() => serviceRequestShape('paid-agent', base + '?wait=1', {maxBytes: 1024, bearer, method: 'POST', body: new Uint8Array([1])})).toThrow()
 })
+
+it('permits the batch approve route and a held listing exactly, on the owner bearer', () => {
+  // The two routes the agent advertises as `execution-approve-batch` / `execution-wait`: the
+  // policy refused both, so every advertised batch or held listing failed before sending.
+  const base = 'https://agent.example/v1/sessions/' + 'ab'.repeat(32), bearer = 'cd'.repeat(32), body = new Uint8Array([123, 125])
+  expect(serviceRequestShape('paid-agent', base + '/execution/approve', {maxBytes: 1024, bearer, method: 'POST', body}).method).toBe('POST')
+  expect(serviceRequestShape('paid-agent', base + '/execution?wait_ms=25000', {maxBytes: 1024, bearer, method: 'GET'}).method).toBe('GET')
+  for (const [url, options] of [
+    [base + '/execution/approve', {maxBytes: 1024, bearer, method: 'POST'}], // no body
+    [base + '/execution/approve', {maxBytes: 1024, method: 'POST', body}], // no owner bearer
+    [base + '/execution/approve', {maxBytes: 1024, bearer, method: 'GET'}],
+    [base + '/execution/reject', {maxBytes: 1024, bearer, method: 'POST', body}],
+    [base + '/execution?wait_ms=0', {maxBytes: 1024, bearer, method: 'GET'}],
+    [base + '/execution?wait_ms=100000', {maxBytes: 1024, bearer, method: 'GET'}],
+    [base + '/execution?wait_ms=5&x=1', {maxBytes: 1024, bearer, method: 'GET'}],
+    [base + '/execution?wait_ms=5', {maxBytes: 1024, method: 'GET'}],
+    [base + '?wait_ms=5', {maxBytes: 1024, bearer, method: 'GET'}],
+  ] as const) expect(() => serviceRequestShape('paid-agent', url, options as never), url).toThrow()
+})

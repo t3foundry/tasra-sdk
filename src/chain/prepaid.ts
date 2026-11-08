@@ -454,12 +454,13 @@ function latestHead(client: PublicClient) {
   return shared.run('latest', () => client.getBlock({blockTag: 'latest'}))
 }
 
-async function observe(client: PublicClient, d: PrepaidDeployment): Promise<PrepaidObservation> {
+async function observe(client: PublicClient, d: PrepaidDeployment, atLeastBlock?: bigint): Promise<PrepaidObservation> {
   validateDeployment(d)
   // A live head follower's tip replaces the `latest` read (the same head, delivered by subscription
-  // or poll instead of asked for); a follower that is not live falls back to the RPC read.
+  // or poll instead of asked for); a follower that is not live falls back to the RPC read. So does a
+  // tip older than a block the caller already saw mined: it cannot show that transaction's effects.
   const tip = headFollowerOf(client)?.tip()
-  if (tip) {
+  if (tip && (atLeastBlock === undefined || tip.blockNumber >= atLeastBlock)) {
     if (await chainIdOf(client) !== d.chainId) throw new Error('prepaid RPC chain mismatch')
     const at = {blockNumber: tip.blockNumber, blockHash: tip.blockHash, blockTimestamp: tip.blockTimestamp}
     requireFresh(at)
@@ -574,13 +575,16 @@ export async function readSlotFunding(client: PublicClient, deployment: PrepaidD
  * @param deployment - Independently approved chain and contract addresses.
  * @param payment - Fixed creator-signed intent for the existing reservation.
  * @param expected - Slot, action and digest derived from the operation the application intends.
+ * @param options - `atLeastBlock`: a block the caller saw its own transaction mined in; an older
+ *   followed tip is not used (it cannot show that transaction), the RPC head is read instead.
  */
 export async function readPaidOperationReceipt(
   client: PublicClient, deployment: PrepaidDeployment, payment: PaymentIntentWire, expected: ExpectedPaidOperation,
+  options: {atLeastBlock?: bigint} = {},
 ): Promise<PaidOperationReceipt> {
   deployment = {...deployment}; payment = structuredClone(payment); expected = {...expected}
   requirePaidOperation(deployment, payment, expected)
-  const at = await observe(client, deployment)
+  const at = await observe(client, deployment, options.atLeastBlock)
   const receipt = checkReceiptReads(at, payment, await receiptReads(client, deployment, at, payment))
   await finishObservation(client, at)
   return receipt
