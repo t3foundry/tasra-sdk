@@ -285,3 +285,29 @@ it('sends independent operator approvals of one batch together, and refuses the 
     .rejects.toThrow(/outside the original anchored draw/)
   expect(g.session.approveRequest).not.toHaveBeenCalled()
 })
+
+it('reads the status beside the proposal listing and beside the retained presentations, judging the status first', async () => {
+  const f = fixture()
+  const pairs = new Set<string>(), live = new Set<string>()
+  const timed = <A extends unknown[], R>(name: string, inner: (...args: A) => Promise<R>) => async (...args: A): Promise<R> => {
+    for (const other of live) pairs.add([name, other].sort().join('+'))
+    live.add(name)
+    try { await new Promise(r => setTimeout(r, 10)); return await inner(...args) } finally { live.delete(name) }
+  }
+  const s = vi.mocked(f.session)
+  s.poll.mockImplementation(timed('poll', s.poll.getMockImplementation()!))
+  s.proposals.mockImplementation(timed('proposals', s.proposals.getMockImplementation()!))
+  s.presentations.mockImplementation(timed('presentations', s.presentations.getMockImplementation()!))
+  const holder = {kind: 'local' as const, makePresentation: () => structuredClone(f.presentation), submit: async () => {f.wallet()}}
+  expect((await drivePaidSession({...f.base, holder})).status).toBe('done')
+  expect(pairs).toContain('poll+proposals')
+  expect(pairs).toContain('poll+presentations')
+  expect(f.calls).toEqual(['create', 'jar', 'resume', 'credential', 'resume'])
+  // A failed session refuses with its status even when the listing read beside it fails too.
+  const g = fixture()
+  vi.mocked(g.session.poll).mockResolvedValue({status: 'failed', phase: 'failed'})
+  vi.mocked(g.session.proposals).mockRejectedValue(new Error('listing unavailable'))
+  await expect(drivePaidSession({...g.base, holder: {kind: 'local' as const, makePresentation: () => structuredClone(g.presentation), submit: async () => {g.wallet()}}}))
+    .rejects.toBeInstanceOf(VerifierAgentSessionError)
+  expect(g.session.approveRequest).not.toHaveBeenCalled()
+})

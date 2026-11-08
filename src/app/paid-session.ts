@@ -176,10 +176,10 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
       throw new PaidSessionRecoveryError(ctx.key, 'Original paid write already attempted with an unknown or different outcome; reconcile it without redelivery')
     }
   }
-  const approve = async (presentation?: ClientApprovedPresentation) => {
+  const approve = async (presentation?: ClientApprovedPresentation, listed?: readonly PaidAgentProposal[]) => {
     // Every proposal is judged before any is sent: an operator outside the draw or an invalid stage
-    // refuses the whole batch with nothing delivered.
-    const planned = (await session.proposals(signal)).map(proposed => {
+    // refuses the whole batch with nothing delivered. `listed` is a listing read beside a status poll.
+    const planned = (listed ?? await session.proposals(signal)).map(proposed => {
       const member = members.find(m => m.publicKey.toLowerCase() === proposed.operator_key.toLowerCase())
       if (!member) throw new Error('Agent proposed an operator outside the original anchored draw')
       if (!['presentation_sign', 'presentation_attest', 'credential'].includes(proposed.stage)) throw new Error('Invalid agent operator stage')
@@ -301,10 +301,15 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
     try { opened = await session.requestObject(signal); break }
     catch (error) {
       if (!pendingConsent(error)) throw error
-      const status = await checkedPoll()
+      // The status poll and the proposal listing are independent reads: read them together and
+      // judge the status first, so a failed session still refuses before anything is approved.
+      const [polled, listed] = await Promise.allSettled([checkedPoll(), session.proposals(signal)])
+      if (polled.status === 'rejected') throw polled.reason
+      if (listed.status === 'rejected') throw listed.reason
+      const status = polled.value
       // 425 with proposals: once they are approved the next request-object fetch dispatches them
       // (and waits for the signer), so fetch again at once. Otherwise wait for the session to move.
-      if (await approve() > 0) continue
+      if (await approve(undefined, listed.value) > 0) continue
       await settle(status, (error as PaidAgentControlError).retryAfterMs)
     }
   }
@@ -345,13 +350,22 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
 
   let callback: string | undefined
   let approvedCredentialCount = 0
-  let status = await checkedPoll()
+  // The session status and the retained presentations are independent reads: each round reads them
+  // together and judges the status first (a done or failed session ends the drive before any write).
+  const observe = async (polled?: SessionStatusResult) => {
+    const [status, candidates] = await Promise.allSettled([polled ?? checkedPoll(), session.presentations(signal)])
+    if (status.status === 'rejected') throw status.reason
+    return {status: status.value, candidates}
+  }
+  let observed = await observe()
   for (;;) {
     signal.throwIfAborted()
+    const status = observed.status
     if (status.status === 'done') return status
     // Whether this round sent a write: its effect is read back at once instead of after a wait.
     let progressed = false
-    const retainedCandidates = await session.presentations(signal)
+    if (observed.candidates.status === 'rejected') throw observed.candidates.reason
+    const retainedCandidates = observed.candidates.value
     for (const candidate of retainedCandidates) {
       if (!accepted) {
         // External wallet: the client decides on the complete retained body, once.
@@ -382,6 +396,6 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
       }
     }
     // Each write is sent once, so `progressed` is true a bounded number of times.
-    status = (progressed ? undefined : await settle(status)) ?? await checkedPoll()
+    observed = await observe(progressed ? undefined : await settle(status))
   }
 }
