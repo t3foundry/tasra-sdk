@@ -24,6 +24,7 @@ import type {ApprovedAgentProfile} from './registeredAgent.js'
 import {readClientExecutionPolicy, type ClientExecutionDeployment, type PaidVerifierWitness} from './prepaid.js'
 import {authenticateApprovedService, validateServiceEndpoint} from './serviceIdentity.js'
 import {chainIdOf} from './chainId.js'
+import {currentServiceRecord} from './services.js'
 import type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
 import {PaidBackoff, paidResponseWaitMs, systemPacingClock, type PaidPacingClock} from './paidPacing.js'
 
@@ -409,7 +410,9 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   const checkProvider = async (signal: AbortSignal) => {
     if (chain.addresses.ServiceRegistry?.toLowerCase() !== a.registry.toLowerCase() || await chainIdOf(chain.client) !== a.chainId) throw new Error('Paid agent chain or registry changed')
     signal.throwIfAborted()
-    const current = await chain.readers.serviceRegistry.getService(a.serviceId)
+    // At the followed head when a live follower is attached (the same "latest" registration, without
+    // a round trip), otherwise read at latest as before. The check itself is unchanged.
+    const current = await currentServiceRecord(chain, a.serviceId)
     signal.throwIfAborted()
     if (current.status > 1 || current.revision < a.revision || current.serviceType !== 1
       || current.owner.toLowerCase() !== record.owner.toLowerCase() || current.authKey.toLowerCase() !== record.authKey.toLowerCase()

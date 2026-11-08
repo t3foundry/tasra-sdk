@@ -18,6 +18,7 @@ import {createMemoryStore} from '../../src/app/memory-store.js'
 import {paidRecordKey} from '../../src/app/paid-keys.js'
 import {paymentIntentTypedData, prepaidAllowanceIntentTypedData, prepaidRequestId, type DebitVoucherWire, type PaymentIntentWire} from '../../src/committee/payment.js'
 import type {PaidOperationContext} from '../../src/chain/prepaid.js'
+import {attachHeadFollower, createHeadFollower, unfollowHeads} from '../../src/chain/headFollower.js'
 import {assignment, creator, deployment, h, NOW, slot} from '../support/allowanceFixture.js'
 
 let clock = NOW
@@ -322,5 +323,31 @@ describe('voucher push to every accountant (background)', () => {
     expect(pushDebitVoucher).toHaveBeenCalledTimes(2)
     expect(vi.mocked(pushDebitVoucher).mock.calls[1]![2].accountantUrls).toEqual(urls)
     expect(await inspectAllowanceVoucherPush(store, allowance)).toMatchObject({seq: 1, acked: [], repushed: true})
+  })
+})
+
+describe('debit quote block from a followed head', () => {
+  it('quotes the live follower tip without a head read, and reads latest by RPC when it is not live', async () => {
+    const {env, client, allowance} = await seeded()
+    let ms = 0
+    const follower = createHeadFollower(client, {finality: 'instant', liveAfterMs: 1000, now: () => ms})
+    attachHeadFollower(client, follower)
+    try {
+      await follower.ingest({number: 21n, hash: h(0x91), parentHash: h(0x90), timestamp: BigInt(clock)})
+      vi.mocked(client.getBlock).mockClear()
+      const p = await payment(allowance, 0x51)
+      await reserving(env.store, p)
+      vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(p, 1, 40), partials: [], outcomes: []})
+      await obtainAllowanceVoucher(env, {lane: 0}, p)
+      expect(vi.mocked(collectDebitVoucher).mock.calls[0]![2]).toMatchObject({quoteBlock: h(0x91)})
+      expect(client.getBlock).not.toHaveBeenCalled()
+      // Not live: the quote head is read at latest, as before.
+      ms = 5000
+      const q = await payment(allowance, 0x52)
+      await reserving(env.store, q)
+      vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(q, 2, 80), partials: [], outcomes: []})
+      await obtainAllowanceVoucher(env, {lane: 0}, q)
+      expect(client.getBlock).toHaveBeenCalledWith({blockTag: 'latest'})
+    } finally { unfollowHeads(client) }
   })
 })

@@ -20,6 +20,9 @@ import type {ApprovedAgentProfile} from '../../src/chain/registeredAgent.js'
 import type {PaidAgentTransport} from '../../src/chain/paidAgentTransport.js'
 import type {ServiceRecord} from '../../src/chain/services.js'
 import {RevocationStatusPreflightError} from '../../src/errors.js'
+import {encodeFunctionResult, type PublicClient} from 'viem'
+import {serviceRegistryAbi} from '../../src/chain/abis/serviceRegistry.js'
+import {attachHeadFollower, createHeadFollower, unfollowHeads} from '../../src/chain/headFollower.js'
 import {createDecryptionRecipient, decryptionBinding, type DecryptionBindingWire} from '../../src/crypto/recipient.js'
 
 // Policy reads have their own real ABI/RPC regressions in chain.paid-context.test.ts.
@@ -833,4 +836,38 @@ it('reads the client execution policy beside the provider authentication and sti
   // A policy refusal after a good authentication still refuses.
   vi.mocked(readClientExecutionPolicy).mockRejectedValueOnce(new Error('payment verification context differs from canonical chain policy'))
   await expect(f.prepare()).rejects.toThrow(/canonical chain policy/)
+})
+
+it('checks the provider before every agent request at the followed head, and at latest by RPC when the follower is not live',async()=>{
+  const f=await fixture()
+  const client=f.chain.client as unknown as PublicClient
+  const raw=f.chain.client as unknown as {call:ReturnType<typeof vi.fn>}
+  const record={...f.record,pendingOwner:f.record.pendingOwner}
+  const pinned:Hex[]=[]
+  raw.call=vi.fn(async({blockHash}:{blockHash:Hex})=>{
+    pinned.push(blockHash)
+    return {data:encodeFunctionResult({abi:serviceRegistryAbi,functionName:'getService',result:record})}
+  })
+  let clock=0
+  const follower=createHeadFollower(client,{finality:'instant',liveAfterMs:1000,now:()=>clock})
+  attachHeadFollower(client,follower)
+  try{
+    await follower.ingest({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n})
+    const getService=vi.mocked(f.chain.readers.serviceRegistry.getService);getService.mockClear()
+    await f.session.create()
+    expect(getService).not.toHaveBeenCalled()
+    expect(pinned.every(hash=>hash===h(40))).toBe(true)
+    expect(pinned.length).toBeGreaterThan(0)
+    // A registration changed in the next followed block refuses before the request.
+    record.endpoint='https://elsewhere.example'
+    await follower.ingest({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n})
+    const prepared=await f.prepare()
+    await expect(prepared.create()).rejects.toThrow(/provider changed/)
+    record.endpoint=f.record.endpoint
+    // Not live: the registration is read at latest by RPC, as before.
+    clock=5000;raw.call.mockClear()
+    await (await f.prepare()).create()
+    expect(getService).toHaveBeenCalled()
+    expect(raw.call).not.toHaveBeenCalled()
+  }finally{unfollowHeads(client)}
 })

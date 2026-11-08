@@ -1,7 +1,31 @@
-import {encodeAbiParameters, keccak256, type Address, type Hex, type PublicClient, type ReadContractReturnType} from 'viem'
+import {decodeFunctionResult, encodeAbiParameters, encodeFunctionData, keccak256, type Address, type Hex, type PublicClient, type ReadContractReturnType} from 'viem'
 import {serviceRegistryAbi} from './abis/serviceRegistry.js'
 import {requireAddress, type AddressBook} from './deployments.js'
 import {chainIdOf} from './chainId.js'
+import {headFollowerOf} from './headFollower.js'
+import {registerHeadPrefetch} from './headPrefetch.js'
+import {pinnedRegistryCall, type PinnedBlock} from './pinnedReads.js'
+
+function serviceAt(client: PublicClient, registry: Address, serviceId: Hex, at: PinnedBlock): Promise<ReadContractReturnType<typeof serviceRegistryAbi, 'getService'>> {
+  return pinnedRegistryCall(client, at, registry, encodeFunctionData({abi: serviceRegistryAbi, functionName: 'getService', args: [serviceId]}), false).then(data => {
+    if (data === undefined) throw new Error('empty ServiceRegistry.getService response')
+    return decodeFunctionResult({abi: serviceRegistryAbi, functionName: 'getService', data})
+  })
+}
+
+/**
+ * A service's registration at the chain head: at a live head follower's tip (a block-pinned read,
+ * pre-read at every new head once asked for), otherwise at `latest` by RPC as before.
+ * @param chain Reader of the deployment.
+ * @param serviceId Registered service.
+ */
+export function currentServiceRecord(chain: ServiceRegistryChainReader, serviceId: Hex): Promise<ReadContractReturnType<typeof serviceRegistryAbi, 'getService'>> {
+  const tip = headFollowerOf(chain.client)?.tip()
+  if (!tip) return chain.readers.serviceRegistry.getService(serviceId)
+  const registry = requireAddress(chain.addresses, 'ServiceRegistry')
+  registerHeadPrefetch(chain.client, `service:${registry}:${serviceId}`.toLowerCase(), head => serviceAt(chain.client, registry, serviceId, head))
+  return serviceAt(chain.client, registry, serviceId, tip)
+}
 
 /** Permanent ServiceRegistry ABI ordinals. Registration grants no operator privileges. */
 export const SERVICE_TYPES = {gasRelayer: 0, verifierAgent: 1, vaultService: 2} as const

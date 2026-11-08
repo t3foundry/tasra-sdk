@@ -45,6 +45,7 @@ import type {ApplicationStore} from './ready-slot.js'
 import {withDedicatedPayer} from './payer-queue.js'
 import {releaseApplicationPayerClaim, withApplicationPayerClaim} from './paid-reservation.js'
 import {HEX32, paidRecordKey} from './paid-keys.js'
+import {headFollowerOf} from '../chain/headFollower.js'
 
 /** Explicit, default-off allowance funding for paid operations (ADR-0090). */
 export interface PaidAllowanceOptions {
@@ -385,7 +386,9 @@ export async function reserveForLane(env: AllowanceEnv, context: PaidOperationCo
 }
 
 async function freshQuoteBlock(client: PublicClient): Promise<Hex> {
-  const head = await client.getBlock({blockTag: 'latest'})
+  // A live head follower's tip is the same head; the freshness rule below applies to it unchanged.
+  const tip = headFollowerOf(client)?.tip()
+  const head = tip ? {hash: tip.blockHash, timestamp: tip.blockTimestamp} : await client.getBlock({blockTag: 'latest'})
   if (head.hash === null || !HEX32.test(head.hash) || BigInt(now()) - head.timestamp > 20n || head.timestamp - BigInt(now()) > 2n) throw new Error('debit quote head is stale or unavailable')
   return head.hash
 }

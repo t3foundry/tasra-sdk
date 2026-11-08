@@ -456,6 +456,15 @@ function latestHead(client: PublicClient) {
 
 async function observe(client: PublicClient, d: PrepaidDeployment): Promise<PrepaidObservation> {
   validateDeployment(d)
+  // A live head follower's tip replaces the `latest` read (the same head, delivered by subscription
+  // or poll instead of asked for); a follower that is not live falls back to the RPC read.
+  const tip = headFollowerOf(client)?.tip()
+  if (tip) {
+    if (await chainIdOf(client) !== d.chainId) throw new Error('prepaid RPC chain mismatch')
+    const at = {blockNumber: tip.blockNumber, blockHash: tip.blockHash, blockTimestamp: tip.blockTimestamp}
+    requireFresh(at)
+    return at
+  }
   // The chain check and the head read are independent; a mismatch is still refused first.
   const [chain, head] = await Promise.allSettled([chainIdOf(client), latestHead(client)])
   if (chain.status === 'rejected') throw chain.reason
@@ -476,9 +485,11 @@ async function readAt(client: PublicClient, settlement: Address, at: PrepaidObse
   const data = requestId === undefined
     ? encodeFunctionData({abi: settlementAbi, functionName: name, args: [slot]})
     : encodeFunctionData({abi: settlementAbi, functionName: name, args: [slot, requestId]})
-  // Same canonical block-hash read, batched with the other reads at this block where possible (and
-  // answered from the head follower's pre-reads when it vouches for the block).
-  const result = {data: await pinnedRegistryCall(client, at, settlement, data, false)}
+  // Same canonical block-hash read, batched with the other reads at this block where possible. Never
+  // shared with another operation's read, except at a block the head follower vouches for, whose
+  // pinned answers (and pre-reads) are fixed facts served from the block-hash cache.
+  const result = {data: headFollowerOf(client)?.isCanonical(at) === true
+    ? await pinnedRegistryCall(client, at, settlement, data, false) : await pinnedCall(client, at.blockHash, settlement, data)}
   if (result.data === undefined) throw new Error(`empty prepaid ${name} response`)
   return decodeFunctionResult({abi: settlementAbi, functionName: name, data: result.data})
 }
@@ -499,7 +510,10 @@ async function refuseUnlessPrepaid(client: PublicClient, deployment: PrepaidDepl
 
 async function finishObservation(client: PublicClient, at: PrepaidObservation): Promise<void> {
   // Recheck canonicality after all calls as well as requiring it on each individual call.
-  // Never fall back to latest or a block number when EIP-1898 is unsupported.
+  // Never fall back to latest or a block number when EIP-1898 is unsupported. A head follower that
+  // proves `at` canonical (instant finality, live, gap-free, same hash) answers the recheck; any
+  // other answer (a gap, not live, another hash, probabilistic finality) keeps the RPC recheck.
+  if (headFollowerOf(client)?.isCanonical(at) === true) { requireFresh(at); return }
   const current = await client.getBlock({blockNumber: at.blockNumber})
   if (current.hash?.toLowerCase() !== at.blockHash.toLowerCase()) throw new Error('prepaid observation reorganized during reads')
   requireFresh(at)
@@ -764,8 +778,9 @@ function followPaidSlot(client: PublicClient, deployment: PaidContextDeployment,
   registerHeadPrefetch(client, `paid-slot:${d.settlement}:${slotId}`.toLowerCase(), async tip => {
     const at: PrepaidObservation = {blockNumber: tip.blockNumber, blockHash: tip.blockHash, blockTimestamp: tip.blockTimestamp}
     const {seedAt, snapshotAt, accountantAt, latestEpoch, latestAnchors, reads} = slotReads(client, d, slotId, at)
-    const epoch = await latestEpoch
-    await Promise.allSettled([reads, latestAnchors, ...(epoch > 0n ? [seedAt(epoch - 1n), snapshotAt(epoch - 1n), accountantAt(epoch - 1n)] : [])])
+    const current = Promise.allSettled([reads, latestAnchors])
+    const epoch = await latestEpoch.catch(() => undefined)
+    await Promise.allSettled([current, ...(epoch ? [seedAt(epoch - 1n), snapshotAt(epoch - 1n), accountantAt(epoch - 1n)] : [])])
   })
 }
 

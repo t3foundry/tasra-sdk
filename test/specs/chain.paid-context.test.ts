@@ -1,4 +1,4 @@
-import {afterEach, expect, it, vi} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
 import * as randomness from '@noble/hashes/utils'
 import {createPublicClient, custom, decodeFunctionData, encodeFunctionResult, getAddress, keccak256, recoverTypedDataAddress, toHex, type Abi, type Hex} from 'viem'
@@ -28,7 +28,7 @@ interface Changes {
   accountantUnanchored?: boolean; accountantNoPrevious?: boolean; accountantSize?: number
   inactive?: number[]; duplicateId?: boolean; duplicateKey?: boolean; insufficient?: boolean
   enabled?: boolean; available?: bigint; cancelled?: boolean; noKey?: boolean; age?: number; orphan?: boolean
-  chain?: number; unsupported?: boolean; url?: string; chainId?: number; onChainId?: () => void
+  chain?: number; unsupported?: boolean; url?: string; chainId?: number; onChainId?: () => void; onCall?: () => void
   reserved?: bigint; settled?: boolean; refunded?: bigint; root?: Hex; tagged?: boolean; creator?: Hex; registeredKey?: Hex
   legacy?: boolean; genesis?: boolean; version?: string
   // D8: the reservation's stored quote block h(19) (block 19), read for the paid epoch only.
@@ -50,6 +50,7 @@ function fixture(change: Changes = {}) {
     if (method === 'eth_getBlockByNumber' && (params as [string])[0] === '0x13') return {number: '0x13', hash: change.anchorReorg ? h(98) : h(19), timestamp: toHex(990), transactions: []}
     if (method === 'eth_getBlockByNumber') return {number: '0x14', hash: heads++ > 0 && change.orphan ? h(99) : h(20), timestamp: toHex(1000 - (change.age ?? 0)), transactions: []}
     if (method !== 'eth_call') throw new Error(`unexpected RPC ${method}`)
+    change.onCall?.()
     if (change.unsupported) throw new Error('canonical reads unavailable')
     const [call, at] = params as [{to: Hex; data: Hex}, {blockHash?: Hex}]
     const anchorRead = at.blockHash === h(19)
@@ -371,4 +372,69 @@ it('serves a repeated discovery at a followed, vouched-for head from the block-p
     await g.run()
     expect(g.calls.filter(c => c.method === 'eth_call').length - before).toBeGreaterThan(10)
   } finally { unfollowHeads(g.client) }
+})
+
+describe('observation from a followed head', () => {
+  const head = (n: number, hash: Hex, parentHash: Hex) => ({number: BigInt(n), hash, parentHash, timestamp: 1000n})
+  // The follower links missed or forked heads through its own block source; the operation's client is the fixture's.
+  const followed = (f: ReturnType<typeof fixture>, clock: {ms: number}, known: Record<string, ReturnType<typeof head>> = {}) => {
+    const source = {getBlock: async ({blockHash}: {blockHash: Hex}) => { const b = known[blockHash]; if (!b) throw new Error('unknown block'); return b }, transport: {type: 'custom'}}
+    const follower = createHeadFollower(source as unknown as typeof f.client, {finality: 'instant', liveAfterMs: 2000, now: () => clock.ms})
+    attachHeadFollower(f.client, follower)
+    return follower
+  }
+  const heads = (f: ReturnType<typeof fixture>) => f.calls.filter(c => c.method === 'eth_getBlockByNumber').length
+
+  it('takes the head and the canonical recheck from a live, vouching follower: no head or recheck RPC', async () => {
+    now(); const f = fixture(), follower = followed(f, {ms: 0})
+    try {
+      await follower.ingest(head(19, h(19), h(18))); await follower.ingest(head(20, h(20), h(19)))
+      expect((await f.run()).blockHash).toBe(h(20))
+      expect(heads(f)).toBe(0)
+    } finally { unfollowHeads(f.client) }
+  })
+
+  it('falls back to the RPC head when the follower is not live', async () => {
+    now(); const clock = {ms: 0}, f = fixture(), follower = followed(f, clock)
+    try {
+      await follower.ingest(head(20, h(20), h(19))); clock.ms = 5000
+      await f.run()
+      expect(heads(f)).toBe(2)
+    } finally { unfollowHeads(f.client) }
+  })
+
+  it('keeps the RPC recheck after a gap, after the follower stops being live, and after a reorg found by parentHash', async () => {
+    const cases: {name: string; during: (follower: ReturnType<typeof followed>, clock: {ms: number}) => void}[] = [
+      // An unlinkable header (its parent cannot be fetched): the observed block is no longer vouched for.
+      {name: 'gap', during: follower => { void follower.ingest(head(30, h(30), h(29))) }},
+      {name: 'not live', during: (_follower, clock) => { clock.ms = 5000 }},
+      // Block 20 is replaced by h(97) (same number, parent h(19)): the observed hash is no longer the one held.
+      {name: 'reorg', during: follower => { void follower.ingest(head(20, h(97), h(19))) }},
+    ]
+    for (const c of cases) {
+      now(); const clock = {ms: 0}
+      const ref: {follower?: ReturnType<typeof followed>} = {}
+      let once = false
+      const f = fixture({onCall: () => { if (!once && ref.follower) { once = true; c.during(ref.follower, clock) } }})
+      const follower = ref.follower = followed(f, clock)
+      try {
+        await follower.ingest(head(19, h(19), h(18))); await follower.ingest(head(20, h(20), h(19)))
+        await f.run()
+        // The head came from the follower; the recheck went to the RPC (one canonical read by number).
+        expect(heads(f), c.name).toBe(1)
+      } finally { unfollowHeads(f.client) }
+    }
+    // The RPC recheck still refuses a reorganized observation.
+    now(); const clock = {ms: 0}
+    const ref: {follower?: ReturnType<typeof followed>} = {}
+    let once = false
+    const f = fixture({orphan: true, onCall: () => { if (!once && ref.follower) { once = true; void ref.follower.ingest(head(20, h(97), h(19))) } }})
+    const follower = ref.follower = followed(f, clock)
+    try {
+      await follower.ingest(head(19, h(19), h(18))); await follower.ingest(head(20, h(20), h(19)))
+      // The fixture answers its second head read with another hash: consume the first.
+      await f.client.getBlock({blockTag: 'latest'})
+      await expect(f.run()).rejects.toThrow(/reorganized/)
+    } finally { unfollowHeads(f.client) }
+  })
 })
