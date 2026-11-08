@@ -24,6 +24,20 @@ describe('prepaid contract ABIs', () => {
     expect(describeRevert({data: '0x7a83d671'})).toBe('ZeroBatchId()')
   })
 
+  it('carries the ADR-0090 allowance entry points, getter, events and errors with the compiler selectors', () => {
+    const abi = settlementAbi as Abi
+    // feat/adr90-contracts methodIdentifiers: the reservation takes ONE static tuple, not flat arguments.
+    expect(toFunctionSelector(fn(abi, 'reservePrepaidAllowanceBls'))).toBe('0xc1e2d6ba')
+    expect(toFunctionSelector(fn(abi, 'prepaidAllowance'))).toBe('0x0e0df1f9')
+    expect(toFunctionSelector(fn(abi, 'settlePrepaidAllowanceBls'))).toBe('0x06105c25')
+    expect(toFunctionSelector(fn(abi, 'closePrepaidAllowanceBls'))).toBe('0x63035554')
+    expect(toFunctionSelector(fn(abi, 'escapePrepaidAllowance'))).toBe('0x1b3d3e0b')
+    expect(encodeEventTopics({abi, eventName: 'PrepaidAllowanceReserved'})[0])
+      .toBe('0xe28b72e5ffa32daedf349492d39d63d1ae6a7e2a929e9ea8bbcac00258f498ed')
+    expect(describeRevert({data: '0x65ba6fc3'})).toBe('InvalidAllowance()')
+    expect(describeRevert({data: encodeErrorResult({abi, errorName: 'AllowanceConflict', args: [keccak256('0x01')]})})).toMatch(/^AllowanceConflict/)
+  })
+
   it('registers PrepaidFaultOracle with its compiler selectors, event and errors', () => {
     expect(CONTRACT_ABIS.PrepaidFaultOracle).toBe(prepaidFaultOracleAbi)
     const abi = prepaidFaultOracleAbi as Abi
