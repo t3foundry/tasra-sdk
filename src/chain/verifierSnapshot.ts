@@ -16,6 +16,17 @@ export type OriginalVerifierPolicy = Pick<PaymentIntentWire, 'chain_id' | 'slot'
   | 'verification_seed' | 'verification_root' | 'verification_registry_size' | 'verification_committee' | 'verification_quorum'>
 
 const MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024
+/**
+ * Verified snapshot artifacts, keyed by registry, chain, epoch, anchored root and size. An artifact
+ * is kept only after it verified against that root, and every later use verifies it again in full
+ * for the payment at hand (its own slot's draw and proofs), so a hit answers exactly what a fresh
+ * fetch of the same bytes would. Kept per fetch implementation (one transport's answers are never
+ * another's). Bounded; the oldest is evicted first.
+ */
+const MAX_KEPT_SNAPSHOTS = 32
+const keptByFetch = new WeakMap<typeof fetch, Map<string, {artifact: unknown; host: string}>>()
+const snapshotKey = (registry: Address, p: OriginalVerifierPolicy) =>
+  [registry, p.chain_id, p.verification_epoch, p.verification_root, p.verification_registry_size].join('|').toLowerCase()
 
 function fail(message: string): never { throw new Error(`Verifier snapshot refused: ${message}`) }
 function object(value: unknown, fields: string[]): Record<string, unknown> {
@@ -94,6 +105,13 @@ export async function fetchDrawnVerifierWitnesses(hosts: readonly string[], orig
   const originalPolicy = structuredClone(original), publicationWait = options.waitForPublicationMs ?? 0
   if (!list.length || list.length > 16 || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new Error('Invalid verifier snapshot hosts or timeout')
   if (!Number.isSafeInteger(publicationWait) || publicationWait < 0 || publicationWait > 150_000) throw new Error('Invalid verifier snapshot publication wait')
+  let keptSnapshots = keptByFetch.get(doFetch)
+  if (!keptSnapshots) keptByFetch.set(doFetch, keptSnapshots = new Map())
+  const key = snapshotKey(registry, originalPolicy), kept = keptSnapshots.get(key)
+  if (kept && list.includes(kept.host)) {
+    try { return {witnesses: drawnVerifierWitnesses(structuredClone(kept.artifact), originalPolicy, registry), artifact: structuredClone(kept.artifact), host: kept.host} }
+    catch { keptSnapshots.delete(key) }
+  }
   const deadline = Date.now() + publicationWait
   for (;;) {
     let unpublished = 0
@@ -129,7 +147,11 @@ export async function fetchDrawnVerifierWitnesses(hosts: readonly string[], orig
         const bytes = new Uint8Array(length); let offset = 0
         for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
         const artifact = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes)) as unknown
-        return {witnesses: drawnVerifierWitnesses(artifact, originalPolicy, registry), artifact, host}
+        const witnesses = drawnVerifierWitnesses(artifact, originalPolicy, registry)
+        keptSnapshots.delete(key)
+        if (keptSnapshots.size >= MAX_KEPT_SNAPSHOTS) keptSnapshots.delete(keptSnapshots.keys().next().value!)
+        keptSnapshots.set(key, {artifact: structuredClone(artifact), host})
+        return {witnesses, artifact, host}
       } catch { options.signal?.throwIfAborted() }
     }
     // A freshly anchored epoch may reach the public artifact index a tick later.
