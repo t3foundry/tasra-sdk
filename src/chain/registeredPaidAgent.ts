@@ -22,7 +22,8 @@ import {sessionPaymentFields} from '../verifier-agent/payment.js'
 import type {TasraChainClient} from './client.js'
 import type {ApprovedAgentProfile} from './registeredAgent.js'
 import {readClientExecutionPolicy, type ClientExecutionDeployment, type PaidVerifierWitness} from './prepaid.js'
-import {authenticateApprovedService, validateServiceEndpoint} from './serviceIdentity.js'
+import {authenticateApprovedService, validateServiceEndpoint, type AuthenticatedService} from './serviceIdentity.js'
+import {registerHeadPrefetch} from './headPrefetch.js'
 import {chainIdOf} from './chainId.js'
 import {currentServiceRecord} from './services.js'
 import type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
@@ -262,6 +263,43 @@ function issuerExpiry(credential: string): number | undefined {
   return undefined
 }
 
+// One provider authentication (registry record, manifest, identity challenge, record recheck)
+// serves later sessions to the same approved agent until its own challenge expiry, but only while
+// the registration read at the head (the followed tip when a live follower is attached, otherwise
+// latest by RPC) is field for field the record it authenticated. A head follower also drops it at
+// the first new head where that record differs. The per-request provider check is unchanged.
+const MAX_REUSED_AUTHENTICATIONS = 16
+const reusedAuthentications = new WeakMap<object, Map<string, AuthenticatedService>>()
+const RECORD_FIELDS = ['owner','pendingOwner','authKey','serviceType','status','revision','manifestHash','endpoint'] as const
+const sameRecord = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+  RECORD_FIELDS.every(k => typeof a[k] === 'string' && typeof b[k] === 'string' ? (a[k] as string).toLowerCase() === (b[k] as string).toLowerCase() : a[k] === b[k])
+
+async function reusableAuthentication(chain: TasraChainClient, profile: ApprovedAgentProfile, authenticate: () => Promise<AuthenticatedService>): Promise<AuthenticatedService> {
+  const a = profile.approval
+  const key = [a.chainId, a.registry, a.serviceId, a.owner, a.revision, a.manifestHash, profile.endpoint].join('|').toLowerCase()
+  let kept = reusedAuthentications.get(chain.client)
+  if (!kept) reusedAuthentications.set(chain.client, kept = new Map())
+  const cached = kept.get(key)
+  if (cached && Math.floor(Date.now() / 1000) < cached.expiresAt) {
+    const current = await currentServiceRecord(chain, a.serviceId).catch(() => undefined)
+    if (current && sameRecord(current as unknown as Record<string, unknown>, cached.record as unknown as Record<string, unknown>)
+      && Math.floor(Date.now() / 1000) < cached.expiresAt) return cached
+  }
+  kept.delete(key)
+  const fresh = await authenticate()
+  if (!Number.isSafeInteger(fresh.expiresAt)) return fresh
+  if (kept.size >= MAX_REUSED_AUTHENTICATIONS) kept.delete(kept.keys().next().value!)
+  kept.set(key, fresh)
+  const store = kept
+  registerHeadPrefetch(chain.client, `service-auth:${key}`, async () => {
+    if (store.get(key) !== fresh) return
+    const current = await currentServiceRecord(chain, a.serviceId).catch(() => undefined)
+    if (!current || !sameRecord(current as unknown as Record<string, unknown>, fresh.record as unknown as Record<string, unknown>)) store.delete(key)
+  }, fresh.expiresAt * 1000)
+  return fresh
+}
+
+
 /**
  * Authenticate one approved provider and prepare complete client-signed initialization before HTTP.
  * This function reserves nothing, sends no session POST and keeps the execution signer local.
@@ -324,7 +362,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   // the client execution policy are independent: both only read, and the policy read contacts no
   // agent. Run them together and judge them in the original order: authentication refuses first.
   const [authenticatedRead,policyRead] = await Promise.allSettled([
-    authenticateApprovedService(chain,profile.approval,{request:(url,opts)=>transport.request(url,{...opts,signal:AbortSignal.any([opts.signal,preparationSignal])})}),
+    reusableAuthentication(chain,profile,()=>authenticateApprovedService(chain,profile.approval,{request:(url,opts)=>transport.request(url,{...opts,signal:AbortSignal.any([opts.signal,preparationSignal])})})),
     readClientExecutionPolicy(chain.client,deployment,payment,expected)])
   if (authenticatedRead.status === 'rejected') throw authenticatedRead.reason
   const authenticated = authenticatedRead.value

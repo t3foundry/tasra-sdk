@@ -871,3 +871,48 @@ it('checks the provider before every agent request at the followed head, and at 
     expect(raw.call).not.toHaveBeenCalled()
   }finally{unfollowHeads(client)}
 })
+
+it('reuses one provider authentication across sessions until its challenge expiry, while the registration is unchanged',async()=>{
+  const f=await fixture()
+  const authenticated={record:{...f.record},manifest:{capabilities:['oid4vp']},expiresAt:1025} as unknown as Awaited<ReturnType<typeof authenticateApprovedService>>
+  vi.mocked(authenticateApprovedService).mockReset().mockResolvedValue(authenticated)
+  const getService=vi.mocked(f.chain.readers.serviceRegistry.getService)
+  await f.prepare();await f.prepare()
+  expect(authenticateApprovedService).toHaveBeenCalledTimes(1)
+  // The reuse read the registration at the head (by RPC here) and found it unchanged.
+  expect(getService).toHaveBeenCalled()
+  // A changed registration authenticates again (the new record would also fail the request check).
+  getService.mockResolvedValueOnce({...f.record,authKey:h(70,20)})
+  await f.prepare()
+  expect(authenticateApprovedService).toHaveBeenCalledTimes(2)
+  // At the challenge expiry it authenticates again.
+  vi.spyOn(Date,'now').mockReturnValue(1_025_000)
+  await f.prepare().catch(()=>{})
+  expect(authenticateApprovedService).toHaveBeenCalledTimes(3)
+})
+
+it('drops a reused authentication at the first followed head whose registration differs',async()=>{
+  const f=await fixture()
+  const authenticated={record:{...f.record},manifest:{capabilities:['oid4vp']},expiresAt:1025} as unknown as Awaited<ReturnType<typeof authenticateApprovedService>>
+  vi.mocked(authenticateApprovedService).mockReset().mockResolvedValue(authenticated)
+  const client=f.chain.client as unknown as PublicClient
+  const raw=f.chain.client as unknown as {call:ReturnType<typeof vi.fn>}
+  const record={...f.record}
+  raw.call=vi.fn(async()=>({data:encodeFunctionResult({abi:serviceRegistryAbi,functionName:'getService',result:record})}))
+  const follower=createHeadFollower(client,{finality:'instant',now:()=>Date.now()})
+  attachHeadFollower(client,follower)
+  try{
+    await follower.ingest({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n})
+    await f.prepare();await f.prepare()
+    // Reused at the followed head while the registration there is unchanged.
+    expect(authenticateApprovedService).toHaveBeenCalledTimes(1)
+    // The owner rotates the auth key in block 41: the followed head drops the authentication.
+    record.authKey=h(71,20)
+    await follower.ingest({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n})
+    await new Promise(r=>setTimeout(r,0))
+    record.authKey=f.record.authKey
+    await follower.ingest({number:42n,hash:h(42),parentHash:h(41),timestamp:1002n})
+    await f.prepare()
+    expect(authenticateApprovedService).toHaveBeenCalledTimes(2)
+  }finally{unfollowHeads(client)}
+})
