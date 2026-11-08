@@ -90,11 +90,18 @@ declare class OperationOutcomeUnknownError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 89 functions</summary>
+<summary>Browse 100 functions</summary>
 
 - [acceptStatusRefreshRelay](#acceptstatusrefreshrelay)
+- [allowanceActionBits](#allowanceactionbits)
+- [allowanceCloseDigest](#allowanceclosedigest)
+- [allowanceFunds](#allowancefunds)
+- [allowanceId](#allowanceid)
+- [allowanceReserveDigest](#allowancereservedigest)
+- [allowanceSettleDigest](#allowancesettledigest)
 - [approveExecutionRequest](#approveexecutionrequest)
 - [assembleCompoundToken](#assemblecompoundtoken)
+- [assertDebitVoucherWire](#assertdebitvoucherwire)
 - [assertPaymentIntentWire](#assertpaymentintentwire)
 - [assertStatusAttestationsWire](#assertstatusattestationswire)
 - [auditOperationId](#auditoperationid)
@@ -117,6 +124,8 @@ Operations you can import and call.
 - [createExecutionRecoveryAuthorization](#createexecutionrecoveryauthorization)
 - [createLocalExecutionSigner](#createlocalexecutionsigner)
 - [createStatusRefreshProof](#createstatusrefreshproof)
+- [debitVoucherDigest](#debitvoucherdigest)
+- [debitVoucherWireDigest](#debitvoucherwiredigest)
 - [decodeCompoundToken](#decodecompoundtoken)
 - [decodeOperationReceipt](#decodeoperationreceipt)
 - [decryptIdentityStrict](#decryptidentitystrict)
@@ -154,6 +163,8 @@ Operations you can import and call.
 - [paymentIntentTypedData](#paymentintenttypeddata)
 - [paymentSessionCommitment](#paymentsessioncommitment)
 - [platformAudience](#platformaudience)
+- [prepaidAllowanceIntentHash](#prepaidallowanceintenthash)
+- [prepaidAllowanceIntentTypedData](#prepaidallowanceintenttypeddata)
 - [prepaidRequestId](#prepaidrequestid)
 - [recipientPayloadDigest](#recipientpayloaddigest)
 - [refreshStatusDirect](#refreshstatusdirect)
@@ -205,6 +216,127 @@ declare function acceptStatusRefreshRelay(grant: StatusRefreshGrant, response: S
 | ` response ` | ` StatusRefreshHttpResponse ` | - The relay's bounded HTTP answer. |
 
 Returns: ` StatusRefreshResult `.
+
+### allowanceActionBits
+
+The actions bitmap of an allowance (bit `i` = `PrepaidAction` ordinal `i`).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L273)
+
+Import: `import {allowanceActionBits} from 'tasra-sdk/committee'`
+
+```ts
+declare function allowanceActionBits(actions: readonly AllowanceAction[]): number;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` actions ` | ` readonly AllowanceAction[] ` | - Paid actions the allowance funds; at least one. |
+
+Returns: ` number `.
+
+### allowanceCloseDigest
+
+The close digest (`keykeeper/prepaid-allowance-close/v1`).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L507)
+
+Import: `import {allowanceCloseDigest} from 'tasra-sdk/committee'`
+
+```ts
+declare function allowanceCloseDigest(settlement: Hex, chainId: number, allowance: Hex, finalCumulative: bigint, deadline: bigint): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` settlement ` | ` Hex ` | - Settlement proxy. |
+| ` chainId ` | ` number ` | - EVM chain. |
+| ` allowance ` | ` Hex ` | - Allowance. |
+| ` finalCumulative ` | ` bigint ` | - Every debit the quorum issued. |
+| ` deadline ` | ` bigint ` | - Deadline. |
+
+Returns: ` Hex `.
+
+### allowanceFunds
+
+Whether an allowance's actions bitmap funds `action`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L286)
+
+Import: `import {allowanceFunds} from 'tasra-sdk/committee'`
+
+```ts
+declare function allowanceFunds(actions: number, action: AllowanceAction): boolean;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` actions ` | ` number ` | - Allowance bitmap. |
+| ` action ` | ` AllowanceAction ` | - Paid action of one operation. |
+
+Returns: ` boolean `.
+
+### allowanceId
+
+`keccak256(abi.encode(ID_DOMAIN, chainid, settlement, slotId, intentHash))`: the id every reader
+derives from the creator's intent (chain id BEFORE the Settlement here, after it elsewhere).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L383)
+
+Import: `import {allowanceId} from 'tasra-sdk/committee'`
+
+```ts
+declare function allowanceId(chainId: number, settlement: Hex, slot: Hex, intentHash: Hex): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` chainId ` | ` number ` | - EVM chain. |
+| ` settlement ` | ` Hex ` | - Settlement proxy. |
+| ` slot ` | ` Hex ` | - Slot. |
+| ` intentHash ` | ` Hex ` | - [prepaidAllowanceIntentHash](#prepaidallowanceintenthash) of the creator intent. |
+
+Returns: ` Hex `.
+
+### allowanceReserveDigest
+
+The reserve digest (`keykeeper/prepaid-allowance-reserve/v1`).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L416)
+
+Import: `import {allowanceReserveDigest} from 'tasra-sdk/committee'`
+
+```ts
+declare function allowanceReserveDigest(settlement: Hex, chainId: number, a: AllowanceReserveArgs): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` settlement ` | ` Hex ` | - Settlement proxy. |
+| ` chainId ` | ` number ` | - EVM chain. |
+| ` a ` | ` AllowanceReserveArgs ` | - Reservation arguments. |
+
+Returns: ` Hex `.
+
+### allowanceSettleDigest
+
+The allowance-settle digest (`keykeeper/prepaid-allowance-settle/v1`).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L491)
+
+Import: `import {allowanceSettleDigest} from 'tasra-sdk/committee'`
+
+```ts
+declare function allowanceSettleDigest(settlement: Hex, chainId: number, s: AllowanceSettleArgs): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` settlement ` | ` Hex ` | - Settlement proxy. |
+| ` chainId ` | ` number ` | - EVM chain. |
+| ` s ` | ` AllowanceSettleArgs ` | - Settlement arguments. |
+
+Returns: ` Hex `.
 
 ### approveExecutionRequest
 
@@ -266,11 +398,30 @@ declare function assembleCompoundToken(p: CompoundTokenPayload, signatures: Comm
 
 Returns: ` CompoundTokenWire `.
 
+### assertDebitVoucherWire
+
+Validate a debit voucher's shape (not its signature). Mirrors the readers' constructor: nonzero
+ids, cost and quote block, `cumulative >= cost`, a 64-byte non-infinity signature encoding.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L227)
+
+Import: `import {assertDebitVoucherWire} from 'tasra-sdk/committee'`
+
+```ts
+declare function assertDebitVoucherWire(value: unknown): asserts value is DebitVoucherWire;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` value ` | ` unknown ` | - Untrusted voucher. |
+
+Returns: ` asserts value is DebitVoucherWire `.
+
 ### assertPaymentIntentWire
 
 Validate the wire representation and its signed commitment, without chain access.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L168)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L248)
 
 Import: `import {assertPaymentIntentWire} from 'tasra-sdk/committee'`
 
@@ -794,6 +945,46 @@ declare function createStatusRefreshProof(opts: CreateStatusRefreshProofOptions)
 | ` opts ` | ` CreateStatusRefreshProofOptions ` | - Chain, token hash, original payment hash, seq, issue time and prover. |
 
 Returns: ` Promise<StatusRefreshProofWire> `.
+
+### debitVoucherDigest
+
+The debit-voucher digest (`keykeeper/prepaid-debit/v1`) the accountant threshold key signs.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L446)
+
+Import: `import {debitVoucherDigest} from 'tasra-sdk/committee'`
+
+```ts
+declare function debitVoucherDigest(settlement: Hex, chainId: number, v: DebitVoucherFields): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` settlement ` | ` Hex ` | - Settlement proxy. |
+| ` chainId ` | ` number ` | - EVM chain. |
+| ` v ` | ` DebitVoucherFields ` | - Voucher fields. |
+
+Returns: ` Hex `.
+
+### debitVoucherWireDigest
+
+[debitVoucherDigest](#debitvoucherdigest) of a wire voucher.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L459)
+
+Import: `import {debitVoucherWireDigest} from 'tasra-sdk/committee'`
+
+```ts
+declare function debitVoucherWireDigest(settlement: Hex, chainId: number, v: DebitVoucherWire): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` settlement ` | ` Hex ` | - Settlement proxy. |
+| ` chainId ` | ` number ` | - EVM chain. |
+| ` v ` | ` DebitVoucherWire ` | - Shape-checked voucher. |
+
+Returns: ` Hex `.
 
 ### decodeCompoundToken
 
@@ -1750,7 +1941,7 @@ Returns: ` boolean `.
 
 Hash a validated assignment using the platform's fixed-width canonical encoding.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L85)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L112)
 
 Import: `import {keeperAssignmentCommitment} from 'tasra-sdk/committee'`
 
@@ -1970,7 +2161,7 @@ Returns: ` StatusRefreshReplyWire `.
 
 Hash the creator intent. A matching hash is not proof of a mined reservation or a valid creator signature.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L147)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L203)
 
 Import: `import {paymentIntentHash} from 'tasra-sdk/committee'`
 
@@ -1987,208 +2178,28 @@ Returns: ` Hex `.
 ### paymentIntentTypedData
 
 Build creator EIP-712 data. Validate chain backing, price, expiry and creator independently before spending.
+A payment naming an `allowance_id` (ADR-0090) is the distinct `SlotAllowancePaymentIntent`; the
+`debit_voucher` is never part of the signed data.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L120)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L188)
 
 Import: `import {paymentIntentTypedData} from 'tasra-sdk/committee'`
 
 ```ts
-declare function paymentIntentTypedData(p: Omit<PaymentIntentWire, 'signature'>): {
-    domain: {
-        name: string;
-        version: string;
-        chainId: number;
-        verifyingContract: `0x${string}`;
-    };
-    primaryType: "SlotAssignedPaymentIntent";
-    types: {
-        readonly SlotAssignedPaymentIntent: readonly [
-            {
-                readonly name: "keyRegistry";
-                readonly type: "address";
-            },
-            {
-                readonly name: "slotId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "action";
-                readonly type: "uint8";
-            },
-            {
-                readonly name: "payloadDigest";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "sessionCommitment";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "nonce";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "maxCost";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "expires";
-                readonly type: "uint64";
-            },
-            {
-                readonly name: "verificationEpoch";
-                readonly type: "uint64";
-            },
-            {
-                readonly name: "verificationSeed";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "verificationRoot";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "verificationRegistrySize";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "verificationCommittee";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "verificationQuorum";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "keeperAssignment";
-                readonly type: "bytes32";
-            }
-        ];
-    };
-    message: {
-        keyRegistry: `0x${string}`;
-        slotId: `0x${string}`;
-        action: 0 | 1 | 2 | 6 | 3;
-        payloadDigest: `0x${string}`;
-        sessionCommitment: `0x${string}`;
-        nonce: `0x${string}`;
-        maxCost: bigint;
-        expires: bigint;
-        verificationEpoch: bigint;
-        verificationSeed: `0x${string}`;
-        verificationRoot: `0x${string}`;
-        verificationRegistrySize: number;
-        verificationCommittee: number;
-        verificationQuorum: number;
-        keeperAssignment: `0x${string}`;
-    };
-};
+declare function paymentIntentTypedData(p: Omit<PaymentIntentWire, 'signature'>): TypedDataDefinition;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` p ` | ` Omit<PaymentIntentWire, 'signature'> ` | - Creator payment intent before attaching its signature. |
 
-Returns:
-
-```ts
-{
-    domain: {
-        name: string;
-        version: string;
-        chainId: number;
-        verifyingContract: `0x${string}`;
-    };
-    primaryType: "SlotAssignedPaymentIntent";
-    types: {
-        readonly SlotAssignedPaymentIntent: readonly [
-            {
-                readonly name: "keyRegistry";
-                readonly type: "address";
-            },
-            {
-                readonly name: "slotId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "action";
-                readonly type: "uint8";
-            },
-            {
-                readonly name: "payloadDigest";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "sessionCommitment";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "nonce";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "maxCost";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "expires";
-                readonly type: "uint64";
-            },
-            {
-                readonly name: "verificationEpoch";
-                readonly type: "uint64";
-            },
-            {
-                readonly name: "verificationSeed";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "verificationRoot";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "verificationRegistrySize";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "verificationCommittee";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "verificationQuorum";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "keeperAssignment";
-                readonly type: "bytes32";
-            }
-        ];
-    };
-    message: {
-        keyRegistry: `0x${string}`;
-        slotId: `0x${string}`;
-        action: 0 | 1 | 2 | 6 | 3;
-        payloadDigest: `0x${string}`;
-        sessionCommitment: `0x${string}`;
-        nonce: `0x${string}`;
-        maxCost: bigint;
-        expires: bigint;
-        verificationEpoch: bigint;
-        verificationSeed: `0x${string}`;
-        verificationRoot: `0x${string}`;
-        verificationRegistrySize: number;
-        verificationCommittee: number;
-        verificationQuorum: number;
-        keeperAssignment: `0x${string}`;
-    };
-}
-```
+Returns: ` TypedDataDefinition `.
 
 ### paymentSessionCommitment
 
 Commit a fixed presentation random and audience before reserving a payment.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L181)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L519)
 
 Import: `import {paymentSessionCommitment} from 'tasra-sdk/committee'`
 
@@ -2227,11 +2238,221 @@ declare function platformAudience(origin: string, chainId: number | bigint): str
 
 Returns: ` string `.
 
+### prepaidAllowanceIntentHash
+
+The allowance intent's EIP-712 signing hash: the `intentHash` argument of `reservePrepaidAllowanceBls`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L361)
+
+Import: `import {prepaidAllowanceIntentHash} from 'tasra-sdk/committee'`
+
+```ts
+declare function prepaidAllowanceIntentHash(p: Omit<PrepaidAllowanceIntentWire, 'signature'>): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` p ` | ` Omit<PrepaidAllowanceIntentWire, 'signature'> ` | - Allowance intent; the signature is not part of the preimage. |
+
+Returns: ` Hex `.
+
+### prepaidAllowanceIntentTypedData
+
+Build the creator EIP-712 data of an allowance intent (the payment domain: chain + Settlement).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L332)
+
+Import: `import {prepaidAllowanceIntentTypedData} from 'tasra-sdk/committee'`
+
+```ts
+declare function prepaidAllowanceIntentTypedData(p: Omit<PrepaidAllowanceIntentWire, 'signature'>): {
+    domain: {
+        chainId: number;
+        verifyingContract: `0x${string}`;
+        name: "Keykeeper Assigned Slot Payment";
+        version: "1";
+    };
+    primaryType: "SlotPrepaidAllowanceIntent";
+    types: {
+        readonly SlotPrepaidAllowanceIntent: readonly [
+            {
+                readonly name: "keyRegistry";
+                readonly type: "address";
+            },
+            {
+                readonly name: "slotId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "intentNonce";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "amount";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "maxOpCost";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "actions";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "expiresAt";
+                readonly type: "uint64";
+            },
+            {
+                readonly name: "verificationEpoch";
+                readonly type: "uint64";
+            },
+            {
+                readonly name: "verificationSeed";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "verificationRoot";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "verificationRegistrySize";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "verificationCommittee";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "verificationQuorum";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "keeperAssignment";
+                readonly type: "bytes32";
+            }
+        ];
+    };
+    message: {
+        keyRegistry: `0x${string}`;
+        slotId: `0x${string}`;
+        intentNonce: `0x${string}`;
+        amount: bigint;
+        maxOpCost: bigint;
+        actions: number;
+        expiresAt: bigint;
+        verificationEpoch: bigint;
+        verificationSeed: `0x${string}`;
+        verificationRoot: `0x${string}`;
+        verificationRegistrySize: number;
+        verificationCommittee: number;
+        verificationQuorum: number;
+        keeperAssignment: `0x${string}`;
+    };
+};
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` p ` | ` Omit<PrepaidAllowanceIntentWire, 'signature'> ` | - Allowance intent before attaching its signature. |
+
+Returns:
+
+```ts
+{
+    domain: {
+        chainId: number;
+        verifyingContract: `0x${string}`;
+        name: "Keykeeper Assigned Slot Payment";
+        version: "1";
+    };
+    primaryType: "SlotPrepaidAllowanceIntent";
+    types: {
+        readonly SlotPrepaidAllowanceIntent: readonly [
+            {
+                readonly name: "keyRegistry";
+                readonly type: "address";
+            },
+            {
+                readonly name: "slotId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "intentNonce";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "amount";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "maxOpCost";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "actions";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "expiresAt";
+                readonly type: "uint64";
+            },
+            {
+                readonly name: "verificationEpoch";
+                readonly type: "uint64";
+            },
+            {
+                readonly name: "verificationSeed";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "verificationRoot";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "verificationRegistrySize";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "verificationCommittee";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "verificationQuorum";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "keeperAssignment";
+                readonly type: "bytes32";
+            }
+        ];
+    };
+    message: {
+        keyRegistry: `0x${string}`;
+        slotId: `0x${string}`;
+        intentNonce: `0x${string}`;
+        amount: bigint;
+        maxOpCost: bigint;
+        actions: number;
+        expiresAt: bigint;
+        verificationEpoch: bigint;
+        verificationSeed: `0x${string}`;
+        verificationRoot: `0x${string}`;
+        verificationRegistrySize: number;
+        verificationCommittee: number;
+        verificationQuorum: number;
+        keeperAssignment: `0x${string}`;
+    };
+}
+```
+
 ### prepaidRequestId
 
-Derive the Settlement reservation identity for this exact payment and operation.
+Derive the Settlement reservation identity for this exact payment and operation. Unchanged by
+ADR-0090: an allowance-backed payment's own signing hash is the authorization commitment, so
+the ID binds the allowance too.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L155)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L213)
 
 Import: `import {prepaidRequestId} from 'tasra-sdk/committee'`
 
@@ -2845,8 +3066,11 @@ Returns: ` boolean `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 87 types</summary>
+<summary>Browse 93 types</summary>
 
+- [AllowanceAction](#allowanceaction)
+- [AllowanceReserveArgs](#allowancereserveargs)
+- [AllowanceSettleArgs](#allowancesettleargs)
 - [BlsSharing](#blssharing)
 - [BlsSharingKeeper](#blssharingkeeper)
 - [BlsSharingOptions](#blssharingoptions)
@@ -2868,6 +3092,8 @@ Options, data structures and return types.
 - [CompoundTokenPayload](#compoundtokenpayload)
 - [CompoundTokenWire](#compoundtokenwire)
 - [CreateStatusRefreshProofOptions](#createstatusrefreshproofoptions)
+- [DebitVoucherFields](#debitvoucherfields)
+- [DebitVoucherWire](#debitvoucherwire)
 - [DecryptionBindingWire](#decryptionbindingwire)
 - [DualSignApprover](#dualsignapprover)
 - [DualSignConfig](#dualsignconfig)
@@ -2901,6 +3127,7 @@ Options, data structures and return types.
 - [PaidExecutionRequest](#paidexecutionrequest-1)
 - [PaidKeeperAssignment](#paidkeeperassignment)
 - [PaymentIntentWire](#paymentintentwire)
+- [PrepaidAllowanceIntentWire](#prepaidallowanceintentwire)
 - [ReceiptExpectation](#receiptexpectation)
 - [RecipientWire](#recipientwire)
 - [RecoveredExecutionReply](#recoveredexecutionreply)
@@ -2936,6 +3163,78 @@ Options, data structures and return types.
 - [VerifyStatusAttestationsOptions](#verifystatusattestationsoptions)
 
 </details>
+
+### AllowanceAction
+
+The paid actions an allowance can fund, as `PrepaidAction` bit ordinals.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L265)
+
+```ts
+export type AllowanceAction = keyof typeof ACTIONS;
+```
+
+### AllowanceReserveArgs
+
+The arguments of `reservePrepaidAllowanceBls` the accountant quorum signs.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L389)
+
+```ts
+export interface AllowanceReserveArgs {
+    slot: Hex;
+    legacyNonce: bigint;
+    allowanceId: Hex;
+    amount: bigint;
+    maxOpCost: bigint;
+    actions: number;
+    expiresAt: bigint;
+    assignmentBlock: Hex;
+    deadline: bigint;
+}
+```
+
+Fields:
+
+- **` slot `**: Slot.
+- **` legacyNonce `**: Reconciled legacy settlement cursor.
+- **` allowanceId `**: Derived allowance id.
+- **` amount `**: Escrow.
+- **` maxOpCost `**: Per-operation cap.
+- **` actions `**: Funded actions bitmap.
+- **` expiresAt `**: Expiry, Unix seconds.
+- **` assignmentBlock `**: Quote block, immutable as the allowance's assignment block.
+- **` deadline `**: Authorization deadline, Unix seconds.
+
+### AllowanceSettleArgs
+
+The arguments of `settlePrepaidAllowanceBls` the quorum signs (accountant settle path; for conformance).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L466)
+
+```ts
+export interface AllowanceSettleArgs {
+    allowanceId: Hex;
+    requestIds: readonly Hex[];
+    costs: readonly bigint[];
+    paid: readonly bigint[];
+    batchId: Hex;
+    root: Hex;
+    evidenceHash: Hex;
+    deadline: bigint;
+}
+```
+
+Fields:
+
+- **` allowanceId `**: Allowance.
+- **` requestIds `**: Settled request IDs.
+- **` costs `**: Their costs.
+- **` paid `**: Paid out of each cost.
+- **` batchId `**: Claim batch.
+- **` root `**: Payout root.
+- **` evidenceHash `**: Evidence hash.
+- **` deadline `**: Deadline.
 
 ### BlsSharing
 
@@ -3629,6 +3928,60 @@ Fields:
 - **` seq `**: Journaled sequence number (positive safe integer). Never reuse one.
 - **` issuedAt `**: Unix seconds (default now).
 - **` prover `**: Principal and signer.
+
+### DebitVoucherFields
+
+The fields a debit voucher's threshold signature covers.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L425)
+
+```ts
+export interface DebitVoucherFields {
+    allowanceId: Hex;
+    seq: bigint;
+    requestId: Hex;
+    cost: bigint;
+    cumulative: bigint;
+    quoteBlock: Hex;
+}
+```
+
+Fields:
+
+- **` allowanceId `**: Allowance.
+- **` seq `**: Per-allowance sequence.
+- **` requestId `**: Operation's request ID.
+- **` cost `**: Cost at the quote block.
+- **` cumulative `**: Total debited through `seq`.
+- **` quoteBlock `**: Quote block hash.
+
+### DebitVoucherWire
+
+ADR-0090 accountant-quorum debit of one operation against an allowance (threshold BN254 over [debitVoucherDigest](#debitvoucherdigest)).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L70)
+
+```ts
+export interface DebitVoucherWire {
+    allowance_id: Hex;
+    seq: number;
+    request_id: Hex;
+    cost: string;
+    cumulative: string;
+    quote_block: Hex;
+    signature: Hex;
+}
+```
+
+Fields:
+
+- **` allowance_id `**: Allowance the operation is debited from.
+- **` seq `**: Per-allowance sequence number, from 1.
+- **` request_id `**: The operation's [prepaidRequestId](#prepaidrequestid).
+- **` cost `**: TASRA base units fixed at the quote block, decimal.
+- **` cumulative `**: Total debited through `seq`, decimal; never above the allowance amount.
+- **` quote_block `**: Canonical block the cost was quoted at; the group key is read there.
+- **` signature `**: 64-byte BN254 G1 aggregate (x || y).
 
 ### DecryptionBindingWire
 
@@ -4415,6 +4768,8 @@ export interface PaymentIntentWire {
     verification_quorum: number;
     keeper_assignment: PaidKeeperAssignment;
     signature: Hex;
+    allowance_id?: Hex;
+    debit_voucher?: DebitVoucherWire;
 }
 ```
 
@@ -4430,6 +4785,56 @@ Fields:
 - **` nonce `**: Unique creator payment nonce.
 - **` max_cost `**: Maximum TASRA base units, as a decimal string to avoid precision loss.
 - **` expires `**: Payment expiry in Unix seconds.
+- **` verification_epoch `**: Pinned verification epoch.
+- **` verification_seed `**: Pinned beacon seed.
+- **` verification_root `**: Pinned verifier snapshot root.
+- **` verification_registry_size `**: Pinned verifier registry size.
+- **` verification_committee `**: Pinned verifier committee size.
+- **` verification_quorum `**: Pinned verifier quorum.
+- **` keeper_assignment `**: Fixed keeper sharing and execution membership.
+- **` signature `**: Creator's 65-byte EIP-712 signature.
+- **` allowance_id `**: ADR-0090: the prepaid allowance this operation is debited from. When present the creator signature is over `SlotAllowancePaymentIntent` (these fields plus `allowanceId`), never over `SlotAssignedPaymentIntent`, so neither signature can stand in for the other. Absent on a per-operation (reservation-backed) payment, whose JSON is then unchanged.
+- **` debit_voucher `**: ADR-0090: the accountant-quorum debit voucher for this operation; not part of the signed intent.
+
+### PrepaidAllowanceIntentWire
+
+Creator authorization to lock `amount` of a slot's balance as an allowance (`SlotPrepaidAllowanceIntent`).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L291)
+
+```ts
+export interface PrepaidAllowanceIntentWire {
+    chain_id: number;
+    settlement: Hex;
+    key_registry: Hex;
+    slot: Hex;
+    intent_nonce: Hex;
+    amount: string;
+    max_op_cost: string;
+    actions: number;
+    expires_at: number;
+    verification_epoch: number;
+    verification_seed: Hex;
+    verification_root: Hex;
+    verification_registry_size: number;
+    verification_committee: number;
+    verification_quorum: number;
+    keeper_assignment: PaidKeeperAssignment;
+    signature: Hex;
+}
+```
+
+Fields:
+
+- **` chain_id `**: EVM chain identifier.
+- **` settlement `**: Settlement proxy address.
+- **` key_registry `**: KeyRegistry proxy address.
+- **` slot `**: Slot identifier.
+- **` intent_nonce `**: Unique nonzero creator nonce.
+- **` amount `**: Escrow, TASRA base units, decimal.
+- **` max_op_cost `**: Per-operation cap, TASRA base units, decimal; at most `amount`.
+- **` actions `**: Funded actions bitmap ([allowanceActionBits](#allowanceactionbits)).
+- **` expires_at `**: Expiry, Unix seconds; at most one hour ahead.
 - **` verification_epoch `**: Pinned verification epoch.
 - **` verification_seed `**: Pinned beacon seed.
 - **` verification_root `**: Pinned verifier snapshot root.
@@ -5248,6 +5653,7 @@ Shared values and contract definitions.
 
 | Export | Description | Definition |
 |---|---|---|
+| `ALLOWANCE_ACTIONS` | `ALLOWANCE_ACTIONS`: sign, decrypt, eoa-sign, ibe-extract and dual-approve. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L267) |
 | `DEFAULT_STATUS_WINDOW_SECS` | Default attested window (`[committee] status_window_secs`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L673) |
 | `EXECUTION_APPROVAL_DOMAIN` | Client stage approvals bind complete request bodies and assigned operator keys. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L11) |
 | `EXECUTION_CERTIFICATE_DOMAIN` | Separate creator-consent domain; original payment commitments remain unchanged. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L9) |
@@ -5260,6 +5666,7 @@ Shared values and contract definitions.
 | `OAUTH_RESPONSE_PATH` | Legacy session-independent response path. New sessions use dpopHtu(origin, sessionId). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L19) |
 | `OAUTH_RESPONSE_PATH_PREFIX` | The OAuth response route is `{PREFIX}{sessionId}{SUFFIX}` under the agent origin. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L22) |
 | `OAUTH_RESPONSE_PATH_SUFFIX` | The trailing segment of the OAuth response route. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L24) |
+| `PREPAID_ALLOWANCE_DOMAINS` | Domain strings of the ADR-0090 Encodings table. A change is a NEW name, never a digit. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L367) |
 | `REVOCATION_BOUND_SECS` | Decided revocation bound: no keeper accepts a grant later than `R + 60 s`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L665) |
 | `STATUS_ATTESTATION_DOMAIN` | Domain separator of the status-freshness statement (new name, `/v1`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L663) |
 | `STATUS_CACHE_BOUND_SECS` | The verifier's attestation cache bound: `REVOCATION_BOUND_SECS - STATUS_SKEW_SECS`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L669) |

@@ -108,9 +108,32 @@ export interface PrepaidAllowanceReservationRecord {
 
 /** Durable checkpoints, as for a per-operation reservation. A timeout after `prepared` needs observation, never a new attempt. */
 export type PrepaidAllowanceCheckpoint =
-  | {/** Persisted before submission. */ phase: 'prepared'; /** Exact identity. */ record: PrepaidAllowanceReservationRecord; /** Local signer's hash, journaled before broadcast. */ transactionHash?: Hex}
-  | {/** A hash was returned; mining unproven. */ phase: 'submitted'; /** Allowance id. */ allowanceId: Hex; /** Hash. */ transactionHash: Hex}
-  | {/** Mined and canonical. */ phase: 'confirmed'; /** Allowance id. */ allowanceId: Hex; /** Hash. */ transactionHash: Hex; /** Inclusion block. */ blockHash: Hex}
+  | {
+    /** Persisted before submission. */
+    phase: 'prepared'
+    /** Exact identity. */
+    record: PrepaidAllowanceReservationRecord
+    /** Local signer's hash, journaled before broadcast. */
+    transactionHash?: Hex
+  }
+  | {
+    /** A hash was returned; mining unproven. */
+    phase: 'submitted'
+    /** Allowance id. */
+    allowanceId: Hex
+    /** Hash. */
+    transactionHash: Hex
+  }
+  | {
+    /** Mined and canonical. */
+    phase: 'confirmed'
+    /** Allowance id. */
+    allowanceId: Hex
+    /** Hash. */
+    transactionHash: Hex
+    /** Inclusion block. */
+    blockHash: Hex
+  }
 
 /** Limits and mandatory durable storage for one allowance reservation. */
 export interface ReservePrepaidAllowanceOptions {
@@ -518,9 +541,32 @@ export interface DebitRequest {
 
 /** How one member answered a debit round. */
 export type DebitMemberOutcome =
-  | {/** Endpoint. */ url: string; /** Verified partial. */ kind: 'partial'; /** It. */ partial: DebitPartialWire}
-  | {/** Endpoint. */ url: string; /** Transport loss, 5xx, 408 or 429: it may have journaled. */ kind: 'unavailable'; /** Safe reason. */ reason: string}
-  | {/** Endpoint. */ url: string; /** A definite refusal (other 4xx) or an invalid answer. */ kind: 'refused'; /** Status (0 = invalid answer). */ status: number; /** Safe reason. */ reason: string}
+  | {
+    /** Endpoint. */
+    url: string
+    /** A verified partial. */
+    kind: 'partial'
+    /** The partial. */
+    partial: DebitPartialWire
+  }
+  | {
+    /** Endpoint. */
+    url: string
+    /** Transport loss, 5xx, 408 or 429: the member may have journaled the debit. */
+    kind: 'unavailable'
+    /** Safe reason. */
+    reason: string
+  }
+  | {
+    /** Endpoint. */
+    url: string
+    /** A definite refusal (another 4xx) or an invalid answer. */
+    kind: 'refused'
+    /** HTTP status (0 = invalid answer). */
+    status: number
+    /** Safe reason. */
+    reason: string
+  }
 
 /** A voucher round ended without `k` verified partials. */
 export class DebitVoucherError extends Error {

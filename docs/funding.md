@@ -245,6 +245,44 @@ private IP literals unless approved. A browser cannot check where a name resolve
 on its private-network protections; services must allow the origin through CORS and
 expose `Retry-After` and `x-ratelimit-after`.
 
+### Prepaid allowances (opt-in)
+
+By default every paid operation waits for its own reservation transaction. With
+`PaidOperationConfig.allowances` (ADR-0090, **off by default**) the SDK instead reserves an
+allowance ahead of use (one transaction escrowing `amount`) and debits each operation with an
+accountant-quorum voucher, so no block interval sits on the operation's path:
+
+```ts
+const config: PaidOperationConfig = {
+  ...paid,
+  allowances: {enabled: true, amount: 50_000n, streams: 16}, // 8 lanes: min(streams, 8)
+}
+```
+
+Enable it only when every reader on the deployment (agent, verifiers, keepers, accountants)
+supports ADR-0090: the network advertises no capability for it, so the option is the switch.
+
+- **Lanes.** Each of `lanes` (default `min(streams, 8)`) holds one allowance and a strictly
+  serial debit sequence; different lanes debit in parallel. An operation on a lane signs the
+  distinct `SlotAllowancePaymentIntent` (its request ID binds the allowance) with the
+  allowance's verification epoch and keeper sharing.
+- **Vouchers.** The debit request goes to every accountant in parallel at one quote block. Each
+  member's BN254 partial is checked against its verifying share, `k` are combined and the
+  aggregate is verified against `beacon.mpk()` at the quote block before it is attached to the
+  payment.
+- **Journal.** The lane journals the sequence, request and quote block before any request, then
+  the partials and the voucher. A resume asks for the same sequence and request, so a member
+  that already signed returns the same partial.
+- **Top-up.** Allowances are fixed-amount and live at most an hour. A replacement is reserved in
+  the background once the remainder is below 25 % or less than 10 minutes remain, using the same
+  dedicated gas payer and durable payer claim as reservations.
+- **Fallback.** Without a lane that can fund the operation (none yet, exhausted, expired, action
+  not funded, keeper sharing changed) the operation uses a per-operation reservation. A definite
+  accountant refusal journals the allowance attempt `failed`, retires the lane and falls back once
+  to a fresh payment with a new request ID (`onRequestId` then sees both). Unreachable accountants
+  leave the debit pending: `resumePaidOperation` retries the same voucher.
+- Historical keeper-result recovery of allowance-backed work is not available yet and fails closed.
+
 ### Busy services during a paid operation
 
 Paid clients behind one network address share the verifier-agent's per-client limiter, so a

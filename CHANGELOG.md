@@ -9,6 +9,14 @@ never does.
 
 ### Added
 
+- ADR-0090 prepaid allowances behind `PaidOperationConfig.allowances` (default off): a pool
+  of allowance lanes reserved ahead (`reservePrepaidAllowance`), per-operation accountant
+  debit vouchers (`collectDebitVoucher`, BN254 partials verified and combined client side,
+  aggregate checked against `beacon.mpk()` at the quote block), a lane journal written before
+  every voucher request, background replacement below 25 % or 10 minutes, and fallback to the
+  per-operation reservation. `PaymentIntentWire` gains optional `allowance_id` /
+  `debit_voucher`; an allowance payment is the distinct `SlotAllowancePaymentIntent`. The
+  allowance digests are pinned against the shared conformance vectors.
 - Two-step slot hand-offs on the write client: `proposeSlotTransfer`,
   `acceptSlotTransfer` and `withdrawSlotTransfer` move the creator;
   `proposeRuleAdminTransfer`, `acceptRuleAdminTransfer` and
