@@ -15,7 +15,7 @@ import {paidExecutionReportSigningHash, verifyPaidExecutionEvidence,
   type ExecutionRecoveryTarget, type SignedPaidExecutionReport} from '../committee/recovery.js'
 import {selectVerifierCommittee, verifierLeaf, verifyMerkleProof} from '../committee/token.js'
 import {protocolHex} from '../committee/receipts.js'
-import {BillingModeError, readBillingMode} from './billing.js'
+import {BillingModeError, isPrepaidSettlementVersion, readBillingMode} from './billing.js'
 import {readAssignmentEpoch, requirePaidEpoch} from './paidEpoch.js'
 import {systemPacingClock, type PaidPacingClock} from './paidPacing.js'
 import {SingleFlight} from '../internal/bounded.js'
@@ -762,12 +762,21 @@ export async function discoverPaidOperationContext(
         readAt(client, deployment.settlement, at, 'prepaidEnabled', slotId),
         readAt(client, deployment.settlement, at, 'balanceOf', slotId),
         keeperDirectory(client, at, deployment.keyRegistry, slotId),
+        // The billing check (what requirePrepaidSlot read in its own rounds before discovery): the
+        // Settlement version at this same block. Only "2" | "3" | "4" bill prepaid.
+        pinnedCall(client, at.blockHash, deployment.settlement, encodeFunctionData({abi: settlementAbi, functionName: 'version'}))
+          .then(data => { if (data === undefined) throw new Error('empty Settlement version response'); return decodeFunctionResult({abi: settlementAbi, functionName: 'version', data}) }),
       ])
       // On a failed read, a legacy or unreadable billing mode is the clearer refusal.
-      const [keyBeacon, snapshotBeacon, accountantBeacon, latest, policy, enabled, available, directory] = await reads.catch(async (error: unknown) => {
+      const [keyBeacon, snapshotBeacon, accountantBeacon, latest, policy, enabled, available, directory, version] = await reads.catch(async (error: unknown) => {
         await refuseUnlessPrepaid(client, deployment, slotId)
         throw error
       })
+      // An unknown version is never guessed prepaid, even with prepaidEnabled set: the typed refusal names it.
+      if (!isPrepaidSettlementVersion(version)) {
+        await refuseUnlessPrepaid(client, deployment, slotId)
+        throw new Error('payment discovery Settlement version is not prepaid')
+      }
       if (enabled !== true) {
         await refuseUnlessPrepaid(client, deployment, slotId)
         // Prepaid from genesis but never funded: the first funding activates it.

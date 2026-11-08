@@ -189,10 +189,14 @@ describe('paidOperation', () => {
     op.dispose()
   })
 
-  it('refuses a legacy or unknown slot before any discovery, signature or reservation', async () => {
+  it('refuses a legacy or unknown slot before any signature or reservation; a cached detector refuses before discovery', async () => {
     const f = setup()
-    vi.mocked(requirePrepaidSlot).mockRejectedValue(new BillingModeError({slot, mode: 'legacy', settlementVersion: '1'}))
+    // Without a detector the billing check is discovery's own (same block-pinned round): no separate observation.
+    vi.mocked(discoverPaidOperationContext).mockRejectedValueOnce(new BillingModeError({slot, mode: 'legacy', settlementVersion: '1'}))
     await expect(paidOperation(f.config, f.request)).rejects.toMatchObject({name: 'BillingModeError', mode: 'legacy'})
+    expect(requirePrepaidSlot).not.toHaveBeenCalled()
+    expect(fetchDrawnVerifierWitnesses).not.toHaveBeenCalled()
+    vi.mocked(discoverPaidOperationContext).mockClear()
     const detector = {mode: vi.fn(), invalidate: vi.fn(), requirePrepaid: vi.fn(async () => { throw new BillingModeError({slot, mode: 'unknown', reason: 'rpc'}) })}
     await expect(paidOperation({...f.config, billing: detector}, f.request)).rejects.toMatchObject({mode: 'unknown'})
     expect(discoverPaidOperationContext).not.toHaveBeenCalled()

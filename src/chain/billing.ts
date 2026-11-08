@@ -75,6 +75,10 @@ const probeAbi = parseAbi([
 /** Settlement versions with prepaid billing. "3" adds only the payer timeout escape; "4" adds only the ADR-0090
  *  allowances beside the unchanged per-request path. Any other version is unknown. */
 const PREPAID_SETTLEMENT_VERSIONS: ReadonlySet<string> = new Set(['2', '3', '4'])
+/** True for a `Settlement.version()` with prepaid billing ("2", "3" or "4"); any other answer is not. */
+export function isPrepaidSettlementVersion(version: unknown): boolean {
+  return typeof version === 'string' && PREPAID_SETTLEMENT_VERSIONS.has(version)
+}
 const HEX32 = /^0x[0-9a-f]{64}$/i
 const ADDRESS = /^0x[0-9a-f]{40}$/i
 
@@ -126,7 +130,7 @@ export async function readBillingMode(client: PublicClient, deployment: BillingD
     if (typeof version !== 'string' || version.length > 32) return unknown(slot, 'invalid Settlement version')
     observed.settlementVersion = version
     if (version === '1') mode = 'legacy'
-    else if (PREPAID_SETTLEMENT_VERSIONS.has(version)) {
+    else if (isPrepaidSettlementVersion(version)) {
       const enabled = await read('prepaidEnabled', [slot])
       if (typeof enabled !== 'boolean') return unknown(slot, 'invalid prepaidEnabled', observed)
       observed.prepaidEnabled = enabled

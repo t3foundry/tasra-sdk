@@ -29,7 +29,7 @@ interface Changes {
   enabled?: boolean; available?: bigint; cancelled?: boolean; noKey?: boolean; age?: number; orphan?: boolean
   chain?: number; unsupported?: boolean; url?: string; chainId?: number; onChainId?: () => void
   reserved?: bigint; settled?: boolean; refunded?: bigint; root?: Hex; tagged?: boolean; creator?: Hex; registeredKey?: Hex
-  legacy?: boolean; genesis?: boolean
+  legacy?: boolean; genesis?: boolean; version?: string
   // D8: the reservation's stored quote block h(19) (block 19), read for the paid epoch only.
   anchorEpoch?: bigint; anchorReorg?: boolean; anchorPruned?: boolean
   /** The KeyRegistry now points to another NodeRegistry, where every node is inactive. */
@@ -70,7 +70,7 @@ function fixture(change: Changes = {}) {
     const accountant = call.to === approved.accountantSet
     const values: Record<string, unknown> = {
       prepaidEnabled: change.enabled ?? true, balanceOf: change.available ?? 100n,
-      version: change.legacy ? '1' : '2', prepaidFromGenesis: change.genesis ?? false,
+      version: change.version ?? (change.legacy ? '1' : '2'), prepaidFromGenesis: change.genesis ?? false,
       prepaidCost: change.reserved ?? 5n, prepaidSettled: change.settled ?? false,
       prepaidRefunded: change.refunded ?? 0n, prepaidAssignmentBlock: h(19),
       randomBeacon: change.beaconMismatch === 'key' ? h(99, 20) : approved.beacon,
@@ -107,6 +107,21 @@ it('refuses a legacy Settlement or a slot not cut over with a typed billing refu
   expect(unfunded).toBeInstanceOf(UnderfundedSlotError)
   // When nothing can be read, billing is unknown: refused, retryable, never guessed.
   await expect(fixture({unsupported: true}).run()).rejects.toMatchObject({name: 'BillingModeError', mode: 'unknown', retryable: true})
+})
+
+it('judges billing inside discovery: an unknown Settlement version is refused even with prepaidEnabled, and no separate billing observation runs', async () => {
+  now()
+  for (const version of ['5', '2.1']) {
+    const refused: unknown = await fixture({version}).run().catch((error: unknown) => error)
+    expect(refused, version).toBeInstanceOf(BillingModeError)
+    expect(refused).toMatchObject({mode: 'unknown', settlementVersion: version})
+  }
+  for (const version of ['2', '3', '4']) {
+    const f = fixture({version}); await f.run()
+    // One head observation and one canonical recheck: the version is read at discovery's own block.
+    expect(f.calls.filter(c => c.method === 'eth_getBlockByNumber'), version).toHaveLength(2)
+    expect(f.calls.filter(c => c.name === 'version'), version).toHaveLength(1)
+  }
 })
 
 it('identifies an exhausted activated slot without inventing an HTTP response or starting payment work', async () => {

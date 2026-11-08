@@ -18,7 +18,7 @@ import {ibeVerifyShare} from '../crypto/ibe.js'
 import {hexToBytes, keccak256, toHex, type Account, type Address, type Chain, type Hex, type LocalAccount, type Transport, type WalletClient} from 'viem'
 import type {TasraChainClient} from '../chain/client.js'
 import {keyRegistryAbi} from '../chain/abis/keyRegistry.js'
-import {requirePrepaidSlot, type BillingModeDetector} from '../chain/billing.js'
+import type {BillingModeDetector} from '../chain/billing.js'
 import {discoverPaidOperationContext, readClientExecutionPolicy, type ExpectedPaidOperation, type PaidContextDeployment,
   type PaidKeeperEndpoint, type PaidVerifierWitness} from '../chain/prepaid.js'
 import {fetchDrawnVerifierWitnesses} from '../chain/verifierSnapshot.js'
@@ -570,7 +570,10 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
   const d = {...config.deployment}, client = config.chain.client, signal = request.signal ?? new AbortController().signal
   const slot = request.slot
   if (!HEX32.test(slot)) throw new TasraError('Invalid paid operation slot')
-  if (config.billing) await config.billing.requirePrepaid(slot); else await requirePrepaidSlot(client, d, slot)
+  // Without a cached detector, discovery itself refuses a non-prepaid slot (the Settlement version,
+  // prepaidEnabled and prepaidFromGenesis, read in its own block-pinned round) with the same typed
+  // BillingModeError, instead of a separate billing observation of ~4 sequential reads before it.
+  if (config.billing) await config.billing.requirePrepaid(slot)
   const readiness = AbortSignal.any([signal, AbortSignal.timeout(config.snapshotWaitMs ?? 180_000)])
   const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(client, d, slot,
     {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator, fundedByAllowance: useAllowance}),
