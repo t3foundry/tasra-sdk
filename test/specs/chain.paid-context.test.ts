@@ -481,7 +481,7 @@ it('rechecks a kept assignment block by RPC unless the follower is live under de
     now()
     let ms = 0
     const f = fixture(), payment = reservedPayment()
-    const follower = createHeadFollower(f.client, {finality, liveAfterMs: 5000, now: () => ms})
+    const follower = createHeadFollower(f.client, {finality, liveAfterMs: 2000, now: () => ms})
     attachHeadFollower(f.client, follower)
     try {
       await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})

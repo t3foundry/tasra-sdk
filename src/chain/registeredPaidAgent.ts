@@ -304,9 +304,18 @@ const RECORD_FIELDS = ['owner','pendingOwner','authKey','serviceType','status','
 const sameRecord = (a: Record<string, unknown>, b: Record<string, unknown>) =>
   RECORD_FIELDS.every(k => typeof a[k] === 'string' && typeof b[k] === 'string' ? (a[k] as string).toLowerCase() === (b[k] as string).toLowerCase() : a[k] === b[k])
 
+const reuseKey = (profile: ApprovedAgentProfile) => {
+  const a = profile.approval
+  return [a.chainId, a.registry, a.serviceId, a.owner, a.revision, a.manifestHash, profile.endpoint].join('|').toLowerCase()
+}
+/** Forget the reused authentication of `profile` on `chain` (synchronously: before the caller sends anything else). */
+function dropReusedAuthentication(chain: TasraChainClient, profile: ApprovedAgentProfile): void {
+  reusedAuthentications.get(chain.client)?.delete(reuseKey(profile))
+}
+
 async function reusableAuthentication(chain: TasraChainClient, profile: ApprovedAgentProfile, authenticate: () => Promise<AuthenticatedService>): Promise<AuthenticatedService> {
   const a = profile.approval
-  const key = [a.chainId, a.registry, a.serviceId, a.owner, a.revision, a.manifestHash, profile.endpoint].join('|').toLowerCase()
+  const key = reuseKey(profile)
   let kept = reusedAuthentications.get(chain.client)
   if (!kept) reusedAuthentications.set(chain.client, kept = new Map())
   const cached = kept.get(key)
@@ -485,7 +494,13 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     if (current.status > 1 || current.revision < a.revision || current.serviceType !== 1
       || current.owner.toLowerCase() !== record.owner.toLowerCase() || current.authKey.toLowerCase() !== record.authKey.toLowerCase()
       || current.pendingOwner.toLowerCase() !== record.pendingOwner.toLowerCase() || current.manifestHash.toLowerCase() !== a.manifestHash.toLowerCase()
-      || current.endpoint !== profile.endpoint) throw new Error('Original paid agent provider changed')
+      || current.endpoint !== profile.endpoint) {
+      // The authentication this session (and any reuse of it) rests on no longer describes the
+      // registered provider: forget it NOW, before this refusal returns, so no later session can
+      // reuse it even if the record changes back.
+      dropReusedAuthentication(chain, profile)
+      throw new Error('Original paid agent provider changed')
+    }
   }
   // One attempt: provider check plus HTTP, cut off at the attempt budget so pacing can count on it.
   const control = (path:string,method:'GET'|'POST',body?:Record<string,unknown>|Uint8Array,signal?:AbortSignal,publicRoute=false,oauth?:{accessToken:string;proof:string}): Promise<PaidAgentHttpResponse> => bounded(signal,async active=>{

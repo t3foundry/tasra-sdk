@@ -962,3 +962,23 @@ it('sends a batch of retained approvals in one request only to an agent advertis
   send.mockClear();send.mockResolvedValueOnce(empty);await plain.proposals(undefined,{waitMs:5000})
   expect(send.mock.calls[0]![0]).toBe(f.profile.endpoint+'/v1/sessions/'+plain.sessionId+'/execution')
 })
+
+it('drops a reused authentication at a provider mismatch before any further request, even if the record changes back',async()=>{
+  const f=await fixture()
+  const log:string[]=[]
+  vi.mocked(authenticateApprovedService).mockReset().mockImplementation(async()=>{log.push('authenticate');return {record:{...f.record},manifest:{capabilities:['oid4vp']},expiresAt:1025} as unknown as Awaited<ReturnType<typeof authenticateApprovedService>>})
+  const send=vi.mocked(f.transport.paidAgentRequest), original=send.getMockImplementation()!
+  send.mockImplementation(async(url,opts)=>{log.push('request '+new URL(url).pathname.replace(/[0-9a-f]{64}/,':id'));return original(url,opts)})
+  const getService=vi.mocked(f.chain.readers.serviceRegistry.getService)
+  const first=await f.prepare();await first.create()
+  // The provider rotates its auth key: the next request of the session is refused before it is sent.
+  getService.mockResolvedValue({...f.record,authKey:h(72,20)})
+  log.length=0
+  await expect(first.poll()).rejects.toThrow(/provider changed/)
+  expect(log).toEqual([])
+  // ...and rotates back. The authentication that was refused is not reused: the next session
+  // authenticates again before its first request goes out.
+  getService.mockResolvedValue({...f.record})
+  const second=await f.prepare();await second.create()
+  expect(log).toEqual(['authenticate','request /v1/sessions'])
+})
