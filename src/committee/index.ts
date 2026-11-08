@@ -10,6 +10,10 @@ export type {DualSignConfig, DualSignApprover, DualSignRequest, DualSignStatus} 
 export {committeeSignEoaDigest, committeeSignP256Digest} from './ecdsa.js'
 export type {CommitteeP256SignOpts, P256DigestSignature} from './ecdsa.js'
 export type {CommitteeEoaSignOpts} from './ecdsa.js'
+export {DUAL_OPERATION_DOMAIN, DUAL_OPERATION_MAX_LIFETIME_SECS, approveDualOperation, assembleDualOperation, dualOperationFromPayload, dualOperationPayload,
+  prepareDualOperation, requireCurrentDualOperation, requireDualOperationPayment, requireDualOperationProof, validateDualOperationStatement} from './dual-operation.js'
+export type {DualOperationApproval, DualOperationApprovalRecord, DualOperationApprover, DualOperationKind, DualOperationProof, DualOperationStatement,
+  PreparedDualOperation} from './dual-operation.js'
 export {
   selectVerifierCommittee,
   compoundTokenCanonicalBytes,

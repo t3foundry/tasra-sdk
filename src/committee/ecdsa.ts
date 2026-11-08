@@ -8,6 +8,9 @@ import type {CompoundTokenWire} from './token.js'
 import type {VerifierProof} from './client.js'
 import {withKeeperExecutionApprovals,type KeeperExecutionApprover} from './keeperExecution.js'
 import {withNetworkDeadline} from '../internal/network.js'
+import {sha256} from '@noble/hashes/sha256'
+import {requireDualOperationProof, type DualOperationKind, type DualOperationProof} from './dual-operation.js'
+import {protocolHex} from './receipts.js'
 
 /** Compound authorization, keeper endpoint and digest for threshold ECDSA signing. */
 export interface CommitteeEoaSignOpts {
@@ -33,6 +36,12 @@ export interface CommitteeEoaSignOpts {
   targetKeykeeper?: string
   /** Optional signal that cancels the request. */
   signal?: AbortSignal
+  /**
+   * Dual-control approvals for this exact operation (assembleDualOperation). Required by a slot
+   * under an operation dual-control policy; checked here against the token's slot, SHA-256 of the
+   * digest and the token's own payment, then carried inside the client-approved body.
+   */
+  dualControl?: DualOperationProof
 }
 
 /**
@@ -82,7 +91,7 @@ export async function committeeSignP256Digest(opts: CommitteeP256SignOpts): Prom
   let expected: Uint8Array
   try { expected = p256.ProjectivePoint.fromHex(opts.groupPublicKey).toRawBytes(true) } catch { throw new Error('committeeSignP256Digest: invalid expected P-256 group public key') }
   const digest = opts.digest.slice()
-  const data = await withNetworkDeadline(signal => requestWithinDeadline({...opts, signal}), opts.signal)
+  const data = await withNetworkDeadline(signal => requestWithinDeadline({...opts, signal}, 'p256-sign'), opts.signal)
   const scalar = (value: unknown): value is string => typeof value === 'string' && /^(?:0x)?[a-fA-F0-9]{64}$/.test(value)
   if (!data || data.mode !== 'tecdsa-p256' || !scalar(data.signature_r) || !scalar(data.signature_s)
     || typeof data.group_public_key !== 'string' || !/^(?:0x)?(?:0[23][a-fA-F0-9]{64}|04[a-fA-F0-9]{128})$/.test(data.group_public_key)) {
@@ -98,7 +107,7 @@ export async function committeeSignP256Digest(opts: CommitteeP256SignOpts): Prom
 }
 
 async function signWithinDeadline(opts: CommitteeEoaSignOpts): Promise<EoaSignature> {
-  const data = await requestWithinDeadline(opts)
+  const data = await requestWithinDeadline(opts, 'secp256k1-sign')
   const scalar = (value: unknown): value is string => typeof value === 'string' && /^(?:0x)?[a-fA-F0-9]{64}$/.test(value)
   if (!data || data.mode !== 'tecdsa' || (data.signature_v !== 0 && data.signature_v !== 1) ||
       !scalar(data.signature_r) || !scalar(data.signature_s) ||
@@ -110,11 +119,16 @@ async function signWithinDeadline(opts: CommitteeEoaSignOpts): Promise<EoaSignat
 }
 
 /** The shared keeper request of both digest clients: approvals, POST and the decoded JSON reply. */
-async function requestWithinDeadline(opts: CommitteeEoaSignOpts): Promise<Record<string, unknown> | null> {
+async function requestWithinDeadline(opts: CommitteeEoaSignOpts, operation: DualOperationKind): Promise<Record<string, unknown> | null> {
   opts={...opts,committeeToken:structuredClone(opts.committeeToken)}
   if (opts.digest.length !== 32) throw new Error('committeeSignEoaDigest: digest must be 32 bytes')
   if (opts.userSignature && opts.userSignature.length !== 64) throw new Error('userSignature must be 64 bytes')
   const bare = (hex: string) => hex.replace(/^0x/, '')
+  if (opts.dualControl) {
+    const payment = opts.committeeToken.payment
+    if (!payment) throw new Error('dual-control approvals require a paid authorization')
+    requireDualOperationProof(opts.dualControl, {operation, slot: protocolHex(opts.committeeToken.slot_id, 32, 'token slot'), payloadDigest: sha256(opts.digest), payment})
+  }
   const unsignedBody = {
     committee_token: opts.committeeToken,
     ...evidenceBody(opts.committeeToken, opts.evidenceCt),
@@ -124,6 +138,7 @@ async function requestWithinDeadline(opts: CommitteeEoaSignOpts): Promise<Record
     }))} : {}),
     ...(opts.targetKeykeeper ? {target_keykeeper:bare(opts.targetKeykeeper)} : {}),
     ...(opts.userSignature ? {user_signature:bare(bytesToHex(opts.userSignature))} : {}),
+    ...(opts.dualControl ? {dual_control: structuredClone(opts.dualControl)} : {}),
   }
   const body=await withKeeperExecutionApprovals({body:unsignedBody,kind:'committee-eoa-digest',nodeUrl:opts.nodeUrl,
     payment:opts.committeeToken.payment,approveExecution:opts.approveExecution,signal:opts.signal})
