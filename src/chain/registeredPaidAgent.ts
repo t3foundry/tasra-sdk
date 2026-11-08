@@ -298,6 +298,13 @@ function issuerExpiry(credential: string): number | undefined {
 // the registration read at the head (the followed tip when a live follower is attached, otherwise
 // latest by RPC) is field for field the record it authenticated. A head follower also drops it at
 // the first new head where that record differs. The per-request provider check is unchanged.
+// Accepted trade-off (security review P5): within the 25 s challenge lifetime a reused
+// authentication does NOT re-prove that the endpoint holds the registered auth key. What still
+// binds each request to the registered provider: TLS (certificate and host) is validated on every
+// connection, the registered record (auth key, endpoint, owner, revision, manifest, status) is
+// compared field by field at every reuse and before every agent request, and a mismatch drops the
+// reuse at once. A provider that loses its auth key but keeps its TLS endpoint inside that window
+// is not detected until the next full authentication.
 const MAX_REUSED_AUTHENTICATIONS = 16
 const reusedAuthentications = new WeakMap<object, Map<string, AuthenticatedService>>()
 const RECORD_FIELDS = ['owner','pendingOwner','authKey','serviceType','status','revision','manifestHash','endpoint'] as const
