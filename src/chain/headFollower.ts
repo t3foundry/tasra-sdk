@@ -15,7 +15,10 @@
 //   decisions' own checks. `maxTipAgeMs` adds a block-age bound only when a caller opts in.
 // - `isCanonical(at)` is true only for a deployment declared with instant finality (Avalanche
 //   C-Chain: an accepted block is final), while live, for a block inside the gap-free chain whose
-//   hash is the one held at its number. Anything else is undefined (outside the chain, a gap, not
+//   hash is the one held at its number AND at or below the `finalized` head the RPC reported (read
+//   beside `latest` on every poll or head), which the chain itself links to. A node serving
+//   unfinalized (processing) blocks as `latest` can later reject them; such a block is never
+//   vouched for until `finalized` reaches it. Anything else is undefined (outside the chain, a gap, not
 //   live, probabilistic finality) or false (another hash at that number), and callers keep the RPC
 //   recheck. Only `true` may replace a recheck.
 //
@@ -54,6 +57,8 @@ export interface HeadFollower {
   live(): boolean
   /** Feed one header (the poller, a newHeads subscription or tests). Serialized; never throws. */
   ingest(header: unknown): Promise<void>
+  /** Feed the RPC's current `finalized` header (read beside `latest`). Serialized; never throws. */
+  ingestFinalized(header: unknown): Promise<void>
   /** Run `listener` after every new tip; returns the unsubscribe function. */
   onHead(listener: (tip: FollowedHead) => void): () => void
   /** Number of gaps (unlinkable headers) seen; diagnostics only. */
@@ -91,6 +96,7 @@ export function createHeadFollower(client: PublicClient, options: HeadFollowerOp
   // A healthy follower re-confirms its tip before it stops being live, idle chain included.
   if (!Number.isSafeInteger(pollMs) || pollMs < 50 || pollMs >= liveAfterMs) throw new Error('Invalid head follower poll interval')
   let chain: FollowedHead[] = []
+  let finalized: {blockNumber: bigint; blockHash: Hex} | undefined
   let heardAt = -Infinity, gapCount = 0
   let queue: Promise<void> = Promise.resolve()
   let timer: ReturnType<typeof setTimeout> | undefined, unwatch: (() => void) | undefined, running = false
@@ -128,7 +134,11 @@ export function createHeadFollower(client: PublicClient, options: HeadFollowerOp
     let current = head
     for (let steps = 0; steps < window; steps++) {
       const at = indexOf(current.parentHash)
-      if (at !== -1) return settle([...chain.slice(0, at + 1), ...path.reverse()])
+      // The parent must sit exactly one below: a hash match at another height is no link.
+      if (at !== -1) {
+        if (chain[at]!.blockNumber + 1n !== current.blockNumber) break
+        return settle([...chain.slice(0, at + 1), ...path.reverse()])
+      }
       if (current.blockNumber === 0n || current.blockNumber - 1n < chain[0]!.blockNumber) break
       const previous = await parent(current.parentHash)
       if (!previous || previous.blockHash !== current.parentHash || previous.blockNumber !== current.blockNumber - 1n) break
@@ -146,7 +156,12 @@ export function createHeadFollower(client: PublicClient, options: HeadFollowerOp
       if (finality !== 'instant' || !live() || chain.length === 0) return undefined
       const first = chain[0]!.blockNumber, last = chain[chain.length - 1]!.blockNumber
       if (at.blockNumber < first || at.blockNumber > last) return undefined
-      return chain[Number(at.blockNumber - first)]!.blockHash === at.blockHash.toLowerCase()
+      const held = chain[Number(at.blockNumber - first)]!.blockHash === at.blockHash.toLowerCase()
+      if (!held) return false
+      // Final only at or below the RPC's finalized head, and only when that head is in this chain.
+      if (!finalized || at.blockNumber > finalized.blockNumber || finalized.blockNumber < first || finalized.blockNumber > last
+        || chain[Number(finalized.blockNumber - first)]!.blockHash !== finalized.blockHash) return undefined
+      return true
     },
     live,
     ingest(header) {
@@ -155,17 +170,31 @@ export function createHeadFollower(client: PublicClient, options: HeadFollowerOp
       queue = queue.then(() => link(head)).catch(() => {})
       return queue
     },
+    ingestFinalized(header) {
+      const head = parseHead(header)
+      if (!head) return queue
+      queue = queue.then(() => { if (!finalized || head.blockNumber >= finalized.blockNumber) finalized = {blockNumber: head.blockNumber, blockHash: head.blockHash} }).catch(() => {})
+      return queue
+    },
     onHead(listener) { listeners.add(listener); return () => { listeners.delete(listener) } },
     gaps: () => gapCount,
     start() {
       if (running) return
       running = true
       if (client.transport.type === 'webSocket') {
-        unwatch = client.watchBlocks({emitOnBegin: true, includeTransactions: false, onBlock: block => { void follower.ingest(block) }, onError: () => {}})
+        unwatch = client.watchBlocks({emitOnBegin: true, includeTransactions: false, onError: () => {}, onBlock: block => {
+          // The finalized head is read at every new head (it is not part of the subscription).
+          void client.getBlock({blockTag: 'finalized'}).then(final => follower.ingestFinalized(final), () => {}).finally(() => { void follower.ingest(block) })
+        }})
         return
       }
       const poll = async () => {
-        try { await follower.ingest(await client.getBlock({blockTag: 'latest'})) } catch { /* liveness lapses */ }
+        // `latest` and `finalized` together (one JSON-RPC batch on a batching transport).
+        try {
+          const [latest, final] = await Promise.all([client.getBlock({blockTag: 'latest'}), client.getBlock({blockTag: 'finalized'})])
+          await follower.ingestFinalized(final)
+          await follower.ingest(latest)
+        } catch { /* liveness lapses */ }
         if (running) { timer = setTimeout(() => { void poll() }, pollMs); (timer as {unref?: () => void}).unref?.() }
       }
       void poll()
@@ -175,7 +204,7 @@ export function createHeadFollower(client: PublicClient, options: HeadFollowerOp
       if (timer) clearTimeout(timer)
       unwatch?.()
       timer = undefined; unwatch = undefined
-      chain = []; heardAt = -Infinity
+      chain = []; heardAt = -Infinity; finalized = undefined
     },
   }
   return follower

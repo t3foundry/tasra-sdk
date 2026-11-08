@@ -141,12 +141,9 @@ export async function readAssignmentEpoch(client: PublicClient, beacon: Address,
     atHash = fresh
   }
   const number = atHash.blockNumber
-  // The canonical recheck by number, unless it is already proven: the head follower vouches for the
-  // block, or (declared instant finality, where an accepted block never reorganizes) this anchor was
-  // kept only after an earlier full read confirmed it canonical.
-  const follower = headFollowerOf(client)
-  const proven = follower?.isCanonical({blockNumber: number, blockHash: assignmentBlock, blockTimestamp: atHash.blockTimestamp}) === true
-    || (fresh === undefined && follower?.finality === 'instant' && follower.live())
+  // The paid-epoch anchor is re-proven at every use: the canonical recheck by number is skipped
+  // only when the head follower vouches for this exact block (finalized, in its gap-free chain).
+  const proven = headFollowerOf(client)?.isCanonical({blockNumber: number, blockHash: assignmentBlock, blockTimestamp: atHash.blockTimestamp}) === true
   if (!proven) {
     const canonical = await readOrUnavailable('paid epoch assignment block number', () => client.getBlock({blockNumber: number}))
     if (canonical.hash?.toLowerCase() !== anchor) throw refuse('assignment block is not canonical')

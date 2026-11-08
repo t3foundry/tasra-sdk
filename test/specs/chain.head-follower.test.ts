@@ -25,6 +25,7 @@ function fixture(options: HeadFollowerOptions = {}, known: Header[] = []) {
 it('follows a linked chain and vouches only for blocks it holds at their hash', async () => {
   const f = fixture()
   for (let n = 1; n <= 3; n++) await f.follower.ingest(header(0, n))
+  await f.follower.ingestFinalized(header(0, 3))
   expect(f.follower.tip()).toMatchObject({blockNumber: 3n, blockHash: H(0, 3)})
   expect(f.follower.isCanonical(f.at(header(0, 2)))).toBe(true)
   // Another hash at a held number is not canonical; a block outside the window is not vouched for.
@@ -35,7 +36,7 @@ it('follows a linked chain and vouches only for blocks it holds at their hash', 
 
 it('fills missed heads through their parents', async () => {
   const f = fixture({}, [header(0, 2), header(0, 3)])
-  await f.follower.ingest(header(0, 1)); await f.follower.ingest(header(0, 4))
+  await f.follower.ingest(header(0, 1)); await f.follower.ingest(header(0, 4)); await f.follower.ingestFinalized(header(0, 4))
   expect(f.getBlock).toHaveBeenCalledTimes(2)
   expect(f.follower.isCanonical(f.at(header(0, 3)))).toBe(true)
   expect(f.follower.gaps()).toBe(0)
@@ -46,7 +47,7 @@ it('follows a reorg found by a parentHash mismatch: the old branch is no longer 
   const fork = header(1, 3, 0)
   const f = fixture({}, [fork])
   for (let n = 1; n <= 4; n++) await f.follower.ingest(header(0, n))
-  await f.follower.ingest(header(1, 4))
+  await f.follower.ingest(header(1, 4)); await f.follower.ingestFinalized(header(1, 4))
   expect(f.follower.tip()).toMatchObject({blockHash: H(1, 4)})
   expect(f.follower.isCanonical(f.at(header(0, 3)))).toBe(false)
   expect(f.follower.isCanonical(f.at(header(0, 4)))).toBe(false)
@@ -58,7 +59,7 @@ it('restarts at a gap and vouches for nothing before it', async () => {
   const f = fixture()
   for (let n = 1; n <= 3; n++) await f.follower.ingest(header(0, n))
   // Block 7's ancestry cannot be fetched: an unlinkable header.
-  await f.follower.ingest(header(0, 7))
+  await f.follower.ingest(header(0, 7)); await f.follower.ingestFinalized(header(0, 7))
   expect(f.follower.gaps()).toBe(1)
   expect(f.follower.tip()).toMatchObject({blockNumber: 7n})
   expect(f.follower.isCanonical(f.at(header(0, 3)))).toBeUndefined()
@@ -141,4 +142,44 @@ it('stays live on an idle chain whose old tip is re-confirmed every second by th
     await strict.ingest(idle)
     expect(strict.tip()).toBeUndefined()
   } finally { vi.useRealTimers() }
+})
+
+it('vouches only at or below the finalized head it links to: a processing latest block is never vouched for', async () => {
+  const f = fixture()
+  for (let n = 1; n <= 3; n++) await f.follower.ingest(header(0, n))
+  // latest is 3, finalized only 1: blocks 2 and 3 may still be rejected.
+  await f.follower.ingestFinalized(header(0, 1))
+  expect(f.follower.tip()).toMatchObject({blockNumber: 3n})
+  expect(f.follower.isCanonical(f.at(header(0, 1)))).toBe(true)
+  expect(f.follower.isCanonical(f.at(header(0, 3)))).toBeUndefined()
+  // A finalized head on another branch than the followed chain vouches for nothing.
+  await f.follower.ingestFinalized(header(9, 3))
+  expect(f.follower.isCanonical(f.at(header(0, 1)))).toBeUndefined()
+  await f.follower.ingestFinalized(header(0, 3))
+  expect(f.follower.isCanonical(f.at(header(0, 3)))).toBe(true)
+})
+
+it('polls latest and finalized together', async () => {
+  vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+  try {
+    const tags: string[] = []
+    const getBlock = vi.fn(async ({blockTag}: {blockTag?: string}) => { tags.push(blockTag ?? 'hash'); return blockTag === 'latest' ? header(0, 2) : header(0, 1) })
+    let ms = 0
+    const follower = createHeadFollower({getBlock, transport: {type: 'http'}} as unknown as PublicClient, {finality: 'instant', now: () => ms})
+    follower.start(); await vi.advanceTimersByTimeAsync(0)
+    expect(tags.slice(0, 2).sort()).toEqual(['finalized', 'latest'])
+    expect(follower.tip()).toMatchObject({blockNumber: 2n})
+    expect(follower.isCanonical({blockNumber: 2n, blockHash: H(0, 2), blockTimestamp: 1002n})).toBeUndefined()
+    follower.stop(); ms = 1
+  } finally { vi.useRealTimers() }
+})
+
+it('never links to a parent hash held at another height', async () => {
+  const f = fixture()
+  for (let n = 1; n <= 3; n++) await f.follower.ingest(header(0, n))
+  // Block 9 names block 2's hash as its parent: no valid chain has that shape.
+  await f.follower.ingest({number: 9n, hash: H(0, 9), parentHash: H(0, 2), timestamp: 1009n})
+  expect(f.follower.gaps()).toBe(1)
+  await f.follower.ingestFinalized(header(0, 9))
+  expect(f.follower.isCanonical(f.at(header(0, 2)))).toBeUndefined()
 })

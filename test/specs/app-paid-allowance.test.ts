@@ -333,7 +333,7 @@ describe('debit quote block from a followed head', () => {
     const follower = createHeadFollower(client, {finality: 'instant', liveAfterMs: 1000, now: () => ms})
     attachHeadFollower(client, follower)
     try {
-      await follower.ingest({number: 21n, hash: h(0x91), parentHash: h(0x90), timestamp: BigInt(clock)})
+      await follower.ingestFinalized({number: 21n, hash: h(0x91), parentHash: h(0x90), timestamp: BigInt(clock)}); await follower.ingest({number: 21n, hash: h(0x91), parentHash: h(0x90), timestamp: BigInt(clock)})
       vi.mocked(client.getBlock).mockClear()
       const p = await payment(allowance, 0x51)
       await reserving(env.store, p)

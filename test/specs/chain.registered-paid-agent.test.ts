@@ -852,7 +852,7 @@ it('checks the provider before every agent request at the followed head, and at 
   const follower=createHeadFollower(client,{finality:'instant',liveAfterMs:1000,now:()=>clock})
   attachHeadFollower(client,follower)
   try{
-    await follower.ingest({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n})
+    await follower.ingestFinalized({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n}); await follower.ingest({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n})
     const getService=vi.mocked(f.chain.readers.serviceRegistry.getService);getService.mockClear()
     await f.session.create()
     expect(getService).not.toHaveBeenCalled()
@@ -860,7 +860,7 @@ it('checks the provider before every agent request at the followed head, and at 
     expect(pinned.length).toBeGreaterThan(0)
     // A registration changed in the next followed block refuses before the request.
     record.endpoint='https://elsewhere.example'
-    await follower.ingest({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n})
+    await follower.ingestFinalized({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n}); await follower.ingest({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n})
     const prepared=await f.prepare()
     await expect(prepared.create()).rejects.toThrow(/provider changed/)
     record.endpoint=f.record.endpoint
@@ -902,16 +902,16 @@ it('drops a reused authentication at the first followed head whose registration 
   const follower=createHeadFollower(client,{finality:'instant',now:()=>Date.now()})
   attachHeadFollower(client,follower)
   try{
-    await follower.ingest({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n})
+    await follower.ingestFinalized({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n}); await follower.ingest({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n})
     await f.prepare();await f.prepare()
     // Reused at the followed head while the registration there is unchanged.
     expect(authenticateApprovedService).toHaveBeenCalledTimes(1)
     // The owner rotates the auth key in block 41: the followed head drops the authentication.
     record.authKey=h(71,20)
-    await follower.ingest({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n})
+    await follower.ingestFinalized({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n}); await follower.ingest({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n})
     await new Promise(r=>setTimeout(r,0))
     record.authKey=f.record.authKey
-    await follower.ingest({number:42n,hash:h(42),parentHash:h(41),timestamp:1002n})
+    await follower.ingestFinalized({number:42n,hash:h(42),parentHash:h(41),timestamp:1002n}); await follower.ingest({number:42n,hash:h(42),parentHash:h(41),timestamp:1002n})
     await f.prepare()
     expect(authenticateApprovedService).toHaveBeenCalledTimes(2)
   }finally{unfollowHeads(client)}
@@ -997,13 +997,13 @@ it('with a head follower: a provider mismatch at a newer head drops the reused a
   const follower=createHeadFollower(client,{finality:'instant',now:()=>Date.now()})
   attachHeadFollower(client,follower)
   try{
-    await follower.ingest({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n})
+    await follower.ingestFinalized({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n}); await follower.ingest({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n})
     const first=await f.prepare();await first.create()
-    await follower.ingest({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n})
+    await follower.ingestFinalized({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n}); await follower.ingest({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n})
     log.length=0
     await expect(first.poll()).rejects.toThrow(/provider changed/)
     expect(log).toEqual([])
-    await follower.ingest({number:42n,hash:h(42),parentHash:h(41),timestamp:1002n})
+    await follower.ingestFinalized({number:42n,hash:h(42),parentHash:h(41),timestamp:1002n}); await follower.ingest({number:42n,hash:h(42),parentHash:h(41),timestamp:1002n})
     const second=await f.prepare();await second.create()
     expect(log).toEqual(['authenticate','request /v1/sessions'])
     // Every provider read was pinned to a followed head; none read latest by RPC.

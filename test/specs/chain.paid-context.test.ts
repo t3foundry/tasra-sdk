@@ -355,7 +355,7 @@ it('serves a repeated discovery at a followed, vouched-for head from the block-p
   const follower = createHeadFollower(f.client, {finality: 'instant', now: () => 1_000_000})
   attachHeadFollower(f.client, follower)
   try {
-    await follower.ingest({number: 20n, hash: h(20), parentHash: h(21), timestamp: 1000n})
+    await follower.ingestFinalized({number: 20n, hash: h(20), parentHash: h(21), timestamp: 1000n}); await follower.ingest({number: 20n, hash: h(20), parentHash: h(21), timestamp: 1000n})
     const first = await f.run()
     // Let the slot's pre-read (registered by the first discovery) settle.
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -389,7 +389,7 @@ describe('observation from a followed head', () => {
   it('takes the head and the canonical recheck from a live, vouching follower: no head or recheck RPC', async () => {
     now(); const f = fixture(), follower = followed(f, {ms: 0})
     try {
-      await follower.ingest(head(19, h(19), h(18))); await follower.ingest(head(20, h(20), h(19)))
+      await follower.ingest(head(19, h(19), h(18))); await follower.ingest(head(20, h(20), h(19))); await follower.ingestFinalized(head(20, h(20), h(19)))
       expect((await f.run()).blockHash).toBe(h(20))
       expect(heads(f)).toBe(0)
     } finally { unfollowHeads(f.client) }
@@ -398,7 +398,7 @@ describe('observation from a followed head', () => {
   it('falls back to the RPC head when the follower is not live', async () => {
     now(); const clock = {ms: 0}, f = fixture(), follower = followed(f, clock)
     try {
-      await follower.ingest(head(20, h(20), h(19))); clock.ms = 5000
+      await follower.ingest(head(20, h(20), h(19))); await follower.ingestFinalized(head(20, h(20), h(19))); clock.ms = 5000
       await f.run()
       expect(heads(f)).toBe(2)
     } finally { unfollowHeads(f.client) }
@@ -419,7 +419,7 @@ describe('observation from a followed head', () => {
       const f = fixture({onCall: () => { if (!once && ref.follower) { once = true; c.during(ref.follower, clock) } }})
       const follower = ref.follower = followed(f, clock)
       try {
-        await follower.ingest(head(19, h(19), h(18))); await follower.ingest(head(20, h(20), h(19)))
+        await follower.ingest(head(19, h(19), h(18))); await follower.ingest(head(20, h(20), h(19))); await follower.ingestFinalized(head(20, h(20), h(19)))
         await f.run()
         // The head came from the follower; the recheck went to the RPC (one canonical read by number).
         expect(heads(f), c.name).toBe(1)
@@ -432,7 +432,7 @@ describe('observation from a followed head', () => {
     const f = fixture({orphan: true, onCall: () => { if (!once && ref.follower) { once = true; void ref.follower.ingest(head(20, h(97), h(19))) } }})
     const follower = ref.follower = followed(f, clock)
     try {
-      await follower.ingest(head(19, h(19), h(18))); await follower.ingest(head(20, h(20), h(19)))
+      await follower.ingest(head(19, h(19), h(18))); await follower.ingest(head(20, h(20), h(19))); await follower.ingestFinalized(head(20, h(20), h(19)))
       // The fixture answers its second head read with another hash: consume the first.
       await f.client.getBlock({blockTag: 'latest'})
       await expect(f.run()).rejects.toThrow(/reorganized/)
@@ -447,7 +447,8 @@ it('answers an in-flight request\'s client policy check at a followed head from 
   const follower = createHeadFollower(source as unknown as typeof f.client, {finality: 'instant', now: () => 1_000_000})
   attachHeadFollower(f.client, follower)
   try {
-    await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+    await follower.ingest({number: 19n, hash: h(19), parentHash: h(18), timestamp: 990n})
+    await follower.ingestFinalized({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n}); await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
     // The slot's interest comes from a discovery; the request's from followPaidRequest (as paidOperation does).
     await f.run()
     followPaidRequest(f.client, f.deployment, payment)
@@ -468,7 +469,7 @@ it('pre-reads a new in-flight request at the current followed head, before any c
   const follower = createHeadFollower(f.client, {finality: 'instant', now: () => 1_000_000})
   attachHeadFollower(f.client, follower)
   try {
-    await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+    await follower.ingestFinalized({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n}); await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
     followPaidRequest(f.client, f.deployment, payment)
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(f.calls.filter(c => c.name === 'prepaidCost' || c.name === 'prepaidSettled' || c.name === 'prepaidRefunded').map(c => c.name).sort())
@@ -476,21 +477,22 @@ it('pre-reads a new in-flight request at the current followed head, before any c
   } finally { unfollowHeads(f.client) }
 })
 
-it('rechecks a kept assignment block by RPC unless the follower is live under declared instant finality', async () => {
-  for (const [finality, liveMs, rechecks] of [['probabilistic', 0, true], ['instant', 10_000, true], ['instant', 0, false]] as const) {
+it('re-proves the paid-epoch anchor at every use unless the follower vouches for that exact block', async () => {
+  // [holds block 19 (the assignment block), finalized 20] vouches; [holds only 20] or [finalized 19 unknown] does not.
+  for (const [name, hold19, finalize, rechecks] of [['vouched', true, true, false], ['not held', false, true, true], ['not finalized', true, false, true]] as const) {
     now()
-    let ms = 0
     const f = fixture(), payment = reservedPayment()
-    const follower = createHeadFollower(f.client, {finality, liveAfterMs: 2000, now: () => ms})
+    const follower = createHeadFollower(f.client, {finality: 'instant', now: () => 0})
     attachHeadFollower(f.client, follower)
     try {
+      if (hold19) await follower.ingest({number: 19n, hash: h(19), parentHash: h(18), timestamp: 990n})
       await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+      if (finalize) await follower.ingestFinalized({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
       await readClientExecutionPolicy(f.client, f.deployment, payment, intendedWork)
-      ms = liveMs
       const before = f.calls.length
       await readClientExecutionPolicy(f.client, f.deployment, payment, intendedWork)
       const byNumber = f.calls.slice(before).filter(c => c.method === 'eth_getBlockByNumber' && (c.params as [string])[0] === '0x13')
-      expect(byNumber.length > 0, `${finality} live=${liveMs === 0}`).toBe(rechecks)
+      expect(byNumber.length > 0, name).toBe(rechecks)
     } finally { unfollowHeads(f.client) }
   }
 })
@@ -510,5 +512,24 @@ it('pre-reads the accountant group key at each followed head, so a debit quoted 
 })
 async function headFollowerIngest(f: ReturnType<typeof fixture>, n: number) {
   const {headFollowerOf} = await import('../../src/chain/headFollower.js')
-  await headFollowerOf(f.client)!.ingest({number: BigInt(n), hash: h(n), parentHash: h(n - 1), timestamp: 1000n})
+  await headFollowerOf(f.client)!.ingestFinalized({number: BigInt(n), hash: h(n), parentHash: h(n - 1), timestamp: 1000n}); await headFollowerOf(f.client)!.ingest({number: BigInt(n), hash: h(n), parentHash: h(n - 1), timestamp: 1000n})
 }
+
+it('never caches block-pinned answers at a followed head that is not yet finalized', async () => {
+  now()
+  const f = fixture()
+  const follower = createHeadFollower(f.client, {finality: 'instant', now: () => 1_000_000})
+  attachHeadFollower(f.client, follower)
+  try {
+    await follower.ingest({number: 19n, hash: h(19), parentHash: h(18), timestamp: 990n})
+    await follower.ingestFinalized({number: 19n, hash: h(19), parentHash: h(18), timestamp: 990n})
+    // latest (20) is ahead of finalized (19): a processing block that could still be rejected.
+    await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+    await f.run(); await new Promise(resolve => setTimeout(resolve, 0))
+    const before = f.calls.filter(c => c.method === 'eth_call').length
+    await f.run()
+    expect(f.calls.filter(c => c.method === 'eth_call').length - before).toBeGreaterThan(10)
+    // And its canonicality is rechecked by RPC.
+    expect(f.calls.filter(c => c.method === 'eth_getBlockByNumber').length).toBeGreaterThan(0)
+  } finally { unfollowHeads(f.client) }
+})

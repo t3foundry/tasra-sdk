@@ -20,6 +20,8 @@ function registry(client: PublicClient): Registry | undefined {
   if (!r) {
     const interests = new Map<string, Interest>()
     const unsubscribe = follower.onHead(tip => {
+      // Nothing is pre-read at a head the follower does not vouch for: its answers could never be served.
+      if (follower.isCanonical(tip) !== true) return
       const now = Date.now()
       for (const [key, interest] of interests) {
         if (interest.until <= now) { interests.delete(key); continue }
@@ -48,7 +50,7 @@ export function registerHeadPrefetch(client: PublicClient, key: string, read: (t
   if (known) return
   // A new interest reads the current tip at once too: the next operation finds it warm.
   const tip = r.follower.tip()
-  if (tip) void read(tip).catch(() => {})
+  if (tip && r.follower.isCanonical(tip) === true) void read(tip).catch(() => {})
 }
 
 /** Stop pre-reading for `key`. */
