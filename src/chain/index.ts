@@ -17,7 +17,7 @@ export type {OriginalVerifierPolicy} from './verifierSnapshot.js'
 export type {BillingMode, BillingModeObservation, BillingDeployment, BillingModeDetector} from './billing.js'
 export type {PrepaidDeployment, PrepaidObservation, SlotFunding, PaidOperationReceipt, ExpectedPaidOperation, PaidKeeperEndpoint, PaidKeeperTarget, PaidKeeperTransportOptions,
   PaidContextDeployment, PaidContextOptions, DiscoveredPaymentFields, PaidOperationContext} from './prepaid.js'
-export {reservePaidOperation, reconcilePaidReservation, PaidReservationUncertainError, PaidReservationAbortedError} from './reservation.js'
+export {reservePaidOperation, reconcilePaidReservation, PaidReservationUncertainError, PaidReservationAbortedError, PaidReservationStaleEpochError} from './reservation.js'
 export type {PaidReservationQuote, PaidReservationRecord, PaidReservationCheckpoint, ReservePaidOperationOptions, PaidReservationResolution} from './reservation.js'
 // ADR-0090 prepaid allowances: reserve once, debit per operation by accountant-quorum voucher.
 export {reservePrepaidAllowance, reconcilePrepaidAllowance, readPrepaidAllowance, prepaidAllowanceId, collectDebitVoucher, verifyDebitVoucher, readAccountantGroupKey,

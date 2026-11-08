@@ -145,8 +145,26 @@ export class PaidReservationUncertainError extends Error {
   }
 }
 
+/**
+ * The accountant's `prepare` refused the intent because its signed verifier epoch is no longer the
+ * beacon's current or previous one (the reservation waited past an epoch tick). Nothing was recorded
+ * or sent, and this intent can never be accepted again: only a fresh intent at the current epoch can.
+ */
+export class PaidReservationStaleEpochError extends Error {
+  /** Stable machine-readable reason. */
+  readonly code = 'stale-verification-epoch' as const
+  constructor(readonly verificationEpoch: number) {
+    super(`accountant refused verifier epoch ${verificationEpoch} as no longer current or previous; nothing was sent`)
+    this.name = 'PaidReservationStaleEpochError'
+  }
+}
+
 const HEX32 = /^0x[0-9a-f]{64}$/i
 const MAX_BODY = 64 * 1024
+/** The accountant's fixed 503 reason for an intent epoch outside {latest-1, latest} (assignments.rs). */
+const STALE_EPOCH_REASON = 'reservation verifier epoch is not current or previous'
+/** Longest 503 reason read; the accountant's reasons are one short line. */
+const MAX_REASON = 512
 const now = () => Math.floor(Date.now() / 1000)
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 function live(payment: PaymentIntentWire, quote?: PaidReservationQuote): void {
@@ -319,6 +337,28 @@ export function untilAborted<T>(work: Promise<T>, signal: AbortSignal | undefine
     work.then(value => {signal.removeEventListener('abort', abort); resolve(value)}, (error: unknown) => {signal.removeEventListener('abort', abort); reject(error)})
   })
 }
+/** At most `limit` bytes of a refusal body as text, '' when unreadable; the rest is cancelled. */
+async function boundedText(response: Response, limit: number): Promise<string> {
+  if (!response.body) return ''
+  const reader = response.body.getReader(), chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    while (size < limit) {
+      const {done, value} = await reader.read()
+      if (done) break
+      chunks.push(value.subarray(0, limit - size))
+      size += Math.min(value.length, limit - size)
+    }
+  } catch { return '' } finally {
+    void reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
+  return new TextDecoder().decode(bytes)
+}
+
 /** Ceiling on how long one `prepare` may wait out the accountant's reservation quota, ms. */
 const PREPARE_RETRY_BUDGET_MS = 150_000
 /** Least time a REPEATED prepare must have left in its window; its HTTP timeout is then the time left. */
@@ -372,6 +412,10 @@ async function ask(endpoint: string, method: 'prepare' | 'authorize', payment: P
     try { await backoff.wait(429, hint, signal) } catch (cause) { throw quota(cause) }
   }
   if (!response.ok) {
+    // Only an unpinned prepare picks its quote block, so only it can find the signed epoch stale.
+    if (method === 'prepare' && block === null && response.status === 503 && (await boundedText(response, MAX_REASON)).includes(STALE_EPOCH_REASON)) {
+      throw new PaidReservationStaleEpochError(payment.verification_epoch)
+    }
     void response.body?.cancel().catch(() => {})
     if (response.status >= 500 && response.status < 600) throw new AccountantUnavailableError(`accountant reservation request refused (${response.status})`)
     if (response.status === 402) throw new UnderfundedSlotError({slotId: payment.slot, status: 402,

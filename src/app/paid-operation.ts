@@ -28,6 +28,7 @@ import type {ApprovedAgentProfile} from '../chain/registeredAgent.js'
 import {createKeeperExecutionApprover} from '../chain/keeperExecution.js'
 import {recoverKeeperExecution, type KeeperRecoveryTransport, type RecoveredKeeperExecution} from '../chain/keeperRecovery.js'
 import {ruleCommitment} from '../chain/write.js'
+import {PaidReservationStaleEpochError} from '../chain/reservation.js'
 import {loadPaidReservationJournal} from './paid-journal.js'
 import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, ApplicationPayerRecoveryError,
   type ApplicationReservationState} from './paid-reservation.js'
@@ -538,13 +539,30 @@ async function ibePartial(resultJson: string, nodeUrl: string, record: Operation
  */
 export async function paidOperation(config: PaidOperationConfig, request: PaidOperationRequest): Promise<PaidOperation> {
   validateConfig(config)
-  if (!config.allowances?.enabled) return paidOperationAttempt(config, request, false)
+  if (!config.allowances?.enabled) return paymentAttempt(config, request, false)
   // ADR-0090: at most one allowance attempt; a definite refusal (journaled `failed`, no voucher)
   // falls back to a fresh per-operation payment with its own request ID.
   try { return await paidOperationAttempt(config, request, true) }
   catch (error) {
     if (!(error instanceof AllowanceFallback)) throw error
-    return paidOperationAttempt(config, request, false)
+    return paymentAttempt(config, request, false)
+  }
+}
+
+/**
+ * One per-operation payment, re-signed at most once when its reservation waited (for the payer
+ * or the accountant) past a beacon tick: the accountant refused the signed verifier epoch before
+ * recording anything and nothing was sent, so the unsent journal is closed and a fresh discovery
+ * signs a new intent (its own request ID, reported again through `onRequestId`) that every check
+ * judges at the current epoch. The accountant's {latest-1, latest} window is unchanged.
+ */
+async function paymentAttempt(config: PaidOperationConfig, request: PaidOperationRequest, useAllowance: boolean): Promise<PaidOperation> {
+  try { return await paidOperationAttempt(config, request, useAllowance) }
+  catch (error) {
+    if (!(error instanceof PaidOperationRecoveryError) || error.code !== 'reservation-refused' || !error.resumable
+      || !(error.cause instanceof PaidReservationStaleEpochError)) throw error
+    await abandonPaidOperation(config.store, error.requestId, {reason: 'verifier epoch went stale before the reservation was sent; replaced by a fresh payment'})
+    return paidOperationAttempt(config, request, useAllowance)
   }
 }
 

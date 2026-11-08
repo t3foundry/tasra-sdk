@@ -58,7 +58,7 @@ import {assembleCompoundToken, compoundTokenHash, decodeCompoundToken, selectVer
   type CompoundTokenWire} from '../../src/committee/token.js'
 import {statusRefreshHash, statusRefreshHolderSigner} from '../../src/committee/status-refresh.js'
 import {decodeJson, p256HolderKey, verifyCompactJws, type Jwk} from '../../src/oid4vp/jose.js'
-import {PaidReservationAbortedError, PaidReservationUncertainError} from '../../src/chain/reservation.js'
+import {PaidReservationAbortedError, PaidReservationStaleEpochError, PaidReservationUncertainError} from '../../src/chain/reservation.js'
 import {verifierAgentResult} from '../../src/oid4vp/verifier-agent.js'
 import {createExecutionCertificate} from '../../src/committee/execution.js'
 import {recoverKeeperExecution} from '../../src/chain/keeperRecovery.js'
@@ -561,6 +561,28 @@ describe('paid operation error classification', () => {
     const expiredError = await paidOperation(k.config, k.request).catch((e: unknown) => e)
     vi.restoreAllMocks()
     expect(expiredError).toMatchObject({code: 'reservation-refused', resumable: false})
+  })
+
+  it('re-signs once at the current epoch when the reservation waited past a beacon tick, closing the unsent journal', async () => {
+    const f = setup(), ids: Hex[] = []
+    vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new PaidReservationStaleEpochError(7))
+    const op = await paidOperation(f.config, {...f.request, onRequestId: (id: Hex) => { ids.push(id) }})
+    expect(vi.mocked(discoverPaidOperationContext)).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(reserveApplicationPayment)).toHaveBeenCalledTimes(2)
+    expect(ids).toHaveLength(2); expect(ids[0]).not.toBe(ids[1])
+    expect(op.requestId).toBe(ids[1])
+    expect(await paidOperationPhase(f.store, ids[0]!)).toBe('abandoned')
+    await expect(resumePaidOperation(f.config, ids[0]!, {holder: f.holder})).rejects.toThrow()
+    // Only once: a second stale refusal is reported, resumable, like any refused reservation.
+    const g = setup()
+    vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new PaidReservationStaleEpochError(7)).mockRejectedValueOnce(new PaidReservationStaleEpochError(8))
+    expect(await paidOperation(g.config, g.request).catch((e: unknown) => e)).toMatchObject({phase: 'reservation', code: 'reservation-refused', resumable: true})
+    expect(vi.mocked(reserveApplicationPayment)).toHaveBeenCalledTimes(4)
+    // Other refusals are never re-signed.
+    const k = setup()
+    vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new UnderfundedSlotError({slotId: slot, status: 402, url: 'https://a', message: 'x'}))
+    expect(await paidOperation(k.config, k.request).catch((e: unknown) => e)).toMatchObject({code: 'reservation-refused'})
+    expect(vi.mocked(reserveApplicationPayment)).toHaveBeenCalledTimes(5)
   })
 
   it('codes resume outcomes and execution uncertainty', async () => {

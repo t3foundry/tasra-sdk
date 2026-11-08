@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createPublicClient, createWalletClient, custom, decodeFunctionData, defineChain, encodeAbiParameters, encodeFunctionData, encodeFunctionResult, keccak256, parseTransaction, toHex, type Abi, type Hex, type TransactionSerialized} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {PaidReservationAbortedError, PaidReservationUncertainError, reservePaidOperation, reconcilePaidReservation, type PaidReservationRecord, type PaidReservationCheckpoint, type PaidReservationQuote, type ReservePaidOperationOptions} from '../../src/chain/reservation.js'
+import {PaidReservationAbortedError, PaidReservationStaleEpochError, PaidReservationUncertainError, reservePaidOperation, reconcilePaidReservation, type PaidReservationRecord, type PaidReservationCheckpoint, type PaidReservationQuote, type ReservePaidOperationOptions} from '../../src/chain/reservation.js'
 import {paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {createFileStore} from '../../src/app/node.js'
 import {createPaidReservationJournal} from '../../src/app/paid-journal.js'
@@ -824,6 +824,22 @@ it('all unavailable members stop before any journal or broadcast', async () => {
   expect(seen).toHaveLength(2)
   expect(new Set(seen.map(s => s.url)).size).toBe(2)
   expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+it('a stale-epoch prepare refusal is typed and final for this intent: no failover, journal or broadcast', async () => {
+  const stale = 'reservation assignments unavailable: reservation verifier epoch is not current or previous'
+  const f = await fixture(), seen = quorumHttp(f, () => new Response(stale, {status: 503}))
+  const error: unknown = await f.run({accountantUrls: quorumUrls}).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(PaidReservationStaleEpochError)
+  expect(error).toMatchObject({code: 'stale-verification-epoch', verificationEpoch: 7})
+  expect(seen).toHaveLength(1) // every member judges the same epoch: asking another cannot help
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+  // Any other 503 keeps its meaning: an unavailable member, skipped for the next one.
+  const g = await fixture(), other = quorumHttp(g, () => new Response('reservation assignments unavailable: rpc timeout', {status: 503}))
+  const unavailable: unknown = await g.run({accountantUrls: quorumUrls}).catch((e: unknown) => e)
+  expect(unavailable).not.toBeInstanceOf(PaidReservationStaleEpochError)
+  expect(unavailable).toBeInstanceOf(Error)
+  expect(other).toHaveLength(3)
 })
 
 it('a caller abort during an unavailable response stops collection without failover', async () => {
