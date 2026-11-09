@@ -143,6 +143,28 @@ describe('session grant lifecycle (ADR-0090 D7, SDK)', () => {
     expect(calls).toEqual([1])
   })
 
+  it('refuses a refresh reply that does not move the grant, so refreshForEpoch never reports success without moving (C8 review F5)', async () => {
+    const now = T0 + 5
+    let mode: 'same' | 'same-epoch' = 'same'
+    const ctx: {key?: SessionKeyHandle} = {}
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as {seq: number}
+      // 'same': the agent answers with the grant the client already holds (iat T0, epoch 42).
+      const g = mode === 'same' ? grant(ctx.key!, {iat: T0}) : grant(ctx.key!, {iat: now})
+      return reply(200, {session_grant: g, refresh_seq: body.seq})
+    }) as unknown as typeof fetch
+    const o = await opened({clock: () => now, fetchImpl})
+    ctx.key = o.key
+    const held = o.session.current()
+    await expect(o.session.refresh()).rejects.toMatchObject({code: 'refresh-unchanged'})
+    await expect(o.session.refreshForEpoch(43n)).rejects.toMatchObject({code: 'refresh-unchanged'})
+    expect(o.session.current()).toEqual(held)
+    // A newer grant still on the old epoch is a valid refresh, but not a move to the beacon's epoch.
+    mode = 'same-epoch'
+    await expect(o.session.refreshForEpoch(43n)).rejects.toThrow(/stayed on epoch 42/)
+    expect(o.session.current().epoch).toBe(42)
+  })
+
   it('refuses a grant drawn on a seed that is not the beacon seed of its epoch (C8 review F4)', async () => {
     const key = await createSessionKey({alg: 'Ed25519'})
     const fragment = sessionGrantCreateFragment(key, {slots: [slotA, slotB], accessTtlSecs: 40, idleTimeoutSecs: 600, absoluteTtlSecs: 3600})
