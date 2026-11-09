@@ -273,6 +273,20 @@ supports ADR-0090: the network advertises no capability for it, so the option is
 - **Journal.** The lane journals the sequence, request and quote block before any request, then
   the partials and the voucher. A resume asks for the same sequence and request, so a member
   that already signed returns the same partial.
+- **Open the lanes first.** Without it the first operation on each cold lane finds no allowance
+  and pays for the lane's opening inside itself (or falls back to a per-operation reservation).
+  Open them once, like loading a card, before user operations:
+
+  ```ts
+  const {lanes} = await prepareAllowances(config, {slot}) // every lane; or {slot, lanes: [0, 1]}
+  for (const l of lanes) if (l.outcome === 'failed') console.warn(`lane ${l.lane} not opened`, l.error)
+  ```
+
+  Each lane is reserved through the same journaled reservation as a background top-up, with its
+  own fresh discovery, at most `concurrency` (default 4) at once on the dedicated payer. A lane
+  reports `reserved`, `not-needed` (already open: nothing read or sent, so the call is
+  idempotent), `pending` (broadcast, outcome uncertain; reconciled later, never re-signed),
+  `failed` (that lane only) or `cancelled` (`signal`). Draw lanes are not opened here.
 - **Top-up.** Allowances are fixed-amount and live at most an hour. A replacement is reserved in
   the background once the remainder is below 25 % or less than 10 minutes remain, using the same
   dedicated gas payer and durable payer claim as reservations.

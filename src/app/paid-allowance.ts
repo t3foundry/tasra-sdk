@@ -309,6 +309,8 @@ const refillingDraw = new Map<string, DrawFields>()
 const MAX_REFILLING = 256
 /** How long an operation with no usable lane waits for this slot's in-flight lane reservation. */
 const LANE_WAIT_MS = 20_000
+/** Most times {@link prepareAllowanceLane} waits for a lane reservation already running before it gives up. */
+const PREPARE_ROUNDS = 8
 const cursors = new Map<string, number>()
 
 /**
@@ -601,6 +603,52 @@ function refillLane(env: AllowanceEnv, context: PaidOperationContext, lane: numb
 export async function reserveForLane(env: AllowanceEnv, context: PaidOperationContext, lane: number, signal?: AbortSignal): Promise<'reserved' | 'pending' | 'not-needed'> {
   const outcome = await reserveOnLane(env, context, lane, regularPlan(env), signal)
   return outcome === 'capped' ? 'not-needed' : outcome
+}
+
+/**
+ * Open one regular lane ahead of its first operation (see `prepareAllowances` in paid-operation.ts).
+ * The reservation is {@link reserveForLane}'s, journaled phase by phase exactly as a background
+ * refill: no other path. Before anything is discovered or signed:
+ * - a reservation of this lane already running in this process (an operation's refill) is awaited,
+ *   never doubled, and the lane judged again after it;
+ * - a lane that needs nothing (a usable confirmed allowance, or a confirmed one reserved ahead)
+ *   reports `not-needed` without a discovery, a signature or a send.
+ * Otherwise `discover` is called for a FRESH context (never one cached across lanes) and the lane is
+ * reserved; the reservation is registered as this lane's refill, so an operation selecting meanwhile
+ * waits for it (bounded) instead of starting its own.
+ * @param env - Allowance environment.
+ * @param slot - Slot.
+ * @param lane - Regular lane index, 0..lanes-1.
+ * @param discover - Fresh discovery for the slot (`fundedByAllowance`), called at most once per reservation.
+ * @param signal - Cancellation (honoured until the reservation is prepared; afterwards it is reconciled).
+ */
+export async function prepareAllowanceLane(env: AllowanceEnv, slot: Hex, lane: number, discover: () => Promise<PaidOperationContext>, signal?: AbortSignal):
+  Promise<'reserved' | 'pending' | 'not-needed'> {
+  if (!HEX32.test(slot)) throw new TasraError('Invalid allowance slot')
+  if (!Number.isSafeInteger(lane) || lane < 0 || lane >= allowanceLaneCount(env.options)) throw new TasraError('Allowance lane out of range')
+  const key = laneKey(env.deployment, slot, lane)
+  // Bounded: operations that keep restarting a failing refill of this lane leave it to them.
+  for (let round = 0; ; round++) {
+    signal?.throwIfAborted()
+    if (round >= PREPARE_ROUNDS) throw new AllowanceUnavailableError('the lane is being reserved by operations; inspect it once they settle')
+    const running = refilling.get(key)
+    if (running) { await running; continue }
+    const state = await loadLane(env.store, key, lane, slot)
+    // An uncertain earlier reservation is reconciled by reserveForLane before anything new is signed.
+    const uncertain = state.next?.record !== undefined && state.next.phase !== 'confirmed'
+    if (!uncertain && !regularPlan(env).needed(state)) return 'not-needed'
+    const context = await discover()
+    signal?.throwIfAborted()
+    const f = context.intentFields
+    if (!same(f.slot, slot) || f.chain_id !== env.deployment.chainId || !same(f.settlement, env.deployment.settlement)) throw new TasraError('Discovery is for another slot or deployment')
+    // An operation's refill started while discovering: judge the lane again once it ends.
+    if (refilling.has(key)) continue
+    const work = reserveForLane(env, context, lane, signal)
+    const tracked = work.then(() => {}, () => {}).finally(() => { if (refilling.get(key) === tracked) { refilling.delete(key); refillingDraw.delete(key) } })
+    refilling.set(key, tracked)
+    refillingDraw.set(key, f)
+    return await work
+  }
 }
 
 /** What one lane reservation reserves and when it takes over (regular lanes and draw lanes differ). */

@@ -9,6 +9,13 @@ never does.
 
 ### Added
 
+- `prepareAllowances(config, {slot, lanes?, concurrency?, coordinator?, signal?})` (`tasra-sdk/app`):
+  open a slot's ADR-0090 allowance lanes before its first paid operation, so no user operation
+  pays a lane's opening (reservation transactions and receipts) inside itself. Each lane goes
+  through the journaled lane reservation (fresh discovery per lane, dedicated payer, durable payer
+  claim) and reports `reserved`, `not-needed` (nothing read or sent: idempotent), `pending`,
+  `failed` or `cancelled`; one lane's failure never marks another. Additive; no existing
+  signature changes.
 - ADR-0090 prepaid allowances behind `PaidOperationConfig.allowances` (default off): a pool
   of allowance lanes reserved ahead (`reservePrepaidAllowance`), per-operation accountant
   debit vouchers (`collectDebitVoucher`, BN254 partials verified and combined client side,

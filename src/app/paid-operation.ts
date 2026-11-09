@@ -54,7 +54,7 @@ import {PaidApprovalUnresolvedError, RevocationStatusPreflightError, StatusRefre
 import {base64Decode} from '../crypto/envelope.js'
 import type {IbeExtractionPartial} from '../committee/client.js'
 import {HEX32, RECORD_KEY, RECORD_PREFIX, paidRecordKey as recordKey} from './paid-keys.js'
-import {AllowanceRefusedError, journaledAllowanceVoucher, obtainAllowanceVoucher, selectAllowanceLane, validateAllowanceOptions,
+import {AllowanceRefusedError, allowanceLaneCount, journaledAllowanceVoucher, obtainAllowanceVoucher, prepareAllowanceLane, selectAllowanceLane, validateAllowanceOptions,
   type AllowanceEnv, type PaidAllowanceOptions} from './paid-allowance.js'
 import {withCommit, type LockedCommit} from './store-commit.js'
 
@@ -589,6 +589,107 @@ function allowanceEnv(config: PaidOperationConfig): AllowanceEnv | undefined {
     // ADR-0090 D7 reserve-ahead: the next draw, verified exactly as a session message's pinned discovery.
     discover: (slot, epoch) => discoverPaidOperationContext(config.chain.client, d, slot, {allowLocalHttp: config.allowLocalHttp,
       defaultVerificationPolicy: d.defaultVerificationPolicy, fundedByAllowance: true, verificationEpoch: epoch})}
+}
+
+/** Which lanes of a slot {@link prepareAllowances} opens, and how. */
+export interface PrepareAllowancesRequest {
+  /** Slot whose allowance lanes to open. */
+  slot: Hex
+  /** Regular lane indices to open, each 0..lanes-1 and distinct (default every lane, see `allowanceLaneCount`). */
+  lanes?: readonly number[]
+  /**
+   * Lanes opened at once, 1..8 (default 4). Every reservation goes through the one dedicated gas
+   * payer queue, and each pins its own fresh discovery as its quote block, which the accountants
+   * accept for only 30 s: a lane that waits behind too many others in the queue is refused.
+   */
+  concurrency?: number
+  /** Coordinator to discover with (as {@link PaidOperationRequest.coordinator}). */
+  coordinator?: Address
+  /** Cancellation: lanes not yet started are reported `cancelled`; a started one is cancelled until its reservation is prepared. */
+  signal?: AbortSignal
+}
+
+/**
+ * What {@link prepareAllowances} did for one lane:
+ * - `reserved`: an allowance was reserved (confirmed) on the lane now;
+ * - `not-needed`: the lane already had a usable confirmed allowance (or one reserved ahead); nothing was discovered, signed or sent;
+ * - `pending`: a reservation of the lane is uncertain (broadcast, outcome unknown); a later call or operation reconciles it, never re-signs beside it;
+ * - `failed`: the reservation failed (`error`); nothing of it is left on the lane unless it was broadcast (then `pending` next time);
+ * - `cancelled`: the signal ended it before its reservation was prepared, or before it started.
+ */
+export type PreparedAllowanceOutcome = 'reserved' | 'pending' | 'not-needed' | 'failed' | 'cancelled'
+
+/** One lane's result of {@link prepareAllowances}. */
+export interface PreparedAllowanceLane {
+  /** Lane index. */
+  lane: number
+  /** What happened on the lane. */
+  outcome: PreparedAllowanceOutcome
+  /** The failure, for `failed` (and the abort reason for a `cancelled` lane that had started). */
+  error?: unknown
+}
+
+/** The result of {@link prepareAllowances}, one entry per requested lane, in request order. */
+export interface PreparedAllowances {
+  /** Slot. */
+  slot: Hex
+  /** Per-lane outcomes. */
+  lanes: PreparedAllowanceLane[]
+}
+
+/**
+ * ADR-0090: open (reserve) a slot's allowance lanes BEFORE its first paid operation, like loading
+ * a card, so no user operation waits for an allowance reservation (approve + reserve transactions
+ * and their receipts) inside it. Operations otherwise open a cold lane themselves: the first one on
+ * each lane then falls back to a per-operation reservation or waits for the lane.
+ *
+ * Each lane is reserved through the same journaled reservation as an operation's background refill
+ * (intent signed by the creator, `signing` → `prepared` → `submitted` → `confirmed` under the
+ * durable payer claim and the dedicated payer queue), with its own FRESH discovery (never a context
+ * cached across lanes); a lane that needs nothing is reported `not-needed` without any read or
+ * send, so the call is idempotent. A lane failure is reported on that lane only; the other lanes
+ * are unaffected. Never throws for a lane's outcome; throws only for invalid input or
+ * configuration, and when the signal was aborted before anything started.
+ *
+ * Draw lanes (session grants, ADR-0090 D7) are not opened here: their draw is known only once a
+ * grant exists.
+ * @param config Approved deployment, creator, gas payer, store, accountants, limits and `allowances` (enabled).
+ * @param request Slot, lanes, concurrency and cancellation.
+ */
+export async function prepareAllowances(config: PaidOperationConfig, request: PrepareAllowancesRequest): Promise<PreparedAllowances> {
+  validateConfig(config)
+  const env = allowanceEnv(config)
+  if (!env) throw new TasraError('Opening allowances needs the allowances option enabled')
+  const slot = request.slot, signal = request.signal ?? new AbortController().signal
+  if (!HEX32.test(slot)) throw new TasraError('Invalid paid operation slot')
+  const count = allowanceLaneCount(config.allowances!)
+  const lanes = request.lanes ? [...request.lanes] : Array.from({length: count}, (_, i) => i)
+  if (lanes.length === 0 || lanes.some(l => !Number.isSafeInteger(l) || l < 0 || l >= count) || new Set(lanes).size !== lanes.length) throw new TasraError(`Allowance lanes must be distinct indices 0..${count - 1}`)
+  const concurrency = request.concurrency ?? 4
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 8) throw new TasraError('Allowance concurrency must be 1..8')
+  signal.throwIfAborted()
+  if (config.billing) await config.billing.requirePrepaid(slot)
+  const d = {...config.deployment}, client = config.chain.client
+  // One fresh, canonical discovery per reservation, exactly as an allowance-funded operation discovers.
+  const discover = async () => {
+    const readiness = AbortSignal.any([signal, AbortSignal.timeout(config.snapshotWaitMs ?? 180_000)])
+    const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(client, d, slot,
+      {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator, fundedByAllowance: true}),
+    readiness, () => sleep(1_000, readiness))
+    if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
+    return context
+  }
+  const results: PreparedAllowanceLane[] = lanes.map(lane => ({lane, outcome: 'cancelled'}))
+  let next = 0
+  const worker = async () => {
+    while (next < lanes.length && !signal.aborted) {
+      const i = next++, lane = lanes[i]!
+      try { results[i] = {lane, outcome: await prepareAllowanceLane(env, slot, lane, discover, signal)} }
+      catch (error) { results[i] = signal.aborted ? {lane, outcome: 'cancelled', error} : {lane, outcome: 'failed', error} }
+    }
+  }
+  await Promise.all(Array.from({length: Math.min(concurrency, lanes.length)}, worker))
+  return {slot, lanes: results}
 }
 
 /** The allowance path refused this operation for good; it was journaled `failed` and is retried once per operation. */
