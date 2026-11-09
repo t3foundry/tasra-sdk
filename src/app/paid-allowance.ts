@@ -280,7 +280,7 @@ async function selectLane(env: AllowanceEnv, context: PaidOperationContext, oper
     const state = await loadLane(env.store, key, lane, slot)
     if (env.options.reserveAhead !== false && (low(state.current) || state.current?.phase !== 'confirmed') && !state.next) refillLane(env, context, lane)
     // Close to expiry the current allowance may see no further debit: make sure its last voucher reached the members.
-    if (state.current?.phase === 'confirmed' && state.current.seq > 0 && state.current.intent.expires_at - now() < LOW_LIFE_SECS) repushLast(env, state.current.id)
+    if (state.current?.phase === 'confirmed' && state.current.seq > 0 && state.current.intent.expires_at - now() < LOW_LIFE_SECS) repushLast(env, state.current)
     if (!chosen && (usable(state.current, env, context, operation.action, operation.expires) || (state.next?.phase === 'confirmed' && !state.current?.pending))) {
       const current = usable(state.current, env, context, operation.action, operation.expires) ? state.current! : await promote(env, key, lane, slot, context, operation)
       if (current) {
@@ -301,7 +301,7 @@ async function promote(env: AllowanceEnv, key: string, lane: number, slot: Hex, 
     const next: LaneCurrent = {...state.next, seq: 0, cumulative: '0'}
     if (!usable(next, env, context, operation.action, operation.expires)) return undefined
     await env.store.save(key, {...state, current: next, next: undefined, retired: retire(state)} satisfies LaneState)
-    repushLast(env, state.current?.id)
+    repushLast(env, state.current)
     return next
   })
 }
@@ -395,7 +395,7 @@ export async function reserveForLane(env: AllowanceEnv, context: PaidOperationCo
       if (s.next?.phase !== 'confirmed' || !same(s.next.id, id) || s.current?.pending) return
       if (s.current && s.current.phase === 'confirmed' && remaining(s.current) >= env.limits.maxCost && s.current.intent.expires_at - now() > LOW_LIFE_SECS / 2) return
       await store.save(key, {...s, current: {...s.next, seq: 0, cumulative: '0'}, next: undefined, retired: retire(s)} satisfies LaneState)
-      repushLast(env, s.current?.id)
+      repushLast(env, s.current)
     })
     return 'reserved'
   } catch (error) {
@@ -451,7 +451,7 @@ export async function obtainAllowanceVoucher(env: AllowanceEnv, ticket: {lane: n
       let state = await loadLane(store, key, ticket.lane, slot)
       const save = async (next: LaneState) => { await store.save(key, next); state = next }
       const retireLane = async (why: string, cause?: unknown): Promise<never> => {
-        const promoted = state.next?.phase === 'confirmed' ? {...state.next, seq: 0, cumulative: '0'} : undefined, retiring = state.current?.id
+        const promoted = state.next?.phase === 'confirmed' ? {...state.next, seq: 0, cumulative: '0'} : undefined, retiring = state.current
         await save({...state, current: promoted, next: promoted ? undefined : state.next, retired: retire(state)})
         repushLast(env, retiring)
         throw new AllowanceRefusedError(why, cause)
@@ -589,13 +589,27 @@ async function pushVoucher(env: AllowanceEnv, voucher: DebitVoucherWire): Promis
     })
   } catch { /* the operation never depends on the push */ }
 }
-/** Re-push an allowance's last voucher ONCE to the members that did not acknowledge it (lane retiring, allowance near expiry). Never throws. */
-function repushLast(env: AllowanceEnv, allowance: Hex | undefined): void {
-  if (!allowance) return
+/**
+ * Re-push an allowance's last voucher ONCE to the members that did not acknowledge it (lane
+ * retiring, allowance near expiry). Never throws.
+ *
+ * The push journal is written by the background push job (never on the operation's path), so a
+ * crash can lose it or leave an older seq's. The voucher it would name is durable anyway: the
+ * lane's `previous`, saved by `finalize` before the debit returned. When the journal is missing or
+ * older, that voucher stands in, acknowledged by no member, so an allowance's last voucher is
+ * re-pushed after a crash too, with no flush added to the debit path. Only the lost journal's
+ * acknowledgements are lost: a member that had acknowledged is asked again (an idempotent accept).
+ */
+function repushLast(env: AllowanceEnv, lane: LaneCurrent | undefined): void {
+  if (!lane) return
+  const allowance = lane.id
+  const last = lane.seq > 0 && lane.previous && same(lane.previous.allowance_id, allowance) ? lane.previous : undefined
   background(async () => {
     const urls = accountantEndpoints(env, env.deployment.chainId), key = pushKey(allowance)
     const todo = await env.store.withLock(key, async () => {
-      const r = await loadPush(env.store, allowance)
+      const journaled = await loadPush(env.store, allowance)
+      const r: PushRecord | undefined = last && (!journaled || journaled.voucher.seq < last.seq)
+        ? {schema: 1, voucher: last, acked: [], repushed: false} : journaled
       if (!r || r.repushed) return undefined
       const missing = urls.filter(u => !r.acked.includes(u))
       if (missing.length === 0) return undefined

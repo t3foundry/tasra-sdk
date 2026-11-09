@@ -392,6 +392,29 @@ describe('voucher push to every accountant (background)', () => {
     expect(vi.mocked(pushDebitVoucher).mock.calls[1]![2].accountantUrls).toEqual(urls)
     expect(await inspectAllowanceVoucherPush(store, allowance)).toMatchObject({seq: 1, acked: [], repushed: true})
   })
+
+  it('re-pushes the last voucher from the lane when its push journal was lost (a stop before the background job ran)', async () => {
+    const {env, store, allowance} = await seeded()
+    const save = store.save.bind(store)
+    let stopped = true
+    store.save = async (key, value) => { if (stopped && key.startsWith('pap-')) throw new Error('process stopped'); return save(key, value) }
+    acceptedBy(urls)
+    const a = await payment(allowance, 0x41), b = await payment(allowance, 0x42)
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(a, 1, 40), partials: [], outcomes: []})
+      .mockRejectedValueOnce(new DebitVoucherError([{url: urls[0]!, kind: 'refused', status: 402, reason: 'exceeds'}, {url: urls[1]!, kind: 'refused', status: 402, reason: 'exceeds'}], 0, 2))
+    expect(await obtainAllowanceVoucher(env, {lane: 0}, a)).toEqual(voucherFor(a, 1, 40))
+    await settleAllowanceVoucherPushes()
+    expect(pushDebitVoucher).not.toHaveBeenCalled()
+    expect(await inspectAllowanceVoucherPush(store, allowance)).toBeUndefined()
+    // The process runs again; the lane retires: its durable last voucher is re-pushed to every member.
+    stopped = false
+    await expect(obtainAllowanceVoucher(env, {lane: 0}, b)).rejects.toBeInstanceOf(AllowanceRefusedError)
+    await settleAllowanceVoucherPushes()
+    expect(pushDebitVoucher).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(pushDebitVoucher).mock.calls[0]!.slice(0, 2)).toEqual([43112, voucherFor(a, 1, 40)])
+    expect(vi.mocked(pushDebitVoucher).mock.calls[0]![2].accountantUrls).toEqual(urls)
+    expect(await inspectAllowanceVoucherPush(store, allowance)).toEqual({seq: 1, acked: urls, repushed: true})
+  })
 })
 
 describe('debit quote block from a followed head', () => {
