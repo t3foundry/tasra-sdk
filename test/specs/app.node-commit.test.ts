@@ -27,11 +27,15 @@ vi.mock('node:fs/promises', async original => {
       return handle
     },
     rename: async (from: string, to: string) => { events.push(`rename:${name(to)}`); return real.rename(from, to) },
+    // Lock removals are durable steps too (temporaries are not traced).
+    unlink: async (path: string) => { if (String(path).endsWith(".lock")) events.push(`unlink:${name(path)}`); return real.unlink(path) },
   }
 })
 
 const {createFileStore, fileStoreSyncCounters} = await import('../../src/app/node.js')
-const {mkdtemp, rm, readFile} = await import('node:fs/promises')
+const {saveAll, saveRederivable, withCommit} = await import('../../src/app/store-commit.js')
+const {createMemoryStore} = await import('../../src/app/memory-store.js')
+const {mkdtemp, rm, readFile, readdir} = await import('node:fs/promises')
 const {tmpdir} = await import('node:os')
 const {join} = await import('node:path')
 const roots: string[] = []
@@ -104,13 +108,120 @@ describe.skipIf(DSYNC === 0)('file store group commit', () => {
     expect(await store.load('b')).toEqual({v: 'later'})
   })
 
-  it('a lock file is flushed and its entry synced before the guarded action runs; a claim before it is reported won', async () => {
+  it('a lock entry is synced before the guarded action runs, without a flush of its own diagnostic content; a claim before it is reported won', async () => {
     const store = createFileStore(await directory())
     await store.withLock('lane', async () => { events.push('action') })
-    expect(events.slice(0, 4)).toEqual(['open:lane.lock:dsync', 'sync:lane.lock', 'dirsync', 'action'])
+    // Nothing reads the lock's content (pid, time). Written O_DSYNC, it is on the device once the
+    // directory's own flush returns, so only the entry needs that flush.
+    expect(events).toEqual(['open:lane.lock:dsync', 'dirsync', 'action', 'unlink:lane.lock', 'dirsync'])
     events.length = 0
     expect(await store.claim!('send-1')).toBe(true)
     expect(events).toEqual(['open:send-1.json:dsync', 'sync:send-1.json', 'dirsync'])
     expect(await store.claim!('send-1')).toBe(false)
+  })
+})
+
+describe.skipIf(DSYNC === 0)('file store commit steps (internal)', () => {
+  it('withCommit: an unflushed lock, then the staged values published with the unlock in ONE barrier and ONE directory sync', async () => {
+    const dir = await directory(), store = createFileStore(dir)
+    let acknowledged = -1
+    await withCommit(store, 'record', async commit => {
+      events.push('action')
+      commit.stage('record', {phase: 'old'})
+      commit.stage('index', {ids: [1]})
+      commit.stage('record', {phase: 'new'})
+    }).then(() => { acknowledged = events.length })
+    // The lock entry is exclusive at once but costs no flush; the two values share one data
+    // barrier, both renames and the lock removal share one directory sync, and the caller is
+    // acknowledged only after it.
+    expect(events).toEqual(['open:record.lock:plain', 'action', 'open:tmp:dsync', 'open:tmp:dsync', 'sync:tmp',
+      'rename:index.json', 'rename:record.json', 'unlink:record.lock', 'dirsync'])
+    expect(acknowledged).toBe(events.length)
+    expect(await store.load('record')).toEqual({phase: 'new'})
+    expect(await store.load('index')).toEqual({ids: [1]})
+    expect((await readdir(dir)).sort()).toEqual(['index.json', 'record.json'])
+  })
+
+  it('withCommit: the first durable save inside the action syncs the directory after the lock entry, so the lock is durable before anything it guards is sent', async () => {
+    const store = createFileStore(await directory())
+    await withCommit(store, 'attempt', async commit => {
+      await store.save('attempt', {phase: 'prepared'})
+      events.push('send')
+      commit.stage('attempt', {phase: 'confirmed'})
+    })
+    expect(events).toEqual(['open:attempt.lock:plain', 'open:tmp:dsync', 'sync:tmp', 'rename:attempt.json', 'dirsync', 'send',
+      'open:tmp:dsync', 'sync:tmp', 'rename:attempt.json', 'unlink:attempt.lock', 'dirsync'])
+  })
+
+  it('withCommit: a failed action publishes nothing it staged and still removes its lock durably; with nothing staged the unlock is synced alone', async () => {
+    const dir = await directory(), store = createFileStore(dir)
+    await store.save('record', {phase: 'old'})
+    events.length = 0
+    await expect(withCommit(store, 'record', async commit => { commit.stage('record', {phase: 'new'}); throw new Error('refused') })).rejects.toThrow('refused')
+    expect(events).toEqual(['open:record.lock:plain', 'unlink:record.lock', 'dirsync'])
+    expect(await store.load('record')).toEqual({phase: 'old'})
+    events.length = 0
+    expect(await withCommit(store, 'record', async () => 7)).toBe(7)
+    expect(events).toEqual(['open:record.lock:plain', 'unlink:record.lock', 'dirsync'])
+    // An invalid staged value or key refuses at the stage, before anything is written.
+    await expect(withCommit(store, 'record', async commit => { commit.stage('record', {bad: Infinity}) })).rejects.toThrow()
+    await expect(withCommit(store, 'record', async commit => { commit.stage('../escape', {}) })).rejects.toThrow('Invalid state key')
+    expect(await store.load('record')).toEqual({phase: 'old'})
+    expect(await readdir(dir)).toEqual(['record.json'])
+  })
+
+  it('withCommit: a failed data flush publishes no staged value and keeps the prior bytes; the lock is still removed', async () => {
+    const dir = await directory(), store = createFileStore(dir)
+    await store.save('record', {phase: 'old'})
+    failSync.next = true
+    await expect(withCommit(store, 'record', async commit => { commit.stage('record', {phase: 'new'}); commit.stage('index', {ids: [1]}) })).rejects.toThrow('injected')
+    expect(await store.load('record')).toEqual({phase: 'old'})
+    expect(await store.load('index')).toBeUndefined()
+    expect(await readdir(dir)).toEqual(['record.json'])
+  })
+
+  it('withCommit: exclusive across store objects and processes like withLock, and refuses a nested lock on a held key', async () => {
+    const dir = await directory(), a = createFileStore(dir), b = createFileStore(dir, {lockWaitMs: 0})
+    await withCommit(a, 'lane', async () => {
+      // Another process sees the same lock file and refuses after its bounded wait.
+      await expect(b.withLock('lane', async () => 1)).rejects.toThrow('reconcile')
+      await expect(withCommit(a, 'lane', async () => 1)).rejects.toThrow('reconcile')
+    })
+    // Callers in one process queue in call order, never inside together.
+    let inside = 0, most = 0
+    await Promise.all(Array.from({length: 16}, (_, i) => withCommit(i % 2 ? a : b, 'counter', async commit => {
+      inside++; most = Math.max(most, inside)
+      const n = (await a.load<number>('counter')) ?? 0
+      await new Promise(done => setTimeout(done, 1))
+      commit.stage('counter', n + 1); inside--
+    })))
+    expect(most).toBe(1)
+    expect(await a.load('counter')).toBe(16)
+  })
+
+  it('saveAll: every value flushed by one barrier before any rename, one directory sync after the last', async () => {
+    const store = createFileStore(await directory())
+    await saveAll(store, [['record', {n: 1}], ['ledger', {n: 2}]])
+    expect(events).toEqual(['open:tmp:dsync', 'open:tmp:dsync', 'sync:tmp', 'rename:record.json', 'rename:ledger.json', 'dirsync'])
+    expect([await store.load('record'), await store.load('ledger')]).toEqual([{n: 1}, {n: 2}])
+  })
+
+  it('saveRederivable: flushed before it is renamed into place (never torn), with no directory sync of its own', async () => {
+    const store = createFileStore(await directory())
+    await saveRederivable(store, 'confirm', {phase: 'confirmed'})
+    expect(events).toEqual(['open:tmp:dsync', 'sync:tmp', 'rename:confirm.json'])
+    expect(await store.load('confirm')).toEqual({phase: 'confirmed'})
+  })
+
+  it('stores without native steps get the same calls as before: withLock, then each staged save in order', async () => {
+    const inner = createMemoryStore(), calls: string[] = []
+    const store = {load: inner.load.bind(inner), withLock: async <T>(key: string, action: () => Promise<T>) => { calls.push(`lock:${key}`); try { return await action() } finally { calls.push(`unlock:${key}`) } },
+      save: async (key: string, value: unknown) => { calls.push(`save:${key}`); return inner.save(key, value) }}
+    await withCommit(store, 'k', async commit => { commit.stage('b', 2); commit.stage('a', 1) })
+    await saveAll(store, [['c', 3], ['d', 4]])
+    await saveRederivable(store, 'e', 5)
+    expect(calls).toEqual(['lock:k', 'save:b', 'save:a', 'unlock:k', 'save:c', 'save:d', 'save:e'])
+    await expect(withCommit(store, 'k', async commit => { commit.stage('a', 9); throw new Error('refused') })).rejects.toThrow('refused')
+    expect(await store.load('a')).toBe(1)
   })
 })
