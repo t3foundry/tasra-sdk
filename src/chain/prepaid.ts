@@ -397,6 +397,26 @@ export interface PaidContextOptions extends PaidKeeperTransportOptions {
    * a per-operation reservation from such a slot is refused by the accountants (402).
    */
   fundedByAllowance?: boolean
+  /**
+   * ADR-0090 D7: draw on THIS verifier epoch (a session grant's), never a newer one. Every message
+   * of a session pays the grant's draw (the keeper refuses any other), and a grant is admitted only
+   * while its epoch is the beacon's latest or the one before; past that a typed
+   * {@link PaidDrawMovedError} is thrown before anything is signed (refresh the grant first).
+   */
+  verificationEpoch?: bigint
+}
+
+/**
+ * The pinned verifier epoch ({@link PaidContextOptions.verificationEpoch}) is no longer the beacon's
+ * latest or previous epoch. Nothing was signed or reserved: refresh the session grant (or present
+ * again) and discover anew.
+ */
+export class PaidDrawMovedError extends Error {
+  readonly code = 'draw-moved' as const
+  constructor(readonly pinnedEpoch: bigint, readonly beaconEpoch: bigint) {
+    super(`payment discovery: verifier epoch ${pinnedEpoch} is no longer current or previous (beacon at ${beaconEpoch})`)
+    this.name = 'PaidDrawMovedError'
+  }
 }
 
 /** Chain-derived fields safe to copy into the creator's independently bounded payment intent. */
@@ -420,6 +440,8 @@ export interface PaidOperationContext extends PrepaidObservation {
   available: bigint
   /** The slot's salted rule commitment at this block, from the same canonical slot read. */
   ruleCommitment?: Hex
+  /** The beacon's latest epoch at this block (the draw is it or, while its anchors land, the one before). */
+  beaconEpoch?: bigint
 }
 
 const ZERO32 = `0x${'00'.repeat(32)}`
@@ -900,6 +922,22 @@ export async function discoverPaidOperationContext(
       let epoch = latest
       let [seed, [root, size], accountant] = await latestAnchors
       if (seed === ZERO32) throw new Error('current beacon seed unavailable')
+      const pinned = options.verificationEpoch
+      if (pinned !== undefined) {
+        // A session grant's draw: the latest epoch (its anchors may still be landing: wait), or the
+        // previous one, never anything older (no keeper admits that grant) or newer.
+        if (pinned !== latest && pinned !== latest - 1n) throw new PaidDrawMovedError(pinned, latest)
+        if (pinned !== latest) {
+          epoch = pinned
+          ;[seed, [root, size], accountant] = await Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)])
+          if (!complete(seed, root, size, accountant)) throw new Error('pinned verifier epoch has no complete anchors')
+        } else if (!complete(seed, root, size, accountant)) {
+          if (wait.clock.now() + wait.pollMs > deadline) throw new Error('pinned verifier epoch anchors are not complete yet')
+          await wait.clock.sleep(wait.pollMs)
+          continue
+        }
+        return {at, policy, available, directory, epoch, seed, root, size, latest}
+      }
       if (!complete(seed, root, size, accountant)) {
         if (epoch === 0n) throw new Error('no anchored verifier and accountant snapshots')
         epoch--
@@ -911,10 +949,10 @@ export async function discoverPaidOperationContext(
           continue
         }
       }
-      return {at, policy, available, directory, epoch, seed, root, size}
+      return {at, policy, available, directory, epoch, seed, root, size, latest}
     }
   })()
-  const {at, policy, available, directory, epoch, seed, root, size} = observed
+  const {at, policy, available, directory, epoch, seed, root, size, latest} = observed
   const [onChainCommittee, onChainQuorum] = policy
   if (onChainCommittee === 0 && onChainQuorum !== 0) throw new Error('invalid on-chain verifier policy')
   const {committee, quorum} = onChainCommittee === 0
@@ -937,7 +975,7 @@ export async function discoverPaidOperationContext(
     verification_committee: committee, verification_quorum: quorum, keeper_assignment: assignment}
   await finishObservation(client, at)
   return {...at, intentFields, creator: directory.slot.creator, mode: directory.slot.mode, groupPublicKey: directory.slot.publicKey, coordinator, contributors: endpoints, available,
-    ruleCommitment: directory.slot.ruleCommitment}
+    ruleCommitment: directory.slot.ruleCommitment, beaconEpoch: latest}
 }
 
 // readKeeperDirectory bounds a slot to 256 members. Reject the excess range so

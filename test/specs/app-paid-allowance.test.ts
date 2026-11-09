@@ -117,6 +117,23 @@ describe('allowance lanes', () => {
     expect(await selectAllowanceLane(environment().env, context(), {action: 'decrypt', expires: NOW + 600})).toBeUndefined()
   })
 
+  it('a pinned draw (ADR-0090 D7 session) takes only a lane drawn on exactly that draw, and never promotes one', async () => {
+    const {env, allowance} = await seeded()
+    const moved = (): PaidOperationContext => {
+      const c = context()
+      return {...c, intentFields: {...c.intentFields, verification_epoch: 9, verification_seed: h(0x44), verification_root: h(0x45)}}
+    }
+    // Unpinned, the lane keeps funding operations on its own (older) draw, as the paid-epoch rule allows.
+    expect(await selectAllowanceLane(env, moved(), {action: 'decrypt', expires: NOW + 600})).toMatchObject({allowanceId: allowance})
+    // A session grant drawn elsewhere: its keeper refuses this lane's draw, so it falls back.
+    expect(await selectAllowanceLane(env, moved(), {action: 'decrypt', expires: NOW + 600, drawPinned: true})).toBeUndefined()
+    for (const field of ['verification_registry_size', 'verification_committee', 'verification_quorum'] as const) {
+      const c = context()
+      expect(await selectAllowanceLane(env, {...c, intentFields: {...c.intentFields, [field]: c.intentFields[field] + 1}}, {action: 'decrypt', expires: NOW + 600, drawPinned: true})).toBeUndefined()
+    }
+    expect(await selectAllowanceLane(env, context(), {action: 'decrypt', expires: NOW + 600, drawPinned: true})).toMatchObject({allowanceId: allowance})
+  })
+
   it('with no usable lane, waits for the lane reservation it started and pays from it instead of reserving per operation', async () => {
     const world = environment({reserveAhead: true})
     reservationMinesAs()

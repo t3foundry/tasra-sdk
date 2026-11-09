@@ -43,7 +43,7 @@ import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {BillingModeError, requirePrepaidSlot} from '../../src/chain/billing.js'
-import {discoverPaidOperationContext, readClientExecutionPolicy, readCurrentBeaconEpoch} from '../../src/chain/prepaid.js'
+import {discoverPaidOperationContext, PaidDrawMovedError, readClientExecutionPolicy, readCurrentBeaconEpoch} from '../../src/chain/prepaid.js'
 import {fetchDrawnVerifierWitnesses} from '../../src/chain/verifierSnapshot.js'
 import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, selectApplicationGasPayer, ApplicationPayerRecoveryError,
   type ApplicationReservationStatus} from '../../src/app/paid-reservation.js'
@@ -1823,6 +1823,59 @@ describe('paidSessionDecrypt: one session-grant KEM decrypt paid without any pre
     await expect(paidSessionDecrypt(enabled(setup({creator: h(77, 20)})), {slot, decryption: b.decryption})).rejects.toThrow(/creator/)
     expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
     expect(reserveApplicationPayment).not.toHaveBeenCalled()
+  })
+
+  it('pays the GRANT\'s draw: discovery is pinned to its epoch, only a lane on that draw funds it, and the beacon epoch comes back', async () => {
+    const f = setup()
+    lane(); await blsSlot()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockResolvedValue({...base, mode: 1, beaconEpoch: 8n})
+    const b = await binding()
+    const grant = {epoch: base.intentFields.verification_epoch, seed: base.intentFields.verification_seed}
+    const paid = await paidSessionDecrypt(enabled(f), {slot, decryption: b.decryption, grant})
+    const discovery = vi.mocked(discoverPaidOperationContext).mock.calls.at(-1)!
+    expect(discovery[3]).toMatchObject({verificationEpoch: BigInt(grant.epoch)})
+    expect(vi.mocked(selectAllowanceLane).mock.calls.at(-1)![2]).toMatchObject({action: 'decrypt', drawPinned: true})
+    expect(paid.payment).toMatchObject({verification_epoch: grant.epoch, verification_seed: grant.seed})
+    expect(paid.beaconEpoch).toBe(8n)
+    paid.dispose()
+    // Without a grant the payment takes the fresh draw, unpinned (the earlier behaviour).
+    const unpinned = await paidSessionDecrypt(enabled(f), {slot, decryption: (await binding()).decryption})
+    expect(vi.mocked(discoverPaidOperationContext).mock.calls.at(-1)![3]).not.toHaveProperty('verificationEpoch')
+    expect(vi.mocked(selectAllowanceLane).mock.calls.at(-1)![2]).toMatchObject({drawPinned: false})
+    unpinned.dispose()
+  })
+
+  it('refuses a grant whose seed is not the beacon\'s, and a moved draw, before anything is signed or debited', async () => {
+    const f = setup()
+    lane(); await blsSlot()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    const b = await binding()
+    await expect(paidSessionDecrypt(enabled(f), {slot, decryption: b.decryption, grant: {epoch: base.intentFields.verification_epoch, seed: h(0x99)}}))
+      .rejects.toThrow(/seed the beacon does not hold/)
+    await expect(paidSessionDecrypt(enabled(f), {slot, decryption: b.decryption, grant: {epoch: -1, seed: h(0x99)}})).rejects.toThrow(/Invalid session grant draw/)
+    vi.mocked(discoverPaidOperationContext).mockRejectedValueOnce(new PaidDrawMovedError(5n, 7n))
+    await expect(paidSessionDecrypt(enabled(f), {slot, decryption: b.decryption, grant: {epoch: 5, seed: h(0x99)}})).rejects.toMatchObject({code: 'draw-moved'})
+    expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+  })
+
+  it('funds a session-grant OPENING only from a lane on the fresh draw (verifiers judge the grant at the live beacon)', async () => {
+    const f = setup()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockResolvedValue({...base, mode: 1})
+    vi.mocked(selectAllowanceLane).mockResolvedValue(undefined)
+    const key = await createSessionKey({alg: 'Ed25519'})
+    const fragment = sessionGrantCreateFragment(key, {slots: [slot]})
+    const recipient = await createDecryptionRecipient()
+    const b = decryptionBinding(sha256(new TextEncoder().encode('first message')), 0, recipient)
+    vi.mocked(drivePaidSession).mockResolvedValue({status: 'done', phase: 'done', sessionGrant: {error: 'session_context_changed'}} as Awaited<ReturnType<typeof drivePaidSession>>)
+    const op = await paidOperation(enabled(f), {...f.request, operation: {action: 'decrypt', decryption: b.decryption}, sessionGrant: fragment})
+    expect(vi.mocked(selectAllowanceLane).mock.calls.at(-1)![2]).toMatchObject({action: 'decrypt', drawPinned: true})
+    op.dispose()
+    const plain = await paidOperation(enabled(setup()), {...f.request, operation: {action: 'decrypt', decryption: b.decryption}})
+    expect(vi.mocked(selectAllowanceLane).mock.calls.at(-1)![2]).toMatchObject({drawPinned: false})
+    plain.dispose()
   })
 })
 

@@ -3,7 +3,7 @@ import {ed25519} from '@noble/curves/ed25519'
 import * as randomness from '@noble/hashes/utils'
 import {createPublicClient, custom, decodeFunctionData, encodeFunctionResult, getAddress, keccak256, recoverTypedDataAddress, toHex, type Abi, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {discoverPaidOperationContext, followPaidRequest, readClientExecutionPolicy, type PaidContextOptions} from '../../src/chain/prepaid.js'
+import {discoverPaidOperationContext, followPaidRequest, PaidDrawMovedError, readClientExecutionPolicy, type PaidContextOptions} from '../../src/chain/prepaid.js'
 import {UnderfundedSlotError} from '../../src/errors.js'
 import {BillingModeError} from '../../src/chain/billing.js'
 import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, type PaymentIntentWire} from '../../src/committee/payment.js'
@@ -532,4 +532,33 @@ it('never caches block-pinned answers at a followed head that is not yet finaliz
     // And its canonicality is rechecked by RPC.
     expect(f.calls.filter(c => c.method === 'eth_getBlockByNumber').length).toBeGreaterThan(0)
   } finally { unfollowHeads(f.client) }
+})
+
+describe('ADR-0090 D7: a session message pins the grant\'s verifier epoch', () => {
+  it('pays the grant\'s previous epoch while it is the beacon\'s previous, even when the latest is anchored', async () => {
+    now()
+    const f = fixture(), context = await f.run({verificationEpoch: 6n})
+    expect(context.intentFields).toMatchObject({verification_epoch: 6, verification_seed: h(8), verification_root: h(17)})
+    expect(context.beaconEpoch).toBe(7n)
+    // An unpinned discovery takes the latest (the grant's epoch only by chance).
+    expect((await fixture().run()).intentFields.verification_epoch).toBe(7)
+  })
+  it('pays the latest epoch when the grant is on it, and reports the beacon epoch', async () => {
+    now()
+    const context = await fixture().run({verificationEpoch: 7n})
+    expect(context.intentFields).toMatchObject({verification_epoch: 7, verification_seed: h(9), verification_root: h(18)})
+    expect(context.beaconEpoch).toBe(7n)
+  })
+  it('throws a typed draw-moved refusal, before anything is signed, once the grant is two epochs behind (or ahead)', async () => {
+    now()
+    for (const pinned of [5n, 8n]) {
+      const error = await fixture().run({verificationEpoch: pinned}).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(PaidDrawMovedError)
+      expect(error).toMatchObject({code: 'draw-moved', pinnedEpoch: pinned, beaconEpoch: 7n})
+    }
+  })
+  it('never falls back to another epoch when the pinned previous epoch lacks its anchors', async () => {
+    now()
+    await expect(fixture({noPrevious: true}).run({verificationEpoch: 6n})).rejects.toThrow(/pinned verifier epoch/)
+  })
 })

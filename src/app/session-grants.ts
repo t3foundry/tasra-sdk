@@ -366,6 +366,20 @@ export class GrantedSession {
     return structuredClone(r.session_grant)
   }
 
+  /**
+   * Refresh now if the beacon has moved past the grant's epoch (`beaconEpoch`, e.g.
+   * `PaidSessionDecrypt.beaconEpoch`). Keepers admit a grant only while its epoch is the beacon's
+   * latest or previous, and the agent continues a session ONE epoch at a time, so a grant must
+   * follow the beacon every epoch, not only before its `exp`: wait for a second move and the
+   * session needs a new presentation. Resolves `true` when it refreshed, `false` when the grant is
+   * already on (or ahead of) that epoch.
+   */
+  async refreshForEpoch(beaconEpoch: bigint): Promise<boolean> {
+    if (BigInt(this.#record.grant.epoch) >= beaconEpoch) return false
+    await this.refresh()
+    return true
+  }
+
   /** Refresh in the background before each grant's `exp`, until stopped or the session ends. */
   start(): void {
     this.stop()

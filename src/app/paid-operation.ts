@@ -20,7 +20,7 @@ import type {TasraChainClient} from '../chain/client.js'
 import {keyRegistryAbi} from '../chain/abis/keyRegistry.js'
 import type {BillingModeDetector} from '../chain/billing.js'
 import {discoverPaidOperationContext, followPaidRequest, readClientExecutionPolicy, readCurrentBeaconEpoch, type ExpectedPaidOperation, type PaidContextDeployment,
-  type PaidKeeperEndpoint, type PaidVerifierWitness} from '../chain/prepaid.js'
+  type PaidKeeperEndpoint, type PaidOperationContext, type PaidVerifierWitness} from '../chain/prepaid.js'
 import {fetchDrawnVerifierWitnesses} from '../chain/verifierSnapshot.js'
 import {prepareRegisteredPaidSession, type PaidAgentSessionParams} from '../chain/registeredPaidAgent.js'
 import type {PaidAgentTransport} from '../chain/paidAgentTransport.js'
@@ -702,7 +702,12 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
   // ADR-0090: a lane with room funds this operation by voucher; its verification and keeper
   // fields are the allowance's (the readers judge them at the allowance's assignment block).
   const env = useAllowance ? allowanceEnv(config) : undefined
-  const ticket = env ? await selectAllowanceLane(env, context, {action, expires: built.operation.exp}) : undefined
+  // ADR-0090 D7: a session grant is drawn on the OPENING payment's draw and judged at the LIVE
+  // beacon by every verifier and keeper, while a voucher keeps its allowance's (older) draw, whose
+  // epoch is judged at the allowance's quote block. So a session-mode opening is funded only by an
+  // allowance drawn on this fresh discovery's draw, else by a per-operation reservation at it -
+  // never by a voucher whose grant no verifier would sign (C7 fleet: `session_context_changed`).
+  const ticket = env ? await selectAllowanceLane(env, context, {action, expires: built.operation.exp, drawPinned: request.sessionGrant !== undefined}) : undefined
   const unsigned = {...ticket ? ticket.fields : context.intentFields, action,
     payload_digest: toHex(built.payloadDigest), session_commitment: paymentSessionCommitment(random, config.agent.profile.clientId, built.operation.exp),
     nonce: toHex(random32()), max_cost: config.limits.maxCost.toString(), expires: built.operation.exp, ...ticket ? {allowance_id: ticket.allowanceId} : {}}
@@ -1537,6 +1542,10 @@ interface PresentationlessSpec {
   description: string
   build(d: PaidContextDeployment & {chainId: number; keyRegistry: Address}, nowSecs: number, ttlSecs: number): ReturnType<typeof presentationOperationTypedData>
   decryption?: DecryptionBindingWire
+  /** ADR-0090 D7: the session grant's draw the payment must name (the keeper refuses any other). */
+  draw?: {epoch: bigint; seed: Hex}
+  /** Sees the discovery the payment is built from (the beacon epoch it observed). */
+  onContext?(context: PaidOperationContext): void
 }
 
 /** Pay one operation without any presentation (final dual Sign, ADR-0090 D7 session decrypt): journaled, reserved, never presented. */
@@ -1548,10 +1557,17 @@ async function presentationlessAttempt(config: PaidOperationConfig, request: {sl
   if (config.billing) await config.billing.requirePrepaid(slot)
   const readiness = AbortSignal.any([signal, AbortSignal.timeout(config.snapshotWaitMs ?? 180_000)])
   const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(client, d, slot,
-    {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator, fundedByAllowance: useAllowance}),
+    {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator, fundedByAllowance: useAllowance,
+      ...spec.draw ? {verificationEpoch: spec.draw.epoch} : {}}),
+  // A moved draw (PaidDrawMovedError) is not an absent anchor: it is thrown, never waited on.
   readiness, () => sleep(1_000, readiness))
   if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
   if (context.mode !== spec.mode) throw new TasraError(spec.modeError)
+  if (spec.draw && (BigInt(context.intentFields.verification_epoch) !== spec.draw.epoch
+    || context.intentFields.verification_seed.toLowerCase() !== spec.draw.seed.toLowerCase())) {
+    throw new TasraError('The session grant names a seed the beacon does not hold for its epoch')
+  }
+  spec.onContext?.(context)
   const ttlSecs = request.ttlSecs ?? 600
   if (!Number.isSafeInteger(ttlSecs) || ttlSecs <= 0 || ttlSecs > 3600) throw new TasraError('Paid operation lifetime must be 1..3600 seconds')
   // The operation record keeps the presentation shape; nothing is signed or presented for it.
@@ -1559,7 +1575,10 @@ async function presentationlessAttempt(config: PaidOperationConfig, request: {sl
   const payloadDigest = built.payloadDigest
   const randomBytes = random32(), random = toHex(randomBytes); randomBytes.fill(0)
   const env = useAllowance ? allowanceEnv(config) : undefined
-  const ticket = env ? await selectAllowanceLane(env, context, {action: spec.action, expires: built.operation.exp}) : undefined
+  // A session message pays the GRANT's draw (all six fields: the keeper's
+  // `require_payment_names_draw`), so only a lane drawn on it funds one, else a per-operation
+  // reservation at it.
+  const ticket = env ? await selectAllowanceLane(env, context, {action: spec.action, expires: built.operation.exp, drawPinned: spec.draw !== undefined}) : undefined
   const unsigned = {...ticket ? ticket.fields : context.intentFields, action: spec.action,
     payload_digest: toHex(payloadDigest), session_commitment: paymentSessionCommitment(random, config.agent.profile.clientId, built.operation.exp),
     nonce: toHex(random32()), max_cost: config.limits.maxCost.toString(), expires: built.operation.exp, ...ticket ? {allowance_id: ticket.allowanceId} : {}}
@@ -1628,6 +1647,15 @@ export interface PaidSessionDecryptRequest {
   signal?: AbortSignal
   /** Receive the request identity before anything is debited or reserved; a throw stops it. */
   onRequestId?(requestId: Hex): void | Promise<void>
+  /**
+   * The session grant this decrypt is served under (`GrantedSession.current()`). The payment then
+   * names THE GRANT'S verifier draw, as the keeper requires of every session item (any other draw
+   * is refused: "payment names another verifier draw than the session grant"). While the grant's
+   * epoch is the beacon's latest or previous it is paid there; past that a `PaidDrawMovedError`
+   * (`code: 'draw-moved'`) is thrown before anything is signed: refresh the grant first. Without
+   * it the payment takes the freshly discovered draw, which is the grant's only by chance.
+   */
+  grant?: {epoch: number; seed: string}
 }
 
 /** A paid session-grant decrypt ready for the session partials client. */
@@ -1647,6 +1675,12 @@ export interface PaidSessionDecrypt {
   recoverPartial(options: {nodeUrl: string; transport: KeeperRecoveryTransport; signal?: AbortSignal}): Promise<unknown>
   /** Erase the execution key from memory. */
   dispose(): void
+  /**
+   * The beacon's latest epoch the payment's discovery observed (absent on a resume). Once it is past
+   * the grant's epoch, refresh the grant before the beacon moves again: a refresh continues ONE
+   * epoch; a skipped epoch needs a new presentation.
+   */
+  beaconEpoch?: bigint
 }
 
 /**
@@ -1660,10 +1694,17 @@ export interface PaidSessionDecrypt {
  */
 export async function paidSessionDecrypt(config: PaidOperationConfig, request: PaidSessionDecryptRequest): Promise<PaidSessionDecrypt> {
   validateConfig(config)
+  const grant = request.grant
+  if (grant !== undefined && (!Number.isSafeInteger(grant.epoch) || grant.epoch < 0 || typeof grant.seed !== 'string' || !HEX32.test(grant.seed))) {
+    throw new TasraError('Invalid session grant draw')
+  }
+  const draw = grant ? {epoch: BigInt(grant.epoch), seed: grant.seed as Hex} : undefined
+  let beaconEpoch: bigint | undefined
   const attempt = (useAllowance: boolean) => presentationlessAttempt(config, request, useAllowance, {marker: 'sessionDecrypt', action: 'decrypt', mode: 1,
     modeError: 'A session-grant decrypt requires a BLS slot', description: 'Paid session-grant decrypt', decryption: structuredClone(request.decryption),
     build: (d, nowSecs, ttlSecs) => presentationOperationTypedData({action: 'decrypt', decryption: request.decryption, chainId: d.chainId, keyRegistry: d.keyRegistry,
-      slotId: request.slot, description: 'Paid session-grant decrypt', nowSecs, ttlSecs})})
+      slotId: request.slot, description: 'Paid session-grant decrypt', nowSecs, ttlSecs}),
+    ...draw ? {draw} : {}, onContext: context => { beaconEpoch = context.beaconEpoch }})
   if (!request.decryption || typeof request.decryption.content_digest !== 'string') throw new TasraError('A session-grant decrypt requires the complete recipient binding')
   let requestId: Hex
   if (!config.allowances?.enabled) requestId = await attempt(false)
@@ -1674,7 +1715,8 @@ export async function paidSessionDecrypt(config: PaidOperationConfig, request: P
       requestId = await attempt(false)
     }
   }
-  return continueSessionDecrypt(config, requestId)
+  const paid = await continueSessionDecrypt(config, requestId)
+  return beaconEpoch === undefined ? paid : {...paid, beaconEpoch}
 }
 
 /**

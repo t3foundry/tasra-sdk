@@ -34,10 +34,10 @@ function agentVia(fetchImpl: typeof fetch): {profile: ApprovedAgentProfile; tran
 }
 const transportFor = (fetchImpl: typeof fetch, chainId = 43112) => ({chainId, agent: agentVia(fetchImpl), trust})
 
-function grant(key: SessionKeyHandle, o: {iat: number; ttl?: number; idle?: number; absoluteExp?: number; slots?: string[]; sessionId?: Uint8Array; chainId?: bigint}): SessionGrantWire {
+function grant(key: SessionKeyHandle, o: {iat: number; ttl?: number; idle?: number; absoluteExp?: number; slots?: string[]; sessionId?: Uint8Array; chainId?: bigint; epoch?: bigint}): SessionGrantWire {
   const slots: GrantSlot[] = (o.slots ?? [slotA, slotB]).map(s => ({slotId: hexToBytes(s), ruleHash: rules[s]!}))
   const payload = sessionGrantPayload({chainId: o.chainId ?? 43112n, sessionId: o.sessionId ?? new Uint8Array(32).fill(0x5a), holderHash: new Uint8Array(32).fill(0x48),
-    sessionKeyThumbprint: sessionKeyThumbprint(key.jwk), binding: BINDING_HOLDER_KEY, action: 'decrypt', seed: new Uint8Array(32).fill(0x5e), epoch: 42n,
+    sessionKeyThumbprint: sessionKeyThumbprint(key.jwk), binding: BINDING_HOLDER_KEY, action: 'decrypt', seed: new Uint8Array(32).fill(0x5e), epoch: o.epoch ?? 42n,
     slots, iat: o.iat, exp: o.iat + (o.ttl ?? 30), idleTimeoutSecs: o.idle ?? 600, absoluteExp: o.absoluteExp ?? T0 + 3600})
   const hash = sessionGrantHash(payload)
   return encodeSessionGrant({payload, signatures: seeds.map((s, i) => ({verifierIndex: i, signature: ed25519.sign(hash, s)}))})
@@ -119,6 +119,28 @@ describe('session grant lifecycle (ADR-0090 D7, SDK)', () => {
     await o.session.refresh()
     expect(seen).toEqual([1, 2])
     expect(o.session.current().iat).toBe(T0 + 45)
+  })
+
+  it('follows the beacon: refreshes once it moved past the grant\'s epoch (a skipped epoch would need a new presentation), not before', async () => {
+    const now = T0 + 5
+    const calls: number[] = []
+    const ctx: {key?: SessionKeyHandle} = {}
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as {seq: number}
+      calls.push(body.seq)
+      // The agent continued the session onto the next epoch's draw.
+      return reply(200, {session_grant: grant(ctx.key!, {iat: now, epoch: 43n}), refresh_seq: body.seq})
+    }) as unknown as typeof fetch
+    const o = await opened({clock: () => now, fetchImpl})
+    ctx.key = o.key
+    expect(await o.session.refreshForEpoch(42n)).toBe(false)
+    expect(await o.session.refreshForEpoch(41n)).toBe(false)
+    expect(calls).toEqual([])
+    expect(await o.session.refreshForEpoch(43n)).toBe(true)
+    expect(calls).toEqual([1])
+    expect(o.session.current().epoch).toBe(43)
+    expect(await o.session.refreshForEpoch(43n)).toBe(false)
+    expect(calls).toEqual([1])
   })
 
   it('refuses a refreshed grant that changes the session, adds a slot or answers another seq', async () => {

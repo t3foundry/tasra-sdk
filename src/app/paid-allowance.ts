@@ -226,11 +226,25 @@ function sameSharing(fields: DiscoveredPaymentFields, intent: PrepaidAllowanceIn
     && a.key_epoch === b.key_epoch && a.committee_version === b.committee_version && a.threshold === b.threshold
     && a.contributors.length === b.contributors.length && a.contributors.every((k, i) => key(k) === key(b.contributors[i]!))
 }
+/** The verifier draw an allowance's vouchers name (all six fields: the payment copies them from the allowance). */
+function sameDraw(fields: DiscoveredPaymentFields, intent: PrepaidAllowanceIntentWire): boolean {
+  return fields.verification_epoch === intent.verification_epoch && same(fields.verification_seed, intent.verification_seed)
+    && same(fields.verification_root, intent.verification_root) && fields.verification_registry_size === intent.verification_registry_size
+    && fields.verification_committee === intent.verification_committee && fields.verification_quorum === intent.verification_quorum
+}
 /** Can this lane's current allowance fund one more operation (without asking anyone)? */
-function usable(c: LaneCurrent | undefined, env: AllowanceEnv, context: PaidOperationContext, action: AllowanceAction, expires: number): boolean {
+function usable(c: LaneCurrent | undefined, env: AllowanceEnv, context: PaidOperationContext, action: AllowanceAction, expires: number, drawPinned = false): boolean {
   return c !== undefined && c.phase === 'confirmed' && c.pending === undefined && remaining(c) >= env.limits.maxCost
     && allowanceFunds(c.intent.actions, action) && c.intent.expires_at >= expires + EXPIRY_MARGIN_SECS && sameSharing(context.intentFields, c.intent)
+    && (!drawPinned || sameDraw(context.intentFields, c.intent))
 }
+
+/**
+ * The operation a lane must fund. `drawPinned`: only an allowance drawn on exactly the discovered
+ * verifier draw, and no reserved-ahead promotion (ADR-0090 D7: a session grant's opening, which
+ * verifiers judge at the LIVE beacon, and its messages, whose keeper refuses any draw but the grant's).
+ */
+export interface AllowanceOperation {action: AllowanceAction; expires: number; drawPinned?: boolean}
 
 /** Lanes with a voucher round running in this process (advisory: the store lock is what serializes). */
 const busy = new Set<string>()
@@ -252,7 +266,7 @@ const cursors = new Map<string, number>()
  * @param context - Fresh discovery for this operation.
  * @param operation - The paid action and the payment expiry.
  */
-export async function selectAllowanceLane(env: AllowanceEnv, context: PaidOperationContext, operation: {action: AllowanceAction; expires: number}): Promise<AllowanceTicket | undefined> {
+export async function selectAllowanceLane(env: AllowanceEnv, context: PaidOperationContext, operation: AllowanceOperation): Promise<AllowanceTicket | undefined> {
   const chosen = await selectLane(env, context, operation)
   if (chosen) return chosen
   const slot = context.intentFields.slot, lanes = allowanceLaneCount(env.options)
@@ -268,7 +282,7 @@ export async function selectAllowanceLane(env: AllowanceEnv, context: PaidOperat
   return selectLane(env, context, operation)
 }
 
-async function selectLane(env: AllowanceEnv, context: PaidOperationContext, operation: {action: AllowanceAction; expires: number}): Promise<AllowanceTicket | undefined> {
+async function selectLane(env: AllowanceEnv, context: PaidOperationContext, operation: AllowanceOperation): Promise<AllowanceTicket | undefined> {
   const slot = context.intentFields.slot, lanes = allowanceLaneCount(env.options), scope = laneKey(env.deployment, slot, 0)
   const start = cursors.get(scope) ?? 0
   let chosen: AllowanceTicket | undefined
@@ -285,8 +299,11 @@ async function selectLane(env: AllowanceEnv, context: PaidOperationContext, oper
     if (env.options.reserveAhead !== false && (low(state.current) || state.current?.phase !== 'confirmed') && !state.next) refillLane(env, context, lane)
     // Close to expiry the current allowance may see no further debit: make sure its last voucher reached the members.
     if (state.current?.phase === 'confirmed' && state.current.seq > 0 && state.current.intent.expires_at - now() < LOW_LIFE_SECS) repushLast(env, state.current)
-    if (!chosen && (usable(state.current, env, context, operation.action, operation.expires) || (state.next?.phase === 'confirmed' && !state.current?.pending))) {
-      const current = usable(state.current, env, context, operation.action, operation.expires) ? state.current! : await promote(env, key, lane, slot, context, operation)
+    // A pinned draw never promotes: retiring a current allowance only because its draw is not this
+    // session's would strand its balance for every other operation.
+    const fits = usable(state.current, env, context, operation.action, operation.expires, operation.drawPinned)
+    if (!chosen && (fits || (!operation.drawPinned && state.next?.phase === 'confirmed' && !state.current?.pending))) {
+      const current = fits ? state.current! : await promote(env, key, lane, slot, context, operation)
       if (current) {
         chosen = {lane, allowanceId: current.id, fields: fieldsFor(current.intent, context)}
         cursors.set(scope, (lane + 1) % lanes)
