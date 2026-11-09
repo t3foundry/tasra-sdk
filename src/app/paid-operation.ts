@@ -442,20 +442,24 @@ async function loadIndex(store: ApplicationStore): Promise<Hex[]> {
  * Stage the index entries of `ids` (lowercase, in order) into the segments: the first segment with
  * room from this store object's hint, then the next ones. Segments fill in order; a crash between
  * filling one and starting the next leaves nothing to repair, because the next writer probes
- * forward from the hint to the first one with room. Needs the index lock.
+ * forward from the hint to the first one with room. Needs the index lock. Returns the last segment
+ * staged: the caller moves the hint there only once the commit landed, so a failed commit never
+ * leaves the hint past a segment that was never written (a gap would hide every later segment).
  */
-async function stageIndexEntries(store: ApplicationStore, commit: LockedCommit, ids: readonly Hex[]): Promise<void> {
+async function stageIndexEntries(store: ApplicationStore, commit: LockedCommit, ids: readonly Hex[]): Promise<number | undefined> {
   const left = [...new Set(ids)]
+  let last: number | undefined
   for (let n = segmentHints.get(store) ?? 0; left.length > 0; n++) {
     const segment = await loadSegment(store, n)
     for (const id of segment?.ids ?? []) { const at = left.indexOf(id); if (at !== -1) left.splice(at, 1) }
-    if (left.length === 0) return
+    if (left.length === 0) return last
     if (!segment || segment.ids.length < SEGMENT_IDS) {
       const added = left.splice(0, SEGMENT_IDS - (segment?.ids.length ?? 0))
       commit.stage(segmentKey(n), {schema: 1, ids: [...segment?.ids ?? [], ...added]} satisfies OperationIndexSegment)
-      segmentHints.set(store, n)
+      last = n
     }
   }
+  return last
 }
 interface NewOperation { key: string; id: Hex; record: OperationRecord; resolve(): void; reject(error: unknown): void }
 /** Per store object: the journal commit running now, and the new operations waiting for the next one. */
@@ -488,6 +492,7 @@ function journalNewOperation(store: ApplicationStore, requestId: Hex, record: Op
 async function commitNewOperations(store: ApplicationStore, batch: readonly NewOperation[]): Promise<void> {
   const refused = new Map<NewOperation, unknown>()
   try {
+    let staged: number | undefined
     await withCommit(store, [INDEX_KEY, ...batch.map(op => op.key)], async commit => {
       const created: Hex[] = [], seen = new Set<string>()
       for (const op of batch) {
@@ -498,8 +503,9 @@ async function commitNewOperations(store: ApplicationStore, batch: readonly NewO
         commit.stage(op.key, op.record)
         created.push(op.id)
       }
-      await stageIndexEntries(store, commit, created)
+      staged = await stageIndexEntries(store, commit, created)
     })
+    if (staged !== undefined) segmentHints.set(store, staged)
   } catch (error) {
     for (const op of batch) op.reject(refused.get(op) ?? error)
     return

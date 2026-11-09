@@ -1073,6 +1073,23 @@ describe('paid operation index backfill', () => {
     expect(await f.store.load('paid-op-index-2')).toBeUndefined()
   })
 
+  it('a failed index commit spanning two segments leaves no gap that hides later operations', async () => {
+    const f = setup()
+    let failSegment = true
+    const store: ApplicationStore = {...f.store, load: f.store.load.bind(f.store), withLock: f.store.withLock.bind(f.store), list: f.store.list?.bind(f.store),
+      save: async (key: string, value: unknown) => {
+        if (failSegment && key === 'paid-op-index-0') { failSegment = false; throw new Error('disk full') }
+        return f.store.save(key, value)
+      }}
+    const config = {...f.config, store}
+    // More new operations than one segment holds, in one journal commit that fails on the first segment.
+    const results = await Promise.allSettled(Array.from({length: 257}, () => paidOperation(config, f.request)))
+    expect(results.some(r => r.status === 'rejected')).toBe(true)
+    expect(await f.store.load('paid-op-index-0')).toBeUndefined()
+    const later = await paidOperation(config, f.request)
+    expect((await listPaidOperations(store)).map(o => o.requestId)).toContain(later.requestId.toLowerCase())
+  })
+
   it('journals concurrent operations in one process with a file store, none refused on its locks', async () => {
     const f = setup()
     const dir = await mkdtemp(join(tmpdir(), 'tasra-paid-index-'))
