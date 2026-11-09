@@ -2,6 +2,8 @@ import {describe, expect, it, vi} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
 import {hexToBytes} from '../../src/crypto/hex.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
+import {STORE_COMMIT, type LockedCommit, type StoreCommitSteps} from '../../src/app/store-commit.js'
+import type {ApplicationStore} from '../../src/app/ready-slot.js'
 import {acceptSessionGrant, createSessionKey, loadGrantedSession, sessionGrantCreateFragment, SessionEndedError, SessionRevokeIncompleteError, SessionRevokeUnconfirmedError, type SessionKeyHandle, type SlotTrust} from '../../src/app/session-grants.js'
 import {BINDING_HOLDER_KEY, type VerifierSet} from '../../src/committee/token.js'
 import {acceptsServiceResponse, serviceRequestShape} from '../../src/chain/serviceRequestPolicy.js'
@@ -210,6 +212,60 @@ describe('session grant lifecycle (ADR-0090 D7, SDK)', () => {
     expect(verifySessionSignature(jwk, sessionControlHash('revoke', grantHash, 1, b.issued_at), hexToBytes(b.signature))).toBe(true)
     expect(verifySessionSignature(jwk, sessionControlHash('refresh', grantHash, 1, b.issued_at), hexToBytes(b.signature))).toBe(false)
     expect(() => o.session.current()).toThrow(/session_revoked/)
+  })
+})
+
+describe('session grant journal commits (store-commit steps, perf/sdk-c7)', () => {
+  // A store with native commit steps: every journal write must arrive as ONE commit (lock + staged
+  // values published together), never a bare lock followed by a separate save.
+  function committingStore() {
+    const base = createMemoryStore()
+    const log: string[] = []
+    const steps: StoreCommitSteps = {
+      withCommit: (keys, action) => {
+        const key = typeof keys === 'string' ? keys : keys[0]!
+        return base.withLock(key, async () => {
+          const staged = new Map<string, unknown>()
+          const commit: LockedCommit = {stage: (k, v) => { staged.set(k, structuredClone(v)) }}
+          const result = await action(commit)
+          for (const [k, v] of staged) await base.save(k, v)
+          log.push(`commit:${staged.size}`)
+          return result
+        })
+      },
+      saveAll: async entries => { for (const [k, v] of entries) await base.save(k, v); log.push('saveAll') },
+      saveRederivable: async (k, v) => { await base.save(k, v); log.push('rederivable') },
+    }
+    const store: ApplicationStore & {[STORE_COMMIT]: StoreCommitSteps} = {
+      load: k => base.load(k),
+      save: async (k, v) => { log.push('save'); await base.save(k, v) },
+      withLock: (k, op) => { log.push('lock'); return base.withLock(k, op) },
+      [STORE_COMMIT]: steps,
+    }
+    return {store, log}
+  }
+
+  it('accepts, reserves a refresh seq, records the refresh and marks a revoke each in one commit', async () => {
+    let now = T0 + 20
+    const {store, log} = committingStore()
+    const key = await createSessionKey({alg: 'Ed25519'})
+    const fragment = sessionGrantCreateFragment(key, {slots: [slotB, slotA], accessTtlSecs: 40, idleTimeoutSecs: 600, absoluteTtlSecs: 3600})
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as {seq: number}
+      // The seq's commit was published before the request left the client.
+      expect((await store.load<{lastSeq: number}>('tasra.session-grant.0x' + '5a'.repeat(32)))?.lastSeq).toBe(body.seq)
+      if (url.endsWith('/v1/sessions/refresh')) return reply(200, {session_grant: grant(key, {iat: now}), refresh_seq: body.seq})
+      return new Response(null, {status: 204})
+    }) as unknown as typeof fetch
+    const session = await acceptSessionGrant({store, key, clock: () => now, transport: transportFor(fetchImpl)},
+      fragment, {session_grant: grant(key, {iat: T0}), refresh_seq: 0})
+    expect(log).toEqual(['commit:1'])
+    await session.refresh()
+    expect(log).toEqual(['commit:1', 'commit:1', 'commit:1'])
+    now += 5
+    await session.revoke()
+    expect(log.filter(e => e === 'lock' || e === 'save')).toEqual([])
+    expect(log.every(e => e.startsWith('commit:'))).toBe(true)
   })
 })
 

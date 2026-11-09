@@ -14,6 +14,7 @@ import {DEFAULT_ACCESS_TTL_SECS, MAX_ABSOLUTE_TTL_SECS, MAX_ACCESS_TTL_SECS, MAX
   decodeSessionGrant, parseSessionKeyJwk, toBase64Url, sessionControlHash, sessionGrantHash, sessionKeyThumbprint, verifySessionGrant,
   type SessionGrant, type SessionGrantRequestWire, type SessionGrantWire, type SessionKeyJwk, type VerifiedSessionGrant} from '../committee/session-grant.js'
 import type {ApplicationStore} from './ready-slot.js'
+import {withCommit} from './store-commit.js'
 import type {ApprovedAgentProfile} from '../chain/registeredAgent.js'
 import type {PaidAgentTransport} from '../chain/paidAgentTransport.js'
 import {validateServiceEndpoint} from '../chain/serviceIdentity.js'
@@ -193,9 +194,10 @@ export async function acceptSessionGrant(opts: GrantedSessionOptions, fragment: 
   await checkGrant(opts, grant, requested, undefined, clock())
   const sessionId = bytesToHex(grant.payload.sessionId)
   const record: SessionRecord = {schema: 1, sessionId, grant: structuredClone(r.session_grant), lastSeq: 0, lastRefresh: grant.payload.iat, requested}
-  await opts.store.withLock(recordKey(sessionId), async () => {
+  // One commit: the lock and the record are published together (store-commit.ts).
+  await withCommit(opts.store, recordKey(sessionId), async commit => {
     if (await opts.store.load(recordKey(sessionId)) !== undefined) throw new TasraError('Session grant already accepted for this session')
-    await opts.store.save(recordKey(sessionId), record)
+    commit.stage(recordKey(sessionId), record)
   })
   return new GrantedSession(opts, sessionId, record)
 }
@@ -287,26 +289,31 @@ export class GrantedSession {
   async #end(error: SessionEndedError): Promise<never> {
     this.stop()
     const key = recordKey(this.sessionId)
-    await this.#opts.store.withLock(key, async () => {
+    await withCommit(this.#opts.store, key, async commit => {
       const stored = await this.#opts.store.load<SessionRecord>(key)
-      if (stored && !stored.ended) await this.#opts.store.save(key, {...stored, ended: {code: error.code, at: this.#clock()}})
+      if (stored && !stored.ended) commit.stage(key, {...stored, ended: {code: error.code, at: this.#clock()}})
     })
     this.#record = {...this.#record, ended: {code: error.code, at: this.#clock()}}
     this.#opts.onEnded?.(error)
     throw error
   }
 
-  /** Reserve the next seq durably (store lock + save before signing), so a crash never reuses one. */
+  /**
+   * Reserve the next seq durably before signing, so a crash never reuses one: the staged value is
+   * published with the lock's release (one commit), and this resolves only after it is durable.
+   */
   async #reserveSeq(): Promise<{seq: number; grant: SessionGrantWire}> {
     const key = recordKey(this.sessionId)
-    return this.#opts.store.withLock(key, async () => {
+    const reserved = await withCommit(this.#opts.store, key, async commit => {
       const stored = await this.#opts.store.load<SessionRecord>(key)
       if (!stored || stored.schema !== 1) throw new TasraError('Session grant journal missing')
       const seq = stored.lastSeq + 1
-      await this.#opts.store.save(key, {...stored, lastSeq: seq})
-      this.#record = {...stored, lastSeq: seq}
-      return {seq, grant: stored.grant}
+      const updated: SessionRecord = {...stored, lastSeq: seq}
+      commit.stage(key, updated)
+      return {seq, grant: stored.grant, updated}
     })
+    this.#record = reserved.updated
+    return {seq: reserved.seq, grant: reserved.grant}
   }
 
   /** One POST through the approved agent's guarded transport and the shared request policy; never repeated here. */
@@ -349,12 +356,12 @@ export class GrantedSession {
     const next = decodeSessionGrant(r.session_grant)
     await checkGrant(this.#opts, next, this.#record.requested, previous, this.#clock())
     const key = recordKey(this.sessionId)
-    await this.#opts.store.withLock(key, async () => {
+    this.#record = await withCommit(this.#opts.store, key, async commit => {
       const stored = await this.#opts.store.load<SessionRecord>(key)
       if (!stored || stored.lastSeq < seq) throw new TasraError('Session grant journal moved backwards')
       const updated: SessionRecord = {...stored, grant: structuredClone(r.session_grant!), lastRefresh: issuedAt}
-      await this.#opts.store.save(key, updated)
-      this.#record = updated
+      commit.stage(key, updated)
+      return updated
     })
     return structuredClone(r.session_grant)
   }
@@ -430,12 +437,12 @@ export class GrantedSession {
   /** Journal that a revoke started: from now on the session serves nothing, across reloads too. */
   async #markRevoking(): Promise<void> {
     const key = recordKey(this.sessionId)
-    await this.#opts.store.withLock(key, async () => {
+    this.#record = await withCommit(this.#opts.store, key, async commit => {
       const stored = await this.#opts.store.load<SessionRecord>(key)
       if (!stored || stored.schema !== 1) throw new TasraError('Session grant journal missing')
       const updated: SessionRecord = {...stored, revoking: true}
-      await this.#opts.store.save(key, updated)
-      this.#record = updated
+      commit.stage(key, updated)
+      return updated
     })
   }
 }
