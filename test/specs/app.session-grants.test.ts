@@ -2,8 +2,11 @@ import {describe, expect, it, vi} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
 import {hexToBytes} from '../../src/crypto/hex.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
-import {acceptSessionGrant, createSessionKey, sessionGrantCreateFragment, SessionEndedError, type SessionKeyHandle, type SlotTrust} from '../../src/app/session-grants.js'
+import {acceptSessionGrant, createSessionKey, loadGrantedSession, sessionGrantCreateFragment, SessionEndedError, SessionRevokeIncompleteError, type SessionKeyHandle, type SlotTrust} from '../../src/app/session-grants.js'
 import {BINDING_HOLDER_KEY, type VerifierSet} from '../../src/committee/token.js'
+import {acceptsServiceResponse, serviceRequestShape} from '../../src/chain/serviceRequestPolicy.js'
+import type {PaidAgentTransport} from '../../src/chain/paidAgentTransport.js'
+import type {ApprovedAgentProfile} from '../../src/chain/registeredAgent.js'
 import {encodeSessionGrant, sessionControlHash, sessionGrantHash, sessionGrantPayload, sessionKeyThumbprint, verifySessionSignature,
   type GrantSlot, type SessionGrantWire} from '../../src/committee/session-grant.js'
 
@@ -14,10 +17,24 @@ const slotA = ('0x' + '01'.repeat(32)) as `0x${string}`, slotB = ('0x' + '02'.re
 const rules: Record<string, Uint8Array> = {[slotA]: new Uint8Array(32).fill(0xfe), [slotB]: new Uint8Array(32).fill(0xfd)}
 const trust = async (slot: `0x${string}`): Promise<SlotTrust> => ({set, committee: 3, quorum: 2, ruleHash: rules[slot.toLowerCase()]!})
 const T0 = 1_800_000_000
+const profile: ApprovedAgentProfile = {endpoint: 'https://agent.test', clientId: 'decentralized_identifier:did:web:agent.test',
+  approval: {chainId: 43112, registry: `0x${'04'.repeat(20)}`, serviceId: `0x${'05'.repeat(32)}`, serviceType: 1, owner: `0x${'06'.repeat(20)}`, revision: 1n, manifestHash: `0x${'07'.repeat(32)}`}}
+// The registered paid-agent transport, driven by a fetch stand-in, with the SHARED request/response policy applied.
+function agentVia(fetchImpl: typeof fetch): {profile: ApprovedAgentProfile; transport: PaidAgentTransport} {
+  const transport: PaidAgentTransport = {request: vi.fn(), paidAgentRequest: async (url, opts) => {
+    const shape = serviceRequestShape('paid-agent', url, {body: opts.body, maxBytes: opts.maxBytes, bearer: opts.bearer, method: opts.method})
+    const res = await fetchImpl(url, {method: shape.method, headers: shape.headers, body: opts.body && new TextDecoder().decode(opts.body)})
+    if (!acceptsServiceResponse('paid-agent', shape, Boolean(opts.body), res.status, res.headers.get('content-type')?.split(';')[0] ?? '')) throw new Error('refused by the paid agent policy')
+    const retry = res.headers.get('retry-after')
+    return {status: res.status, body: new Uint8Array(await res.arrayBuffer()), ...retry ? {retryAfterMs: Number(retry) * 1000} : {}}
+  }}
+  return {profile, transport}
+}
+const transportFor = (fetchImpl: typeof fetch, chainId = 43112) => ({chainId, agent: agentVia(fetchImpl), trust})
 
-function grant(key: SessionKeyHandle, o: {iat: number; ttl?: number; idle?: number; absoluteExp?: number; slots?: string[]; sessionId?: Uint8Array}): SessionGrantWire {
+function grant(key: SessionKeyHandle, o: {iat: number; ttl?: number; idle?: number; absoluteExp?: number; slots?: string[]; sessionId?: Uint8Array; chainId?: bigint}): SessionGrantWire {
   const slots: GrantSlot[] = (o.slots ?? [slotA, slotB]).map(s => ({slotId: hexToBytes(s), ruleHash: rules[s]!}))
-  const payload = sessionGrantPayload({chainId: 43112n, sessionId: o.sessionId ?? new Uint8Array(32).fill(0x5a), holderHash: new Uint8Array(32).fill(0x48),
+  const payload = sessionGrantPayload({chainId: o.chainId ?? 43112n, sessionId: o.sessionId ?? new Uint8Array(32).fill(0x5a), holderHash: new Uint8Array(32).fill(0x48),
     sessionKeyThumbprint: sessionKeyThumbprint(key.jwk), binding: BINDING_HOLDER_KEY, action: 'decrypt', seed: new Uint8Array(32).fill(0x5e), epoch: 42n,
     slots, iat: o.iat, exp: o.iat + (o.ttl ?? 30), idleTimeoutSecs: o.idle ?? 600, absoluteExp: o.absoluteExp ?? T0 + 3600})
   const hash = sessionGrantHash(payload)
@@ -29,7 +46,7 @@ async function opened(opts: {clock: () => number; fetchImpl?: typeof fetch; onEn
   const store = createMemoryStore()
   const fragment = sessionGrantCreateFragment(key, {slots: [slotB, slotA], accessTtlSecs: 40, idleTimeoutSecs: 600, absoluteTtlSecs: 3600})
   const fetchImpl = opts.fetchImpl ?? (vi.fn() as unknown as typeof fetch)
-  const session = await acceptSessionGrant({store, key, clock: opts.clock, onEnded: opts.onEnded, transport: {agentUrl: 'https://agent.test', fetchImpl, trust}},
+  const session = await acceptSessionGrant({store, key, clock: opts.clock, onEnded: opts.onEnded, transport: transportFor(fetchImpl)},
     fragment, {session_grant: grant(key, {iat: T0, ttl: opts.ttl}), refresh_seq: 0})
   return {key, store, session, fetchImpl}
 }
@@ -61,7 +78,7 @@ describe('session grant lifecycle (ADR-0090 D7, SDK)', () => {
     const clock = () => T0 + 1
     const key = await createSessionKey({alg: 'Ed25519'}), other = await createSessionKey({alg: 'Ed25519'})
     const fragment = sessionGrantCreateFragment(key, {slots: [slotA, slotB], accessTtlSecs: 20, idleTimeoutSecs: 600, absoluteTtlSecs: 3600})
-    const accept = (g: SessionGrantWire, refresh_seq = 0) => acceptSessionGrant({store: createMemoryStore(), key, clock, transport: {agentUrl: 'https://a', trust}}, fragment, {session_grant: g, refresh_seq})
+    const accept = (g: SessionGrantWire, refresh_seq = 0) => acceptSessionGrant({store: createMemoryStore(), key, clock, transport: transportFor(vi.fn() as unknown as typeof fetch)}, fragment, {session_grant: g, refresh_seq})
     await expect(accept(grant(other, {iat: T0}))).rejects.toThrow(/another session key/)
     await expect(accept(grant(key, {iat: T0, ttl: 30}))).rejects.toThrow(/requested access TTL/)
     await expect(accept(grant(key, {iat: T0, ttl: 20, idle: 900}))).rejects.toThrow(/idle timeout/)
@@ -80,7 +97,8 @@ describe('session grant lifecycle (ADR-0090 D7, SDK)', () => {
     const ctx: {store?: ReturnType<typeof createMemoryStore>; key?: SessionKeyHandle} = {}
     const fetchImpl = (async (url: string, init: RequestInit) => {
       expect(url).toBe('https://agent.test/v1/sessions/refresh')
-      expect(init).toMatchObject({redirect: 'error', credentials: 'omit'})
+      // No bearer: the session-key signature is the authorization.
+      expect(init.headers).not.toHaveProperty('authorization')
       const body = JSON.parse(String(init.body)) as {grant: SessionGrantWire; seq: number; issued_at: number; signature: string}
       // The seq was persisted before this request left the client.
       const stored = await ctx.store!.load<{lastSeq: number}>('tasra.session-grant.0x' + '5a'.repeat(32))
@@ -179,7 +197,7 @@ describe('session grant lifecycle (ADR-0090 D7, SDK)', () => {
     const fetchImpl = (async (url: string, init: RequestInit) => {
       expect(url).toBe('https://agent.test/v1/sessions/revoke')
       bodies.push(JSON.parse(String(init.body)))
-      return reply(200, {})
+      return new Response(null, {status: 204})
     }) as unknown as typeof fetch
     const o = await opened({clock: () => now, fetchImpl})
     ref.key = o.key
@@ -192,5 +210,78 @@ describe('session grant lifecycle (ADR-0090 D7, SDK)', () => {
     expect(verifySessionSignature(jwk, sessionControlHash('revoke', grantHash, 1, b.issued_at), hexToBytes(b.signature))).toBe(true)
     expect(verifySessionSignature(jwk, sessionControlHash('refresh', grantHash, 1, b.issued_at), hexToBytes(b.signature))).toBe(false)
     expect(() => o.session.current()).toThrow(/session_revoked/)
+  })
+})
+
+describe('session grant chain pin and agent transport (ADR-0090 D7, review 2026-11-09)', () => {
+  it('refuses a grant for another chain on accept, on refresh and on resume', async () => {
+    const clock = () => T0 + 1
+    const key = await createSessionKey({alg: 'Ed25519'})
+    const fragment = sessionGrantCreateFragment(key, {slots: [slotA, slotB]})
+    // Accept: a grant for chain 1 under a deployment configured for 43112.
+    await expect(acceptSessionGrant({store: createMemoryStore(), key, clock, transport: transportFor(vi.fn() as unknown as typeof fetch)}, fragment,
+      {session_grant: grant(key, {iat: T0, chainId: 1n}), refresh_seq: 0})).rejects.toMatchObject({code: 'wrong-chain'})
+    // A transport whose chain differs from its approved agent's is no single deployment.
+    await expect(acceptSessionGrant({store: createMemoryStore(), key, clock, transport: transportFor(vi.fn() as unknown as typeof fetch, 1)}, fragment,
+      {session_grant: grant(key, {iat: T0, chainId: 1n}), refresh_seq: 0})).rejects.toThrow(/single deployment chain/)
+    // Refresh: the verifiers answer with a grant naming another chain.
+    const ref: {key?: SessionKeyHandle} = {}
+    const fetchImpl = (async (_u: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as {seq: number}
+      return reply(200, {session_grant: grant(ref.key!, {iat: T0 + 1, chainId: 1n}), refresh_seq: body.seq})
+    }) as unknown as typeof fetch
+    const o = await opened({clock, fetchImpl})
+    ref.key = o.key
+    await expect(o.session.refresh()).rejects.toMatchObject({code: 'wrong-chain'})
+    expect(o.session.current().chain_id).toBe(43112)
+    // Resume: the journal is for 43112; a process configured for another deployment never serves it.
+    const otherDeployment = {...transportFor(fetchImpl), chainId: 1, agent: {...agentVia(fetchImpl), profile: {...profile, approval: {...profile.approval, chainId: 1}}}}
+    const id = '0x' + '5a'.repeat(32)
+    await expect(loadGrantedSession({store: o.store, key: o.key, transport: otherDeployment, clock}, id)).rejects.toMatchObject({code: 'wrong-chain'})
+    await expect(loadGrantedSession({store: o.store, key: o.key, transport: transportFor(fetchImpl), clock}, id)).resolves.toBeDefined()
+  })
+
+  it('sends refresh and revoke through the paid agent policy: POST with a body, never a bearer', () => {
+    const body = new TextEncoder().encode('{}')
+    for (const path of ['/v1/sessions/refresh', '/v1/sessions/revoke']) {
+      const shape = serviceRequestShape('paid-agent', 'https://agent.test' + path, {body, maxBytes: 65_536, method: 'POST'})
+      expect(shape.method).toBe('POST')
+      expect(shape.headers).not.toHaveProperty('authorization')
+      expect(() => serviceRequestShape('paid-agent', 'https://agent.test' + path, {body, maxBytes: 65_536, method: 'POST', bearer: 'ab'.repeat(32)})).toThrow(/owner bearer/)
+      expect(() => serviceRequestShape('paid-agent', 'https://agent.test' + path, {maxBytes: 65_536, method: 'POST'})).toThrow(/owner bearer/)
+      expect(() => serviceRequestShape('paid-agent', 'https://agent.test' + path, {maxBytes: 65_536, method: 'GET'})).toThrow(/owner bearer/)
+    }
+    expect(() => serviceRequestShape('paid-agent', 'https://agent.test/v1/sessions/continue', {body, maxBytes: 65_536, method: 'POST'})).toThrow()
+  })
+
+  it('retries 503 session_revoke_partial with a fresh seq until the agent answers 204', async () => {
+    const answers = [reply(503, {code: 'session_revoke_partial', error: 'session_revoke_partial'}), reply(429, {code: 'session_rate_limited'}), new Response(null, {status: 204})]
+    const seqs: number[] = []
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      expect(url).toBe('https://agent.test/v1/sessions/revoke')
+      seqs.push((JSON.parse(String(init.body)) as {seq: number}).seq)
+      return answers.shift()!
+    }) as unknown as typeof fetch
+    const ended: string[] = []
+    const o = await opened({clock: () => T0 + 5, fetchImpl, onEnded: e => ended.push(e.code)})
+    const sleeps: number[] = []
+    await o.session.revoke({sleep: async ms => { sleeps.push(ms) }})
+    expect(seqs).toEqual([1, 2, 3])
+    expect(sleeps).toHaveLength(2)
+    expect(ended).toEqual(['session_revoked'])
+  })
+
+  it('an incomplete revoke is retryable, and the session serves nothing meanwhile (across a reload)', async () => {
+    const fetchImpl = (async () => reply(503, {code: 'session_revoke_partial'})) as unknown as typeof fetch
+    const o = await opened({clock: () => T0 + 5, fetchImpl})
+    const error = await o.session.revoke({deadlineMs: 0}).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(SessionRevokeIncompleteError)
+    expect(error).toMatchObject({retryable: true, code: 'session_revoke_partial'})
+    expect(() => o.session.current()).toThrow(/being revoked/)
+    const reloaded = await loadGrantedSession({store: o.store, key: o.key, transport: transportFor(fetchImpl), clock: () => T0 + 5}, '0x' + '5a'.repeat(32))
+    expect(() => reloaded.current()).toThrow(/being revoked/)
+    // A definite refusal is not retried.
+    const p = await opened({clock: () => T0 + 5, fetchImpl: (async () => reply(403, {code: 'session_unauthenticated'})) as unknown as typeof fetch})
+    await expect(p.session.revoke()).rejects.toThrow(/session_unauthenticated/)
   })
 })

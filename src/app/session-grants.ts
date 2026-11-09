@@ -12,8 +12,11 @@ import {TasraError} from '../errors.js'
 import type {VerifierSet} from '../committee/token.js'
 import {DEFAULT_ACCESS_TTL_SECS, MAX_ABSOLUTE_TTL_SECS, MAX_ACCESS_TTL_SECS, MAX_IDLE_TIMEOUT_SECS, MAX_SESSION_SLOTS, SessionGrantError,
   decodeSessionGrant, parseSessionKeyJwk, toBase64Url, sessionControlHash, sessionGrantHash, sessionKeyThumbprint, verifySessionGrant,
-  type SessionGrant, type SessionGrantWire, type SessionKeyJwk, type VerifiedSessionGrant} from '../committee/session-grant.js'
+  type SessionGrant, type SessionGrantRequestWire, type SessionGrantWire, type SessionKeyJwk, type VerifiedSessionGrant} from '../committee/session-grant.js'
 import type {ApplicationStore} from './ready-slot.js'
+import type {ApprovedAgentProfile} from '../chain/registeredAgent.js'
+import type {PaidAgentTransport} from '../chain/paidAgentTransport.js'
+import {validateServiceEndpoint} from '../chain/serviceIdentity.js'
 
 const HEX32 = /^0x[0-9a-fA-F]{64}$/
 
@@ -76,7 +79,7 @@ export interface SessionGrantParams {
 
 /** The `session_grant` object added to `POST /v1/sessions` (session mode). */
 export interface SessionGrantCreateFragment {
-  session_grant: {session_key: SessionKeyJwk; slots: string[]; access_ttl_secs: number; idle_timeout_secs: number; absolute_ttl_secs: number}
+  session_grant: SessionGrantRequestWire
 }
 
 function positive(n: number | undefined, fallback: number, field: string): number {
@@ -116,12 +119,17 @@ export interface SlotTrust {
   ruleHash: Uint8Array
 }
 
-/** Where a session's refresh and revoke go, and how its slots are trusted. */
+/**
+ * Where a session's refresh and revoke go, and how its slots are trusted. Refresh and revoke travel
+ * through the SAME guarded registered-agent transport and request policy as every other paid agent
+ * call (verified TLS, connection-time destination checks, no redirects, bounded replies); the routes
+ * carry no bearer, because the session-key signature is their authorization.
+ */
 export interface SessionTransport {
-  /** Approved verifier-agent origin. */
-  agentUrl: string
-  /** Guarded fetch (defaults to global fetch; redirects and credentials are always refused). */
-  fetchImpl?: typeof fetch
+  /** The configured deployment chain: a grant naming any other chain is refused on accept, refresh and resume. */
+  chainId: number
+  /** The approved verifier-agent and its guarded transport (`createNodePaidAgentTransport` / `createBrowserPaidAgentTransport`). */
+  agent: {profile: ApprovedAgentProfile; transport: PaidAgentTransport}
   /** Verification material per granted slot, read from the chain by the caller. */
   trust(slot: `0x${string}`, epoch: bigint): Promise<SlotTrust>
 }
@@ -144,7 +152,12 @@ interface SessionRecord {
   /** Requested values, the upper bound every granted value must respect. */
   requested: {accessTtlSecs: number; idleTimeoutSecs: number; absoluteTtlSecs: number; slots: string[]}
   ended?: {code: string; at: number}
+  /** A revoke started (journaled first): the session serves nothing more, even before the revoke completes. */
+  revoking?: true
 }
+
+/** A session control reply is a grant and a seq, or a typed refusal: a few KiB at most. */
+const MAX_CONTROL_REPLY_BYTES = 65_536
 
 const recordKey = (sessionId: string) => `tasra.session-grant.${sessionId.toLowerCase()}`
 const now = () => Math.floor(Date.now() / 1000)
@@ -187,8 +200,16 @@ export async function acceptSessionGrant(opts: GrantedSessionOptions, fragment: 
   return new GrantedSession(opts, sessionId, record)
 }
 
+/** The grant must name the configured deployment chain (and the approved agent must serve it). */
+function requireChain(opts: GrantedSessionOptions, chainId: bigint | number): void {
+  const t = opts.transport
+  if (!Number.isSafeInteger(t.chainId) || t.chainId <= 0 || t.agent.profile.approval.chainId !== t.chainId) throw new TasraError('Session transport names no single deployment chain')
+  if (BigInt(chainId) !== BigInt(t.chainId)) throw new SessionGrantError('wrong-chain', `Session grant names chain ${String(chainId)}, not the configured chain ${t.chainId}`)
+}
+
 async function checkGrant(opts: GrantedSessionOptions, grant: SessionGrant, requested: SessionRecord['requested'], previous: SessionGrant | undefined, at: number): Promise<VerifiedSessionGrant[]> {
   const p = grant.payload
+  requireChain(opts, p.chainId)
   const mine = sessionKeyThumbprint(opts.key.jwk)
   if (bytesToHex(p.sessionKeyThumbprint) !== bytesToHex(mine)) throw new SessionGrantError('wrong-key', 'Session grant binds another session key')
   if (p.exp - p.iat > Math.min(requested.accessTtlSecs, MAX_ACCESS_TTL_SECS)) throw new SessionGrantError('lifetime', 'Session grant lifetime exceeds the requested access TTL')
@@ -244,6 +265,7 @@ export class GrantedSession {
   /** Verified grant for one slot (re-verified against the slot's anchored committee). */
   async verifiedFor(slot: `0x${string}`): Promise<VerifiedSessionGrant> {
     const grant = decodeSessionGrant(this.current())
+    requireChain(this.#opts, grant.payload.chainId)
     const target = grant.payload.slots.find(s => bytesToHex(s.slotId).toLowerCase() === slot.toLowerCase())
     if (!target) throw new SessionGrantError('slot-not-granted', `slot ${slot} is not named by the session grant`)
     const trust = await this.#opts.transport.trust(slot, grant.payload.epoch)
@@ -255,6 +277,7 @@ export class GrantedSession {
 
   #localEnd(): SessionEndedError | undefined {
     if (this.#record.ended) return new SessionEndedError(this.#record.ended.code, `Session ended (${this.#record.ended.code}); present again`)
+    if (this.#record.revoking) return new SessionEndedError('local-revoking', 'Session is being revoked; present again')
     const t = this.#clock(), g = this.#record.grant
     if (t >= g.absolute_exp) return new SessionEndedError('local-absolute', 'Session reached its absolute expiry; present again')
     if (t - this.#record.lastRefresh > g.idle_timeout_secs) return new SessionEndedError('local-idle', 'Session idle timeout passed; present again')
@@ -286,14 +309,16 @@ export class GrantedSession {
     })
   }
 
-  async #post(path: string, body: unknown): Promise<{status: number; json: unknown}> {
-    const res = await (this.#opts.transport.fetchImpl ?? fetch)(`${this.#opts.transport.agentUrl.replace(/\/$/, '')}${path}`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), redirect: 'error', credentials: 'omit'})
-    const text = await res.text()
-    if (text.length > 65_536) throw new TasraError('Session reply exceeds its byte limit')
+  /** One POST through the approved agent's guarded transport and the shared request policy; never repeated here. */
+  async #post(path: '/v1/sessions/refresh' | '/v1/sessions/revoke', body: unknown): Promise<{status: number; json: unknown; retryAfterMs?: number}> {
+    const {profile, transport} = this.#opts.transport.agent
+    validateServiceEndpoint(profile.endpoint)
+    const res = await transport.paidAgentRequest(profile.endpoint + path, {method: 'POST', body: new TextEncoder().encode(JSON.stringify(body)),
+      maxBytes: MAX_CONTROL_REPLY_BYTES, signal: AbortSignal.timeout(30_000)})
+    if (res.body.length > MAX_CONTROL_REPLY_BYTES) throw new TasraError('Session reply exceeds its byte limit')
     let json: unknown
-    try { json = text ? JSON.parse(text) : undefined } catch { json = undefined }
-    return {status: res.status, json}
+    try { json = res.body.length ? JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(res.body)) : undefined } catch { json = undefined }
+    return {status: res.status, json, ...res.retryAfterMs !== undefined ? {retryAfterMs: res.retryAfterMs} : {}}
   }
 
   /**
@@ -355,17 +380,65 @@ export class GrantedSession {
   /** Stop background refresh. */
   stop(): void { if (this.#timer) clearTimeout(this.#timer); this.#timer = undefined }
 
-  /** Revoke at the verifiers (effective at the next refresh; an issued grant runs to its `exp`, at most 45 s), then end locally. */
-  async revoke(): Promise<void> {
+  /**
+   * Revoke at the verifiers (effective at the next refresh; an issued grant runs to its `exp`, at
+   * most 45 s), then end locally. The agent answers 204 only once a quorum of every draw that could
+   * hold the session acknowledged; `503 session_revoke_partial` (and a 429/503 busy answer) is
+   * retried, each attempt under a fresh durably reserved seq, until `deadlineMs`. The session stops
+   * serving the moment revoke starts (journaled), even when the revoke has not completed; call
+   * `revoke()` again after a {@link SessionRevokeIncompleteError}.
+   * @param options - `deadlineMs`: total retry budget (default 30 s, at most 120 s); `sleep` for tests.
+   */
+  async revoke(options: {deadlineMs?: number; sleep?: (ms: number) => Promise<void>} = {}): Promise<void> {
     this.stop()
-    const {seq, grant} = await this.#reserveSeq()
-    const issuedAt = this.#clock()
-    const signature = await this.#opts.key.sign(sessionControlHash('revoke', sessionGrantHash(decodeSessionGrant(grant).payload), seq, issuedAt))
-    const reply = await this.#post('/v1/sessions/revoke', {grant, seq, issued_at: issuedAt, signature: bytesToHex(signature)})
-    if (reply.status >= 400 && reply.status !== 404) throw new TasraError(`Session revoke failed (${reply.status})`)
+    const budget = options.deadlineMs ?? 30_000
+    if (!Number.isSafeInteger(budget) || budget < 0 || budget > 120_000) throw new TasraError('Session revoke deadline must be 0..120000 ms')
+    const sleep = options.sleep ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)))
+    await this.#markRevoking()
+    const started = Date.now()
+    for (let attempt = 0; ; attempt++) {
+      const {seq, grant} = await this.#reserveSeq()
+      const issuedAt = this.#clock()
+      const signature = await this.#opts.key.sign(sessionControlHash('revoke', sessionGrantHash(decodeSessionGrant(grant).payload), seq, issuedAt))
+      const reply = await this.#post('/v1/sessions/revoke', {grant, seq, issued_at: issuedAt, signature: bytesToHex(signature)})
+      // 204: a quorum of every draw acknowledged. 404: no session holds this grant at the agent.
+      if (reply.status === 204 || reply.status === 404) break
+      const code = (reply.json as {code?: unknown} | undefined)?.code
+      const retryable = reply.status === 503 || reply.status === 429
+      if (!retryable) throw new TasraError(`Session revoke refused (${reply.status}${typeof code === 'string' ? ', ' + code : ''})`)
+      const wait = Math.min(Math.max(reply.retryAfterMs ?? 0, 500 * 2 ** Math.min(attempt, 4)), 10_000)
+      if (Date.now() - started + wait > budget) {
+        throw new SessionRevokeIncompleteError(typeof code === 'string' ? code : `status ${reply.status}`)
+      }
+      await sleep(wait)
+    }
     await this.#end(new SessionEndedError('session_revoked', 'Session revoked')).catch(() => undefined)
     this.#opts.key.dispose()
   }
+
+  /** Journal that a revoke started: from now on the session serves nothing, across reloads too. */
+  async #markRevoking(): Promise<void> {
+    const key = recordKey(this.sessionId)
+    await this.#opts.store.withLock(key, async () => {
+      const stored = await this.#opts.store.load<SessionRecord>(key)
+      if (!stored || stored.schema !== 1) throw new TasraError('Session grant journal missing')
+      const updated: SessionRecord = {...stored, revoking: true}
+      await this.#opts.store.save(key, updated)
+      this.#record = updated
+    })
+  }
+}
+
+/**
+ * A revoke that has not reached a quorum of every draw yet (`session_revoke_partial`, or the agent
+ * stayed busy) within its deadline. The session no longer serves locally; retry `revoke()`.
+ */
+export class SessionRevokeIncompleteError extends TasraError {
+  /** Always true: the same call may be repeated (each attempt signs a fresh seq). */
+  readonly retryable = true
+  /** The agent's last answer (`session_revoke_partial`, `session_rate_limited`, `status 503`, ...). */
+  readonly code: string
+  constructor(code: string) { super(`Session revoke incomplete (${code}); retry revoke()`); this.code = code }
 }
 
 /** Load a journaled session (same process, same key) after a restart of its owner, e.g. a tab reload with the key kept. */
@@ -373,6 +446,8 @@ export async function loadGrantedSession(opts: GrantedSessionOptions, sessionId:
   if (!HEX32.test(sessionId)) throw new TasraError('Invalid session id')
   const record = await opts.store.load<SessionRecord>(recordKey(sessionId))
   if (!record || record.schema !== 1) throw new TasraError('No session grant journal for this session')
+  // Resume pins the chain too: a journal written for another deployment never serves this one.
+  requireChain(opts, record.grant.chain_id)
   if (bytesToHex(sessionKeyThumbprint(opts.key.jwk)) !== bytesToHex(hexToBytes(record.grant.session_key_thumbprint))) throw new SessionGrantError('wrong-key', 'Session grant binds another session key')
   return new GrantedSession(opts, sessionId.toLowerCase(), record)
 }

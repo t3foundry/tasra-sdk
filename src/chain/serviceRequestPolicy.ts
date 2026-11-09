@@ -51,18 +51,20 @@ export function serviceRequestShape(mode: ServiceTransportMode, url: string, {bo
   // Queries: `?wait=1` (a held status poll) on the owner session status read, and `?wait_ms=` (a
   // held proposal listing, `execution-wait`) on the owner execution listing. `execution/approve`
   // (no delivery) is the batch approval route (`execution-approve-batch`).
-  const paidSuffix = url.match(/(?:\/v1\/request\/[0-9a-f]{64}|\/v1\/sessions(?:\/[0-9a-f]{64}(?:\?wait=1|\/(?:oauth-response|execution(?:\?wait_ms=[1-9][0-9]{0,4}|\/approve|\/[0-9a-f]{64}(?:\/(?:approve|reject))?)?|presentations(?:\/[0-9a-f]{64}\/resume)?))?)?)$/)?.[0]
+  const paidSuffix = url.match(/(?:\/v1\/sessions\/(?:refresh|revoke)|\/v1\/request\/[0-9a-f]{64}|\/v1\/sessions(?:\/[0-9a-f]{64}(?:\?wait=1|\/(?:oauth-response|execution(?:\?wait_ms=[1-9][0-9]{0,4}|\/approve|\/[0-9a-f]{64}(?:\/(?:approve|reject))?)?|presentations(?:\/[0-9a-f]{64}\/resume)?))?)?)$/)?.[0]
   const paidCreate = paid && paidSuffix === '/v1/sessions'
+  // ADR-0090 D7 session-grant controls: a public POST (no bearer; the session-key signature in the body authorizes it).
+  const paidControl = paid && (paidSuffix === '/v1/sessions/refresh' || paidSuffix === '/v1/sessions/revoke')
   const paidJar = paid && paidSuffix?.startsWith('/v1/request/') === true
   const paidOauth = paid && paidSuffix?.endsWith('/oauth-response') === true
-  const paidWrite = paidCreate || paidOauth || /\/(?:approve|reject|resume)$/.test(paidSuffix ?? '')
+  const paidWrite = paidCreate || paidControl || paidOauth || /\/(?:approve|reject|resume)$/.test(paidSuffix ?? '')
   if (oauth !== undefined && (!paidOauth || typeof oauth.accessToken !== 'string' || typeof oauth.proof !== 'string'
     || oauth.accessToken.length > 16 * 1024 || oauth.proof.length > 4 * 1024
     || !/^[\x21-\x7e]+$/.test(oauth.accessToken) || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(oauth.proof))) throw new Error('Invalid paid agent OAuth artifacts')
   if (paid && (!paidSuffix || method !== (paidWrite ? 'POST' : 'GET')
     || paidOauth && oauth === undefined
-    || (paidCreate || paidJar ? bearer !== undefined : !/^[0-9a-f]{64}$/.test(bearer ?? ''))
-    || (paidCreate || paidSuffix.endsWith('/approve') ? body === undefined : body !== undefined))) throw new Error('Invalid paid agent path, method, body or owner bearer')
+    || (paidCreate || paidControl || paidJar ? bearer !== undefined : !/^[0-9a-f]{64}$/.test(bearer ?? ''))
+    || (paidCreate || paidControl || paidSuffix.endsWith('/approve') ? body === undefined : body !== undefined))) throw new Error('Invalid paid agent path, method, body or owner bearer')
   // The registry's 512-byte limit applies to the base, excluding appended protocol paths.
   const relaySuffix = url.match(/\/v1\/relay\/(forward|voucher-intent|0x[0-9a-f]{64})$/)?.[0]
   if (relay && (!relaySuffix || Boolean(body) !== (relaySuffix.endsWith('/forward') || voucherIntent))) throw new Error('Invalid relay path or method')
