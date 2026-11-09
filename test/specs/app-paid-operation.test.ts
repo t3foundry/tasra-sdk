@@ -1093,6 +1093,73 @@ describe('paid operation index backfill', () => {
   })
 })
 
+// The operation journal's own commits: a new operation's record and index entry (one commit for
+// every concurrent new operation of a process), each local phase transition (one commit with its
+// unlock), and the execution consent (with the session's creation). A crash may keep any subset
+// of one commit; each case below resumes to what a crash at that point always resumed to.
+describe('paid operation journal commits', () => {
+  it('concurrent new operations of one process share the index commit instead of queueing on its lock one by one', async () => {
+    const f = setup(), inner = createMemoryStore(), locks: string[] = []
+    // A store without native commit steps: every lock is visible.
+    const store: ApplicationStore = {load: inner.load.bind(inner), save: inner.save.bind(inner), claim: inner.claim!.bind(inner), list: inner.list!.bind(inner),
+      withLock: (key, action) => { locks.push(key); return inner.withLock(key, action) }}
+    const config = {...f.config, store}
+    const ops = await Promise.all(Array.from({length: 32}, () => paidOperation(config, f.request)))
+    const listed = (await listPaidOperations(store)).map(o => o.requestId)
+    expect(new Set(listed)).toEqual(new Set(ops.map(op => op.requestId.toLowerCase())))
+    expect(listed).toHaveLength(32)
+    // One index commit per wave of arrivals, not one per operation.
+    const indexCommits = locks.filter(k => k === 'paid-op-index').length
+    expect(indexCommits).toBeGreaterThan(0)
+    expect(indexCommits).toBeLessThanOrEqual(4)
+    for (const op of ops) op.dispose()
+  })
+
+  it('a crash that kept the index entry but not the record: listed by no one, resumed by no one, nothing reserved', async () => {
+    const f = setup(), ghost = h(0x66)
+    await f.store.save('paid-op-index-0', {schema: 1, ids: [ghost]})
+    expect(await listPaidOperations(f.store)).toEqual([])
+    await expect(resumePaidOperation(f.config, ghost, {holder: f.holder})).rejects.toThrow(/No paid operation journal/)
+    const op = await paidOperation(f.config, f.request)
+    expect((await f.store.load<{ids: Hex[]}>('paid-op-index-0'))?.ids).toEqual([ghost, op.requestId.toLowerCase()])
+    expect((await listPaidOperations(f.store)).map(o => o.requestId)).toEqual([op.requestId.toLowerCase()])
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    op.dispose()
+  })
+
+  it('a crash that kept the record but not its index entry: found and resumed by its request ID, reserved once', async () => {
+    const f = setup(), inner = f.store, save = inner.save.bind(inner)
+    let requestId: Hex | undefined
+    inner.save = async (key, value) => { if (key.startsWith('paid-op-index')) throw new Error('crash before the index entry'); return save(key, value) }
+    await expect(paidOperation(f.config, {...f.request, onRequestId: id => { requestId = id }})).rejects.toThrow('crash')
+    inner.save = save
+    // Nothing was reserved: the reservation starts only after the journal commit resolved.
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    expect(await paidOperationPhase(f.store, requestId!)).toBe('reserving')
+    const op = await resumePaidOperation(f.config, requestId!, {holder: f.holder})
+    expect(await paidOperationPhase(f.store, requestId!)).toBe('authorized')
+    op.dispose()
+  })
+
+  it('a crash before the `executing` commit: nothing ran, the journal stays `authorized`, and execute runs once later', async () => {
+    const f = setup(), save = f.store.save.bind(f.store)
+    const op = await paidOperation(f.config, f.request)
+    let crash = true
+    f.store.save = async (key, value) => {
+      if (crash && (value as {phase?: string}).phase === 'executing') { crash = false; throw new Error('crash before the commit') }
+      return save(key, value)
+    }
+    const work = vi.fn(async () => 'signature')
+    await expect(op.execute(work)).rejects.toBeInstanceOf(PaidOperationRecoveryError)
+    expect(work).not.toHaveBeenCalled()
+    expect(await paidOperationPhase(f.store, op.requestId)).toBe('authorized')
+    expect(await op.execute(work)).toBe('signature')
+    expect(work).toHaveBeenCalledTimes(1)
+    expect(await paidOperationPhase(f.store, op.requestId)).toBe('executed')
+    op.dispose()
+  })
+})
+
 describe('revocation-status preflight', () => {
   // The keeper's rule, applied to the journaled grant before the `executing` checkpoint: a refusal
   // sends nothing, so the journal stays `authorized` and the keeper work never runs.
