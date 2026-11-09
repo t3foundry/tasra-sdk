@@ -39,6 +39,23 @@ never does.
 
 ### Changed
 
+- One allowance-backed paid operation journals with 32 durable device flushes instead of 116
+  on `createFileStore` (macOS F_FULLFSYNC is device-wide and serialised across processes, so this
+  bounded a host's paid operations per second). Every crash ordering is kept: what guards a send
+  is durable before it, and every state a crash can leave resumes as before.
+  - A transition's writes are published together with its unlock: one data barrier, the renames,
+    one directory sync. A lock that guards a send becomes durable with the first write before it.
+    `withLock` no longer flushes the lock file's diagnostic content separately from its entry.
+  - Concurrent new operations of one process share one journal commit (record and index entry)
+    instead of queueing one by one on the per-process index lock.
+  - An allowance debit commits the voucher with the operation's `reserved` phase, then the lane
+    advance with the voucher's push journal; the journal lock is taken with the lane's. A lane
+    completes an interrupted advance from either copy of the voucher.
+  - The execution consent is committed with the session's creation. A first operator approval
+    commits its record, body and `in_flight(1)` in one step before the send (the first send needs
+    no claim; every resend still claims its generation). Approval and creation confirmations,
+    which a resume re-derives from the agent, ride on the session's next write.
+  - No stored format changed; stores other than the file store get the same calls as before.
 - `createFileStore` queues `withLock` callers within one process in call order instead of
   refusing all but the first, so concurrent paid operations in one process no longer fail
   with `StoreLockedError`. A lock held by another process (or left by a crashed one) is

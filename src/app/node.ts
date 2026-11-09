@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto'
 import {AsyncLocalStorage} from 'node:async_hooks'
 import {TasraError} from '../errors.js'
 import {StoreLockedError} from './store-errors.js'
+import {STORE_COMMIT, type StoreCommitSteps} from './store-commit.js'
 
 /**
  * Durable private state storage with exclusive locking for each named operation.
@@ -185,10 +186,10 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
    * to another process (or a crashed one): wait for it to go, at most `lockWaitMs`, then refuse.
    * The file is never removed or overwritten here.
    */
-  async function acquire(key: string, target: string) {
+  async function acquire(key: string, target: string, durableLock: boolean) {
     const deadline = Date.now() + lockWaitMs
     for (let delay = 5; ; delay = Math.min(delay * 2, 100)) {
-      try { return await open(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW | DSYNC, 0o600) }
+      try { return await open(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW | (durableLock ? DSYNC : 0), 0o600) }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
         const left = deadline - Date.now()
@@ -197,7 +198,117 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
       }
     }
   }
+  /**
+   * Write every value to its own temporary file (O_DSYNC), then make all of their data durable
+   * together: one coalesced barrier (or each file's own sync without O_DSYNC). Nothing is renamed
+   * here, so nothing is published before its data is on stable storage.
+   */
+  async function stageFiles(entries: readonly (readonly [string, Encoded])[]): Promise<{temporary: string; target: string}[]> {
+    const encoded = entries.map(([key, value]) => ({target: path(key), contents: JSON.stringify({schemaVersion: 1, value}) + "\n"}))
+    await ready()
+    const written: {temporary: string; target: string}[] = []
+    const files: import('node:fs/promises').FileHandle[] = []
+    try {
+      for (const {target, contents} of encoded) {
+        const temporary = join(root, `.${randomUUID()}.tmp`)
+        const file = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW | DSYNC, 0o600)
+        written.push({temporary, target}); files.push(file)
+        await file.writeFile(contents, 'utf8')
+      }
+      if (DSYNC === 0) for (const file of files) { fileStoreSyncCounters.fileSyncs++; await file.sync() }
+      else if (files.length > 0) await commit.barrier(files[0]!)
+      return written
+    } catch (error) {
+      await discard(written)
+      throw error
+    } finally { await Promise.all(files.map(file => file.close())) }
+  }
+  async function discard(written: readonly {temporary: string}[]) {
+    for (const {temporary} of written) await unlink(temporary).catch(error => { if (!missing(error)) throw error })
+  }
+  /** Rename durable temporaries into place, in order; a temporary left by a failure is removed. */
+  async function publish(written: readonly {temporary: string; target: string}[]) {
+    try { for (const {temporary, target} of written) await rename(temporary, target) }
+    catch (error) { await discard(written); throw error }
+  }
+  /**
+   * Take the locks of `keys` (distinct, in sorted order, so two callers never wait on each other),
+   * each in call order within this process (another process's lock is waited for, boundedly), run
+   * `action`, and always remove every lock. `durableLock` syncs the lock entries before the
+   * action runs; otherwise they become durable with the first directory sync after them.
+   * `release` runs after a successful action with the locks still held, and returns whether their
+   * removal still needs its own directory sync.
+   */
+  async function locked<T>(keys: readonly string[], durableLock: boolean, action: () => Promise<T>, release?: (unlock: () => Promise<void>) => Promise<boolean>): Promise<T> {
+    const targets = [...new Set(keys)].sort().map(key => ({key, target: path(key, '.lock')}))
+    // A nested lock on a key this call chain already holds can never be granted: refuse at once,
+    // exactly as before, instead of queueing behind itself.
+    const current = holding.getStore() ?? []
+    for (const {key, target} of targets) if (current.some(held => held.path === target && !held.released)) throw new StoreLockedError(key)
+    const turns: {target: string; tail: Promise<void>; done: () => void}[] = []
+    const held: {path: string; released: boolean; lock: import('node:fs/promises').FileHandle; open: boolean}[] = []
+    const unlock = async () => {
+      for (const h of held) { h.released = true; if (h.open) { h.open = false; await h.lock.close(); await unlink(h.path) } }
+    }
+    try {
+      for (const {key, target} of targets) {
+        // Join the queue synchronously, so callers are served in call order.
+        const previous = queues.get(target) ?? Promise.resolve()
+        let done!: () => void
+        const turn = new Promise<void>(resolve => { done = resolve })
+        const tail = previous.then(() => turn)
+        queues.set(target, tail)
+        turns.push({target, tail, done})
+        await previous
+        await ready()
+        const lock = await acquire(key, target, durableLock)
+        held.push({path: target, released: false, lock, open: true})
+        await lock.writeFile(JSON.stringify({pid: process.pid, createdAt: new Date().toISOString()}))
+      }
+      if (durableLock) {
+        // The lock's content is a diagnostic nothing reads; only its entry must be durable. With
+        // O_DSYNC its data reached the device during the write (Linux: on stable storage; macOS:
+        // the directory's F_FULLFSYNC empties the drive cache), so the directory sync suffices.
+        if (DSYNC === 0) for (const h of held) { fileStoreSyncCounters.fileSyncs++; await h.lock.sync() }
+        await syncDirectory()
+      }
+      const result = await holding.run([...current, ...held], action)
+      if (release && !await release(unlock)) return result
+      await unlock()
+      await syncDirectory()
+      return result
+    } catch (error) {
+      if (held.some(h => h.open)) { await unlock(); await syncDirectory() }
+      throw error
+    } finally {
+      for (const h of held) h.released = true
+      for (const {target, tail, done} of turns) { done(); if (queues.get(target) === tail) queues.delete(target) }
+    }
+  }
+  const steps: StoreCommitSteps = {
+    async withCommit(keys, action) {
+      const staged = new Map<string, Encoded>()
+      return locked(typeof keys === 'string' ? [keys] : keys, false, () => action({stage: (k, v) => { path(k); staged.delete(k); staged.set(k, encode(v)) }}), async unlock => {
+        if (staged.size === 0) return true
+        const written = await stageFiles([...staged])
+        await publish(written)
+        // One directory sync publishes every rename AND the removed lock.
+        await unlock()
+        await syncDirectory()
+        return false
+      })
+    },
+    async saveAll(entries) {
+      if (entries.length === 0) return
+      await publish(await stageFiles(entries.map(([key, value]) => [key, encode(value)] as const)))
+      await syncDirectory()
+    },
+    async saveRederivable(key, value) {
+      await publish(await stageFiles([[key, encode(value)]]))
+    },
+  }
   return {
+    [STORE_COMMIT]: steps,
     async load<T>(key: string): Promise<T | undefined> {
       const target = path(key)
       await ready()
@@ -213,15 +324,8 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
       } finally { await file.close() }
     },
     async save(key, value) {
-      const target = path(key), contents = JSON.stringify({schemaVersion: 1, value: encode(value)}) + '\n'
-      await ready()
-      const temporary = join(root, `.${randomUUID()}.tmp`)
-      const file = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW | DSYNC, 0o600)
-      try {
-        try { await file.writeFile(contents, 'utf8'); await durable(file) } finally { await file.close() }
-        await rename(temporary, target)
-        await syncDirectory()
-      } finally { await unlink(temporary).catch(error => { if (!missing(error)) throw error }) }
+      await publish(await stageFiles([[key, encode(value)]]))
+      await syncDirectory()
     },
     async list(prefix) {
       await ready()
@@ -243,32 +347,6 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
       await syncDirectory()
       return true
     },
-    async withLock(key, action) {
-      const target = path(key, '.lock')
-      // A nested lock on a key this call chain already holds can never be granted: refuse at once,
-      // exactly as before, instead of queueing behind itself.
-      if (holding.getStore()?.some(held => held.path === target && !held.released)) throw new StoreLockedError(key)
-      // Join the queue synchronously, so callers are served in call order.
-      const previous = queues.get(target) ?? Promise.resolve()
-      let release!: () => void
-      const turn = new Promise<void>(done => { release = done })
-      const tail = previous.then(() => turn)
-      queues.set(target, tail)
-      try {
-        await previous
-        await ready()
-        const lock = await acquire(key, target)
-        const held = {path: target, released: false}
-        try {
-          await lock.writeFile(JSON.stringify({pid: process.pid, createdAt: new Date().toISOString()}))
-          await durable(lock)
-          await syncDirectory()
-          return await holding.run([...(holding.getStore() ?? []), held], action)
-        } finally { held.released = true; await lock.close(); await unlink(target); await syncDirectory() }
-      } finally {
-        release()
-        if (queues.get(target) === tail) queues.delete(target)
-      }
-    },
-  }
+    withLock(key, action) { return locked([key], true, action) },
+  } as ApplicationStore
 }

@@ -46,6 +46,7 @@ import {withDedicatedPayer} from './payer-queue.js'
 import {releaseApplicationPayerClaim, withApplicationPayerClaim} from './paid-reservation.js'
 import {HEX32, paidRecordKey} from './paid-keys.js'
 import {headFollowerOf} from '../chain/headFollower.js'
+import {saveAll, withCommit} from './store-commit.js'
 
 /** Explicit, default-off allowance funding for paid operations (ADR-0090). */
 export interface PaidAllowanceOptions {
@@ -417,10 +418,18 @@ async function freshQuoteBlock(client: PublicClient): Promise<Hex> {
   return head.hash
 }
 
-/** The voucher journaled under a pending debit's request, when it is exactly that debit's. */
+/**
+ * The voucher journaled for a pending debit's request, when it is exactly that debit's: under the
+ * request (`pav-`), or in the operation journal's `reserved` phase, which a fresh round commits
+ * together with it (a crash may keep either one).
+ */
 async function completedVoucher(store: ApplicationStore, debit: LaneDebit): Promise<DebitVoucherWire | undefined> {
-  const voucher = await journaledAllowanceVoucher(store, debit.requestId)
-  return voucher && voucher.seq === debit.seq && same(voucher.allowance_id, debit.payment.allowance_id ?? '') ? voucher : undefined
+  const exact = (voucher: DebitVoucherWire | undefined) => voucher && same(voucher.request_id, debit.requestId) && voucher.seq === debit.seq
+    && same(voucher.allowance_id, debit.payment.allowance_id ?? '') ? voucher : undefined
+  const saved = exact(await journaledAllowanceVoucher(store, debit.requestId))
+  if (saved) return saved
+  const record = await store.load<{payment?: {debit_voucher?: DebitVoucherWire}}>(paidRecordKey(debit.requestId)).catch(() => undefined)
+  return exact(record?.payment?.debit_voucher)
 }
 
 /** Whether a pending debit of another request may still be completed (its operation can resume). */
@@ -439,62 +448,116 @@ async function resumable(store: ApplicationStore, debit: LaneDebit): Promise<boo
  * @param payment - Creator-signed allowance payment without a voucher.
  * @param signal - Cancellation of the network round (an aborted round stays pending).
  */
-export async function obtainAllowanceVoucher(env: AllowanceEnv, ticket: {lane: number}, payment: PaymentIntentWire, signal?: AbortSignal): Promise<DebitVoucherWire> {
+export async function obtainAllowanceVoucher(env: AllowanceEnv, ticket: {lane: number}, payment: PaymentIntentWire, signal?: AbortSignal,
+  options: ObtainVoucherOptions = {}): Promise<DebitVoucherWire> {
   const requestId = prepaidRequestId(payment), store = env.store
   const saved = await journaledAllowanceVoucher(store, requestId)
   if (saved) return saved
   if (payment.allowance_id === undefined) throw new TasraError('Payment names no allowance')
-  const slot = payment.slot, key = laneKey(env.deployment, slot, ticket.lane)
+  const slot = payment.slot, key = laneKey(env.deployment, slot, ticket.lane), allowance = payment.allowance_id
+  const push = HEX32.test(allowance) ? pushKey(allowance) : undefined
+  // Background work that takes locks this round holds starts once they are released; vouchers are
+  // pushed only once the commit that journals them resolved.
+  const after: (() => void)[] = [], toPush: DebitVoucherWire[] = []
   busy.add(key)
   try {
-    return await store.withLock(key, async () => {
+    // The lane lock serializes the lane's rounds; the push journal's lock is held with it, so the
+    // voucher a round completes is journaled for its push in the same commit as the lane advance.
+    const voucher = await withCommit(store, [key, ...push ? [push] : [], ...options.lock ?? []], async commit => {
+      await options.check?.()
       let state = await loadLane(store, key, ticket.lane, slot)
-      const save = async (next: LaneState) => { await store.save(key, next); state = next }
+      // `save` is durable before it returns; `advance` only records the lane's next state, which is
+      // published with the unlock (or by the next durable `save`, which carries it).
+      let unsaved = false
+      const save = async (next: LaneState) => { await store.save(key, next); state = next; unsaved = false }
+      const pushed: DebitVoucherWire[] = []
+      const round: Round = {save, advance: next => { state = next; unsaved = true }, pushed: voucher => { pushed.push(voucher) }}
       const retireLane = async (why: string, cause?: unknown): Promise<never> => {
         const promoted = state.next?.phase === 'confirmed' ? {...state.next, seq: 0, cumulative: '0'} : undefined, retiring = state.current
         await save({...state, current: promoted, next: promoted ? undefined : state.next, retired: retire(state)})
-        repushLast(env, retiring)
+        after.push(() => repushLast(env, retiring))
         throw new AllowanceRefusedError(why, cause)
       }
-      const current = state.current
-      if (!current || !same(current.id, payment.allowance_id!)) throw new AllowanceRefusedError('the lane no longer holds this allowance')
-      // A completed round of another request whose lane advance was interrupted: its voucher is
-      // on the lane (older journals) or journaled under its request (`finalize` writes that first).
-      if (current.pending && !same(current.pending.requestId, requestId)) {
-        const done = current.pending.voucher ?? await completedVoucher(store, current.pending)
-        if (done) await finalize(env, state, current, {...current.pending, voucher: done}, save)
+      const outcome = await (async (): Promise<DebitVoucherWire> => {
+        const current = state.current
+        if (!current || !same(current.id, allowance)) throw new AllowanceRefusedError('the lane no longer holds this allowance')
+        // A completed round of another request whose lane advance was interrupted: its voucher is
+        // on the lane (older journals) or journaled for its request (`finalize` writes that first).
+        if (current.pending && !same(current.pending.requestId, requestId)) {
+          const done = current.pending.voucher ?? await completedVoucher(store, current.pending)
+          if (done) await finalize(env, state, current, {...current.pending, voucher: done}, round)
+        }
+        const other = state.current?.pending
+        if (other && !same(other.requestId, requestId)) {
+          if (!await resumable(store, other)) return retireLane('a debit of an abandoned or expired operation holds this lane')
+          // Complete the earlier request first (its operation resumes onto the journaled voucher).
+          await runRound(env, state, state.current!, other, round, retireLane, signal)
+        }
+        const lane = state.current!
+        if (lane.pending && lane.pending.voucher) return finalize(env, state, lane, lane.pending, round, options.journal)
+        let debit = lane.pending
+        if (!debit) {
+          // The accountants judge cost against the remainder; an empty allowance cannot fund anything.
+          if (remaining(lane) <= 0n) return retireLane('allowance exhausted')
+          if (lane.intent.expires_at < payment.expires + EXPIRY_MARGIN_SECS) throw new AllowanceRefusedError('allowance expires before the operation')
+          let quoteBlock: Hex
+          try { quoteBlock = await freshQuoteBlock(env.client) } catch (error) { throw new AllowanceUnavailableError('no fresh quote block for the debit', error) }
+          debit = {seq: lane.seq + 1, requestId, payment: structuredClone(payment), quoteBlock, quotedAt: now(), partials: []}
+          // The lane journal BEFORE any request: a resume asks for this exact seq and request.
+          await save({...state, current: {...lane, pending: debit}})
+        } else if (debit.partials.length === 0 && now() - debit.quotedAt > QUOTE_REUSE_SECS) {
+          try { debit = {...debit, quoteBlock: await freshQuoteBlock(env.client), quotedAt: now()} } catch (error) { throw new AllowanceUnavailableError('no fresh quote block for the debit', error) }
+          await save({...state, current: {...lane, pending: debit}})
+        }
+        return runRound(env, state, state.current!, debit, round, retireLane, signal, options.journal)
+      })()
+      if (unsaved) commit.stage(key, state)
+      // The allowance's last voucher, journaled (unacknowledged) before it is pushed. Committed with
+      // the lane advance: a crash may keep either one. A journal without the advance names a seq whose
+      // voucher is journaled for its request (the next round completes the advance and journals it
+      // again, a no-op); an advance without the journal loses nothing: `repushLast` takes the
+      // lane's `previous` (published by that advance) when the journal is missing or older.
+      const last = pushed.reduce<DebitVoucherWire | undefined>((a, v) => !a || v.seq > a.seq ? v : a, undefined)
+      if (last && push) {
+        const journaled = await loadPush(store, allowance).catch(() => undefined)
+        if (!journaled || journaled.voucher.seq < last.seq) commit.stage(push, {schema: 1, voucher: last, acked: [], repushed: false} satisfies PushRecord)
+        toPush.push(...pushed)
       }
-      const other = state.current?.pending
-      if (other && !same(other.requestId, requestId)) {
-        if (!await resumable(store, other)) return retireLane('a debit of an abandoned or expired operation holds this lane')
-        // Complete the earlier request first (its operation resumes onto the journaled voucher).
-        await runRound(env, state, state.current!, other, save, retireLane, signal)
-      }
-      const lane = state.current!
-      if (lane.pending && lane.pending.voucher) return (await finalize(env, state, lane, lane.pending, save))
-      let debit = lane.pending
-      if (!debit) {
-        // The accountants judge cost against the remainder; an empty allowance cannot fund anything.
-        if (remaining(lane) <= 0n) return retireLane('allowance exhausted')
-        if (lane.intent.expires_at < payment.expires + EXPIRY_MARGIN_SECS) throw new AllowanceRefusedError('allowance expires before the operation')
-        let quoteBlock: Hex
-        try { quoteBlock = await freshQuoteBlock(env.client) } catch (error) { throw new AllowanceUnavailableError('no fresh quote block for the debit', error) }
-        debit = {seq: lane.seq + 1, requestId, payment: structuredClone(payment), quoteBlock, quotedAt: now(), partials: []}
-        // The lane journal BEFORE any request: a resume asks for this exact seq and request.
-        await save({...state, current: {...lane, pending: debit}})
-      } else if (debit.partials.length === 0 && now() - debit.quotedAt > QUOTE_REUSE_SECS) {
-        try { debit = {...debit, quoteBlock: await freshQuoteBlock(env.client), quotedAt: now()} } catch (error) { throw new AllowanceUnavailableError('no fresh quote block for the debit', error) }
-        await save({...state, current: {...lane, pending: debit}})
-      }
-      const voucher = await runRound(env, state, state.current!, debit, save, retireLane, signal)
-      return voucher
+      return outcome
     })
-  } finally { busy.delete(key) }
+    // Never awaited by the operation; beyond the background bound the journal keeps it for the re-push.
+    for (const done of toPush) background(() => sendAndJournal(env, done, accountantEndpoints(env, env.deployment.chainId)))
+    return voucher
+  } finally {
+    busy.delete(key)
+    for (const job of after) job()
+  }
+}
+
+/** How a round journals the lane: durably now (`save`), with the unlock (`advance`), and which vouchers it completed (`pushed`). */
+interface Round {
+  save(next: LaneState): Promise<void>
+  advance(next: LaneState): void
+  pushed(voucher: DebitVoucherWire): void
+}
+
+/** Options of {@link obtainAllowanceVoucher}. */
+export interface ObtainVoucherOptions {
+  /**
+   * Further entries to journal with THIS request's voucher, in the same commit as `pav-<request>`
+   * and before the lane advances past its seq (the operation journal's `reserved` phase). A crash
+   * may keep any subset of that commit; the lane completes an interrupted advance from either.
+   */
+  journal?: (voucher: DebitVoucherWire) => readonly (readonly [string, unknown])[]
+  /** Further locks held for the whole round, taken with the lane's (all in sorted order), e.g. the operation journal's. */
+  lock?: readonly string[]
+  /** Runs first under every lock, before anything is read or sent; a throw sends nothing. */
+  check?: () => Promise<void>
 }
 
 /** One voucher round for `debit` on the lane's current allowance; advances the lane on success. */
-async function runRound(env: AllowanceEnv, state: LaneState, lane: LaneCurrent, debit: LaneDebit, save: (s: LaneState) => Promise<void>,
-  retireLane: (why: string, cause?: unknown) => Promise<never>, signal?: AbortSignal): Promise<DebitVoucherWire> {
+async function runRound(env: AllowanceEnv, state: LaneState, lane: LaneCurrent, debit: LaneDebit, round: Round,
+  retireLane: (why: string, cause?: unknown) => Promise<never>, signal?: AbortSignal, journal?: ObtainVoucherOptions['journal']): Promise<DebitVoucherWire> {
   try {
     const {voucher, partials} = await collectDebitVoucher(env.client, env.deployment, {payment: debit.payment, seq: debit.seq, previous: lane.previous,
       quoteBlock: debit.quoteBlock, maxOpCost: BigInt(lane.intent.max_op_cost)}, {accountantUrls: env.accountantUrls, allowLocalHttp: env.allowLocalHttp,
@@ -502,12 +565,12 @@ async function runRound(env: AllowanceEnv, state: LaneState, lane: LaneCurrent, 
     // No separate lane save of the completed round: `finalize` journals the voucher under its
     // request FIRST, which is what an interrupted advance is resumed from (`completedVoucher`).
     const done: LaneDebit = {...debit, partials, voucher}
-    return await finalize(env, state, {...lane, pending: done}, done, save)
+    return await finalize(env, state, {...lane, pending: done}, done, round, journal)
   } catch (error) {
     if (error instanceof DebitVoucherError) {
       const known = new Map(debit.partials.map(p => [p.identifier, p]))
       for (const o of error.outcomes) if (o.kind === 'partial') known.set(o.partial.identifier, o.partial)
-      await save({...state, current: {...lane, pending: {...debit, partials: [...known.values()]}}})
+      await round.save({...state, current: {...lane, pending: {...debit, partials: [...known.values()]}}})
       if (error.definite) return retireLane('the accountants refused the debit', error)
       throw new AllowanceUnavailableError('accountants unavailable for the debit; resume requests the same seq', error)
     }
@@ -516,12 +579,22 @@ async function runRound(env: AllowanceEnv, state: LaneState, lane: LaneCurrent, 
   }
 }
 
-/** Journal the voucher under its request, then advance the lane past its seq, then push it (background). */
-async function finalize(env: AllowanceEnv, state: LaneState, lane: LaneCurrent, debit: LaneDebit, save: (s: LaneState) => Promise<void>): Promise<DebitVoucherWire> {
+/**
+ * Journal the voucher under its request (with `journal`'s entries, in one durable commit), then
+ * advance the lane past its seq, then push it (journaled with the lane's unlock, sent after it in
+ * the background). The lane advance is ordered after that commit and needs no flush of its own: it
+ * is published with the lane's unlock, or carried by the next durable lane save, and a crash before
+ * either leaves the debit pending with its voucher journaled, which the next round on the lane
+ * completes (`completedVoucher`) without asking anyone.
+ */
+async function finalize(env: AllowanceEnv, state: LaneState, lane: LaneCurrent, debit: LaneDebit, round: Round,
+  journal?: ObtainVoucherOptions['journal']): Promise<DebitVoucherWire> {
   const voucher = debit.voucher!, store = env.store
-  if (!await journaledAllowanceVoucher(store, debit.requestId)) await store.save(voucherKey(debit.requestId), {schema: 1, voucher} satisfies StoredVoucher)
-  await save({...state, current: {...lane, seq: debit.seq, cumulative: voucher.cumulative, previous: voucher, pending: undefined}})
-  await pushVoucher(env, voucher)
+  const entries: (readonly [string, unknown])[] = await journaledAllowanceVoucher(store, debit.requestId) ? [] : [[voucherKey(debit.requestId), {schema: 1, voucher} satisfies StoredVoucher]]
+  entries.push(...journal?.(voucher) ?? [])
+  await saveAll(store, entries)
+  round.advance({...state, current: {...lane, seq: debit.seq, cumulative: voucher.cumulative, previous: voucher, pending: undefined}})
+  round.pushed(voucher)
   return voucher
 }
 
@@ -564,41 +637,17 @@ async function sendAndJournal(env: AllowanceEnv, voucher: DebitVoucherWire, urls
     await env.store.save(key, {...r, acked: [...new Set([...r.acked, ...accepted])]} satisfies PushRecord)
   })
 }
-/** Journal `voucher` as its allowance's last (unacknowledged) push; false when a later one is journaled. */
-async function journalPush(env: AllowanceEnv, voucher: DebitVoucherWire): Promise<boolean> {
-  const key = pushKey(voucher.allowance_id)
-  return env.store.withLock(key, async () => {
-    const r = await loadPush(env.store, voucher.allowance_id).catch(() => undefined)
-    if (r && r.voucher.seq >= voucher.seq) return false
-    await env.store.save(key, {schema: 1, voucher, acked: [], repushed: false} satisfies PushRecord)
-    return true
-  })
-}
-/**
- * Journal `voucher` as its allowance's last (unacknowledged) push, then push it to every member,
- * both in the background: the operation never depends on the push, so its durable journal (a
- * lock and a save) is no longer paid on the operation's path. Only when the background is full is
- * the journal written here (and the push left to the re-push), exactly as before. Never throws: a
- * journal failure only costs the later re-push.
- */
-async function pushVoucher(env: AllowanceEnv, voucher: DebitVoucherWire): Promise<void> {
-  try {
-    if (pushes.size >= MAX_PUSHES) { await journalPush(env, voucher); return }
-    background(async () => {
-      if (await journalPush(env, voucher)) await sendAndJournal(env, voucher, accountantEndpoints(env, env.deployment.chainId))
-    })
-  } catch { /* the operation never depends on the push */ }
-}
 /**
  * Re-push an allowance's last voucher ONCE to the members that did not acknowledge it (lane
  * retiring, allowance near expiry). Never throws.
  *
- * The push journal is written by the background push job (never on the operation's path), so a
- * crash can lose it or leave an older seq's. The voucher it would name is durable anyway: the
- * lane's `previous`, saved by `finalize` before the debit returned. When the journal is missing or
- * older, that voucher stands in, acknowledged by no member, so an allowance's last voucher is
- * re-pushed after a crash too, with no flush added to the debit path. Only the lost journal's
- * acknowledgements are lost: a member that had acknowledged is asked again (an idempotent accept).
+ * The push journal is committed with the lane advance, but a crash may keep either one of that
+ * commit: a lane advanced past its last voucher whose push journal is missing or names an older
+ * seq. The voucher it would name is durable anyway: the lane's `previous`, published by that same
+ * advance. When the journal is missing or older, that voucher stands in, acknowledged by no
+ * member, so an allowance's last voucher is re-pushed after a crash too, with no flush added to the
+ * debit path. Only the lost journal's acknowledgements are lost: a member that had acknowledged is
+ * asked again (an idempotent accept).
  */
 function repushLast(env: AllowanceEnv, lane: LaneCurrent | undefined): void {
   if (!lane) return

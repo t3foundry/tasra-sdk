@@ -10,7 +10,8 @@ import {APPROVAL_LEDGER_SCHEMA, approvalClaimKey, approvalLedgerKey, beginApprov
   reconcileRetainedApproval, retainAndDeliverApproval, retainAndDeliverApprovals, supportsDurableApproval, type ApprovalJournalRecord, type DurableApprovalContext} from '../../src/app/paid-approval.js'
 import {drivePaidSession, PaidSessionRecoveryError, type PaidWalletPresentation} from '../../src/app/paid-session.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
-import {createFileStore} from '../../src/app/node.js'
+import {createFileStore, fileStoreSyncCounters} from '../../src/app/node.js'
+import {Rederivable} from '../../src/app/store-commit.js'
 import {createIndexedDbStore} from '../../src/app/browser.js'
 import {PaidAgentControlError, type PaidAgentProposal, type PaidApprovalDelivery, type RegisteredPaidAgentSession, type RetainedPaidApproval} from '../../src/chain/registeredPaidAgent.js'
 import {PaidApprovalUnresolvedError, PaidBackoffError} from '../../src/errors.js'
@@ -72,12 +73,14 @@ describe('retained paid approval resends', () => {
     expect(h.time.sleeps).toEqual([1000])
     expect(await h.record()).toEqual({original: ORIGINAL, phase: 'confirmed'})
     expect(await h.ledger()).toEqual({state: 'in_flight', generation: 2})
-    expect(await h.store.load(approvalClaimKey(KEY, 1))).toBeDefined()
+    // The first send needs no claim: its `in_flight(1)` was committed with the record by the one
+    // caller that created it, and no `permit(1)` ever existed. Every resend claims its generation.
+    expect(await h.store.load(approvalClaimKey(KEY, 1))).toBeUndefined()
     expect(await h.store.load(approvalClaimKey(KEY, 2))).toBeDefined()
     expect(await h.store.load(approvalClaimKey(KEY, 3))).toBeUndefined()
   })
 
-  it('retains the body and one permit BEFORE the first send', async () => {
+  it('retains the body and its in-flight mark BEFORE the first send', async () => {
     const h = harness()
     h.replies.push(() => { throw new Error('crash during first send') })
     const seen: unknown[] = []
@@ -497,5 +500,100 @@ describe('drivePaidSession: batch approvals when the agent advertises them', () 
     expect((await d.drive()).status).toBe('done')
     expect(d.batches).toEqual([])
     expect(d.session.sendRetainedApproval).toHaveBeenCalledTimes(2)
+  })
+})
+
+// One durable commit per first approval (record, body and in_flight(1) together, before the send),
+// and a confirmation re-derived by recovery: what a crash at each step leaves, and what follows.
+describe('first approvals: one commit before the send, a re-derivable confirmation', () => {
+  it('commits record, body and in_flight(1) with ONE barrier and ONE directory sync before the send, and takes no claim for it', async () => {
+    const dir = await directory(), h = harness(createFileStore(dir))
+    const before = {...fileStoreSyncCounters}
+    let atSend: {barriers: number; directorySyncs: number; record?: unknown; ledger?: unknown} | undefined
+    vi.mocked(h.session.sendRetainedApproval!).mockImplementationOnce(async () => {
+      // What a crash during the send leaves, read through another store object (another process).
+      const other = createFileStore(dir)
+      atSend = {barriers: fileStoreSyncCounters.barriers - before.barriers, directorySyncs: fileStoreSyncCounters.directorySyncs - before.directorySyncs,
+        record: await other.load(KEY), ledger: await readApprovalLedger(other, KEY, PROPOSAL)}
+      return {status: 'accepted'}
+    })
+    expect(await h.first()).toBe(true)
+    expect(atSend).toEqual({barriers: 1, directorySyncs: 1, record: {original: ORIGINAL, phase: 'prepared', approval: {schema: APPROVAL_LEDGER_SCHEMA, ...RETAINED}},
+      ledger: {state: 'in_flight', generation: 1}})
+    expect(await h.store.load(approvalClaimKey(KEY, 1))).toBeUndefined()
+    expect(await h.record()).toEqual({original: ORIGINAL, phase: 'confirmed'})
+  })
+
+  it('while the first send is in flight another process can never send generation 1: it finds in_flight(1) and sends nothing', async () => {
+    const dir = await directory(), a = harness(createFileStore(dir)), b = harness(createFileStore(dir))
+    let other: unknown
+    vi.mocked(a.session.sendRetainedApproval!).mockImplementationOnce(async (approval: RetainedPaidApproval) => {
+      a.sent.push(approval.body)
+      other = await b.resume().catch((e: unknown) => e)
+      return {status: 'accepted'}
+    })
+    expect(await a.first()).toBe(true)
+    expect(other).toMatchObject({name: 'PaidApprovalUnresolvedError', reason: 'outcome_unknown', generation: 1})
+    expect(b.sent).toEqual([])
+    expect(a.sent).toEqual([RETAINED.body])
+  })
+
+  it('a crash that kept the ledger but not the record: nothing was sent, so a fresh first approval sends exactly once', async () => {
+    const h = harness()
+    await h.store.save(approvalLedgerKey(KEY), {schema: 2, proposalId: PROPOSAL, state: 'in_flight', generation: 1})
+    h.replies.push(accepted)
+    expect(await h.first()).toBe(true)
+    expect(h.sent).toEqual([RETAINED.body])
+    expect(await h.ledger()).toEqual({state: 'in_flight', generation: 1})
+    expect((await h.record())?.phase).toBe('confirmed')
+  })
+
+  it('a crash that kept the record but not the ledger: never sent, unresolved', async () => {
+    const h = harness()
+    await h.store.save(KEY, {original: ORIGINAL, phase: 'prepared', approval: {schema: 2, ...RETAINED}})
+    await expect(h.resume()).rejects.toMatchObject({reason: 'no_permit'})
+    expect(h.sent).toEqual([])
+  })
+
+  it('a crash before the re-derivable confirmation is written: the resume reads the delivery, confirms it and sends nothing', async () => {
+    const h = harness(), later = new Rederivable()
+    h.replies.push(accepted)
+    expect(await retainAndDeliverApproval({...h.ctx, rederivable: later}, ORIGINAL, h.sign)).toBe(true)
+    // The confirmation waits for the flow's next commit; the process dies before it.
+    expect((await h.record())?.phase).toBe('prepared')
+    h.agent.state = 'approved'
+    expect(await h.resume()).toBe('accepted')
+    expect((await h.record())?.phase).toBe('confirmed')
+    expect(h.sent).toHaveLength(1)
+  })
+
+  it('a first-approval commit that fails sends nothing and gives the flow\'s pending writes back', async () => {
+    const inner = createMemoryStore(), later = new Rederivable()
+    const store: ApplicationStore = {load: inner.load.bind(inner), withLock: inner.withLock.bind(inner), claim: inner.claim!.bind(inner),
+      save: async (key, value) => { if (key.endsWith('.attempt')) throw new Error('disk full'); return inner.save(key, value) }}
+    const h = harness(store)
+    later.put('wallet-' + SESSION + '-create', {phase: 'confirmed'})
+    await expect(retainAndDeliverApproval({...h.ctx, rederivable: later}, ORIGINAL, h.sign)).rejects.toThrow('disk full')
+    expect(h.sent).toEqual([])
+    expect(later.take()).toEqual([['wallet-' + SESSION + '-create', {phase: 'confirmed'}]])
+  })
+
+  it('a batch of first approvals is ONE commit (with what the flow had pending) before its one request', async () => {
+    const dir = await directory(), store = createFileStore(dir), h = harness(store), later = new Rederivable()
+    later.put('wallet-' + SESSION + '-create', {original: {}, phase: 'confirmed'})
+    const keys = [KEY, 'wallet-' + SESSION + '-presentation_attest-1', 'wallet-' + SESSION + '-presentation_attest-2']
+    const session = h.session as unknown as Record<string, unknown>
+    const before = {...fileStoreSyncCounters}
+    let atSend: unknown
+    session.sendRetainedApprovals = vi.fn(async (approvals: RetainedPaidApproval[]) => {
+      atSend = {barriers: fileStoreSyncCounters.barriers - before.barriers, directorySyncs: fileStoreSyncCounters.directorySyncs - before.directorySyncs,
+        ledgers: await Promise.all(keys.map((k, i) => readApprovalLedger(createFileStore(dir), k, 'p' + i))), create: await createFileStore(dir).load('wallet-' + SESSION + '-create')}
+      return {kind: 'results', results: new Map(approvals.map(a => [a.proposalId, 204]))}
+    })
+    const items = keys.map((key, i) => ({ctx: {...h.ctx, key, rederivable: later}, original: {...ORIGINAL, n: i}, sign: async () => ({...RETAINED, proposalId: 'p' + i})}))
+    expect(await retainAndDeliverApprovals(items)).toEqual([true, true, true])
+    expect(atSend).toEqual({barriers: 1, directorySyncs: 1, ledgers: keys.map(() => ({state: 'in_flight', generation: 1})), create: {original: {}, phase: 'confirmed'}})
+    // Their confirmations wait for the flow's next commit.
+    expect(later.take().map(([k]) => k).sort()).toEqual([...keys].sort())
   })
 })

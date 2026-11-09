@@ -9,10 +9,15 @@
 // - The approval is signed ONCE, and its exact request body is retained in the application store
 //   BEFORE the first send. Every send, in this or any later process, sends those bytes; nothing is
 //   ever re-signed.
-// - `<entry>.attempt` holds `permit` | `in_flight` with a generation g (schema 2). Every send of g,
-//   the first included, must (1) win the exclusive claim record `<entry>.claim.<g>` (the store's
-//   atomic insert-if-absent), (2) re-read the ledger and still find `permit(g)`, (3) durably write
-//   `in_flight(g)`. A lost claim or a moved generation sends nothing.
+// - `<entry>.attempt` holds `permit` | `in_flight` with a generation g (schema 2). Nothing is sent
+//   for g unless `in_flight(g)` is durable first, and exactly one sender may have written it:
+//   - the FIRST send (g = 1): the record, its body and `in_flight(1)` are committed together under
+//     the record's lock by the one caller that found no record (a crash may keep any subset: a record
+//     without a ledger is never sent, a ledger without a record is replaced by a fresh first
+//     approval, nothing having been sent). No `permit(1)` exists, so nobody else can begin g = 1;
+//   - every RESEND (g > 1) must (1) win the exclusive claim record `<entry>.claim.<g>` (the store's
+//     atomic insert-if-absent), (2) re-read the ledger and still find `permit(g)`, (3) durably write
+//     `in_flight(g)`. A lost claim or a moved generation sends nothing.
 // - Only the holder of g, on a 429/503 answer to THAT send and with the ledger still `in_flight(g)`,
 //   writes `permit(g+1)`; after its wait it must claim exactly g+1 again.
 // - A transport error, timeout, abort, crash or any other answer leaves `in_flight(g)`: unresolved,
@@ -24,6 +29,7 @@ import {PaidApprovalUnresolvedError, type PaidApprovalUnresolvedReason} from '..
 import {PaidAgentControlError, type RegisteredPaidAgentSession, type RetainedPaidApproval} from '../chain/registeredPaidAgent.js'
 import {PaidBackoff} from '../chain/paidPacing.js'
 import type {ApplicationStore} from './ready-slot.js'
+import {saveRederivable, withCommit, type LockedCommit, type Rederivable} from './store-commit.js'
 
 /** Ledger format carrying a generation. Anything else is legacy and never resent. */
 export const APPROVAL_LEDGER_SCHEMA = 2
@@ -57,6 +63,12 @@ export interface DurableApprovalContext {
   key: string
   /** Cancellation; an abort during a send leaves that generation unresolved. */
   signal: AbortSignal
+  /**
+   * The driving flow's re-derivable writes: a confirmation is put here (published with the flow's
+   * next durable commit), and a first approval's commit publishes what is pending. Absent: each
+   * confirmation is written on its own.
+   */
+  rederivable?: Rederivable
 }
 
 /** Ledger entry beside the approval's journal entry. */
@@ -124,9 +136,27 @@ async function releaseBusy(ctx: DurableApprovalContext, proposalId: string, gene
 
 const accepted = (state: string) => state === 'approved' || state === 'dispatched' || state === 'finished'
 
+/**
+ * Mark an approval the agent accepted. Re-derivable, so it pays no directory sync of its own: a
+ * crash before the next sync leaves `prepared` with `in_flight`, which is never resent; a resume
+ * that meets the stage again reads its delivery state (as for any unconfirmed approval) and
+ * confirms it, and one that has moved past the stage never reads this record again.
+ */
 async function confirm(ctx: DurableApprovalContext): Promise<void> {
   const record = await ctx.store.load<ApprovalJournalRecord>(ctx.key)
-  await ctx.store.save(ctx.key, {original: record?.original, phase: 'confirmed'})
+  const confirmed: ApprovalJournalRecord = {original: record?.original, phase: 'confirmed'}
+  if (ctx.rederivable) ctx.rederivable.put(ctx.key, confirmed)
+  else await saveRederivable(ctx.store, ctx.key, confirmed)
+}
+/** Run a first-approval commit that also publishes the flow's pending re-derivable writes. */
+async function commitWithPending<T>(ctx: DurableApprovalContext, keys: readonly string[], action: (commit: LockedCommit) => Promise<T>): Promise<T> {
+  const ride = ctx.rederivable?.take() ?? []
+  try {
+    return await withCommit(ctx.store, keys, async commit => {
+      for (const [key, value] of ride) commit.stage(key, value)
+      return action(commit)
+    })
+  } catch (error) { ctx.rederivable?.restore(ride); throw error }
 }
 
 /** The retained approval of a journal record, or undefined for a record without one (older SDK). */
@@ -146,15 +176,20 @@ function retainedOf(record: ApprovalJournalRecord | undefined): RetainedPaidAppr
  * @param approval The retained approval, as loaded from the store.
  * @param generation Generation the ledger permits.
  */
-export async function deliverRetainedApproval(ctx: DurableApprovalContext, approval: RetainedPaidApproval, generation: number): Promise<void> {
+export function deliverRetainedApproval(ctx: DurableApprovalContext, approval: RetainedPaidApproval, generation: number): Promise<void> {
+  return deliver(ctx, approval, generation, false)
+}
+/** `inFlight`: the caller already made `in_flight(generation)` durable as the one first sender. */
+async function deliver(ctx: DurableApprovalContext, approval: RetainedPaidApproval, generation: number, inFlight: boolean): Promise<void> {
   const {session, signal} = ctx, pacing = session.pacing!
   const backoff = new PaidBackoff(pacing.clock, ROUTE, approval.expires * 1000, pacing.attemptBudgetMs)
-  let current = generation
+  let current = generation, begun = inFlight
   for (;;) {
     signal.throwIfAborted()
-    // Not sent yet: a refusal here leaves the permit in place.
+    // Not sent yet: a refusal here leaves the permit in place (or, for a first send, `in_flight(1)`).
     backoff.readyToSend()
-    await beginApprovalSend(ctx, approval.proposalId, current)
+    if (!begun) await beginApprovalSend(ctx, approval.proposalId, current)
+    begun = false
     let reply
     try { reply = await session.sendRetainedApproval!(approval, signal) }
     catch (cause) {
@@ -178,9 +213,10 @@ export async function deliverRetainedApproval(ctx: DurableApprovalContext, appro
 }
 
 /**
- * First approval of a stage: signs ONCE, retains the record and its exact body, durably grants ONE
- * permit (nothing has been sent), then delivers the body loaded back from the store under that
- * permit. Returns false, sending nothing, when a record already exists.
+ * First approval of a stage: signs ONCE, then, under the record's lock and only if no record exists,
+ * commits the record, its exact body and `in_flight(1)` together (one flush pair; nothing has been
+ * sent), then sends the body loaded back from the store. Returns false, sending nothing, when a
+ * record already exists.
  * @param ctx Durable approval context.
  * @param original The stage's original identity.
  * @param sign Signs the approval without sending it.
@@ -188,18 +224,25 @@ export async function deliverRetainedApproval(ctx: DurableApprovalContext, appro
 export async function retainAndDeliverApproval(ctx: DurableApprovalContext, original: unknown, sign: () => Promise<RetainedPaidApproval>): Promise<boolean> {
   const approval = await sign()
   ctx.signal.throwIfAborted()
-  const retained = await ctx.store.withLock(ctx.key, async () => {
-    if (await ctx.store.load(ctx.key) !== undefined) return false
-    await ctx.store.save(ctx.key, {original, phase: 'prepared', approval: {schema: APPROVAL_LEDGER_SCHEMA, ...approval}} satisfies ApprovalJournalRecord)
-    // A crash before this write leaves a record without a ledger: unresolved, never sent.
-    await writeLedger(ctx.store, ctx.key, approval.proposalId, 'permit', FIRST_APPROVAL_GENERATION)
-    return true
-  })
+  const retained = await commitWithPending(ctx, [ctx.key], async commit => stageFirstApproval(ctx, commit, original, approval))
   if (!retained) return false
   // The bytes come from the record just retained, exactly as any later resend's do.
   const kept = retainedOf(await ctx.store.load<ApprovalJournalRecord>(ctx.key))
   if (!kept) throw unresolved(ctx, 'no_permit', approval.proposalId)
-  await deliverRetainedApproval(ctx, kept, FIRST_APPROVAL_GENERATION)
+  await deliver(ctx, kept, FIRST_APPROVAL_GENERATION, true)
+  return true
+}
+
+/**
+ * Under the record's lock: unless a record exists, stage it with its retained body and the ledger
+ * `in_flight(1)`, published together with the unlock. A crash may keep any subset: a record without
+ * a ledger is unresolved and never sent; a ledger without a record is overwritten by the next first
+ * approval of the stage. Either way nothing was sent: the send starts after the commit resolved.
+ */
+async function stageFirstApproval(ctx: DurableApprovalContext, commit: LockedCommit, original: unknown, approval: RetainedPaidApproval): Promise<boolean> {
+  if (await ctx.store.load(ctx.key) !== undefined) return false
+  commit.stage(ctx.key, {original, phase: 'prepared', approval: {schema: APPROVAL_LEDGER_SCHEMA, ...approval}} satisfies ApprovalJournalRecord)
+  commit.stage(approvalLedgerKey(ctx.key), {schema: APPROVAL_LEDGER_SCHEMA, proposalId: approval.proposalId, state: 'in_flight', generation: FIRST_APPROVAL_GENERATION})
   return true
 }
 
@@ -264,20 +307,22 @@ export async function retainAndDeliverApprovals(items: readonly BatchedApproval[
   backoff.readyToSend()
   const outcome: ({ok: true; value: boolean} | {ok: false; error: unknown})[] = items.map(() => ({ok: true, value: false}))
   const live: {index: number; approval: RetainedPaidApproval}[] = []
+  // Every entry's record, body and `in_flight(1)` in ONE commit under all of their locks (taken
+  // in sorted order), each exactly as a single first approval stages them.
+  const store = items[0]!.ctx.store
+  if (items.some(i => i.ctx.store !== store)) throw new Error('Invalid approval batch')
+  const retained = await commitWithPending(items[0]!.ctx, items.map(i => i.ctx.key), async commit => {
+    const out: boolean[] = []
+    for (const [index, item] of items.entries()) out.push(await stageFirstApproval(item.ctx, commit, item.original, approvals[index]!))
+    return out
+  })
   await Promise.all(items.map(async (item, index) => {
     const approval = approvals[index]!
     try {
-      const retained = await item.ctx.store.withLock(item.ctx.key, async () => {
-        if (await item.ctx.store.load(item.ctx.key) !== undefined) return false
-        await item.ctx.store.save(item.ctx.key, {original: item.original, phase: 'prepared', approval: {schema: APPROVAL_LEDGER_SCHEMA, ...approval}} satisfies ApprovalJournalRecord)
-        await writeLedger(item.ctx.store, item.ctx.key, approval.proposalId, 'permit', FIRST_APPROVAL_GENERATION)
-        return true
-      })
-      if (!retained) return
+      if (!retained[index]) return
       outcome[index] = {ok: true, value: true}
       const kept = retainedOf(await item.ctx.store.load<ApprovalJournalRecord>(item.ctx.key))
       if (!kept) throw unresolved(item.ctx, 'no_permit', approval.proposalId)
-      await beginApprovalSend(item.ctx, kept.proposalId, FIRST_APPROVAL_GENERATION)
       live.push({index, approval: kept})
     } catch (error) { outcome[index] = {ok: false, error} }
   }))

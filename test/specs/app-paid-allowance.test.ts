@@ -188,25 +188,29 @@ describe('allowance lanes', () => {
     expect(await journaledAllowanceVoucher(store, prepaidRequestId(a))).toEqual(voucherFor(a, 1, 40))
   })
 
-  it('a lane round makes two lane saves and one voucher save on the operation path; the push journal follows in the background', async () => {
+  it('a lane round journals the debit, then the voucher, then the lane advance with the push journal in one commit; the push itself follows in the background', async () => {
     const {env, store, allowance} = await seeded()
     const p = await payment(allowance, 0x41)
     await reserving(store, p)
     const saves: string[] = [], locks: string[] = []
     let releasePush!: () => void
     const pushBlocked = new Promise<void>(done => { releasePush = done })
+    vi.mocked(pushDebitVoucher).mockImplementationOnce(async () => { await pushBlocked; return [] })
     const save = store.save.bind(store), withLock = store.withLock.bind(store)
-    store.save = async (key, value) => { saves.push(key.slice(0, 4)); if (key.startsWith('pap-')) await pushBlocked; return save(key, value) }
+    store.save = async (key, value) => { saves.push(key.slice(0, 4)); return save(key, value) }
     store.withLock = (key, action) => { locks.push(key.slice(0, 4)); return withLock(key, action) }
     vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(p, 1, 40), partials: [], outcomes: []})
-    // Resolves while the push journal is still blocked: the push is not on the operation path.
-    expect(await obtainAllowanceVoucher(env, {lane: 0}, p)).toEqual(voucherFor(p, 1, 40))
-    const path = saves.filter(k => k !== 'pap-')
-    expect(path).toEqual(['pal-', 'pav-', 'pal-'])
-    expect(locks.filter(k => k === 'pal-')).toHaveLength(1)
-    releasePush()
+    try {
+      // Resolves while the push request is still blocked: the push is not on the operation path.
+      expect(await obtainAllowanceVoucher(env, {lane: 0}, p)).toEqual(voucherFor(p, 1, 40))
+      // A store without native commits saves them one by one, in this order, before the unlock. The
+      // file store publishes the last two with the unlock in one flush pair (app-paid-flush-budget).
+      expect(saves).toEqual(['pal-', 'pav-', 'pal-', 'pap-'])
+      expect(locks).toEqual(['pal-', 'pap-'])
+      expect((await inspectAllowanceVoucherPush(store, p.allowance_id!))).toEqual({seq: 1, acked: [], repushed: false})
+      expect(vi.mocked(pushDebitVoucher)).toHaveBeenCalledTimes(1)
+    } finally { releasePush() }
     await settleAllowanceVoucherPushes()
-    expect((await inspectAllowanceVoucherPush(store, p.allowance_id!))?.seq).toBe(1)
   })
 
   it('an advance interrupted after the voucher was journaled completes from that voucher, without another round', async () => {
@@ -276,6 +280,87 @@ describe('allowance lanes', () => {
     const [va, vb, vc] = await Promise.all(runs)
     expect([va!.seq, vb!.seq, vc!.seq]).toEqual([1, 1, 2])
     expect(vc!.cumulative).toBe('80')
+  })
+})
+
+// A round's voucher is journaled for its request (`pav-` with the operation journal's `reserved`,
+// one commit), then the lane advance with the voucher's push journal (one commit with the unlock).
+// A crash may keep any subset of either commit; each one resumes to the same lane and seq.
+describe('lane commits: what a crash inside each one leaves', () => {
+  const isAdvance = (key: string, value: unknown, seq: number) => key.startsWith('pal-')
+    && (value as {current?: {seq: number; pending?: unknown}}).current?.seq === seq && (value as {current?: {pending?: unknown}}).current?.pending === undefined
+  const journal = (p: PaymentIntentWire) => (voucher: DebitVoucherWire) => [[paidRecordKey(prepaidRequestId(p)), {schema: 1, phase: 'reserved', payment: {...p, debit_voucher: voucher}}]] as const
+
+  it('journals the operation\'s `reserved` with `pav-` before the lane advances, in that one commit', async () => {
+    const {env, store, allowance} = await seeded()
+    const p = await payment(allowance, 0x41)
+    await reserving(store, p)
+    const saves: string[] = [], save = store.save.bind(store)
+    store.save = async (key, value) => { saves.push(key.slice(0, 4) + (key.startsWith('paid-op') ? ':' + (value as {phase: string}).phase : '')); return save(key, value) }
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(p, 1, 40), partials: [], outcomes: []})
+    expect(await obtainAllowanceVoucher(env, {lane: 0}, p, undefined, {journal: journal(p)})).toEqual(voucherFor(p, 1, 40))
+    expect(saves).toEqual(['pal-', 'pav-', 'paid:reserved', 'pal-', 'pap-'])
+  })
+
+  it('a crash that kept the operation\'s `reserved` but not `pav-`: the next round completes the lane from that voucher, asks nobody again and keeps the lane', async () => {
+    const {env, store, allowance} = await seeded()
+    const a = await payment(allowance, 0x41), b = await payment(allowance, 0x42)
+    await reserving(store, a); await reserving(store, b)
+    const save = store.save.bind(store)
+    store.save = async (key, value) => {
+      if (key.startsWith('pav-')) return // never reached the disk
+      if (isAdvance(key, value, 1)) { store.save = save; throw new Error('crash before the lane commit') }
+      return save(key, value)
+    }
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(a, 1, 40), partials: [], outcomes: []})
+    await expect(obtainAllowanceVoucher(env, {lane: 0}, a, undefined, {journal: journal(a)})).rejects.toThrow('crash')
+    expect(await journaledAllowanceVoucher(store, prepaidRequestId(a))).toBeUndefined()
+    expect((await inspectAllowanceLanes(store, deployment, slot, 1))[0]?.pending).toMatchObject({seq: 1, requestId: prepaidRequestId(a)})
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(b, 2, 80), partials: [], outcomes: []})
+    expect(await obtainAllowanceVoucher(env, {lane: 0}, b)).toEqual(voucherFor(b, 2, 80))
+    const calls = vi.mocked(collectDebitVoucher).mock.calls.map(c => c[2])
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toMatchObject({seq: 2, payment: b, previous: voucherFor(a, 1, 40)})
+    const [lane] = await inspectAllowanceLanes(store, deployment, slot, 1)
+    expect(lane).toMatchObject({allowanceId: allowance, seq: 2, cumulative: '80', retired: 0})
+    // The interrupted request's voucher is journaled under it now too.
+    expect(await journaledAllowanceVoucher(store, prepaidRequestId(a))).toEqual(voucherFor(a, 1, 40))
+  })
+
+  it('a voucher in the operation journal of ANOTHER seq or allowance never completes a pending debit', async () => {
+    const {env, store, allowance} = await seeded()
+    const a = await payment(allowance, 0x41), b = await payment(allowance, 0x42)
+    await reserving(store, b)
+    const save = store.save.bind(store)
+    store.save = async (key, value) => {
+      if (key.startsWith('pav-')) return
+      if (isAdvance(key, value, 1)) { store.save = save; throw new Error('crash before the lane commit') }
+      return save(key, value)
+    }
+    // The journal names a voucher of another seq for a's request.
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(a, 1, 40), partials: [], outcomes: []})
+    await expect(obtainAllowanceVoucher(env, {lane: 0}, a, undefined, {journal: v => [[paidRecordKey(prepaidRequestId(a)), {schema: 1, phase: 'reserved', payment: {...a, debit_voucher: {...v, seq: 7}}}]]})).rejects.toThrow('crash')
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(b, 2, 80), partials: [], outcomes: []})
+    // a's operation is no longer `reserving` and its debit is not completed: the lane is retired, as before.
+    await expect(obtainAllowanceVoucher(env, {lane: 0}, b)).rejects.toBeInstanceOf(AllowanceRefusedError)
+    expect(vi.mocked(collectDebitVoucher)).toHaveBeenCalledTimes(1)
+  })
+
+  it('a crash that kept the push journal but not the lane advance: the next round completes the advance and the journal never goes back', async () => {
+    const {env, store, allowance} = await seeded()
+    const a = await payment(allowance, 0x41), b = await payment(allowance, 0x42)
+    await reserving(store, a); await reserving(store, b)
+    const save = store.save.bind(store)
+    store.save = async (key, value) => { if (isAdvance(key, value, 1)) { store.save = save; return } return save(key, value) }
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(a, 1, 40), partials: [], outcomes: []})
+    expect(await obtainAllowanceVoucher(env, {lane: 0}, a)).toEqual(voucherFor(a, 1, 40))
+    expect((await inspectAllowanceVoucherPush(store, allowance))?.seq).toBe(1)
+    expect((await inspectAllowanceLanes(store, deployment, slot, 1))[0]?.pending).toMatchObject({seq: 1})
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(b, 2, 80), partials: [], outcomes: []})
+    expect(await obtainAllowanceVoucher(env, {lane: 0}, b)).toEqual(voucherFor(b, 2, 80))
+    expect(vi.mocked(collectDebitVoucher)).toHaveBeenCalledTimes(2)
+    expect((await inspectAllowanceVoucherPush(store, allowance))?.seq).toBe(2)
+    expect((await inspectAllowanceLanes(store, deployment, slot, 1))[0]).toMatchObject({seq: 2, cumulative: '80'})
   })
 })
 
@@ -393,27 +478,62 @@ describe('voucher push to every accountant (background)', () => {
     expect(await inspectAllowanceVoucherPush(store, allowance)).toMatchObject({seq: 1, acked: [], repushed: true})
   })
 
-  it('re-pushes the last voucher from the lane when its push journal was lost (a stop before the background job ran)', async () => {
+  it('re-pushes the last voucher from the lane when its push journal was lost (a crash kept the lane advance but not the push journal of that commit)', async () => {
     const {env, store, allowance} = await seeded()
     const save = store.save.bind(store)
     let stopped = true
-    store.save = async (key, value) => { if (stopped && key.startsWith('pap-')) throw new Error('process stopped'); return save(key, value) }
-    acceptedBy(urls)
+    // The lane commit publishes the advance and the push journal together; a crash may keep only the advance.
+    store.save = async (key, value) => { if (stopped && key.startsWith('pap-')) return; return save(key, value) }
+    // The process stops before its background push reaches anyone.
+    vi.mocked(pushDebitVoucher).mockRejectedValueOnce(new Error('process stopped'))
     const a = await payment(allowance, 0x41), b = await payment(allowance, 0x42)
     vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(a, 1, 40), partials: [], outcomes: []})
       .mockRejectedValueOnce(new DebitVoucherError([{url: urls[0]!, kind: 'refused', status: 402, reason: 'exceeds'}, {url: urls[1]!, kind: 'refused', status: 402, reason: 'exceeds'}], 0, 2))
     expect(await obtainAllowanceVoucher(env, {lane: 0}, a)).toEqual(voucherFor(a, 1, 40))
     await settleAllowanceVoucherPushes()
-    expect(pushDebitVoucher).not.toHaveBeenCalled()
+    expect(pushDebitVoucher).toHaveBeenCalledTimes(1)
     expect(await inspectAllowanceVoucherPush(store, allowance)).toBeUndefined()
+    expect((await inspectAllowanceLanes(store, deployment, slot, 1))[0]).toMatchObject({seq: 1, cumulative: '40'})
     // The process runs again; the lane retires: its durable last voucher is re-pushed to every member.
     stopped = false
+    acceptedBy(urls)
     await expect(obtainAllowanceVoucher(env, {lane: 0}, b)).rejects.toBeInstanceOf(AllowanceRefusedError)
     await settleAllowanceVoucherPushes()
-    expect(pushDebitVoucher).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(pushDebitVoucher).mock.calls[0]!.slice(0, 2)).toEqual([43112, voucherFor(a, 1, 40)])
-    expect(vi.mocked(pushDebitVoucher).mock.calls[0]![2].accountantUrls).toEqual(urls)
+    expect(pushDebitVoucher).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(pushDebitVoucher).mock.calls[1]!.slice(0, 2)).toEqual([43112, voucherFor(a, 1, 40)])
+    expect(vi.mocked(pushDebitVoucher).mock.calls[1]![2].accountantUrls).toEqual(urls)
     expect(await inspectAllowanceVoucherPush(store, allowance)).toEqual({seq: 1, acked: urls, repushed: true})
+  })
+
+  it('a crash before the lane commit (voucher journaled, no advance, no push journal): the next round completes the advance and its retiring lane re-pushes that voucher', async () => {
+    const {env, store, allowance} = await seeded()
+    const a = await payment(allowance, 0x41), b = await payment(allowance, 0x42)
+    await reserving(store, a); await reserving(store, b)
+    const save = store.save.bind(store)
+    let journaled = false
+    store.save = async (key, value) => {
+      if (key.startsWith('pav-')) journaled = true
+      else if (journaled && (key.startsWith('pal-') || key.startsWith('pap-'))) { store.save = save; throw new Error('crash before the lane commit') }
+      return save(key, value)
+    }
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(a, 1, 40), partials: [], outcomes: []})
+      .mockRejectedValueOnce(new DebitVoucherError([{url: urls[0]!, kind: 'refused', status: 402, reason: 'exceeds'}, {url: urls[1]!, kind: 'refused', status: 402, reason: 'exceeds'}], 0, 2))
+    await expect(obtainAllowanceVoucher(env, {lane: 0}, a)).rejects.toThrow('crash')
+    await settleAllowanceVoucherPushes()
+    expect(pushDebitVoucher).not.toHaveBeenCalled()
+    expect(await inspectAllowanceVoucherPush(store, allowance)).toBeUndefined()
+    expect((await inspectAllowanceLanes(store, deployment, slot, 1))[0]?.pending).toMatchObject({seq: 1, requestId: prepaidRequestId(a)})
+    // The process runs again: b's round completes a's advance from its journaled voucher, is refused
+    // and retires the lane; a's voucher, now the lane's last, reaches every member once.
+    acceptedBy(urls)
+    await expect(obtainAllowanceVoucher(env, {lane: 0}, b)).rejects.toBeInstanceOf(AllowanceRefusedError)
+    await settleAllowanceVoucherPushes()
+    expect(vi.mocked(collectDebitVoucher).mock.calls.map(c => c[2])[1]).toMatchObject({seq: 2, payment: b, previous: voucherFor(a, 1, 40)})
+    const pushedVouchers = vi.mocked(pushDebitVoucher).mock.calls.map(c => c[1])
+    expect(pushedVouchers.length).toBeGreaterThan(0)
+    expect(pushedVouchers.every(v => v.seq === 1 && v.request_id === prepaidRequestId(a))).toBe(true)
+    expect(new Set(vi.mocked(pushDebitVoucher).mock.calls.flatMap(c => c[2].accountantUrls))).toEqual(new Set(urls))
+    expect(await inspectAllowanceVoucherPush(store, allowance)).toMatchObject({seq: 1, acked: urls})
   })
 })
 

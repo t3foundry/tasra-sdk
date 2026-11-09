@@ -31,14 +31,14 @@ import {ruleCommitment} from '../chain/write.js'
 import {loadPaidReservationJournal} from './paid-journal.js'
 import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, ApplicationPayerRecoveryError,
   type ApplicationReservationState} from './paid-reservation.js'
-import {drivePaidSession, waitForPaidSnapshot, PaidSessionRecoveryError, type PaidSessionHolder} from './paid-session.js'
+import {drivePaidSession, waitForPaidSnapshot, FIRST_COMMIT, PaidSessionRecoveryError, type FirstCommit, type PaidSessionDriverOptions, type PaidSessionHolder} from './paid-session.js'
 import {PaidAgentControlError} from '../chain/registeredPaidAgent.js'
 import {VerifierAgentSessionError} from '../verifier-agent/index.js'
 import type {ApplicationStore} from './ready-slot.js'
 import {withDedicatedPayer} from './payer-queue.js'
 import {createExecutionCertificate, createLocalExecutionSigner, type ExecutionCertificate, type ExecutionStage} from '../committee/execution.js'
 import type {KeeperExecutionApprover} from '../committee/keeperExecution.js'
-import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
+import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type DebitVoucherWire, type PaymentIntentWire} from '../committee/payment.js'
 import {compoundTokenHash, decodeCompoundToken, requireStatusAttestations, signersThatVerify, verifyStatusAttestation, verifyStatusAttestations, STATUS_SKEW_SECS,
   type CompoundTokenWire, type StatusAttestationWire} from '../committee/token.js'
 import {acceptStatusRefreshRelay, createStatusRefreshProof, refreshStatusDirect, statusRefreshRelayBody, type StatusRefreshHolderSigner,
@@ -54,6 +54,7 @@ import type {IbeExtractionPartial} from '../committee/client.js'
 import {HEX32, RECORD_KEY, RECORD_PREFIX, paidRecordKey as recordKey} from './paid-keys.js'
 import {AllowanceRefusedError, journaledAllowanceVoucher, obtainAllowanceVoucher, selectAllowanceLane, validateAllowanceOptions,
   type AllowanceEnv, type PaidAllowanceOptions} from './paid-allowance.js'
+import {withCommit, type LockedCommit} from './store-commit.js'
 
 /** Approved deployment, signers, services and spending limits shared by paid operations. */
 export interface PaidOperationConfig {
@@ -437,21 +438,73 @@ async function loadIndex(store: ApplicationStore): Promise<Hex[]> {
   }
   return [...ids]
 }
-async function indexOperation(store: ApplicationStore, requestId: Hex): Promise<void> {
-  const id = requestId.toLowerCase() as Hex
-  await store.withLock(INDEX_KEY, async () => {
-    // Segments fill in order; a crash between filling one and starting the next leaves nothing to
-    // repair, because the next writer probes forward from the hint to the first one with room.
-    for (let n = segmentHints.get(store) ?? 0; ; n++) {
-      const segment = await loadSegment(store, n)
-      if (segment?.ids.includes(id)) return
-      if (!segment || segment.ids.length < SEGMENT_IDS) {
-        await store.save(segmentKey(n), {schema: 1, ids: [...segment?.ids ?? [], id]} satisfies OperationIndexSegment)
-        segmentHints.set(store, n)
-        return
-      }
+/**
+ * Stage the index entries of `ids` (lowercase, in order) into the segments: the first segment with
+ * room from this store object's hint, then the next ones. Segments fill in order; a crash between
+ * filling one and starting the next leaves nothing to repair, because the next writer probes
+ * forward from the hint to the first one with room. Needs the index lock.
+ */
+async function stageIndexEntries(store: ApplicationStore, commit: LockedCommit, ids: readonly Hex[]): Promise<void> {
+  const left = [...new Set(ids)]
+  for (let n = segmentHints.get(store) ?? 0; left.length > 0; n++) {
+    const segment = await loadSegment(store, n)
+    for (const id of segment?.ids ?? []) { const at = left.indexOf(id); if (at !== -1) left.splice(at, 1) }
+    if (left.length === 0) return
+    if (!segment || segment.ids.length < SEGMENT_IDS) {
+      const added = left.splice(0, SEGMENT_IDS - (segment?.ids.length ?? 0))
+      commit.stage(segmentKey(n), {schema: 1, ids: [...segment?.ids ?? [], ...added]} satisfies OperationIndexSegment)
+      segmentHints.set(store, n)
     }
-  })
+  }
+}
+interface NewOperation { key: string; id: Hex; record: OperationRecord; resolve(): void; reject(error: unknown): void }
+/** Per store object: the journal commit running now, and the new operations waiting for the next one. */
+const newOperationQueues = new WeakMap<ApplicationStore, {running: Promise<void>; waiting?: NewOperation[]}>()
+/**
+ * Journal a new operation's record and index it, refusing a request that is already journaled.
+ * Concurrent new operations of one process share ONE commit instead of queueing on the global index
+ * lock one by one: every record lock and the index lock are taken together, and the records and the
+ * index segment are published with one data barrier and one directory sync. A caller joins the next
+ * commit that has not started, so its record is never written before its call.
+ *
+ * A crash before this resolves may leave any subset. A record without its index entry was always
+ * possible (a crash between the two former writes): it is found by its request ID, which
+ * `onRequestId` already handed out. An index entry without its record is listed by no one
+ * (listPaidOperations skips it). Nothing was sent for either: the reservation starts only after.
+ */
+function journalNewOperation(store: ApplicationStore, requestId: Hex, record: OperationRecord): Promise<void> {
+  let queue = newOperationQueues.get(store)
+  if (!queue) { queue = {running: Promise.resolve()}; newOperationQueues.set(store, queue) }
+  let batch = queue.waiting
+  if (!batch) {
+    const own: NewOperation[] = [], q = queue
+    batch = q.waiting = own
+    q.running = q.running.then(() => { if (q.waiting === own) q.waiting = undefined; return commitNewOperations(store, own) })
+  }
+  const joined = batch
+  return new Promise<void>((resolve, reject) => { joined.push({key: recordKey(requestId), id: requestId.toLowerCase() as Hex, record, resolve, reject}) })
+}
+/** One journal commit for a batch of new operations; settles every caller, never rejects. */
+async function commitNewOperations(store: ApplicationStore, batch: readonly NewOperation[]): Promise<void> {
+  const refused = new Map<NewOperation, unknown>()
+  try {
+    await withCommit(store, [INDEX_KEY, ...batch.map(op => op.key)], async commit => {
+      const created: Hex[] = [], seen = new Set<string>()
+      for (const op of batch) {
+        try {
+          if (seen.has(op.key) || await store.load(op.key) !== undefined) throw new TasraError('Paid operation already journaled; resume it')
+        } catch (error) { refused.set(op, error); continue }
+        seen.add(op.key)
+        commit.stage(op.key, op.record)
+        created.push(op.id)
+      }
+      await stageIndexEntries(store, commit, created)
+    })
+  } catch (error) {
+    for (const op of batch) op.reject(refused.get(op) ?? error)
+    return
+  }
+  for (const op of batch) { const error = refused.get(op); if (error === undefined) op.resolve(); else op.reject(error) }
 }
 /** Index journals written before the index existed, once per store (by payment expiry). */
 async function backfillIndex(store: ApplicationStore): Promise<void> {
@@ -637,12 +690,7 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
   const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: request.rule.rule, ruleSalt: request.rule.salt,
     params: {operation: built.operation, operationSig, messageHex: built.messageHex, random, ...(request.operation.decryption ? {decryption: structuredClone(request.operation.decryption)} : {})}, coordinator: context.coordinator, contributors: context.contributors,
     action: request.operation.action, payloadDigest: toHex(built.payloadDigest), payer: config.gasPayer.account.address, ...ticket ? {allowance: {lane: ticket.lane}} : {}}
-  const key = recordKey(requestId)
-  await config.store.withLock(key, async () => {
-    if (await config.store.load(key) !== undefined) throw new TasraError('Paid operation already journaled; resume it')
-    await config.store.save(key, record)
-  })
-  await indexOperation(config.store, requestId)
+  await journalNewOperation(config.store, requestId, record)
   try { await reserve(config, record, signal) }
   catch (error) {
     if (ticket && error instanceof PaidOperationRecoveryError && error.code === 'reservation-failed' && error.cause instanceof AllowanceRefusedError) throw new AllowanceFallback(requestId, error)
@@ -712,13 +760,27 @@ async function debit(config: PaidOperationConfig, record: OperationRecord, signa
   try {
     // The voucher and the `reserved` phase that carries it are journaled under the ONE record
     // lock that admitted the debit (one durable lock instead of two; the same checks).
-    await config.store.withLock(key, async () => {
-      const current = await config.store.load<OperationRecord>(key)
+    // Checked under the journal's lock: only a `reserving` journal is debited.
+    let current: OperationRecord | undefined
+    const check = async () => {
+      current = await config.store.load<OperationRecord>(key)
       if (current?.phase !== 'reserving') throw new NoLongerReserving()
       if (current.schema !== 1) throw new TasraError('Paid operation journal changed concurrently')
-      const voucher = await journaledAllowanceVoucher(config.store, requestId) ?? await obtainAllowanceVoucher(env!, record.allowance!, record.payment, signal)
-      await config.store.save(key, {...current, phase: 'reserved', payment: {...record.payment, debit_voucher: voucher}} satisfies OperationRecord)
-    })
+    }
+    const reserved = (voucher: DebitVoucherWire): OperationRecord => ({...current!, phase: 'reserved', payment: {...record.payment, debit_voucher: voucher}})
+    const saved = await journaledAllowanceVoucher(config.store, requestId)
+    if (saved) await withCommit(config.store, key, async commit => { await check(); commit.stage(key, reserved(saved)) })
+    else {
+      // A fresh round runs under the journal's lock together with the lane's (one set of locks,
+      // released in the lane's commit), and journals `reserved` WITH the voucher under its request
+      // (one commit, before the lane advances past the seq): either one lets a resume continue
+      // from the voucher, and the lane completes an interrupted advance from whichever a crash kept.
+      let journaled = false
+      const voucher = await obtainAllowanceVoucher(env!, record.allowance!, record.payment, signal,
+        {lock: [key], check, journal: found => { journaled = true; return [[key, reserved(found)]] }})
+      // A voucher another call journaled meanwhile: journal `reserved` with it now.
+      if (!journaled) await withCommit(config.store, key, async commit => { await check(); commit.stage(key, reserved(voucher)) })
+    }
   } catch (error) {
     if (error instanceof NoLongerReserving) throw new TasraError('Paid operation was closed before its debit; it is not debited again')
     if (error instanceof AllowanceRefusedError) {
@@ -733,12 +795,15 @@ async function debit(config: PaidOperationConfig, record: OperationRecord, signa
 async function advance(store: ApplicationStore, requestId: Hex, from: Phase | Phase[], patch: Partial<OperationRecord>,
   guard?: (current: OperationRecord) => void): Promise<OperationRecord> {
   const key = recordKey(requestId)
-  return store.withLock(key, async () => {
+  // A local transition: nothing is sent under this lock, so the new phase is published with the
+  // unlock in one commit. A crash before it resolves leaves the previous phase (the transition did
+  // not happen; its caller was not told and sent nothing after it) or the new one.
+  return withCommit(store, key, async commit => {
     const current = await store.load<OperationRecord>(key)
     if (!current || current.schema !== 1 || !(Array.isArray(from) ? from : [from]).includes(current.phase)) throw new TasraError('Paid operation journal changed concurrently')
     guard?.(current)
     const next = {...current, ...patch}
-    await store.save(key, next)
+    commit.stage(key, next)
     return next
   })
 }
@@ -750,14 +815,43 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
   if (!record || record.schema !== 1 || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('No paid operation journal for this request')
   if (record.finalSign) throw new TasraError('A final Sign payment has no session; resume it with resumePaidFinalSign')
   if (signal.aborted && (record.phase === 'reserved' || record.phase === 'certified')) throw abortedError(requestId, 'session', record.payment, signal, signal.reason)
+  // A fresh execution consent is journaled with the session's first write (its creation), not on
+  // its own: the session's identity derives from it, and nothing bound to it is sent before that
+  // commit. A crash before it leaves `reserved`, which a resume certifies anew (nothing was sent);
+  // one that kept only the creation record leaves it under a session identity nobody derives again.
+  let consent: FirstCommit | undefined
   if (record.phase === 'reserved') {
     const {policy} = await readClientExecutionPolicy(client, {...d, defaultVerificationPolicy: d.defaultVerificationPolicy}, record.payment, record.expected)
     const seed = random32(), signer = createLocalExecutionSigner(seed)
     try {
       const certificate = await createExecutionCertificate({payment: record.payment, policy, publicKey: signer.publicKey, expires: record.payment.expires,
         creator: config.creator})
-      record = await advance(store, requestId, 'reserved', {phase: 'certified', seed: Uint8Array.from(seed), certificate, pollSecret: toHex(random32()).slice(2)})
+      const certified: OperationRecord = {...record, phase: 'certified', seed: Uint8Array.from(seed), certificate, pollSecret: toHex(random32()).slice(2)}
+      const key = recordKey(requestId)
+      consent = {lock: [key], entries: [[key, certified]], check: async () => {
+        const current = await store.load<OperationRecord>(key)
+        if (!current || current.schema !== 1 || current.phase !== 'reserved') throw new TasraError('Paid operation journal changed concurrently')
+      }}
+      record = certified
     } finally { signer.dispose(); seed.fill(0) }
+  }
+  /**
+   * The consent on its own, as before, when the drive did not journal it: a session that failed
+   * before its first write (nothing bound to the consent was sent) or a driver that does not
+   * journal it (a test double). Keeps such a failure resumable with the same consent. A journal
+   * already holding exactly this consent (a store without native commits that failed mid-commit) is
+   * left as it is.
+   */
+  const journalConsent = async () => {
+    if (!consent || consent.published) return
+    const key = recordKey(requestId), certified = consent.entries[0]![1] as OperationRecord
+    await withCommit(store, key, async commit => {
+      const current = await store.load<OperationRecord>(key)
+      if (current?.schema === 1 && current.phase === 'certified' && current.certificate?.execution_key === certified.certificate?.execution_key) return
+      if (!current || current.schema !== 1 || current.phase !== 'reserved') throw new TasraError('Paid operation journal changed concurrently')
+      commit.stage(key, certified)
+    })
+    consent.published = true
   }
   if (!record.seed || !record.certificate || !record.pollSecret) throw new TasraError('Paid operation journal lacks its execution consent')
   const signer = createLocalExecutionSigner(record.seed)
@@ -773,6 +867,8 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
           allowMissingStatusAttestations: config.allowMissingStatusAttestations === true},
         params, {certificate: record.certificate, signer, pollSecret: record.pollSecret, signal})
       } catch (error) {
+        // Best effort: unjournaled, a resume certifies anew, which is safe as nothing was sent.
+        await journalConsent().catch(() => {})
         if (signal.aborted) throw abortedError(requestId, 'session', record.payment, signal, error)
         throw error
       }
@@ -780,8 +876,10 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
       let result
       try {
         result = await drivePaidSession({session, members: record.members, store, signal, holder, observeRequest, resume: true,
-          wait: hint => sleep(Math.min(Math.max(hint ?? interval, 10), 60_000), signal)})
+          wait: hint => sleep(Math.min(Math.max(hint ?? interval, 10), 60_000), signal), ...consent ? {[FIRST_COMMIT]: consent} : {}} as PaidSessionDriverOptions)
       } catch (error) {
+        // Best effort, as above: the drive's own failure is what the caller must see.
+        await journalConsent().catch(() => {})
         // The completed grant failed the revocation-status preflight: nothing reached a keeper and
         // the journal stays `certified`. Never a new session or payment automatically.
         if (error instanceof RevocationStatusPreflightError) throw statusRefusal(requestId, error)
@@ -792,6 +890,7 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
       const grant = verifierAgentResult({sessionId: session.sessionId, paymentHash: paymentIntentHash(record.payment),
         requestHash: requestHash(d.chainId, hexToBytes(record.payment.slot), record.action, hexToBytes(record.payloadDigest))}, result)
       if (!grant.verifierProofs?.length) throw new TasraError('Paid grant lacks anchored verifier proofs')
+      await journalConsent()
       record = await advance(store, requestId, 'certified', {phase: 'authorized', grant: {compound_token: grant.token, verifierProofs: grant.verifierProofs, sessionId: session.sessionId, ...(grant.evidenceCt !== undefined ? {evidenceCt: grant.evidenceCt} : {})}})
     }
     return handle(config, record, signer)
@@ -1416,12 +1515,7 @@ async function finalSignAttempt(config: PaidOperationConfig, request: PaidFinalS
   const record: OperationRecord = {schema: 1, phase: 'reserving', finalSign: true, payment, expected, members: [], rule: '', ruleSalt: `0x${'00'.repeat(32)}`,
     params: {operation: built.operation, operationSig: '0x', messageHex: built.messageHex, random}, coordinator: context.coordinator, contributors: context.contributors,
     action: 'sign', payloadDigest: toHex(payloadDigest), payer: config.gasPayer.account.address, ...ticket ? {allowance: {lane: ticket.lane}} : {}}
-  const key = recordKey(requestId)
-  await config.store.withLock(key, async () => {
-    if (await config.store.load(key) !== undefined) throw new TasraError('Paid operation already journaled; resume it')
-    await config.store.save(key, record)
-  })
-  await indexOperation(config.store, requestId)
+  await journalNewOperation(config.store, requestId, record)
   try { await reserve(config, record, signal) }
   catch (error) {
     if (ticket && error instanceof PaidOperationRecoveryError && error.code === 'reservation-failed' && error.cause instanceof AllowanceRefusedError) throw new AllowanceFallback(requestId, error)
