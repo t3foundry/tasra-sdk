@@ -1160,6 +1160,81 @@ describe('paid operation journal commits', () => {
   })
 })
 
+describe('execution consent journaled with the session creation', () => {
+  /** The real driver; each session's identity derives from its consent, as prepareRegisteredPaidSession derives it. */
+  async function realDriver(f: ReturnType<typeof setup>) {
+    const actual = await vi.importActual<typeof import('../../src/app/paid-session.js')>('../../src/app/paid-session.js')
+    vi.mocked(drivePaidSession).mockImplementation(actual.drivePaidSession)
+    const created: string[] = [], phaseAtCreate: (string | undefined)[] = []
+    vi.mocked(prepareRegisteredPaidSession).mockImplementation(async (_chain, _config, params, consent) => {
+      const sessionId = keccak256(toHex(consent.certificate.execution_key)).slice(2)
+      return {sessionId, paymentHash: paymentIntentHash(params.payment), initialization: {expires: params.operation.exp, key: consent.certificate.execution_key},
+        create: vi.fn(async () => { created.push(sessionId); phaseAtCreate.push(await paidOperationPhase(f.store, prepaidRequestId(params.payment))) }),
+        reconcile: vi.fn(async () => ({status: 'pending'})),
+        requestObject: vi.fn(async () => { throw new Error('stopped after creation') }),
+      } as unknown as RegisteredPaidAgentSession
+    })
+    return {created, phaseAtCreate}
+  }
+
+  it('is durable before the creation POST, and a failed creation keeps it for the resume', async () => {
+    const f = setup(), d = await realDriver(f)
+    const error = await paidOperation(f.config, f.request).catch((e: unknown) => e) as PaidOperationRecoveryError
+    expect(error).toMatchObject({phase: 'session'})
+    expect(d.phaseAtCreate).toEqual(['certified'])
+    expect(await paidOperationPhase(f.store, error.requestId)).toBe('certified')
+    await expect(resumePaidOperation(f.config, error.requestId, {holder: f.holder})).rejects.toMatchObject({phase: 'session'})
+    // Resumed with the same consent: the same session, never created twice.
+    expect(new Set(d.created).size).toBe(1)
+    expect(d.created).toHaveLength(1)
+    expect(createExecutionCertificate).toHaveBeenCalledTimes(1)
+  })
+
+  it('a crash that kept the creation record but not the consent: nothing was sent; the resume certifies anew under a new session and never repeats the old POST', async () => {
+    const f = setup(), d = await realDriver(f), save = f.store.save.bind(f.store)
+    let requestId: Hex | undefined
+    // The commit's consent never reached the disk, its creation record did, and the process died:
+    // nothing it does afterwards reaches the disk either.
+    let dead = false
+    f.store.save = async (key, value) => {
+      if (dead || (value as {phase?: string}).phase === 'certified') return
+      if (key.endsWith('-create')) { await save(key, value); dead = true; throw new Error('process died') }
+      return save(key, value)
+    }
+    await expect(paidOperation(f.config, {...f.request, onRequestId: id => { requestId = id }})).rejects.toThrow()
+    f.store.save = save
+    expect(d.created).toEqual([])
+    expect(await paidOperationPhase(f.store, requestId!)).toBe('reserved')
+    await expect(resumePaidOperation(f.config, requestId!, {holder: f.holder})).rejects.toMatchObject({phase: 'session'})
+    expect(createExecutionCertificate).toHaveBeenCalledTimes(2)
+    expect(d.created).toHaveLength(1)
+    const [first, second] = vi.mocked(prepareRegisteredPaidSession).mock.calls
+    expect(second![3].certificate).not.toEqual(first![3].certificate)
+    expect(await paidOperationPhase(f.store, requestId!)).toBe('certified')
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+  })
+
+  it('a crash that kept the consent but not the creation record: the resume creates that same session once', async () => {
+    const f = setup(), d = await realDriver(f), save = f.store.save.bind(f.store)
+    let requestId: Hex | undefined
+    let dead = false
+    f.store.save = async (key, value) => {
+      if (dead) return
+      if (key.endsWith('-create')) { dead = true; throw new Error('process died') }
+      return save(key, value)
+    }
+    await expect(paidOperation(f.config, {...f.request, onRequestId: id => { requestId = id }})).rejects.toThrow()
+    f.store.save = save
+    expect(d.created).toEqual([])
+    expect(await paidOperationPhase(f.store, requestId!)).toBe('certified')
+    await expect(resumePaidOperation(f.config, requestId!, {holder: f.holder})).rejects.toMatchObject({phase: 'session'})
+    expect(createExecutionCertificate).toHaveBeenCalledTimes(1)
+    expect(d.created).toHaveLength(1)
+    const [first, second] = vi.mocked(prepareRegisteredPaidSession).mock.calls
+    expect(second![3].certificate).toEqual(first![3].certificate)
+  })
+})
+
 describe('revocation-status preflight', () => {
   // The keeper's rule, applied to the journaled grant before the `executing` checkpoint: a refusal
   // sends nothing, so the journal stays `authorized` and the keeper work never runs.

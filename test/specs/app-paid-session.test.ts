@@ -327,3 +327,106 @@ it('asks an agent advertising held listings to hold an empty proposal listing in
     expect(f.waits, String(proposalWait)).toEqual(proposalWait ? [] : [5])
   }
 })
+
+// ---- What each journaled write leaves on disk at its send, and what a crash there resumes to ----
+// A real file store; the state at each send is read through another store object (another process,
+// or the directory a crash leaves behind).
+import {mkdtemp, readdir, rm} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {afterEach} from 'vitest'
+import {createFileStore} from '../../src/app/node.js'
+import type {RetainedPaidApproval} from '../../src/chain/registeredPaidAgent.js'
+
+const durableRoots: string[] = []
+afterEach(async () => { await Promise.all(durableRoots.splice(0).map(dir => rm(dir, {recursive: true, force: true}))) })
+
+async function durableDrive(dir?: string) {
+  dir ??= await mkdtemp(join(tmpdir(), 'tasra-session-durable-')); durableRoots.push(dir)
+  const id = 'ab'.repeat(32), key = ('0x' + 'cd'.repeat(32)) as Hex, store = createFileStore(dir), seen: Record<string, unknown> = {}
+  const disk = async () => {
+    const other = createFileStore(dir)
+    const names = (await readdir(dir)).sort()
+    const records = Object.fromEntries(await Promise.all(names.filter(n => n.endsWith('.json')).map(async n => [n.slice(0, -5), ((await other.load<{phase?: string; state?: string}>(n.slice(0, -5))) ?? {})])))
+    return {locks: names.filter(n => n.endsWith('.lock')), phases: Object.fromEntries(Object.entries(records).map(([k, v]) => [k.replace('wallet-' + id + '-', ''), (v as {phase?: string; state?: string}).phase ?? (v as {state?: string}).state]))}
+  }
+  const flags = {jar: false, sent: false, selected: false, approved: false, done: false}
+  const proposal = (stage: PaidAgentProposal['stage'], n: number): PaidAgentProposal => ({id: n.toString(16).repeat(64).slice(0, 64), stage, operator_key: key, unsigned_body: {stage}, expires: 4_000_000_000})
+  const retained = (p: PaidAgentProposal): RetainedPaidApproval => ({proposalId: p.id, body: JSON.stringify({p: p.id}), expires: p.expires})
+  const presentation: PaidWalletPresentation = {approved: {holder: 'h', credentials: ['a.b.c'], holder_proof: null, oauth: null, iat: 1000}, form: {response: 'jwe'}}
+  const session = {
+    sessionId: id, paymentHash: key, initialization: {expires: 1030}, batchApprovals: true,
+    pacing: {clock: {now: () => 1_000_000, jitter: () => 0, sleep: async () => {}}, attemptBudgetMs: 5_000},
+    create: vi.fn(async () => { seen.create = await disk() }), reconcile: vi.fn(async () => ({status: 'pending'})),
+    requestObject: vi.fn(async () => { if (!flags.jar) throw new PaidAgentControlError(id, 425); return {request: {claims: {nonce: 'n'}}, requestUri: 'u', qrPayload: 'q'} }),
+    proposals: vi.fn(async () => !flags.jar ? [proposal('presentation_sign', 1), proposal('presentation_attest', 2)] : flags.selected && !flags.approved ? [proposal('credential', 3)] : []),
+    prepareRequestApproval: vi.fn(async (p: PaidAgentProposal) => retained(p)), prepareCredentialApproval: vi.fn(async (p: PaidAgentProposal) => retained(p)),
+    sendRetainedApprovals: vi.fn(async (approvals: RetainedPaidApproval[]) => { seen.requestApprovals = await disk(); flags.jar = true; return {kind: 'results', results: new Map(approvals.map(a => [a.proposalId, 204]))} }),
+    sendRetainedApproval: vi.fn(async () => { seen.credentialApproval = await disk(); flags.approved = true; return {status: 'accepted'} }),
+    approvalState: vi.fn(async () => 'approved'),
+    presentations: vi.fn(async () => flags.sent ? [{id: '23'.repeat(32), presentation: structuredClone(presentation.approved), expires: 1030, selected: flags.selected}] : []),
+    resumePresentation: vi.fn(async () => {
+      seen[flags.selected ? 'resume' : 'resumeInitial'] = await disk()
+      flags.selected = true; if (!flags.approved) throw new PaidAgentControlError(id, 425); flags.done = true
+    }),
+    poll: vi.fn(async () => ({status: flags.done ? 'done' as const : 'pending' as const, phase: flags.done ? 'done' as const : 'awaiting_wallet' as const})),
+  } as unknown as RegisteredPaidAgentSession
+  const holder = {kind: 'local' as const, makePresentation: vi.fn(() => structuredClone(presentation)), submit: vi.fn(async () => { seen.presentation = await disk(); flags.sent = true })}
+  const members = [{index: 0, operator: ('0x' + '11'.repeat(20)) as Hex, publicKey: key, proof: []}]
+  const drive = (resume = false) => drivePaidSession({session, store, members, signal: new AbortController().signal, wait: async () => {}, holder, resume})
+  return {dir, store, session, holder, flags, seen, disk, drive}
+}
+
+it('journals each paid write durably before its send, and publishes the previous one\'s outcome before the next', async () => {
+  const d = await durableDrive()
+  expect((await d.drive()).status).toBe('done')
+  // Creation: \`prepared\` is on disk and its lock already released when the POST goes out.
+  expect(d.seen.create).toEqual({locks: [], phases: {create: 'prepared'}})
+  // The request-object approvals: both records with in_flight(1), and creation's re-derivable
+  // confirmation, in one commit before their request.
+  expect(d.seen.requestApprovals).toEqual({locks: [], phases: {create: 'confirmed',
+    'presentation_attest-0': 'prepared', 'presentation_attest-0.attempt': 'in_flight', 'presentation_sign-0': 'prepared', 'presentation_sign-0.attempt': 'in_flight'}})
+  // The presentation: its own \`prepared\` (and the approvals' confirmations) before the wallet POST;
+  // only its own lock is held.
+  expect(d.seen.presentation).toMatchObject({locks: ['wallet-' + d.session.sessionId + '-presentation.lock'],
+    phases: {presentation: 'prepared', 'presentation_sign-0': 'confirmed', 'presentation_attest-0': 'confirmed'}})
+  // The continuation after the presentation's \`confirmed\` was published with its unlock.
+  expect(d.seen.resumeInitial).toMatchObject({phases: {presentation: 'confirmed', 'resume-initial': 'prepared'}})
+  expect(d.seen.credentialApproval).toMatchObject({locks: [], phases: {'resume-initial': 'confirmed', 'credential-0': 'prepared', 'credential-0.attempt': 'in_flight'}})
+  expect(d.seen.resume).toMatchObject({phases: {'credential-0': 'confirmed', 'resume-1': 'prepared'}})
+  // Everything confirmed at the end, no lock left.
+  const end = await d.disk()
+  expect(end.locks).toEqual([])
+  expect(Object.entries(end.phases).filter(([k]) => !k.endsWith('.attempt')).every(([, phase]) => phase === 'confirmed')).toBe(true)
+})
+
+it('a crash right after the creation POST (its confirmation not yet written) resumes exactly like one after it: one recovery read, no second POST', async () => {
+  for (const confirmed of [false, true]) {
+    const d = await durableDrive()
+    vi.mocked(d.session.requestObject).mockRejectedValueOnce(new Error('process died'))
+    await expect(d.drive()).rejects.toThrow('process died')
+    // The state a crash before the next commit leaves, and the one after it: both resume the same.
+    await d.store.save('wallet-' + d.session.sessionId + '-create', {original: {sessionId: d.session.sessionId, paymentHash: d.session.paymentHash, initialization: d.session.initialization},
+      phase: confirmed ? 'confirmed' : 'prepared'})
+    expect((await d.drive(true)).status).toBe('done')
+    expect(d.session.create).toHaveBeenCalledTimes(1)
+    expect(d.session.reconcile).toHaveBeenCalledTimes(1)
+    expect((await d.disk()).phases.create).toBe('confirmed')
+  }
+})
+
+it('a crash after a continuation was sent but before its confirmation still refuses to resume past it, as before', async () => {
+  const d = await durableDrive()
+  // The continuation succeeds at the agent, then the process dies before the commit that confirms it.
+  const realResume = d.session.resumePresentation
+  vi.mocked(d.session.resumePresentation).mockImplementationOnce(async (...args) => {
+    await realResume(...args).catch(() => {})
+    // A crash here: the directory holds `resume-initial` prepared (and its lock).
+    const left = await d.disk()
+    expect(left.phases['resume-initial']).toBe('prepared')
+    throw new Error('process died')
+  })
+  await expect(d.drive()).rejects.toThrow('process died')
+  await expect(d.drive(true)).rejects.toMatchObject({name: 'PaidSessionRecoveryError', key: 'wallet-' + d.session.sessionId + '-resume-initial'})
+  expect(d.holder.submit).toHaveBeenCalledTimes(1)
+})

@@ -31,7 +31,7 @@ import {ruleCommitment} from '../chain/write.js'
 import {loadPaidReservationJournal} from './paid-journal.js'
 import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, ApplicationPayerRecoveryError,
   type ApplicationReservationState} from './paid-reservation.js'
-import {drivePaidSession, waitForPaidSnapshot, PaidSessionRecoveryError, type PaidSessionHolder} from './paid-session.js'
+import {drivePaidSession, waitForPaidSnapshot, FIRST_COMMIT, PaidSessionRecoveryError, type FirstCommit, type PaidSessionDriverOptions, type PaidSessionHolder} from './paid-session.js'
 import {PaidAgentControlError} from '../chain/registeredPaidAgent.js'
 import {VerifierAgentSessionError} from '../verifier-agent/index.js'
 import type {ApplicationStore} from './ready-slot.js'
@@ -815,14 +815,43 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
   if (!record || record.schema !== 1 || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('No paid operation journal for this request')
   if (record.finalSign) throw new TasraError('A final Sign payment has no session; resume it with resumePaidFinalSign')
   if (signal.aborted && (record.phase === 'reserved' || record.phase === 'certified')) throw abortedError(requestId, 'session', record.payment, signal, signal.reason)
+  // A fresh execution consent is journaled with the session's first write (its creation), not on
+  // its own: the session's identity derives from it, and nothing bound to it is sent before that
+  // commit. A crash before it leaves `reserved`, which a resume certifies anew (nothing was sent);
+  // one that kept only the creation record leaves it under a session identity nobody derives again.
+  let consent: FirstCommit | undefined
   if (record.phase === 'reserved') {
     const {policy} = await readClientExecutionPolicy(client, {...d, defaultVerificationPolicy: d.defaultVerificationPolicy}, record.payment, record.expected)
     const seed = random32(), signer = createLocalExecutionSigner(seed)
     try {
       const certificate = await createExecutionCertificate({payment: record.payment, policy, publicKey: signer.publicKey, expires: record.payment.expires,
         creator: config.creator})
-      record = await advance(store, requestId, 'reserved', {phase: 'certified', seed: Uint8Array.from(seed), certificate, pollSecret: toHex(random32()).slice(2)})
+      const certified: OperationRecord = {...record, phase: 'certified', seed: Uint8Array.from(seed), certificate, pollSecret: toHex(random32()).slice(2)}
+      const key = recordKey(requestId)
+      consent = {lock: [key], entries: [[key, certified]], check: async () => {
+        const current = await store.load<OperationRecord>(key)
+        if (!current || current.schema !== 1 || current.phase !== 'reserved') throw new TasraError('Paid operation journal changed concurrently')
+      }}
+      record = certified
     } finally { signer.dispose(); seed.fill(0) }
+  }
+  /**
+   * The consent on its own, as before, when the drive did not journal it: a session that failed
+   * before its first write (nothing bound to the consent was sent) or a driver that does not
+   * journal it (a test double). Keeps such a failure resumable with the same consent. A journal
+   * already holding exactly this consent (a store without native commits that failed mid-commit) is
+   * left as it is.
+   */
+  const journalConsent = async () => {
+    if (!consent || consent.published) return
+    const key = recordKey(requestId), certified = consent.entries[0]![1] as OperationRecord
+    await withCommit(store, key, async commit => {
+      const current = await store.load<OperationRecord>(key)
+      if (current?.schema === 1 && current.phase === 'certified' && current.certificate?.execution_key === certified.certificate?.execution_key) return
+      if (!current || current.schema !== 1 || current.phase !== 'reserved') throw new TasraError('Paid operation journal changed concurrently')
+      commit.stage(key, certified)
+    })
+    consent.published = true
   }
   if (!record.seed || !record.certificate || !record.pollSecret) throw new TasraError('Paid operation journal lacks its execution consent')
   const signer = createLocalExecutionSigner(record.seed)
@@ -838,6 +867,8 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
           allowMissingStatusAttestations: config.allowMissingStatusAttestations === true},
         params, {certificate: record.certificate, signer, pollSecret: record.pollSecret, signal})
       } catch (error) {
+        // Best effort: unjournaled, a resume certifies anew, which is safe as nothing was sent.
+        await journalConsent().catch(() => {})
         if (signal.aborted) throw abortedError(requestId, 'session', record.payment, signal, error)
         throw error
       }
@@ -845,8 +876,10 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
       let result
       try {
         result = await drivePaidSession({session, members: record.members, store, signal, holder, observeRequest, resume: true,
-          wait: hint => sleep(Math.min(Math.max(hint ?? interval, 10), 60_000), signal)})
+          wait: hint => sleep(Math.min(Math.max(hint ?? interval, 10), 60_000), signal), ...consent ? {[FIRST_COMMIT]: consent} : {}} as PaidSessionDriverOptions)
       } catch (error) {
+        // Best effort, as above: the drive's own failure is what the caller must see.
+        await journalConsent().catch(() => {})
         // The completed grant failed the revocation-status preflight: nothing reached a keeper and
         // the journal stays `certified`. Never a new session or payment automatically.
         if (error instanceof RevocationStatusPreflightError) throw statusRefusal(requestId, error)
@@ -857,6 +890,7 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
       const grant = verifierAgentResult({sessionId: session.sessionId, paymentHash: paymentIntentHash(record.payment),
         requestHash: requestHash(d.chainId, hexToBytes(record.payment.slot), record.action, hexToBytes(record.payloadDigest))}, result)
       if (!grant.verifierProofs?.length) throw new TasraError('Paid grant lacks anchored verifier proofs')
+      await journalConsent()
       record = await advance(store, requestId, 'certified', {phase: 'authorized', grant: {compound_token: grant.token, verifierProofs: grant.verifierProofs, sessionId: session.sessionId, ...(grant.evidenceCt !== undefined ? {evidenceCt: grant.evidenceCt} : {})}})
     }
     return handle(config, record, signer)
