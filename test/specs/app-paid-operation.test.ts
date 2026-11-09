@@ -66,6 +66,7 @@ import {ruleCommitment} from '../../src/chain/write.js'
 import {paymentIntentHash, paymentIntentTypedData, prepaidRequestId} from '../../src/committee/payment.js'
 import {selectAllowanceLane, obtainAllowanceVoucher, AllowanceRefusedError, AllowanceUnavailableError} from '../../src/app/paid-allowance.js'
 import {recoverTypedDataAddress} from 'viem'
+import {createSessionKey, sessionGrantCreateFragment} from '../../src/app/session-grants.js'
 
 const h = (n: number, len = 32): Hex => `0x${n.toString(16).padStart(2, '0').repeat(len)}`
 const creator = privateKeyToAccount(h(7)), payer = privateKeyToAccount(h(8))
@@ -1651,6 +1652,32 @@ describe('paidSessionDecrypt: one session-grant KEM decrypt paid without any pre
     await blsSlot()
     await expect(paidSessionDecrypt(enabled(setup({creator: h(77, 20)})), {slot, decryption: b.decryption})).rejects.toThrow(/creator/)
     expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+  })
+})
+
+describe('paidOperation: session-grant presentation (ADR-0090 D7)', () => {
+  it('journals the public create fragment, passes it to the session, and exposes the verified grant', async () => {
+    const f = setup()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockResolvedValue({...base, mode: 1})
+    const key = await createSessionKey({alg: 'Ed25519'})
+    const fragment = sessionGrantCreateFragment(key, {slots: [slot]})
+    const recipient = await createDecryptionRecipient()
+    const b = decryptionBinding(sha256(new TextEncoder().encode('first message')), 0, recipient)
+    const outcome = {grant: {session_grant: {stand_in: 'verified grant'} as never, refresh_seq: 0 as const}}
+    vi.mocked(drivePaidSession).mockResolvedValue({status: 'done', phase: 'done', sessionGrant: outcome} as Awaited<ReturnType<typeof drivePaidSession>>)
+    const op = await paidOperation(f.config, {...f.request, operation: {action: 'decrypt', decryption: b.decryption}, sessionGrant: fragment})
+    expect(vi.mocked(prepareRegisteredPaidSession).mock.calls[0]![2].sessionGrant).toEqual(fragment.session_grant)
+    expect(op.sessionGrant).toEqual(outcome)
+    const journal = await f.store.load<{params: {sessionGrant?: unknown}; grant: {sessionGrant?: unknown}}>(`paid-op-${op.requestId.slice(2)}`)
+    expect(journal?.params.sessionGrant).toEqual(fragment.session_grant)
+    expect(JSON.stringify(journal)).not.toMatch(/"d":/)
+    expect(journal?.grant.sessionGrant).toEqual(outcome)
+    op.dispose()
+    // A sign presentation cannot open a session, refused before anything is paid.
+    vi.mocked(reserveApplicationPayment).mockClear()
+    await expect(paidOperation(f.config, {...f.request, sessionGrant: fragment})).rejects.toThrow(/KEM decrypt/)
     expect(reserveApplicationPayment).not.toHaveBeenCalled()
   })
 })

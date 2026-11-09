@@ -87,24 +87,49 @@ export interface NonceContext {
  * @param ctx - Beacon epoch, verifier snapshot, committee policy and operation expiry to bind.
  */
 export function derivedNonce(reqHash: Uint8Array, random: Uint8Array, ctx: NonceContext): string {
+  return nonceOver(VP_NONCE_DOMAIN, reqHash, random, ctx)
+}
+
+/** Domain of the session-mode nonce ({@link vpSessionNonce}): a new name, so it never equals a plain nonce. */
+export const VP_SESSION_NONCE_DOMAIN = 'keykeeper/vp-session-nonce/v1'
+
+/**
+ * The nonce of a presentation that also OPENS an ADR-0090 D7 session grant:
+ * `base64url(keccak256("keykeeper/vp-session-nonce/v1" || request_hash || random || epoch u64 BE ||
+ * snapshot_root || registry_size u32 BE || committee u32 BE || quorum u32 BE || operation_exp i64 BE
+ * || session_key_thumbprint))`, unpadded. The holder key that signs the KB-JWT (or the DPoP proof)
+ * thereby authorizes exactly the session key with that RFC 7638 thumbprint. Mirrors the reference
+ * `vp_session_nonce`; vectors: `test/vp-session-nonce-vectors.json`.
+ *
+ * @param reqHash - 32-byte request-binding hash.
+ * @param random - The session's 32-byte random.
+ * @param ctx - Beacon epoch, verifier snapshot, committee policy and operation expiry to bind.
+ * @param sessionKeyThumbprint - 32-byte RFC 7638 SHA-256 thumbprint of the fresh session key.
+ */
+export function vpSessionNonce(reqHash: Uint8Array, random: Uint8Array, ctx: NonceContext, sessionKeyThumbprint: Uint8Array): string {
+  if (sessionKeyThumbprint.length !== 32) throw new Error('vpSessionNonce: sessionKeyThumbprint must be 32 bytes')
+  return nonceOver(VP_SESSION_NONCE_DOMAIN, reqHash, random, ctx, sessionKeyThumbprint)
+}
+
+/**
+ * The nonce a presentation must carry: {@link vpSessionNonce} when it opens a session (a session key
+ * thumbprint is named), else {@link derivedNonce}. The reference `vp_nonce_bound`.
+ *
+ * @param reqHash - 32-byte request-binding hash.
+ * @param random - The session's 32-byte random.
+ * @param ctx - Nonce context.
+ * @param sessionKeyThumbprint - The fresh session key's thumbprint, only when a session grant is requested.
+ */
+export function vpNonceBound(reqHash: Uint8Array, random: Uint8Array, ctx: NonceContext, sessionKeyThumbprint?: Uint8Array): string {
+  return sessionKeyThumbprint === undefined ? derivedNonce(reqHash, random, ctx) : vpSessionNonce(reqHash, random, ctx, sessionKeyThumbprint)
+}
+
+function nonceOver(domain: string, reqHash: Uint8Array, random: Uint8Array, ctx: NonceContext, ...tail: Uint8Array[]): string {
   if (reqHash.length !== 32) throw new Error('derivedNonce: reqHash must be 32 bytes')
   if (random.length !== 32) throw new Error('derivedNonce: random must be 32 bytes')
   if (ctx.snapshotRoot.length !== 32) throw new Error('derivedNonce: snapshotRoot must be 32 bytes')
-  return b64url(
-    keccak_256(
-      concat(
-        utf8(VP_NONCE_DOMAIN),
-        reqHash,
-        random,
-        be64(ctx.epoch),
-        ctx.snapshotRoot,
-        be32(ctx.registrySize),
-        be32(ctx.committee),
-        be32(ctx.quorum),
-        be64(BigInt.asUintN(64, BigInt(ctx.operationExp))),
-      ),
-    ),
-  )
+  return b64url(keccak_256(concat(utf8(domain), reqHash, random, be64(ctx.epoch), ctx.snapshotRoot, be32(ctx.registrySize), be32(ctx.committee),
+    be32(ctx.quorum), be64(BigInt.asUintN(64, BigInt(ctx.operationExp))), ...tail)))
 }
 
 /**

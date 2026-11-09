@@ -1,0 +1,98 @@
+{
+  "cases": [
+    {
+      "action": "decrypt",
+      "chain_id": 43112,
+      "committee": 3,
+      "epoch": "41",
+      "nonce": "Qx5e5t9gMCUrfn3XmhUXcu8Dmc4BMVhyStmeRpcXgMY",
+      "operation_exp": "1800000600",
+      "payload_digest": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "plain_nonce": "B3lKtJ2zY20jzJ0GtXrecv68k8f0gzcsFSqzt01u2HM",
+      "quorum": 2,
+      "random": "0x3333333333333333333333333333333333333333333333333333333333333333",
+      "registry_size": 5,
+      "request_hash": "0xd44639cd259ca50af854c38b4da359d4c72e2dd9d858575cf7c67a5b4b0b838e",
+      "session_key": {
+        "crv": "Ed25519",
+        "kty": "OKP",
+        "x": "DXVQdU4IAKXSN-71gmA1dmubPloVhoqUCrKJlYeI47A"
+      },
+      "session_key_thumbprint": "0x773d274f5f5527ee7df19cc24d27cb7c84f2caf0207029aa6c7359378b0cc6cc",
+      "slot_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "snapshot_root": "0x4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    {
+      "action": "decrypt",
+      "chain_id": 1,
+      "committee": 1,
+      "epoch": "18446744073709551615",
+      "nonce": "s34a007o2OTq7wS3JxFrl8L8OitIf982lN53_9zfFyg",
+      "operation_exp": "9223372036854775807",
+      "payload_digest": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "plain_nonce": "ZRAjudCXzos_zL4WaQSiLvi-mIK45f_QjqlLBr_Bdz4",
+      "quorum": 1,
+      "random": "0x0101010101010101010101010101010101010101010101010101010101010101",
+      "registry_size": 4294967295,
+      "request_hash": "0x8aea0cf1d7683bf99a9517f280a666854cb15954be4761a55dac0ddfc64797b5",
+      "session_key": {
+        "crv": "Ed25519",
+        "kty": "OKP",
+        "x": "DXVQdU4IAKXSN-71gmA1dmubPloVhoqUCrKJlYeI47A"
+      },
+      "session_key_thumbprint": "0x773d274f5f5527ee7df19cc24d27cb7c84f2caf0207029aa6c7359378b0cc6cc",
+      "slot_id": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "snapshot_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "action": "decrypt",
+      "chain_id": 43112,
+      "committee": 3,
+      "epoch": "41",
+      "nonce": "Ea-B4S97wrNh0Ra4gFwi3PafWipqDVdxmapAPNf6xuI",
+      "operation_exp": "1800000600",
+      "payload_digest": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "plain_nonce": "B3lKtJ2zY20jzJ0GtXrecv68k8f0gzcsFSqzt01u2HM",
+      "quorum": 2,
+      "random": "0x3333333333333333333333333333333333333333333333333333333333333333",
+      "registry_size": 5,
+      "request_hash": "0xd44639cd259ca50af854c38b4da359d4c72e2dd9d858575cf7c67a5b4b0b838e",
+      "session_key": {
+        "crv": "P-256",
+        "kty": "EC",
+        "x": "OtOGGpViE5JRa7WT7wVYPtLlhm9ctiYKMBcjf9ibkK8",
+        "y": "0JYcfjcHWmeRo5xh9WKVsCttJlZ7YV5gqkHuHI6DOI0"
+      },
+      "session_key_thumbprint": "0x0f0864dcef465e66806edd6676050a6e3c25d76ee042dbd1b81cc425c3e12c3a",
+      "slot_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "snapshot_root": "0x4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    {
+      "action": "decrypt",
+      "chain_id": 1,
+      "committee": 1,
+      "epoch": "18446744073709551615",
+      "nonce": "lV4Wcd0VvvtRO13W9aZ9KrrFDY4wGR0aht-e4VJQDn4",
+      "operation_exp": "9223372036854775807",
+      "payload_digest": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "plain_nonce": "ZRAjudCXzos_zL4WaQSiLvi-mIK45f_QjqlLBr_Bdz4",
+      "quorum": 1,
+      "random": "0x0101010101010101010101010101010101010101010101010101010101010101",
+      "registry_size": 4294967295,
+      "request_hash": "0x8aea0cf1d7683bf99a9517f280a666854cb15954be4761a55dac0ddfc64797b5",
+      "session_key": {
+        "crv": "P-256",
+        "kty": "EC",
+        "x": "OtOGGpViE5JRa7WT7wVYPtLlhm9ctiYKMBcjf9ibkK8",
+        "y": "0JYcfjcHWmeRo5xh9WKVsCttJlZ7YV5gqkHuHI6DOI0"
+      },
+      "session_key_thumbprint": "0x0f0864dcef465e66806edd6676050a6e3c25d76ee042dbd1b81cc425c3e12c3a",
+      "slot_id": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "snapshot_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "domain": "keykeeper/vp-session-nonce/v1",
+  "encoding": "base64url without padding",
+  "hash": "keccak256",
+  "preimage": "domain || request_hash || random || epoch u64 BE || snapshot_root || registry_size u32 BE || committee u32 BE || quorum u32 BE || operation_exp i64 BE || session_key_thumbprint (32 raw bytes, RFC 7638 SHA-256)"
+}

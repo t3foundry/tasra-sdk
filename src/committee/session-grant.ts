@@ -111,6 +111,19 @@ export interface SessionGrantWire {
 /** A session-key proof on the wire. */
 export interface SessionProofWire { iat: number; jti: string; signature: string }
 
+/**
+ * `session_grant` on `POST /v1/sessions` (session mode), exactly the agent's
+ * `SessionGrantRequestBody` (deny_unknown_fields): the public session JWK, the requested slots and
+ * the requested lifetimes in seconds.
+ */
+export interface SessionGrantRequestWire {
+  session_key: SessionKeyJwk
+  slots: string[]
+  access_ttl_secs: number
+  idle_timeout_secs: number
+  absolute_ttl_secs: number
+}
+
 /** A refused grant, key or proof. `code` names the failed check. */
 export class SessionGrantError extends TasraError {
   /** Stable reason (`slot-not-granted`, `expired`, `quorum-not-met`, ...). */
