@@ -236,16 +236,38 @@ const busy = new Set<string>()
 /** Background reservations running in this process, per lane. Bounded by lanes x slots in use. */
 const refilling = new Map<string, Promise<void>>()
 const MAX_REFILLING = 256
+/** How long an operation with no usable lane waits for this slot's in-flight lane reservation. */
+const LANE_WAIT_MS = 20_000
 const cursors = new Map<string, number>()
 
 /**
  * Pick a lane whose current allowance can fund this operation, or undefined (fall back to a
- * per-operation reservation). Starts background reservations for missing or low lanes.
+ * per-operation reservation). Starts background reservations for missing or low lanes. When no
+ * lane can fund it but one of this slot's lanes is being reserved in this process, waits for that
+ * reservation (at most {@link LANE_WAIT_MS}) and selects once more: a per-operation reservation
+ * would queue behind it on the same gas payer, so the fallback costs a second transaction and at
+ * least twice the wait (long enough, under contention, to outlive the verifier epoch it signed).
  * @param env - Allowance environment.
  * @param context - Fresh discovery for this operation.
  * @param operation - The paid action and the payment expiry.
  */
 export async function selectAllowanceLane(env: AllowanceEnv, context: PaidOperationContext, operation: {action: AllowanceAction; expires: number}): Promise<AllowanceTicket | undefined> {
+  const chosen = await selectLane(env, context, operation)
+  if (chosen) return chosen
+  const slot = context.intentFields.slot, lanes = allowanceLaneCount(env.options)
+  const inFlight: Promise<void>[] = []
+  for (let lane = 0; lane < lanes; lane++) {
+    const work = refilling.get(laneKey(env.deployment, slot, lane))
+    if (work) inFlight.push(work)
+  }
+  if (inFlight.length === 0) return undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  await Promise.race([Promise.any(inFlight), new Promise<void>(resolve => { timer = setTimeout(resolve, LANE_WAIT_MS) })])
+  clearTimeout(timer)
+  return selectLane(env, context, operation)
+}
+
+async function selectLane(env: AllowanceEnv, context: PaidOperationContext, operation: {action: AllowanceAction; expires: number}): Promise<AllowanceTicket | undefined> {
   const slot = context.intentFields.slot, lanes = allowanceLaneCount(env.options), scope = laneKey(env.deployment, slot, 0)
   const start = cursors.get(scope) ?? 0
   let chosen: AllowanceTicket | undefined

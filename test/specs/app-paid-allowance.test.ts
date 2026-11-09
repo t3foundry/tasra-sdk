@@ -113,8 +113,32 @@ describe('allowance lanes', () => {
     expect(await selectAllowanceLane(narrow.env, context(), {action: 'decrypt', expires: NOW + 600})).toBeUndefined()
     expect(await selectAllowanceLane(env, context(), {action: 'decrypt', expires: NOW + 3590})).toBeUndefined()
     expect(await selectAllowanceLane(env, context({committee_version: 3}), {action: 'decrypt', expires: NOW + 600})).toBeUndefined()
-    // No lane reserved at all: fall back (and, with reserveAhead, start one in the background).
+    // No lane reserved and none being reserved (reserveAhead off): fall back at once.
     expect(await selectAllowanceLane(environment().env, context(), {action: 'decrypt', expires: NOW + 600})).toBeUndefined()
+  })
+
+  it('with no usable lane, waits for the lane reservation it started and pays from it instead of reserving per operation', async () => {
+    const world = environment({reserveAhead: true})
+    reservationMinesAs()
+    const ticket = await selectAllowanceLane(world.env, context(), {action: 'decrypt', expires: NOW + 600})
+    const [lane] = await inspectAllowanceLanes(world.store, deployment, slot, 1)
+    expect(ticket).toMatchObject({lane: 0, allowanceId: lane!.allowanceId})
+    expect(vi.mocked(reservePrepaidAllowance)).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back when the lane reservation it waited for fails, or does not finish within the bound', async () => {
+    vi.mocked(reservePrepaidAllowance).mockRejectedValueOnce(new Error('refused'))
+    expect(await selectAllowanceLane(environment({reserveAhead: true}).env, context(), {action: 'decrypt', expires: NOW + 600})).toBeUndefined()
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+    try {
+      let release!: () => void
+      vi.mocked(reservePrepaidAllowance).mockImplementationOnce(() => new Promise((_resolve, reject) => { release = () => reject(new Error('late')) }))
+      const selection = selectAllowanceLane(environment({reserveAhead: true}).env, context(), {action: 'decrypt', expires: NOW + 600})
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(await selection).toBeUndefined()
+      release()
+      await settleAllowanceRefills()
+    } finally { vi.useRealTimers() }
   })
 
   it('journals the debit BEFORE requesting a voucher; a resume after a crash asks for the same seq, request and quote block', async () => {
