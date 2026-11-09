@@ -287,6 +287,22 @@ supports ADR-0090: the network advertises no capability for it, so the option is
   reports `reserved`, `not-needed` (already open: nothing read or sent, so the call is
   idempotent), `pending` (broadcast, outcome uncertain; reconciled later, never re-signed),
   `failed` (that lane only) or `cancelled` (`signal`). Draw lanes are not opened here.
+
+  Preparing for sustained work, say how much is coming. Without it a lane whose confirmed
+  allowance is close to exhaustion or expiry (but not yet "low") reports `not-needed`, and an
+  operation of the work then reserves the replacement inside itself:
+
+  ```ts
+  await prepareAllowances(config, {slot, minOperations: 120, minLifetimeSecs: 1800})
+  ```
+
+  Each lane must then fund `minOperations` more operations at the per-operation cap from its
+  current and reserved-ahead allowances (only one outliving `minLifetimeSecs` counts), and the
+  current one must outlive `minLifetimeSecs`; otherwise the next allowance is reserved ahead now
+  (`reserved`). A spent current allowance first hands over to its confirmed next. A lane holding
+  both that is still short reports `failed` (`AllowanceCapacityError`): it never locks a third
+  (at most 2 x lanes x `amount`). Bounds: `minOperations` 0..2 x floor(`amount` / per-operation
+  cap), `minLifetimeSecs` 0..lifetime - 120 s.
 - **Top-up.** Allowances are fixed-amount and live at most an hour. A replacement is reserved in
   the background once the remainder is below 25 % or less than 10 minutes remain, using the same
   dedicated gas payer and durable payer claim as reservations.

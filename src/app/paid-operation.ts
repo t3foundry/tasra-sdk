@@ -54,7 +54,7 @@ import {PaidApprovalUnresolvedError, RevocationStatusPreflightError, StatusRefre
 import {base64Decode} from '../crypto/envelope.js'
 import type {IbeExtractionPartial} from '../committee/client.js'
 import {HEX32, RECORD_KEY, RECORD_PREFIX, paidRecordKey as recordKey} from './paid-keys.js'
-import {AllowanceRefusedError, allowanceLaneCount, journaledAllowanceVoucher, obtainAllowanceVoucher, prepareAllowanceLane, selectAllowanceLane, validateAllowanceOptions,
+import {AllowanceRefusedError, allowanceLaneCount, journaledAllowanceVoucher, obtainAllowanceVoucher, prepareAllowanceLane, selectAllowanceLane, validateAllowanceOptions, validateLaneReadiness,
   type AllowanceEnv, type PaidAllowanceOptions} from './paid-allowance.js'
 import {withCommit, type LockedCommit} from './store-commit.js'
 
@@ -605,16 +605,31 @@ export interface PrepareAllowancesRequest {
   concurrency?: number
   /** Coordinator to discover with (as {@link PaidOperationRequest.coordinator}). */
   coordinator?: Address
+  /**
+   * Each lane must fund at least this many more operations at the per-operation cap
+   * (`limits.maxCost`) from its current allowance and its reserved-ahead one together (only an
+   * allowance outliving `minLifetimeSecs` counts); otherwise the next allowance is reserved ahead
+   * now. 0..2 x floor(amount / maxCost); default 0 (today's rule: a confirmed, not-low current
+   * allowance is enough). Set it, with `minLifetimeSecs`, when preparing for sustained work: a
+   * lane that is confirmed but close to exhaustion or expiry otherwise reports `not-needed` and the
+   * work reserves its replacement inside an operation.
+   */
+  minOperations?: number
+  /**
+   * The current allowance must outlive this many seconds, else the next one is reserved ahead (and
+   * must outlive it). 0..lifetime - 120 s; default 0. A bound on how long the coming work runs.
+   */
+  minLifetimeSecs?: number
   /** Cancellation: lanes not yet started are reported `cancelled`; a started one is cancelled until its reservation is prepared. */
   signal?: AbortSignal
 }
 
 /**
  * What {@link prepareAllowances} did for one lane:
- * - `reserved`: an allowance was reserved (confirmed) on the lane now;
+ * - `reserved`: an allowance was reserved (confirmed) on the lane now: the lane's current one, or its next reserved ahead for `minOperations` / `minLifetimeSecs`;
  * - `not-needed`: the lane already had a usable confirmed allowance (or one reserved ahead); nothing was discovered, signed or sent;
  * - `pending`: a reservation of the lane is uncertain (broadcast, outcome unknown); a later call or operation reconciles it, never re-signs beside it;
- * - `failed`: the reservation failed (`error`); nothing of it is left on the lane unless it was broadcast (then `pending` next time);
+ * - `failed`: the reservation failed (`error`), or (`AllowanceCapacityError`) the lane holds its current and a reserved-ahead allowance and still cannot fund `minOperations` (never a third: at most 2 x lanes x amount locked); nothing of it is left on the lane unless it was broadcast (then `pending` next time);
  * - `cancelled`: the signal ended it before its reservation was prepared, or before it started.
  */
 export type PreparedAllowanceOutcome = 'reserved' | 'pending' | 'not-needed' | 'failed' | 'cancelled'
@@ -654,7 +669,7 @@ export interface PreparedAllowances {
  * Draw lanes (session grants, ADR-0090 D7) are not opened here: their draw is known only once a
  * grant exists.
  * @param config Approved deployment, creator, gas payer, store, accountants, limits and `allowances` (enabled).
- * @param request Slot, lanes, concurrency and cancellation.
+ * @param request Slot, lanes, concurrency, readiness for the coming work and cancellation.
  */
 export async function prepareAllowances(config: PaidOperationConfig, request: PrepareAllowancesRequest): Promise<PreparedAllowances> {
   validateConfig(config)
@@ -667,6 +682,8 @@ export async function prepareAllowances(config: PaidOperationConfig, request: Pr
   if (lanes.length === 0 || lanes.some(l => !Number.isSafeInteger(l) || l < 0 || l >= count) || new Set(lanes).size !== lanes.length) throw new TasraError(`Allowance lanes must be distinct indices 0..${count - 1}`)
   const concurrency = request.concurrency ?? 4
   if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 8) throw new TasraError('Allowance concurrency must be 1..8')
+  const ready = {minOperations: request.minOperations, minLifetimeSecs: request.minLifetimeSecs}
+  validateLaneReadiness(env, ready)
   signal.throwIfAborted()
   if (config.billing) await config.billing.requirePrepaid(slot)
   const d = {...config.deployment}, client = config.chain.client
@@ -684,7 +701,7 @@ export async function prepareAllowances(config: PaidOperationConfig, request: Pr
   const worker = async () => {
     while (next < lanes.length && !signal.aborted) {
       const i = next++, lane = lanes[i]!
-      try { results[i] = {lane, outcome: await prepareAllowanceLane(env, slot, lane, discover, signal)} }
+      try { results[i] = {lane, outcome: await prepareAllowanceLane(env, slot, lane, discover, signal, ready)} }
       catch (error) { results[i] = signal.aborted ? {lane, outcome: 'cancelled', error} : {lane, outcome: 'failed', error} }
     }
   }

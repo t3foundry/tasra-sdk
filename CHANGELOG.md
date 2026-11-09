@@ -9,6 +9,15 @@ never does.
 
 ### Added
 
+- `prepareAllowances` readiness for sustained work: optional `minOperations` (each lane must fund
+  at least this many more operations at the per-operation cap from its current and reserved-ahead
+  allowance; only one outliving the horizon counts) and `minLifetimeSecs` (the current allowance
+  must outlive it). A lane that is confirmed but close to exhaustion or expiry for the work now has
+  its NEXT allowance reserved ahead (`reserved`) through the same journaled lane reservation,
+  instead of reporting `not-needed` and reserving inside an operation; a spent current one takes
+  its confirmed next over first. A lane still short while holding both reports `failed` with
+  `AllowanceCapacityError` (never a third allowance: at most 2 x lanes x amount locked). Unset,
+  the behaviour is unchanged.
 - `prepareAllowances(config, {slot, lanes?, concurrency?, coordinator?, signal?})` (`tasra-sdk/app`):
   open a slot's ADR-0090 allowance lanes before its first paid operation, so no user operation
   pays a lane's opening (reservation transactions and receipts) inside itself. Each lane goes

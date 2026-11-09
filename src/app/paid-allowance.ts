@@ -599,9 +599,12 @@ function refillLane(env: AllowanceEnv, context: PaidOperationContext, lane: numb
  * @param context - Fresh discovery for the slot (verification epoch and keeper sharing of the allowance).
  * @param lane - Lane index.
  * @param signal - Cancellation (honoured until the reservation is prepared).
+ * @param ready - What the lane must be ready for (see {@link LaneReadiness}); unset, the plain `low()` rule.
  */
-export async function reserveForLane(env: AllowanceEnv, context: PaidOperationContext, lane: number, signal?: AbortSignal): Promise<'reserved' | 'pending' | 'not-needed'> {
-  const outcome = await reserveOnLane(env, context, lane, regularPlan(env), signal)
+export async function reserveForLane(env: AllowanceEnv, context: PaidOperationContext, lane: number, signal?: AbortSignal, ready?: LaneReadiness):
+  Promise<'reserved' | 'pending' | 'not-needed'> {
+  if (ready) validateLaneReadiness(env, ready)
+  const outcome = await reserveOnLane(env, context, lane, ready ? readinessPlan(env, ready) : regularPlan(env), signal)
   return outcome === 'capped' ? 'not-needed' : outcome
 }
 
@@ -613,6 +616,11 @@ export async function reserveForLane(env: AllowanceEnv, context: PaidOperationCo
  *   never doubled, and the lane judged again after it;
  * - a lane that needs nothing (a usable confirmed allowance, or a confirmed one reserved ahead)
  *   reports `not-needed` without a discovery, a signature or a send.
+ * With `ready` ({@link LaneReadiness}) "needs nothing" means ready for the coming work: when the
+ * current allowance is not confirmed, low, expires within `minLifetimeSecs`, or the lane cannot
+ * fund `minOperations`, the NEXT allowance is reserved ahead (and the lane judged again). A lane
+ * whose current allowance is spent takes its confirmed next over first, exactly as an operation
+ * would; one still short while holding both throws {@link AllowanceCapacityError}, never a third.
  * Otherwise `discover` is called for a FRESH context (never one cached across lanes) and the lane is
  * reserved; the reservation is registered as this lane's refill, so an operation selecting meanwhile
  * waits for it (bounded) instead of starting its own.
@@ -621,12 +629,15 @@ export async function reserveForLane(env: AllowanceEnv, context: PaidOperationCo
  * @param lane - Regular lane index, 0..lanes-1.
  * @param discover - Fresh discovery for the slot (`fundedByAllowance`), called at most once per reservation.
  * @param signal - Cancellation (honoured until the reservation is prepared; afterwards it is reconciled).
+ * @param ready - What the lane must be ready for (default: the plain `low()` rule).
  */
-export async function prepareAllowanceLane(env: AllowanceEnv, slot: Hex, lane: number, discover: () => Promise<PaidOperationContext>, signal?: AbortSignal):
-  Promise<'reserved' | 'pending' | 'not-needed'> {
+export async function prepareAllowanceLane(env: AllowanceEnv, slot: Hex, lane: number, discover: () => Promise<PaidOperationContext>, signal?: AbortSignal,
+  ready: LaneReadiness = {}): Promise<'reserved' | 'pending' | 'not-needed'> {
   if (!HEX32.test(slot)) throw new TasraError('Invalid allowance slot')
   if (!Number.isSafeInteger(lane) || lane < 0 || lane >= allowanceLaneCount(env.options)) throw new TasraError('Allowance lane out of range')
-  const key = laneKey(env.deployment, slot, lane)
+  validateLaneReadiness(env, ready)
+  const key = laneKey(env.deployment, slot, lane), plan = regularPlan(env), demanding = (ready.minOperations ?? 0) > 0 || (ready.minLifetimeSecs ?? 0) > 0
+  let reserved = false
   // Bounded: operations that keep restarting a failing refill of this lane leave it to them.
   for (let round = 0; ; round++) {
     signal?.throwIfAborted()
@@ -636,19 +647,108 @@ export async function prepareAllowanceLane(env: AllowanceEnv, slot: Hex, lane: n
     const state = await loadLane(env.store, key, lane, slot)
     // An uncertain earlier reservation is reconciled by reserveForLane before anything new is signed.
     const uncertain = state.next?.record !== undefined && state.next.phase !== 'confirmed'
-    if (!uncertain && !regularPlan(env).needed(state)) return 'not-needed'
+    if (!uncertain) {
+      const verdict = laneVerdict(env, plan, state, ready, demanding)
+      if (verdict === 'ready') return reserved ? 'reserved' : 'not-needed'
+      if (verdict === 'short') {
+        // The current allowance is spent for operations (exactly when a fresh reservation would
+        // replace it at once): take the confirmed reserved-ahead one over, as an operation's
+        // promotion would, and judge again (the next round reserves the following one). Otherwise
+        // the lane already holds its two allowances (2 x lanes x amount): never a third.
+        if (state.current?.pending === undefined && plan.takeOver(state as LaneState & {next: LaneAllowance}) && await takeOverNext(env, key, lane, slot, plan)) continue
+        throw new AllowanceCapacityError(lane, laneOperations(env, state, ready.minLifetimeSecs ?? 0), ready)
+      }
+    }
     const context = await discover()
     signal?.throwIfAborted()
     const f = context.intentFields
     if (!same(f.slot, slot) || f.chain_id !== env.deployment.chainId || !same(f.settlement, env.deployment.settlement)) throw new TasraError('Discovery is for another slot or deployment')
     // An operation's refill started while discovering: judge the lane again once it ends.
     if (refilling.has(key)) continue
-    const work = reserveForLane(env, context, lane, signal)
+    const work = reserveForLane(env, context, lane, signal, demanding ? ready : undefined)
     const tracked = work.then(() => {}, () => {}).finally(() => { if (refilling.get(key) === tracked) { refilling.delete(key); refillingDraw.delete(key) } })
     refilling.set(key, tracked)
     refillingDraw.set(key, f)
-    return await work
+    const outcome = await work
+    // Pending (uncertain) is reported as is; a reservation is judged again against the coming work.
+    if (outcome === 'pending' || (!demanding && outcome === 'reserved')) return outcome
+    if (outcome === 'reserved') reserved = true
   }
+}
+
+/**
+ * What a lane must be ready for, beyond today's `low()` rule ({@link prepareAllowanceLane}).
+ * Unset (or 0) keeps the plain rule: a confirmed, not-low current allowance, or a confirmed one
+ * reserved ahead, is enough.
+ */
+export interface LaneReadiness {
+  /**
+   * The lane must fund at least this many more operations at the per-operation cap
+   * (`limits.maxCost`) from its current allowance and its reserved-ahead one together; only an
+   * allowance that outlives `minLifetimeSecs` counts. At most 2 x floor(amount / maxCost).
+   */
+  minOperations?: number
+  /**
+   * The current allowance must outlive this many seconds, else the next one is reserved ahead (and
+   * must outlive it). At most the allowance lifetime minus 120 s.
+   */
+  minLifetimeSecs?: number
+}
+
+/** The lane cannot hold what the coming work needs: it already holds a current and a reserved-ahead allowance. */
+export class AllowanceCapacityError extends TasraError {
+  /** Stable reason. */
+  readonly code = 'allowance-capacity' as const
+  constructor(readonly lane: number, readonly operations: number, ready: LaneReadiness) {
+    super(`Allowance lane ${lane} can fund ${operations} operation(s) outliving ${ready.minLifetimeSecs ?? 0} s, below the ${ready.minOperations ?? 0} required; `
+      + 'it already holds its current and one reserved-ahead allowance (at most 2 x lanes x amount locked): raise amount or lanes, or prepare again once the current one is spent', {retryable: false})
+  }
+}
+
+/**
+ * Validate a lane readiness request against the allowance options.
+ * @param env - Allowance environment.
+ * @param ready - Readiness request.
+ */
+export function validateLaneReadiness(env: AllowanceEnv, ready: LaneReadiness): void {
+  const ops = ready.minOperations ?? 0, life = ready.minLifetimeSecs ?? 0, lifetime = env.options.lifetimeSecs ?? ALLOWANCE_MAX_LIFETIME_SECS
+  const most = 2n * (env.options.amount / env.limits.maxCost)
+  if (!Number.isSafeInteger(ops) || ops < 0 || BigInt(ops) > most) throw new TasraError(`Allowance minOperations must be 0..${most} (two allowances of amount / maxCost operations)`)
+  if (!Number.isSafeInteger(life) || life < 0 || life > lifetime - 120) throw new TasraError(`Allowance minLifetimeSecs must be 0..${lifetime - 120} (the allowance lifetime minus 120 s)`)
+}
+
+/** Operations the lane's confirmed allowances fund at the per-operation cap, counting only those outliving `horizon` seconds. */
+function laneOperations(env: AllowanceEnv, s: LaneState, horizon: number): number {
+  const until = now() + horizon + EXPIRY_MARGIN_SECS, cap = env.limits.maxCost
+  let ops = 0n
+  if (s.current?.phase === 'confirmed' && s.current.intent.expires_at >= until) {
+    const own = remaining(s.current) / cap - (s.current.pending ? 1n : 0n)
+    if (own > 0n) ops += own
+  }
+  if (s.next?.phase === 'confirmed' && s.next.intent.expires_at >= until) ops += BigInt(s.next.intent.amount) / cap
+  return Number(ops)
+}
+
+/** Ready for the coming work, a reservation needed, or short with the lane full (current + a confirmed next). */
+function laneVerdict(env: AllowanceEnv, plan: ReservePlan, s: LaneState, ready: LaneReadiness, demanding: boolean): 'ready' | 'reserve' | 'short' {
+  if (!demanding) return plan.needed(s) ? 'reserve' : 'ready'
+  const horizon = ready.minLifetimeSecs ?? 0
+  const meets = laneOperations(env, s, horizon) >= Math.max(ready.minOperations ?? 0, 1)
+  if (s.next?.phase === 'confirmed') return meets ? 'ready' : 'short'
+  // No reserved-ahead allowance: the current one alone must be confirmed, not low, outlive the horizon and fund the work.
+  return !plan.needed(s) && meets ? 'ready' : 'reserve'
+}
+
+/** Replace the current allowance with the confirmed reserved-ahead one when `plan.takeOver` allows it and no debit is pending. */
+async function takeOverNext(env: AllowanceEnv, key: string, lane: number, slot: Hex, plan: ReservePlan, id?: Hex): Promise<boolean> {
+  return env.store.withLock(key, async () => {
+    const s = await loadLane(env.store, key, lane, slot)
+    if (s.next?.phase !== 'confirmed' || (id !== undefined && !same(s.next.id, id)) || s.current?.pending) return false
+    if (!plan.takeOver(s as LaneState & {next: LaneAllowance})) return false
+    await env.store.save(key, {...s, current: {...s.next, seq: 0, cumulative: '0'}, next: undefined, retired: retire(s)} satisfies LaneState)
+    repushLast(env, s.current)
+    return true
+  })
 }
 
 /** What one lane reservation reserves and when it takes over (regular lanes and draw lanes differ). */
@@ -667,6 +767,11 @@ function regularPlan(env: AllowanceEnv): ReservePlan {
   return {amount: env.options.amount,
     needed: s => !(s.next?.phase === 'confirmed' || (s.current && !low(s.current) && s.current.phase === 'confirmed')),
     takeOver: s => !(s.current && s.current.phase === 'confirmed' && remaining(s.current) >= env.limits.maxCost && s.current.intent.expires_at - now() > LOW_LIFE_SECS / 2)}
+}
+/** The regular plan, needing a reservation whenever the lane is not ready for `ready` (and holds no confirmed reserved-ahead allowance). */
+function readinessPlan(env: AllowanceEnv, ready: LaneReadiness): ReservePlan {
+  const plan = regularPlan(env)
+  return {...plan, needed: s => laneVerdict(env, plan, s, ready, true) === 'reserve'}
 }
 /** A draw lane on `context`'s draw: replaces an allowance of any other draw (only a stale one can be on its lane set) or a low one. */
 function drawPlan(env: AllowanceEnv, context: PaidOperationContext): ReservePlan {
@@ -746,13 +851,7 @@ async function reserveOnLane(env: AllowanceEnv, context: PaidOperationContext, l
         }})))
     await update({assignmentBlock: result.allowance.assignmentBlock}, ['confirmed'])
     // Take over at once when the lane has nothing usable and no debit in flight.
-    await store.withLock(key, async () => {
-      const s = await loadLane(store, key, lane, slot)
-      if (s.next?.phase !== 'confirmed' || !same(s.next.id, id) || s.current?.pending) return
-      if (!plan.takeOver(s as LaneState & {next: LaneAllowance})) return
-      await store.save(key, {...s, current: {...s.next, seq: 0, cumulative: '0'}, next: undefined, retired: retire(s)} satisfies LaneState)
-      repushLast(env, s.current)
-    })
+    await takeOverNext(env, key, lane, slot, plan, id)
     return 'reserved'
   } catch (error) {
     if (error instanceof PaidReservationUncertainError) return 'pending'

@@ -27,7 +27,7 @@ import {PaidAgentControlError, prepareRegisteredPaidSession, type PaidAgentPropo
 import {verifierAgentResult} from '../../src/oid4vp/verifier-agent.js'
 import {createExecutionCertificate} from '../../src/committee/execution.js'
 import {collectDebitVoucher, prepaidAllowanceId, reconcilePrepaidAllowance, reservePrepaidAllowance} from '../../src/chain/allowance.js'
-import {inspectAllowanceLanes, settleAllowanceRefills, settleAllowanceVoucherPushes} from '../../src/app/paid-allowance.js'
+import {AllowanceCapacityError, inspectAllowanceLanes, settleAllowanceRefills, settleAllowanceVoucherPushes} from '../../src/app/paid-allowance.js'
 import {assembleCompoundToken, compoundTokenHash, selectVerifierCommittee, statusAttestationHash, type CompoundTokenPayload} from '../../src/committee/token.js'
 import {prepaidRequestId, type DebitVoucherWire} from '../../src/committee/payment.js'
 import {ruleCommitment} from '../../src/chain/write.js'
@@ -268,5 +268,100 @@ describe('prepareAllowances', () => {
     expect((result.lanes[0]!.error as Error).message).toMatch(/slot creator/)
     expect(sends()).toBe(0)
     expect((await lanesOf())[0]!.next).toBeUndefined()
+  })
+})
+
+// Readiness for the coming work (minOperations / minLifetimeSecs): a lane holding a CONFIRMED
+// allowance that is close to exhaustion or expiry must get its NEXT one reserved ahead now, not
+// inside an operation of the work. Amount 1000 at a per-operation cap of 100: 10 operations each.
+describe('prepareAllowances readiness for sustained work', () => {
+  type Lane = {current?: {cumulative: string; intent: {expires_at: number}}; next?: {phase: string; id: Hex}; retired?: Hex[]}
+  async function edit(store: ReturnType<typeof createMemoryStore>, lane: number, change: (s: Lane) => void) {
+    const key = (await store.list!('pal-')).find(k => k.endsWith(`-${lane}`))!
+    const s = (await store.load<Lane>(key))!
+    change(s)
+    await store.save(key, s)
+  }
+
+  it('reserves the next allowance of a confirmed lane too close to exhaustion for the work (not low by the 25 % rule)', async () => {
+    const {config, store, lanesOf} = world(1)
+    reservations()
+    await prepareAllowances(config, {slot})
+    // 300 left: 3 operations, not low; plain readiness still says not-needed.
+    await edit(store, 0, s => { s.current!.cumulative = '700' })
+    expect((await prepareAllowances(config, {slot})).lanes).toEqual([{lane: 0, outcome: 'not-needed'}])
+    expect(sends()).toBe(1)
+    expect((await prepareAllowances(config, {slot, minOperations: 5})).lanes).toEqual([{lane: 0, outcome: 'reserved'}])
+    expect(sends()).toBe(2)
+    const [lane] = await lanesOf()
+    // The current one keeps funding operations; the next waits reserved ahead.
+    expect([lane!.cumulative, lane!.next?.phase]).toEqual(['700', 'confirmed'])
+    // Ready now (3 + 10 >= 5): nothing more is read or sent.
+    const discovered = discoveries()
+    expect((await prepareAllowances(config, {slot, minOperations: 13})).lanes).toEqual([{lane: 0, outcome: 'not-needed'}])
+    expect([sends(), discoveries()]).toEqual([2, discovered])
+  })
+
+  it('reserves the next allowance of a lane whose current one expires within the horizon', async () => {
+    const {config, lanesOf} = world(1)
+    reservations()
+    await prepareAllowances(config, {slot})
+    const start = Date.now()
+    // 2000 s later: 1600 s of life left, above the 600 s low() bound.
+    vi.spyOn(Date, 'now').mockImplementation(() => start + 2_000_000)
+    expect((await prepareAllowances(config, {slot})).lanes).toEqual([{lane: 0, outcome: 'not-needed'}])
+    expect((await prepareAllowances(config, {slot, minLifetimeSecs: 1800})).lanes).toEqual([{lane: 0, outcome: 'reserved'}])
+    expect(sends()).toBe(2)
+    const [lane] = await lanesOf()
+    expect([lane!.seq, lane!.next?.phase]).toEqual([0, 'confirmed'])
+    expect((await prepareAllowances(config, {slot, minLifetimeSecs: 1800, minOperations: 10})).lanes).toEqual([{lane: 0, outcome: 'not-needed'}])
+    expect(sends()).toBe(2)
+  })
+
+  it('reports not-needed for a lane with a confirmed next that covers the work', async () => {
+    const {config} = world(2)
+    reservations()
+    expect((await prepareAllowances(config, {slot, minOperations: 15})).lanes.map(l => l.outcome)).toEqual(['reserved', 'reserved'])
+    // Each lane: a current (10) and a next (10) reserved in the same call.
+    expect(sends()).toBe(4)
+    const discovered = discoveries()
+    expect((await prepareAllowances(config, {slot, minOperations: 20, minLifetimeSecs: 3000})).lanes.map(l => l.outcome)).toEqual(['not-needed', 'not-needed'])
+    expect([sends(), discoveries()]).toEqual([4, discovered])
+  })
+
+  it('takes a confirmed next over a spent current, then reserves the following one', async () => {
+    const {config, store, lanesOf} = world(1)
+    reservations()
+    await prepareAllowances(config, {slot, minOperations: 15})
+    const first = (await lanesOf())[0]!
+    // The current one is spent for operations (50 < the 100 cap).
+    await edit(store, 0, s => { s.current!.cumulative = '950' })
+    expect((await prepareAllowances(config, {slot, minOperations: 15})).lanes).toEqual([{lane: 0, outcome: 'reserved'}])
+    expect(sends()).toBe(3)
+    const [lane] = await lanesOf()
+    expect([lane!.allowanceId, lane!.seq, lane!.next?.phase]).toEqual([first.next!.allowanceId, 0, 'confirmed'])
+  })
+
+  it('fails, never reserving a third, when current + next still cannot fund the work', async () => {
+    const {config, store, lanesOf} = world(1)
+    reservations()
+    await prepareAllowances(config, {slot, minOperations: 15})
+    await edit(store, 0, s => { s.current!.cumulative = '700' })
+    const before = await lanesOf()
+    const [result] = (await prepareAllowances(config, {slot, minOperations: 15})).lanes
+    expect(result!.outcome).toBe('failed')
+    expect(result!.error).toBeInstanceOf(AllowanceCapacityError)
+    expect((result!.error as Error).message).toMatch(/can fund 13 operation\(s\).*below the 15 required/)
+    expect(sends()).toBe(2)
+    expect(await lanesOf()).toEqual(before)
+  })
+
+  it('refuses a readiness no lane can hold, before any read', async () => {
+    const {config} = world(1)
+    await expect(prepareAllowances(config, {slot, minOperations: 21})).rejects.toThrow(/minOperations must be 0\.\.20/)
+    await expect(prepareAllowances(config, {slot, minOperations: -1})).rejects.toThrow(/minOperations/)
+    await expect(prepareAllowances(config, {slot, minLifetimeSecs: 3500})).rejects.toThrow(/minLifetimeSecs must be 0\.\.3480/)
+    await expect(prepareAllowances(config, {slot, minLifetimeSecs: 1.5})).rejects.toThrow(/minLifetimeSecs/)
+    expect(discoveries()).toBe(0)
   })
 })
