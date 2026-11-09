@@ -118,6 +118,8 @@ export interface SlotTrust {
   quorum: number
   /** keccak256 of the slot's raw rule. */
   ruleHash: Uint8Array
+  /** The beacon seed of the grant's epoch, `beacon.seedAt(epoch)`, read from the chain: a grant on any other seed is refused. */
+  seed: Uint8Array
 }
 
 /**
@@ -234,7 +236,7 @@ async function checkGrant(opts: GrantedSessionOptions, grant: SessionGrant, requ
   for (const slot of p.slots) {
     const hex = bytesToHex(slot.slotId) as `0x${string}`
     const trust = await opts.transport.trust(hex, p.epoch)
-    verified.push(verifySessionGrant({grant, set: trust.set, slotId: slot.slotId, committee: trust.committee, quorum: trust.quorum, slotRuleHash: trust.ruleHash, now: at}))
+    verified.push(verifySessionGrant({grant, set: trust.set, slotId: slot.slotId, committee: trust.committee, quorum: trust.quorum, slotRuleHash: trust.ruleHash, seed: trust.seed, now: at}))
   }
   return verified
 }
@@ -271,7 +273,7 @@ export class GrantedSession {
     const target = grant.payload.slots.find(s => bytesToHex(s.slotId).toLowerCase() === slot.toLowerCase())
     if (!target) throw new SessionGrantError('slot-not-granted', `slot ${slot} is not named by the session grant`)
     const trust = await this.#opts.transport.trust(slot, grant.payload.epoch)
-    return verifySessionGrant({grant, set: trust.set, slotId: target.slotId, committee: trust.committee, quorum: trust.quorum, slotRuleHash: trust.ruleHash, now: this.#clock()})
+    return verifySessionGrant({grant, set: trust.set, slotId: target.slotId, committee: trust.committee, quorum: trust.quorum, slotRuleHash: trust.ruleHash, seed: trust.seed, now: this.#clock()})
   }
 
   /** The session key bound by this grant. */

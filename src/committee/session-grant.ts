@@ -277,6 +277,12 @@ export interface VerifySessionGrantOptions {
   quorum: number
   /** keccak256 of the slot's raw rule, read independently. */
   slotRuleHash: Uint8Array
+  /**
+   * The beacon seed of the grant's epoch, `beacon.seedAt(epoch)`, read independently. A grant
+   * drawn on any other seed is refused: k colluding verifiers cannot pick a seed that draws
+   * themselves (C8 review F4).
+   */
+  seed: Uint8Array
   /** Current time, Unix seconds. */
   now: number
 }
@@ -284,7 +290,8 @@ export interface VerifySessionGrantOptions {
 /**
  * Verify a grant for serving one slot, with the reference steps in their order: the slot is
  * granted with the slot's own rule; the quorum is non-zero; `now <= exp + 5` and `now + 5 >= iat`
- * (the status deadline, never a token leeway); the slot's OWN draw `(slot, epoch, seed)`; every
+ * (the status deadline, never a token leeway); the grant's seed is the beacon seed of its epoch;
+ * the slot's OWN draw `(slot, epoch, seed)`; every
  * signature verifies strictly (a forged one refuses the grant); a quorum of the slot's drawn
  * committee signed. Signatures from outside the draw are checked but do not count.
  * @param o - Grant, verifier set, slot policy and time.
@@ -296,6 +303,7 @@ export function verifySessionGrant(o: VerifySessionGrantOptions): VerifiedSessio
   if (!Number.isInteger(o.quorum) || o.quorum < 1) refuse('zero-quorum', 'invalid policy: quorum must be >= 1')
   if (o.now > p.exp + STATUS_SKEW_SECS) refuse('expired', `session grant expired at ${p.exp}`)
   if (o.now + STATUS_SKEW_SECS < p.iat) refuse('not-yet-valid', `session grant not yet valid (iat ${p.iat})`)
+  if (!(o.seed instanceof Uint8Array) || o.seed.length !== 32 || !equal(p.seed, o.seed)) refuse('seed-mismatch', `session grant seed is not the beacon seed of epoch ${p.epoch}`)
   const expected = selectVerifierCommittee(o.slotId, p.epoch, p.seed, o.set.registrySize, o.committee)
   const hash = sessionGrantHash(p)
   const verified: number[] = []
