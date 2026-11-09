@@ -8,6 +8,14 @@ import {headFollowerOf, type FollowedHead, type HeadFollower} from './headFollow
 /** Most interests per client; the oldest registration is dropped first. */
 export const MAX_PREFETCH_INTERESTS = 256
 
+/**
+ * How long an interest registered without an expiry keeps being pre-read after its last
+ * registration. Every use re-registers it, so a slot or service in use stays warm, while one the
+ * client stopped using stops costing reads: the idle cost of a client follows what it is doing,
+ * not every slot it ever touched.
+ */
+export const HEAD_PREFETCH_IDLE_MS = 60_000
+
 interface Interest {read: (tip: FollowedHead) => Promise<unknown>; until: number}
 interface Registry {follower: HeadFollower; interests: Map<string, Interest>; unsubscribe: () => void}
 const registries = new WeakMap<PublicClient, Registry>()
@@ -34,14 +42,15 @@ function registry(client: PublicClient): Registry | undefined {
 }
 
 /**
- * Pre-read for `key` at every new followed head until `until` (ms; default: while registered).
- * Re-registering a key refreshes its read and expiry. Without a follower on `client` this does nothing.
+ * Pre-read for `key` at every new followed head until `until` (ms; default:
+ * {@link HEAD_PREFETCH_IDLE_MS} after this registration). Re-registering a key refreshes its read
+ * and expiry. Without a follower on `client` this does nothing.
  * @param client Client whose follower reports heads.
  * @param key Stable interest identity.
  * @param read Block-pinned reads at the new tip.
  * @param until Expiry in ms since the epoch.
  */
-export function registerHeadPrefetch(client: PublicClient, key: string, read: (tip: FollowedHead) => Promise<unknown>, until = Number.POSITIVE_INFINITY): void {
+export function registerHeadPrefetch(client: PublicClient, key: string, read: (tip: FollowedHead) => Promise<unknown>, until = Date.now() + HEAD_PREFETCH_IDLE_MS): void {
   const r = registry(client)
   if (!r) return
   const known = r.interests.delete(key)
