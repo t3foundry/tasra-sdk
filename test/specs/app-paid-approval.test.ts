@@ -567,6 +567,17 @@ describe('first approvals: one commit before the send, a re-derivable confirmati
     expect(h.sent).toHaveLength(1)
   })
 
+  it('a first-approval commit that fails sends nothing and gives the flow\'s pending writes back', async () => {
+    const inner = createMemoryStore(), later = new Rederivable()
+    const store: ApplicationStore = {load: inner.load.bind(inner), withLock: inner.withLock.bind(inner), claim: inner.claim!.bind(inner),
+      save: async (key, value) => { if (key.endsWith('.attempt')) throw new Error('disk full'); return inner.save(key, value) }}
+    const h = harness(store)
+    later.put('wallet-' + SESSION + '-create', {phase: 'confirmed'})
+    await expect(retainAndDeliverApproval({...h.ctx, rederivable: later}, ORIGINAL, h.sign)).rejects.toThrow('disk full')
+    expect(h.sent).toEqual([])
+    expect(later.take()).toEqual([['wallet-' + SESSION + '-create', {phase: 'confirmed'}]])
+  })
+
   it('a batch of first approvals is ONE commit (with what the flow had pending) before its one request', async () => {
     const dir = await directory(), store = createFileStore(dir), h = harness(store), later = new Rederivable()
     later.put('wallet-' + SESSION + '-create', {original: {}, phase: 'confirmed'})

@@ -1115,6 +1115,17 @@ describe('paid operation journal commits', () => {
     for (const op of ops) op.dispose()
   })
 
+  it('an operation already journaled under its request ID is refused alone; the others of its commit are journaled', async () => {
+    const f = setup()
+    const clash = paidOperation(f.config, {...f.request, onRequestId: async id => { await f.store.save(`paid-op-${id.slice(2).toLowerCase()}`, {schema: 1, phase: 'reserving'}) }})
+    const fine = paidOperation(f.config, f.request)
+    await expect(clash).rejects.toThrow(/already journaled/)
+    const op = await fine
+    expect((await listPaidOperations(f.store)).map(o => o.requestId)).toEqual([op.requestId.toLowerCase()])
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    op.dispose()
+  })
+
   it('a crash that kept the index entry but not the record: listed by no one, resumed by no one, nothing reserved', async () => {
     const f = setup(), ghost = h(0x66)
     await f.store.save('paid-op-index-0', {schema: 1, ids: [ghost]})

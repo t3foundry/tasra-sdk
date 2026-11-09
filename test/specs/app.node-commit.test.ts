@@ -4,6 +4,7 @@ import {constants} from 'node:fs'
 // Record every durable step in order, passing the real calls through.
 const events: string[] = []
 const failSync = {next: false}
+const failRename = {next: false}
 const gate: {hold?: Promise<void>} = {}
 vi.mock('node:fs/promises', async original => {
   const real = await original<typeof import('node:fs/promises')>()
@@ -26,7 +27,10 @@ vi.mock('node:fs/promises', async original => {
       }
       return handle
     },
-    rename: async (from: string, to: string) => { events.push(`rename:${name(to)}`); return real.rename(from, to) },
+    rename: async (from: string, to: string) => {
+      if (failRename.next) { failRename.next = false; throw Object.assign(new Error('injected rename failure'), {code: 'EIO'}) }
+      events.push(`rename:${name(to)}`); return real.rename(from, to)
+    },
     // Lock removals are durable steps too (temporaries are not traced).
     unlink: async (path: string) => { if (String(path).endsWith(".lock")) events.push(`unlink:${name(path)}`); return real.unlink(path) },
   }
@@ -48,7 +52,7 @@ afterAll(() => { process.off('unhandledRejection', onUnhandled) })
 afterEach(async () => {
   await new Promise(done => setTimeout(done, 50))
   const floated = unhandled.splice(0).map(reason => String((reason as Error)?.message ?? reason))
-  events.length = 0; failSync.next = false; gate.hold = undefined
+  events.length = 0; failSync.next = false; failRename.next = false; gate.hold = undefined
   await Promise.all(roots.splice(0).map(dir => rm(dir, {recursive: true, force: true})))
   expect(floated, 'unhandled rejections').toEqual([])
 })
@@ -259,6 +263,28 @@ describe.skipIf(DSYNC === 0)('file store commit steps (internal)', () => {
     await later.flush(store)
     expect(events).toEqual(['open:tmp:dsync', 'sync:tmp', 'rename:c.json'])
     expect(await store.load('c')).toEqual({n: 5})
+  })
+
+  it('a failed rename publishes nothing more, leaves no temporary behind and keeps the prior bytes', async () => {
+    const dir = await directory(), store = createFileStore(dir)
+    await store.save('a', {v: 'old'})
+    failRename.next = true
+    await expect(saveAll(store, [['a', {v: 'new'}], ['b', {v: 'new'}]])).rejects.toThrow('injected rename')
+    expect(await store.load('a')).toEqual({v: 'old'})
+    expect(await store.load('b')).toBeUndefined()
+    expect((await readdir(dir)).sort()).toEqual(['a.json'])
+  })
+
+  it('Rederivable: a failed flush gives every entry back for a later commit', async () => {
+    const inner = createMemoryStore(), later = new Rederivable()
+    let fail = true
+    const store = {...inner, load: inner.load.bind(inner), withLock: inner.withLock.bind(inner),
+      save: async (key: string, value: unknown) => { if (fail) throw new Error('disk full'); return inner.save(key, value) }}
+    later.put('a', 1)
+    await expect(later.flush(store)).rejects.toThrow('disk full')
+    fail = false
+    await later.flush(store)
+    expect(await inner.load('a')).toBe(1)
   })
 
   it('stores without native steps get the same calls as before: withLock, then each staged save in order', async () => {
