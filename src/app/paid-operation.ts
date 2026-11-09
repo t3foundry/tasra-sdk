@@ -38,7 +38,7 @@ import type {ApplicationStore} from './ready-slot.js'
 import {withDedicatedPayer} from './payer-queue.js'
 import {createExecutionCertificate, createLocalExecutionSigner, type ExecutionCertificate, type ExecutionStage} from '../committee/execution.js'
 import type {KeeperExecutionApprover} from '../committee/keeperExecution.js'
-import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
+import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type DebitVoucherWire, type PaymentIntentWire} from '../committee/payment.js'
 import {compoundTokenHash, decodeCompoundToken, requireStatusAttestations, signersThatVerify, verifyStatusAttestation, verifyStatusAttestations, STATUS_SKEW_SECS,
   type CompoundTokenWire, type StatusAttestationWire} from '../committee/token.js'
 import {acceptStatusRefreshRelay, createStatusRefreshProof, refreshStatusDirect, statusRefreshRelayBody, type StatusRefreshHolderSigner,
@@ -760,13 +760,27 @@ async function debit(config: PaidOperationConfig, record: OperationRecord, signa
   try {
     // The voucher and the `reserved` phase that carries it are journaled under the ONE record
     // lock that admitted the debit (one durable lock instead of two; the same checks).
-    await config.store.withLock(key, async () => {
-      const current = await config.store.load<OperationRecord>(key)
+    // Checked under the journal's lock: only a `reserving` journal is debited.
+    let current: OperationRecord | undefined
+    const check = async () => {
+      current = await config.store.load<OperationRecord>(key)
       if (current?.phase !== 'reserving') throw new NoLongerReserving()
       if (current.schema !== 1) throw new TasraError('Paid operation journal changed concurrently')
-      const voucher = await journaledAllowanceVoucher(config.store, requestId) ?? await obtainAllowanceVoucher(env!, record.allowance!, record.payment, signal)
-      await config.store.save(key, {...current, phase: 'reserved', payment: {...record.payment, debit_voucher: voucher}} satisfies OperationRecord)
-    })
+    }
+    const reserved = (voucher: DebitVoucherWire): OperationRecord => ({...current!, phase: 'reserved', payment: {...record.payment, debit_voucher: voucher}})
+    const saved = await journaledAllowanceVoucher(config.store, requestId)
+    if (saved) await withCommit(config.store, key, async commit => { await check(); commit.stage(key, reserved(saved)) })
+    else {
+      // A fresh round runs under the journal's lock together with the lane's (one set of locks,
+      // released in the lane's commit), and journals `reserved` WITH the voucher under its request
+      // (one commit, before the lane advances past the seq): either one lets a resume continue
+      // from the voucher, and the lane completes an interrupted advance from whichever a crash kept.
+      let journaled = false
+      const voucher = await obtainAllowanceVoucher(env!, record.allowance!, record.payment, signal,
+        {lock: [key], check, journal: found => { journaled = true; return [[key, reserved(found)]] }})
+      // A voucher another call journaled meanwhile: journal `reserved` with it now.
+      if (!journaled) await withCommit(config.store, key, async commit => { await check(); commit.stage(key, reserved(voucher)) })
+    }
   } catch (error) {
     if (error instanceof NoLongerReserving) throw new TasraError('Paid operation was closed before its debit; it is not debited again')
     if (error instanceof AllowanceRefusedError) {
