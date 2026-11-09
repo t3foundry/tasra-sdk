@@ -69,6 +69,8 @@ function decode(value: Encoded): unknown {
   }
 }
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+/** How often one load re-opens a value replaced (renamed over) between its open and its fstat. */
+const LOAD_REPLACED_RETRIES = 64
 
 // In-process lock queue. Every file store in this process (one directory may have several store
 // objects) queues on the lock FILE's path, in call order, so callers in one process never refuse
@@ -312,16 +314,24 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
     async load<T>(key: string): Promise<T | undefined> {
       const target = path(key)
       await ready()
-      let file
-      try { file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW) }
-      catch (error) { if (missing(error)) return undefined; throw error }
-      try {
-        const stat = await file.stat()
-        if (!stat.isFile() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0 || stat.uid !== process.getuid?.()) throw new TasraError('State file must be a private regular file')
-        const envelope = JSON.parse(await file.readFile('utf8')) as {schemaVersion: number; value: Encoded}
-        if (envelope.schemaVersion !== 1) throw new TasraError('Unsupported state schema')
-        return decode(envelope.value) as T
-      } finally { await file.close() }
+      // Every save publishes by renaming a new file OVER the old one, so a load that opened the old
+      // value an instant before holds an inode no name refers to any more: fstat reports nlink 0.
+      // That inode is a superseded value, not the file at `target`; read the one that replaced it
+      // (whose every property is checked again). Exactly nlink 0 is retried, never accepted, and
+      // only a bounded number of times; any other link count, mode or owner is refused as before.
+      for (let attempt = 0; ; attempt++) {
+        let file
+        try { file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW) }
+        catch (error) { if (missing(error)) return undefined; throw error }
+        try {
+          const stat = await file.stat()
+          if (stat.nlink === 0 && stat.isFile() && attempt < LOAD_REPLACED_RETRIES) continue
+          if (!stat.isFile() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0 || stat.uid !== process.getuid?.()) throw new TasraError('State file must be a private regular file')
+          const envelope = JSON.parse(await file.readFile('utf8')) as {schemaVersion: number; value: Encoded}
+          if (envelope.schemaVersion !== 1) throw new TasraError('Unsupported state schema')
+          return decode(envelope.value) as T
+        } finally { await file.close() }
+      }
     },
     async save(key, value) {
       await publish(await stageFiles([[key, encode(value)]]))
