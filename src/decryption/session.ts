@@ -9,7 +9,8 @@
 // - the batch body is `{session_grant, session_key, proof, items, verifier_proofs?}`; the single body
 //   is the item's fields beside `session_grant`, `session_key` and `proof`;
 // - the batch reply is one `{status: 200, partial}` or `{status, code, error}` per item, in order;
-//   the single reply is the partial, or `{error}` with a non-2xx status.
+//   the single reply is the partial, or `{code, error}` with a non-2xx status (an older keeper
+//   sends `{error}` alone).
 //
 // Reply handling is the sealed path's (decryption/sealed.ts): same slot/epoch/verifying-share
 // checks, same HPKE open bound to the request hash; shares are then verified IN BATCHES per item
@@ -131,14 +132,62 @@ type ItemReply = {status: 200; partial: unknown} | {status: number; code: string
 const RAN = new Set(['recoverable', 'already-claimed'])
 
 /**
- * The item code a keeper refusal names. A batch item carries `code` (`recoverable`, `conflict`, ...);
- * the single route answers only `{error}`, so its 409s are told apart by the keeper's fixed messages.
+ * The item code a keeper refusal names. A batch item and (since the second security review) the
+ * single route both carry the keeper's stable `code` (`recoverable`, `conflict`, ...), which
+ * decides; only an older keeper's single route, answering `{error}` alone, is told apart by its
+ * fixed messages.
  */
 function itemCode(status: number, code: unknown, error: unknown): string {
   const text = typeof error === 'string' ? error : ''
-  if (status === 409 && (code === 'recoverable' || text.includes('recover its result through the paid-execution recovery route'))) return 'recoverable'
+  const coded = typeof code === 'string' && /^[a-z0-9_-]{1,48}$/.test(code) ? code : undefined
+  if (coded !== undefined) {
+    // `conflict` is the family of every 409 but `recoverable`; a claimed payment is the one the
+    // fan-out must not resend, named by the conflict's message.
+    if (status === 409 && coded === 'conflict' && text.includes('already claimed')) return 'already-claimed'
+    return coded
+  }
+  // Fallback for an older keeper without codes on the single route.
+  if (status === 409 && text.includes('recover its result through the paid-execution recovery route')) return 'recoverable'
   if (status === 409 && text.includes('already claimed')) return 'already-claimed'
-  return typeof code === 'string' && /^[a-z0-9_-]{1,48}$/.test(code) ? code : `status ${status}`
+  return `status ${status}`
+}
+
+/** Largest keeper reply a session request reads, in bytes (64 sealed partials fit well below). */
+const MAX_KEEPER_REPLY_BYTES = 4_194_304
+
+/**
+ * The reply body as text, refused the moment it passes `cap` BYTES while it streams (a declared
+ * `content-length` over the cap is refused before reading), so a hostile keeper cannot make the
+ * SDK buffer an unbounded body. A response without a body stream falls back to `text()`, capped.
+ */
+async function readCappedText(res: Response, cap: number, signal?: AbortSignal): Promise<string> {
+  const tooLarge = () => new TasraError('Session keeper reply exceeds its byte limit')
+  if (Number(res.headers.get('content-length')) > cap) {
+    void res.body?.cancel().catch(() => {})
+    throw tooLarge()
+  }
+  const reader = res.body?.getReader()
+  if (!reader) {
+    const text = await res.text()
+    if (new TextEncoder().encode(text).length > cap) throw tooLarge()
+    return text
+  }
+  const decoder = new TextDecoder()
+  let bytes = 0, text = ''
+  try {
+    for (;;) {
+      signal?.throwIfAborted()
+      const {done, value} = await reader.read()
+      if (done) break
+      bytes += value.length
+      if (bytes > cap) throw tooLarge()
+      text += decoder.decode(value, {stream: true})
+    }
+    return text + decoder.decode()
+  } finally {
+    // Includes the cap refusal; never wait for a hostile body's cancel.
+    void reader.cancel().catch(() => {})
+  }
 }
 
 /**
@@ -213,8 +262,7 @@ async function send(o: SessionDecryptOptions, base: string, items: Outgoing[], s
   const url = `${base}${batch ? '/v1/committee/decrypt/partials' : '/v1/committee/decrypt/partial'}`
   const res = await (o.fetchImpl ?? fetch)(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), signal: o.signal,
     redirect: 'error', credentials: 'omit'})
-  const text = await res.text()
-  if (text.length > 4_194_304) throw new TasraError('Session keeper reply exceeds its byte limit')
+  const text = await readCappedText(res, MAX_KEEPER_REPLY_BYTES, o.signal)
   let json: Record<string, unknown> | undefined
   try { const v = text ? JSON.parse(text) as unknown : undefined; json = v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined } catch { json = undefined }
   // 413 batch-too-large: refused before anything ran; split into requests of the keeper's limit, each with its own proof.

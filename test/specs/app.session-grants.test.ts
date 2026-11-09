@@ -2,7 +2,7 @@ import {describe, expect, it, vi} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
 import {hexToBytes} from '../../src/crypto/hex.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
-import {acceptSessionGrant, createSessionKey, loadGrantedSession, sessionGrantCreateFragment, SessionEndedError, SessionRevokeIncompleteError, type SessionKeyHandle, type SlotTrust} from '../../src/app/session-grants.js'
+import {acceptSessionGrant, createSessionKey, loadGrantedSession, sessionGrantCreateFragment, SessionEndedError, SessionRevokeIncompleteError, SessionRevokeUnconfirmedError, type SessionKeyHandle, type SlotTrust} from '../../src/app/session-grants.js'
 import {BINDING_HOLDER_KEY, type VerifierSet} from '../../src/committee/token.js'
 import {acceptsServiceResponse, serviceRequestShape} from '../../src/chain/serviceRequestPolicy.js'
 import type {PaidAgentTransport} from '../../src/chain/paidAgentTransport.js'
@@ -283,5 +283,17 @@ describe('session grant chain pin and agent transport (ADR-0090 D7, review 2026-
     // A definite refusal is not retried.
     const p = await opened({clock: () => T0 + 5, fetchImpl: (async () => reply(403, {code: 'session_unauthenticated'})) as unknown as typeof fetch})
     await expect(p.session.revoke()).rejects.toThrow(/session_unauthenticated/)
+  })
+
+  it('a 404 revoke is NOT a success: a typed "not confirmed" error, while the session still ends and its key is disposed locally', async () => {
+    const fetchImpl = (async () => reply(404, {code: 'session_unknown', error: 'session_unknown'})) as unknown as typeof fetch
+    const ended: string[] = []
+    const o = await opened({clock: () => T0 + 5, fetchImpl, onEnded: e => ended.push(e.code)})
+    const error = await o.session.revoke().catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(SessionRevokeUnconfirmedError)
+    expect(error).toMatchObject({retryable: false, code: 'session_unknown'})
+    await expect(o.key.sign(new Uint8Array(32))).rejects.toThrow(/Session key disposed/)
+    expect(ended).toEqual(['session_revoked'])
+    expect(() => o.session.current()).toThrow(/session_revoked/)
   })
 })

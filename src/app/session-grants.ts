@@ -382,11 +382,14 @@ export class GrantedSession {
 
   /**
    * Revoke at the verifiers (effective at the next refresh; an issued grant runs to its `exp`, at
-   * most 45 s), then end locally. The agent answers 204 only once a quorum of every draw that could
-   * hold the session acknowledged; `503 session_revoke_partial` (and a 429/503 busy answer) is
-   * retried, each attempt under a fresh durably reserved seq, until `deadlineMs`. The session stops
-   * serving the moment revoke starts (journaled), even when the revoke has not completed; call
-   * `revoke()` again after a {@link SessionRevokeIncompleteError}.
+   * most 45 s), then end locally. The agent answers 204 only once `n - k + 1` members of every draw
+   * that could hold the session acknowledged (so the rest can never form a quorum); `503
+   * session_revoke_partial` (and a 429/503 busy answer) is retried, each attempt under a fresh
+   * durably reserved seq, until `deadlineMs`. The session stops serving the moment revoke starts
+   * (journaled), even when the revoke has not completed; call `revoke()` again after a
+   * {@link SessionRevokeIncompleteError}. A 404 (the agent holds no session for this grant, so no
+   * verifier was asked) ends and disposes the session locally and throws
+   * {@link SessionRevokeUnconfirmedError}.
    * @param options - `deadlineMs`: total retry budget (default 30 s, at most 120 s); `sleep` for tests.
    */
   async revoke(options: {deadlineMs?: number; sleep?: (ms: number) => Promise<void>} = {}): Promise<void> {
@@ -401,8 +404,16 @@ export class GrantedSession {
       const issuedAt = this.#clock()
       const signature = await this.#opts.key.sign(sessionControlHash('revoke', sessionGrantHash(decodeSessionGrant(grant).payload), seq, issuedAt))
       const reply = await this.#post('/v1/sessions/revoke', {grant, seq, issued_at: issuedAt, signature: bytesToHex(signature)})
-      // 204: a quorum of every draw acknowledged. 404: no session holds this grant at the agent.
-      if (reply.status === 204 || reply.status === 404) break
+      // 204: n - k + 1 of every draw acknowledged.
+      if (reply.status === 204) break
+      // 404: the agent holds no session for this grant, so it relayed the revoke to NO verifier.
+      // The grant still lives at its signers until its `exp`; nothing confirmed the revoke. End
+      // and dispose locally (only this key could refresh it), then say so by type.
+      if (reply.status === 404) {
+        await this.#end(new SessionEndedError('session_revoked', 'Session revoked locally; the agent did not confirm it')).catch(() => undefined)
+        this.#opts.key.dispose()
+        throw new SessionRevokeUnconfirmedError()
+      }
       const code = (reply.json as {code?: unknown} | undefined)?.code
       const retryable = reply.status === 503 || reply.status === 429
       if (!retryable) throw new TasraError(`Session revoke refused (${reply.status}${typeof code === 'string' ? ', ' + code : ''})`)
@@ -439,6 +450,18 @@ export class SessionRevokeIncompleteError extends TasraError {
   /** The agent's last answer (`session_revoke_partial`, `session_rate_limited`, `status 503`, ...). */
   readonly code: string
   constructor(code: string) { super(`Session revoke incomplete (${code}); retry revoke()`); this.code = code }
+}
+
+/**
+ * The agent answered 404 to a revoke: it holds no session for this grant, so no verifier was asked
+ * and nothing confirmed the revocation. The session was still ended and its key disposed locally,
+ * so it can never be refreshed (only this key could); the last issued grant runs to its `exp`.
+ */
+export class SessionRevokeUnconfirmedError extends TasraError {
+  /** Retrying cannot help: the agent has no session to relay it for. */
+  readonly retryable = false
+  readonly code = 'session_unknown'
+  constructor() { super('Session revoke not confirmed: the agent holds no session for this grant (ended locally; the grant expires at its exp)') }
 }
 
 /** Load a journaled session (same process, same key) after a restart of its owner, e.g. a tab reload with the key kept. */

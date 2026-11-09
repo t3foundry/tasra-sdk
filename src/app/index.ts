@@ -39,5 +39,5 @@ export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PaidFinal
 export {drivePaidSession, waitForPaidSnapshot, PaidSessionRecoveryError} from './paid-session.js'
 export type {PaidSessionDriverOptions, PaidSessionHolder, PaidWalletPresentation, PaidSessionRequestLink} from './paid-session.js'
 export {createMemoryStore} from './memory-store.js'
-export {createSessionKey, sessionGrantCreateFragment, acceptSessionGrant, loadGrantedSession, GrantedSession, SessionEndedError} from './session-grants.js'
+export {createSessionKey, sessionGrantCreateFragment, acceptSessionGrant, loadGrantedSession, GrantedSession, SessionEndedError, SessionRevokeIncompleteError, SessionRevokeUnconfirmedError} from './session-grants.js'
 export type {SessionKeyHandle, SessionGrantParams, SessionGrantCreateFragment, SlotTrust, SessionTransport, GrantedSessionOptions} from './session-grants.js'

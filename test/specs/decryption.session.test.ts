@@ -61,7 +61,7 @@ type Behaviour = 'ok' | 'refuse' | 'bad-share' | 'recoverable' | 'claimed'
 
 /** A keeper that checks the session proof like the keeper plan (steps 6–7), then seals its partial. Wire per keykeeper-node api/sealed_session.rs. */
 function keeper(id: number, jwk: () => SessionKeyJwk, grantHash: () => Uint8Array, behaviour: (index: number) => Behaviour = () => 'ok', log?: {url: string; body: Record<string, unknown>}[],
-  maxItems = Infinity) {
+  maxItems = Infinity, legacySingle = false) {
   return async (body: Record<string, unknown>, url: string): Promise<{status: number; json: unknown; headers?: Record<string, string>}> => {
     log?.push({url, body})
     const batch = url.endsWith('/partials')
@@ -80,8 +80,10 @@ function keeper(id: number, jwk: () => SessionKeyJwk, grantHash: () => Uint8Arra
     }))
     if (batch) return {status: 200, json: {items: replies}}
     const r = replies[0]! as {status: number; partial?: unknown; error?: string}
-    // The single route: the partial, or the keeper's `{error}` (no code) with the item's status.
-    return r.status === 200 ? {status: 200, json: r.partial} : {status: r.status, json: {error: r.error}}
+    // The single route: the partial, or the keeper's `{code, error}` with the item's status (an older
+    // keeper: `{error}` alone).
+    const refusal = r as {code?: string; error?: string}
+    return r.status === 200 ? {status: 200, json: r.partial} : {status: r.status, json: legacySingle ? {error: r.error} : {code: refusal.code, error: r.error}}
   }
 }
 const RECOVER_FROM_JOURNAL = 'operation completed but its audit record could not be written; recover its result through the paid-execution recovery route'
@@ -113,11 +115,11 @@ function fleet(keepers: ReturnType<typeof keeper>[]): typeof fetch {
   }) as unknown as typeof fetch
 }
 
-async function setup(behaviours: Parameters<typeof keeper>[3][] = [], maxItems = Infinity) {
+async function setup(behaviours: Parameters<typeof keeper>[3][] = [], maxItems = Infinity, legacySingle = false) {
   const key = await createSessionKey({alg: 'Ed25519'})
   const {grant, verified} = await verifiedGrant(key)
   const log: {url: string; body: Record<string, unknown>}[] = []
-  const keepers = [1, 2, 3].map(id => keeper(id, () => key.jwk, () => verified.grantHash, behaviours[id - 1], log, maxItems))
+  const keepers = [1, 2, 3].map(id => keeper(id, () => key.jwk, () => verified.grantHash, behaviours[id - 1], log, maxItems, legacySingle))
   const options = {nodeUrls: ['https://keeper-1.test', 'https://keeper-2.test', 'https://keeper-3.test'], chainId: CHAIN, slotId: slot, grant, verified, key,
     verifyingShares, threshold: 2, fetchImpl: fleet(keepers), clock: () => T0 + 2}
   return {options, log, key}
@@ -249,5 +251,39 @@ describe('session decrypts against the keeper wire (review 2026-11-09)', () => {
     // Without a recovery hook the item fails and says why, per keeper.
     const [failed] = await decryptWithSessionGrant(options, [(await message('no hook')).item])
     expect(failed).toMatchObject({ok: false, codes: expect.arrayContaining(['recoverable', 'already-claimed'])})
+  })
+  it('an older keeper without codes on the single route: its 409s are still told apart by their fixed messages', async () => {
+    const {options} = await setup([() => 'recoverable', () => 'claimed', () => 'ok'], Infinity, true)
+    const [failed] = await decryptWithSessionGrant(options, [(await message('legacy')).item])
+    expect(failed).toMatchObject({ok: false, codes: expect.arrayContaining(['recoverable', 'already-claimed'])})
+  })
+
+  it('the keeper code decides on the single route: no string match when a code is present (second review, 9c)', async () => {
+    const coded = (status: number, json: unknown) => (async () => new Response(JSON.stringify(json), {status})) as unknown as typeof fetch
+    const {options} = await setup()
+    const m = await message('coded')
+    // `recoverable` with a message that says nothing about recovery is still recoverable ...
+    let [r] = await decryptWithSessionGrant({...options, threshold: 1, nodeUrls: ['https://keeper-1.test'], fetchImpl: coded(409, {code: 'recoverable', error: 'reworded'})}, [m.item])
+    expect(r).toMatchObject({ok: false, codes: ['recoverable']})
+    // ... and a `conflict` whose message mentions recovery is NOT read as recoverable.
+    ;[r] = await decryptWithSessionGrant({...options, threshold: 1, nodeUrls: ['https://keeper-1.test'],
+      fetchImpl: coded(409, {code: 'conflict', error: 'recover its result through the paid-execution recovery route'})}, [m.item])
+    expect(r).toMatchObject({ok: false, codes: ['conflict']})
+  })
+
+  it('a keeper reply over 4 MiB is refused while it streams, without reading the rest (second review, 9b)', async () => {
+    const {options} = await setup()
+    let pulled = 0
+    const chunk = new Uint8Array(1024 * 1024).fill(0x20)
+    const endless = (async () => new Response(new ReadableStream<Uint8Array>({pull(controller) { pulled++; controller.enqueue(chunk) }}), {status: 200})) as unknown as typeof fetch
+    await expect(decryptWithSessionGrant({...options, threshold: 1, nodeUrls: ['https://keeper-1.test'], fetchImpl: endless}, [(await message('huge')).item]))
+      .resolves.toMatchObject([{ok: false}])
+    expect(pulled).toBeLessThanOrEqual(6)
+    // A declared length over the cap is refused before any read.
+    pulled = 0
+    const declared = (async () => new Response(new ReadableStream<Uint8Array>({pull(controller) { pulled++; controller.enqueue(chunk) }}),
+      {status: 200, headers: {'content-length': String(8 * 1024 * 1024)}})) as unknown as typeof fetch
+    await decryptWithSessionGrant({...options, threshold: 1, nodeUrls: ['https://keeper-1.test'], fetchImpl: declared}, [(await message('declared')).item])
+    expect(pulled).toBeLessThanOrEqual(1)
   })
 })
