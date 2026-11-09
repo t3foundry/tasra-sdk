@@ -31,6 +31,8 @@ import {ruleCommitment} from '../chain/write.js'
 import {loadPaidReservationJournal} from './paid-journal.js'
 import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, ApplicationPayerRecoveryError,
   type ApplicationReservationState} from './paid-reservation.js'
+import type {SessionGrantCreateFragment} from './session-grants.js'
+import type {SessionGrantRequestWire, SessionGrantWire} from '../committee/session-grant.js'
 import {drivePaidSession, waitForPaidSnapshot, FIRST_COMMIT, PaidSessionRecoveryError, type FirstCommit, type PaidSessionDriverOptions, type PaidSessionHolder} from './paid-session.js'
 import {PaidAgentControlError} from '../chain/registeredPaidAgent.js'
 import {VerifierAgentSessionError} from '../verifier-agent/index.js'
@@ -125,6 +127,13 @@ export interface PaidOperationRequest {
   /** Inspect the verified request object before any credential is disclosed. */
   observeRequest?(request: VerifiedRequestObject): void | Promise<void>
   /**
+   * ADR-0090 D7: also open a session grant with this presentation (KEM `decrypt` only), for the
+   * fresh session key in the fragment ({@link sessionGrantCreateFragment}). The fragment is public
+   * and journaled; the presentation nonce binds its key. The verified grant comes back as
+   * {@link PaidOperation.sessionGrant}; accept it with `acceptSessionGrant` and the same key.
+   */
+  sessionGrant?: SessionGrantCreateFragment
+  /**
    * Receive the reservation identity as soon as it is derived, before witnesses are fetched or
    * anything is reserved, to link this run to its payment. A throw stops the operation before any
    * spending. Until the journal is written (just before reservation) `paidOperationPhase` returns
@@ -137,6 +146,12 @@ export interface PaidOperationRequest {
 export interface PaidOperation {
   /** Exact sealed presentation ciphertext persisted with the original grant. */
   readonly evidenceCt?: string
+  /**
+   * ADR-0090 D7, when the request asked for a session grant: the verified opening grant
+   * (`{session_grant, refresh_seq: 0}`, the input of `acceptSessionGrant`), or why none came. The
+   * compound token authorizes this one operation either way.
+   */
+  readonly sessionGrant?: {grant?: {session_grant: SessionGrantWire; refresh_seq: 0}; error?: string}
   /** Reservation identity (`prepaid-request/v1`), the key for resume and recovery. */
   readonly requestId: Hex
   /** Original creator-signed payment intent. */
@@ -341,9 +356,13 @@ interface OperationRecord {
   allowance?: {lane: number}
   /** A final dual-control Sign payment ({@link paidFinalSign}): no presentation, session or grant follows. */
   finalSign?: true
+  /** An ADR-0090 D7 session-grant decrypt payment ({@link paidSessionDecrypt}): the grant, not a presentation, authorizes it. */
+  sessionDecrypt?: true
   payment: PaymentIntentWire
   expected: ExpectedPaidOperation
-  params: {operation: PresentationOperation; operationSig: Hex; messageHex: string; random: Hex; decryption?: DecryptionBindingWire}
+  params: {operation: PresentationOperation; operationSig: Hex; messageHex: string; random: Hex; decryption?: DecryptionBindingWire
+    /** ADR-0090 D7 session mode: the public create fragment, signed into the session initialization. */
+    sessionGrant?: SessionGrantRequestWire}
   members: PaidVerifierWitness[]
   rule: string
   ruleSalt: Hex
@@ -356,7 +375,9 @@ interface OperationRecord {
   certificate?: ExecutionCertificate
   pollSecret?: string
   /** `sessionId` is absent from journals written before status refresh existed (relay unavailable for them). */
-  grant?: {compound_token: CompoundTokenWire; verifierProofs: VerifierProof[]; sessionId?: string; evidenceCt?: string}
+  grant?: {compound_token: CompoundTokenWire; verifierProofs: VerifierProof[]; sessionId?: string; evidenceCt?: string
+    /** ADR-0090 D7: the verified opening grant or why none came (session mode only). */
+    sessionGrant?: {grant?: {session_grant: SessionGrantWire; refresh_seq: 0}; error?: string}}
   /** Status refresh history (absent until the first refresh). */
   statusRefresh?: StatusRefreshJournal
 }
@@ -667,6 +688,8 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
   // commitment canonicalizes JSON; verifier tokens bind keccak256(raw rule).
   // Rewriting whitespace/key order here changes the expected token hash.
   canonicalize(request.rule.rule)
+  // A session grant opens only from a KEM decrypt presentation (checked again, with the slots, before signing).
+  if (request.sessionGrant && request.operation.action !== 'decrypt') throw new TasraError('A session grant opens only from a KEM decrypt presentation')
   const ttlSecs = request.operation.ttlSecs ?? 600
   if (!Number.isSafeInteger(ttlSecs) || ttlSecs <= 0 || ttlSecs > 3600) throw new TasraError('Paid operation lifetime must be 1..3600 seconds')
   const built = presentationOperationTypedData({action: request.operation.action, message: request.operation.message, identity: request.operation.identity,
@@ -694,7 +717,8 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
     {signal: AbortSignal.any([signal, AbortSignal.timeout(Math.min(150_000, ttlSecs * 1000))]), fetch: config.fetch,
       waitForPublicationMs: Math.min(config.snapshotWaitMs ?? 180_000, 150_000, ttlSecs * 1000)})
   const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: request.rule.rule, ruleSalt: request.rule.salt,
-    params: {operation: built.operation, operationSig, messageHex: built.messageHex, random, ...(request.operation.decryption ? {decryption: structuredClone(request.operation.decryption)} : {})}, coordinator: context.coordinator, contributors: context.contributors,
+    params: {operation: built.operation, operationSig, messageHex: built.messageHex, random, ...(request.operation.decryption ? {decryption: structuredClone(request.operation.decryption)} : {}),
+      ...(request.sessionGrant ? {sessionGrant: structuredClone(request.sessionGrant.session_grant)} : {})}, coordinator: context.coordinator, contributors: context.contributors,
     action: request.operation.action, payloadDigest: toHex(built.payloadDigest), payer: config.gasPayer.account.address, ...ticket ? {allowance: {lane: ticket.lane}} : {}}
   await journalNewOperation(config.store, requestId, record)
   try { await reserve(config, record, signal) }
@@ -820,6 +844,7 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
   let record = await store.load<OperationRecord>(recordKey(requestId))
   if (!record || record.schema !== 1 || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('No paid operation journal for this request')
   if (record.finalSign) throw new TasraError('A final Sign payment has no session; resume it with resumePaidFinalSign')
+  if (record.sessionDecrypt) throw new TasraError('A session-grant decrypt payment has no presentation; resume it with resumePaidSessionDecrypt')
   if (signal.aborted && (record.phase === 'reserved' || record.phase === 'certified')) throw abortedError(requestId, 'session', record.payment, signal, signal.reason)
   // A fresh execution consent is journaled with the session's first write (its creation), not on
   // its own: the session's identity derives from it, and nothing bound to it is sent before that
@@ -865,7 +890,8 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
     if (record.phase === 'certified') {
       if (!holder) throw new TasraError('Resuming a paid session requires its holder strategy')
       const params: PaidAgentSessionParams = {operation: record.params.operation, operationSig: record.params.operationSig,
-        messageHex: record.params.messageHex, payment: record.payment, random: record.params.random, ...(record.params.decryption ? {decryption: record.params.decryption} : {})}
+        messageHex: record.params.messageHex, payment: record.payment, random: record.params.random, ...(record.params.decryption ? {decryption: record.params.decryption} : {}),
+        ...(record.params.sessionGrant ? {sessionGrant: record.params.sessionGrant} : {})}
       let session
       try {
         session = await prepareRegisteredPaidSession(config.chain, {profile: config.agent.profile, deployment: {...d, defaultVerificationPolicy: d.defaultVerificationPolicy},
@@ -897,7 +923,8 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
         requestHash: requestHash(d.chainId, hexToBytes(record.payment.slot), record.action, hexToBytes(record.payloadDigest))}, result)
       if (!grant.verifierProofs?.length) throw new TasraError('Paid grant lacks anchored verifier proofs')
       await journalConsent()
-      record = await advance(store, requestId, 'certified', {phase: 'authorized', grant: {compound_token: grant.token, verifierProofs: grant.verifierProofs, sessionId: session.sessionId, ...(grant.evidenceCt !== undefined ? {evidenceCt: grant.evidenceCt} : {})}})
+      record = await advance(store, requestId, 'certified', {phase: 'authorized', grant: {compound_token: grant.token, verifierProofs: grant.verifierProofs, sessionId: session.sessionId, ...(grant.evidenceCt !== undefined ? {evidenceCt: grant.evidenceCt} : {}),
+        ...(record.params.sessionGrant ? {sessionGrant: result.sessionGrant ?? {error: 'session_grant_missing'}} : {})}})
     }
     return handle(config, record, signer)
   } catch (error) { signer.dispose(); throw error }
@@ -918,6 +945,7 @@ function handle(config: PaidOperationConfig, record: OperationRecord, signer: Re
     requestId, payment: structuredClone(record.payment), coordinatorUrl: route(record.coordinator.url),
     get compound_token() { return structuredClone(current) },
     get evidenceCt() { return grant.evidenceCt },
+    get sessionGrant() { return grant.sessionGrant && structuredClone(grant.sessionGrant) },
     verifierProofs: structuredClone(grant.verifierProofs),
     verifier_proofs: grant.verifierProofs.map(p => ({verifier_index: p.verifierIndex, operator: p.operator, pubkey: p.pubkey, proof: [...p.proof]})),
     approveExecution,
@@ -1488,46 +1516,69 @@ export async function paidFinalSign(config: PaidOperationConfig, request: PaidFi
 }
 
 async function finalSignAttempt(config: PaidOperationConfig, request: PaidFinalSignRequest, useAllowance: boolean): Promise<PaidFinalSign> {
+  if (!(request.message instanceof Uint8Array) || request.message.length === 0) throw new TasraError('Final Sign requires the exact message')
+  const requestId = await presentationlessAttempt(config, request, useAllowance, {marker: 'finalSign', action: 'sign', mode: 0,
+    modeError: 'A final dual-control Sign requires a FROST slot', description: 'Paid final dual-control Sign',
+    build: (d, nowSecs, ttlSecs) => {
+      const built = presentationOperationTypedData({action: 'sign', message: request.message, chainId: d.chainId, keyRegistry: d.keyRegistry, slotId: request.slot,
+        description: 'Paid final dual-control Sign', nowSecs, ttlSecs})
+      if (toHex(built.payloadDigest).toLowerCase() !== toHex(sha256(request.message)).toLowerCase()) throw new TasraError('Final Sign payload differs from its message digest')
+      return built
+    }})
+  return continueFinalSign(config, requestId)
+}
+
+/** What a presentationless paid operation pays for: its journal marker, action, slot mode and operation. */
+interface PresentationlessSpec {
+  marker: 'finalSign' | 'sessionDecrypt'
+  action: 'sign' | 'decrypt'
+  mode: number
+  modeError: string
+  description: string
+  build(d: PaidContextDeployment & {chainId: number; keyRegistry: Address}, nowSecs: number, ttlSecs: number): ReturnType<typeof presentationOperationTypedData>
+  decryption?: DecryptionBindingWire
+}
+
+/** Pay one operation without any presentation (final dual Sign, ADR-0090 D7 session decrypt): journaled, reserved, never presented. */
+async function presentationlessAttempt(config: PaidOperationConfig, request: {slot: Hex; ttlSecs?: number; coordinator?: Address; signal?: AbortSignal;
+  onRequestId?(requestId: Hex): void | Promise<void>}, useAllowance: boolean, spec: PresentationlessSpec): Promise<Hex> {
   const d = {...config.deployment}, client = config.chain.client, signal = request.signal ?? new AbortController().signal
   const slot = request.slot
   if (!HEX32.test(slot)) throw new TasraError('Invalid paid operation slot')
-  if (!(request.message instanceof Uint8Array) || request.message.length === 0) throw new TasraError('Final Sign requires the exact message')
   if (config.billing) await config.billing.requirePrepaid(slot)
   const readiness = AbortSignal.any([signal, AbortSignal.timeout(config.snapshotWaitMs ?? 180_000)])
   const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(client, d, slot,
     {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator, fundedByAllowance: useAllowance}),
   readiness, () => sleep(1_000, readiness))
   if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
-  if (context.mode !== 0) throw new TasraError('A final dual-control Sign requires a FROST slot')
+  if (context.mode !== spec.mode) throw new TasraError(spec.modeError)
   const ttlSecs = request.ttlSecs ?? 600
   if (!Number.isSafeInteger(ttlSecs) || ttlSecs <= 0 || ttlSecs > 3600) throw new TasraError('Paid operation lifetime must be 1..3600 seconds')
   // The operation record keeps the presentation shape; nothing is signed or presented for it.
-  const built = presentationOperationTypedData({action: 'sign', message: request.message, chainId: d.chainId, keyRegistry: d.keyRegistry, slotId: slot,
-    description: 'Paid final dual-control Sign', nowSecs: Math.floor(Date.now() / 1000), ttlSecs})
-  const payloadDigest = sha256(request.message)
-  if (toHex(built.payloadDigest).toLowerCase() !== toHex(payloadDigest).toLowerCase()) throw new TasraError('Final Sign payload differs from its message digest')
+  const built = spec.build(d, Math.floor(Date.now() / 1000), ttlSecs)
+  const payloadDigest = built.payloadDigest
   const randomBytes = random32(), random = toHex(randomBytes); randomBytes.fill(0)
   const env = useAllowance ? allowanceEnv(config) : undefined
-  const ticket = env ? await selectAllowanceLane(env, context, {action: 'sign', expires: built.operation.exp}) : undefined
-  const unsigned = {...ticket ? ticket.fields : context.intentFields, action: 'sign' as const,
+  const ticket = env ? await selectAllowanceLane(env, context, {action: spec.action, expires: built.operation.exp}) : undefined
+  const unsigned = {...ticket ? ticket.fields : context.intentFields, action: spec.action,
     payload_digest: toHex(payloadDigest), session_commitment: paymentSessionCommitment(random, config.agent.profile.clientId, built.operation.exp),
     nonce: toHex(random32()), max_cost: config.limits.maxCost.toString(), expires: built.operation.exp, ...ticket ? {allowance_id: ticket.allowanceId} : {}}
   const payment: PaymentIntentWire = {...unsigned, signature: await config.creator.signTypedData(paymentIntentTypedData(unsigned))}
-  const expected: ExpectedPaidOperation = {slot, action: 'sign', payloadDigest: payment.payload_digest}
+  const expected: ExpectedPaidOperation = {slot, action: spec.action, payloadDigest: payment.payload_digest}
   const requestId = prepaidRequestId(payment)
   followPaidRequest(client, d, payment)
   await request.onRequestId?.(requestId)
   signal.throwIfAborted()
-  const record: OperationRecord = {schema: 1, phase: 'reserving', finalSign: true, payment, expected, members: [], rule: '', ruleSalt: `0x${'00'.repeat(32)}`,
-    params: {operation: built.operation, operationSig: '0x', messageHex: built.messageHex, random}, coordinator: context.coordinator, contributors: context.contributors,
-    action: 'sign', payloadDigest: toHex(payloadDigest), payer: config.gasPayer.account.address, ...ticket ? {allowance: {lane: ticket.lane}} : {}}
+  const record: OperationRecord = {schema: 1, phase: 'reserving', ...spec.marker === 'finalSign' ? {finalSign: true as const} : {sessionDecrypt: true as const}, payment, expected, members: [], rule: '', ruleSalt: `0x${'00'.repeat(32)}`,
+    params: {operation: built.operation, operationSig: '0x', messageHex: built.messageHex, random, ...spec.decryption ? {decryption: spec.decryption} : {}},
+    coordinator: context.coordinator, contributors: context.contributors, action: spec.action, payloadDigest: toHex(payloadDigest), payer: config.gasPayer.account.address, ...ticket ? {allowance: {lane: ticket.lane}} : {}}
   await journalNewOperation(config.store, requestId, record)
   try { await reserve(config, record, signal) }
   catch (error) {
     if (ticket && error instanceof PaidOperationRecoveryError && error.code === 'reservation-failed' && error.cause instanceof AllowanceRefusedError) throw new AllowanceFallback(requestId, error)
     throw error
   }
-  return continueFinalSign(config, requestId)
+  return requestId
 }
 
 /**
@@ -1563,6 +1614,109 @@ async function continueFinalSign(config: PaidOperationConfig, requestId: Hex): P
     certificate: record.certificate, signer, keeperUrl: config.keeperUrl, transportPolicy: {allowLocalHttp: config.allowLocalHttp}})
   const route = config.keeperUrl ?? ((url: string) => url)
   return {requestId, payment: structuredClone(record.payment), coordinatorUrl: route(record.coordinator.url), approveExecution, dispose: () => signer.dispose()}
+}
+
+/** One ADR-0090 D7 session-grant KEM decrypt to pay: the slot and the exact recipient binding. */
+export interface PaidSessionDecryptRequest {
+  /** KEM (BLS) slot named by the session grant. */
+  slot: Hex
+  /** Recipient binding of this ciphertext ({@link decryptionBinding}); fixes the payload digest. */
+  decryption: DecryptionBindingWire
+  /** Payment lifetime, 1..3600 seconds (default 600). */
+  ttlSecs?: number
+  /** Cancellation (discovery, debit or reservation). */
+  signal?: AbortSignal
+  /** Receive the request identity before anything is debited or reserved; a throw stops it. */
+  onRequestId?(requestId: Hex): void | Promise<void>
+}
+
+/** A paid session-grant decrypt ready for the session partials client. */
+export interface PaidSessionDecrypt {
+  /** Request identity. */
+  requestId: Hex
+  /** The backed decrypt payment (with its debit voucher when allowance-backed). */
+  payment: PaymentIntentWire
+  /** Approves each keeper's contribution for exactly this payment (kind `session-decrypt`). */
+  approveExecution: KeeperExecutionApprover
+  /**
+   * Read ONE assigned contributor's retained partial for this decrypt after it answered that the item
+   * already ran (`409 recoverable` / `already claimed`): the paid-execution recovery route, which
+   * performs no new work and spends nothing. `nodeUrl` is the keeper URL the request went to (after
+   * `keeperUrl` routing). Returns the retained partial JSON for `decryptWithSessionGrant`'s `recover`.
+   */
+  recoverPartial(options: {nodeUrl: string; transport: KeeperRecoveryTransport; signal?: AbortSignal}): Promise<unknown>
+  /** Erase the execution key from memory. */
+  dispose(): void
+}
+
+/**
+ * Pay one KEM decrypt that a session grant (ADR-0090 D7) authorizes: no presentation and no
+ * verifier round, because the grant and the session-key proof authorize the keeper work. With
+ * `config.allowances` it is debited from an allowance lane and falls back to a per-operation
+ * reservation exactly as {@link paidOperation}; journal, certificate and keeper approvals are the
+ * ones every paid operation uses. Resume an interrupted one with {@link resumePaidSessionDecrypt}.
+ * @param config - Paid operation configuration (its agent settings are not used).
+ * @param request - Slot, recipient binding, lifetime and cancellation.
+ */
+export async function paidSessionDecrypt(config: PaidOperationConfig, request: PaidSessionDecryptRequest): Promise<PaidSessionDecrypt> {
+  validateConfig(config)
+  const attempt = (useAllowance: boolean) => presentationlessAttempt(config, request, useAllowance, {marker: 'sessionDecrypt', action: 'decrypt', mode: 1,
+    modeError: 'A session-grant decrypt requires a BLS slot', description: 'Paid session-grant decrypt', decryption: structuredClone(request.decryption),
+    build: (d, nowSecs, ttlSecs) => presentationOperationTypedData({action: 'decrypt', decryption: request.decryption, chainId: d.chainId, keyRegistry: d.keyRegistry,
+      slotId: request.slot, description: 'Paid session-grant decrypt', nowSecs, ttlSecs})})
+  if (!request.decryption || typeof request.decryption.content_digest !== 'string') throw new TasraError('A session-grant decrypt requires the complete recipient binding')
+  let requestId: Hex
+  if (!config.allowances?.enabled) requestId = await attempt(false)
+  else {
+    try { requestId = await attempt(true) }
+    catch (error) {
+      if (!(error instanceof AllowanceFallback)) throw error
+      requestId = await attempt(false)
+    }
+  }
+  return continueSessionDecrypt(config, requestId)
+}
+
+/**
+ * Resume a journaled session-grant decrypt payment ({@link paidSessionDecrypt}): a `reserving`
+ * one is reconciled through the same debit or reservation path (never a second payment).
+ * @param config - The original configuration.
+ * @param requestId - The decrypt's request identity.
+ * @param signal - Cancellation.
+ */
+export async function resumePaidSessionDecrypt(config: PaidOperationConfig, requestId: Hex, signal?: AbortSignal): Promise<PaidSessionDecrypt> {
+  validateConfig(config)
+  const record = await config.store.load<OperationRecord>(recordKey(requestId))
+  if (!record || record.schema !== 1 || !record.sessionDecrypt) throw new TasraError('No session-grant decrypt journal for this request')
+  if (record.phase === 'reserving') await reserve(config, record, signal ?? new AbortController().signal)
+  return continueSessionDecrypt(config, requestId)
+}
+
+async function continueSessionDecrypt(config: PaidOperationConfig, requestId: Hex): Promise<PaidSessionDecrypt> {
+  const d = {...config.deployment}, store = config.store
+  let record = await store.load<OperationRecord>(recordKey(requestId))
+  if (!record || record.schema !== 1 || !record.sessionDecrypt || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('No session-grant decrypt journal for this request')
+  if (record.phase === 'reserved') {
+    const {policy} = await readClientExecutionPolicy(config.chain.client, {...d, defaultVerificationPolicy: d.defaultVerificationPolicy}, record.payment, record.expected)
+    const seed = random32(), signer = createLocalExecutionSigner(seed)
+    try {
+      const certificate = await createExecutionCertificate({payment: record.payment, policy, publicKey: signer.publicKey, expires: record.payment.expires, creator: config.creator})
+      record = await advance(store, requestId, 'reserved', {phase: 'certified', seed: Uint8Array.from(seed), certificate, pollSecret: toHex(random32()).slice(2)})
+    } finally { signer.dispose(); seed.fill(0) }
+  }
+  if (record.phase !== 'certified' || !record.seed || !record.certificate) throw new TasraError(`Session-grant decrypt journal is ${record.phase}, not payable`)
+  const signer = createLocalExecutionSigner(record.seed)
+  const approveExecution = createKeeperExecutionApprover({client: config.chain.client, deployment: d, payment: record.payment, expected: record.expected,
+    certificate: record.certificate, signer, keeperUrl: config.keeperUrl, transportPolicy: {allowLocalHttp: config.allowLocalHttp}})
+  const reads = recoveryReads(config, record, record.certificate, signer), route = config.keeperUrl ?? ((url: string) => url)
+  const norm = (url: string) => url.replace(/\/$/, '')
+  const recoverPartial: PaidSessionDecrypt['recoverPartial'] = async ({nodeUrl, transport, signal}) => {
+    const member = record!.contributors?.find(m => norm(route(m.url)) === norm(nodeUrl))
+    if (!member) throw new TasraError('Recovery keeper is not an assigned contributor of this decrypt')
+    const recovered = await reads.recover({transport, contributorKey: member.publicKey, signal})
+    return JSON.parse(recovered.resultJson) as unknown
+  }
+  return {requestId, payment: structuredClone(record.payment), approveExecution, recoverPartial, dispose: () => signer.dispose()}
 }
 
 export async function paidOperationPhase(store: ApplicationStore, requestId: Hex): Promise<PaidOperationJournalPhase | undefined> {

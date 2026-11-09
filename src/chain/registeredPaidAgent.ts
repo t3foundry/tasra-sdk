@@ -14,7 +14,9 @@ import {recipientPayloadDigest} from '../crypto/recipient.js'
 import {dpopHtu, platformAudience, isValidSessionId} from '../committee/oauth.js'
 import {BINDING_HOLDER_KEY, assertStatusAttestationsWire, decodeCompoundToken, selectVerifierCommittee, verifierLeaf, verifyCompoundToken, verifyMerkleProof,
   requireStatusAttestations, compoundTokenHash, type CompoundTokenWire} from '../committee/token.js'
-import {derivedNonce, requestHash, type CommitteeAction} from '../oid4vp/binding.js'
+import {vpNonceBound, requestHash, type CommitteeAction} from '../oid4vp/binding.js'
+import {MAX_SESSION_SLOTS, decodeSessionGrant, parseSessionKeyJwk, sessionKeyThumbprint, verifySessionGrant,
+  type SessionGrantRequestWire, type SessionGrantWire} from '../committee/session-grant.js'
 import {b64urlDecode, decodeJson} from '../oid4vp/jose.js'
 import {verifyRequestObject, type VerifiedRequestObject} from '../oid4vp/request-object.js'
 import {parseVerifierAgentSessionStatus, type CreateSessionParams, type SessionStatusResult} from '../verifier-agent/index.js'
@@ -90,6 +92,40 @@ export interface PaidAgentSessionParams extends CreateSessionParams {
   random: string
   /** Credential adapter; omitted means wallet. */
   kind?: 'wallet' | 'oauth'
+  /**
+   * ADR-0090 D7 session mode (KEM `decrypt` only): also open a session grant for this FRESH public
+   * session key. The presentation nonce then binds the key's RFC 7638 thumbprint
+   * (`vp-session-nonce/v1`), and every nonce this session checks is that one.
+   */
+  sessionGrant?: SessionGrantRequestWire
+}
+
+/** What a completed session-mode presentation returned beside its compound token. */
+export interface PaidSessionGrantOutcome {
+  /** The quorum-signed grant, already verified against the anchored draw; `refresh_seq` 0. */
+  grant?: {session_grant: SessionGrantWire; refresh_seq: 0}
+  /** Why no grant came with the token (an agent `session_*` code, or `sdk_grant_invalid`). */
+  error?: string
+}
+
+const HEX32_LOWER = /^0x[0-9a-f]{64}$/
+
+/**
+ * Validate a session-mode request before anything is signed: KEM decrypt only, a public key, 1..16
+ * distinct 32-byte slots naming the session's own slot, positive whole-second lifetimes. Returns
+ * the canonical form the create body carries (slots lowercase and ascending, the key re-encoded
+ * with exactly its RFC 7638 members), so a retry and a resume send the same signed bytes.
+ */
+function sessionGrantRequest(params: PaidAgentSessionParams): SessionGrantRequestWire | undefined {
+  const r = params.sessionGrant
+  if (r === undefined) return undefined
+  if (params.operation.action !== 'decrypt') throw new Error('A session grant opens only from a KEM decrypt presentation')
+  if (!r || typeof r !== 'object' || Object.keys(r).some(k => !['session_key', 'slots', 'access_ttl_secs', 'idle_timeout_secs', 'absolute_ttl_secs'].includes(k))) throw new Error('Invalid session grant request')
+  const slots = Array.isArray(r.slots) ? r.slots.map(s => typeof s === 'string' ? s.toLowerCase() : '') : []
+  if (slots.length < 1 || slots.length > MAX_SESSION_SLOTS || new Set(slots).size !== slots.length || slots.some(s => !HEX32_LOWER.test(s))
+    || !slots.includes(params.operation.slot_id.toLowerCase())) throw new Error('A session grant names 1..16 distinct slots, including the presentation slot')
+  for (const n of [r.access_ttl_secs, r.idle_timeout_secs, r.absolute_ttl_secs]) if (!Number.isSafeInteger(n) || n < 1) throw new Error('Session grant lifetimes must be positive whole seconds')
+  return {session_key: parseSessionKeyJwk(r.session_key), slots: slots.sort(), access_ttl_secs: r.access_ttl_secs, idle_timeout_secs: r.idle_timeout_secs, absolute_ttl_secs: r.absolute_ttl_secs}
 }
 
 /** Complete presentation explicitly accepted by the client before verifier work. */
@@ -370,6 +406,10 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   certificate: ExecutionCertificate; signer: ClientExecutionSigner; pollSecret?: string; expires?: number; signal?: AbortSignal;
 }): Promise<RegisteredPaidAgentSession> {
   params = structuredClone(params)
+  // ADR-0090 D7: the fresh session key a session-mode presentation authorizes (its thumbprint is in the nonce).
+  const grantRequest = sessionGrantRequest(params)
+  const sessionThumbprint = grantRequest ? sessionKeyThumbprint(grantRequest.session_key) : undefined
+  const thumbprintField = sessionThumbprint ? {session_key_thumbprint: toHex(sessionThumbprint)} : {}
   const profile = Object.freeze({...config.profile,approval:Object.freeze({...config.profile.approval})})
   const deployment = structuredClone(config.deployment), transport = config.transport
   const paidRequest=transport.paidAgentRequest.bind(transport)
@@ -424,7 +464,8 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   const unsigned = {operation:params.operation,operation_sig:params.operationSig,message_hex:params.messageHex,
     ...(params.decryption ? {decryption:params.decryption} : {}),
     ...(params.delegation ? {delegation:params.delegation} : {}),payment,random:params.random,poll_secret:pollSecret,
-    ...(params.kind ? {kind:params.kind} : {})}
+    ...(params.kind ? {kind:params.kind} : {}),
+    ...(grantRequest ? {session_grant:grantRequest} : {})}
   const initialization = await initializeExecutionSession({payment,certificate,signer:activeSigner(preparationSignal),policy:originalPolicy,
     expected:{serviceProfile:pin,body:unsigned},expires})
   preparationSignal.throwIfAborted()
@@ -459,14 +500,16 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
       member.proof.map(p=>protocolHex(p,32,'proof')),protocolHex(payment.verification_root,32,'root'))) throw new Error('Paid verifier witness differs from the anchored draw')
   }
   const jarIndex = drawn[protocolHex(payment.verification_seed,32,'seed')[0]! % drawn.length]!
-  const nonce = derivedNonce(rh,protocolHex(params.random,32,'random'),{epoch:payment.verification_epoch,snapshotRoot:protocolHex(payment.verification_root,32,'root'),
-    registrySize:payment.verification_registry_size,committee:payment.verification_committee,quorum:payment.verification_quorum,operationExp:params.operation.exp})
+  // A session-mode nonce binds THIS client's fresh session key: a holder never presents for a nonce
+  // that authorizes another key (every check below compares against this value).
+  const nonce = vpNonceBound(rh,protocolHex(params.random,32,'random'),{epoch:payment.verification_epoch,snapshotRoot:protocolHex(payment.verification_root,32,'root'),
+    registrySize:payment.verification_registry_size,committee:payment.verification_committee,quorum:payment.verification_quorum,operationExp:params.operation.exp},sessionThumbprint)
   const expectedBinding = {chain_id:payment.chain_id,slot_id:params.operation.slot_id,action:params.operation.action,
     message_sha256:toHex(sha256(message)),identity,payload_digest:payment.payload_digest.toLowerCase(),description:params.operation.description,
     operation:params.operation,operation_sig:params.operationSig,payment:typedPayment,delegation:params.delegation??null,random:params.random.toLowerCase(),
     request_hash:toHex(rh),nonce,epoch:payment.verification_epoch,seed:payment.verification_seed.toLowerCase(),snapshot_root:payment.verification_root.toLowerCase(),
     committee_count:payment.verification_committee,quorum:payment.verification_quorum,registry_size:payment.verification_registry_size,drawn,jar_signer_index:jarIndex,
-    client_id:profile.clientId,service_profile:pin,execution_initialization:initialization,execution_certificate:certificate,
+    client_id:profile.clientId,service_profile:pin,...thumbprintField,execution_initialization:initialization,execution_certificate:certificate,
     execution_policy:{chain_id:originalPolicy.chainId,settlement:originalPolicy.settlement.toLowerCase(),key_registry:originalPolicy.keyRegistry.toLowerCase(),
       creator:originalPolicy.creator.toLowerCase(),cost:toHex(originalPolicy.cost,{size:32})}}
   let context: {state:string;key:Record<string,unknown>|null;expires:number}|undefined
@@ -622,7 +665,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     return {operation:params.operation,operation_sig:params.operationSig,delegation:params.delegation??null,
       session:{response_uri:profile.endpoint+'/v1/response?session='+sessionId,enc_jwk:c.key,state:c.state,random:params.random.toLowerCase()},
       epoch:payment.verification_epoch,seed:payment.verification_seed.toLowerCase(),committee_count:payment.verification_committee,
-      registry_size:payment.verification_registry_size,quorum:payment.verification_quorum,payment:typedPayment}
+      registry_size:payment.verification_registry_size,quorum:payment.verification_quorum,payment:typedPayment,...thumbprintField}
   }
   /** The complete credential body a drawn verifier is approved for, from the separately accepted presentation. */
   const credentialBody = (accepted:ClientApprovedPresentation):Record<string,unknown> => {
@@ -640,7 +683,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
       seed:payment.verification_seed.toLowerCase(),epoch:payment.verification_epoch,slot_id:params.operation.slot_id,registry_size:payment.verification_registry_size,
       committee:payment.verification_committee,quorum:payment.verification_quorum,iat:approved.iat,exp,...(identity!==null?{identity}:{}),
       chain_id:payment.chain_id,action:params.operation.action,payload_digest:payment.payload_digest.toLowerCase(),random:params.random.toLowerCase(),client_id:profile.clientId,
-      description:params.operation.description,operation_exp:params.operation.exp,operation:params.operation,operation_sig:params.operationSig,...(params.delegation?{delegation:params.delegation}:{})}
+      description:params.operation.description,operation_exp:params.operation.exp,operation:params.operation,operation_sig:params.operationSig,...(params.delegation?{delegation:params.delegation}:{}),...thumbprintField}
   }
   // The direct API keeps its single-attempt behaviour: sign once, send once.
   const approve = async (proposed:PaidAgentProposal,member:PaidVerifierWitness,stage:'presentation_sign'|'presentation_attest'|'credential',body:Record<string,unknown>,signal?:AbortSignal) => {
@@ -681,6 +724,40 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     const publicKey=concatBytes(new Uint8Array([4]),b64urlDecode(jwk.x),b64urlDecode(jwk.y))
     if(!p256.verify(b64urlDecode(proof.split('.')[2]!),sha256(new TextEncoder().encode(proof.split('.').slice(0,2).join('.'))),publicKey,{lowS:false}))throw new Error('Invalid original DPoP signature')
   }
+  /** The creation reply's clamped session parameters: the requested slots and values echoed, each granted value at most the request. */
+  const checkGrantParams = (value:unknown) => {
+    if(!grantRequest){if(value!=null)throw new Error('Paid creation reply opened a session grant that was never requested');return}
+    const g=object(value);exact(g,['session_id','slots','requested','granted'])
+    if(typeof g.session_id!=='string'||!HEX32_LOWER.test(g.session_id)||!Array.isArray(g.slots)||g.slots.length!==grantRequest.slots.length
+      ||g.slots.some((s,i)=>s!==grantRequest.slots[i]))throw new Error('Paid creation reply changed the requested session grant')
+    const requested=object(g.requested),granted=object(g.granted)
+    for(const field of ['access_ttl_secs','idle_timeout_secs','absolute_ttl_secs'] as const){
+      const value=granted[field]
+      if(requested[field]!==grantRequest[field]||typeof value!=='number'||!Number.isSafeInteger(value)||value<1||value>grantRequest[field])throw new Error('Paid creation reply changed the requested session grant')
+    }
+  }
+  /**
+   * A completed session-mode poll: the grant must name THIS chain, this session key, the token's
+   * holder, binding, draw and payment slot, and verify against the anchored draw. Anything else is
+   * not used (`sdk_grant_invalid`); the compound token still authorizes its one operation.
+   */
+  const grantOutcome = (raw:Record<string,unknown>,tokenHolder:Uint8Array):{grant?:{session_grant:SessionGrantWire;refresh_seq:0};error?:string} => {
+    if(raw.session_grant==null){
+      const code=typeof raw.session_grant_error==='string'&&/^session_[a-z_]{1,48}$/.test(raw.session_grant_error)?raw.session_grant_error:'session_grant_missing'
+      return {error:code}
+    }
+    try{
+      if(raw.refresh_seq!==0)throw new Error('an opening grant answers refresh seq 0')
+      const wire=structuredClone(raw.session_grant) as SessionGrantWire,grant=decodeSessionGrant(wire),p=grant.payload
+      const hex=(b:Uint8Array)=>toHex(b).toLowerCase(),slot=protocolHex(payment.slot,32,'slot')
+      if(p.chainId!==BigInt(payment.chain_id)||p.chainId!==BigInt(deployment.chainId)||hex(p.sessionKeyThumbprint)!==hex(sessionThumbprint!)
+        ||hex(p.holderHash)!==hex(tokenHolder)||p.binding!==BINDING_HOLDER_KEY||p.epoch!==BigInt(payment.verification_epoch)
+        ||hex(p.seed)!==payment.verification_seed.toLowerCase()||p.slots.some(s=>!grantRequest!.slots.includes(hex(s.slotId))))throw new Error('grant differs from this session')
+      const set={registrySize:payment.verification_registry_size,pubkeys:new Map(members.map(m=>[m.index,protocolHex(m.publicKey,32,'key')]))}
+      verifySessionGrant({grant,set,slotId:slot,committee:payment.verification_committee,quorum:payment.verification_quorum,slotRuleHash:ruleHash,now:Math.floor(Date.now()/1000)})
+      return {grant:{session_grant:wire,refresh_seq:0}}
+    }catch{return {error:'sdk_grant_invalid'}}
+  }
   let oauthSubmitted=false
   const poll = async (signal?:AbortSignal,options?:{wait?:boolean}):Promise<SessionStatusResult> => {
     // A held poll needs an attempt budget above the agent's 20 s hold.
@@ -696,6 +773,8 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     if (raw.execution_context !== undefined) checkContext(raw.execution_context)
     if (raw.binding_preimage !== null && raw.binding_preimage !== undefined && executionBodyHash(object(raw.binding_preimage)) !== executionBodyHash(expectedBinding)) throw new Error('Paid poll operation binding changed')
     const status = parseVerifierAgentSessionStatus(raw,sessionId)
+    if ((!grantRequest || status.status !== 'done') && (raw.session_grant != null || raw.refresh_seq != null || raw.session_grant_error != null))
+      throw new Error('Paid poll carries a session grant this session cannot have')
     if (status.status === 'done') {
       const token = decodeCompoundToken(status.compoundToken as unknown as CompoundTokenWire)
       if (toHex(token.slotId).toLowerCase() !== payment.slot.toLowerCase() || toHex(token.seed).toLowerCase() !== payment.verification_seed.toLowerCase()
@@ -720,6 +799,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
         const member=members.find(m=>m.index===index)!
         return {verifier_index:index,operator:member.operator.slice(2),pubkey:member.publicKey.slice(2),proof:member.proof.map(p=>p.slice(2))}
       })
+      if (grantRequest) status.sessionGrant = grantOutcome(raw,token.holderHash)
     }
     return status
   }
@@ -758,6 +838,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
       if(reply.session_id!==sessionId || reply.poll_secret!==pollSecret || executionBodyHash(object(reply.service_profile))!==executionBodyHash(pin)
         || reply.qr_payload!=null || (params.kind!=='oauth' && reply.request_uri!==requestUri)) throw new Error('Initialized paid creation reply changed identity, owner or provider')
       if(params.kind==='oauth'&&(reply.nonce!==nonce||reply.dpop_htu!==oauthContext.dpopHtu||reply.platform_audience!==oauthContext.platformAudience||reply.request_uri!=null))throw new Error('OAuth creation reply changed its original nonce or audience')
+      checkGrantParams(reply.session_grant_params)
       checkContext(reply.execution_context)
     },reconcile:(signal?:AbortSignal)=>poll(signal),poll,
     async proposals(signal?:AbortSignal,options?:{waitMs?:number}) {

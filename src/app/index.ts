@@ -30,12 +30,14 @@ export type {ApplicationReservationOptions, ApplicationReservationState, Applica
 // ADR-0090 allowance lanes (PaidOperationConfig.allowances, default off).
 export {AllowanceRefusedError, AllowanceUnavailableError, inspectAllowanceLanes, journaledAllowanceVoucher, allowanceLaneCount} from './paid-allowance.js'
 export type {PaidAllowanceOptions} from './paid-allowance.js'
-export {paidOperation, paidFinalSign, resumePaidFinalSign, resumePaidOperation, reconcilePaidOperation, recoverPaidOperation, abandonPaidOperation, paidOperationPhase, listPaidOperations,
+export {paidOperation, paidFinalSign, resumePaidFinalSign, paidSessionDecrypt, resumePaidSessionDecrypt, resumePaidOperation, reconcilePaidOperation, recoverPaidOperation, abandonPaidOperation, paidOperationPhase, listPaidOperations,
   PaidOperationRecoveryError, PaidOperationAbandonRefusedError} from './paid-operation.js'
-export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PaidFinalSign, PaidFinalSignRequest, PaidOperationPhase, PaidOperationJournalPhase, PaidOperationStatus,
+export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PaidFinalSign, PaidFinalSignRequest, PaidSessionDecrypt, PaidSessionDecryptRequest, PaidOperationPhase, PaidOperationJournalPhase, PaidOperationStatus,
   PaidOperationNextStep, ResumePaidOperationOptions, PaidOperationErrorCode, PaidOperationSummary, ListPaidOperationsOptions,
   RecoverIbePartialsOptions, RecoveredIbePartial, RecoveredIbePartials, PaidOperationRecovery, AbandonPaidOperationOptions, AbandonedPaidOperation,
   RefreshPaidStatusOptions, PaidStatusRefresh} from './paid-operation.js'
 export {drivePaidSession, waitForPaidSnapshot, PaidSessionRecoveryError} from './paid-session.js'
 export type {PaidSessionDriverOptions, PaidSessionHolder, PaidWalletPresentation, PaidSessionRequestLink} from './paid-session.js'
 export {createMemoryStore} from './memory-store.js'
+export {createSessionKey, sessionGrantCreateFragment, acceptSessionGrant, loadGrantedSession, GrantedSession, SessionEndedError, SessionRevokeIncompleteError, SessionRevokeUnconfirmedError} from './session-grants.js'
+export type {SessionKeyHandle, SessionGrantParams, SessionGrantCreateFragment, SlotTrust, SessionTransport, GrantedSessionOptions} from './session-grants.js'

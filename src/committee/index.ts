@@ -169,3 +169,11 @@ export {createDecryptionRecipient, decryptionBinding, kemContentDigest, recipien
 export type {ClientRecipient, RecipientWire, DecryptionBindingWire, SealedShareWire} from '../crypto/recipient.js'
 export {collectSealedPartials, decryptWithCommitteePartials} from '../decryption/sealed.js'
 export type {SealedRequestOpts, SealedPartial} from '../decryption/sealed.js'
+// ADR-0090 D7 session grants: shared format with the reference `keykeeper_committee::session_grant`.
+export {SESSION_GRANT_DOMAIN, SESSION_PROOF_DOMAIN, SESSION_BATCH_PROOF_DOMAIN, SESSION_REFRESH_DOMAIN, SESSION_REVOKE_DOMAIN, MAX_SESSION_SLOTS, MAX_BATCH_ITEMS,
+  MAX_ACCESS_TTL_SECS, DEFAULT_ACCESS_TTL_SECS, MAX_IDLE_TIMEOUT_SECS, MAX_ABSOLUTE_TTL_SECS, SESSION_PROOF_FRESHNESS_SECS, MIN_JTI_LEN, MAX_JTI_LEN,
+  SessionGrantError, sessionGrantPayload, sessionGrantCanonicalBytes, sessionGrantHash, decodeSessionGrant, encodeSessionGrant, verifySessionGrant,
+  parseSessionKeyJwk, sessionKeyThumbprint, checkJti, sessionProofHash, sessionBatchProofHash, sessionControlHash, verifySessionSignature, checkProofWindow,
+  encodeSessionProof, toBase64Url} from './session-grant.js'
+export type {GrantSlot, SessionGrantPayload, SessionGrant, GrantSlotWire, GrantSignatureWire, SessionGrantWire, SessionProofWire, VerifiedSessionGrant,
+  VerifySessionGrantOptions, SessionKeyJwk} from './session-grant.js'

@@ -20,6 +20,7 @@ import {dpopHtu, platformAudience} from '../committee/oauth.js'
 import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 import {sessionPaymentFields} from './payment.js'
 import {assertStatusAttestationsWire} from '../committee/token.js'
+import type {SessionGrantWire} from '../committee/session-grant.js'
 
 /** The operation the holder is authorizing - signed by the creator's EIP-712 key. */
 import type {DpopSigner} from '../auth/dpop.js'
@@ -122,6 +123,11 @@ export interface SessionStatusResult {
   bindingPreimage?: Record<string, unknown>
   /** Optional failure detail reported by the verifier agent. */
   error?: string
+  /**
+   * ADR-0090 D7 session mode, once `done`: the grant the paid session client verified against the
+   * anchored draw (`refresh_seq` 0), or why none came with the token. Absent otherwise.
+   */
+  sessionGrant?: {grant?: {session_grant: SessionGrantWire; refresh_seq: 0}; error?: string}
 }
 
 /** Why a session did not yield a token - the class the UI explains, with a NON-SECRET

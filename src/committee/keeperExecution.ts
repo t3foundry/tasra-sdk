@@ -8,7 +8,7 @@ import {protocolHex} from './receipts.js'
 import {executionBodyHash, MAX_EXECUTION_BODY_BYTES, verifyExecutionAuthorization, type ExecutionAuthorization, type ExecutionConsentPolicy} from './execution.js'
 
 /** Exact public route semantics used to reconstruct client-approved keeper inputs. */
-export type KeeperExecutionKind = 'committee-sign' | 'committee-eoa-digest' | 'committee-decrypt' | 'sealed-decrypt' | 'ibe-extract' | 'dual-sign'
+export type KeeperExecutionKind = 'committee-sign' | 'committee-eoa-digest' | 'committee-decrypt' | 'sealed-decrypt' | 'ibe-extract' | 'dual-sign' | 'session-decrypt'
 
 /** Complete locally constructed request presented to the client's approval capability. */
 export interface KeeperExecutionApprovalRequest {
@@ -63,7 +63,7 @@ export function requireKeeperExecutionPayload(request: KeeperExecutionApprovalRe
       // The established paid decrypt digest excludes nonce, but the full body signature still binds it.
       digest=decryptPayloadDigest(base64Decode(ct.u),base64Decode(ct.aead_ct));break
     }
-    case 'sealed-decrypt': {
+    case 'sealed-decrypt': case 'session-decrypt': {
       action='decrypt'
       if(!body.ciphertext||typeof body.ciphertext!=='object'||Array.isArray(body.ciphertext)||typeof body.identity!=='string')throw new Error('Invalid client-built sealed ciphertext')
       const ct=body.ciphertext as Record<string,unknown>
@@ -77,7 +77,9 @@ export function requireKeeperExecutionPayload(request: KeeperExecutionApprovalRe
     default:throw new Error('Unknown keeper execution route')
   }
   if(action!==payment.action||toHex(digest).toLowerCase()!==payment.payload_digest.toLowerCase())throw new Error('Client-built keeper payload differs from retained payment')
-  if(kind==='dual-sign'){
+  if(kind==='dual-sign'||kind==='session-decrypt'){
+    // Both carry the payment itself (no compound token): a dual Sign beside its dual request, a
+    // session-grant item (ADR-0090 D7) beside its grant proof.
     assertPaymentIntentWire(body.payment)
     if(typeof body.key_slot_id!=='string'||body.key_slot_id.replace(/^0x/,'').toLowerCase()!==payment.slot.slice(2).toLowerCase()
       ||paymentIntentHash(body.payment)!==paymentIntentHash(payment))throw new Error('Client-built dual request differs from retained payment')
@@ -123,7 +125,7 @@ export async function withKeeperExecutionApprovals(options: {body:Record<string,
     signal?.throwIfAborted()
   }
   const coordinator=toHex(Uint8Array.from(payment.keeper_assignment.coordinator))
-  if(kind==='ibe-extract'||kind==='sealed-decrypt'){
+  if(kind==='ibe-extract'||kind==='sealed-decrypt'||kind==='session-decrypt'){
     if(proofs.length!==1||proofs[0]!.stage!=='contributor')throw new Error('Sealed contribution requires exactly its targeted contributor approval')
   }else{
     const expected=['coordinator:'+coordinator,...payment.keeper_assignment.contributors.map(key=>'contributor:'+toHex(Uint8Array.from(key)))]

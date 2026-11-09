@@ -1,0 +1,56 @@
+{
+  "approved_item_body": {
+    "ciphertext": {
+      "aead_ct": "BgcI",
+      "nonce": "AwQF",
+      "u": "AAEC"
+    },
+    "ciphertext_epoch": 3,
+    "identity": "perf-decrypt-timing",
+    "key_slot_id": "2222222222222222222222222222222222222222222222222222222222222222",
+    "payment": {
+      "stand_in": "the item's own payment preimage"
+    },
+    "recipient": {
+      "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+      "suite": "x25519-hkdf-sha256-chacha20poly1305"
+    }
+  },
+  "body_hash": "0x02d601bb680b6c4981e0619850af0faccdd720c35bce03380516d84c43659856",
+  "description": "ADR-0090 D7 session-decrypt approval body: the single-route body minus session_grant, session_key, proof and execution_authorizations; body_hash = keykeeper_eth::execution_auth::request_body_hash (the SDK's executionBodyHash)",
+  "single_route_body": {
+    "ciphertext": {
+      "aead_ct": "BgcI",
+      "nonce": "AwQF",
+      "u": "AAEC"
+    },
+    "ciphertext_epoch": 3,
+    "execution_authorizations": [
+      {
+        "stand_in": "a contributor approval"
+      }
+    ],
+    "identity": "perf-decrypt-timing",
+    "key_slot_id": "2222222222222222222222222222222222222222222222222222222222222222",
+    "payment": {
+      "stand_in": "the item's own payment preimage"
+    },
+    "proof": {
+      "iat": 1800000000,
+      "jti": "jti-0123456789abcdef",
+      "signature": "0x00"
+    },
+    "recipient": {
+      "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+      "suite": "x25519-hkdf-sha256-chacha20poly1305"
+    },
+    "session_grant": {
+      "stand_in": "grant"
+    },
+    "session_key": {
+      "crv": "Ed25519",
+      "kty": "OKP",
+      "x": "AAAA"
+    }
+  }
+}

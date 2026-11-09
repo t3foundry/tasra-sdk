@@ -102,13 +102,13 @@ function approverWithTarget(options:KeeperExecutionApproverOptions,seed?:PaidKee
     signal?.throwIfAborted()
     // The EOA-digest route signs for BOTH threshold-ECDSA curves: tecdsa (secp256k1, mode 2) and
     // tecdsa-p256 (mode 4). Every other route serves exactly one slot mode.
-    const modes=kind==='committee-eoa-digest'?[2,4]:kind==='committee-decrypt'||kind==='sealed-decrypt'||kind==='ibe-extract'?[1]:[0]
+    const modes=kind==='committee-eoa-digest'?[2,4]:kind==='committee-decrypt'||kind==='sealed-decrypt'||kind==='session-decrypt'||kind==='ibe-extract'?[1]:[0]
     if(!modes.includes(target.mode))throw new Error('Keeper request route does not match the canonical slot mode')
     const coordinatorUrl=endpoint(target,deployment.chainId,transportPolicy,route)
     const contributors=target.contributors.map(member=>({...member,approvedUrl:endpoint(member,deployment.chainId,transportPolicy,route)}))
     if(new Set(contributors.map(m=>m.approvedUrl)).size!==contributors.length)throw new Error('Client-approved routing aliases multiple keeper identities')
     const member=contributors.find(m=>m.approvedUrl===nodeUrl)
-    const stages=kind==='ibe-extract'||kind==='sealed-decrypt'
+    const stages=kind==='ibe-extract'||kind==='sealed-decrypt'||kind==='session-decrypt'
       ?member?[{stage:'contributor' as const,operatorKey:member.publicKey}]:[]
       :nodeUrl===coordinatorUrl?[{stage:'coordinator' as const,operatorKey:target.publicKey},
         ...contributors.map(m=>({stage:'contributor' as const,operatorKey:m.publicKey}))]:[]
