@@ -709,11 +709,15 @@ async function debit(config: PaidOperationConfig, record: OperationRecord, signa
     const saved = await journaledAllowanceVoucher(config.store, requestId)
     if (!saved) throw new PaidOperationRecoveryError(requestId, 'reservation', new TasraError('Resuming an allowance-backed operation needs the allowances option'), {code: 'reservation-refused'})
   }
-  let voucher
   try {
-    voucher = await config.store.withLock(key, async () => {
-      if ((await config.store.load<OperationRecord>(key))?.phase !== 'reserving') throw new NoLongerReserving()
-      return await journaledAllowanceVoucher(config.store, requestId) ?? await obtainAllowanceVoucher(env!, record.allowance!, record.payment, signal)
+    // The voucher and the `reserved` phase that carries it are journaled under the ONE record
+    // lock that admitted the debit (one durable lock instead of two; the same checks).
+    await config.store.withLock(key, async () => {
+      const current = await config.store.load<OperationRecord>(key)
+      if (current?.phase !== 'reserving') throw new NoLongerReserving()
+      if (current.schema !== 1) throw new TasraError('Paid operation journal changed concurrently')
+      const voucher = await journaledAllowanceVoucher(config.store, requestId) ?? await obtainAllowanceVoucher(env!, record.allowance!, record.payment, signal)
+      await config.store.save(key, {...current, phase: 'reserved', payment: {...record.payment, debit_voucher: voucher}} satisfies OperationRecord)
     })
   } catch (error) {
     if (error instanceof NoLongerReserving) throw new TasraError('Paid operation was closed before its debit; it is not debited again')
@@ -724,7 +728,6 @@ async function debit(config: PaidOperationConfig, record: OperationRecord, signa
     if (signal.aborted) throw abortedError(requestId, 'reservation', record.payment, signal, error)
     throw new PaidOperationRecoveryError(requestId, 'reservation', error, expired(record.payment) ? {code: 'reservation-refused', resumable: false} : {code: 'reservation-refused'})
   }
-  await advance(config.store, requestId, 'reserving', {phase: 'reserved', payment: {...record.payment, debit_voucher: voucher}})
 }
 
 async function advance(store: ApplicationStore, requestId: Hex, from: Phase | Phase[], patch: Partial<OperationRecord>,

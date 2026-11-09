@@ -149,6 +149,26 @@ function lagrangeAtZero(id: bigint, ids: readonly bigint[]): bigint {
 }
 
 /**
+ * Lagrange-interpolate exactly `threshold` partials at zero, WITHOUT any verification: the result
+ * is a signature only if the caller then verifies it against the group key (one pairing check,
+ * where {@link combineBn254} spends one per partial as well). Undefined when the identifiers are
+ * invalid or repeated, too few partials are given, or a partial is not a valid G1 point.
+ * @param partials - Distinct members' partials (the first `threshold` are used).
+ * @param threshold - k.
+ */
+export function interpolateBn254(partials: readonly Pick<Bn254Partial, 'identifier' | 'partial'>[], threshold: number): Uint8Array | undefined {
+  if (!Number.isSafeInteger(threshold) || threshold < 1 || partials.length < threshold) return undefined
+  const used = partials.slice(0, threshold)
+  if (used.some(p => !Number.isSafeInteger(p.identifier) || p.identifier < 1 || p.identifier > 65535) || new Set(used.map(p => p.identifier)).size !== used.length) return undefined
+  const xs = used.map(p => BigInt(p.identifier))
+  try {
+    let acc = G1.ZERO
+    for (const p of used) acc = acc.add(decodeG1(p.partial).multiply(lagrangeAtZero(BigInt(p.identifier), xs)))
+    return encodeG1(acc)
+  } catch { return undefined }
+}
+
+/**
  * Lagrange-combine exactly `threshold` partials (each pre-verified against its own verifying share,
  * so a byzantine member is named, not merely detected) and verify the aggregate against the group
  * key: a below-threshold or mismatched set interpolates to the wrong point and is caught there.

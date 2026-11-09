@@ -51,6 +51,8 @@ export interface MemberBehaviour {
   forge?: boolean
   /** Transport failure. */
   down?: boolean
+  /** Never answer a debit (until the request is aborted). */
+  hang?: boolean
 }
 export interface ChainChanges {
   allowance?: Partial<MinedAllowance>
@@ -64,6 +66,8 @@ export interface ChainChanges {
   version?: string
   /** ADR-0092 (version "5"): the allowance's range-settled seq (default 0). */
   settledSeq?: bigint
+  /** Hold every RPC this long (ms) and record its span in `rpcSpans`. */
+  rpcDelayMs?: number
 }
 
 export interface AllowanceWorld {
@@ -72,6 +76,8 @@ export interface AllowanceWorld {
   /** Bodies of `POST .../vouchers`, raw. */
   pushes: {url: string; raw: string}[]
   mined: {record?: MinedAllowance}; transactions: Hex[]; accountantUrls: string[]
+  /** [start, end) of every RPC when `rpcDelayMs` is set. */
+  rpcSpans: [number, number][]
 }
 export function allowanceWorld(change: ChainChanges = {}): AllowanceWorld {
   vi.spyOn(Date, 'now').mockReturnValue(NOW * 1000)
@@ -96,6 +102,7 @@ export function allowanceWorld(change: ChainChanges = {}): AllowanceWorld {
       const behaviour = change.members?.[member] ?? {}
       debits.push({url, body: body as (typeof debits)[number]['body']})
       if (behaviour.down) throw new TypeError('fetch failed')
+      if (behaviour.hang) return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason as Error)))
       if (behaviour.status) return new Response('refused by test', {status: behaviour.status})
       const request = body as {intent: PaymentIntentWire; seq: number; previous: {cumulative: string} | null; quote_block: Hex}
       const cost = change.cost ?? 40n, cumulative = (request.previous ? BigInt(request.previous.cumulative) : 0n) + cost
@@ -168,9 +175,23 @@ export function allowanceWorld(change: ChainChanges = {}): AllowanceWorld {
       to: deployment.settlement, cumulativeGasUsed: '0x186a0', gasUsed: '0x186a0', contractAddress: null, logs: [], logsBloom: '0x' + '00'.repeat(256), status: '0x1', effectiveGasPrice: '0x19', type: '0x0'}
     throw new Error(`unexpected RPC ${method}`)
   }
-  const transport = custom({request: respond}, {retryCount: 0})
+  const rpcSpans: [number, number][] = []
+  const delayed = async (request: {method: string; params?: unknown}): Promise<unknown> => {
+    if (!change.rpcDelayMs) return respond(request)
+    const start = performance.now()
+    await new Promise(done => setTimeout(done, change.rpcDelayMs))
+    try { return await respond(request) } finally { rpcSpans.push([start, performance.now()]) }
+  }
+  const transport = custom({request: delayed}, {retryCount: 0})
   const client = createPublicClient({chain: localChain, transport}) as PublicClient
   configurePinnedReads(client, false)
   const wallet = createWalletClient({chain: localChain, account: creator, transport})
-  return {client, wallet, fetcher, trace, debits, pushes, mined, transactions, accountantUrls: ['https://acct0.example', 'https://acct1.example', 'https://acct2.example']}
+  return {client, wallet, fetcher, trace, debits, pushes, mined, transactions, rpcSpans, accountantUrls: ['https://acct0.example', 'https://acct1.example', 'https://acct2.example']}
+}
+
+/** The longest chain of strictly sequential RPCs among `spans`: the rounds a path waited. */
+export function sequentialRounds(spans: readonly [number, number][]): number {
+  const sorted = [...spans].sort((a, b) => a[0] - b[0]), depth: number[] = []
+  sorted.forEach(([start], i) => { depth[i] = 1 + Math.max(0, ...sorted.slice(0, i).map((s, j) => s[1] <= start ? depth[j]! : 0)) })
+  return Math.max(0, ...depth)
 }

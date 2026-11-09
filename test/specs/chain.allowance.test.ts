@@ -3,8 +3,8 @@
 // key at the quote block, refusal classes) and the reader arm of the paid receipt.
 import {afterEach, describe, expect, it, vi} from 'vitest'
 import {decodeFunctionData, parseTransaction, type Hex} from 'viem'
-import {allowanceWorld, assignment, deployment, h, NOW, signedAllowanceIntent, slot, creator, partialOf, groupKey} from '../support/allowanceFixture.js'
-import {collectDebitVoucher, DebitVoucherError, prepaidAllowanceId, pushDebitVoucher, readPrepaidAllowance, reconcilePrepaidAllowance, reservePrepaidAllowance, verifyDebitVoucher,
+import {allowanceWorld, assignment, deployment, h, NOW, signedAllowanceIntent, slot, creator, partialOf, groupKey, sequentialRounds, verifyingShare} from '../support/allowanceFixture.js'
+import {collectDebitVoucher, DebitVoucherError, prepaidAllowanceId, pushDebitVoucher, readAccountantGroupKey, readPrepaidAllowance, reconcilePrepaidAllowance, reservePrepaidAllowance, verifyDebitVoucher,
   type PrepaidAllowanceCheckpoint} from '../../src/chain/allowance.js'
 import {PaidReservationUncertainError} from '../../src/chain/reservation.js'
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
@@ -78,13 +78,15 @@ describe('collectDebitVoucher', () => {
     const {voucher, partials, outcomes} = await collectDebitVoucher(world.client, deployment, {payment, seq: 1, quoteBlock, maxOpCost: 100n}, {accountantUrls: world.accountantUrls})
     expect(world.debits.map(d => d.body.quote_block)).toEqual([quoteBlock, quoteBlock, quoteBlock])
     expect(world.debits.every(d => d.body.seq === 1 && d.body.previous === null && d.body.intent.debit_voucher === undefined)).toBe(true)
-    expect(outcomes.map(o => o.kind)).toEqual(['partial', 'partial', 'partial'])
-    expect(partials).toHaveLength(3)
+    // The voucher is returned once k answers combine: the members that had answered by then.
+    expect(outcomes.length).toBeGreaterThanOrEqual(2)
+    expect(outcomes.every(o => o.kind === 'partial')).toBe(true)
+    expect(partials.map(p => p.identifier)).toEqual([1, 2])
     expect(voucher).toMatchObject({seq: 1, request_id: prepaidRequestId(payment), cost: '40', cumulative: '40', quote_block: quoteBlock})
     // The aggregate is the unique threshold signature: any two members reproduce it.
     const digest = debitVoucherWireDigest(deployment.settlement, 43112, voucher)
     const direct = combineBn254(hexToBytes(groupKey), hexToBytes(digest), [1, 2].map(i => ({identifier: i + 1, partial: hexToBytes(partialOf(i, digest)),
-      verifyingShare: hexToBytes(partials[i]!.verifying_share)})), 2)
+      verifyingShare: hexToBytes(verifyingShare(i))})), 2)
     expect(voucher.signature).toBe(`0x${Buffer.from(direct).toString('hex')}`)
     await verifyDebitVoucher(world.client, deployment, voucher)
     await expect(verifyDebitVoucher(world.client, deployment, {...voucher, cumulative: '41'})).rejects.toThrow(/does not verify/)
@@ -117,6 +119,39 @@ describe('collectDebitVoucher', () => {
     const unavailable = await collectDebitVoucher(down.client, deployment, {payment, seq: 1, quoteBlock, maxOpCost: 100n}, {accountantUrls: down.accountantUrls}).catch((e: unknown) => e)
     expect((unavailable as DebitVoucherError).definite).toBe(false)
     expect((unavailable as DebitVoucherError).outcomes.map(o => o.kind)).toEqual(['unavailable', 'unavailable', 'partial'])
+  }, 30_000)
+
+
+  it('returns the voucher at k answers: a member that never answers delays nothing (its request runs on)', async () => {
+    const world = allowanceWorld({members: [{}, {}, {hang: true}]}), {payment, quoteBlock} = await request(world)
+    const started = performance.now()
+    const {voucher, outcomes} = await collectDebitVoucher(world.client, deployment, {payment, seq: 1, quoteBlock, maxOpCost: 100n},
+      {accountantUrls: world.accountantUrls, requestTimeoutMs: 20_000})
+    expect(performance.now() - started).toBeLessThan(5_000)
+    expect(world.debits).toHaveLength(3)
+    expect(outcomes.map(o => o.url)).toEqual(['https://acct0.example', 'https://acct1.example'])
+    await verifyDebitVoucher(world.client, deployment, voucher)
+  }, 10_000)
+
+  it('a forged partial outside the first k is not needed; one inside it is named and replaced by the next member', async () => {
+    const late = allowanceWorld({members: [{}, {}, {forge: true}]}), {payment, quoteBlock} = await request(late)
+    const ok = await collectDebitVoucher(late.client, deployment, {payment, seq: 1, quoteBlock, maxOpCost: 100n}, {accountantUrls: late.accountantUrls})
+    expect(ok.partials.map(p => p.identifier)).toEqual([1, 2])
+    await verifyDebitVoucher(late.client, deployment, ok.voucher)
+    const early = allowanceWorld({members: [{}, {forge: true}, {}]})
+    const named = await collectDebitVoucher(early.client, deployment, {payment, seq: 1, quoteBlock, maxOpCost: 100n}, {accountantUrls: early.accountantUrls})
+    expect(named.partials.map(p => p.identifier)).toEqual([1, 3])
+    expect(named.outcomes[1]).toMatchObject({kind: 'refused', reason: expect.stringMatching(/member 2 does not verify/) as unknown})
+    await verifyDebitVoucher(early.client, deployment, named.voucher)
+  }, 30_000)
+
+  it('reads the group key in one RPC round with the approved beacon, and while the members answer', async () => {
+    const world = allowanceWorld({rpcDelayMs: 40}), {payment, quoteBlock} = await request(world)
+    await readAccountantGroupKey(world.client, deployment, h(0x66))
+    expect(sequentialRounds(world.rpcSpans)).toBe(1)
+    world.rpcSpans.length = 0
+    await collectDebitVoucher(world.client, deployment, {payment, seq: 1, quoteBlock, maxOpCost: 100n}, {accountantUrls: world.accountantUrls})
+    expect(sequentialRounds(world.rpcSpans)).toBe(1)
   }, 30_000)
 
   it('refuses partials that do not match the request: a cost above the cap, a wrong group key', async () => {
