@@ -13,7 +13,8 @@ vi.mock('../../src/chain/allowance.js', async original => ({...await original<ty
 import {collectDebitVoucher, DebitVoucherError, prepaidAllowanceId, pushDebitVoucher, reconcilePrepaidAllowance, reservePrepaidAllowance, type DebitPartialWire} from '../../src/chain/allowance.js'
 import {PaidReservationUncertainError} from '../../src/chain/reservation.js'
 import {AllowanceRefusedError, AllowanceUnavailableError, inspectAllowanceLanes, journaledAllowanceVoucher, obtainAllowanceVoucher, reserveForLane,
-  selectAllowanceLane, settleAllowanceRefills, settleAllowanceVoucherPushes, inspectAllowanceVoucherPush, allowanceLaneCount, validateAllowanceOptions, type AllowanceEnv} from '../../src/app/paid-allowance.js'
+  selectAllowanceLane, settleAllowanceRefills, settleAllowanceVoucherPushes, inspectAllowanceVoucherPush, allowanceLaneCount, validateAllowanceOptions, inspectAllowanceDrawLanes,
+  resetAllowanceDrawAheads, type AllowanceEnv, type AllowanceTicket} from '../../src/app/paid-allowance.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
 import {paidRecordKey} from '../../src/app/paid-keys.js'
 import {paymentIntentTypedData, prepaidAllowanceIntentTypedData, prepaidRequestId, type DebitVoucherWire, type PaymentIntentWire} from '../../src/committee/payment.js'
@@ -83,6 +84,9 @@ describe('allowance options', () => {
     expect(() => validateAllowanceOptions({enabled: true, amount: 50n}, {maxCost: 100n})).toThrow(/cover/)
     expect(() => validateAllowanceOptions({enabled: true, amount: 500n, lifetimeSecs: 3601}, {maxCost: 100n})).toThrow(/lifetime/)
     expect(() => validateAllowanceOptions({enabled: true, amount: 500n, lanes: 9}, {maxCost: 100n})).toThrow(/lanes/)
+    expect(() => validateAllowanceOptions({enabled: true, amount: 500n, drawAmount: 50n}, {maxCost: 100n})).toThrow(/draw amount/)
+    expect(() => validateAllowanceOptions({enabled: true, amount: 500n, maxDrawAllowances: 0}, {maxCost: 100n})).toThrow(/maxDrawAllowances/)
+    expect(() => validateAllowanceOptions({enabled: true, amount: 500n, drawAmount: 100n, maxDrawAllowances: 64}, {maxCost: 100n})).not.toThrow()
     expect(allowanceLaneCount({enabled: true, amount: 1n})).toBe(1)
     expect(allowanceLaneCount({enabled: true, amount: 1n, streams: 32})).toBe(8)
     expect(allowanceLaneCount({enabled: true, amount: 1n, streams: 3})).toBe(3)
@@ -648,5 +652,176 @@ describe('debit quote block from a followed head', () => {
       await obtainAllowanceVoucher(env, {lane: 0}, q)
       expect(client.getBlock).toHaveBeenCalledWith({blockTag: 'latest'})
     } finally { unfollowHeads(client) }
+  })
+})
+
+describe('session draws across beacon epochs (ADR-0090 D7 draw lanes)', () => {
+  beforeEach(() => resetAllowanceDrawAheads())
+  /** A session message's pinned discovery: the grant's draw at `epoch`, the beacon at `beacon`. */
+  const at = (epoch: number, beacon = epoch): PaidOperationContext => {
+    const c = context()
+    return {...c, blockTimestamp: BigInt(clock), beaconEpoch: BigInt(beacon), intentFields: {...c.intentFields, verification_epoch: epoch, verification_seed: h(0x30 + epoch), verification_root: h(0x60 + epoch)}}
+  }
+  const message = () => ({action: 'decrypt' as const, expires: clock + 600, drawPinned: true})
+  /** A world whose `discover` hands out the beacon's draw for an epoch (a fresh pinned discovery). */
+  function drawWorld(options: Partial<AllowanceEnv['options']> = {}) {
+    const world = environment({reserveAhead: true, ...options})
+    const discover = vi.fn(async (_slot: Hex, epoch: bigint) => at(Number(epoch)))
+    world.env.discover = discover
+    return {...world, discover}
+  }
+  /** Gate every later reservation until `release()`. */
+  function gatedReservations() {
+    const real = vi.mocked(reservePrepaidAllowance).getMockImplementation()!
+    let open!: () => void
+    const gate = new Promise<void>(resolve => { open = resolve })
+    vi.mocked(reservePrepaidAllowance).mockImplementation(async (...args) => { await gate; return real(...args) })
+    return open
+  }
+  const reservations = () => vi.mocked(reservePrepaidAllowance).mock.calls.length
+  const drawOf = (n: number) => vi.mocked(reservePrepaidAllowance).mock.calls[n]![3].verification_epoch
+
+  it('after an epoch change the next message pays by voucher on the new draw: its lane was reserved ahead, off the message path', async () => {
+    const world = drawWorld()
+    reservationMinesAs()
+    // The grant's first message at epoch 8: one lane reservation on that draw, waited for.
+    expect((await selectAllowanceLane(world.env, at(8), message()))?.fields.verification_epoch).toBe(8)
+    await settleAllowanceRefills()
+    expect(reservations()).toBe(1)
+    // The beacon moved to 9; the grant is still at 8 (its refresh follows): paid on 8, and the
+    // draw of 9 is discovered (pinned, verified) and reserved in the background.
+    const old = await selectAllowanceLane(world.env, at(8, 9), message())
+    expect(old?.fields).toMatchObject({verification_epoch: 8, verification_seed: h(0x38)})
+    await settleAllowanceRefills()
+    expect(world.discover).toHaveBeenCalledWith(slot, 9n)
+    expect(reservations()).toBe(2)
+    expect(drawOf(1)).toBe(9)
+    // The grant refreshed to 9: the message pays by voucher at once. No reservation runs on its
+    // path (any new one would hang here), none is started for it.
+    gatedReservations()
+    const ticket = await selectAllowanceLane(world.env, at(9), message())
+    expect(ticket?.fields).toMatchObject({verification_epoch: 9, verification_seed: h(0x39), verification_root: h(0x69)})
+    expect(reservations()).toBe(2)
+    const [drawn] = await inspectAllowanceDrawLanes(world.store, deployment, slot, 1, 9)
+    expect(ticket).toMatchObject({lane: drawn!.lane, allowanceId: drawn!.allowanceId})
+    // And it is debited on that lane like any other: seq 1 of the new allowance.
+    vi.mocked(collectDebitVoucher).mockImplementation(async (_c, _d, r) => ({voucher: voucherFor(r.payment, r.seq, 40), partials: [], outcomes: []}))
+    const voucher = await obtainAllowanceVoucher(world.env, ticket!, await payment(ticket!.allowanceId, 0x51, {...ticket!.fields}))
+    expect(voucher).toMatchObject({allowance_id: ticket!.allowanceId, seq: 1})
+  })
+
+  it('a message that finds its draw\'s lane still being reserved (or its draw still being discovered) waits for it instead of paying per operation', async () => {
+    // No reserve-ahead source: the first message on the new draw starts the draw-lane reservation and waits.
+    const world = environment({reserveAhead: true})
+    reservationMinesAs()
+    expect(await selectAllowanceLane(world.env, at(8), message())).toBeDefined()
+    await settleAllowanceRefills()
+    const release = gatedReservations()
+    let settled = false
+    const waiting = selectAllowanceLane(world.env, at(9), message()).finally(() => { settled = true })
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(settled).toBe(false)
+    expect(reservations()).toBe(2)
+    release()
+    expect((await waiting)?.fields.verification_epoch).toBe(9)
+    expect(reservations()).toBe(2)
+    // With a reserve-ahead source whose discovery is still running: the message waits for it too.
+    const ahead = drawWorld()
+    reservationMinesAs()
+    expect(await selectAllowanceLane(ahead.env, at(10), message())).toBeDefined()
+    await settleAllowanceRefills()
+    let found!: () => void
+    const discovered = new Promise<void>(resolve => { found = resolve })
+    ahead.discover.mockImplementationOnce(async (_slot, epoch) => { await discovered; return at(Number(epoch)) })
+    expect((await selectAllowanceLane(ahead.env, at(10, 11), message()))?.fields.verification_epoch).toBe(10)
+    const next = selectAllowanceLane(ahead.env, at(11), message())
+    await new Promise(resolve => setTimeout(resolve, 5))
+    found()
+    expect((await next)?.fields.verification_epoch).toBe(11)
+    await settleAllowanceRefills()
+    // One reservation per draw: 10 (waited for by the first message) and 11 (ahead), none for the waiter.
+    expect(vi.mocked(reservePrepaidAllowance).mock.calls.slice(2).map(c => c[3].verification_epoch)).toEqual([10, 11])
+  })
+
+  it('holds a bounded number of draw allowances per slot over many epoch changes; the previous draw keeps paying until the grant moves', async () => {
+    const world = drawWorld({maxDrawAllowances: 4})
+    reservationMinesAs()
+    expect(await selectAllowanceLane(world.env, at(8), message())).toBeDefined()
+    await settleAllowanceRefills()
+    const held = async () => {
+      let total = 0
+      for (const parity of [0, 1]) for (const lane of await inspectAllowanceDrawLanes(world.store, deployment, slot, 1, parity)) total += lane.held
+      return total
+    }
+    const previous: string[] = [], outcomes: string[] = []
+    const paid = (ticket: AllowanceTicket | undefined, epoch: number) => {
+      if (ticket) expect(ticket.fields.verification_epoch).toBe(epoch)
+      return ticket ? 'voucher' : 'per-operation'
+    }
+    for (let epoch = 8; epoch < 20; epoch++) {
+      clock += 10
+      // The message pinned to the previous epoch (grant not yet refreshed) pays on that draw's lane.
+      previous.push(paid(await selectAllowanceLane(world.env, at(epoch, epoch + 1), message()), epoch))
+      await settleAllowanceRefills()
+      outcomes.push(paid(await selectAllowanceLane(world.env, at(epoch + 1), message()), epoch + 1))
+      await settleAllowanceRefills()
+      expect(await held()).toBeLessThanOrEqual(4)
+    }
+    // Draws 9..12 were reserved ahead (two per parity lane, the bound); from 13 on the bound holds
+    // and the message pays per operation, never reserving another allowance. Every draw that has a
+    // lane keeps paying by voucher while it is the previous epoch.
+    expect(outcomes).toEqual([...Array<string>(4).fill('voucher'), ...Array<string>(8).fill('per-operation')])
+    expect(previous).toEqual([...Array<string>(5).fill('voucher'), ...Array<string>(7).fill('per-operation')])
+    expect(reservations()).toBe(1 + 4)
+    expect(await held()).toBe(4)
+    // Once the earlier escrows can be closed (expiry + the accountants' close grace), the lanes refill.
+    // (Here the regular lane, its allowance expired, is replaced on the grant's draw 21 and serves
+    // it; the draw lanes then reserve 22 ahead.)
+    clock += 3600 + 600
+    expect((await selectAllowanceLane(world.env, at(21), message()))?.fields.verification_epoch).toBe(21)
+    await settleAllowanceRefills()
+    expect(await held()).toBe(0)
+    expect((await selectAllowanceLane(world.env, at(21, 22), message()))?.fields.verification_epoch).toBe(21)
+    await settleAllowanceRefills()
+    expect(vi.mocked(reservePrepaidAllowance).mock.calls.slice(5).map(c => c[3].verification_epoch)).toEqual([21, 22])
+    expect(await held()).toBe(1)
+    expect((await selectAllowanceLane(world.env, at(22), message()))?.fields.verification_epoch).toBe(22)
+    const lanes = [...await inspectAllowanceDrawLanes(world.store, deployment, slot, 1, 0), ...await inspectAllowanceDrawLanes(world.store, deployment, slot, 1, 1)]
+    // One allowance per draw lane in the journal; the stale draws retired, not kept usable.
+    expect(lanes.filter(l => l.allowanceId).length).toBeLessThanOrEqual(2)
+    await settleAllowanceRefills()
+  })
+
+  it('a failed reserve-ahead or draw-lane reservation, or a discovery of the wrong draw, falls back safely to a per-operation reservation', async () => {
+    const world = drawWorld()
+    reservationMinesAs()
+    expect(await selectAllowanceLane(world.env, at(8), message())).toBeDefined()
+    await settleAllowanceRefills()
+    // The discovery hands back another epoch's draw: nothing is signed or reserved on it.
+    world.discover.mockImplementationOnce(async () => at(10))
+    expect(await selectAllowanceLane(world.env, at(8, 9), message())).toBeDefined()
+    await settleAllowanceRefills()
+    expect(reservations()).toBe(1)
+    // A discovery refusal (the draw moved on) and a refused reservation: the message itself still
+    // falls back to paying per operation, and nothing stays claimed or counted against the bound.
+    resetAllowanceDrawAheads()
+    world.discover.mockRejectedValueOnce(new Error('pinned verifier epoch has no complete anchors'))
+    expect(await selectAllowanceLane(world.env, at(8, 9), message())).toBeDefined()
+    await settleAllowanceRefills()
+    vi.mocked(reservePrepaidAllowance).mockRejectedValue(new Error('accountants refused the allowance'))
+    expect(await selectAllowanceLane(world.env, at(9), message())).toBeUndefined()
+    await settleAllowanceRefills()
+    const [lane] = await inspectAllowanceDrawLanes(world.store, deployment, slot, 1, 9)
+    expect(lane).toMatchObject({held: 0, retired: 0})
+    expect(lane!.allowanceId).toBeUndefined()
+    expect(lane!.next).toBeUndefined()
+    // Reserve-ahead off: never a background reservation for a draw.
+    const off = environment({reserveAhead: false})
+    off.env.discover = vi.fn(async (_slot: Hex, epoch: bigint) => at(Number(epoch)))
+    const before = reservations()
+    expect(await selectAllowanceLane(off.env, at(8, 9), message())).toBeUndefined()
+    await settleAllowanceRefills()
+    expect(off.env.discover).not.toHaveBeenCalled()
+    expect(reservations()).toBe(before)
   })
 })

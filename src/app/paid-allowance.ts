@@ -26,6 +26,16 @@
 //   re-pushes its last voucher once to the members that did not acknowledge it. A push never
 //   blocks or fails an operation.
 //
+// - ADR-0090 D7 draw lanes: a session grant's messages pay its exact verifier draw (the keeper
+//   refuses any other), which follows the beacon every epoch, while a regular lane keeps its
+//   allowance's draw. Two sets of draw lanes per slot (lane `DRAW_LANE_BASE + (epoch % 2) x 8 + j`)
+//   hold one allowance on one draw each: the set of the grant's epoch serves its messages, the
+//   other is reserved for the next draw as soon as a message sees the beacon there (through a
+//   pinned, verified discovery), replacing the draw two epochs back, which no keeper admits any
+//   more. A message whose draw has no lane waits (bounded) for the reservation running for it.
+//   Every draw-lane allowance is counted, before anything is broadcast, until its expiry plus the
+//   accountants' close grace; at `maxDrawAllowances` per slot a message pays per operation.
+//
 // Reservations use the dedicated gas payer under the same durable payer claim as per-operation
 // reservations (paid-reservation.ts), and the same in-process payer queue.
 //
@@ -71,6 +81,21 @@ export interface PaidAllowanceOptions {
   reserveAhead?: boolean
   /** Per-accountant debit request timeout, ms (default 15000). */
   debitTimeoutMs?: number
+  /**
+   * ADR-0090 D7: escrow locked per DRAW-lane allowance (default `amount`). A session grant's
+   * messages must pay its exact verifier draw, which moves every beacon epoch; draw lanes hold
+   * allowances reserved on one draw each (see {@link selectAllowanceLane}). At least the
+   * per-operation cap.
+   */
+  drawAmount?: bigint
+  /**
+   * Most draw-lane allowances per slot whose escrow may still be locked (reserved, not yet past
+   * `expiresAt` plus the accountants' close grace), 1..1024 (default 4 x lanes, i.e. at most
+   * `4 x lanes x drawAmount` locked beside the regular lanes' `2 x lanes x amount`). At the
+   * bound a session message pays per operation instead of reserving another allowance. On a
+   * beacon faster than (lifetime + close grace) / 2 per epoch, size `drawAmount` down and this up.
+   */
+  maxDrawAllowances?: number
 }
 
 /** Remainder fraction (numerator / 4) below which a replacement is reserved ahead. */
@@ -83,6 +108,17 @@ const EXPIRY_MARGIN_SECS = 30
 const QUOTE_REUSE_SECS = 20
 const MAX_LANES = 8
 const MAX_RETIRED = 16
+/**
+ * Draw lanes (ADR-0090 D7): lane indices `DRAW_LANE_BASE + (epoch % 2) * MAX_LANES + j`, j < lanes.
+ * Keepers admit a session grant only at the beacon's latest or previous epoch, so at most two draws
+ * are ever wanted at once: one lane set per epoch parity, re-reserved (the stale draw retired)
+ * every second epoch.
+ */
+const DRAW_LANE_BASE = MAX_LANES
+/** The accountants' default close grace after `expiresAt` (`DEFAULT_CLOSE_GRACE_SECS`): an allowance's escrow is locked until about then. */
+const CLOSE_GRACE_SECS = 600
+/** A reserve-ahead for a draw is not attempted again within this time after one ran (ms). */
+const AHEAD_RETRY_MS = 5_000
 
 /** What paid-operation.ts needs from the pool. */
 export interface AllowanceEnv {
@@ -95,6 +131,13 @@ export interface AllowanceEnv {
   allowLocalHttp?: boolean
   limits: {maxCost: bigint; maxGas: bigint; maxGasPrice: bigint}
   options: PaidAllowanceOptions
+  /**
+   * ADR-0090 D7 reserve-ahead: a fresh payment discovery pinned to `epoch`
+   * (`discoverPaidOperationContext({verificationEpoch})`, which verifies the draw at a canonical
+   * head and refuses one that is not the beacon's latest or previous). Without it a new draw's
+   * lane is reserved only once a message needs it.
+   */
+  discover?: (slot: Hex, epoch: bigint) => Promise<PaidOperationContext>
 }
 
 /** The lane an operation was assigned: its allowance and the payment fields it must sign. */
@@ -152,6 +195,12 @@ interface LaneState {
   current?: LaneCurrent
   next?: LaneAllowance
   retired?: Hex[]
+  /**
+   * Draw lanes only: every allowance this lane signed whose escrow may still be locked, until
+   * `expiresAt + CLOSE_GRACE_SECS`. Journaled with the reservation's `signing` marker, before any
+   * broadcast; removed only when nothing was broadcast or the reservation is known not mined.
+   */
+  held?: {id: Hex; until: number}[]
 }
 interface StoredVoucher { schema: 1; voucher: DebitVoucherWire }
 
@@ -175,6 +224,10 @@ export function validateAllowanceOptions(options: PaidAllowanceOptions, limits: 
   if (options.lanes !== undefined && (!Number.isSafeInteger(options.lanes) || options.lanes < 1 || options.lanes > MAX_LANES)) throw new TasraError('Allowance lanes must be 1..8')
   const timeout = options.debitTimeoutMs ?? 15_000
   if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new TasraError('Invalid allowance debit timeout')
+  if (options.drawAmount !== undefined && (typeof options.drawAmount !== 'bigint' || options.drawAmount >= 1n << 256n || options.drawAmount < cap
+    || limits.maxCost > options.drawAmount)) throw new TasraError('Allowance draw amount must cover the per-operation cap')
+  if (options.maxDrawAllowances !== undefined && (!Number.isSafeInteger(options.maxDrawAllowances) || options.maxDrawAllowances < 1
+    || options.maxDrawAllowances > 1024)) throw new TasraError('Allowance maxDrawAllowances must be 1..1024')
 }
 
 /**
@@ -226,8 +279,9 @@ function sameSharing(fields: DiscoveredPaymentFields, intent: PrepaidAllowanceIn
     && a.key_epoch === b.key_epoch && a.committee_version === b.committee_version && a.threshold === b.threshold
     && a.contributors.length === b.contributors.length && a.contributors.every((k, i) => key(k) === key(b.contributors[i]!))
 }
+type DrawFields = Pick<DiscoveredPaymentFields, 'verification_epoch' | 'verification_seed' | 'verification_root' | 'verification_registry_size' | 'verification_committee' | 'verification_quorum'>
 /** The verifier draw an allowance's vouchers name (all six fields: the payment copies them from the allowance). */
-function sameDraw(fields: DiscoveredPaymentFields, intent: PrepaidAllowanceIntentWire): boolean {
+function sameDraw(fields: DrawFields, intent: DrawFields): boolean {
   return fields.verification_epoch === intent.verification_epoch && same(fields.verification_seed, intent.verification_seed)
     && same(fields.verification_root, intent.verification_root) && fields.verification_registry_size === intent.verification_registry_size
     && fields.verification_committee === intent.verification_committee && fields.verification_quorum === intent.verification_quorum
@@ -250,6 +304,8 @@ export interface AllowanceOperation {action: AllowanceAction; expires: number; d
 const busy = new Set<string>()
 /** Background reservations running in this process, per lane. Bounded by lanes x slots in use. */
 const refilling = new Map<string, Promise<void>>()
+/** The draw each running reservation reserves on (keyed like `refilling`). */
+const refillingDraw = new Map<string, DrawFields>()
 const MAX_REFILLING = 256
 /** How long an operation with no usable lane waits for this slot's in-flight lane reservation. */
 const LANE_WAIT_MS = 20_000
@@ -267,19 +323,172 @@ const cursors = new Map<string, number>()
  * @param operation - The paid action and the payment expiry.
  */
 export async function selectAllowanceLane(env: AllowanceEnv, context: PaidOperationContext, operation: AllowanceOperation): Promise<AllowanceTicket | undefined> {
-  const chosen = await selectLane(env, context, operation)
+  const select = async () => await selectLane(env, context, operation) ?? (operation.drawPinned ? selectDrawLane(env, context, operation) : undefined)
+  const chosen = await select()
+  // A session message on the previous epoch while the beacon is already at the next: reserve the
+  // next draw's lanes now, so the messages after the grant's refresh find them ready.
+  if (operation.drawPinned) reserveAheadForBeacon(env, context)
   if (chosen) return chosen
-  const slot = context.intentFields.slot, lanes = allowanceLaneCount(env.options)
-  const inFlight: Promise<void>[] = []
-  for (let lane = 0; lane < lanes; lane++) {
-    const work = refilling.get(laneKey(env.deployment, slot, lane))
-    if (work) inFlight.push(work)
+  const slot = context.intentFields.slot, lanes = allowanceLaneCount(env.options), draw = context.intentFields
+  // What this operation can be funded from once it lands: any regular lane reservation, or for a
+  // pinned draw only those on exactly its draw, its draw lanes and a reserve-ahead for it (whose
+  // discovery runs before any of its lanes is refilling).
+  const relevant = (): Promise<void>[] => {
+    const inFlight: Promise<void>[] = []
+    for (let lane = 0; lane < lanes; lane++) {
+      const key = laneKey(env.deployment, slot, lane), work = refilling.get(key), on = refillingDraw.get(key)
+      if (work && (!operation.drawPinned || (on && sameDraw(draw, on)))) inFlight.push(work)
+    }
+    if (operation.drawPinned) {
+      for (let j = 0; j < lanes; j++) {
+        const work = refilling.get(laneKey(env.deployment, slot, drawLaneIndex(draw.verification_epoch, j)))
+        if (work) inFlight.push(work)
+      }
+      const ahead = aheads.get(aheadKey(env.deployment, slot, draw.verification_epoch))
+      if (ahead) inFlight.push(ahead)
+    }
+    return inFlight
   }
+  const inFlight = relevant()
   if (inFlight.length === 0) return undefined
+  // Select once more as each of them ends; the first selection that finds a lane wins. Only the
+  // reservations running NOW are waited for (one a re-selection starts is not), within the bound.
   let timer: ReturnType<typeof setTimeout> | undefined
-  await Promise.race([Promise.any(inFlight), new Promise<void>(resolve => { timer = setTimeout(resolve, LANE_WAIT_MS) })])
-  clearTimeout(timer)
-  return selectLane(env, context, operation)
+  const found = new Promise<AllowanceTicket | undefined>(resolve => {
+    let left = inFlight.length
+    const done = (ticket: AllowanceTicket | undefined) => { if (ticket) resolve(ticket); else if (--left === 0) resolve(undefined) }
+    for (const work of inFlight) work.then(select).then(done, () => done(undefined))
+  })
+  try {
+    return await Promise.race([found, new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), LANE_WAIT_MS) })])
+  } finally { clearTimeout(timer) }
+}
+
+/** The draw lane `j` of the lane set for `epoch`'s parity. */
+function drawLaneIndex(epoch: number, j: number): number {
+  return DRAW_LANE_BASE + (epoch % 2) * MAX_LANES + j
+}
+function aheadKey(d: PrepaidDeployment, slot: Hex, epoch: number): string {
+  return `${laneKey(d, slot, 0)}:draw:${epoch}`
+}
+/** Draw-lane allowances one lane may hold (locked escrow), from `maxDrawAllowances` over every draw lane of the slot. */
+function heldPerDrawLane(options: PaidAllowanceOptions): number {
+  const lanes = allowanceLaneCount(options)
+  return Math.max(1, Math.floor((options.maxDrawAllowances ?? 4 * lanes) / (2 * lanes)))
+}
+/** A draw lane's allowance on this draw that needs no replacement. */
+function drawGood(c: LaneCurrent | undefined, draw: DrawFields): boolean {
+  return c !== undefined && c.phase === 'confirmed' && sameDraw(draw, c.intent) && !low(c)
+}
+/** Does draw lane `s` need a reservation for `draw` (nothing good on it, nothing confirmed reserved ahead for it)? */
+function drawNeeds(s: LaneState, draw: DrawFields): boolean {
+  return !drawGood(s.current, draw) && !(s.next?.phase === 'confirmed' && sameDraw(draw, s.next.intent))
+}
+
+/**
+ * ADR-0090 D7: a session operation's lane on its exact draw, among the draw lanes (the regular
+ * lanes were tried first and are never retired for a session). A miss starts one draw-lane
+ * reservation for this draw (the caller then waits for it, bounded); a lane whose current
+ * allowance runs low reserves its replacement on the same draw in the background.
+ */
+async function selectDrawLane(env: AllowanceEnv, context: PaidOperationContext, operation: AllowanceOperation): Promise<AllowanceTicket | undefined> {
+  const slot = context.intentFields.slot, lanes = allowanceLaneCount(env.options), draw = context.intentFields, epoch = draw.verification_epoch
+  const scope = `${laneKey(env.deployment, slot, 0)}:draw`, start = cursors.get(scope) ?? 0
+  const candidates: number[] = []
+  for (let i = 0; i < lanes; i++) candidates.push((start + i) % lanes)
+  candidates.sort((a, b) => Number(busy.has(laneKey(env.deployment, slot, drawLaneIndex(epoch, a)))) - Number(busy.has(laneKey(env.deployment, slot, drawLaneIndex(epoch, b)))))
+  let chosen: AllowanceTicket | undefined
+  let needy: number | undefined
+  for (const j of candidates) {
+    const lane = drawLaneIndex(epoch, j), key = laneKey(env.deployment, slot, lane)
+    let state = await loadLane(env.store, key, lane, slot)
+    if (state.current?.pending && !busy.has(key)) state = await completeInterruptedAdvance(env, key, lane, slot, state)
+    if (state.current?.phase === 'confirmed' && state.current.seq > 0 && state.current.intent.expires_at - now() < LOW_LIFE_SECS) repushLast(env, state.current)
+    const fits = usable(state.current, env, context, operation.action, operation.expires, true)
+    if (!chosen && (fits || (state.next?.phase === 'confirmed' && sameDraw(draw, state.next.intent) && !state.current?.pending))) {
+      const current = fits ? state.current! : await promoteDraw(env, key, lane, slot, context, operation)
+      if (current) {
+        chosen = {lane, allowanceId: current.id, fields: fieldsFor(current.intent, context)}
+        cursors.set(scope, (j + 1) % lanes)
+        // Low on the draw it serves: its replacement on the same draw, in the background.
+        if (env.options.reserveAhead !== false && drawNeeds(await loadLane(env.store, key, lane, slot), draw)) void refillDrawLane(env, context, j)
+      }
+    } else if (needy === undefined && drawNeeds(state, draw) && !refilling.has(key)) needy = j
+  }
+  // One reservation per miss, and none when a regular lane is already being reserved on this very
+  // draw (the selection before this one started it): the caller waits for that one instead.
+  let regular = false
+  for (let lane = 0; lane < lanes; lane++) {
+    const d = refillingDraw.get(laneKey(env.deployment, slot, lane))
+    if (d && sameDraw(draw, d)) regular = true
+  }
+  if (!chosen && needy !== undefined && !regular && env.options.reserveAhead !== false) void refillDrawLane(env, context, needy)
+  return chosen
+}
+
+/** Swap in a draw lane's allowance reserved on this draw when the current one cannot fund the operation. */
+async function promoteDraw(env: AllowanceEnv, key: string, lane: number, slot: Hex, context: PaidOperationContext, operation: {action: AllowanceAction; expires: number}): Promise<LaneCurrent | undefined> {
+  return env.store.withLock(key, async () => {
+    const state = await loadLane(env.store, key, lane, slot)
+    if (usable(state.current, env, context, operation.action, operation.expires, true)) return state.current!
+    if (state.current?.pending || state.next?.phase !== 'confirmed' || !sameDraw(context.intentFields, state.next.intent)) return undefined
+    const next: LaneCurrent = {...state.next, seq: 0, cumulative: '0'}
+    if (!usable(next, env, context, operation.action, operation.expires, true)) return undefined
+    await env.store.save(key, {...state, current: next, next: undefined, retired: retire(state)} satisfies LaneState)
+    repushLast(env, state.current)
+    return next
+  })
+}
+
+/** Start (once per lane in this process) a background draw-lane reservation on `context`'s (verified) draw. */
+function refillDrawLane(env: AllowanceEnv, context: PaidOperationContext, j: number): Promise<void> {
+  const lane = drawLaneIndex(context.intentFields.verification_epoch, j), key = laneKey(env.deployment, context.intentFields.slot, lane)
+  const running = refilling.get(key)
+  if (running) return running
+  if (refilling.size >= MAX_REFILLING) return Promise.resolve()
+  const work = reserveOnLane(env, context, lane, drawPlan(env, context)).then(() => {}, () => {}).finally(() => { refilling.delete(key); refillingDraw.delete(key) })
+  refilling.set(key, work)
+  refillingDraw.set(key, context.intentFields)
+  return work
+}
+
+/** Reserve-ahead attempts per (slot, draw epoch) in this process: the running job, or when the last one ended. */
+const aheads = new Map<string, Promise<void>>()
+const aheadDone = new Map<string, number>()
+const MAX_AHEADS = 256
+
+/**
+ * (a) A session operation pinned to epoch `e` while the beacon is at `e + 1`: the grant moves to
+ * `e + 1` next, and its messages then need lanes on that draw. Discover it (a fresh, verified,
+ * pinned discovery: never a draw from anywhere else) and reserve as many of its draw lanes as
+ * `e`'s draw lanes have in use (at least one), in the background. Never blocks or fails the operation.
+ */
+function reserveAheadForBeacon(env: AllowanceEnv, context: PaidOperationContext): void {
+  const epoch = context.intentFields.verification_epoch, beacon = context.beaconEpoch, slot = context.intentFields.slot
+  if (env.options.reserveAhead === false || !env.discover || beacon === undefined || beacon !== BigInt(epoch) + 1n) return
+  const next = epoch + 1, key = aheadKey(env.deployment, slot, next), at = Date.now()
+  if (aheads.has(key) || at - (aheadDone.get(key) ?? -Infinity) < AHEAD_RETRY_MS || aheads.size >= MAX_AHEADS) return
+  const discover = env.discover, lanes = allowanceLaneCount(env.options)
+  const work = (async () => {
+    let inUse = 0
+    for (let j = 0; j < lanes; j++) {
+      const s = await loadLane(env.store, laneKey(env.deployment, slot, drawLaneIndex(epoch, j)), drawLaneIndex(epoch, j), slot)
+      if (s.current?.phase === 'confirmed' && sameDraw(context.intentFields, s.current.intent)) inUse = j + 1
+    }
+    const wanted: number[] = []
+    for (let j = 0; j < Math.max(1, inUse); j++) {
+      const lane = drawLaneIndex(next, j), s = await loadLane(env.store, laneKey(env.deployment, slot, lane), lane, slot)
+      // Its draw is unknown until discovered; a lane already good on SOME draw of epoch `next` is that draw's.
+      if (!(s.current?.phase === 'confirmed' && s.current.intent.verification_epoch === next && !low(s.current))
+        && !(s.next?.phase === 'confirmed' && s.next.intent.verification_epoch === next)) wanted.push(j)
+    }
+    if (wanted.length === 0) return
+    const drawn = await discover(slot, BigInt(next))
+    if (drawn.intentFields.verification_epoch !== next || !same(drawn.intentFields.slot, slot) || drawn.intentFields.chain_id !== env.deployment.chainId
+      || !same(drawn.intentFields.settlement, env.deployment.settlement)) return
+    await Promise.all(wanted.map(j => refillDrawLane(env, drawn, j)))
+  })().catch(() => {}).finally(() => { aheads.delete(key); aheadDone.set(key, Date.now()); if (aheadDone.size > MAX_AHEADS) aheadDone.delete(aheadDone.keys().next().value!) })
+  aheads.set(key, work)
 }
 
 async function selectLane(env: AllowanceEnv, context: PaidOperationContext, operation: AllowanceOperation): Promise<AllowanceTicket | undefined> {
@@ -376,8 +585,9 @@ function fieldsFor(intent: PrepaidAllowanceIntentWire, context: PaidOperationCon
 function refillLane(env: AllowanceEnv, context: PaidOperationContext, lane: number): void {
   const key = laneKey(env.deployment, context.intentFields.slot, lane)
   if (refilling.has(key) || refilling.size >= MAX_REFILLING) return
-  const work = reserveForLane(env, context, lane).then(() => {}, () => {}).finally(() => refilling.delete(key))
+  const work = reserveForLane(env, context, lane).then(() => {}, () => {}).finally(() => { refilling.delete(key); refillingDraw.delete(key) })
   refilling.set(key, work)
+  refillingDraw.set(key, context.intentFields)
 }
 
 /**
@@ -389,6 +599,39 @@ function refillLane(env: AllowanceEnv, context: PaidOperationContext, lane: numb
  * @param signal - Cancellation (honoured until the reservation is prepared).
  */
 export async function reserveForLane(env: AllowanceEnv, context: PaidOperationContext, lane: number, signal?: AbortSignal): Promise<'reserved' | 'pending' | 'not-needed'> {
+  const outcome = await reserveOnLane(env, context, lane, regularPlan(env), signal)
+  return outcome === 'capped' ? 'not-needed' : outcome
+}
+
+/** What one lane reservation reserves and when it takes over (regular lanes and draw lanes differ). */
+interface ReservePlan {
+  /** Does the lane (as loaded) need a new allowance at all? */
+  needed(s: LaneState): boolean
+  amount: bigint
+  /** With the confirmed `s.next` (no debit pending on the current one): replace the current allowance now? */
+  takeOver(s: LaneState & {next: LaneAllowance}): boolean
+  /** Draw lanes: at most this many allowances held (escrow possibly locked) by the lane; journaled before any broadcast. */
+  hold?: number
+  /** A confirmed reserved-ahead allowance this reservation may replace (retire) instead of waiting behind it. */
+  replaceNext?(next: LaneAllowance): boolean
+}
+function regularPlan(env: AllowanceEnv): ReservePlan {
+  return {amount: env.options.amount,
+    needed: s => !(s.next?.phase === 'confirmed' || (s.current && !low(s.current) && s.current.phase === 'confirmed')),
+    takeOver: s => !(s.current && s.current.phase === 'confirmed' && remaining(s.current) >= env.limits.maxCost && s.current.intent.expires_at - now() > LOW_LIFE_SECS / 2)}
+}
+/** A draw lane on `context`'s draw: replaces an allowance of any other draw (only a stale one can be on its lane set) or a low one. */
+function drawPlan(env: AllowanceEnv, context: PaidOperationContext): ReservePlan {
+  const draw = context.intentFields
+  return {amount: env.options.drawAmount ?? env.options.amount, hold: heldPerDrawLane(env.options), needed: s => drawNeeds(s, draw),
+    // Left reserved ahead on an older draw (its take-over waited behind a debit): no session needs it any more.
+    replaceNext: next => next.phase === 'confirmed' && !sameDraw(draw, next.intent),
+    takeOver: s => !s.current || !sameDraw(s.next.intent, s.current.intent)
+      || !(s.current.phase === 'confirmed' && remaining(s.current) >= env.limits.maxCost && s.current.intent.expires_at - now() > LOW_LIFE_SECS / 2)}
+}
+const unexpired = (held: LaneState['held']) => (held ?? []).filter(h => h.until > now())
+
+async function reserveOnLane(env: AllowanceEnv, context: PaidOperationContext, lane: number, plan: ReservePlan, signal?: AbortSignal): Promise<'reserved' | 'pending' | 'not-needed' | 'capped'> {
   const slot = context.intentFields.slot, key = laneKey(env.deployment, slot, lane), d = env.deployment, store = env.store
   const payer = env.gasPayer.account.address
   // Reconcile an earlier uncertain reservation first; never sign a second one beside it.
@@ -400,14 +643,17 @@ export async function reserveForLane(env: AllowanceEnv, context: PaidOperationCo
     await store.withLock(key, async () => {
       const s = await loadLane(store, key, lane, slot)
       if (!s.next || !same(s.next.id, before.next!.id)) return
-      await store.save(key, {...s, next: state === 'reserved' ? {...s.next, phase: 'confirmed', assignmentBlock: allowance.assignmentBlock} : undefined} satisfies LaneState)
+      // Known not mined: it locks nothing, so it no longer counts against the lane's bound.
+      const held = state === 'not-reserved' && s.held ? {held: s.held.filter(h => !same(h.id, before.next!.id))} : {}
+      await store.save(key, {...s, ...held, next: state === 'reserved' ? {...s.next, phase: 'confirmed', assignmentBlock: allowance.assignmentBlock} : undefined} satisfies LaneState)
     })
     return state === 'reserved' ? 'reserved' : 'pending'
   }
-  if (before.next?.phase === 'confirmed' || (before.current && !low(before.current) && before.current.phase === 'confirmed')) return 'not-needed'
+  if (!plan.needed(before)) return 'not-needed'
+  if (plan.hold !== undefined && unexpired(before.held).filter(h => !(before.next?.phase === 'signing' && same(h.id, before.next.id))).length >= plan.hold) return 'capped'
   const options = env.options, life = options.lifetimeSecs ?? ALLOWANCE_MAX_LIFETIME_SECS
   const unsigned: Omit<PrepaidAllowanceIntentWire, 'signature'> = {chain_id: d.chainId, settlement: d.settlement, key_registry: d.keyRegistry, slot,
-    intent_nonce: toHex(globalThis.crypto.getRandomValues(new Uint8Array(32))), amount: options.amount.toString(),
+    intent_nonce: toHex(globalThis.crypto.getRandomValues(new Uint8Array(32))), amount: plan.amount.toString(),
     max_op_cost: (options.maxOpCost ?? env.limits.maxCost).toString(), actions: options.actions ? allowanceActionBits(options.actions) : ALLOWANCE_ACTIONS,
     // Members measure the one-hour bound from the quote block (pinned to this observation below),
     // whose timestamp trails the clock: never exceed it, or every member refuses the archive.
@@ -420,11 +666,20 @@ export async function reserveForLane(env: AllowanceEnv, context: PaidOperationCo
   const claimed = await store.withLock(key, async () => {
     const s = await loadLane(store, key, lane, slot)
     // A `signing` marker without a record was never broadcast (prepared is journaled first).
-    if (s.next && s.next.phase !== 'signing') return false
-    await store.save(key, {...s, next: {id, intent, phase: 'signing'}} satisfies LaneState)
+    const replaced = s.next?.phase === 'confirmed' && plan.replaceNext?.(s.next) ? s.next : undefined
+    if (s.next && s.next.phase !== 'signing' && !replaced) return 'pending' as const
+    // The bound is judged and the new allowance counted in the same durable save, before anything
+    // is sent; a replaced `signing` marker was never broadcast and stops counting.
+    let held: Pick<LaneState, 'held'> = {}
+    if (plan.hold !== undefined) {
+      const live = unexpired(s.held).filter(h => !(s.next?.phase === 'signing' && same(h.id, s.next.id)))
+      if (live.length >= plan.hold) return 'capped' as const
+      held = {held: [...live, {id, until: intent.expires_at + CLOSE_GRACE_SECS}]}
+    }
+    await store.save(key, {...s, ...held, ...replaced ? {retired: [...s.retired ?? [], replaced.id].slice(-MAX_RETIRED)} : {}, next: {id, intent, phase: 'signing'}} satisfies LaneState)
     return true
   })
-  if (!claimed) return 'pending'
+  if (claimed !== true) return claimed
   const update = (patch: Partial<LaneAllowance>, require: LaneAllowance['phase'][]) => store.withLock(key, async () => {
     const s = await loadLane(store, key, lane, slot)
     if (!s.next || !same(s.next.id, id) || !require.includes(s.next.phase)) throw new TasraError('Allowance lane changed during its reservation')
@@ -446,7 +701,7 @@ export async function reserveForLane(env: AllowanceEnv, context: PaidOperationCo
     await store.withLock(key, async () => {
       const s = await loadLane(store, key, lane, slot)
       if (s.next?.phase !== 'confirmed' || !same(s.next.id, id) || s.current?.pending) return
-      if (s.current && s.current.phase === 'confirmed' && remaining(s.current) >= env.limits.maxCost && s.current.intent.expires_at - now() > LOW_LIFE_SECS / 2) return
+      if (!plan.takeOver(s as LaneState & {next: LaneAllowance})) return
       await store.save(key, {...s, current: {...s.next, seq: 0, cumulative: '0'}, next: undefined, retired: retire(s)} satisfies LaneState)
       repushLast(env, s.current)
     })
@@ -456,7 +711,9 @@ export async function reserveForLane(env: AllowanceEnv, context: PaidOperationCo
     // Nothing prepared means nothing broadcast: drop the marker so a later attempt can sign anew.
     await store.withLock(key, async () => {
       const s = await loadLane(store, key, lane, slot)
-      if (s.next && same(s.next.id, id) && s.next.phase === 'signing') await store.save(key, {...s, next: undefined} satisfies LaneState)
+      if (s.next && same(s.next.id, id) && s.next.phase === 'signing') {
+        await store.save(key, {...s, ...s.held ? {held: s.held.filter(h => !same(h.id, id))} : {}, next: undefined} satisfies LaneState)
+      }
     })
     throw error
   }
@@ -763,7 +1020,32 @@ export async function inspectAllowanceLanes(store: ApplicationStore, deployment:
   return out
 }
 
-/** Test hook: wait for every background reservation started in this process. */
+/**
+ * Inspect the draw lanes (ADR-0090 D7) of a slot for one epoch's parity: as {@link inspectAllowanceLanes},
+ * with each allowance's verifier epoch and how many allowances the lane holds (escrow possibly still locked).
+ * @param store - Application store.
+ * @param deployment - Approved deployment.
+ * @param slot - Slot.
+ * @param lanes - Lane count.
+ * @param epoch - A verifier epoch of the parity to inspect.
+ */
+export async function inspectAllowanceDrawLanes(store: ApplicationStore, deployment: PrepaidDeployment, slot: Hex, lanes: number, epoch: number):
+  Promise<{lane: number; allowanceId?: Hex; epoch?: number; phase?: string; seq?: number; amount?: string; next?: {allowanceId: Hex; phase: string; epoch: number}; retired: number; held: number}[]> {
+  const out = []
+  for (let j = 0; j < lanes; j++) {
+    const lane = drawLaneIndex(epoch, j), s = await loadLane(store, laneKey(deployment, slot, lane), lane, slot)
+    out.push({lane, ...s.current ? {allowanceId: s.current.id, epoch: s.current.intent.verification_epoch, phase: s.current.phase, seq: s.current.seq, amount: s.current.intent.amount} : {},
+      ...s.next ? {next: {allowanceId: s.next.id, phase: s.next.phase, epoch: s.next.intent.verification_epoch}} : {}, retired: s.retired?.length ?? 0, held: unexpired(s.held).length})
+  }
+  return out
+}
+
+/** Test hook: wait for every background reservation (and draw reserve-ahead) started in this process. */
 export async function settleAllowanceRefills(): Promise<void> {
-  await Promise.all([...refilling.values()])
+  while (refilling.size > 0 || aheads.size > 0) await Promise.all([...refilling.values(), ...aheads.values()])
+}
+
+/** Test hook: forget this process's reserve-ahead retry times (a new process starts without them). */
+export function resetAllowanceDrawAheads(): void {
+  aheadDone.clear()
 }

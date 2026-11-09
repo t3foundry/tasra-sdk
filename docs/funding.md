@@ -281,6 +281,18 @@ supports ADR-0090: the network advertises no capability for it, so the option is
   accountant refusal journals the allowance attempt `failed`, retires the lane and falls back once
   to a fresh payment with a new request ID (`onRequestId` then sees both). Unreachable accountants
   leave the debit pending: `resumePaidOperation` retries the same voucher.
+- **Session draws.** A session grant's messages must pay the grant's exact verifier draw, and
+  the grant follows the beacon every epoch. Regular lanes are never retired for that; separate
+  draw lanes (two sets, one per epoch parity) hold one allowance per draw. When a message on the
+  grant's epoch sees the beacon already at the next one, the next draw is discovered (pinned and
+  verified exactly as the message's own) and its lanes are reserved in the background, so the
+  messages after the grant's refresh pay by voucher. A message whose draw lane is still being
+  reserved waits for it (at most 20 s) rather than reserving per operation. The escrow they hold
+  is bounded: at most `maxDrawAllowances` (default `4 x lanes`) allowances of `drawAmount`
+  (default `amount`) per slot, counted until their expiry plus the accountants' 10-minute close
+  grace; at the bound a message pays per operation. On a beacon faster than about
+  (lifetime + 10 min) / 2 per epoch, lower `drawAmount` and `lifetimeSecs` and raise
+  `maxDrawAllowances`.
 - Historical keeper-result recovery of allowance-backed work is not available yet and fails closed.
 
 ### Busy services during a paid operation

@@ -1846,6 +1846,21 @@ describe('paidSessionDecrypt: one session-grant KEM decrypt paid without any pre
     unpinned.dispose()
   })
 
+  it('hands the lanes a reserve-ahead discovery of the next draw that is pinned and verified like a message\'s own', async () => {
+    const f = setup()
+    lane(); await blsSlot()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    const paid = await paidSessionDecrypt(enabled(f), {slot, decryption: (await binding()).decryption,
+      grant: {epoch: base.intentFields.verification_epoch, seed: base.intentFields.verification_seed}})
+    const env = vi.mocked(selectAllowanceLane).mock.calls.at(-1)![0]
+    expect(env.discover).toBeTypeOf('function')
+    await env.discover!(slot, 9n)
+    const discovery = vi.mocked(discoverPaidOperationContext).mock.calls.at(-1)!
+    expect(discovery[2]).toBe(slot)
+    expect(discovery[3]).toMatchObject({verificationEpoch: 9n, fundedByAllowance: true})
+    paid.dispose()
+  })
+
   it('refuses a grant whose seed is not the beacon\'s, and a moved draw, before anything is signed or debited', async () => {
     const f = setup()
     lane(); await blsSlot()

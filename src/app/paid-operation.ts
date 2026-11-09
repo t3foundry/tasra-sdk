@@ -583,8 +583,12 @@ function validateConfig(config: PaidOperationConfig): void {
 
 function allowanceEnv(config: PaidOperationConfig): AllowanceEnv | undefined {
   if (!config.allowances?.enabled) return undefined
+  const d = {...config.deployment}
   return {client: config.chain.client, deployment: config.deployment, creator: config.creator, gasPayer: config.gasPayer, store: config.store,
-    accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, limits: config.limits, options: config.allowances}
+    accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, limits: config.limits, options: config.allowances,
+    // ADR-0090 D7 reserve-ahead: the next draw, verified exactly as a session message's pinned discovery.
+    discover: (slot, epoch) => discoverPaidOperationContext(config.chain.client, d, slot, {allowLocalHttp: config.allowLocalHttp,
+      defaultVerificationPolicy: d.defaultVerificationPolicy, fundedByAllowance: true, verificationEpoch: epoch})}
 }
 
 /** The allowance path refused this operation for good; it was journaled `failed` and is retried once per operation. */

@@ -21,6 +21,13 @@ never does.
   never failing the operation), so members also learn a lane's last seq; a retiring lane or
   an allowance near expiry re-pushes its last voucher once to members that did not
   acknowledge it.
+- ADR-0090 D7 draw lanes: a session grant's messages pay its exact verifier draw, which moves
+  every beacon epoch. Two sets of draw lanes per slot (one per epoch parity) hold allowances
+  reserved on one draw each. A message on the previous epoch while the beacon is already at the
+  next reserves the next draw's lanes in the background, through a pinned, verified discovery;
+  a message whose draw has no lane yet waits (bounded) for its reservation instead of reserving
+  per operation. `PaidAllowanceOptions.drawAmount` and `maxDrawAllowances` (default
+  `4 x lanes`) bound the escrow draw lanes may hold; at the bound a message pays per operation.
 - Two-step slot hand-offs on the write client: `proposeSlotTransfer`,
   `acceptSlotTransfer` and `withdrawSlotTransfer` move the creator;
   `proposeRuleAdminTransfer`, `acceptRuleAdminTransfer` and
