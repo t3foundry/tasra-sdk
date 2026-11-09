@@ -462,7 +462,9 @@ export function readAccountantGroupKey(client: PublicClient, deployment: Prepaid
   if (!HEX32.test(blockHash) || same(blockHash, ZERO32)) return Promise.reject(new Error('group key read needs a block'))
   let cache = groupKeys.get(client)
   if (!cache) groupKeys.set(client, cache = new Map<string, Promise<Uint8Array>>())
-  const key = `${deployment.settlement.toLowerCase()}:${blockHash.toLowerCase()}`
+  // Keyed by the approved beacon too: a read without one never answers a call that must check
+  // Settlement names exactly the approved beacon (review F5).
+  const key = `${deployment.settlement.toLowerCase()}:${(deployment.beacon ?? '').toLowerCase()}:${blockHash.toLowerCase()}`
   const hit = cache.get(key)
   if (hit) return hit
   const read = (async () => {

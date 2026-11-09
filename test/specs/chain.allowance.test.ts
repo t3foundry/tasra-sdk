@@ -154,6 +154,15 @@ describe('collectDebitVoucher', () => {
     expect(sequentialRounds(world.rpcSpans)).toBe(1)
   }, 30_000)
 
+  it('never answers a call with an approved beacon from a key read without one (review F5)', async () => {
+    const world = allowanceWorld()
+    // Without an approved beacon: whatever Settlement names at the block (the fixture beacon).
+    expect(await readAccountantGroupKey(world.client, {...deployment, beacon: undefined}, h(0x66))).toHaveLength(128)
+    // With an approved beacon Settlement does not name, the check runs: never the cached key.
+    await expect(readAccountantGroupKey(world.client, {...deployment, beacon: h(8, 20)}, h(0x66))).rejects.toThrow(/another beacon/)
+    expect(await readAccountantGroupKey(world.client, deployment, h(0x66))).toHaveLength(128)
+  }, 30_000)
+
   it('refuses partials that do not match the request: a cost above the cap, a wrong group key', async () => {
     const world = allowanceWorld({cost: 101n}), {payment, quoteBlock} = await request(world)
     const over = await collectDebitVoucher(world.client, deployment, {payment, seq: 1, quoteBlock, maxOpCost: 100n}, {accountantUrls: world.accountantUrls}).catch((e: unknown) => e)
