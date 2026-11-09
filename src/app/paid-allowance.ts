@@ -463,7 +463,7 @@ export async function obtainAllowanceVoucher(env: AllowanceEnv, ticket: {lane: n
   try {
     // The lane lock serializes the lane's rounds; the push journal's lock is held with it, so the
     // voucher a round completes is journaled for its push in the same commit as the lane advance.
-    const voucher = await withCommit(store, [key, ...push ? [push] : [], ...options.lock ?? []], async commit => {
+    const settled = await withCommit(store, [key, ...push ? [push] : [], ...options.lock ?? []], async commit => {
       await options.check?.()
       let state = await loadLane(store, key, ticket.lane, slot)
       // `save` is durable before it returns; `advance` only records the lane's next state, which is
@@ -478,6 +478,10 @@ export async function obtainAllowanceVoucher(env: AllowanceEnv, ticket: {lane: n
         after.push(() => repushLast(env, retiring))
         throw new AllowanceRefusedError(why, cause)
       }
+      // A round that fails after it completed another request's interrupted debit (`finalize`, whose
+      // voucher is already journaled) still publishes that lane advance and its push journal: the
+      // failure is reported after the commit, never by discarding the advance, which would leave
+      // the lane pending on a debit no selection ever runs a round for again.
       const outcome = await (async (): Promise<DebitVoucherWire> => {
         const current = state.current
         if (!current || !same(current.id, allowance)) throw new AllowanceRefusedError('the lane no longer holds this allowance')
@@ -510,7 +514,7 @@ export async function obtainAllowanceVoucher(env: AllowanceEnv, ticket: {lane: n
           await save({...state, current: {...lane, pending: debit}})
         }
         return runRound(env, state, state.current!, debit, round, retireLane, signal, options.journal)
-      })()
+      })().then(voucher => ({voucher}), (error: unknown) => ({error}))
       if (unsaved) commit.stage(key, state)
       // The allowance's last voucher, journaled (unacknowledged) before it is pushed. Committed with
       // the lane advance: a crash may keep either one. A journal without the advance names a seq whose
@@ -527,7 +531,8 @@ export async function obtainAllowanceVoucher(env: AllowanceEnv, ticket: {lane: n
     })
     // Never awaited by the operation; beyond the background bound the journal keeps it for the re-push.
     for (const done of toPush) background(() => sendAndJournal(env, done, accountantEndpoints(env, env.deployment.chainId)))
-    return voucher
+    if ('error' in settled) throw settled.error
+    return settled.voucher
   } finally {
     busy.delete(key)
     for (const job of after) job()

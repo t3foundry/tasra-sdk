@@ -346,6 +346,33 @@ describe('lane commits: what a crash inside each one leaves', () => {
     expect(vi.mocked(collectDebitVoucher)).toHaveBeenCalledTimes(1)
   })
 
+  it('a round refused after it completed another request\'s interrupted debit still publishes that lane advance and pushes its voucher', async () => {
+    const {env, store, allowance} = await seeded()
+    const a = await payment(allowance, 0x41)
+    await reserving(store, a)
+    const save = store.save.bind(store)
+    let journaled = false
+    store.save = async (key, value) => {
+      if (key.startsWith('pav-')) journaled = true
+      else if (journaled && key.startsWith('pal-')) { store.save = save; throw new Error('crash before the lane advance') }
+      return save(key, value)
+    }
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(a, 1, 40), partials: [], outcomes: []})
+    await expect(obtainAllowanceVoucher(env, {lane: 0}, a)).rejects.toThrow('crash')
+    await settleAllowanceVoucherPushes()
+    vi.mocked(pushDebitVoucher).mockReset()
+    // b outlives the allowance: refused, but only after its round completed a's advance.
+    const b = await payment(allowance, 0x42, {expires: NOW + 100_000_000})
+    await expect(obtainAllowanceVoucher(env, {lane: 0}, b)).rejects.toBeInstanceOf(AllowanceRefusedError)
+    await settleAllowanceVoucherPushes()
+    expect(vi.mocked(collectDebitVoucher)).toHaveBeenCalledTimes(1)
+    const [lane] = await inspectAllowanceLanes(store, deployment, slot, 1)
+    expect(lane).toMatchObject({allowanceId: allowance, seq: 1, cumulative: '40', retired: 0})
+    expect(lane?.pending).toBeUndefined()
+    expect((await inspectAllowanceVoucherPush(store, allowance))?.seq).toBe(1)
+    expect(vi.mocked(pushDebitVoucher).mock.calls.map(c => c[1])).toEqual([voucherFor(a, 1, 40)])
+  })
+
   it('a crash that kept the push journal but not the lane advance: the next round completes the advance and the journal never goes back', async () => {
     const {env, store, allowance} = await seeded()
     const a = await payment(allowance, 0x41), b = await payment(allowance, 0x42)
