@@ -33,7 +33,7 @@ vi.mock('node:fs/promises', async original => {
 })
 
 const {createFileStore, fileStoreSyncCounters} = await import('../../src/app/node.js')
-const {saveAll, saveRederivable, withCommit} = await import('../../src/app/store-commit.js')
+const {Rederivable, saveAll, saveRederivable, withCommit} = await import('../../src/app/store-commit.js')
 const {createMemoryStore} = await import('../../src/app/memory-store.js')
 const {mkdtemp, rm, readFile, readdir} = await import('node:fs/promises')
 const {tmpdir} = await import('node:os')
@@ -211,6 +211,54 @@ describe.skipIf(DSYNC === 0)('file store commit steps (internal)', () => {
     await saveRederivable(store, 'confirm', {phase: 'confirmed'})
     expect(events).toEqual(['open:tmp:dsync', 'sync:tmp', 'rename:confirm.json'])
     expect(await store.load('confirm')).toEqual({phase: 'confirmed'})
+  })
+
+  it('withCommit on several keys: every lock taken (sorted, so opposite orders never deadlock), one commit, every lock removed with it', async () => {
+    const dir = await directory(), store = createFileStore(dir), other = createFileStore(dir, {lockWaitMs: 0})
+    await withCommit(store, ['lane', 'journal'], async commit => {
+      await expect(other.withLock('lane', async () => 1)).rejects.toThrow('reconcile')
+      await expect(other.withLock('journal', async () => 1)).rejects.toThrow('reconcile')
+      // A key this chain holds cannot be locked again inside it.
+      await expect(withCommit(store, ['journal', 'other'], async () => 1)).rejects.toThrow('reconcile')
+      commit.stage('lane', {seq: 1}); commit.stage('journal', {phase: 'reserved'})
+    })
+    expect(events).toEqual(['open:journal.lock:plain', 'open:lane.lock:plain', 'open:tmp:dsync', 'open:tmp:dsync', 'sync:tmp',
+      'rename:lane.json', 'rename:journal.json', 'unlink:journal.lock', 'unlink:lane.lock', 'dirsync'])
+    expect((await readdir(dir)).sort()).toEqual(['journal.json', 'lane.json'])
+    // Opposite orders from concurrent callers: both complete, one after the other.
+    let inside = 0, most = 0
+    const run = (keys: string[]) => withCommit(store, keys, async commit => {
+      inside++; most = Math.max(most, inside); await new Promise(done => setTimeout(done, 2)); inside--
+      commit.stage(keys[0]!, {by: keys.join()})
+    })
+    await Promise.all([run(['a', 'b']), run(['b', 'a']), run(['a', 'b']), run(['b', 'a'])])
+    expect(most).toBe(1)
+    expect((await readdir(dir)).filter(n => n.endsWith('.lock'))).toEqual([])
+  })
+
+  it('withCommit on several keys: a lock another process holds refuses after the wait and releases the ones already taken', async () => {
+    const dir = await directory(), store = createFileStore(dir, {lockWaitMs: 0})
+    await store.withLock('b', async () => {
+      await expect(withCommit(createFileStore(dir, {lockWaitMs: 0}), ['a', 'b'], async () => 1)).rejects.toThrow('reconcile')
+      expect((await readdir(dir)).sort()).toEqual(['b.lock'])
+    })
+    expect(await withCommit(store, ['a', 'b'], async () => 2)).toBe(2)
+  })
+
+  it('Rederivable: put replaces per key, take empties, restore never overwrites a newer put, flush writes each one without a directory sync', async () => {
+    const store = createFileStore(await directory()), later = new Rederivable()
+    later.put('a', {n: 1}); later.put('b', {n: 2}); later.put('a', {n: 3})
+    const taken = later.take()
+    expect(taken).toEqual([['b', {n: 2}], ['a', {n: 3}]])
+    expect(later.take()).toEqual([])
+    later.put('a', {n: 4})
+    later.restore(taken)
+    expect(later.take().sort()).toEqual([['a', {n: 4}], ['b', {n: 2}]].sort())
+    later.put('c', {n: 5})
+    events.length = 0
+    await later.flush(store)
+    expect(events).toEqual(['open:tmp:dsync', 'sync:tmp', 'rename:c.json'])
+    expect(await store.load('c')).toEqual({n: 5})
   })
 
   it('stores without native steps get the same calls as before: withLock, then each staged save in order', async () => {
