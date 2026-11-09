@@ -28,7 +28,7 @@ import {pollTransactionReceipt} from './receipt.js'
 import {pinnedCall} from './pinnedReads.js'
 import {chainIdOf} from './chainId.js'
 import {UnderfundedGasPayerError, UnderfundedSlotError} from '../errors.js'
-import {combineBn254, verifyBn254, type Bn254Partial} from '../crypto/bn254.js'
+import {interpolateBn254, verifyBn254} from '../crypto/bn254.js'
 import {bytesToHex, hexToBytes} from '../crypto/hex.js'
 import type {PrepaidDeployment} from './prepaid.js'
 
@@ -466,11 +466,16 @@ export function readAccountantGroupKey(client: PublicClient, deployment: Prepaid
   const hit = cache.get(key)
   if (hit) return hit
   const read = (async () => {
+    const mpkCall = encodeFunctionData({abi: thresholdRandomBeaconAbi, functionName: 'mpk'})
+    // With an approved beacon, Settlement must name exactly it, so its mpk is read in the same
+    // round (both pinned to the block) and used only once that is confirmed: one RPC round.
+    const approvedMpk = deployment.beacon ? pinnedCall(client, blockHash, deployment.beacon, mpkCall) : undefined
+    approvedMpk?.catch(() => {})
     const beaconData = await pinnedCall(client, blockHash, deployment.settlement, encodeFunctionData({abi: settlementAbi, functionName: 'beacon'}))
     if (beaconData === undefined) throw new Error('empty Settlement.beacon response')
     const beacon = decodeFunctionResult({abi: settlementAbi, functionName: 'beacon', data: beaconData})
     if (deployment.beacon && !same(beacon, deployment.beacon)) throw new Error('Settlement names another beacon than the approved one')
-    const mpkData = await pinnedCall(client, blockHash, beacon, encodeFunctionData({abi: thresholdRandomBeaconAbi, functionName: 'mpk'}))
+    const mpkData = await (approvedMpk ?? pinnedCall(client, blockHash, beacon, mpkCall))
     if (mpkData === undefined) throw new Error('empty beacon.mpk response')
     const mpk = hexToBytes(decodeFunctionResult({abi: thresholdRandomBeaconAbi, functionName: 'mpk', data: mpkData}))
     if (mpk.length !== 128 || mpk.every(b => b === 0)) throw new Error('accountant group key is not set at the quote block')
@@ -598,6 +603,7 @@ function expectedCumulative(request: DebitRequest, cost: bigint): bigint {
   return request.previous ? BigInt(request.previous.cumulative) + cost : cost
 }
 
+/** Every check of one member's answer EXCEPT the pairing (see {@link partialVerifies}). */
 function checkPartial(value: unknown, request: DebitRequest, d: PrepaidDeployment, requestId: Hex): DebitPartialWire {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid debit partial')
   const p = value as Record<string, unknown>
@@ -614,8 +620,12 @@ function checkPartial(value: unknown, request: DebitRequest, d: PrepaidDeploymen
     || cost <= 0n || cost > BigInt(request.payment.max_cost) || cost > request.maxOpCost || BigInt(w.cumulative) !== expectedCumulative(request, cost)) throw new Error('debit partial does not match the request')
   const digest = debitVoucherDigest(d.settlement, d.chainId, {allowanceId: w.allowance_id, seq: BigInt(w.seq), requestId, cost, cumulative: BigInt(w.cumulative), quoteBlock: w.quote_block})
   if (!same(w.digest, digest)) throw new Error('debit partial digest mismatch')
-  if (!verifyBn254(hexToBytes(w.verifying_share), hexToBytes(digest), hexToBytes(w.partial))) throw new Error(`partial of member ${w.identifier} does not verify against its share`)
   return w
+}
+
+/** One member's partial against its own verifying share (one pairing check). */
+function partialVerifies(p: DebitPartialWire): boolean {
+  return verifyBn254(hexToBytes(p.verifying_share), hexToBytes(p.digest), hexToBytes(p.partial))
 }
 
 /** Options for {@link collectDebitVoucher}. */
@@ -628,18 +638,30 @@ export interface CollectDebitVoucherOptions {
   requestTimeoutMs?: number
   /** Cancellation. An abort after the round started may leave partials journaled at members. */
   signal?: AbortSignal
-  /** Partials already verified for this exact request (a resumed round only asks the others). */
+  /** Partials already obtained for this exact request (from an earlier attempt of the round). */
   known?: readonly DebitPartialWire[]
 }
 
+/** k-subsets tried per sharing before a round gives up (a lying verifying share defeats a subset, not the round). */
+const MAX_SUBSETS = 16
+
 /**
- * Obtain one debit voucher: the same request to every accountant in parallel, each partial checked
- * against its verifying share and the request, `k` of one sharing combined, the aggregate verified
- * against `beacon.mpk()` at the quote block. Throws {@link DebitVoucherError} without `k`.
+ * Obtain one debit voucher: the same request to every accountant in parallel, each answer checked
+ * against the request, `k` partials of one sharing combined and the aggregate verified against
+ * `beacon.mpk()` at the quote block (read while the members answer).
+ *
+ * The voucher is returned as soon as `k` answers combine into an aggregate the group key verifies:
+ * that check alone makes the voucher valid, so the round neither waits for the remaining members
+ * (their requests run on in the background; the voucher reaches them by the push) nor checks each
+ * partial against its share first. Only when an aggregate fails are the partials checked one by
+ * one, which names the member whose partial does not verify and drops it from the next subsets.
+ * Without `k` the round waits for every member, checks every partial and throws
+ * {@link DebitVoucherError} with each member's outcome.
  * @param client - Trusted RPC client (group key read).
  * @param deployment - Approved deployment (with the approved beacon, when known).
  * @param request - Payment, sequence, previous voucher, journaled quote block and the allowance cap.
  * @param options - Endpoints, timeout, cancellation and already-known partials.
+ * @returns The voucher, the `k` partials combined into it and the outcomes of the members that had answered.
  */
 export async function collectDebitVoucher(client: PublicClient, deployment: PrepaidDeployment & {beacon?: Address}, request: DebitRequest,
   options: CollectDebitVoucherOptions): Promise<{voucher: DebitVoucherWire; partials: DebitPartialWire[]; outcomes: DebitMemberOutcome[]}> {
@@ -657,9 +679,15 @@ export async function collectDebitVoucher(client: PublicClient, deployment: Prep
   if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new Error('invalid debit request timeout')
   const urls = accountantEndpoints(options, d.chainId), requestId = prepaidRequestId(payment)
   const body = {intent: payment, seq: request.seq, previous: request.previous ?? null, quote_block: request.quoteBlock}
-  const known = new Map<number, DebitPartialWire>()
-  for (const p of options.known ?? []) { const checked = checkPartial(p, request, d, requestId); known.set(checked.identifier, checked) }
-  const outcomes: DebitMemberOutcome[] = await Promise.all(urls.map(async (url): Promise<DebitMemberOutcome> => {
+  // Candidates: shape-checked partials by identifier (a known partial is re-checked the same way).
+  const candidates = new Map<number, DebitPartialWire>()
+  for (const p of options.known ?? []) { const shaped = checkPartial(p, request, d, requestId); candidates.set(shaped.identifier, shaped) }
+  // The group key is read while the members answer; a failed read is judged only when it is needed.
+  const groupKey = readAccountantGroupKey(client, d, request.quoteBlock)
+  groupKey.catch(() => {})
+
+  const outcomes: (DebitMemberOutcome | undefined)[] = urls.map(() => undefined)
+  const ask = async (url: string): Promise<DebitMemberOutcome> => {
     try {
       const answer = await post(`${url}/v1/prepaid/allowances/${payment.allowance_id}/debits`, body, timeout, options.signal)
       if (answer.json === undefined) return transient(answer.status) ? {url, kind: 'unavailable', reason: `(${answer.status}) ${answer.text}`}
@@ -670,29 +698,83 @@ export async function collectDebitVoucher(client: PublicClient, deployment: Prep
       if (error instanceof Unavailable) return {url, kind: 'unavailable', reason: error.message}
       return {url, kind: 'refused', status: 0, reason: error instanceof Error ? error.message.slice(0, 256) : 'invalid answer'}
     }
-  }))
-  for (const o of outcomes) if (o.kind === 'partial' && !known.has(o.partial.identifier)) known.set(o.partial.identifier, o.partial)
-  // Partials of one sharing only: a reshare between members' answers must never mix.
-  const bySharing = new Map<string, DebitPartialWire[]>()
-  for (const p of known.values()) bySharing.set(`${p.sharing.toLowerCase()}:${p.threshold}:${p.members}:${p.cost}`, [...bySharing.get(`${p.sharing.toLowerCase()}:${p.threshold}:${p.members}:${p.cost}`) ?? [], p])
-  const group = [...bySharing.values()].sort((a, b) => b.length - a.length)[0] ?? []
-  const threshold = group[0]?.threshold
-  if (!threshold || group.length < threshold) throw new DebitVoucherError(outcomes, known.size, threshold)
-  const first = group[0]!, digest = hexToBytes(first.digest)
-  const mpk = await readAccountantGroupKey(client, d, request.quoteBlock)
-  const sorted = [...group].sort((a, b) => a.identifier - b.identifier)
-  const toPartial = (p: DebitPartialWire): Bn254Partial => ({identifier: p.identifier, partial: hexToBytes(p.partial), verifyingShare: hexToBytes(p.verifying_share)})
-  // A member's verifying share is self-reported: a lying member can only make ITS subset fail the
-  // aggregate check, so try a bounded number of k-subsets before giving up.
-  let signature: Uint8Array | undefined
-  for (const subset of subsets(sorted.length, threshold, 16)) {
-    try { signature = combineBn254(mpk, digest, subset.map(i => toPartial(sorted[i]!)), threshold); break } catch { /* next subset */ }
   }
-  if (!signature) throw new DebitVoucherError(outcomes, known.size, threshold)
-  const voucher: DebitVoucherWire = {allowance_id: first.allowance_id, seq: first.seq, request_id: first.request_id, cost: first.cost,
-    cumulative: first.cumulative, quote_block: first.quote_block, signature: bytesToHex(signature) as Hex}
-  assertDebitVoucherWire(voucher)
-  return {voucher, partials: sorted, outcomes}
+  const inFlight = new Map<number, Promise<number>>()
+  urls.forEach((url, i) => {
+    const answered = ask(url).then(outcome => {
+      outcomes[i] = outcome
+      if (outcome.kind === 'partial' && !candidates.has(outcome.partial.identifier)) candidates.set(outcome.partial.identifier, outcome.partial)
+      return i
+    })
+    // An early voucher leaves the rest running; an abort of one of them must not go unhandled.
+    answered.catch(() => {})
+    inFlight.set(i, answered)
+  })
+
+  // Identifiers whose partial failed its own check, and k-subsets already combined.
+  const invalid = new Set<number>(), checked = new Set<number>()
+  const tried = new Set<string>()
+  let strict = false
+  let threshold: number | undefined
+  const refuse = (identifier: number) => {
+    invalid.add(identifier)
+    const i = outcomes.findIndex(o => o?.kind === 'partial' && o.partial.identifier === identifier)
+    if (i >= 0) outcomes[i] = {url: outcomes[i]!.url, kind: 'refused', status: 0, reason: `partial of member ${identifier} does not verify against its share`}
+  }
+  // Partials of one sharing only: a reshare between members' answers must never mix.
+  const group = (): DebitPartialWire[] => {
+    const bySharing = new Map<string, DebitPartialWire[]>()
+    for (const p of candidates.values()) {
+      if (invalid.has(p.identifier)) continue
+      const key = `${p.sharing.toLowerCase()}:${p.threshold}:${p.members}:${p.cost}`
+      bySharing.set(key, [...bySharing.get(key) ?? [], p])
+    }
+    return [...bySharing.values()].sort((a, b) => b.length - a.length)[0] ?? []
+  }
+  /** A voucher from the current candidates, or undefined (not yet `k`, or no untried subset verifies). */
+  const attempt = async (): Promise<{voucher: DebitVoucherWire; partials: DebitPartialWire[]} | undefined> => {
+    let members = group()
+    threshold = members[0]?.threshold ?? threshold
+    if (!threshold || members.length < threshold) return undefined
+    if (strict) {
+      for (const p of members) if (!checked.has(p.identifier)) { checked.add(p.identifier); if (!partialVerifies(p)) refuse(p.identifier) }
+      members = group()
+      if (members.length < threshold) return undefined
+    }
+    const k = threshold
+    const sorted = [...members].sort((a, b) => a.identifier - b.identifier), first = sorted[0]!
+    const mpk = await groupKey
+    const digest = hexToBytes(first.digest)
+    for (const subset of subsets(sorted.length, k, MAX_SUBSETS * 4)) {
+      const used = subset.map(i => sorted[i]!), key = used.map(p => p.identifier).join(',')
+      if (tried.has(key)) continue
+      if (tried.size >= MAX_SUBSETS) break
+      tried.add(key)
+      const signature = interpolateBn254(used.map(p => ({identifier: p.identifier, partial: hexToBytes(p.partial)})), k)
+      if (signature && verifyBn254(mpk, digest, signature)) {
+        const voucher: DebitVoucherWire = {allowance_id: first.allowance_id, seq: first.seq, request_id: first.request_id, cost: first.cost,
+          cumulative: first.cumulative, quote_block: first.quote_block, signature: bytesToHex(signature) as Hex}
+        assertDebitVoucherWire(voucher)
+        return {voucher, partials: used}
+      }
+      // A failed aggregate: from now on every partial is checked against its share before it is
+      // combined, so the member that broke it is named and left out.
+      if (!strict) { strict = true; return attempt() }
+    }
+    return undefined
+  }
+
+  for (;;) {
+    const done = await attempt()
+    if (done) return {...done, outcomes: outcomes.filter((o): o is DebitMemberOutcome => o !== undefined)}
+    if (inFlight.size === 0) break
+    const i = await Promise.race(inFlight.values())
+    inFlight.delete(i)
+  }
+  // Every member answered and no voucher: check every partial for the outcome classes.
+  for (const p of candidates.values()) if (!invalid.has(p.identifier) && !checked.has(p.identifier) && !partialVerifies(p)) refuse(p.identifier)
+  const verified = [...candidates.values()].filter(p => !invalid.has(p.identifier))
+  throw new DebitVoucherError(outcomes as DebitMemberOutcome[], verified.length, verified[0]?.threshold ?? threshold)
 }
 
 /** Up to `limit` k-subsets of 0..n-1 in lexicographic order. */
