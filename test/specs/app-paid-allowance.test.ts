@@ -200,15 +200,16 @@ describe('allowance lanes', () => {
     store.save = async (key, value) => { saves.push(key.slice(0, 4)); return save(key, value) }
     store.withLock = (key, action) => { locks.push(key.slice(0, 4)); return withLock(key, action) }
     vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(p, 1, 40), partials: [], outcomes: []})
-    // Resolves while the push request is still blocked: the push is not on the operation path.
-    expect(await obtainAllowanceVoucher(env, {lane: 0}, p)).toEqual(voucherFor(p, 1, 40))
-    // A store without native commits saves them one by one, in this order, before the unlock. The
-    // file store publishes the last two with the unlock in one flush pair (app-paid-flush-budget).
-    expect(saves).toEqual(['pal-', 'pav-', 'pal-', 'pap-'])
-    expect(locks).toEqual(['pal-', 'pap-'])
-    expect((await inspectAllowanceVoucherPush(store, p.allowance_id!))).toEqual({seq: 1, acked: [], repushed: false})
-    expect(vi.mocked(pushDebitVoucher)).toHaveBeenCalledTimes(1)
-    releasePush()
+    try {
+      // Resolves while the push request is still blocked: the push is not on the operation path.
+      expect(await obtainAllowanceVoucher(env, {lane: 0}, p)).toEqual(voucherFor(p, 1, 40))
+      // A store without native commits saves them one by one, in this order, before the unlock. The
+      // file store publishes the last two with the unlock in one flush pair (app-paid-flush-budget).
+      expect(saves).toEqual(['pal-', 'pav-', 'pal-', 'pap-'])
+      expect(locks).toEqual(['pal-', 'pap-'])
+      expect((await inspectAllowanceVoucherPush(store, p.allowance_id!))).toEqual({seq: 1, acked: [], repushed: false})
+      expect(vi.mocked(pushDebitVoucher)).toHaveBeenCalledTimes(1)
+    } finally { releasePush() }
     await settleAllowanceVoucherPushes()
   })
 
