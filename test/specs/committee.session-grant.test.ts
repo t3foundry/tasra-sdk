@@ -25,7 +25,7 @@ for (const c of vectors.cases) for (const s of c.grant.slots) RULES[s.slot_id] =
 const NOW = 1_800_000_010
 
 function verifyAt(c: VectorCase, slot: string, now = NOW, grant = decodeSessionGrant(c.grant)) {
-  return verifySessionGrant({grant, set, slotId: hexToBytes(slot), committee: vectors.committee, quorum: vectors.quorum, slotRuleHash: hexToBytes(RULES[slot] ?? '0x' + '00'.repeat(32)), now})
+  return verifySessionGrant({grant, set, slotId: hexToBytes(slot), committee: vectors.committee, quorum: vectors.quorum, slotRuleHash: hexToBytes(RULES[slot] ?? '0x' + '00'.repeat(32)), seed: hexToBytes(c.grant.seed), now})
 }
 function code(fn: () => unknown): string | undefined {
   try { fn() } catch (e) { return e instanceof SessionGrantError ? e.code : `other: ${String(e)}` }
@@ -82,7 +82,18 @@ describe('session grant refusals', () => {
   it('refuses a slot the grant does not name, and a changed rule', () => {
     expect(code(() => verifyAt(c, '0x' + '03'.repeat(32)))).toBe('slot-not-granted')
     const grant = decodeSessionGrant(c.grant)
-    expect(code(() => verifySessionGrant({grant, set, slotId: hexToBytes(slot), committee: 3, quorum: 2, slotRuleHash: new Uint8Array(32), now: NOW}))).toBe('rule-mismatch')
+    expect(code(() => verifySessionGrant({grant, set, slotId: hexToBytes(slot), committee: 3, quorum: 2, slotRuleHash: new Uint8Array(32), seed: grant.payload.seed, now: NOW}))).toBe('rule-mismatch')
+  })
+  it('refuses a grant whose seed is not the beacon seed of its epoch, even when its own draw signed it (C8 review F4)', () => {
+    const grant = decodeSessionGrant(c.grant)
+    const verify = (seed: Uint8Array) => verifySessionGrant({grant, set, slotId: hexToBytes(slot), committee: vectors.committee, quorum: vectors.quorum,
+      slotRuleHash: hexToBytes(RULES[slot]!), seed, now: NOW})
+    // The grant's own seed draws its signers, so everything else verifies.
+    expect(() => verify(hexToBytes(c.grant.seed))).not.toThrow()
+    const beacon = hexToBytes(c.grant.seed); beacon[0] = beacon[0]! ^ 1
+    expect(code(() => verify(beacon))).toBe('seed-mismatch')
+    expect(code(() => verify(new Uint8Array(31)))).toBe('seed-mismatch')
+    expect(code(() => verify(undefined as unknown as Uint8Array))).toBe('seed-mismatch')
   })
   it('accepts up to exp + 5 s and refuses after it (the status deadline, never a token leeway)', () => {
     expect(() => verifyAt(c, slot, c.grant.exp + 5)).not.toThrow()

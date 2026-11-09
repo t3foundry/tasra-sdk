@@ -44,7 +44,7 @@ async function verifiedGrant(key: SessionKeyHandle) {
     slots: [{slotId: hexToBytes(slot), ruleHash: rule}], iat: T0, exp: T0 + 30, idleTimeoutSecs: 600, absoluteExp: T0 + 3600})
   const hash = sessionGrantHash(payload)
   const grant = encodeSessionGrant({payload, signatures: seeds.map((s, i) => ({verifierIndex: i, signature: ed25519.sign(hash, s)}))})
-  const verified = verifySessionGrant({grant: decodeSessionGrant(grant), set, slotId: hexToBytes(slot), committee: 3, quorum: 2, slotRuleHash: rule, now: T0 + 1})
+  const verified = verifySessionGrant({grant: decodeSessionGrant(grant), set, slotId: hexToBytes(slot), committee: 3, quorum: 2, slotRuleHash: rule, seed: new Uint8Array(32).fill(0x5e), now: T0 + 1})
   return {grant, verified}
 }
 

@@ -754,7 +754,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
         ||hex(p.holderHash)!==hex(tokenHolder)||p.binding!==BINDING_HOLDER_KEY||p.epoch!==BigInt(payment.verification_epoch)
         ||hex(p.seed)!==payment.verification_seed.toLowerCase()||p.slots.some(s=>!grantRequest!.slots.includes(hex(s.slotId))))throw new Error('grant differs from this session')
       const set={registrySize:payment.verification_registry_size,pubkeys:new Map(members.map(m=>[m.index,protocolHex(m.publicKey,32,'key')]))}
-      verifySessionGrant({grant,set,slotId:slot,committee:payment.verification_committee,quorum:payment.verification_quorum,slotRuleHash:ruleHash,now:Math.floor(Date.now()/1000)})
+      verifySessionGrant({grant,set,slotId:slot,committee:payment.verification_committee,quorum:payment.verification_quorum,slotRuleHash:ruleHash,seed:protocolHex(payment.verification_seed,32,'seed'),now:Math.floor(Date.now()/1000)})
       return {grant:{session_grant:wire,refresh_seq:0}}
     }catch{return {error:'sdk_grant_invalid'}}
   }

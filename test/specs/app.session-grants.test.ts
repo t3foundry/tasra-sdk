@@ -17,7 +17,7 @@ const seeds = Array.from({length: 7}, (_, i) => new Uint8Array(32).fill(0x10 + i
 const set: VerifierSet = {registrySize: 7, pubkeys: new Map(seeds.map((s, i) => [i, ed25519.getPublicKey(s)]))}
 const slotA = ('0x' + '01'.repeat(32)) as `0x${string}`, slotB = ('0x' + '02'.repeat(32)) as `0x${string}`
 const rules: Record<string, Uint8Array> = {[slotA]: new Uint8Array(32).fill(0xfe), [slotB]: new Uint8Array(32).fill(0xfd)}
-const trust = async (slot: `0x${string}`): Promise<SlotTrust> => ({set, committee: 3, quorum: 2, ruleHash: rules[slot.toLowerCase()]!})
+const trust = async (slot: `0x${string}`): Promise<SlotTrust> => ({set, committee: 3, quorum: 2, ruleHash: rules[slot.toLowerCase()]!, seed: new Uint8Array(32).fill(0x5e)})
 const T0 = 1_800_000_000
 const profile: ApprovedAgentProfile = {endpoint: 'https://agent.test', clientId: 'decentralized_identifier:did:web:agent.test',
   approval: {chainId: 43112, registry: `0x${'04'.repeat(20)}`, serviceId: `0x${'05'.repeat(32)}`, serviceType: 1, owner: `0x${'06'.repeat(20)}`, revision: 1n, manifestHash: `0x${'07'.repeat(32)}`}}
@@ -141,6 +141,37 @@ describe('session grant lifecycle (ADR-0090 D7, SDK)', () => {
     expect(o.session.current().epoch).toBe(43)
     expect(await o.session.refreshForEpoch(43n)).toBe(false)
     expect(calls).toEqual([1])
+  })
+
+  it('refuses a refresh reply that does not move the grant, so refreshForEpoch never reports success without moving (C8 review F5)', async () => {
+    const now = T0 + 5
+    let mode: 'same' | 'same-epoch' = 'same'
+    const ctx: {key?: SessionKeyHandle} = {}
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as {seq: number}
+      // 'same': the agent answers with the grant the client already holds (iat T0, epoch 42).
+      const g = mode === 'same' ? grant(ctx.key!, {iat: T0}) : grant(ctx.key!, {iat: now})
+      return reply(200, {session_grant: g, refresh_seq: body.seq})
+    }) as unknown as typeof fetch
+    const o = await opened({clock: () => now, fetchImpl})
+    ctx.key = o.key
+    const held = o.session.current()
+    await expect(o.session.refresh()).rejects.toMatchObject({code: 'refresh-unchanged'})
+    await expect(o.session.refreshForEpoch(43n)).rejects.toMatchObject({code: 'refresh-unchanged'})
+    expect(o.session.current()).toEqual(held)
+    // A newer grant still on the old epoch is a valid refresh, but not a move to the beacon's epoch.
+    mode = 'same-epoch'
+    await expect(o.session.refreshForEpoch(43n)).rejects.toThrow(/stayed on epoch 42/)
+    expect(o.session.current().epoch).toBe(42)
+  })
+
+  it('refuses a grant drawn on a seed that is not the beacon seed of its epoch (C8 review F4)', async () => {
+    const key = await createSessionKey({alg: 'Ed25519'})
+    const fragment = sessionGrantCreateFragment(key, {slots: [slotA, slotB], accessTtlSecs: 40, idleTimeoutSecs: 600, absoluteTtlSecs: 3600})
+    const beacon = new Uint8Array(32).fill(0x5f)
+    const transport = {...transportFor(vi.fn() as unknown as typeof fetch), trust: async (slot: `0x${string}`) => ({...await trust(slot), seed: beacon})}
+    await expect(acceptSessionGrant({store: createMemoryStore(), key, clock: () => T0 + 1, transport}, fragment, {session_grant: grant(key, {iat: T0}), refresh_seq: 0}))
+      .rejects.toMatchObject({code: 'seed-mismatch'})
   })
 
   it('refuses a refreshed grant that changes the session, adds a slot or answers another seq', async () => {

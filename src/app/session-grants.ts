@@ -118,6 +118,8 @@ export interface SlotTrust {
   quorum: number
   /** keccak256 of the slot's raw rule. */
   ruleHash: Uint8Array
+  /** The beacon seed of the grant's epoch, `beacon.seedAt(epoch)`, read from the chain: a grant on any other seed is refused. */
+  seed: Uint8Array
 }
 
 /**
@@ -225,7 +227,10 @@ async function checkGrant(opts: GrantedSessionOptions, grant: SessionGrant, requ
       || p.absoluteExp !== q.absoluteExp || p.idleTimeoutSecs !== q.idleTimeoutSecs || p.chainId !== q.chainId) throw new SessionGrantError('refresh-changed', 'Refreshed grant changed the session')
     const before = new Set(q.slots.map(s => bytesToHex(s.slotId).toLowerCase()))
     if (slots.some(s => !before.has(s))) throw new SessionGrantError('refresh-changed', 'Refreshed grant added a slot')
-    if (p.iat < q.iat) throw new SessionGrantError('refresh-changed', 'Refreshed grant is older than the current one')
+    if (p.iat < q.iat || p.epoch < q.epoch) throw new SessionGrantError('refresh-changed', 'Refreshed grant is older than the current one')
+    // A refresh MOVES the grant (a later iat, or the next epoch): a reply equal to the held grant
+    // is no refresh, so a caller can never report success without the grant moving (C8 review F5).
+    if (p.iat === q.iat && p.epoch === q.epoch) throw new SessionGrantError('refresh-unchanged', 'Refreshed grant does not move the current one')
   } else if (p.absoluteExp - p.iat > Math.min(requested.absoluteTtlSecs, MAX_ABSOLUTE_TTL_SECS)) {
     throw new SessionGrantError('absolute-exp', 'Session grant absolute lifetime exceeds the request')
   }
@@ -234,7 +239,7 @@ async function checkGrant(opts: GrantedSessionOptions, grant: SessionGrant, requ
   for (const slot of p.slots) {
     const hex = bytesToHex(slot.slotId) as `0x${string}`
     const trust = await opts.transport.trust(hex, p.epoch)
-    verified.push(verifySessionGrant({grant, set: trust.set, slotId: slot.slotId, committee: trust.committee, quorum: trust.quorum, slotRuleHash: trust.ruleHash, now: at}))
+    verified.push(verifySessionGrant({grant, set: trust.set, slotId: slot.slotId, committee: trust.committee, quorum: trust.quorum, slotRuleHash: trust.ruleHash, seed: trust.seed, now: at}))
   }
   return verified
 }
@@ -271,7 +276,7 @@ export class GrantedSession {
     const target = grant.payload.slots.find(s => bytesToHex(s.slotId).toLowerCase() === slot.toLowerCase())
     if (!target) throw new SessionGrantError('slot-not-granted', `slot ${slot} is not named by the session grant`)
     const trust = await this.#opts.transport.trust(slot, grant.payload.epoch)
-    return verifySessionGrant({grant, set: trust.set, slotId: target.slotId, committee: trust.committee, quorum: trust.quorum, slotRuleHash: trust.ruleHash, now: this.#clock()})
+    return verifySessionGrant({grant, set: trust.set, slotId: target.slotId, committee: trust.committee, quorum: trust.quorum, slotRuleHash: trust.ruleHash, seed: trust.seed, now: this.#clock()})
   }
 
   /** The session key bound by this grant. */
@@ -375,8 +380,12 @@ export class GrantedSession {
    * already on (or ahead of) that epoch.
    */
   async refreshForEpoch(beaconEpoch: bigint): Promise<boolean> {
-    if (BigInt(this.#record.grant.epoch) >= beaconEpoch) return false
-    await this.refresh()
+    const previous = BigInt(this.#record.grant.epoch)
+    if (previous >= beaconEpoch) return false
+    const next = await this.refresh()
+    // `true` means the grant MOVED to a later epoch; a refresh that stayed on the old draw (the
+    // latest snapshot not anchored yet) is not success: retry, the old grant is still valid.
+    if (BigInt(next.epoch) <= previous) throw new TasraError(`Session refresh stayed on epoch ${previous}; retry once the beacon epoch is anchored`)
     return true
   }
 
