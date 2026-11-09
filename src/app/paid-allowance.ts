@@ -278,7 +278,10 @@ async function selectLane(env: AllowanceEnv, context: PaidOperationContext, oper
   candidates.sort((a, b) => Number(busy.has(laneKey(env.deployment, slot, a))) - Number(busy.has(laneKey(env.deployment, slot, b))))
   for (const lane of candidates) {
     const key = laneKey(env.deployment, slot, lane)
-    const state = await loadLane(env.store, key, lane, slot)
+    let state = await loadLane(env.store, key, lane, slot)
+    // A lane held by a debit whose voucher is already journaled (a stop between that journal and
+    // the lane commit) is completed here, asking nobody: no selection would ever run a round on it.
+    if (state.current?.pending && !busy.has(key)) state = await completeInterruptedAdvance(env, key, lane, slot, state)
     if (env.options.reserveAhead !== false && (low(state.current) || state.current?.phase !== 'confirmed') && !state.next) refillLane(env, context, lane)
     // Close to expiry the current allowance may see no further debit: make sure its last voucher reached the members.
     if (state.current?.phase === 'confirmed' && state.current.seq > 0 && state.current.intent.expires_at - now() < LOW_LIFE_SECS) repushLast(env, state.current)
@@ -291,6 +294,38 @@ async function selectLane(env: AllowanceEnv, context: PaidOperationContext, oper
     }
   }
   return chosen
+}
+
+/**
+ * Complete a lane advance interrupted after its voucher was journaled (`pav-` or the operation's
+ * `reserved`, see {@link completedVoucher}): the advance, the voucher under its request and the
+ * push journal in one commit under the lane and push locks, exactly what the round's own lane
+ * commit would have published; then the push, in the background. A pending debit without a
+ * journaled voucher, a lane that moved meanwhile or a failure leaves the lane as it was (its own
+ * operation's resume still completes it).
+ */
+async function completeInterruptedAdvance(env: AllowanceEnv, key: string, lane: number, slot: Hex, seen: LaneState): Promise<LaneState> {
+  const store = env.store, allowance = seen.current!.id
+  try {
+    if (!(seen.current!.pending!.voucher ?? await completedVoucher(store, seen.current!.pending!))) return seen
+    const push = HEX32.test(allowance) ? pushKey(allowance) : undefined
+    const done = await withCommit(store, [key, ...push ? [push] : []], async commit => {
+      const state = await loadLane(store, key, lane, slot), current = state.current, pending = current?.pending
+      if (!current || !pending || !same(current.id, allowance)) return {state}
+      const voucher = pending.voucher ?? await completedVoucher(store, pending)
+      if (!voucher || voucher.seq !== pending.seq || !same(voucher.allowance_id, allowance)) return {state}
+      const next: LaneState = {...state, current: {...current, seq: pending.seq, cumulative: voucher.cumulative, previous: voucher, pending: undefined}}
+      if (!await journaledAllowanceVoucher(store, pending.requestId)) commit.stage(voucherKey(pending.requestId), {schema: 1, voucher} satisfies StoredVoucher)
+      commit.stage(key, next)
+      if (push) {
+        const journaled = await loadPush(store, allowance).catch(() => undefined)
+        if (!journaled || journaled.voucher.seq < voucher.seq) commit.stage(push, {schema: 1, voucher, acked: [], repushed: false} satisfies PushRecord)
+      }
+      return {state: next, voucher}
+    })
+    if (done.voucher && push) { const voucher = done.voucher; background(() => sendAndJournal(env, voucher, accountantEndpoints(env, env.deployment.chainId))) }
+    return done.state
+  } catch { return seen }
 }
 
 /** Swap in the reserved-ahead allowance when the current one cannot fund the operation. */

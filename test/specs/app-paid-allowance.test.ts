@@ -373,6 +373,50 @@ describe('lane commits: what a crash inside each one leaves', () => {
     expect(vi.mocked(pushDebitVoucher).mock.calls.map(c => c[1])).toEqual([voucherFor(a, 1, 40)])
   })
 
+  it('a lane left pending by a stop between the voucher journal and the lane commit is completed by the next selection, asking nobody', async () => {
+    const {env, store, allowance} = await seeded()
+    const a = await payment(allowance, 0x41)
+    await reserving(store, a)
+    const save = store.save.bind(store)
+    let journaled = false
+    store.save = async (key, value) => {
+      if (key.startsWith('pav-')) journaled = true
+      else if (journaled && key.startsWith('pal-')) { store.save = save; throw new Error('crash before the lane advance') }
+      return save(key, value)
+    }
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(a, 1, 40), partials: [], outcomes: []})
+    await expect(obtainAllowanceVoucher(env, {lane: 0}, a)).rejects.toThrow('crash')
+    await settleAllowanceVoucherPushes()
+    vi.mocked(pushDebitVoucher).mockReset()
+    // a's own operation resumes from its journaled voucher and never touches the lane again.
+    expect((await inspectAllowanceLanes(store, deployment, slot, 1))[0]?.pending).toMatchObject({seq: 1})
+    const ticket = await selectAllowanceLane(env, context(), {action: 'decrypt', expires: NOW + 600})
+    expect(ticket).toMatchObject({lane: 0, allowanceId: allowance})
+    await settleAllowanceVoucherPushes()
+    expect(vi.mocked(collectDebitVoucher)).toHaveBeenCalledTimes(1)
+    const [lane] = await inspectAllowanceLanes(store, deployment, slot, 1)
+    expect(lane).toMatchObject({seq: 1, cumulative: '40', retired: 0})
+    expect(lane?.pending).toBeUndefined()
+    expect((await inspectAllowanceVoucherPush(store, allowance))?.seq).toBe(1)
+    expect(vi.mocked(pushDebitVoucher).mock.calls.map(c => c[1])).toEqual([voucherFor(a, 1, 40)])
+    // The next debit chains on it.
+    const b = await payment(allowance, 0x42)
+    await reserving(store, b)
+    vi.mocked(collectDebitVoucher).mockResolvedValueOnce({voucher: voucherFor(b, 2, 80), partials: [], outcomes: []})
+    expect(await obtainAllowanceVoucher(env, {lane: 0}, b)).toEqual(voucherFor(b, 2, 80))
+    expect(vi.mocked(collectDebitVoucher).mock.calls[1]![2]).toMatchObject({seq: 2, previous: voucherFor(a, 1, 40)})
+  })
+
+  it('selection leaves a pending debit without a journaled voucher alone', async () => {
+    const {env, store, allowance} = await seeded()
+    const a = await payment(allowance, 0x41)
+    await reserving(store, a)
+    vi.mocked(collectDebitVoucher).mockRejectedValueOnce(new Error('accountants unreachable'))
+    await expect(obtainAllowanceVoucher(env, {lane: 0}, a)).rejects.toBeInstanceOf(AllowanceUnavailableError)
+    expect(await selectAllowanceLane(env, context(), {action: 'decrypt', expires: NOW + 600})).toBeUndefined()
+    expect((await inspectAllowanceLanes(store, deployment, slot, 1))[0]?.pending).toMatchObject({seq: 1, requestId: prepaidRequestId(a)})
+  })
+
   it('a crash that kept the push journal but not the lane advance: the next round completes the advance and the journal never goes back', async () => {
     const {env, store, allowance} = await seeded()
     const a = await payment(allowance, 0x41), b = await payment(allowance, 0x42)
