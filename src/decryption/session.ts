@@ -88,8 +88,44 @@ export interface SessionDecryptOptions {
   combine?: SessionCombiner
 }
 
-/** One item's outcome: the plaintext, or why it failed (an item's refusal never fails the batch). */
-export type SessionDecryptResult = {ok: true; plaintext: Uint8Array} | {ok: false; error: string; codes: string[]}
+/** One keeper's refusal of one item. */
+export interface SessionItemRefusal {
+  nodeUrl: string
+  status: number
+  /** The keeper's stable code (`forbidden`, `session-stale`, ...), or `status N` from a keeper without one. */
+  code: string
+  /** The keeper's public-safe message, truncated. */
+  message?: string
+  /** `request`: the keeper refused the whole request before any item ran; `item`: this item alone. */
+  scope: 'request' | 'item'
+}
+
+/**
+ * One item's outcome: the plaintext, or why it failed (an item's refusal never fails the batch).
+ * `stale` (see {@link isStaleSessionRefusal}) is true only when the grant was refused as no longer
+ * current (its epoch left the beacon's window, or it passed its `exp`) and NO keeper ran this item:
+ * every keeper answered, none contributed, none said it already ran it, and every refusal is one
+ * that precedes execution. Only then may the caller refresh the grant and pay the message again
+ * ({@link decryptInSession} does, once): the unused payment executed nowhere and closes unused.
+ */
+export type SessionDecryptResult = {ok: true; plaintext: Uint8Array}
+  | {ok: false; error: string; codes: string[]; refusals: SessionItemRefusal[]; stale: boolean}
+
+/**
+ * Whether a keeper refusal says the session grant is no longer current: the stable code
+ * `session-stale`, or (older keepers, whose whole-request refusals carry no code) the fixed messages
+ * of the grant-freshness check and of the epoch-window seed pin. Both are judged before any item
+ * is admitted, so such a refusal never follows an execution.
+ */
+export function isStaleSessionRefusal(r: Pick<SessionItemRefusal, 'status' | 'code' | 'message'>): boolean {
+  if (r.code === 'session-stale') return true
+  if (r.status !== 403 || !r.message) return false
+  return /^session grant expired at \d+ \(now \d+\)/.test(r.message) || /\bepoch \d+ is not current \(beacon latest \d+\)/.test(r.message)
+}
+
+/** Statuses that a keeper answers only before an item runs (409 can mean "already ran"; 5xx is unknown). */
+const PRE_EXECUTION = new Set([400, 401, 402, 403, 404, 410, 413, 429])
+const MAX_MESSAGE_CHARS = 240
 
 function freshJti(): string {
   return toBase64Url(randomBytes(24))
@@ -126,7 +162,9 @@ async function proofFor(o: SessionDecryptOptions, hashes: Uint8Array[], batch: b
 interface Candidate { identifier: number; value: Uint8Array; verifyingShare: Uint8Array }
 
 /** One item's answer from one keeper. */
-type ItemReply = {status: 200; partial: unknown} | {status: number; code: string}
+type ItemReply = {status: 200; partial: unknown} | {status: number; code: string; message?: string; scope: 'request' | 'item'}
+
+const messageOf = (error: unknown): string | undefined => typeof error === 'string' && error ? error.slice(0, MAX_MESSAGE_CHARS) : undefined
 
 /** Codes of an item whose work already RAN at that keeper: re-serve it by recovery, never by paying again. */
 const RAN = new Set(['recoverable', 'already-claimed'])
@@ -211,8 +249,8 @@ export async function decryptWithSessionGrant(o: SessionDecryptOptions, items: S
   if (bytesToHex(sessionKeyThumbprint(o.key.jwk)) !== bytesToHex(o.verified.sessionKeyThumbprint)) throw new TasraError('Session key thumbprint does not match the grant')
   if (o.verifierProofs !== undefined && (!Array.isArray(o.verifierProofs) || o.verifierProofs.length === 0)) throw new TasraError('Session verifier proofs, when given, are nonempty')
   const prepared = items.map(item => prepare(o, item))
-  const state = {candidates: prepared.map(() => new Map<number, Candidate>()), codes: prepared.map(() => [] as string[]),
-    ran: prepared.map(() => [] as string[]), errors: [] as string[]}
+  const state: FanOutState = {candidates: prepared.map(() => new Map<number, Candidate>()), codes: prepared.map(() => [] as string[]),
+    ran: prepared.map(() => [] as string[]), refusals: prepared.map(() => [] as SessionItemRefusal[]), answered: prepared.map(() => 0), errors: [] as string[]}
   try {
     await withNetworkDeadline(signal => fanOut({...o, signal}, prepared, state), o.signal)
     await recoverShort(o, prepared, state)
@@ -222,7 +260,14 @@ export async function decryptWithSessionGrant(o: SessionDecryptOptions, items: S
   }
 }
 
-interface FanOutState { candidates: Map<number, Candidate>[]; codes: string[][]; ran: string[][]; errors: string[] }
+interface FanOutState {
+  candidates: Map<number, Candidate>[]; codes: string[][]; ran: string[][]
+  /** Per item: every keeper refusal, in arrival order. */
+  refusals: SessionItemRefusal[][]
+  /** Per item: how many keepers answered it at all (a transport failure is no answer). */
+  answered: number[]
+  errors: string[]
+}
 
 async function fanOut(o: SessionDecryptOptions, prepared: Prepared[], state: FanOutState): Promise<void> {
   const settled = await Promise.allSettled(o.nodeUrls.map(async nodeUrl => {
@@ -231,10 +276,12 @@ async function fanOut(o: SessionDecryptOptions, prepared: Prepared[], state: Fan
       payment: p.item.payment, approveExecution: p.item.approveExecution, signal: o.signal})))
     const replies = await send(o, base, prepared.map((p, i) => ({index: i, hash: p.requestHash, body: approved[i]!})))
     await Promise.all(replies.map(async (reply, i) => {
+      state.answered[i]!++
       if (reply.status !== 200) {
-        const code = (reply as {code: string}).code
-        state.codes[i]!.push(code)
-        if (RAN.has(code)) state.ran[i]!.push(nodeUrl)
+        const r = reply as {status: number; code: string; message?: string; scope: 'request' | 'item'}
+        state.codes[i]!.push(r.code)
+        state.refusals[i]!.push({nodeUrl, status: r.status, code: r.code, ...r.message ? {message: r.message} : {}, scope: r.scope})
+        if (RAN.has(r.code)) state.ran[i]!.push(nodeUrl)
         return
       }
       await accept(o, prepared[i]!, state.candidates[i]!, state.codes[i]!, (reply as {partial: unknown}).partial)
@@ -286,12 +333,12 @@ async function send(o: SessionDecryptOptions, base: string, items: Outgoing[], s
   }
   if (!batch) {
     if (res.ok) return [{status: 200, partial: json}]
-    return [{status: res.status, code: itemCode(res.status, json?.code, json?.error)}]
+    return [{status: res.status, code: itemCode(res.status, json?.code, json?.error), ...messageOf(json?.error) ? {message: messageOf(json?.error)} : {}, scope: 'item'}]
   }
   if (!res.ok) {
     // A whole-request refusal answers every item the same way (none of them ran).
-    const code = itemCode(res.status, json?.code, json?.error)
-    return items.map(() => ({status: res.status, code}))
+    const code = itemCode(res.status, json?.code, json?.error), message = messageOf(json?.error)
+    return items.map(() => ({status: res.status, code, ...message ? {message} : {}, scope: 'request' as const}))
   }
   const replies = json?.items
   if (!Array.isArray(replies) || replies.length !== items.length) throw new TasraError('Session keeper reply does not answer every item exactly once')
@@ -299,7 +346,8 @@ async function send(o: SessionDecryptOptions, base: string, items: Outgoing[], s
     const r = reply as {status?: unknown; partial?: unknown; code?: unknown; error?: unknown}
     if (r?.status === 200) return {status: 200, partial: r.partial}
     const status = typeof r?.status === 'number' ? r.status : 0
-    return {status, code: itemCode(status, r?.code, r?.error)}
+    const message = messageOf(r?.error)
+    return {status, code: itemCode(status, r?.code, r?.error), ...message ? {message} : {}, scope: 'item'}
   })
 }
 
@@ -330,15 +378,31 @@ async function combineAll(o: SessionDecryptOptions, prepared: Prepared[], state:
       const verdict = verifyDecryptSharesBatch(shares, p.U)
       const valid = shares.filter((_, j) => verdict[j]).slice(0, o.threshold)
       if (valid.length < o.threshold) {
-        results.push({ok: false, error: `session partial threshold not met (${valid.length}/${o.threshold})${state.errors.length ? ': ' + state.errors.join('; ') : ''}`, codes: state.codes[i]!})
+        const refusals = state.refusals[i]!
+        const said = [...new Set(refusals.map(r => `${r.code}${r.message ? ' (' + r.message + ')' : ''}`))]
+        const detail = [...said, ...state.errors]
+        results.push({ok: false, error: `session partial threshold not met (${valid.length}/${o.threshold})${detail.length ? ': ' + detail.join('; ') : ''}`,
+          codes: state.codes[i]!, refusals, stale: staleUnrun(o, state, i)})
         continue
       }
       results.push({ok: true, plaintext: await combine(valid, p.item.ciphertext, p.item.identity)})
     } catch (error) {
-      results.push({ok: false, error: String(error), codes: state.codes[i]!})
+      results.push({ok: false, error: String(error), codes: state.codes[i]!, refusals: state.refusals[i]!, stale: false})
     }
   }
   return results
+}
+
+/**
+ * True when item `i` is a staleness refusal that ran NOWHERE: every keeper answered it, none
+ * contributed or said it already ran it (nor did a recovery read), every refusal precedes execution,
+ * and at least one names a stale grant. A transport failure leaves "did it run?" open: never stale.
+ */
+function staleUnrun(o: SessionDecryptOptions, state: FanOutState, i: number): boolean {
+  const refusals = state.refusals[i]!
+  return state.answered[i] === o.nodeUrls.length && state.candidates[i]!.size === 0 && state.ran[i]!.length === 0
+    && refusals.length === o.nodeUrls.length && refusals.every(r => PRE_EXECUTION.has(r.status) && !RAN.has(r.code))
+    && refusals.some(isStaleSessionRefusal)
 }
 
 async function openPartial(o: SessionDecryptOptions, p: Prepared, partial: unknown): Promise<Candidate | undefined> {

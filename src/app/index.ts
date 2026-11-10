@@ -40,4 +40,6 @@ export {drivePaidSession, waitForPaidSnapshot, PaidSessionRecoveryError} from '.
 export type {PaidSessionDriverOptions, PaidSessionHolder, PaidWalletPresentation, PaidSessionRequestLink} from './paid-session.js'
 export {createMemoryStore} from './memory-store.js'
 export {createSessionKey, sessionGrantCreateFragment, acceptSessionGrant, loadGrantedSession, GrantedSession, SessionEndedError, SessionRevokeIncompleteError, SessionRevokeUnconfirmedError} from './session-grants.js'
+export {decryptInSession, SessionMessageError} from './session-decrypt.js'
+export type {SessionMessageRequest, SessionMessageResult} from './session-decrypt.js'
 export type {SessionKeyHandle, SessionGrantParams, SessionGrantCreateFragment, SlotTrust, SessionTransport, GrantedSessionOptions} from './session-grants.js'

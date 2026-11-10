@@ -15,7 +15,7 @@ import {createSessionKey, type SessionKeyHandle} from '../../src/app/session-gra
 import {BINDING_HOLDER_KEY, type VerifierSet} from '../../src/committee/token.js'
 import {encodeSessionGrant, sessionBatchProofHash, sessionGrantHash, sessionGrantPayload, sessionKeyThumbprint, sessionProofHash, verifySessionGrant,
   verifySessionSignature, decodeSessionGrant, type SessionKeyJwk} from '../../src/committee/session-grant.js'
-import {decryptWithSessionGrant, type SessionDecryptItem} from '../../src/decryption/session.js'
+import {decryptWithSessionGrant, isStaleSessionRefusal, type SessionDecryptItem} from '../../src/decryption/session.js'
 import {executionBodyHash} from '../../src/committee/execution.js'
 import {bytesToHex} from '../../src/crypto/hex.js'
 
@@ -285,5 +285,55 @@ describe('session decrypts against the keeper wire (review 2026-11-09)', () => {
       {status: 200, headers: {'content-length': String(8 * 1024 * 1024)}})) as unknown as typeof fetch
     await decryptWithSessionGrant({...options, threshold: 1, nodeUrls: ['https://keeper-1.test'], fetchImpl: declared}, [(await message('declared')).item])
     expect(pulled).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('a stale grant at a beacon-epoch boundary (C19)', () => {
+  // The keeper's whole-request refusal of a grant two epochs behind (keykeeper-node
+  // enforce_live_epoch; the batch route sends it without a code), as the C16 fleet answered it.
+  const STALE = 'committee token epoch 478 is not current (beacon latest 480); a stale epoch would let the committee draw be ground over known past seeds'
+  type Answer = 'stale' | 'stale-code' | 'ok' | 'down' | 'other'
+  async function run(answers: Answer[]) {
+    const {options} = await setup()
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      const id = Number(/keeper-(\d+)/.exec(new URL(url).hostname)![1])
+      const a = answers[id - 1]!
+      if (a === 'down') throw new TypeError('fetch failed')
+      if (a === 'stale') return new Response(JSON.stringify({error: STALE}), {status: 403})
+      if (a === 'stale-code') return new Response(JSON.stringify({error: STALE, code: 'session-stale'}), {status: 403})
+      if (a === 'other') return new Response(JSON.stringify({error: 'paid operation not activated', code: 'forbidden'}), {status: 403})
+      const real = keeper(id, () => options.key.jwk, () => options.verified.grantHash)
+      const r = await real(JSON.parse(String(init.body)) as Record<string, unknown>, url)
+      return new Response(JSON.stringify(r.json), {status: r.status})
+    }) as unknown as typeof fetch
+    const m = await message('boundary')
+    // Verifier proofs force the batch route, as on a production keeper.
+    const [r] = await decryptWithSessionGrant({...options, fetchImpl, verifierProofs: [{verifier_index: 0, operator: '0x', pubkey: '0x', proof: []}]}, [m.item])
+    return r!
+  }
+
+  it('every keeper refusing the grant as no longer current, before running anything, is stale and names the keepers\' beacon', async () => {
+    const r = await run(['stale', 'stale', 'stale'])
+    expect(r).toMatchObject({ok: false, stale: true})
+    const failed = r as Extract<typeof r, {ok: false}>
+    expect(failed.refusals).toHaveLength(3)
+    expect(failed.refusals.every(x => x.scope === 'request' && x.status === 403)).toBe(true)
+    expect(failed.error).toMatch(/beacon latest 480/)
+    expect(await run(['stale-code', 'stale', 'other'])).toMatchObject({ok: false, stale: true})
+  })
+
+  it('is NOT stale when any keeper may have run the item: one served it, or one never answered', async () => {
+    expect(await run(['ok', 'stale', 'stale'])).toMatchObject({ok: false, stale: false})
+    expect(await run(['down', 'stale', 'stale'])).toMatchObject({ok: false, stale: false})
+    // And a refusal that does not say "stale" is no reason to pay again.
+    expect(await run(['other', 'other', 'other'])).toMatchObject({ok: false, stale: false})
+  })
+
+  it('classifies keeper refusals: the stable code, or the fixed freshness messages of older keepers', () => {
+    expect(isStaleSessionRefusal({status: 403, code: 'session-stale'})).toBe(true)
+    expect(isStaleSessionRefusal({status: 403, code: 'status 403', message: STALE})).toBe(true)
+    expect(isStaleSessionRefusal({status: 403, code: 'forbidden', message: 'session grant expired at 100 (now 106)'})).toBe(true)
+    expect(isStaleSessionRefusal({status: 409, code: 'conflict', message: STALE})).toBe(false)
+    expect(isStaleSessionRefusal({status: 403, code: 'forbidden', message: 'session grant: quorum not met'})).toBe(false)
   })
 })

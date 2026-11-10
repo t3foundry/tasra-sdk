@@ -1851,6 +1851,12 @@ export interface PaidSessionDecryptRequest {
    * it the payment takes the freshly discovered draw, which is the grant's only by chance.
    */
   grant?: {epoch: number; seed: string}
+  /**
+   * Sees the beacon's latest epoch the moment discovery reads it, before anything is signed
+   * (`GrantedSession.observeBeacon`: the grant's background refresh then starts while this
+   * payment is still being reserved). A throw is ignored.
+   */
+  onBeaconEpoch?(epoch: bigint): void
 }
 
 /** A paid session-grant decrypt ready for the session partials client. */
@@ -1899,7 +1905,10 @@ export async function paidSessionDecrypt(config: PaidOperationConfig, request: P
     modeError: 'A session-grant decrypt requires a BLS slot', description: 'Paid session-grant decrypt', decryption: structuredClone(request.decryption),
     build: (d, nowSecs, ttlSecs) => presentationOperationTypedData({action: 'decrypt', decryption: request.decryption, chainId: d.chainId, keyRegistry: d.keyRegistry,
       slotId: request.slot, description: 'Paid session-grant decrypt', nowSecs, ttlSecs}),
-    ...draw ? {draw} : {}, onContext: context => { beaconEpoch = context.beaconEpoch }})
+    ...draw ? {draw} : {}, onContext: context => {
+      beaconEpoch = context.beaconEpoch
+      if (beaconEpoch !== undefined) try { request.onBeaconEpoch?.(beaconEpoch) } catch { /* an observer never fails the payment */ }
+    }})
   if (!request.decryption || typeof request.decryption.content_digest !== 'string') throw new TasraError('A session-grant decrypt requires the complete recipient binding')
   let requestId: Hex
   if (!config.allowances?.enabled) requestId = await attempt(false)

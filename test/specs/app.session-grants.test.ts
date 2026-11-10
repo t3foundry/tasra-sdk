@@ -4,7 +4,7 @@ import {hexToBytes} from '../../src/crypto/hex.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
 import {STORE_COMMIT, type LockedCommit, type StoreCommitSteps} from '../../src/app/store-commit.js'
 import type {ApplicationStore} from '../../src/app/ready-slot.js'
-import {acceptSessionGrant, createSessionKey, loadGrantedSession, sessionGrantCreateFragment, SessionEndedError, SessionRevokeIncompleteError, SessionRevokeUnconfirmedError, type SessionKeyHandle, type SlotTrust} from '../../src/app/session-grants.js'
+import {acceptSessionGrant, createSessionKey, loadGrantedSession, sessionGrantCreateFragment, SessionEndedError, SessionRevokeIncompleteError, SessionRevokeUnconfirmedError, type GrantedSessionOptions, type SessionKeyHandle, type SlotTrust} from '../../src/app/session-grants.js'
 import {BINDING_HOLDER_KEY, type VerifierSet} from '../../src/committee/token.js'
 import {acceptsServiceResponse, serviceRequestShape} from '../../src/chain/serviceRequestPolicy.js'
 import type {PaidAgentTransport} from '../../src/chain/paidAgentTransport.js'
@@ -43,12 +43,12 @@ function grant(key: SessionKeyHandle, o: {iat: number; ttl?: number; idle?: numb
   return encodeSessionGrant({payload, signatures: seeds.map((s, i) => ({verifierIndex: i, signature: ed25519.sign(hash, s)}))})
 }
 
-async function opened(opts: {clock: () => number; fetchImpl?: typeof fetch; onEnded?: (e: SessionEndedError) => void; ttl?: number}) {
+async function opened(opts: {clock: () => number; fetchImpl?: typeof fetch; onEnded?: (e: SessionEndedError) => void; ttl?: number; extra?: Partial<GrantedSessionOptions>}) {
   const key = await createSessionKey({alg: 'Ed25519'})
   const store = createMemoryStore()
   const fragment = sessionGrantCreateFragment(key, {slots: [slotB, slotA], accessTtlSecs: 40, idleTimeoutSecs: 600, absoluteTtlSecs: 3600})
   const fetchImpl = opts.fetchImpl ?? (vi.fn() as unknown as typeof fetch)
-  const session = await acceptSessionGrant({store, key, clock: opts.clock, onEnded: opts.onEnded, transport: transportFor(fetchImpl)},
+  const session = await acceptSessionGrant({store, key, clock: opts.clock, onEnded: opts.onEnded, transport: transportFor(fetchImpl), ...opts.extra},
     fragment, {session_grant: grant(key, {iat: T0, ttl: opts.ttl}), refresh_seq: 0})
   return {key, store, session, fetchImpl}
 }
@@ -404,5 +404,85 @@ describe('session grant chain pin and agent transport (ADR-0090 D7, review 2026-
     await expect(o.key.sign(new Uint8Array(32))).rejects.toThrow(/Session key disposed/)
     expect(ended).toEqual(['session_revoked'])
     expect(() => o.session.current()).toThrow(/session_revoked/)
+  })
+})
+
+describe('a session follows the beacon across epoch boundaries (C19)', () => {
+  // The agent continues a session ONE epoch per refresh, onto the epoch whose anchors it has; until
+  // they land it answers a newer grant on the same epoch.
+  function agentAt(ctx: {key?: SessionKeyHandle; now: number; drawable: bigint; seqs: number[]}) {
+    return (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as {seq: number; grant: SessionGrantWire}
+      ctx.seqs.push(body.seq)
+      const held = BigInt(body.grant.epoch)
+      if (ctx.drawable > held + 1n) return reply(410, {code: 'session_expired'})
+      ctx.now += 1
+      return reply(200, {session_grant: grant(ctx.key!, {iat: ctx.now, epoch: ctx.drawable}), refresh_seq: body.seq})
+    }) as unknown as typeof fetch
+  }
+
+  it('an observed beacon move refreshes the grant in the background, before the boundary that would end it', async () => {
+    const ctx = {now: T0 + 5, drawable: 43n, seqs: [] as number[]}
+    const refreshed: number[] = []
+    const o = await opened({clock: () => ctx.now, fetchImpl: agentAt(ctx), extra: {followRetryMs: 0, onRefreshed: g => refreshed.push(g.epoch)}})
+    ;(ctx as {key?: SessionKeyHandle}).key = o.key
+    o.session.observeBeacon(42n)
+    expect(ctx.seqs).toEqual([])
+    // The beacon moved to 43 (seen by a payment's discovery): nothing waits, the refresh runs behind.
+    o.session.observeBeacon(43n)
+    expect(o.session.current().epoch).toBe(42)
+    await o.session.followBeacon()
+    expect(o.session.current().epoch).toBe(43)
+    expect(refreshed).toEqual([43])
+    // Observations never move back, and a current grant is not refreshed again.
+    o.session.observeBeacon(42n)
+    expect(await o.session.followBeacon()).toBe(false)
+    expect(ctx.seqs).toEqual([1])
+  })
+
+  it('retries while the new epoch is not anchored at the agent, and stops once the grant is current', async () => {
+    const ctx = {now: T0 + 5, drawable: 42n, seqs: [] as number[]}
+    const agent = agentAt(ctx)
+    // The agent's anchors for epoch 43 land after two same-epoch answers.
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      if (ctx.seqs.length === 2) ctx.drawable = 43n
+      return agent(url, init)
+    }) as unknown as typeof fetch
+    const o = await opened({clock: () => ctx.now, fetchImpl, extra: {followRetryMs: 0}})
+    ;(ctx as {key?: SessionKeyHandle}).key = o.key
+    o.session.observeBeacon(43n)
+    expect(await o.session.followBeacon()).toBe(true)
+    expect(o.session.current().epoch).toBe(43)
+    expect(ctx.seqs).toEqual([1, 2, 3])
+  })
+
+  it('never waits on a grant the beacon already left: two epochs behind, one attempt, then the session ends', async () => {
+    const ctx = {now: T0 + 5, drawable: 44n, seqs: [] as number[]}
+    const ended: string[] = []
+    const o = await opened({clock: () => ctx.now, fetchImpl: agentAt(ctx), onEnded: e => ended.push(e.code), extra: {followRetryMs: 0}})
+    ;(ctx as {key?: SessionKeyHandle}).key = o.key
+    o.session.observeBeacon(44n)
+    await expect(o.session.followBeacon()).rejects.toBeInstanceOf(SessionEndedError)
+    expect(ctx.seqs).toEqual([1])
+    expect(ended).toEqual(['session_expired'])
+  })
+
+  it('start() polls the beacon and follows it without any message', async () => {
+    vi.useFakeTimers()
+    try {
+      const ctx = {now: T0 + 5, drawable: 43n, seqs: [] as number[]}
+      let beacon = 42n
+      const o = await opened({clock: () => ctx.now, fetchImpl: agentAt(ctx), extra: {followRetryMs: 0, beacon: {latestEpoch: async () => beacon, pollMs: 1000}}})
+      ;(ctx as {key?: SessionKeyHandle}).key = o.key
+      o.session.start()
+      await vi.advanceTimersByTimeAsync(1500)
+      expect(ctx.seqs).toEqual([])
+      beacon = 43n
+      await vi.advanceTimersByTimeAsync(1000)
+      await o.session.followBeacon()
+      expect(o.session.current().epoch).toBe(43)
+      expect(o.session.beaconEpoch).toBe(43n)
+      o.session.stop()
+    } finally { vi.useRealTimers() }
   })
 })

@@ -7,7 +7,7 @@
 // Contract ABIs (generated from the Foundry artifacts) + nametoabi map.
 export * from './abis/index.js'
 export {UnderfundedSlotError, UnderfundedGasPayerError, PaidBackoffError, PaidApprovalUnresolvedError, PaidReservationQuotaError} from '../errors.js'
-export {readSlotFunding, readPaidOperationReceipt, resolvePaidKeeperTarget, discoverPaidOperationContext, PaidDrawMovedError} from './prepaid.js'
+export {readSlotFunding, readPaidOperationReceipt, resolvePaidKeeperTarget, discoverPaidOperationContext, readCurrentBeaconEpoch, PaidDrawMovedError} from './prepaid.js'
 export {readBillingMode, createBillingModeDetector, requirePrepaidSlot, BillingModeError} from './billing.js'
 export {drawnVerifierWitnesses, fetchDrawnVerifierWitnesses} from './verifierSnapshot.js'
 export {encodePrepaidFaultContest, contestPrepaidFault, readPrepaidFaultResolution, submitPrepaidFaultClaim, readPrepaidFaultStatus,

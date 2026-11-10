@@ -174,9 +174,22 @@ export interface GrantedSessionOptions {
   refreshLeadSecs?: number
   /** Called once when the session ends and a new presentation is needed. */
   onEnded?(error: SessionEndedError): void
+  /** Called after every accepted refresh with the new grant (re-derive per-epoch trust or proofs here). */
+  onRefreshed?(grant: SessionGrantWire): void
+  /**
+   * The beacon's latest epoch (e.g. `readCurrentBeaconEpoch`). With it, {@link GrantedSession.start}
+   * also polls the beacon every `pollMs` (default 2000) and refreshes the grant in the background
+   * the moment the beacon moves past the grant's epoch ({@link GrantedSession.observeBeacon}).
+   */
+  beacon?: {latestEpoch(): Promise<bigint>; pollMs?: number}
+  /** Pause between follow attempts while a new epoch's anchors land, ms (default 1000; tests use 0). */
+  followRetryMs?: number
   /** Clock override, Unix seconds (tests). */
   clock?: () => number
 }
+
+/** Follow attempts per beacon move while the refresh stays on the old epoch (the new epoch's anchors are landing). */
+const FOLLOW_ATTEMPTS = 20
 
 /**
  * Accept the grant the agent returned for a session-mode presentation, after checking it against
@@ -252,7 +265,11 @@ export class GrantedSession {
   #opts: GrantedSessionOptions
   #record: SessionRecord
   #timer: ReturnType<typeof setTimeout> | undefined
+  #beaconTimer: ReturnType<typeof setInterval> | undefined
   #inflight: Promise<SessionGrantWire> | undefined
+  #following: Promise<boolean> | undefined
+  /** The newest beacon epoch observed (by a payment's discovery, a keeper refusal or the beacon poll). */
+  #beacon: bigint | undefined
 
   /** @internal Use {@link acceptSessionGrant} or {@link loadGrantedSession}. */
   constructor(opts: GrantedSessionOptions, sessionId: string, record: SessionRecord) {
@@ -368,7 +385,61 @@ export class GrantedSession {
       commit.stage(key, updated)
       return updated
     })
+    // A refresh outside the expiry timer (a beacon follow) moves `exp`: re-arm the armed timer on it.
+    if (this.#timer) this.#armExpiry()
+    try { this.#opts.onRefreshed?.(structuredClone(r.session_grant)) } catch { /* a listener never fails the refresh */ }
     return structuredClone(r.session_grant)
+  }
+
+  /** The newest beacon epoch this session has observed, if any. */
+  get beaconEpoch(): bigint | undefined { return this.#beacon }
+
+  /**
+   * Report the beacon's latest epoch (a payment discovery's `beaconEpoch`, a keeper's "beacon latest",
+   * the beacon poll). Once it is past the grant's epoch the grant is refreshed in the BACKGROUND
+   * ({@link followBeacon}): keepers still admit the current grant for the whole next epoch, so the
+   * refresh lands well before the boundary that would end it, and no message waits for it. An
+   * observation never moves backwards.
+   */
+  observeBeacon(epoch: bigint): void {
+    if (typeof epoch !== 'bigint' || epoch < 0n) return
+    if (this.#beacon !== undefined && epoch <= this.#beacon) return
+    this.#beacon = epoch
+    if (this.#record.ended || this.#record.revoking || epoch <= BigInt(this.#record.grant.epoch)) return
+    // Errors are the session's own outcome (an end calls onEnded); the next observation retries.
+    void this.followBeacon().catch(() => undefined)
+  }
+
+  /**
+   * Bring the grant up to the newest observed beacon epoch, one continuation per epoch (the agent
+   * continues a session exactly ONE epoch). A refresh that stays on the old epoch (the new epoch's
+   * anchors have not landed at the agent) is retried, bounded, while the held grant is still
+   * admissible (its epoch the beacon's latest or previous); never past that. Single-flight; resolves
+   * `true` when the grant moved, `false` when it was already current. Throws
+   * {@link SessionEndedError} when the session cannot continue (present again).
+   */
+  followBeacon(): Promise<boolean> {
+    this.#following ??= this.#follow().finally(() => { this.#following = undefined })
+    return this.#following
+  }
+
+  async #follow(): Promise<boolean> {
+    let moved = false
+    for (let attempt = 0; ; attempt++) {
+      const target = this.#beacon, at = BigInt(this.#record.grant.epoch)
+      if (target === undefined || at >= target) return moved
+      try {
+        if (await this.refreshForEpoch(target)) moved = true
+        continue
+      } catch (error) {
+        if (error instanceof SessionEndedError) throw error
+        // Only while the held grant is still admissible is waiting worth it: past that, nothing
+        // this grant authorizes is served, and the caller presents again.
+        if (at + 1n < (this.#beacon ?? target) || attempt + 1 >= FOLLOW_ATTEMPTS) throw error
+      }
+      const pause = this.#opts.followRetryMs ?? 1000
+      if (pause > 0) await new Promise<void>(resolve => { const t = setTimeout(resolve, pause); (t as {unref?(): void}).unref?.() })
+    }
   }
 
   /**
@@ -389,26 +460,45 @@ export class GrantedSession {
     return true
   }
 
-  /** Refresh in the background before each grant's `exp`, until stopped or the session ends. */
+  /**
+   * Refresh in the background before each grant's `exp`, until stopped or the session ends. With
+   * `beacon` configured, also poll the beacon and follow it ({@link observeBeacon}).
+   */
   start(): void {
-    this.stop()
+    this.#armExpiry()
+    const beacon = this.#opts.beacon
+    if (beacon && !this.#beaconTimer) {
+      const poll = () => { beacon.latestEpoch().then(epoch => this.observeBeacon(epoch), () => undefined) }
+      this.#beaconTimer = setInterval(poll, Math.max(100, beacon.pollMs ?? 2000))
+      ;(this.#beaconTimer as {unref?(): void}).unref?.()
+      poll()
+    }
+  }
+
+  #armExpiry(): void {
+    if (this.#timer) clearTimeout(this.#timer)
+    this.#timer = undefined
     const g = this.#record.grant
     const lead = this.#opts.refreshLeadSecs ?? Math.max(5, Math.floor((g.exp - g.iat) / 3))
     const delay = Math.max(0, (g.exp - lead - this.#clock()) * 1000)
     this.#timer = setTimeout(() => {
       this.#timer = undefined
-      this.refresh().then(() => this.start(), error => {
+      this.refresh().then(() => this.#armExpiry(), error => {
         if (error instanceof SessionEndedError) return
         // Transient: retry soon while the current grant still has time left.
-        if (this.#clock() < this.#record.grant.exp) this.#timer = setTimeout(() => this.start(), 1000)
+        if (this.#clock() < this.#record.grant.exp) this.#timer = setTimeout(() => this.#armExpiry(), 1000)
         else void this.#end(new SessionEndedError('local-expired', 'Session grant expired before a refresh succeeded; present again')).catch(() => undefined)
       })
     }, delay)
     ;(this.#timer as {unref?(): void}).unref?.()
   }
 
-  /** Stop background refresh. */
-  stop(): void { if (this.#timer) clearTimeout(this.#timer); this.#timer = undefined }
+  /** Stop background refresh and the beacon poll. */
+  stop(): void {
+    if (this.#timer) clearTimeout(this.#timer)
+    if (this.#beaconTimer) clearInterval(this.#beaconTimer)
+    this.#timer = undefined; this.#beaconTimer = undefined
+  }
 
   /**
    * Revoke at the verifiers (effective at the next refresh; an issued grant runs to its `exp`, at
