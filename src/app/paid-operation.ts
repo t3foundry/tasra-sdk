@@ -843,20 +843,30 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
   // BillingModeError, instead of a separate billing observation of ~4 sequential reads before it.
   if (config.billing) await config.billing.requirePrepaid(slot)
   const readiness = AbortSignal.any([signal, AbortSignal.timeout(config.snapshotWaitMs ?? 180_000)])
-  const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(client, d, slot,
-    {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator, fundedByAllowance: useAllowance}),
+  // ADR-0090: an allowance-funded payment names its allowance's draw, so while a new epoch's anchors
+  // land (no admissible complete draw at this head) an operation a current allowance serves need not
+  // wait for them: discovery returns an UNDRAWN context, and only when no lane serves the operation
+  // is the slot discovered again with the bounded anchor wait. Session openings (a pinned draw) wait.
+  const undrawnOk = useAllowance && request.sessionGrant === undefined
+  const discover = (undrawnDuringAnchorGap: boolean) => waitForPaidSnapshot(() => discoverPaidOperationContext(client, d, slot,
+    {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator, fundedByAllowance: useAllowance,
+      ...undrawnDuringAnchorGap ? {undrawnDuringAnchorGap} : {}}),
   readiness, () => sleep(1_000, readiness))
-  if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
   // The rule the holder will see must be the one the slot committed to on chain. Discovery read the
   // slot at its canonical, rechecked block hash; a context without that field is read again here.
   const expectedCommitment = ruleCommitment(request.rule.salt, request.rule.rule).toLowerCase()
-  if (context.ruleCommitment !== undefined) {
-    if (context.ruleCommitment.toLowerCase() !== expectedCommitment) throw new TasraError('Supplied rule or salt differs from the slot commitment')
-  } else {
-    const original = await client.readContract({address: d.keyRegistry, abi: keyRegistryAbi, functionName: 'getKeySlot', args: [slot], blockNumber: context.blockNumber})
-    if (original.ruleCommitment.toLowerCase() !== expectedCommitment) throw new TasraError('Supplied rule or salt differs from the slot commitment')
-    if ((await client.getBlock({blockNumber: context.blockNumber})).hash !== context.blockHash) throw new TasraError('Rule observation reorganized')
+  const checked = async (context: PaidOperationContext): Promise<PaidOperationContext> => {
+    if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
+    if (context.ruleCommitment !== undefined) {
+      if (context.ruleCommitment.toLowerCase() !== expectedCommitment) throw new TasraError('Supplied rule or salt differs from the slot commitment')
+    } else {
+      const original = await client.readContract({address: d.keyRegistry, abi: keyRegistryAbi, functionName: 'getKeySlot', args: [slot], blockNumber: context.blockNumber})
+      if (original.ruleCommitment.toLowerCase() !== expectedCommitment) throw new TasraError('Supplied rule or salt differs from the slot commitment')
+      if ((await client.getBlock({blockNumber: context.blockNumber})).hash !== context.blockHash) throw new TasraError('Rule observation reorganized')
+    }
+    return context
   }
+  let context = await checked(await discover(undrawnOk))
   // Validate the DCQL JSON, but retain the provisioned bytes. The chain's salted
   // commitment canonicalizes JSON; verifier tokens bind keccak256(raw rule).
   // Rewriting whitespace/key order here changes the expected token hash.
@@ -880,7 +890,15 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
   // epoch is judged at the allowance's quote block. So a session-mode opening is funded only by an
   // allowance drawn on this fresh discovery's draw, else by a per-operation reservation at it -
   // never by a voucher whose grant no verifier would sign (C7 fleet: `session_context_changed`).
-  const ticket = env ? await selectAllowanceLane(env, context, {action, expires: built.operation.exp, drawPinned: request.sessionGrant !== undefined}) : undefined
+  const lane = {action, expires: built.operation.exp, drawPinned: request.sessionGrant !== undefined}
+  let ticket = env ? await selectAllowanceLane(env, context, lane) : undefined
+  // Undrawn and no lane serves it now: discover the draw (waiting, bounded, for its anchors) and
+  // select again, which may start or wait for a lane reservation or fall back per operation.
+  if (!ticket && context.undrawn) {
+    context = await checked(await discover(false))
+    if (context.undrawn) throw new TasraError('Paid operation discovery returned no verifier draw')
+    ticket = env ? await selectAllowanceLane(env, context, lane) : undefined
+  }
   const unsigned = {...ticket ? ticket.fields : context.intentFields, action,
     payload_digest: toHex(built.payloadDigest), session_commitment: paymentSessionCommitment(random, config.agent.profile.clientId, built.operation.exp),
     nonce: toHex(random32()), max_cost: config.limits.maxCost.toString(), expires: built.operation.exp, ...ticket ? {allowance_id: ticket.allowanceId} : {}}

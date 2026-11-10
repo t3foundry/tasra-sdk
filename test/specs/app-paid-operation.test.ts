@@ -1641,6 +1641,48 @@ describe('paidOperation with ADR-0090 allowances (default off)', () => {
     op.dispose()
   })
 
+  it('during an anchor gap a lane that serves the operation pays at once: one undrawn discovery, the allowance\'s draw, no anchor wait', async () => {
+    const f = setup()
+    lane()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    const zero = `0x${'00'.repeat(32)}` as Hex
+    const undrawn = {...base, undrawn: true as const, intentFields: {...base.intentFields, verification_epoch: 0, verification_seed: zero, verification_root: zero,
+      verification_registry_size: 0, verification_committee: 0, verification_quorum: 0}}
+    vi.mocked(discoverPaidOperationContext).mockClear()
+    vi.mocked(discoverPaidOperationContext).mockResolvedValueOnce(undrawn)
+    // The ticket carries the ALLOWANCE's draw (fieldsFor copies it from the allowance intent).
+    vi.mocked(selectAllowanceLane).mockImplementation(async () => ({lane: 1, allowanceId: allowance,
+      fields: {...base.intentFields, verification_epoch: 6, verification_seed: h(46)}}))
+    const op = await paidOperation(enabled(f), f.request)
+    // Asked for an undrawn answer during a gap, discovered ONCE: it waited for no anchors.
+    expect(vi.mocked(discoverPaidOperationContext)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(discoverPaidOperationContext).mock.calls[0]![3]).toMatchObject({fundedByAllowance: true, undrawnDuringAnchorGap: true})
+    expect(vi.mocked(selectAllowanceLane).mock.calls[0]![1].undrawn).toBe(true)
+    expect(op.payment).toMatchObject({allowance_id: allowance, verification_epoch: 6, verification_seed: h(46)})
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    op.dispose()
+  })
+
+  it('during an anchor gap with no serving lane, discovers the draw (waiting for its anchors) and never pays from the undrawn context', async () => {
+    const f = setup()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    const zero = `0x${'00'.repeat(32)}` as Hex
+    vi.mocked(discoverPaidOperationContext).mockClear()
+    vi.mocked(discoverPaidOperationContext).mockResolvedValueOnce({...base, undrawn: true, intentFields: {...base.intentFields, verification_epoch: 0, verification_seed: zero,
+      verification_root: zero, verification_registry_size: 0, verification_committee: 0, verification_quorum: 0}})
+    vi.mocked(selectAllowanceLane).mockResolvedValue(undefined)
+    const op = await paidOperation(enabled(f), f.request)
+    const calls = vi.mocked(discoverPaidOperationContext).mock.calls
+    expect(calls).toHaveLength(2)
+    expect(calls[1]![3]).not.toHaveProperty('undrawnDuringAnchorGap')
+    // Selected again on the drawn context, then paid per operation at THAT draw.
+    expect(vi.mocked(selectAllowanceLane).mock.calls.map(c => c[1].undrawn)).toEqual([true, undefined])
+    expect(op.payment).toMatchObject({verification_epoch: 7, verification_seed: h(41), verification_root: h(42)})
+    expect(op.payment.allowance_id).toBeUndefined()
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    op.dispose()
+  })
+
   it('falls back to a per-operation reservation when no lane has room', async () => {
     const f = setup()
     vi.mocked(selectAllowanceLane).mockResolvedValue(undefined)

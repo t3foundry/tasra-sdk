@@ -358,6 +358,33 @@ it('waits a bounded time for an admissible complete epoch while a new epoch\'s a
   for (const bad of [{timeoutMs: -1}, {timeoutMs: 120_001}, {pollMs: 50}, {pollMs: 10_001}]) await expect(f.run({anchorWait: bad})).rejects.toThrow('invalid anchor wait')
 })
 
+it('an allowance-funded discovery during an anchor gap returns at once UNDRAWN (zero draw, live keeper sharing); never otherwise', async () => {
+  now()
+  const sleeps: number[] = []
+  let t = 1_000_000
+  const anchorWait = {timeoutMs: 5_000, pollMs: 1_000, clock: {now: () => t, sleep: async (ms: number) => { sleeps.push(ms); t += ms }, jitter: () => 0}}
+  const gap = fixture({unanchored: true, noPrevious: true})
+  const context = await gap.run({anchorWait, fundedByAllowance: true, undrawnDuringAnchorGap: true})
+  // No wait: the anchors of the draw are not this caller's to wait for.
+  expect(sleeps).toEqual([])
+  expect(context.undrawn).toBe(true)
+  expect(context.intentFields).toMatchObject({verification_epoch: 0, verification_seed: `0x${'00'.repeat(32)}`, verification_root: `0x${'00'.repeat(32)}`,
+    verification_registry_size: 0, verification_committee: 0, verification_quorum: 0})
+  // The keeper sharing, creator and coordinator are read exactly as for a drawn context.
+  const drawn = await fixture().run({fundedByAllowance: true})
+  expect(drawn.undrawn).toBeUndefined()
+  expect(context.intentFields.keeper_assignment.contributors).toEqual(drawn.intentFields.keeper_assignment.contributors)
+  expect(context.creator).toBe(drawn.creator)
+  // A complete draw is returned drawn even with the option; without `fundedByAllowance`, or for a
+  // pinned session draw, the gap is waited for (and refused past the bound) as before.
+  expect((await fixture().run({fundedByAllowance: true, undrawnDuringAnchorGap: true})).undrawn).toBeUndefined()
+  for (const options of [{undrawnDuringAnchorGap: true}, {fundedByAllowance: true}]) {
+    await expect(fixture({unanchored: true, noPrevious: true}).run({...options, anchorWait: {...anchorWait, timeoutMs: 1_500}}))
+      .rejects.toThrow('no current or previous anchored verifier and accountant snapshots')
+  }
+  expect(sleeps).toEqual([1_000, 1_000])
+})
+
 it('serves a repeated discovery at a followed, vouched-for head from the block-pinned cache and its pre-reads', async () => {
   now()
   const f = fixture()

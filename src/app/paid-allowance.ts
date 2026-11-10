@@ -379,6 +379,10 @@ const cursors = new Map<string, number>()
  * @param operation - The paid action and the payment expiry.
  */
 export async function selectAllowanceLane(env: AllowanceEnv, context: PaidOperationContext, operation: AllowanceOperation): Promise<AllowanceTicket | undefined> {
+  // An undrawn context (a new epoch's anchors are landing) only selects a lane whose current
+  // allowance serves the operation now: it waits for nothing and starts no reservation (it has no
+  // draw to reserve on). A pinned draw needs that draw: never from it.
+  if (context.undrawn) return operation.drawPinned ? undefined : selectLane(env, context, operation)
   const select = async () => await selectLane(env, context, operation) ?? (operation.drawPinned ? selectDrawLane(env, context, operation) : undefined)
   const chosen = await select()
   // A session message on the previous epoch while the beacon is already at the next: reserve the
@@ -505,6 +509,7 @@ async function promoteDraw(env: AllowanceEnv, key: string, lane: number, slot: H
 
 /** Start (once per lane in this process) a background draw-lane reservation on `context`'s (verified) draw. */
 function refillDrawLane(env: AllowanceEnv, context: PaidOperationContext, j: number): Promise<void> {
+  if (context.undrawn) return Promise.resolve()
   const lane = drawLaneIndex(context.intentFields.verification_epoch, j), key = laneKey(env.deployment, context.intentFields.slot, lane)
   const running = refilling.get(key)
   if (running) return running
@@ -577,7 +582,7 @@ async function selectLane(env: AllowanceEnv, context: PaidOperationContext, oper
     // A lane held by a debit whose voucher is already journaled (a stop between that journal and
     // the lane commit) is completed here, asking nobody: no selection would ever run a round on it.
     if (state.current?.pending && !busy.has(key)) state = await completeInterruptedAdvance(env, key, lane, slot, state)
-    if (env.options.reserveAhead !== false && !state.next
+    if (env.options.reserveAhead !== false && !state.next && !context.undrawn
       && (low(state.current) || state.current?.phase !== 'confirmed' || endingFor(state.current, context, operation))) refillLane(env, context, lane, operation)
     // Close to expiry the current allowance may see no further debit: make sure its last voucher reached the members.
     if (state.current?.phase === 'confirmed' && state.current.seq > 0 && state.current.intent.expires_at - now() < LOW_LIFE_SECS) repushLast(env, state.current)
@@ -657,7 +662,7 @@ function fieldsFor(intent: PrepaidAllowanceIntentWire, context: PaidOperationCon
  */
 function refillLane(env: AllowanceEnv, context: PaidOperationContext, lane: number, operation: {expires: number}): void {
   const key = laneKey(env.deployment, context.intentFields.slot, lane)
-  if (refilling.has(key) || refilling.size >= MAX_REFILLING) return
+  if (context.undrawn || refilling.has(key) || refilling.size >= MAX_REFILLING) return
   const work = reserveOnLane(env, context, lane, operationPlan(env, context, operation)).then(() => {}, () => {}).finally(() => { refilling.delete(key); refillingDraw.delete(key) })
   refilling.set(key, work)
   refillingDraw.set(key, context.intentFields)
@@ -935,6 +940,8 @@ const unexpired = (held: LaneState['held']) => (held ?? []).filter(h => h.until 
 async function reserveOnLane(env: AllowanceEnv, context: PaidOperationContext, lane: number, plan: ReservePlan, signal?: AbortSignal): Promise<'reserved' | 'pending' | 'not-needed' | 'capped'> {
   const slot = context.intentFields.slot, key = laneKey(env.deployment, slot, lane), d = env.deployment, store = env.store
   const payer = env.gasPayer.account.address
+  // An allowance is drawn on its context's verifier draw: an undrawn one has none (zero fields).
+  if (context.undrawn) throw new TasraError('An undrawn payment context cannot reserve an allowance; discover again')
   // Reconcile an earlier uncertain reservation first; never sign a second one beside it.
   const before = await loadLane(store, key, lane, slot)
   if (before.next?.record && before.next.phase !== 'confirmed') {

@@ -405,6 +405,15 @@ export interface PaidContextOptions extends PaidKeeperTransportOptions {
    * {@link PaidDrawMovedError} is thrown before anything is signed (refresh the grant first).
    */
   verificationEpoch?: bigint
+  /**
+   * ADR-0090: while a new epoch's anchors land (no admissible complete verifier draw at the
+   * observed head, see {@link PaidAnchorWait}), return at once a context marked
+   * {@link PaidOperationContext.undrawn} instead of waiting. Only for a caller that will fund the
+   * operation from an EXISTING allowance, whose payment names the allowance's own draw (judged at
+   * the allowance's quote block, not at this head): its keeper sharing, creator, mode and rule
+   * commitment are read as usual. Requires `fundedByAllowance`; ignored with `verificationEpoch`.
+   */
+  undrawnDuringAnchorGap?: boolean
 }
 
 /**
@@ -443,6 +452,14 @@ export interface PaidOperationContext extends PrepaidObservation {
   ruleCommitment?: Hex
   /** The beacon's latest epoch at this block (the draw is it or, while its anchors land, the one before). */
   beaconEpoch?: bigint
+  /**
+   * Set only with {@link PaidContextOptions.undrawnDuringAnchorGap}: this block has no admissible
+   * complete verifier draw, and `intentFields`' verification fields are ZERO (every reader refuses
+   * them). Such a context may select an existing allowance (which carries its own draw); it never
+   * signs a per-operation payment and never reserves an allowance. Discover again (with the
+   * bounded anchor wait) for anything else.
+   */
+  undrawn?: true
 }
 
 const ZERO32 = `0x${'00'.repeat(32)}`
@@ -941,7 +958,8 @@ export async function discoverPaidOperationContext(
   const deadline = wait.clock.now() + wait.timeoutMs
   // One attempt at one observation: the discovered state, or the reason to wait for a newer head.
   type Attempt = {wait: string} | {at: PrepaidObservation; policy: readonly [number, number]; available: bigint; directory: Awaited<ReturnType<typeof keeperDirectory>>
-    epoch: bigint; seed: Hex; root: Hex; size: number; latest: bigint}
+    epoch: bigint; seed: Hex; root: Hex; size: number; latest: bigint; undrawn?: true}
+  const undrawnOk = options.undrawnDuringAnchorGap === true && options.fundedByAllowance === true && options.verificationEpoch === undefined
   // The billing check reads its own head. At a followed tip whose refusal is decided again at a
   // newer `latest`, it is left to that decision (or, when none follows, run once before refusing).
   let billing: 'none' | 'deferred' | 'judged' = 'none'
@@ -1000,7 +1018,11 @@ export async function discoverPaidOperationContext(
       epoch--
       ;[seed, [root, size], accountant] = await Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)])
       // A new epoch's anchors have not landed yet (see PaidAnchorWait): wait and observe again.
-      if (!complete(seed, root, size, accountant)) return {wait: 'no current or previous anchored verifier and accountant snapshots'}
+      if (!complete(seed, root, size, accountant)) {
+        // An allowance-funded caller pays the allowance's draw: the keeper sharing read here is all it needs.
+        if (undrawnOk) return {at, policy, available, directory, epoch: 0n, seed: ZERO32 as Hex, root: ZERO32 as Hex, size: 0, latest, undrawn: true}
+        return {wait: 'no current or previous anchored verifier and accountant snapshots'}
+      }
     }
     return {at, policy, available, directory, epoch, seed, root, size, latest}
   }
@@ -1021,13 +1043,16 @@ export async function discoverPaidOperationContext(
       await wait.clock.sleep(wait.pollMs)
     }
   })()
-  const {at, policy, available, directory, epoch, seed, root, size, latest} = observed
+  const {at, policy, available, directory, epoch, seed, root, size, latest, undrawn} = observed
   const [onChainCommittee, onChainQuorum] = policy
   if (onChainCommittee === 0 && onChainQuorum !== 0) throw new Error('invalid on-chain verifier policy')
-  const {committee, quorum} = onChainCommittee === 0
+  const approved = onChainCommittee === 0
     ? options.defaultVerificationPolicy ?? {committee: 0, quorum: 0}
     : {committee: onChainCommittee, quorum: onChainQuorum}
-  if (!Number.isInteger(committee) || !Number.isInteger(quorum) || quorum <= 0 || quorum > committee || committee > 4096 || committee > size) throw new Error('missing or invalid approved verifier policy')
+  // Undrawn: no draw to size the policy against; the verification fields stay zero (refused by every reader).
+  if (!Number.isInteger(approved.committee) || !Number.isInteger(approved.quorum) || approved.quorum <= 0 || approved.quorum > approved.committee || approved.committee > 4096
+    || (!undrawn && approved.committee > size)) throw new Error('missing or invalid approved verifier policy')
+  const {committee, quorum} = undrawn ? {committee: 0, quorum: 0} : approved
   const members = [...directory.members.values()].filter(member => member.eligible).sort((a, b) => a.id < b.id ? -1 : 1)
   const selected = options.coordinator
     ? members.find(member => member.operator.toLowerCase() === options.coordinator!.toLowerCase())
@@ -1044,7 +1069,7 @@ export async function discoverPaidOperationContext(
     verification_committee: committee, verification_quorum: quorum, keeper_assignment: assignment}
   await finishObservation(client, at)
   return {...at, intentFields, creator: directory.slot.creator, mode: directory.slot.mode, groupPublicKey: directory.slot.publicKey, coordinator, contributors: endpoints, available,
-    ruleCommitment: directory.slot.ruleCommitment, beaconEpoch: latest}
+    ruleCommitment: directory.slot.ruleCommitment, beaconEpoch: latest, ...undrawn ? {undrawn} : {}}
 }
 
 // readKeeperDirectory bounds a slot to 256 members. Reject the excess range so

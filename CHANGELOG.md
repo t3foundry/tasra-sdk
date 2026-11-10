@@ -9,6 +9,17 @@ never does.
 
 ### Added
 
+- An allowance-funded operation no longer waits for a new verifier epoch's anchors when a
+  current allowance serves it. Its payment names the allowance's own draw, so while neither the
+  beacon's latest nor previous epoch has both snapshots anchored, discovery (new
+  `PaidContextOptions.undrawnDuringAnchorGap`, with `fundedByAllowance`) returns at once a context
+  marked `undrawn` (zero verification fields, live keeper sharing); lane selection serves from it
+  without starting or waiting for a reservation, and only when no lane serves the operation is the
+  slot discovered again with the bounded anchor wait. Such a context never signs a per-operation
+  payment or reserves an allowance. Session openings (a pinned draw) wait as before. At 110 ms
+  chain RPC the fleet's verifier-set anchor lands ~11 s after the seed (epochs 10 s apart), and
+  allowance-funded operations sat 1..6 s in these waits (C14 flow bench).
+
 - `prepareAllowances` readiness judged by lane selection's own predicate: optional `actions`
   (as `PaidOperationRequest.operation.action`; `sign` is paid as `eoa-sign` on a threshold-ECDSA
   slot) and `operationTtlSecs` (default 600). Given, one fresh discovery judges every lane, and an

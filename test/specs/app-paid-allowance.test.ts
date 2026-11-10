@@ -147,6 +147,33 @@ describe('allowance lanes', () => {
     expect(vi.mocked(reservePrepaidAllowance)).toHaveBeenCalledTimes(1)
   })
 
+  it('an undrawn context (anchors landing) selects a serving lane at once, and never reserves or waits from it', async () => {
+    const undrawn = (): PaidOperationContext => {
+      const c = context(), zero = h(0)
+      return {...c, undrawn: true, intentFields: {...c.intentFields, verification_epoch: 0, verification_seed: zero, verification_root: zero,
+        verification_registry_size: 0, verification_committee: 0, verification_quorum: 0}}
+    }
+    const {env, allowance} = await seeded({reserveAhead: true})
+    vi.mocked(reservePrepaidAllowance).mockClear()
+    // The lane's own (allowance) draw is handed out; the zero draw of the context never is.
+    const ticket = await selectAllowanceLane(env, undrawn(), {action: 'decrypt', expires: NOW + 600})
+    expect(ticket).toMatchObject({lane: 0, allowanceId: allowance})
+    expect(ticket!.fields).toMatchObject({verification_epoch: 8, verification_seed: h(0x34), verification_root: h(0x35), verification_registry_size: 5})
+    // Ending soon for this operation (a drawn selection would reserve its replacement): nothing reserved from the zero draw.
+    clock = NOW + 3600 - 600 - 30 - 600 - 30
+    expect(await selectAllowanceLane(env, undrawn(), {action: 'decrypt', expires: clock + 600})).toMatchObject({allowanceId: allowance})
+    await settleAllowanceRefills()
+    expect(vi.mocked(reservePrepaidAllowance)).not.toHaveBeenCalled()
+    // No lane at all: undefined at once (the caller discovers the draw), no reservation started, and a
+    // pinned session draw is never served from it.
+    const empty = environment({reserveAhead: true})
+    expect(await selectAllowanceLane(empty.env, undrawn(), {action: 'decrypt', expires: NOW + 600})).toBeUndefined()
+    expect(await selectAllowanceLane(env, undrawn(), {action: 'decrypt', expires: clock + 600, drawPinned: true})).toBeUndefined()
+    await settleAllowanceRefills()
+    expect(vi.mocked(reservePrepaidAllowance)).not.toHaveBeenCalled()
+    await expect(reserveForLane(empty.env, undrawn(), 0)).rejects.toThrow('undrawn payment context cannot reserve')
+  })
+
   it('falls back when the lane reservation it waited for fails, or does not finish within the bound', async () => {
     vi.mocked(reservePrepaidAllowance).mockRejectedValueOnce(new Error('refused'))
     expect(await selectAllowanceLane(environment({reserveAhead: true}).env, context(), {action: 'decrypt', expires: NOW + 600})).toBeUndefined()
