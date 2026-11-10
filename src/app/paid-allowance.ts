@@ -300,8 +300,43 @@ function usable(c: LaneCurrent | undefined, env: AllowanceEnv, context: PaidOper
  */
 export interface AllowanceOperation {action: AllowanceAction; expires: number; drawPinned?: boolean}
 
-/** Lanes with a voucher round running in this process (advisory: the store lock is what serializes). */
-const busy = new Set<string>()
+/** Voucher rounds running or queued in this process, per lane (advisory: the store lock is what serializes). */
+const busyRounds = new Map<string, number>()
+const busy = {
+  has: (key: string) => (busyRounds.get(key) ?? 0) > 0,
+  add: (key: string) => { busyRounds.set(key, (busyRounds.get(key) ?? 0) + 1) },
+  delete: (key: string) => { const n = (busyRounds.get(key) ?? 0) - 1; if (n > 0) busyRounds.set(key, n); else busyRounds.delete(key) },
+}
+/**
+ * Lanes handed out by a selection in this process whose voucher round has not started yet: lane key
+ * to the expiry times (ms) of those claims. Advisory, exactly like `busy`: it only spreads concurrent
+ * selections over a slot's lanes. Without it every selection running at once read the same cursor
+ * and the same idle lanes (the debit's pending journal is written only once its round starts, after
+ * the payment is signed and journaled), so they all took ONE lane and their voucher rounds, each a
+ * full accountant round trip under that lane's lock, ran one after another. A claim is consumed when
+ * a round on its lane starts and otherwise lapses after {@link CLAIM_MS}; nothing is refused on it
+ * (the store lock and the lane journal decide what may be debited).
+ */
+const claims = new Map<string, number[]>()
+const CLAIM_MS = 30_000
+const MAX_CLAIMS_PER_LANE = 1024
+function liveClaims(key: string): number[] {
+  const at = Date.now(), live = (claims.get(key) ?? []).filter(until => until > at)
+  if (live.length > 0) claims.set(key, live); else claims.delete(key)
+  return live
+}
+/** In-process work on a lane: selections not yet debiting plus voucher rounds running or queued. */
+function laneLoad(key: string): number {
+  return liveClaims(key).length + (busyRounds.get(key) ?? 0)
+}
+function claimLane(key: string): void {
+  const live = liveClaims(key)
+  if (live.length < MAX_CLAIMS_PER_LANE) claims.set(key, [...live, Date.now() + CLAIM_MS])
+}
+function consumeClaim(key: string): void {
+  const live = liveClaims(key)
+  if (live.length > 0) { live.shift(); if (live.length > 0) claims.set(key, live); else claims.delete(key) }
+}
 /** Background reservations running in this process, per lane. Bounded by lanes x slots in use. */
 const refilling = new Map<string, Promise<void>>()
 /** The draw each running reservation reserves on (keyed like `refilling`). */
@@ -398,25 +433,32 @@ async function selectDrawLane(env: AllowanceEnv, context: PaidOperationContext, 
   const scope = `${laneKey(env.deployment, slot, 0)}:draw`, start = cursors.get(scope) ?? 0
   const candidates: number[] = []
   for (let i = 0; i < lanes; i++) candidates.push((start + i) % lanes)
-  candidates.sort((a, b) => Number(busy.has(laneKey(env.deployment, slot, drawLaneIndex(epoch, a)))) - Number(busy.has(laneKey(env.deployment, slot, drawLaneIndex(epoch, b)))))
+  candidates.sort((a, b) => laneLoad(laneKey(env.deployment, slot, drawLaneIndex(epoch, a))) - laneLoad(laneKey(env.deployment, slot, drawLaneIndex(epoch, b))))
   let chosen: AllowanceTicket | undefined
   let needy: number | undefined
+  // As in {@link selectLane}: a fitting lane with in-process work is taken only when no idle one fits.
+  let loaded: {j: number; lane: number; key: string; current: LaneCurrent} | undefined
+  const take = async (j: number, lane: number, key: string, current: LaneCurrent) => {
+    chosen = {lane, allowanceId: current.id, fields: fieldsFor(current.intent, context)}
+    cursors.set(scope, (j + 1) % lanes)
+    claimLane(key)
+    // Low on the draw it serves: its replacement on the same draw, in the background.
+    if (env.options.reserveAhead !== false && drawNeeds(await loadLane(env.store, key, lane, slot), draw)) void refillDrawLane(env, context, j)
+  }
   for (const j of candidates) {
     const lane = drawLaneIndex(epoch, j), key = laneKey(env.deployment, slot, lane)
     let state = await loadLane(env.store, key, lane, slot)
     if (state.current?.pending && !busy.has(key)) state = await completeInterruptedAdvance(env, key, lane, slot, state)
     if (state.current?.phase === 'confirmed' && state.current.seq > 0 && state.current.intent.expires_at - now() < LOW_LIFE_SECS) repushLast(env, state.current)
     const fits = usable(state.current, env, context, operation.action, operation.expires, true)
-    if (!chosen && (fits || (state.next?.phase === 'confirmed' && sameDraw(draw, state.next.intent) && !state.current?.pending))) {
+    if (!chosen && fits && laneLoad(key) > 0) {
+      if (!loaded || laneLoad(key) < laneLoad(loaded.key)) loaded = {j, lane, key, current: state.current!}
+    } else if (!chosen && (fits || (state.next?.phase === 'confirmed' && sameDraw(draw, state.next.intent) && !state.current?.pending))) {
       const current = fits ? state.current! : await promoteDraw(env, key, lane, slot, context, operation)
-      if (current) {
-        chosen = {lane, allowanceId: current.id, fields: fieldsFor(current.intent, context)}
-        cursors.set(scope, (j + 1) % lanes)
-        // Low on the draw it serves: its replacement on the same draw, in the background.
-        if (env.options.reserveAhead !== false && drawNeeds(await loadLane(env.store, key, lane, slot), draw)) void refillDrawLane(env, context, j)
-      }
+      if (current && !chosen) await take(j, lane, key, current)
     } else if (needy === undefined && drawNeeds(state, draw) && !refilling.has(key)) needy = j
   }
+  if (!chosen && loaded) await take(loaded.j, loaded.lane, loaded.key, loaded.current)
   // One reservation per miss, and none when a regular lane is already being reserved on this very
   // draw (the selection before this one started it): the caller waits for that one instead.
   let regular = false
@@ -500,7 +542,16 @@ async function selectLane(env: AllowanceEnv, context: PaidOperationContext, oper
   const candidates: number[] = []
   for (let i = 0; i < lanes; i++) candidates.push((start + i) % lanes)
   // Lanes idle in this process first; a busy one only serializes behind its round.
-  candidates.sort((a, b) => Number(busy.has(laneKey(env.deployment, slot, a))) - Number(busy.has(laneKey(env.deployment, slot, b))))
+  candidates.sort((a, b) => laneLoad(laneKey(env.deployment, slot, a)) - laneLoad(laneKey(env.deployment, slot, b)))
+  // A lane that fits but already carries in-process work (judged at the moment of choosing, after
+  // this selection's own reads, so selections running at once see each other's claims): taken only
+  // when no idle lane fits, the least loaded first.
+  let loaded: {lane: number; key: string; current: LaneCurrent} | undefined
+  const take = (lane: number, key: string, current: LaneCurrent) => {
+    chosen = {lane, allowanceId: current.id, fields: fieldsFor(current.intent, context)}
+    cursors.set(scope, (lane + 1) % lanes)
+    claimLane(key)
+  }
   for (const lane of candidates) {
     const key = laneKey(env.deployment, slot, lane)
     let state = await loadLane(env.store, key, lane, slot)
@@ -513,14 +564,14 @@ async function selectLane(env: AllowanceEnv, context: PaidOperationContext, oper
     // A pinned draw never promotes: retiring a current allowance only because its draw is not this
     // session's would strand its balance for every other operation.
     const fits = usable(state.current, env, context, operation.action, operation.expires, operation.drawPinned)
-    if (!chosen && (fits || (!operation.drawPinned && state.next?.phase === 'confirmed' && !state.current?.pending))) {
+    if (!chosen && fits && laneLoad(key) > 0) {
+      if (!loaded || laneLoad(key) < laneLoad(loaded.key)) loaded = {lane, key, current: state.current!}
+    } else if (!chosen && (fits || (!operation.drawPinned && state.next?.phase === 'confirmed' && !state.current?.pending))) {
       const current = fits ? state.current! : await promote(env, key, lane, slot, context, operation)
-      if (current) {
-        chosen = {lane, allowanceId: current.id, fields: fieldsFor(current.intent, context)}
-        cursors.set(scope, (lane + 1) % lanes)
-      }
+      if (current && !chosen) take(lane, key, current)
     }
   }
+  if (!chosen && loaded) take(loaded.lane, loaded.key, loaded.current)
   return chosen
 }
 
@@ -915,6 +966,7 @@ export async function obtainAllowanceVoucher(env: AllowanceEnv, ticket: {lane: n
   // Background work that takes locks this round holds starts once they are released; vouchers are
   // pushed only once the commit that journals them resolved.
   const after: (() => void)[] = [], toPush: DebitVoucherWire[] = []
+  consumeClaim(key)
   busy.add(key)
   try {
     // The lane lock serializes the lane's rounds; the push journal's lock is held with it, so the

@@ -188,6 +188,19 @@ never does.
   transactions are never batched. If an RPC refuses a batch, that batch's requests are sent
   one by one and every later request goes alone.
 
+### Fixed
+
+- ADR-0090 allowance lanes: paid operations that selected a lane at the same time in one process
+  all took the SAME lane of their slot (every selection read one cursor and the same idle lanes;
+  a debit marks its lane pending only once its voucher round starts), so their voucher rounds,
+  each a full accountant round trip under that lane's lock, ran one after another. A selection
+  now claims its lane in-process at the moment it chooses it, and a lane that fits but already
+  carries claims or rounds is taken only when no idle lane fits (the least loaded first). The
+  claim is advisory, like the busy marker: nothing is refused on it, the lane lock and journal
+  are unchanged, and debits of one allowance stay strictly ordered (the protocol chains seq n + 1
+  on voucher n). Measured on the file store, 16 concurrent operations on 2 slots x 8 lanes with
+  a 100 ms round: 1269 ms -> 309 ms.
+
 ## [0.4.0] — 2026-11-04
 
 Everything since 0.3.0. `0.3.1` on npm (2026-10-28, `54e3b1b3`, `next` tag) was an untagged
