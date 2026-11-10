@@ -292,13 +292,14 @@ describe('a stale grant at a beacon-epoch boundary (C19)', () => {
   // The keeper's whole-request refusal of a grant two epochs behind (keykeeper-node
   // enforce_live_epoch; the batch route sends it without a code), as the C16 fleet answered it.
   const STALE = 'committee token epoch 478 is not current (beacon latest 480); a stale epoch would let the committee draw be ground over known past seeds'
-  type Answer = 'stale' | 'stale-code' | 'ok' | 'down' | 'other'
+  type Answer = 'stale' | 'stale-code' | 'ok' | 'down' | 'other' | 410 | 413 | 429 | 409 | 500
   async function run(answers: Answer[]) {
     const {options} = await setup()
     const fetchImpl = (async (url: string, init: RequestInit) => {
       const id = Number(/keeper-(\d+)/.exec(new URL(url).hostname)![1])
       const a = answers[id - 1]!
       if (a === 'down') throw new TypeError('fetch failed')
+      if (typeof a === 'number') return new Response(JSON.stringify({error: `refused ${a}`, code: `code-${a}`}), {status: a})
       if (a === 'stale') return new Response(JSON.stringify({error: STALE}), {status: 403})
       if (a === 'stale-code') return new Response(JSON.stringify({error: STALE, code: 'session-stale'}), {status: 403})
       if (a === 'other') return new Response(JSON.stringify({error: 'paid operation not activated', code: 'forbidden'}), {status: 403})
@@ -327,6 +328,18 @@ describe('a stale grant at a beacon-epoch boundary (C19)', () => {
     expect(await run(['down', 'stale', 'stale'])).toMatchObject({ok: false, stale: false})
     // And a refusal that does not say "stale" is no reason to pay again.
     expect(await run(['other', 'other', 'other'])).toMatchObject({ok: false, stale: false})
+  })
+
+  it('410, 413 and 429 precede execution: beside a stale refusal they keep it stale; 409 and 5xx never do (review F6)', async () => {
+    for (const status of [410, 413, 429] as const) {
+      const r = await run(['stale', status, 'stale'])
+      expect(r).toMatchObject({ok: false, stale: true})
+      expect((r as Extract<typeof r, {ok: false}>).refusals.find(x => x.status === status)).toMatchObject({scope: 'request', code: `code-${status}`})
+    }
+    // None of them names a stale grant by itself.
+    expect(await run([410, 413, 429])).toMatchObject({ok: false, stale: false})
+    // 409 may mean "already ran"; a 5xx leaves it unknown.
+    for (const status of [409, 500] as const) expect(await run(['stale', status, 'stale'])).toMatchObject({ok: false, stale: false})
   })
 
   it('classifies keeper refusals: the stable code, or the fixed freshness messages of older keepers', () => {
