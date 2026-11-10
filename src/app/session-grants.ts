@@ -188,8 +188,14 @@ export interface GrantedSessionOptions {
   clock?: () => number
 }
 
-/** Follow attempts per beacon move while the refresh stays on the old epoch (the new epoch's anchors are landing). */
+/**
+ * Refresh attempts in ONE follow run while the refresh stays on the old epoch (the new epoch's
+ * anchors are landing). A run that gives up is retried by a later observation, even at the same
+ * epoch, after a bounded backoff ({@link MAX_FOLLOW_BACKOFF_MS}).
+ */
 const FOLLOW_ATTEMPTS = 20
+/** Longest pause before an observation retries a failed follow run, ms. */
+const MAX_FOLLOW_BACKOFF_MS = 30_000
 
 /**
  * Accept the grant the agent returned for a session-mode presentation, after checking it against
@@ -270,6 +276,9 @@ export class GrantedSession {
   #following: Promise<boolean> | undefined
   /** The newest beacon epoch observed on the chain (a payment's discovery, the beacon poll, a fresh read). */
   #beacon: bigint | undefined
+  /** Consecutive failed follow runs, and when (Date.now ms) an observation may start the next one. */
+  #followFailures = 0
+  #followRetryAt = 0
 
   /** @internal Use {@link acceptSessionGrant} or {@link loadGrantedSession}. */
   constructor(opts: GrantedSessionOptions, sessionId: string, record: SessionRecord) {
@@ -405,10 +414,12 @@ export class GrantedSession {
    */
   observeBeacon(epoch: bigint): void {
     if (typeof epoch !== 'bigint' || epoch < 0n) return
-    if (this.#beacon !== undefined && epoch <= this.#beacon) return
-    this.#beacon = epoch
-    if (this.#record.ended || this.#record.revoking || epoch <= BigInt(this.#record.grant.epoch)) return
-    // Errors are the session's own outcome (an end calls onEnded); the next observation retries.
+    if (this.#beacon === undefined || epoch > this.#beacon) this.#beacon = epoch
+    // What was OBSERVED (#beacon) and what the grant has FOLLOWED to (its epoch) are separate: an
+    // observation at an epoch already seen still retries a follow that failed (after the backoff).
+    if (this.#record.ended || this.#record.revoking || this.#beacon <= BigInt(this.#record.grant.epoch)) return
+    if (this.#following || Date.now() < this.#followRetryAt) return
+    // Errors are the session's own outcome (an end calls onEnded); a later observation retries.
     void this.followBeacon().catch(() => undefined)
   }
 
@@ -421,7 +432,16 @@ export class GrantedSession {
    * {@link SessionEndedError} when the session cannot continue (present again).
    */
   followBeacon(): Promise<boolean> {
-    this.#following ??= this.#follow().finally(() => { this.#following = undefined })
+    this.#following ??= this.#follow().then(moved => {
+      this.#followFailures = 0; this.#followRetryAt = 0
+      return moved
+    }, (error: unknown) => {
+      // Back off exponentially from `followRetryMs` (bounded) before an observation tries again.
+      this.#followFailures++
+      const base = this.#opts.followRetryMs ?? 1000
+      this.#followRetryAt = Date.now() + Math.min(MAX_FOLLOW_BACKOFF_MS, base * 2 ** Math.min(this.#followFailures - 1, 16))
+      throw error
+    }).finally(() => { this.#following = undefined })
     return this.#following
   }
 

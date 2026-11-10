@@ -486,3 +486,52 @@ describe('a session follows the beacon across epoch boundaries (C19)', () => {
     } finally { vi.useRealTimers() }
   })
 })
+
+describe('a failed follow is retried by a later observation at the same epoch (review F4)', () => {
+  function sameEpochAgent(ctx: {key?: SessionKeyHandle; now: number; drawable: bigint; seqs: number[]}) {
+    return (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as {seq: number}
+      ctx.seqs.push(body.seq)
+      ctx.now += 1
+      return reply(200, {session_grant: grant(ctx.key!, {iat: ctx.now, epoch: ctx.drawable}), refresh_seq: body.seq})
+    }) as unknown as typeof fetch
+  }
+
+  it('after a run gives up, the same epoch observed again follows once the anchors land', async () => {
+    const ctx: {key?: SessionKeyHandle; now: number; drawable: bigint; seqs: number[]} = {now: T0 + 5, drawable: 42n, seqs: []}
+    const o = await opened({clock: () => ctx.now, fetchImpl: sameEpochAgent(ctx), extra: {followRetryMs: 0}})
+    ctx.key = o.key
+    o.session.observeBeacon(43n)
+    // The background run gives up after its bounded attempts.
+    await vi.waitFor(() => expect(ctx.seqs).toHaveLength(20))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    ctx.drawable = 43n
+    // Only the observation (no explicit followBeacon) may restart it.
+    o.session.observeBeacon(43n)
+    await vi.waitFor(() => expect(o.session.current().epoch).toBe(43))
+    expect(ctx.seqs).toHaveLength(21)
+  })
+
+  it('backs off (bounded) before retrying a failed follow', async () => {
+    vi.useFakeTimers()
+    try {
+      const ctx: {key?: SessionKeyHandle; now: number; drawable: bigint; seqs: number[]} = {now: T0 + 5, drawable: 42n, seqs: []}
+      const o = await opened({clock: () => ctx.now, fetchImpl: sameEpochAgent(ctx), extra: {followRetryMs: 100}})
+      ctx.key = o.key
+      o.session.observeBeacon(43n)
+      // 20 attempts, 19 pauses of 100 ms: the run gives up at ~1.9 s; the backoff is then 100 ms.
+      await vi.advanceTimersByTimeAsync(1_950)
+      expect(ctx.seqs).toHaveLength(20)
+      // Within the backoff an observation starts nothing; after it, one does.
+      o.session.observeBeacon(43n)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(ctx.seqs).toHaveLength(20)
+      ctx.drawable = 43n
+      await vi.advanceTimersByTimeAsync(150)
+      o.session.observeBeacon(43n)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(o.session.current().epoch).toBe(43)
+      expect(ctx.seqs).toHaveLength(21)
+    } finally { vi.useRealTimers() }
+  })
+})
