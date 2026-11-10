@@ -274,6 +274,12 @@ export class GrantedSession {
   #beaconTimer: ReturnType<typeof setInterval> | undefined
   #inflight: Promise<SessionGrantWire> | undefined
   #following: Promise<boolean> | undefined
+  /** Callers waiting in {@link followBeacon}; while any wait, the follow's pause holds the process. */
+  #waiters = 0
+  /** The running follow's pause between attempts ({@link stop} wakes it). */
+  #pause: {timer: ReturnType<typeof setTimeout>; wake(): void} | undefined
+  /** Bumped by every {@link stop}: a follow started before it gives up at its next step. */
+  #stops = 0
   /** The newest beacon epoch observed on the chain (a payment's discovery, the beacon poll, a fresh read). */
   #beacon: bigint | undefined
   /** Consecutive failed follow runs, and when (Date.now ms) an observation may start the next one. */
@@ -436,7 +442,7 @@ export class GrantedSession {
     if (this.#record.ended || this.#record.revoking || this.#beacon <= BigInt(this.#record.grant.epoch)) return
     if (this.#following || Date.now() < this.#followRetryAt) return
     // Errors are the session's own outcome (an end calls onEnded); a later observation retries.
-    void this.followBeacon().catch(() => undefined)
+    void this.#startFollow().catch(() => undefined)
   }
 
   /**
@@ -445,9 +451,22 @@ export class GrantedSession {
    * anchors have not landed at the agent) is retried, bounded, while the held grant is still
    * admissible (its epoch the beacon's latest or previous); never past that. Single-flight; resolves
    * `true` when the grant moved, `false` when it was already current. Throws
-   * {@link SessionEndedError} when the session cannot continue (present again).
+   * {@link SessionEndedError} when the session cannot continue (present again), and a
+   * {@link TasraError} when {@link stop} interrupts it.
+   *
+   * A caller of this method WAITS for the follow, so while it waits the follow's pauses keep the
+   * process alive (a background follow, started by {@link observeBeacon}, never does): a waiter
+   * whose only pending work is an unreferenced timer would be dropped when the event loop drains.
    */
   followBeacon(): Promise<boolean> {
+    const run = this.#startFollow()
+    this.#waiters++
+    // A pause already running when this caller joined holds the process from now on.
+    ;(this.#pause?.timer as {ref?(): void} | undefined)?.ref?.()
+    return run.finally(() => { this.#waiters-- })
+  }
+
+  #startFollow(): Promise<boolean> {
     this.#following ??= this.#follow().then(moved => {
       this.#followFailures = 0; this.#followRetryAt = 0
       return moved
@@ -463,7 +482,14 @@ export class GrantedSession {
 
   async #follow(): Promise<boolean> {
     let moved = false
+    const run = this.#stops
     for (let attempt = 0; ; attempt++) {
+      // stop() (also every session end) interrupts the follow; its waiters are told why.
+      if (this.#stops !== run) {
+        const ended = this.#localEnd()
+        if (ended) throw ended
+        throw new TasraError('Session beacon follow stopped (GrantedSession.stop); the held grant is unchanged')
+      }
       const target = this.#beacon, at = BigInt(this.#record.grant.epoch)
       if (target === undefined || at >= target) return moved
       try {
@@ -476,8 +502,22 @@ export class GrantedSession {
         if (at + 1n < (this.#beacon ?? target) || attempt + 1 >= FOLLOW_ATTEMPTS) throw error
       }
       const pause = this.#opts.followRetryMs ?? 1000
-      if (pause > 0) await new Promise<void>(resolve => { const t = setTimeout(resolve, pause); (t as {unref?(): void}).unref?.() })
+      if (pause > 0) await this.#followPause(pause)
     }
+  }
+
+  /**
+   * One pause between follow attempts. Unreferenced while nobody waits for the follow (a background
+   * follow never holds the process open); referenced while a {@link followBeacon} caller waits.
+   * {@link stop} wakes it at once.
+   */
+  #followPause(ms: number): Promise<void> {
+    return new Promise<void>(resolve => {
+      const done = () => { if (this.#pause?.timer === timer) this.#pause = undefined; resolve() }
+      const timer = setTimeout(done, ms)
+      if (this.#waiters === 0) (timer as {unref?(): void}).unref?.()
+      this.#pause = {timer, wake: () => { clearTimeout(timer); done() }}
+    })
   }
 
   /**
@@ -534,11 +574,17 @@ export class GrantedSession {
     ;(this.#timer as {unref?(): void}).unref?.()
   }
 
-  /** Stop background refresh and the beacon poll. */
+  /**
+   * Stop background refresh and the beacon poll, and interrupt a running beacon follow: its
+   * {@link followBeacon} waiters reject at once (`SessionEndedError` when the session ended,
+   * otherwise a `TasraError`), never left waiting on a cleared timer.
+   */
   stop(): void {
     if (this.#timer) clearTimeout(this.#timer)
     if (this.#beaconTimer) clearInterval(this.#beaconTimer)
     this.#timer = undefined; this.#beaconTimer = undefined
+    this.#stops++
+    this.#pause?.wake()
   }
 
   /**

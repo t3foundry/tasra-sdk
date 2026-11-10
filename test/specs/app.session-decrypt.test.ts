@@ -22,7 +22,11 @@ function fakeSession(epoch: number, opts: {endsWhenTwoBehind?: boolean} = {}) {
     get key() { return {jwk: {}} },
     current: () => ({epoch: state.epoch, seed: seedOf(state.epoch)}),
     verifiedFor: async () => ({epoch: state.epoch}),
-    observeBeacon: (e: bigint) => { if (state.beacon === undefined || e > state.beacon) state.beacon = e },
+    // As GrantedSession: an observation past the grant starts the follow in the background.
+    observeBeacon: (e: bigint) => {
+      if (state.beacon === undefined || e > state.beacon) state.beacon = e
+      if (BigInt(state.epoch) < state.beacon) void session.followBeacon().catch(() => undefined)
+    },
     followBeacon: async () => {
       let moved = false
       while (state.beacon !== undefined && BigInt(state.epoch) < state.beacon) {
@@ -107,13 +111,29 @@ describe('one message across a beacon-epoch boundary (C19)', () => {
     expect(payments.map(p => p.epoch)).toEqual([20, 21])
   })
 
+  it('a grant one epoch behind serves the message at once: it never waits for a follow still in progress (C19 hang)', async () => {
+    const {state, session} = fakeSession(20)
+    // The refresh never completes (the new epoch's anchors have not landed at the agent).
+    let follows = 0
+    ;(session as {followBeacon(): Promise<boolean>}).followBeacon = () => { follows++; return new Promise<boolean>(() => undefined) }
+    ;(session as {observeBeacon(e: bigint): void}).observeBeacon(21n)
+    decryptWithSessionGrant.mockResolvedValue([{ok: true, plaintext: new Uint8Array([4])}])
+    const r = await decryptInSession(request(session))
+    expect(r.grantEpoch).toBe(20n)
+    expect(payments.map(p => p.epoch)).toEqual([20])
+    expect(state.epoch).toBe(20)
+    // The follow was (re)started in the background, never awaited.
+    expect(follows).toBeGreaterThan(0)
+  }, 2_000)
+
   it('a draw that moved before anything was signed (PaidDrawMovedError) refreshes and pays once on the new draw', async () => {
     const {session} = fakeSession(30)
-    paidSessionDecrypt.mockRejectedValueOnce(new PaidDrawMovedError(30n, 31n))
+    // Discovery refuses a pinned epoch only once it is neither the beacon's latest nor previous.
+    paidSessionDecrypt.mockRejectedValueOnce(new PaidDrawMovedError(30n, 32n))
     decryptWithSessionGrant.mockResolvedValue([{ok: true, plaintext: new Uint8Array([2])}])
     const r = await decryptInSession(request(session))
-    expect(r.grantEpoch).toBe(31n)
-    expect(payments.map(p => p.epoch)).toEqual([31])
+    expect(r.grantEpoch).toBe(32n)
+    expect(payments.map(p => p.epoch)).toEqual([32])
   })
 
   it('a grant the beacon left behind for good ends the session (present again), with nothing paid twice', async () => {
@@ -157,7 +177,9 @@ describe('one message across a beacon-epoch boundary (C19)', () => {
       expect(payments).toHaveLength(1)
       expect(decryptWithSessionGrant).toHaveBeenCalledTimes(1)
       expect(retries).toEqual([])
-      expect(state.refreshes).toBe(0)
+      // The chain's own epoch is a fair observation: one past the grant starts its background follow
+      // (never a second payment); the chain at the grant's epoch moves nothing.
+      expect(state.refreshes).toBe(chain > 10n ? 1 : 0)
     }
   })
 })

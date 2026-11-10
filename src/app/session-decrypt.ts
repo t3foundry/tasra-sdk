@@ -89,15 +89,21 @@ async function chainBeacon(request: SessionMessageRequest): Promise<bigint | und
   } catch { return undefined }
 }
 
-/** Wait until any refresh the session owes is done (a held grant two epochs behind cannot serve). */
+/**
+ * Wait for a refresh only when the held grant cannot serve (two epochs behind the observed beacon).
+ * A grant one epoch behind is still admissible for the whole epoch: the message uses it at once
+ * and the follow runs in the background (re-kicked here, honoring its backoff); it never waits for
+ * a refresh that may take a whole anchoring delay.
+ */
 async function settle(session: GrantedSession): Promise<void> {
   const beacon = session.beaconEpoch
   if (beacon === undefined) return
   const at = BigInt(session.current().epoch)
   if (at >= beacon) return
+  if (at + 1n >= beacon) { session.observeBeacon(beacon); return }
   try { await session.followBeacon() } catch (error) {
-    // Still admissible (latest or previous): use it; a later observation retries the follow.
-    if (at + 1n >= beacon && !(error instanceof SessionEndedError)) return
+    // The follow moved the grant into the window before it gave up: use it; a later observation retries.
+    if (!(error instanceof SessionEndedError) && BigInt(session.current().epoch) + 1n >= (session.beaconEpoch ?? beacon)) return
     throw error
   }
 }

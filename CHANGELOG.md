@@ -23,7 +23,11 @@ never does.
   close is blocked while an operator named on that debit is unreachable. Residual bound: a keeper
   that computed its partial yet answered "stale" can earn from the first debit while the payer
   pays the second, only when every other keeper also refused before execution and the chain shows
-  the retry was due: at most two debits per message.
+  the retry was due: at most two debits per message. A message whose grant is one epoch behind
+  is sent at once (the follow stays in the background); only a grant two epochs behind waits for
+  the follow. While a caller waits in `followBeacon` its pauses keep the process alive (a
+  background follow never does), and `stop()` (also every session end) rejects a waiting follow
+  at once, so no waiter is left on an unreferenced or cleared timer.
 
 - An allowance-funded operation no longer waits for a new verifier epoch's anchors when a
   current allowance serves it. Its payment names the allowance's own draw, so while neither the

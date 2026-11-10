@@ -536,6 +536,85 @@ describe('a failed follow is retried by a later observation at the same epoch (r
   })
 })
 
+describe('every follow waiter settles (C19 hang: exit 13, unsettled top-level await)', () => {
+  function sameEpochAgent(ctx: {key?: SessionKeyHandle; now: number; drawable: bigint; seqs: number[]; landAfter?: number}) {
+    return (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as {seq: number}
+      ctx.seqs.push(body.seq)
+      if (ctx.landAfter !== undefined && ctx.seqs.length > ctx.landAfter) ctx.drawable = 43n
+      ctx.now += 1
+      return reply(200, {session_grant: grant(ctx.key!, {iat: ctx.now, epoch: ctx.drawable}), refresh_seq: body.seq})
+    }) as unknown as typeof fetch
+  }
+  // The follow's pauses are the only timers created with this delay.
+  const PAUSE_MS = 37
+  function pauses() {
+    const created: ReturnType<typeof setTimeout>[] = []
+    const real = globalThis.setTimeout
+    const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
+      const t = real(fn, ms)
+      if (ms === PAUSE_MS) created.push(t)
+      return t
+    }) as typeof setTimeout)
+    return {created, restore: () => spy.mockRestore()}
+  }
+
+  it('a caller waiting in followBeacon holds the process through the pauses; a background follow never does', async () => {
+    const p = pauses()
+    try {
+      const ctx: {key?: SessionKeyHandle; now: number; drawable: bigint; seqs: number[]; landAfter?: number} = {now: T0 + 5, drawable: 42n, seqs: [], landAfter: 3}
+      const o = await opened({clock: () => ctx.now, fetchImpl: sameEpochAgent(ctx), extra: {followRetryMs: PAUSE_MS}})
+      ctx.key = o.key
+      // Background only (an observation): its pause is unreferenced.
+      o.session.observeBeacon(43n)
+      await vi.waitFor(() => expect(p.created).toHaveLength(1))
+      expect(p.created[0]!.hasRef()).toBe(false)
+      // A caller joins and waits: the running pause now holds the process, and so does every later one.
+      // (Before the fix every pause stayed unreferenced, so a top-level `await` on a message whose
+      // only pending work was this pause was dropped when the event loop drained.)
+      const waiting = o.session.followBeacon()
+      expect(p.created[0]!.hasRef()).toBe(true)
+      expect(await waiting).toBe(true)
+      expect(p.created.length).toBeGreaterThan(1)
+      expect(p.created.every(t => t.hasRef())).toBe(true)
+      expect(o.session.current().epoch).toBe(43)
+    } finally { p.restore() }
+  })
+
+  it('stop() rejects a waiting follow at once instead of leaving it on a cleared or distant timer', async () => {
+    const ctx: {key?: SessionKeyHandle; now: number; drawable: bigint; seqs: number[]} = {now: T0 + 5, drawable: 42n, seqs: []}
+    const o = await opened({clock: () => ctx.now, fetchImpl: sameEpochAgent(ctx), extra: {followRetryMs: 60_000}})
+    ctx.key = o.key
+    o.session.observeBeacon(43n)
+    const waiting = o.session.followBeacon()
+    await vi.waitFor(() => expect(ctx.seqs).toHaveLength(1))
+    await new Promise(resolve => setImmediate(resolve))
+    o.session.stop()
+    await expect(waiting).rejects.toThrow(/follow stopped/)
+    // The held grant is unchanged and still serves; a later observation follows again.
+    expect(o.session.current().epoch).toBe(42)
+    expect(ctx.seqs).toHaveLength(1)
+  }, 2_000)
+
+  it('a revoke while a follow pauses rejects its waiter at once; the ended session serves nothing', async () => {
+    const ctx: {key?: SessionKeyHandle; now: number; drawable: bigint; seqs: number[]} = {now: T0 + 5, drawable: 42n, seqs: []}
+    const agent = sameEpochAgent(ctx)
+    // The revoke is acknowledged (204); refreshes stay on the old epoch.
+    const fetchImpl = (async (url: string, init: RequestInit) => url.endsWith('/v1/sessions/revoke') ? new Response(null, {status: 204}) : agent(url, init)) as unknown as typeof fetch
+    const o = await opened({clock: () => ctx.now, fetchImpl, extra: {followRetryMs: 60_000}})
+    ctx.key = o.key
+    o.session.observeBeacon(43n)
+    const waiting = o.session.followBeacon()
+    const settled = waiting.then(() => 'resolved', (e: unknown) => e)
+    await vi.waitFor(() => expect(ctx.seqs).toHaveLength(1))
+    await new Promise(resolve => setImmediate(resolve))
+    await o.session.revoke()
+    const outcome = await settled
+    expect(outcome).toBeInstanceOf(Error)
+    expect(() => o.session.current()).toThrow(SessionEndedError)
+  }, 2_000)
+})
+
 describe('background refresh does not defeat the idle timeout (review F5)', () => {
   async function running() {
     vi.setSystemTime(T0 * 1000)
