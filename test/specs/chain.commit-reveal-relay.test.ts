@@ -102,7 +102,7 @@ it('resumes a known commit without sending it again and stops on ambiguous revea
   mocks.submit.mockRejectedValueOnce(new Error('connection lost after send'))
   await expect(h.writer.createSlotCommitReveal({...h.args, slotSeed: false, recovery: {commitTx: hash('09'), onTransaction}})).rejects.toThrow('connection lost')
   expect(mocks.submit).toHaveBeenCalledTimes(1)
-  expect(onTransaction.mock.calls).toEqual([[{step: 'commit', phase: 'confirmed', hash: hash('09')}], [{step: 'reveal', phase: 'submitting', seeded: false}]])
+  expect(onTransaction.mock.calls).toEqual([[{step: 'commit', phase: 'confirmed', hash: hash('09'), seeded: false}], [{step: 'reveal', phase: 'submitting', seeded: false}]])
 })
 it('nudges an idle beacon while resuming a confirmed direct-wallet commit', async () => {
   const wallet = createWalletClient({account: privateKeyToAccount(hash('01')), chain, transport: http()})

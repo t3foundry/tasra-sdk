@@ -5,7 +5,7 @@
 // this side owes is that a caller never spends gas on an answer that could not possibly work, and
 // that a deployment without the fast path still creates slots.
 import {afterEach, beforeEach, expect, it, vi} from 'vitest'
-import {createWalletClient, defineChain, http, keccak256, toHex, type Hex} from 'viem'
+import {concat, createWalletClient, defineChain, http, keccak256, toHex, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {createTasraWriteClient} from '../../src/chain/write.js'
 import {requestSlotSeed} from '../../src/chain/slotSeed.js'
@@ -37,7 +37,7 @@ function fleet(replies: Record<string, {status: number; body?: unknown} | 'throw
     const r = replies[base]
     if (!r) throw new Error(`no stub for ${url}`)
     if (r === 'throw') throw new Error('connection refused')
-    return {ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => r.body} as Response
+    return {ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => r.body, text: async () => JSON.stringify(r.body ?? '')} as Response
   })
 }
 
@@ -76,6 +76,9 @@ it.each([
 // Any one accountant can lead the round, so an unreachable or not-yet-ready one is not a failure
 // of the set.
 it('moves on to the next accountant past a refusal, an outage and a 503', async () => {
+  // The first accountant asked is picked by the commitment (spreading concurrent creators); one
+  // ending in 0000 starts at the first URL, so the order below is the order asked.
+  const c = `0x${'07'.repeat(30)}0000` as Hex
   const f = fleet({
     'http://a': {status: 404},                     // has not seen the commit yet
     'http://b': 'throw',                           // unreachable
@@ -83,7 +86,7 @@ it('moves on to the next accountant past a refusal, an outage and a 503', async 
     'http://d': {status: 200, body: {commitment: COMMITMENT, digest: DIGEST, signature: SIG}},
   })
   vi.stubGlobal('fetch', f)
-  await expect(requestSlotSeed(seedChain(), address, COMMITMENT, {urls: ['http://a', 'http://b', 'http://c', 'http://d']}))
+  await expect(requestSlotSeed(seedChain(), address, c, {urls: ['http://a', 'http://b', 'http://c', 'http://d']}))
     .resolves.toMatchObject({signature: SIG})
   expect(f).toHaveBeenCalledTimes(4)
 })
@@ -215,4 +218,113 @@ it('stops on an empty page even when total disagrees', async () => {
 
 it('the accountant tag is the registered one', () => {
   expect(ACCOUNTANT_TAG).toBe(keccak256(toHex('accountant')))
+})
+
+// --- ADR-0080: the reveal path is fixed at commit ----------------------------------------------
+//
+// ⚠⚠ THE DEFECT THESE PIN: the SDK committed through `commitKeySlot` - which binds the
+//    BEACON-EPOCH reveal - and then asked for a seed. Every accountant refused (it signs only for a
+//    seeded-path commitment), the refusal was a 404 the SDK read as "not there yet, give up", and
+//    every creation fell back to the epoch wait: measured on the benchmark fleet, 37 of 37
+//    creations revealed through `revealKeySlot`, none through `revealKeySlotWithSeed`. The fixtures
+//    above model a registry from before reveal paths (four-word `slotCommits`), which is why they
+//    never caught it.
+
+const FALLBACK = hash('0f')
+const fallbackSalt = (salt: Hex) => keccak256(concat([toHex('tasra/slot-create/epoch-fallback/v1'), salt]))
+
+/** A path-recording registry: six-word `slotCommits`, and commits that bind their reveal path. */
+function pathRegistry(h: ReturnType<typeof writer>, pre: Record<string, {path: number; used?: boolean}> = {}) {
+  const creator = privateKeyToAccount(hash('01')).address
+  const commits = new Map<string, {path: number; used: boolean}>(Object.entries(pre).map(([k, v]) => [k, {path: v.path, used: v.used ?? false}]))
+  const writes: Array<{functionName: string; args: readonly unknown[]}> = []
+  mocks.read.mockImplementation(async ({functionName, args}: {functionName: string; args?: readonly unknown[]}) => {
+    if (functionName === 'computeCommitment') return args?.[5] === h.args.salt ? COMMITMENT : args?.[5] === fallbackSalt(h.args.salt) ? FALLBACK : hash('ee')
+    if (functionName === 'slotCommits') {
+      const c = commits.get(String(args?.[0]))
+      // targetEpoch 2 against a beacon at 2: an epoch reveal CAN complete here, so what decides a
+      // case is which commitment and which entry point were used.
+      return c ? [2n, 20n, creator, c.used, 100n, c.path] : [0n, 0n, ZERO, false, 0n, 0]
+    }
+    if (functionName === 'epoch') return 2n
+    if (functionName === 'randomBeacon') return address
+    if (functionName === 'commitSeedDigest') return DIGEST
+    throw new Error(`Unexpected read ${functionName}`)
+  })
+  h.direct.mockImplementation((async (call: {functionName: string; args: readonly unknown[]}) => {
+    writes.push({functionName: call.functionName, args: call.args})
+    if (call.functionName === 'commitKeySlot') commits.set(String(call.args[0]), {path: 1, used: false})
+    if (call.functionName === 'commitKeySlotSeeded') commits.set(String(call.args[0]), {path: 2, used: false})
+    return hash('10')
+  }) as never)
+  return {writes, commits}
+}
+const ZERO = '0x0000000000000000000000000000000000000000'
+const seedOk = {status: 200, body: {commitment: COMMITMENT, digest: DIGEST, signature: SIG}}
+
+it('commits through commitKeySlotSeeded when it will ask for a seed, and reveals with it', async () => {
+  vi.stubGlobal('fetch', fleet({'http://a': seedOk}))
+  const h = writer(false)
+  const reg = pathRegistry(h)
+  const out = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a']})
+  expect(out.seeded).toBe(true)
+  expect(reg.writes.map(w => w.functionName)).toEqual(['commitKeySlotSeeded', 'revealKeySlotWithSeed'])
+  expect(reg.writes[0]?.args).toEqual([COMMITMENT])
+})
+
+it('re-asks while the set answers "not yet" (404 behind the receipt, 503 busy leading a round)', async () => {
+  const replies = [{status: 404}, {status: 503}, seedOk]
+  const f = vi.fn(async () => {
+    const r = replies.shift() ?? seedOk
+    return {ok: r.status === 200, status: r.status, json: async () => (r as {body?: unknown}).body, text: async () => ''} as Response
+  })
+  vi.stubGlobal('fetch', f)
+  const h = writer(false)
+  const reg = pathRegistry(h)
+  const out = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a'], slotSeedRetryMs: 5_000})
+  expect(out.seeded).toBe(true)
+  expect(f).toHaveBeenCalledTimes(3)
+  expect(reg.writes.map(w => w.functionName)).toEqual(['commitKeySlotSeeded', 'revealKeySlotWithSeed'])
+})
+
+it('does not retry a 409, reports why, and completes through a fallback epoch-path commitment', async () => {
+  const f = fleet({'http://a': {status: 409, body: 'the commitment is bound to the beacon-epoch reveal'}})
+  vi.stubGlobal('fetch', f)
+  const h = writer(false)
+  const reg = pathRegistry(h)
+  const errors: string[] = []
+  const out = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a'], slotSeedRetryMs: 5_000, onSeedError: e => errors.push(e.reason)})
+  expect(out.seeded).toBe(false)
+  expect(f).toHaveBeenCalledTimes(1)
+  expect(errors).toHaveLength(1)
+  expect(errors[0]).toContain('409')
+  // The seeded-path commitment can never be revealed on the epoch path (WrongRevealPath), so the
+  // epoch reveal runs on a SECOND commitment, made through commitKeySlot with the derived salt.
+  expect(reg.writes.map(w => w.functionName)).toEqual(['commitKeySlotSeeded', 'commitKeySlot', 'revealKeySlot'])
+  expect(reg.writes[1]?.args).toEqual([FALLBACK])
+  expect(reg.writes[2]?.args[6]).toBe(fallbackSalt(h.args.salt))
+})
+
+it('commits through commitKeySlot when no seed will be asked for', async () => {
+  const f = fleet({})
+  vi.stubGlobal('fetch', f)
+  const h = writer(false)
+  const reg = pathRegistry(h)
+  await h.w.createSlotCommitReveal({...h.args, slotSeed: false})
+  expect(f).not.toHaveBeenCalled()
+  expect(reg.writes.map(w => w.functionName)).toEqual(['commitKeySlot', 'revealKeySlot'])
+  expect(reg.writes[1]?.args[6]).toBe(h.args.salt)
+})
+
+it('a resumed creation finds its fallback commitment instead of committing a third time', async () => {
+  const f = fleet({'http://a': seedOk})
+  vi.stubGlobal('fetch', f)
+  const h = writer(false)
+  const reg = pathRegistry(h, {[COMMITMENT]: {path: 2}, [FALLBACK]: {path: 1}})
+  const onTransaction = vi.fn(async () => {})
+  const out = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a'], recovery: {commitTx: hash('09'), onTransaction}})
+  expect(out.seeded).toBe(false)
+  expect(f).not.toHaveBeenCalled()
+  expect(reg.writes.map(w => w.functionName)).toEqual(['revealKeySlot'])
+  expect(reg.writes[0]?.args[6]).toBe(fallbackSalt(h.args.salt))
 })

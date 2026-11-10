@@ -136,7 +136,7 @@ export type {SlotGroupKey} from './discovery.js'
 // exported for a caller that drives commit and reveal itself (the CLI does) or wants to inspect
 // what the accountant set answered before spending gas.
 export {requestSlotSeed} from './slotSeed.js'
-export type {SlotSeed, SlotSeedOptions} from './slotSeed.js'
+export type {SlotSeed, SlotSeedAnswer, SlotSeedFailure, SlotSeedOptions} from './slotSeed.js'
 
 // The few-lines committee surface, driven by just a slot id: discovers the
 // keeper node + verifier set from chain, then sign / encrypt / decrypt.

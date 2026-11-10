@@ -1,7 +1,8 @@
 import {requireRule, type RuleInput} from './ruleInput.js'
 import {networkNameForChain, resolveNetworkProfile, assertEurcFaucetAllowed} from './networks.js'
 import {SlotCommitmentExpiredError} from './commitmentRecovery.js'
-import {requestSlotSeed, type SlotSeed} from './slotSeed.js'
+import {requestSlotSeed, type SlotSeed, type SlotSeedFailure} from './slotSeed.js'
+import {resolveAccountantUrls} from './discovery.js'
 // Client-side ON-CHAIN WRITE path: the client is a sovereign actor with its own
 // EVM account that signs its own transactions - no relayer/provisioner.
 //
@@ -223,8 +224,15 @@ export interface CommitRevealOptions {
   accountantUrls?: string[]
   /** Per-accountant HTTP timeout for the seed request. */
   slotSeedTimeoutMs?: number
+  /**
+   * How long to keep re-asking the accountant set while it answers "not yet" (404 before its
+   * view reaches the commit receipt, 503 while it leads another creation's round). Default 15 s.
+   */
+  slotSeedRetryMs?: number
   /** The seed that was obtained, or `null` when the epoch wait is being used instead. */
   onSeed?: (seed: SlotSeed | null) => void
+  /** Why no seed was obtained (each accountant's last answer), when the seed was asked for. */
+  onSeedError?: (failure: SlotSeedFailure) => void
 }
 
 /**
@@ -330,6 +338,44 @@ export interface RulePolicyArgs {
 }
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address
+
+/**
+ * `slotCommits` as a path-recording registry returns it (ADR-0080): the four historical words plus
+ * `frozenAt` and the reveal path. Kept beside the generated ABI rather than in it, because the
+ * generated four-output form is what every other reader decodes - and decodes on BOTH registry
+ * generations - while this six-output form fails to decode on an older one, which is exactly the
+ * signal [`readCommitPath`] needs.
+ */
+const slotCommitsWithPathAbi = [{
+  type: 'function', name: 'slotCommits', stateMutability: 'view',
+  inputs: [{name: 'commitment', type: 'bytes32'}],
+  outputs: [
+    {name: 'targetEpoch', type: 'uint64'}, {name: 'expiryEpoch', type: 'uint64'},
+    {name: 'creator', type: 'address'}, {name: 'used', type: 'bool'},
+    {name: 'frozenAt', type: 'uint48'}, {name: 'path', type: 'uint8'},
+  ],
+}] as const
+
+/** Which reveal a commitment admits: `legacy` = a registry from before reveal paths (both). */
+type CommitPath = 'legacy' | 'unbound' | 'epoch' | 'seeded'
+
+/**
+ * The reveal path `commitment` is bound to, or - for one not committed yet - `unbound` on a
+ * path-recording registry and `legacy` on an older one.
+ *
+ * ⚠ Any failure reads as `legacy`, which commits through `commitKeySlot` and asks for a seed:
+ *   on a path-recording registry that is the epoch path (slower, never wrong).
+ */
+async function readCommitPath(pub: PublicClient, keyRegistry: Address, commitment: Hex): Promise<CommitPath> {
+  try {
+    const r: unknown = await pub.readContract({address: keyRegistry, abi: slotCommitsWithPathAbi, functionName: 'slotCommits', args: [commitment]})
+    if (!Array.isArray(r) || r.length < 6) return 'legacy'
+    const path = Number(r[5])
+    return path === 1 ? 'epoch' : path === 2 ? 'seeded' : 'unbound'
+  } catch {
+    return 'legacy'
+  }
+}
 
 /**
  * A rule amendment: the new rule (a clear rule string, or an authored Rego policy the SDK packs
@@ -849,15 +895,18 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     // later, when the commit has already been paid for.
     const policy = args.rulePolicy ? await policyTuple(args.rulePolicy) : null
 
-    const commitment = (await pub.readContract({
-      address: requireAddress(addr, 'KeyRegistry'),
+    const keyReg = requireAddress(addr, 'KeyRegistry')
+    const commitmentFor = (s: Hex) => pub.readContract({
+      address: keyReg,
       abi: keyRegistryAbi,
       functionName: 'computeCommitment',
-      args: [slotId, ruleCommitmentHash, args.k, args.n, mode, salt, tags, account.address],
-    }))
-    const keyReg = requireAddress(addr, 'KeyRegistry')
+      args: [slotId, ruleCommitmentHash, args.k, args.n, mode, s, tags, account.address],
+    })
+    const commitment = await commitmentFor(salt)
+    const readCommit = async (c: Hex) => (await pub.readContract({address: keyReg, abi: keyRegistryAbi, functionName: 'slotCommits', args: [c]})) as readonly [bigint, bigint, string, boolean]
     const beaconEpoch = () => pub.readContract({address: beacon, abi: thresholdRandomBeaconAbi, functionName: 'epoch'})
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+    const seedChain = () => createTasraChainClient({rpcUrl: cfg.rpcUrl, addresses: cfg.addresses, chainId: chain.id})
 
     const transact = async (step: 'commit' | 'reveal', name: string, values: readonly unknown[], seeded?: boolean): Promise<Hex> => {
       args.signal?.throwIfAborted()
@@ -867,49 +916,94 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
       await args.recovery?.onTransaction({step, phase: 'submitted', hash, seeded})
       return hash
     }
-    const commitTx = args.recovery?.commitTx ?? await transact('commit', 'commitKeySlot', [commitment])
-    await confirmed(pub, commitTx, 'commitKeySlot')
-    await args.recovery?.onTransaction({step: 'commit', phase: 'confirmed', hash: commitTx})
+
+    // ⚠⚠ WHICH REVEAL THE COMMIT ADMITS IS FIXED AT COMMIT (ADR-0080: one commitment, one draw).
+    //   `commitKeySlot` binds the BEACON-EPOCH reveal; only `commitKeySlotSeeded` admits the
+    //   accountant-seeded one. This used to commit through `commitKeySlot` and then ask for a seed:
+    //   every accountant refused it (it signs only for a seeded-path commitment, or a creator could
+    //   pick between two committees), and every creation fell back to the epoch wait - up to an
+    //   hour at the production cadence - with nothing saying why.
+    // A registry from before reveal paths (four-word `slotCommits`) admits both reveals from
+    //   `commitKeySlot` and has no `commitKeySlotSeeded`; it keeps the old call.
+    const wantSeed = args.slotSeed !== false
+    let accountantUrls = args.accountantUrls
+    let commitPath: CommitPath
+    if (args.recovery?.commitTx) {
+      // The saved commit decides; the creation it belongs to is checked against slotCommits below.
+      commitPath = await readCommitPath(pub, keyReg, commitment)
+    } else {
+      const [urls, registry] = await Promise.all([
+        wantSeed ? accountantUrls ?? resolveAccountantUrls(seedChain()).catch(() => [] as string[]) : [] as string[],
+        // Probed on this (not yet committed) commitment: a path-recording registry answers six
+        // words for it, an older one four.
+        readCommitPath(pub, keyReg, commitment),
+      ])
+      accountantUrls = urls
+      commitPath = registry === 'legacy' ? 'legacy' : wantSeed && urls.length > 0 ? 'seeded' : 'epoch'
+    }
+    const seededCommit = commitPath === 'seeded'
+    const commitName = seededCommit ? 'commitKeySlotSeeded' : 'commitKeySlot'
+    let commitTx = args.recovery?.commitTx ?? await transact('commit', commitName, [commitment], seededCommit)
+    await confirmed(pub, commitTx, commitName)
+    await args.recovery?.onTransaction({step: 'commit', phase: 'confirmed', hash: commitTx, seeded: seededCommit})
 
     // Read the ACTUAL target epoch the contract pinned (computing it client-side
     // races the ~20s beacon). slotCommits to (targetEpoch, expiryEpoch, creator, used).
-    const commit = (await pub.readContract({address: keyReg, abi: keyRegistryAbi, functionName: 'slotCommits', args: [commitment]})) as readonly [bigint, bigint, string, boolean]
-    const targetEpoch = Number(commit[0])
+    let commit = await readCommit(commitment)
+    let targetEpoch = Number(commit[0])
+
+    // A seeded-path commitment whose seed cannot be had is completed through a SECOND commitment
+    // on the epoch path. Its salt is DERIVED from the first, so a resumed creation finds it instead
+    // of committing a third time; it is a fresh draw input either way (the committee salt is an
+    // input to the commitment), and costs the creator a second commit and deposit - never a choice
+    // of committees, since a creator who dislikes a draw can always commit again anyway.
+    const fallbackSalt = keccak256(concat([toHex('tasra/slot-create/epoch-fallback/v1'), salt]))
+    let fallback: {commitment: Hex; commit: readonly [bigint, bigint, string, boolean]} | null = null
+    if (seededCommit && args.recovery) {
+      const c = await commitmentFor(fallbackSalt)
+      const fc = await readCommit(c)
+      if (fc[2].toLowerCase() === account.address.toLowerCase()) fallback = {commitment: c, commit: fc}
+    }
     if (args.recovery) {
       if (commit[2].toLowerCase() !== account.address.toLowerCase() || commit[0] === 0n) throw new TasraError('Saved creation does not match this creator and commitment')
+      const consumed = commit[3] || Boolean(fallback?.commit[3])
       if (args.recovery.revealTx) {
         await confirmed(pub, args.recovery.revealTx, 'revealKeySlot')
-        const completed = await pub.readContract({address: keyReg, abi: keyRegistryAbi, functionName: 'slotCommits', args: [commitment]})
-        if (!completed[3]) throw new TasraError('Saved reveal did not consume this commitment')
+        const done = (await readCommit(commitment))[3] || (fallback ? (await readCommit(fallback.commitment))[3] : false)
+        if (!done) throw new TasraError('Saved reveal did not consume this commitment')
         await args.recovery.onTransaction({step: 'reveal', phase: 'confirmed', hash: args.recovery.revealTx, seeded: args.recovery.seeded})
-        return {slotId, commitTx, revealTx: args.recovery.revealTx, targetEpoch, ruleSalt, rule, seeded: args.recovery.seeded ?? false}
+        return {slotId, commitTx, revealTx: args.recovery.revealTx, targetEpoch: Number((fallback?.commit ?? commit)[0]), ruleSalt, rule, seeded: args.recovery.seeded ?? false}
       }
-      if (commit[3]) throw new TasraError('Commitment already consumed; reconcile the reveal hash before continuing')
+      if (consumed) throw new TasraError('Commitment already consumed; reconcile the reveal hash before continuing')
     }
 
     // accountant-seeded creation FAST PATH: ask the accountant set to threshold-sign this commitment, and reveal
     // immediately instead of waiting for `targetEpoch`.
     //
-    // Strictly an optimisation, and written so it can only ever cost time. Every way it can go
-    //   wrong - no accountant reachable, a KeyRegistry too old to have `commitSeedDigest`, a set
-    //   whose group key is not the beacon's - lands in the epoch wait below, which is what this
-    //   path did before it existed. The commitment is unchanged either way, so nothing is lost by
-    //   trying.
+    // Written so it can only ever cost time. Every way it can go wrong - no accountant reachable,
+    //   a set whose group key is not the beacon's, a reverted seeded reveal - lands in the epoch
+    //   wait below (through the fallback commitment when this one is bound to the seeded reveal).
     // The seeded reveal draws a DIFFERENT committee than the epoch path would, because the seed
     //   is different. That is the mechanism, not a side effect: both seeds post-date the
     //   commitment, so both are ungrindable, and the creator does not get to pick which it gets.
     let seed: SlotSeed | null = null
-    if (args.slotSeed !== false) {
+    if (wantSeed && (seededCommit || commitPath === 'legacy') && !fallback) {
+      let failure: SlotSeedFailure | undefined
       try {
-        seed = await requestSlotSeed(
-          createTasraChainClient({rpcUrl: cfg.rpcUrl, addresses: cfg.addresses, chainId: chain.id}),
-          keyReg,
-          commitment,
-          {urls: args.accountantUrls, timeoutMs: args.slotSeedTimeoutMs},
-        )
-      } catch {
+        seed = await requestSlotSeed(seedChain(), keyReg, commitment, {
+          urls: accountantUrls,
+          timeoutMs: args.slotSeedTimeoutMs,
+          // The commit receipt is in; an accountant whose view is a block behind answers 404, and
+          // one already leading another creator's round answers 503. Both clear in well under a
+          // second; the alternative is a whole beacon epoch.
+          retryForMs: args.slotSeedRetryMs ?? 15_000,
+          onFailure: f => { failure = f },
+        })
+      } catch (e) {
         seed = null
+        failure = {rounds: 0, answers: [], reason: `seed request failed: ${e instanceof Error ? e.message : String(e)}`}
       }
+      if (!seed && failure) args.onSeedError?.(failure)
     }
     args.onSeed?.(seed)
     if (seed) {
@@ -930,6 +1024,25 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
       }
     }
 
+    // The epoch reveal needs an epoch-path commitment. A seeded-path one can never be revealed
+    // here (WrongRevealPath), so switch to the fallback commitment, committing it if this is not a
+    // resumed creation that already did.
+    let revealSalt = salt
+    let revealCommitment = commitment
+    if (seededCommit) {
+      if (!fallback) {
+        const c = await commitmentFor(fallbackSalt)
+        commitTx = await transact('commit', 'commitKeySlot', [c], false)
+        await confirmed(pub, commitTx, 'commitKeySlot')
+        await args.recovery?.onTransaction({step: 'commit', phase: 'confirmed', hash: commitTx, seeded: false})
+        fallback = {commitment: c, commit: await readCommit(c)}
+      }
+      revealSalt = fallbackSalt
+      revealCommitment = fallback.commitment
+      commit = fallback.commit
+      targetEpoch = Number(commit[0])
+    }
+
     // Wait for the beacon to reach the target, then reveal - retrying across the
     // epoch boundary (EpochNotReached / BeaconSeedUnavailable can transiently fire
     // until the seed for the target epoch has landed).
@@ -940,7 +1053,7 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
       args.signal?.throwIfAborted()
       const cur = Number(await beaconEpoch())
       args.onEpoch?.(cur, targetEpoch)
-      if (!commit[3] && BigInt(cur) > commit[1]) throw new SlotCommitmentExpiredError(chain.id, keyReg, slotId, commitment, account.address, salt)
+      if (!commit[3] && BigInt(cur) > commit[1]) throw new SlotCommitmentExpiredError(chain.id, keyReg, slotId, revealCommitment, account.address, revealSalt)
       if (cur < targetEpoch) {
         if (Date.now() > deadline) throw new Error(`beacon did not reach target epoch ${targetEpoch} (at ${cur})`)
         // The beacon is anchored to CHAIN time (tick = block.timestamp / interval).
@@ -971,8 +1084,8 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
         // whole point: as a follow-up call it is unwinnable from a wallet that
         // prompts, because the DKG starts the instant this transaction lands.
         revealTx = policy
-          ? await transact('reveal', 'revealKeySlotWithPolicy', [slotId, ruleCommitmentHash, args.k, args.n, mode, auth, salt, tags, policy], false)
-          : await transact('reveal', 'revealKeySlot', [slotId, ruleCommitmentHash, args.k, args.n, mode, auth, salt, tags], false)
+          ? await transact('reveal', 'revealKeySlotWithPolicy', [slotId, ruleCommitmentHash, args.k, args.n, mode, auth, revealSalt, tags, policy], false)
+          : await transact('reveal', 'revealKeySlot', [slotId, ruleCommitmentHash, args.k, args.n, mode, auth, revealSalt, tags], false)
         await confirmed(pub, revealTx, 'revealKeySlot')
         await args.recovery?.onTransaction({step: 'reveal', phase: 'confirmed', hash: revealTx, seeded: false})
       } catch (e) {

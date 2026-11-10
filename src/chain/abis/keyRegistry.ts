@@ -314,6 +314,25 @@ export const keyRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "commitKeySlotSeeded",
+    "inputs": [
+      {
+        "name": "commitment",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "targetEpoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "commitSeedDigest",
     "inputs": [
       {
@@ -2638,6 +2657,17 @@ export const keyRegistryAbi = [
     "type": "error",
     "name": "CommitMissing",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WrongRevealPath",
+    "inputs": [
+      {
+        "name": "path",
+        "type": "uint8",
+        "internalType": "enum SlotCommits.RevealPath"
+      }
+    ]
   },
   {
     "type": "error",

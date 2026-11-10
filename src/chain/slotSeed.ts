@@ -49,21 +49,68 @@ function parseSeed(body: unknown, commitment: Hex): SlotSeed | null {
   return {commitment, digest: digest.toLowerCase() as Hex, signature: signature.toLowerCase() as Hex}
 }
 
-async function askOne(url: string, commitment: Hex, timeoutMs: number): Promise<SlotSeed | null> {
+/** One accountant's answer to one ask, when it was not a usable seed. */
+export interface SlotSeedAnswer {
+  /** The accountant base URL that was asked. */
+  url: string
+  /** HTTP status, when a response arrived. */
+  status?: number
+  /** Why the answer was not usable: the response reason, a transport error, or a shape/digest fault. */
+  reason: string
+}
+
+/** Why no seed was obtained: every answer of the LAST round of asks, and how many rounds ran. */
+export interface SlotSeedFailure {
+  /** Rounds of asks made (one round asks every accountant once). */
+  rounds: number
+  /** Each accountant's answer in the last round. Empty when no accountant is registered. */
+  answers: SlotSeedAnswer[]
+  /** One line naming the dominant cause, for logs and bench records. */
+  reason: string
+}
+
+type Asked = {seed: SlotSeed} | {answer: SlotSeedAnswer; retryable: boolean}
+
+/**
+ * Statuses that mean "not yet" rather than "no":
+ * - 404: this accountant's chain view has not reached the commit receipt yet;
+ * - 503: its threshold set is not up, or it is already leading a round (one at a time, by design:
+ *   a queue there is a queue in front of the beacon);
+ * - 502/504: it could not read the chain, or a proxy timed out.
+ * A 409 is the opposite: the commitment is bound to another reveal path, or already revealed, and
+ * no retry can change it.
+ */
+const RETRYABLE = new Set([404, 502, 503, 504])
+
+async function askOne(url: string, commitment: Hex, timeoutMs: number, expectedDigest: string): Promise<Asked> {
   let end = url.length
   while (end > 0 && url[end - 1] === '/') end--
   const base = url.slice(0, end)
-  const res = await fetch(`${base}/v1/slot-seed`, {
-    method: 'POST',
-    headers: {'content-type': 'application/json'},
-    body: JSON.stringify({commitment}),
-    signal: AbortSignal.timeout(timeoutMs),
-  })
-  // 503 is the expected answer from an accountant whose threshold set is not up, and 404 from one
-  // whose chain view has not yet seen the commit. Both mean "ask someone else / try again",
-  // neither is an error worth surfacing - the caller's fallback is the epoch wait.
-  if (!res.ok) return null
-  return parseSeed(await res.json(), commitment)
+  let res: Response
+  try {
+    res = await fetch(`${base}/v1/slot-seed`, {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({commitment}),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  } catch (e) {
+    // One unreachable accountant is not a failure of the set - the next one is asked. It is not
+    // retried either: an accountant that is down is down for longer than the retry window, and
+    // a set that is entirely unreachable must reach the epoch wait without paying the window.
+    return {answer: {url, reason: `unreachable: ${e instanceof Error ? e.message : String(e)}`}, retryable: false}
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    return {answer: {url, status: res.status, reason: text.slice(0, 200) || `HTTP ${res.status}`}, retryable: RETRYABLE.has(res.status)}
+  }
+  const seed = parseSeed(await res.json().catch(() => null), commitment)
+  if (!seed) return {answer: {url, status: res.status, reason: 'malformed seed response'}, retryable: false}
+  // A digest that is not the registry's own means this accountant is bound to a DIFFERENT
+  // registry or chain - its signature could never satisfy the reveal. Skip it rather than
+  // spending gas to be told so.
+  if (seed.digest !== expectedDigest) return {answer: {url, status: res.status, reason: 'digest is not this registry\'s commitSeedDigest'}, retryable: false}
+  return {seed}
 }
 
 /**
@@ -74,6 +121,25 @@ export interface SlotSeedOptions {
   urls?: string[]
   /** Per-accountant HTTP timeout. The round itself is bounded server-side. */
   timeoutMs?: number
+  /**
+   * Keep asking for up to this long while every refusal is a "not yet" (404 before the
+   * accountant's view reaches the commit, 503 while another creation's round holds it). Default 0:
+   * one round. `createSlotCommitReveal` passes a window, because there the alternative is a full
+   * beacon epoch.
+   */
+  retryForMs?: number
+  /** Called once with every answer of the last round when no seed was obtained. */
+  onFailure?: (failure: SlotSeedFailure) => void
+}
+
+function summarise(answers: SlotSeedAnswer[]): string {
+  if (!answers.length) return 'no accountant registered'
+  const counts = new Map<string, number>()
+  for (const a of answers) {
+    const key = a.status !== undefined ? `${a.status} ${a.reason}` : a.reason
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return [...counts].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n}x ${k}`).join('; ')
 }
 
 /**
@@ -81,7 +147,7 @@ export interface SlotSeedOptions {
  * @param chain Reader for the deployment owning the commitment.
  * @param keyRegistry Registry that will receive the reveal transaction.
  * @param commitment Previously submitted creation commitment.
- * @param opts Accountant endpoints and request timeout.
+ * @param opts Accountant endpoints, request timeout and retry window.
  * @returns A seed response, or null when no accountant returns an acceptable response.
  */
 export async function requestSlotSeed(
@@ -94,30 +160,50 @@ export async function requestSlotSeed(
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000) {
     throw new Error('Invalid slot-seed timeout')
   }
+  const retryForMs = opts.retryForMs ?? 0
+  if (!Number.isSafeInteger(retryForMs) || retryForMs < 0 || retryForMs > 600_000) {
+    throw new Error('Invalid slot-seed retry window')
+  }
   const urls = opts.urls ?? (await resolveAccountantUrls(chain).catch(() => []))
-  if (!urls.length) return null
+  if (!urls.length) {
+    opts.onFailure?.({rounds: 0, answers: [], reason: summarise([])})
+    return null
+  }
 
   const expected = (await chain.client.readContract({
     address: keyRegistry,
     abi: keyRegistryAbi,
     functionName: 'commitSeedDigest',
     args: [commitment],
-  })) as Hex
+  })).toLowerCase()
 
-  for (const url of urls) {
-    let seed: SlotSeed | null
-    try {
-      seed = await askOne(url, commitment, timeoutMs)
-    } catch {
-      // One unreachable accountant is not a failure of the set. Move on.
-      continue
+  const deadline = Date.now() + retryForMs
+  // Start at an accountant picked by the commitment, and move one on per round: concurrent
+  // creators would otherwise all queue on the first one, whose single lead slot then sheds every
+  // caller but one with a 503. Derived, not random, so a given creation asks in a fixed order.
+  const offset = Number.parseInt(commitment.slice(-4), 16) % urls.length || 0
+  let delay = 250
+  for (let round = 1; ; round++) {
+    const answers: SlotSeedAnswer[] = []
+    let retryable = false, settled = false
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[(offset + round - 1 + i) % urls.length]
+      if (url === undefined) continue
+      const asked = await askOne(url, commitment, timeoutMs, expected)
+      if ('seed' in asked) return asked.seed
+      answers.push(asked.answer)
+      retryable ||= asked.retryable
+      // A 409 is the CHAIN's answer (wrong reveal path, already revealed), not one accountant's
+      // state: another accountant that has not caught up yet would only say 404 and be retried
+      // for nothing.
+      settled ||= asked.answer.status === 409
     }
-    if (!seed) continue
-    // A digest that is not the registry's own means this accountant is bound to a DIFFERENT
-    // registry or chain - its signature could never satisfy the reveal. Skip it rather than
-    // spending gas to be told so.
-    if (seed.digest !== expected.toLowerCase()) continue
-    return seed
+    if (!retryable || settled || Date.now() + delay > deadline) {
+      opts.onFailure?.({rounds: round, answers, reason: summarise(answers)})
+      return null
+    }
+    // Jittered so a burst of creators that were all shed together does not come back together.
+    await new Promise(r => setTimeout(r, delay / 2 + Math.random() * delay / 2))
+    delay = Math.min(delay * 2, 2_000)
   }
-  return null
 }
