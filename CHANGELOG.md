@@ -9,6 +9,17 @@ never does.
 
 ### Added
 
+- `prepareAllowances` readiness judged by lane selection's own predicate: optional `actions`
+  (as `PaidOperationRequest.operation.action`; `sign` is paid as `eoa-sign` on a threshold-ECDSA
+  slot) and `operationTtlSecs` (default 600). Given, one fresh discovery judges every lane, and an
+  allowance counts only when selection would accept it for each action at any moment of
+  `minLifetimeSecs`: the action funded, the discovered keeper sharing, and an expiry beyond the
+  operation's payment lifetime plus the 30 s margin. A failing lane gets a fitting next reserved
+  ahead; a current one that cannot fund the next operation gives way to it, and a reserved-ahead
+  one that never can (a stale sharing) is replaced. `minLifetimeSecs + operationTtlSecs` must fit
+  the allowance lifetime minus 120 s. Without `actions` a lane whose allowance had 631..654 s of
+  life left reported `not-needed` for `minLifetimeSecs: 600` and then funded no 600 s payment.
+
 - `prepareAllowances` readiness for sustained work: optional `minOperations` (each lane must fund
   at least this many more operations at the per-operation cap from its current and reserved-ahead
   allowance; only one outliving the horizon counts) and `minLifetimeSecs` (the current allowance
@@ -190,6 +201,11 @@ never does.
 
 ### Fixed
 
+- A lane selection now also reserves ahead the replacement of a confirmed allowance that is within
+  600 s of funding no operation like its own (its expiry minus 30 s minus the payment's), or on a
+  keeper sharing the slot no longer has, not only of a `low()` one. Between 630 and 600 s of life
+  (600 s payments) an allowance funded nothing and started no replacement: every operation on the
+  lane paid by a per-operation reservation.
 - Head follower: a paid-operation read answered at the followed tip could refuse a state the
   caller had already observed one block later (a key published, a reservation or allowance mined,
   a reshare or hand-off). `discoverPaidOperationContext`, `readClientExecutionPolicy`,

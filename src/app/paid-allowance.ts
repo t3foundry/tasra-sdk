@@ -286,11 +286,30 @@ function sameDraw(fields: DrawFields, intent: DrawFields): boolean {
     && same(fields.verification_root, intent.verification_root) && fields.verification_registry_size === intent.verification_registry_size
     && fields.verification_committee === intent.verification_committee && fields.verification_quorum === intent.verification_quorum
 }
+/**
+ * Does an allowance (its balance and pending debits aside) fund `action` for an operation expiring
+ * at `expires`, under `context`'s keeper sharing (and exactly its verifier draw when `drawPinned`)?
+ * The one predicate both lane selection ({@link usable}) and readiness ({@link LaneWork}) apply.
+ */
+function serves(intent: PrepaidAllowanceIntentWire, context: PaidOperationContext, action: AllowanceAction, expires: number, drawPinned = false): boolean {
+  return allowanceFunds(intent.actions, action) && intent.expires_at >= expires + EXPIRY_MARGIN_SECS && sameSharing(context.intentFields, intent)
+    && (!drawPinned || sameDraw(context.intentFields, intent))
+}
 /** Can this lane's current allowance fund one more operation (without asking anyone)? */
 function usable(c: LaneCurrent | undefined, env: AllowanceEnv, context: PaidOperationContext, action: AllowanceAction, expires: number, drawPinned = false): boolean {
   return c !== undefined && c.phase === 'confirmed' && c.pending === undefined && remaining(c) >= env.limits.maxCost
-    && allowanceFunds(c.intent.actions, action) && c.intent.expires_at >= expires + EXPIRY_MARGIN_SECS && sameSharing(context.intentFields, c.intent)
-    && (!drawPinned || sameDraw(context.intentFields, c.intent))
+    && serves(c.intent, context, action, expires, drawPinned)
+}
+/**
+ * A confirmed allowance that will soon stop funding operations like `operation` (by the time its
+ * payment would expire it is within {@link LOW_LIFE_SECS} of the allowance's own expiry), or one on
+ * a keeper sharing the slot no longer has: reserve its replacement ahead, exactly as for a `low()`
+ * one. Without it a current allowance whose life fell below the payment lifetime plus the margin
+ * (but above `low()`'s bound) could fund no operation and started no replacement either: every
+ * operation on it paid per operation.
+ */
+function endingFor(c: LaneCurrent, context: PaidOperationContext, operation: {expires: number}): boolean {
+  return c.intent.expires_at - EXPIRY_MARGIN_SECS - operation.expires < LOW_LIFE_SECS || !sameSharing(context.intentFields, c.intent)
 }
 
 /**
@@ -558,7 +577,8 @@ async function selectLane(env: AllowanceEnv, context: PaidOperationContext, oper
     // A lane held by a debit whose voucher is already journaled (a stop between that journal and
     // the lane commit) is completed here, asking nobody: no selection would ever run a round on it.
     if (state.current?.pending && !busy.has(key)) state = await completeInterruptedAdvance(env, key, lane, slot, state)
-    if (env.options.reserveAhead !== false && (low(state.current) || state.current?.phase !== 'confirmed') && !state.next) refillLane(env, context, lane)
+    if (env.options.reserveAhead !== false && !state.next
+      && (low(state.current) || state.current?.phase !== 'confirmed' || endingFor(state.current, context, operation))) refillLane(env, context, lane, operation)
     // Close to expiry the current allowance may see no further debit: make sure its last voucher reached the members.
     if (state.current?.phase === 'confirmed' && state.current.seq > 0 && state.current.intent.expires_at - now() < LOW_LIFE_SECS) repushLast(env, state.current)
     // A pinned draw never promotes: retiring a current allowance only because its draw is not this
@@ -635,10 +655,10 @@ function fieldsFor(intent: PrepaidAllowanceIntentWire, context: PaidOperationCon
  * Start (once per lane in this process) a background reservation for a lane that lacks a usable
  * or reserved-ahead allowance. Failures are kept on the lane journal state only; they never fail an operation.
  */
-function refillLane(env: AllowanceEnv, context: PaidOperationContext, lane: number): void {
+function refillLane(env: AllowanceEnv, context: PaidOperationContext, lane: number, operation: {expires: number}): void {
   const key = laneKey(env.deployment, context.intentFields.slot, lane)
   if (refilling.has(key) || refilling.size >= MAX_REFILLING) return
-  const work = reserveForLane(env, context, lane).then(() => {}, () => {}).finally(() => { refilling.delete(key); refillingDraw.delete(key) })
+  const work = reserveOnLane(env, context, lane, operationPlan(env, context, operation)).then(() => {}, () => {}).finally(() => { refilling.delete(key); refillingDraw.delete(key) })
   refilling.set(key, work)
   refillingDraw.set(key, context.intentFields)
 }
@@ -687,7 +707,9 @@ export async function prepareAllowanceLane(env: AllowanceEnv, slot: Hex, lane: n
   if (!HEX32.test(slot)) throw new TasraError('Invalid allowance slot')
   if (!Number.isSafeInteger(lane) || lane < 0 || lane >= allowanceLaneCount(env.options)) throw new TasraError('Allowance lane out of range')
   validateLaneReadiness(env, ready)
-  const key = laneKey(env.deployment, slot, lane), plan = regularPlan(env), demanding = (ready.minOperations ?? 0) > 0 || (ready.minLifetimeSecs ?? 0) > 0
+  if (ready.work && !same(ready.work.context.intentFields.slot, slot)) throw new TasraError('Readiness discovery is for another slot')
+  const demanding = (ready.minOperations ?? 0) > 0 || (ready.minLifetimeSecs ?? 0) > 0 || ready.work !== undefined
+  const key = laneKey(env.deployment, slot, lane), base = regularPlan(env), plan = demanding ? readinessPlan(env, ready) : base
   let reserved = false
   // Bounded: operations that keep restarting a failing refill of this lane leave it to them.
   for (let round = 0; ; round++) {
@@ -699,7 +721,7 @@ export async function prepareAllowanceLane(env: AllowanceEnv, slot: Hex, lane: n
     // An uncertain earlier reservation is reconciled by reserveForLane before anything new is signed.
     const uncertain = state.next?.record !== undefined && state.next.phase !== 'confirmed'
     if (!uncertain) {
-      const verdict = laneVerdict(env, plan, state, ready, demanding)
+      const verdict = laneVerdict(env, base, state, ready, demanding)
       if (verdict === 'ready') return reserved ? 'reserved' : 'not-needed'
       if (verdict === 'short') {
         // The current allowance is spent for operations (exactly when a fresh reservation would
@@ -707,7 +729,7 @@ export async function prepareAllowanceLane(env: AllowanceEnv, slot: Hex, lane: n
         // promotion would, and judge again (the next round reserves the following one). Otherwise
         // the lane already holds its two allowances (2 x lanes x amount): never a third.
         if (state.current?.pending === undefined && plan.takeOver(state as LaneState & {next: LaneAllowance}) && await takeOverNext(env, key, lane, slot, plan)) continue
-        throw new AllowanceCapacityError(lane, laneOperations(env, state, ready.minLifetimeSecs ?? 0), ready)
+        throw new AllowanceCapacityError(lane, laneOperations(env, state, ready), ready)
       }
     }
     const context = await discover()
@@ -741,9 +763,32 @@ export interface LaneReadiness {
   minOperations?: number
   /**
    * The current allowance must outlive this many seconds, else the next one is reserved ahead (and
-   * must outlive it). At most the allowance lifetime minus 120 s.
+   * must outlive it). At most the allowance lifetime minus 120 s (minus `work.ttlSecs` with `work`).
    */
   minLifetimeSecs?: number
+  /**
+   * The operations the coming work runs ({@link LaneWork}). With it an allowance counts only when
+   * lane selection would accept it for EVERY one of them, for an operation started at any moment
+   * of `minLifetimeSecs`: the same predicate, never a looser one.
+   */
+  work?: LaneWork
+}
+
+/**
+ * What the coming work's operations need of an allowance, judged by the predicate lane selection
+ * applies ({@link selectAllowanceLane}): each action funded, the keeper sharing (key epoch,
+ * committee version, threshold, contributors) of the fresh discovery `context`, and an expiry at
+ * least `ttlSecs` (the operations' payment lifetime) plus the clock margin beyond the moment the
+ * operation starts. A regular lane is never judged on its verifier draw (selection pins a draw only
+ * for session grants, whose draw lanes are not prepared).
+ */
+export interface LaneWork {
+  /** Fresh discovery of the slot (`fundedByAllowance`): the keeper sharing an operation would be paid under now. */
+  context: PaidOperationContext
+  /** The paid actions as payments carry them (`eoa-sign` on a threshold-ECDSA slot), 1..5 distinct. */
+  actions: readonly AllowanceAction[]
+  /** The operations' payment lifetime, 1..3600 s (`PaidOperationRequest.operation.ttlSecs`, default 600). */
+  ttlSecs: number
 }
 
 /** The lane cannot hold what the coming work needs: it already holds a current and a reserved-ahead allowance. */
@@ -766,26 +811,63 @@ export function validateLaneReadiness(env: AllowanceEnv, ready: LaneReadiness): 
   const most = 2n * (env.options.amount / env.limits.maxCost)
   if (!Number.isSafeInteger(ops) || ops < 0 || BigInt(ops) > most) throw new TasraError(`Allowance minOperations must be 0..${most} (two allowances of amount / maxCost operations)`)
   if (!Number.isSafeInteger(life) || life < 0 || life > lifetime - 120) throw new TasraError(`Allowance minLifetimeSecs must be 0..${lifetime - 120} (the allowance lifetime minus 120 s)`)
+  const work = ready.work
+  if (work === undefined) return
+  validateReadinessHorizon(env, life, work.ttlSecs)
+  if (work.actions.length === 0 || new Set(work.actions).size !== work.actions.length) throw new TasraError('Allowance readiness actions must be distinct and non-empty')
+  // An action the configured allowances never fund cannot be readied by any reservation.
+  const funded = env.options.actions ? allowanceActionBits(env.options.actions) : ALLOWANCE_ACTIONS
+  for (const action of work.actions) if (!allowanceFunds(funded, action)) throw new TasraError(`Allowances of this configuration do not fund ${String(action).slice(0, 32)}`)
 }
 
-/** Operations the lane's confirmed allowances fund at the per-operation cap, counting only those outliving `horizon` seconds. */
-function laneOperations(env: AllowanceEnv, s: LaneState, horizon: number): number {
-  const until = now() + horizon + EXPIRY_MARGIN_SECS, cap = env.limits.maxCost
+/**
+ * Validate that an operation of lifetime `ttlSecs` started at the end of a `minLifetimeSecs` horizon
+ * can be funded by a fresh allowance at all ({@link LaneWork}).
+ * @param env - Allowance environment.
+ * @param minLifetimeSecs - Readiness horizon, seconds.
+ * @param ttlSecs - The operations' payment lifetime, seconds.
+ */
+export function validateReadinessHorizon(env: AllowanceEnv, minLifetimeSecs: number, ttlSecs: number): void {
+  const lifetime = env.options.lifetimeSecs ?? ALLOWANCE_MAX_LIFETIME_SECS
+  if (!Number.isSafeInteger(ttlSecs) || ttlSecs < 1 || ttlSecs > 3600) throw new TasraError('Allowance readiness operation lifetime must be 1..3600 seconds')
+  if (minLifetimeSecs + ttlSecs > lifetime - 120) {
+    throw new TasraError(`Allowance minLifetimeSecs plus the operation lifetime (${ttlSecs} s) must be at most ${lifetime - 120} s: no allowance could fund an operation started at the end of the horizon`)
+  }
+}
+
+/** Can a confirmed allowance fund every operation of `work` started at `at` (balance aside)? */
+function servesWork(intent: PrepaidAllowanceIntentWire, work: LaneWork, at: number): boolean {
+  return work.actions.every(action => serves(intent, work.context, action, at + work.ttlSecs))
+}
+/** Would a confirmed allowance ever fund `work` (its actions and keeper sharing; expiry aside)? A stale one never will. */
+function compatible(intent: PrepaidAllowanceIntentWire, work: LaneWork): boolean {
+  return work.actions.every(action => allowanceFunds(intent.actions, action)) && sameSharing(work.context.intentFields, intent)
+}
+
+/**
+ * Operations the lane's confirmed allowances fund at the per-operation cap, counting only those
+ * outliving `minLifetimeSecs` (with `work`: only those lane selection would accept for each of its
+ * operations started at the end of that horizon).
+ */
+function laneOperations(env: AllowanceEnv, s: LaneState, ready: LaneReadiness): number {
+  const horizon = ready.minLifetimeSecs ?? 0, at = now() + horizon, cap = env.limits.maxCost, work = ready.work
+  const counts = (a: LaneAllowance) => a.phase === 'confirmed' && (work ? servesWork(a.intent, work, at) : a.intent.expires_at >= at + EXPIRY_MARGIN_SECS)
   let ops = 0n
-  if (s.current?.phase === 'confirmed' && s.current.intent.expires_at >= until) {
+  if (s.current && counts(s.current)) {
     const own = remaining(s.current) / cap - (s.current.pending ? 1n : 0n)
     if (own > 0n) ops += own
   }
-  if (s.next?.phase === 'confirmed' && s.next.intent.expires_at >= until) ops += BigInt(s.next.intent.amount) / cap
+  if (s.next && counts(s.next)) ops += BigInt(s.next.intent.amount) / cap
   return Number(ops)
 }
 
 /** Ready for the coming work, a reservation needed, or short with the lane full (current + a confirmed next). */
 function laneVerdict(env: AllowanceEnv, plan: ReservePlan, s: LaneState, ready: LaneReadiness, demanding: boolean): 'ready' | 'reserve' | 'short' {
   if (!demanding) return plan.needed(s) ? 'reserve' : 'ready'
-  const horizon = ready.minLifetimeSecs ?? 0
-  const meets = laneOperations(env, s, horizon) >= Math.max(ready.minOperations ?? 0, 1)
-  if (s.next?.phase === 'confirmed') return meets ? 'ready' : 'short'
+  const meets = laneOperations(env, s, ready) >= Math.max(ready.minOperations ?? 0, 1)
+  // A reserved-ahead allowance that can never fund the work (another keeper sharing, an action it
+  // does not fund) is replaced (`replaceNext`), never counted as the lane being full.
+  if (s.next?.phase === 'confirmed') return meets ? 'ready' : ready.work && !compatible(s.next.intent, ready.work) ? 'reserve' : 'short'
   // No reserved-ahead allowance: the current one alone must be confirmed, not low, outlive the horizon and fund the work.
   return !plan.needed(s) && meets ? 'ready' : 'reserve'
 }
@@ -821,8 +903,23 @@ function regularPlan(env: AllowanceEnv): ReservePlan {
 }
 /** The regular plan, needing a reservation whenever the lane is not ready for `ready` (and holds no confirmed reserved-ahead allowance). */
 function readinessPlan(env: AllowanceEnv, ready: LaneReadiness): ReservePlan {
+  const plan = regularPlan(env), work = ready.work
+  const needed = (s: LaneState) => laneVerdict(env, plan, s, ready, true) === 'reserve'
+  if (!work) return {...plan, needed}
+  return {...plan, needed,
+    // As an operation's promotion would: a current allowance that cannot fund the work's next
+    // operation (its balance, its expiry, a stale keeper sharing) gives way to the confirmed next.
+    takeOver: s => plan.takeOver(s) || !s.current || !(s.current.phase === 'confirmed' && s.current.pending === undefined
+      && remaining(s.current) >= env.limits.maxCost && servesWork(s.current.intent, work, now())),
+    replaceNext: next => next.phase === 'confirmed' && !compatible(next.intent, work)}
+}
+/**
+ * The regular plan for a background refill started by `operation`'s selection: a confirmed current
+ * allowance {@link endingFor} it needs its replacement too, not only a `low()` one.
+ */
+function operationPlan(env: AllowanceEnv, context: PaidOperationContext, operation: {expires: number}): ReservePlan {
   const plan = regularPlan(env)
-  return {...plan, needed: s => laneVerdict(env, plan, s, ready, true) === 'reserve'}
+  return {...plan, needed: s => plan.needed(s) || (s.next === undefined && s.current?.phase === 'confirmed' && endingFor(s.current, context, operation))}
 }
 /** A draw lane on `context`'s draw: replaces an allowance of any other draw (only a stale one can be on its lane set) or a low one. */
 function drawPlan(env: AllowanceEnv, context: PaidOperationContext): ReservePlan {

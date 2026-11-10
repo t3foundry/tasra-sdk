@@ -365,3 +365,123 @@ describe('prepareAllowances readiness for sustained work', () => {
     expect(discoveries()).toBe(0)
   })
 })
+
+// Readiness judged by lane selection's own predicate (`actions`): the flow-bench dual-operation cell
+// (a threshold-ECDSA slot, `sign` paid as `eoa-sign`, 600 s payments) pre-opened every lane
+// `not-needed` while their allowances, opened in the setup ~50 min before, had a few seconds over
+// 600 + 30 s of life left: within seconds no operation could be funded by them (an operation's
+// payment must expire 30 s before its allowance) and none was `low()` (600 s) either, so the ops
+// paid per operation, then opened a new allowance inside themselves. Also: a stale keeper sharing.
+describe('prepareAllowances readiness for the actions the work runs', () => {
+  const ecdsa = async () => {
+    const base = vi.mocked(discoverPaidOperationContext).getMockImplementation()!
+    vi.mocked(discoverPaidOperationContext).mockImplementation(async (...args) => ({...await base(...args), mode: 2}))
+  }
+  const signOnce = async (config: PaidOperationConfig, n: number) => {
+    const agent = agentSession(n)
+    vi.mocked(prepareRegisteredPaidSession).mockResolvedValue(agent.session)
+    const op = await paidOperation(config, {slot, operation: {action: 'sign', message: new TextEncoder().encode(`dual ${n}`)}, rule: {rule, salt}, holder: agent.holder})
+    try { expect(await op.execute(async () => 'signature')).toBe('signature'); return op.payment } finally { op.dispose() }
+  }
+
+  it('readies a lane whose allowance outlives the horizon but not the horizon plus the payment lifetime; the next operation reserves nothing', async () => {
+    const {config, lanesOf} = world(1)
+    reservations()
+    await ecdsa()
+    await prepareAllowances(config, {slot})
+    const first = (await lanesOf())[0]!
+    const start = Date.now()
+    // 650 s of life left: above 600 + 30 (the old judgement), below 600 + 600 + 30.
+    vi.spyOn(Date, 'now').mockImplementation(() => start + (first.expiresAt! - Math.floor(start / 1000) - 650) * 1000)
+    expect((await prepareAllowances(config, {slot, minOperations: 2, minLifetimeSecs: 600})).lanes).toEqual([{lane: 0, outcome: 'not-needed'}])
+    expect(sends()).toBe(1)
+    expect((await prepareAllowances(config, {slot, minOperations: 2, minLifetimeSecs: 600, actions: ['sign']})).lanes).toEqual([{lane: 0, outcome: 'reserved'}])
+    expect(sends()).toBe(2)
+    const prepared = (await lanesOf())[0]!
+    // The current one still funds operations now; the next waits reserved ahead.
+    expect([prepared.allowanceId, prepared.next?.phase]).toEqual([first.allowanceId, 'confirmed'])
+    // Ready for it now: judged again, nothing is signed or sent.
+    expect((await prepareAllowances(config, {slot, minOperations: 2, minLifetimeSecs: 600, actions: ['sign']})).lanes).toEqual([{lane: 0, outcome: 'not-needed'}])
+    // 30 s into the work the current one can fund no 600 s payment: the operation takes the next, by voucher.
+    const later = Date.now() + 30_000
+    vi.mocked(Date.now).mockImplementation(() => later)
+    const payment = await signOnce(config, 0)
+    await settleAllowanceRefills()
+    expect([payment.action, payment.allowance_id]).toEqual(['eoa-sign', prepared.next!.allowanceId])
+    expect(sends()).toBe(2)
+    expect(vi.mocked(collectDebitVoucher)).toHaveBeenCalledTimes(1)
+  })
+
+  it('replaces a current allowance on a keeper sharing the slot no longer has, before the work', async () => {
+    const {config, lanesOf} = world(1)
+    reservations()
+    await prepareAllowances(config, {slot})
+    const stale = (await lanesOf())[0]!
+    // The slot's committee changed (a reshare): every operation now discovers committee version 2.
+    const base = vi.mocked(discoverPaidOperationContext).getMockImplementation()!
+    vi.mocked(discoverPaidOperationContext).mockImplementation(async (...args) => {
+      const c = await base(...args)
+      return {...c, intentFields: {...c.intentFields, keeper_assignment: {...c.intentFields.keeper_assignment, committee_version: 2}}}
+    })
+    expect((await prepareAllowances(config, {slot, minOperations: 2, minLifetimeSecs: 600})).lanes).toEqual([{lane: 0, outcome: 'not-needed'}])
+    expect((await prepareAllowances(config, {slot, minOperations: 2, minLifetimeSecs: 600, actions: ['sign']})).lanes).toEqual([{lane: 0, outcome: 'reserved'}])
+    const [lane] = await lanesOf()
+    // Taken over at once (as an operation's promotion would): the stale one is retired.
+    expect(lane!.allowanceId).not.toBe(stale.allowanceId)
+    expect([lane!.seq, lane!.next, lane!.retired]).toEqual([0, undefined, 1])
+    const payment = await signOnce(config, 1)
+    await settleAllowanceRefills()
+    expect(payment.allowance_id).toBe(lane!.allowanceId)
+    expect(sends()).toBe(2)
+  })
+
+  it('replaces a reserved-ahead allowance that can never fund the work, never counting it as the lane being full', async () => {
+    const {config, lanesOf} = world(1)
+    reservations()
+    await prepareAllowances(config, {slot, minOperations: 15})
+    const before = (await lanesOf())[0]!
+    const base = vi.mocked(discoverPaidOperationContext).getMockImplementation()!
+    vi.mocked(discoverPaidOperationContext).mockImplementation(async (...args) => {
+      const c = await base(...args)
+      return {...c, intentFields: {...c.intentFields, keeper_assignment: {...c.intentFields.keeper_assignment, key_epoch: 2}}}
+    })
+    expect((await prepareAllowances(config, {slot, minOperations: 5, actions: ['decrypt']})).lanes).toEqual([{lane: 0, outcome: 'reserved'}])
+    const [lane] = await lanesOf()
+    expect(lane!.allowanceId).not.toBe(before.allowanceId)
+    expect(lane!.allowanceId).not.toBe(before.next!.allowanceId)
+    expect(lane!.retired).toBe(2)
+  })
+
+  it('a selection starts the replacement of an allowance ending for its operation, not only of a low() one', async () => {
+    const {config, lanesOf} = world(1)
+    reservations()
+    await prepareAllowances(config, {slot})
+    const first = (await lanesOf())[0]!
+    const start = Date.now()
+    // 1000 s left: funds this 600 s payment, not low (600 s), but within 600 s of funding none.
+    vi.spyOn(Date, 'now').mockImplementation(() => start + (first.expiresAt! - Math.floor(start / 1000) - 1000) * 1000)
+    const payment = await signOnce(config, 2)
+    await settleAllowanceRefills()
+    expect(payment.allowance_id).toBe(first.allowanceId)
+    expect(sends()).toBe(2)
+    expect((await lanesOf())[0]!.next?.phase).toBe('confirmed')
+  })
+
+  it('refuses work no configured allowance can fund, or a horizon no allowance outlives, before any read', async () => {
+    const {config} = world(1)
+    await expect(prepareAllowances(config, {slot, actions: []})).rejects.toThrow(/distinct and non-empty/)
+    await expect(prepareAllowances(config, {slot, actions: ['sign', 'sign']})).rejects.toThrow(/distinct/)
+    await expect(prepareAllowances(config, {slot, actions: ['nope' as never]})).rejects.toThrow(/unsupported allowance action/)
+    await expect(prepareAllowances(config, {slot, operationTtlSecs: 600})).rejects.toThrow(/needs actions/)
+    await expect(prepareAllowances(config, {slot, actions: ['sign'], operationTtlSecs: 0})).rejects.toThrow(/1\.\.3600/)
+    // 3600 - 120: 2900 + 600 does not fit.
+    await expect(prepareAllowances(config, {slot, actions: ['sign'], minLifetimeSecs: 2900})).rejects.toThrow(/at most 3480 s/)
+    expect(discoveries()).toBe(0)
+    // Known once the slot's mode is: the allowances fund only `sign`, a threshold-ECDSA slot pays `eoa-sign`.
+    reservations()
+    const base = vi.mocked(discoverPaidOperationContext).getMockImplementation()!
+    vi.mocked(discoverPaidOperationContext).mockImplementation(async (...args) => ({...await base(...args), mode: 2}))
+    await expect(prepareAllowances({...config, allowances: {...config.allowances!, actions: ['sign']}}, {slot, actions: ['sign']})).rejects.toThrow(/do not fund eoa-sign/)
+    expect(sends()).toBe(0)
+  })
+})

@@ -40,7 +40,7 @@ import type {ApplicationStore} from './ready-slot.js'
 import {withDedicatedPayer} from './payer-queue.js'
 import {createExecutionCertificate, createLocalExecutionSigner, type ExecutionCertificate, type ExecutionStage} from '../committee/execution.js'
 import type {KeeperExecutionApprover} from '../committee/keeperExecution.js'
-import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type DebitVoucherWire, type PaymentIntentWire} from '../committee/payment.js'
+import {allowanceActionBits, paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type AllowanceAction, type DebitVoucherWire, type PaymentIntentWire} from '../committee/payment.js'
 import {compoundTokenHash, decodeCompoundToken, requireStatusAttestations, signersThatVerify, verifyStatusAttestation, verifyStatusAttestations, STATUS_SKEW_SECS,
   type CompoundTokenWire, type StatusAttestationWire} from '../committee/token.js'
 import {acceptStatusRefreshRelay, createStatusRefreshProof, refreshStatusDirect, statusRefreshRelayBody, type StatusRefreshHolderSigner,
@@ -54,8 +54,8 @@ import {PaidApprovalUnresolvedError, RevocationStatusPreflightError, StatusRefre
 import {base64Decode} from '../crypto/envelope.js'
 import type {IbeExtractionPartial} from '../committee/client.js'
 import {HEX32, RECORD_KEY, RECORD_PREFIX, paidRecordKey as recordKey} from './paid-keys.js'
-import {AllowanceRefusedError, allowanceLaneCount, journaledAllowanceVoucher, obtainAllowanceVoucher, prepareAllowanceLane, selectAllowanceLane, validateAllowanceOptions, validateLaneReadiness,
-  type AllowanceEnv, type PaidAllowanceOptions} from './paid-allowance.js'
+import {AllowanceRefusedError, allowanceLaneCount, journaledAllowanceVoucher, obtainAllowanceVoucher, prepareAllowanceLane, selectAllowanceLane, validateAllowanceOptions, validateLaneReadiness, validateReadinessHorizon,
+  type AllowanceEnv, type LaneReadiness, type PaidAllowanceOptions} from './paid-allowance.js'
 import {withCommit, type LockedCommit} from './store-commit.js'
 
 /** Approved deployment, signers, services and spending limits shared by paid operations. */
@@ -620,6 +620,22 @@ export interface PrepareAllowancesRequest {
    * must outlive it). 0..lifetime - 120 s; default 0. A bound on how long the coming work runs.
    */
   minLifetimeSecs?: number
+  /**
+   * The paid actions the coming work runs (as `PaidOperationRequest.operation.action`: `sign` is
+   * paid as `eoa-sign` on a threshold-ECDSA slot, exactly as {@link paidOperation} pays it). Given,
+   * a lane is ready only when its current or confirmed reserved-ahead allowance passes the very
+   * check lane selection applies to each of these operations, started at any moment of
+   * `minLifetimeSecs`: the action funded, the keeper sharing (key epoch, committee version,
+   * threshold, contributors) of a FRESH discovery made for this judgement, and an expiry beyond the
+   * operation's own payment lifetime (`operationTtlSecs`) plus the clock margin. A lane that fails it
+   * gets a fitting next allowance reserved ahead; a current one that cannot fund the next operation
+   * at all gives way to it, and a reserved-ahead one that never can (a stale sharing) is replaced.
+   * Without it readiness looks at balance and expiry alone, so a lane can report `not-needed` and
+   * still be refused by every operation (one discovery more per call when given).
+   */
+  actions?: readonly AllowanceAction[]
+  /** The coming operations' payment lifetime, 1..3600 s (default 600, {@link paidOperation}'s default); only with `actions`. */
+  operationTtlSecs?: number
   /** Cancellation: lanes not yet started are reported `cancelled`; a started one is cancelled until its reservation is prepared. */
   signal?: AbortSignal
 }
@@ -682,8 +698,16 @@ export async function prepareAllowances(config: PaidOperationConfig, request: Pr
   if (lanes.length === 0 || lanes.some(l => !Number.isSafeInteger(l) || l < 0 || l >= count) || new Set(lanes).size !== lanes.length) throw new TasraError(`Allowance lanes must be distinct indices 0..${count - 1}`)
   const concurrency = request.concurrency ?? 4
   if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 8) throw new TasraError('Allowance concurrency must be 1..8')
-  const ready = {minOperations: request.minOperations, minLifetimeSecs: request.minLifetimeSecs}
+  const ready: LaneReadiness = {minOperations: request.minOperations, minLifetimeSecs: request.minLifetimeSecs}
   validateLaneReadiness(env, ready)
+  if (request.operationTtlSecs !== undefined && request.actions === undefined) throw new TasraError('Allowance operationTtlSecs needs actions')
+  const actions = request.actions, ttlSecs = request.operationTtlSecs ?? 600
+  if (actions !== undefined) {
+    if (actions.length === 0 || new Set(actions).size !== actions.length) throw new TasraError('Allowance readiness actions must be distinct and non-empty')
+    allowanceActionBits(actions)
+    // Before any read; what the configured allowances fund is judged once the slot's mode is known.
+    validateReadinessHorizon(env, request.minLifetimeSecs ?? 0, ttlSecs)
+  }
   signal.throwIfAborted()
   if (config.billing) await config.billing.requirePrepaid(slot)
   const d = {...config.deployment}, client = config.chain.client
@@ -697,6 +721,17 @@ export async function prepareAllowances(config: PaidOperationConfig, request: Pr
     return context
   }
   const results: PreparedAllowanceLane[] = lanes.map(lane => ({lane, outcome: 'cancelled'}))
+  if (actions !== undefined) {
+    // One fresh discovery judges every lane against what an operation would be paid under now.
+    let context: PaidOperationContext
+    try { context = await discover() } catch (error) {
+      return {slot, lanes: lanes.map(lane => signal.aborted ? {lane, outcome: 'cancelled', error} : {lane, outcome: 'failed', error})}
+    }
+    // Threshold ECDSA slots (mode 2 secp256k1, mode 4 P-256) pay `sign` as `eoa-sign` (as paymentAttempt does).
+    const paid = [...new Set(actions.map((a): AllowanceAction => a === 'sign' && (context.mode === 2 || context.mode === 4) ? 'eoa-sign' as const : a))]
+    ready.work = {context, actions: paid, ttlSecs}
+    validateLaneReadiness(env, ready)
+  }
   let next = 0
   const worker = async () => {
     while (next < lanes.length && !signal.aborted) {
