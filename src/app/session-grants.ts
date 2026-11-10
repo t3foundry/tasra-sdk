@@ -279,19 +279,31 @@ export class GrantedSession {
   /** Consecutive failed follow runs, and when (Date.now ms) an observation may start the next one. */
   #followFailures = 0
   #followRetryAt = 0
+  /**
+   * Unix seconds of the last USE (a {@link current} read for a keeper request), at least the last
+   * refresh this process loaded. Background refreshes (the expiry timer, a beacon follow) never move
+   * it, so the D9 idle timeout still fires while {@link start} runs: idle is time without use.
+   */
+  #lastUsed: number
 
   /** @internal Use {@link acceptSessionGrant} or {@link loadGrantedSession}. */
   constructor(opts: GrantedSessionOptions, sessionId: string, record: SessionRecord) {
     this.#opts = opts; this.sessionId = sessionId; this.#record = record
+    this.#lastUsed = record.lastRefresh
   }
 
   #clock(): number { return (this.#opts.clock ?? now)() }
 
-  /** The current grant on the wire, for keeper requests. Throws once the session ended or the grant is past its deadline. */
+  /**
+   * The current grant on the wire, for keeper requests. Throws once the session ended or the grant
+   * is past its deadline. A read is a USE: it keeps the session from going idle.
+   */
   current(): SessionGrantWire {
     const ended = this.#localEnd()
     if (ended) throw ended
-    if (this.#clock() > this.#record.grant.exp) throw new SessionGrantError('expired', 'Session grant expired; refresh it first')
+    const t = this.#clock()
+    if (t > this.#record.grant.exp) throw new SessionGrantError('expired', 'Session grant expired; refresh it first')
+    if (t > this.#lastUsed) this.#lastUsed = t
     return structuredClone(this.#record.grant)
   }
 
@@ -313,7 +325,11 @@ export class GrantedSession {
     if (this.#record.revoking) return new SessionEndedError('local-revoking', 'Session is being revoked; present again')
     const t = this.#clock(), g = this.#record.grant
     if (t >= g.absolute_exp) return new SessionEndedError('local-absolute', 'Session reached its absolute expiry; present again')
-    if (t - this.#record.lastRefresh > g.idle_timeout_secs) return new SessionEndedError('local-idle', 'Session idle timeout passed; present again')
+    // Idle is judged from the last refresh (as the verifiers judge it) AND from the last use: a
+    // background refresh alone never keeps an unused session alive.
+    if (t - this.#record.lastRefresh > g.idle_timeout_secs || t - this.#lastUsed > g.idle_timeout_secs) {
+      return new SessionEndedError('local-idle', 'Session idle timeout passed; present again')
+    }
     return undefined
   }
 
@@ -484,7 +500,10 @@ export class GrantedSession {
 
   /**
    * Refresh in the background before each grant's `exp`, until stopped or the session ends. With
-   * `beacon` configured, also poll the beacon and follow it ({@link observeBeacon}).
+   * `beacon` configured, also poll the beacon and follow it ({@link observeBeacon}). Background
+   * refreshes keep a session alive only while it is USED ({@link current}) within its idle timeout:
+   * an unused session reaches the idle timeout and ends (`local-idle`, `onEnded`), so the next use
+   * presents again.
    */
   start(): void {
     this.#armExpiry()

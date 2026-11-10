@@ -535,3 +535,52 @@ describe('a failed follow is retried by a later observation at the same epoch (r
     } finally { vi.useRealTimers() }
   })
 })
+
+describe('background refresh does not defeat the idle timeout (review F5)', () => {
+  async function running() {
+    vi.setSystemTime(T0 * 1000)
+    const clock = () => Math.floor(Date.now() / 1000)
+    const ref: {key?: SessionKeyHandle} = {}
+    const calls: number[] = []
+    const ended: string[] = []
+    const fetchImpl = (async (_u: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as {seq: number; grant: SessionGrantWire}
+      calls.push(clock())
+      return reply(200, {session_grant: grant(ref.key!, {iat: clock()}), refresh_seq: body.seq})
+    }) as unknown as typeof fetch
+    const o = await opened({clock, fetchImpl, onEnded: e => ended.push(e.code)})
+    ref.key = o.key
+    o.session.start()
+    return {o, calls, ended}
+  }
+
+  it('an unused session stops refreshing and ends at its idle timeout while start() runs', async () => {
+    vi.useFakeTimers()
+    try {
+      const {o, calls, ended} = await running()
+      await vi.advanceTimersByTimeAsync(700_000)
+      expect(ended).toEqual(['local-idle'])
+      // No refresh after the idle timeout (600 s) since the last use (acceptance).
+      expect(calls.length).toBeGreaterThan(0)
+      expect(Math.max(...calls)).toBeLessThanOrEqual(T0 + 600)
+      expect(() => o.session.current()).toThrow(/idle/)
+      const count = calls.length
+      await vi.advanceTimersByTimeAsync(100_000)
+      expect(calls).toHaveLength(count)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('a used session keeps refreshing past the idle timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      const {o, calls, ended} = await running()
+      for (let i = 0; i < 4; i++) {
+        await vi.advanceTimersByTimeAsync(400_000)
+        o.session.current()
+      }
+      expect(ended).toEqual([])
+      expect(Math.max(...calls)).toBeGreaterThan(T0 + 1500)
+      o.session.stop()
+    } finally { vi.useRealTimers() }
+  })
+})
