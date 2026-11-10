@@ -49,7 +49,7 @@ import {allowanceActionBits, allowanceFunds, ALLOWANCE_ACTIONS, prepaidAllowance
 import {collectDebitVoucher, DebitVoucherError, prepaidAllowanceId, pushDebitVoucher, reconcilePrepaidAllowance, reservePrepaidAllowance, ALLOWANCE_MAX_LIFETIME_SECS,
   type DebitPartialWire, type PrepaidAllowanceReservationRecord} from '../chain/allowance.js'
 import {accountantEndpoints, PaidReservationUncertainError} from '../chain/reservation.js'
-import type {DiscoveredPaymentFields, PaidOperationContext, PrepaidDeployment} from '../chain/prepaid.js'
+import type {DiscoveredPaymentFields, DrawnPaidOperationContext, PaidOperationContext, PrepaidDeployment, UndrawnPaymentFields} from '../chain/prepaid.js'
 import {TasraError} from '../errors.js'
 import type {ApplicationStore} from './ready-slot.js'
 import {withDedicatedPayer} from './payer-queue.js'
@@ -272,7 +272,7 @@ function low(c: LaneCurrent | undefined): boolean {
   const amount = BigInt(c.intent.amount)
   return remaining(c) * 4n < amount * LOW_REMAINDER_QUARTERS || c.intent.expires_at - now() < LOW_LIFE_SECS
 }
-function sameSharing(fields: DiscoveredPaymentFields, intent: PrepaidAllowanceIntentWire): boolean {
+function sameSharing(fields: UndrawnPaymentFields, intent: PrepaidAllowanceIntentWire): boolean {
   const a = fields.keeper_assignment, b = intent.keeper_assignment
   const key = (k: number[]) => toHex(Uint8Array.from(k))
   return fields.chain_id === intent.chain_id && same(fields.settlement, intent.settlement) && same(fields.slot, intent.slot)
@@ -293,7 +293,8 @@ function sameDraw(fields: DrawFields, intent: DrawFields): boolean {
  */
 function serves(intent: PrepaidAllowanceIntentWire, context: PaidOperationContext, action: AllowanceAction, expires: number, drawPinned = false): boolean {
   return allowanceFunds(intent.actions, action) && intent.expires_at >= expires + EXPIRY_MARGIN_SECS && sameSharing(context.intentFields, intent)
-    && (!drawPinned || sameDraw(context.intentFields, intent))
+    // An undrawn context has no draw: it never serves a pinned draw.
+    && (!drawPinned || (context.undrawn !== true && sameDraw(context.intentFields, intent)))
 }
 /** Can this lane's current allowance fund one more operation (without asking anyone)? */
 function usable(c: LaneCurrent | undefined, env: AllowanceEnv, context: PaidOperationContext, action: AllowanceAction, expires: number, drawPinned = false): boolean {
@@ -451,7 +452,7 @@ function drawNeeds(s: LaneState, draw: DrawFields): boolean {
  * reservation for this draw (the caller then waits for it, bounded); a lane whose current
  * allowance runs low reserves its replacement on the same draw in the background.
  */
-async function selectDrawLane(env: AllowanceEnv, context: PaidOperationContext, operation: AllowanceOperation): Promise<AllowanceTicket | undefined> {
+async function selectDrawLane(env: AllowanceEnv, context: DrawnPaidOperationContext, operation: AllowanceOperation): Promise<AllowanceTicket | undefined> {
   const slot = context.intentFields.slot, lanes = allowanceLaneCount(env.options), draw = context.intentFields, epoch = draw.verification_epoch
   const scope = `${laneKey(env.deployment, slot, 0)}:draw`, start = cursors.get(scope) ?? 0
   const candidates: number[] = []
@@ -494,7 +495,7 @@ async function selectDrawLane(env: AllowanceEnv, context: PaidOperationContext, 
 }
 
 /** Swap in a draw lane's allowance reserved on this draw when the current one cannot fund the operation. */
-async function promoteDraw(env: AllowanceEnv, key: string, lane: number, slot: Hex, context: PaidOperationContext, operation: {action: AllowanceAction; expires: number}): Promise<LaneCurrent | undefined> {
+async function promoteDraw(env: AllowanceEnv, key: string, lane: number, slot: Hex, context: DrawnPaidOperationContext, operation: {action: AllowanceAction; expires: number}): Promise<LaneCurrent | undefined> {
   return env.store.withLock(key, async () => {
     const state = await loadLane(env.store, key, lane, slot)
     if (usable(state.current, env, context, operation.action, operation.expires, true)) return state.current!
@@ -508,8 +509,7 @@ async function promoteDraw(env: AllowanceEnv, key: string, lane: number, slot: H
 }
 
 /** Start (once per lane in this process) a background draw-lane reservation on `context`'s (verified) draw. */
-function refillDrawLane(env: AllowanceEnv, context: PaidOperationContext, j: number): Promise<void> {
-  if (context.undrawn) return Promise.resolve()
+function refillDrawLane(env: AllowanceEnv, context: DrawnPaidOperationContext, j: number): Promise<void> {
   const lane = drawLaneIndex(context.intentFields.verification_epoch, j), key = laneKey(env.deployment, context.intentFields.slot, lane)
   const running = refilling.get(key)
   if (running) return running
@@ -531,7 +531,7 @@ const MAX_AHEADS = 256
  * pinned discovery: never a draw from anywhere else) and reserve as many of its draw lanes as
  * `e`'s draw lanes have in use (at least one), in the background. Never blocks or fails the operation.
  */
-function reserveAheadForBeacon(env: AllowanceEnv, context: PaidOperationContext): void {
+function reserveAheadForBeacon(env: AllowanceEnv, context: DrawnPaidOperationContext): void {
   const epoch = context.intentFields.verification_epoch, beacon = context.beaconEpoch, slot = context.intentFields.slot
   if (env.options.reserveAhead === false || !env.discover || beacon === undefined || beacon !== BigInt(epoch) + 1n) return
   const next = epoch + 1, key = aheadKey(env.deployment, slot, next), at = Date.now()
@@ -552,7 +552,7 @@ function reserveAheadForBeacon(env: AllowanceEnv, context: PaidOperationContext)
     }
     if (wanted.length === 0) return
     const drawn = await discover(slot, BigInt(next))
-    if (drawn.intentFields.verification_epoch !== next || !same(drawn.intentFields.slot, slot) || drawn.intentFields.chain_id !== env.deployment.chainId
+    if (drawn.undrawn || drawn.intentFields.verification_epoch !== next || !same(drawn.intentFields.slot, slot) || drawn.intentFields.chain_id !== env.deployment.chainId
       || !same(drawn.intentFields.settlement, env.deployment.settlement)) return
     await Promise.all(wanted.map(j => refillDrawLane(env, drawn, j)))
   })().catch(() => {}).finally(() => { aheads.delete(key); aheadDone.set(key, Date.now()); if (aheadDone.size > MAX_AHEADS) aheadDone.delete(aheadDone.keys().next().value!) })
@@ -680,6 +680,8 @@ function refillLane(env: AllowanceEnv, context: PaidOperationContext, lane: numb
 export async function reserveForLane(env: AllowanceEnv, context: PaidOperationContext, lane: number, signal?: AbortSignal, ready?: LaneReadiness):
   Promise<'reserved' | 'pending' | 'not-needed'> {
   if (ready) validateLaneReadiness(env, ready)
+  // An allowance is drawn on its context's verifier draw: an undrawn one has none.
+  if (context.undrawn) throw new TasraError('An undrawn payment context cannot reserve an allowance; discover again')
   const outcome = await reserveOnLane(env, context, lane, ready ? readinessPlan(env, ready) : regularPlan(env), signal)
   return outcome === 'capped' ? 'not-needed' : outcome
 }
@@ -739,6 +741,7 @@ export async function prepareAllowanceLane(env: AllowanceEnv, slot: Hex, lane: n
     }
     const context = await discover()
     signal?.throwIfAborted()
+    if (context.undrawn) throw new TasraError('An undrawn payment context cannot reserve an allowance; discover again')
     const f = context.intentFields
     if (!same(f.slot, slot) || f.chain_id !== env.deployment.chainId || !same(f.settlement, env.deployment.settlement)) throw new TasraError('Discovery is for another slot or deployment')
     // An operation's refill started while discovering: judge the lane again once it ends.
@@ -927,7 +930,7 @@ function operationPlan(env: AllowanceEnv, context: PaidOperationContext, operati
   return {...plan, needed: s => plan.needed(s) || (s.next === undefined && s.current?.phase === 'confirmed' && endingFor(s.current, context, operation))}
 }
 /** A draw lane on `context`'s draw: replaces an allowance of any other draw (only a stale one can be on its lane set) or a low one. */
-function drawPlan(env: AllowanceEnv, context: PaidOperationContext): ReservePlan {
+function drawPlan(env: AllowanceEnv, context: DrawnPaidOperationContext): ReservePlan {
   const draw = context.intentFields
   return {amount: env.options.drawAmount ?? env.options.amount, hold: heldPerDrawLane(env.options), needed: s => drawNeeds(s, draw),
     // Left reserved ahead on an older draw (its take-over waited behind a debit): no session needs it any more.
@@ -937,11 +940,11 @@ function drawPlan(env: AllowanceEnv, context: PaidOperationContext): ReservePlan
 }
 const unexpired = (held: LaneState['held']) => (held ?? []).filter(h => h.until > now())
 
-async function reserveOnLane(env: AllowanceEnv, context: PaidOperationContext, lane: number, plan: ReservePlan, signal?: AbortSignal): Promise<'reserved' | 'pending' | 'not-needed' | 'capped'> {
+async function reserveOnLane(env: AllowanceEnv, context: DrawnPaidOperationContext, lane: number, plan: ReservePlan, signal?: AbortSignal): Promise<'reserved' | 'pending' | 'not-needed' | 'capped'> {
   const slot = context.intentFields.slot, key = laneKey(env.deployment, slot, lane), d = env.deployment, store = env.store
   const payer = env.gasPayer.account.address
-  // An allowance is drawn on its context's verifier draw: an undrawn one has none (zero fields).
-  if (context.undrawn) throw new TasraError('An undrawn payment context cannot reserve an allowance; discover again')
+  // Type-enforced (an undrawn context has no draw fields); refused again for an untyped caller.
+  if ((context as PaidOperationContext).undrawn) throw new TasraError('An undrawn payment context cannot reserve an allowance; discover again')
   // Reconcile an earlier uncertain reservation first; never sign a second one beside it.
   const before = await loadLane(store, key, lane, slot)
   if (before.next?.record && before.next.phase !== 'confirmed') {

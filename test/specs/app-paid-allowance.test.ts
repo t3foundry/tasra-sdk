@@ -18,7 +18,7 @@ import {AllowanceRefusedError, AllowanceUnavailableError, inspectAllowanceLanes,
 import {createMemoryStore} from '../../src/app/memory-store.js'
 import {paidRecordKey} from '../../src/app/paid-keys.js'
 import {paymentIntentTypedData, prepaidAllowanceIntentTypedData, prepaidRequestId, type DebitVoucherWire, type PaymentIntentWire} from '../../src/committee/payment.js'
-import type {PaidOperationContext} from '../../src/chain/prepaid.js'
+import type {DrawnPaidOperationContext, UndrawnPaidOperationContext} from '../../src/chain/prepaid.js'
 import {attachHeadFollower, createHeadFollower, unfollowHeads} from '../../src/chain/headFollower.js'
 import {assignment, creator, deployment, h, NOW, slot} from '../support/allowanceFixture.js'
 
@@ -26,7 +26,7 @@ let clock = NOW
 beforeEach(() => { clock = NOW; vi.spyOn(Date, 'now').mockImplementation(() => clock * 1000); vi.mocked(collectDebitVoucher).mockReset(); vi.mocked(reservePrepaidAllowance).mockReset(); vi.mocked(pushDebitVoucher).mockReset() })
 afterEach(async () => { await settleAllowanceVoucherPushes(); vi.restoreAllMocks() })
 
-const context = (over: Partial<PaidOperationContext['intentFields']['keeper_assignment']> = {}): PaidOperationContext => ({blockNumber: 20n, blockHash: h(20), blockTimestamp: BigInt(NOW),
+const context = (over: Partial<DrawnPaidOperationContext['intentFields']['keeper_assignment']> = {}): DrawnPaidOperationContext => ({blockNumber: 20n, blockHash: h(20), blockTimestamp: BigInt(NOW),
   creator: creator.address, mode: 1, groupPublicKey: h(40), coordinator: {operator: h(11, 20), publicKey: h(10), url: 'http://127.0.0.1:4001'}, contributors: [], available: 10_000n,
   intentFields: {chain_id: 43112, settlement: deployment.settlement, key_registry: deployment.keyRegistry, slot, verification_epoch: 8, verification_seed: h(0x34),
     verification_root: h(0x35), verification_registry_size: 5, verification_committee: 3, verification_quorum: 2,
@@ -123,7 +123,7 @@ describe('allowance lanes', () => {
 
   it('a pinned draw (ADR-0090 D7 session) takes only a lane drawn on exactly that draw, and never promotes one', async () => {
     const {env, allowance} = await seeded()
-    const moved = (): PaidOperationContext => {
+    const moved = (): DrawnPaidOperationContext => {
       const c = context()
       return {...c, intentFields: {...c.intentFields, verification_epoch: 9, verification_seed: h(0x44), verification_root: h(0x45)}}
     }
@@ -148,10 +148,10 @@ describe('allowance lanes', () => {
   })
 
   it('an undrawn context (anchors landing) selects a serving lane at once, and never reserves or waits from it', async () => {
-    const undrawn = (): PaidOperationContext => {
-      const c = context(), zero = h(0)
-      return {...c, undrawn: true, intentFields: {...c.intentFields, verification_epoch: 0, verification_seed: zero, verification_root: zero,
-        verification_registry_size: 0, verification_committee: 0, verification_quorum: 0}}
+    // As discovery returns one: the keeper sharing only, no verification fields at all.
+    const undrawn = (): UndrawnPaidOperationContext => {
+      const {verification_epoch: _e, verification_seed: _s, verification_root: _r, verification_registry_size: _n, verification_committee: _c, verification_quorum: _q, ...sharing} = context().intentFields
+      return {...context(), undrawn: true, intentFields: sharing}
     }
     const {env, allowance} = await seeded({reserveAhead: true})
     vi.mocked(reservePrepaidAllowance).mockClear()
@@ -685,7 +685,7 @@ describe('debit quote block from a followed head', () => {
 describe('session draws across beacon epochs (ADR-0090 D7 draw lanes)', () => {
   beforeEach(() => resetAllowanceDrawAheads())
   /** A session message's pinned discovery: the grant's draw at `epoch`, the beacon at `beacon`. */
-  const at = (epoch: number, beacon = epoch): PaidOperationContext => {
+  const at = (epoch: number, beacon = epoch): DrawnPaidOperationContext => {
     const c = context()
     return {...c, blockTimestamp: BigInt(clock), beaconEpoch: BigInt(beacon), intentFields: {...c.intentFields, verification_epoch: epoch, verification_seed: h(0x30 + epoch), verification_root: h(0x60 + epoch)}}
   }

@@ -16,7 +16,8 @@ export type {PrepaidFaultKind, PrepaidFaultVerdict, PrepaidFaultHttpOptions} fro
 export type {OriginalVerifierPolicy} from './verifierSnapshot.js'
 export type {BillingMode, BillingModeObservation, BillingDeployment, BillingModeDetector} from './billing.js'
 export type {PrepaidDeployment, PrepaidObservation, SlotFunding, PaidOperationReceipt, ExpectedPaidOperation, PaidKeeperEndpoint, PaidKeeperTarget, PaidKeeperTransportOptions,
-  PaidContextDeployment, PaidContextOptions, DiscoveredPaymentFields, PaidOperationContext} from './prepaid.js'
+  PaidContextDeployment, PaidContextOptions, DiscoveredPaymentFields, PaidOperationContext, DrawnPaidOperationContext, UndrawnPaidOperationContext,
+  UndrawnPaymentFields, PaymentDrawFieldName} from './prepaid.js'
 export {reservePaidOperation, reconcilePaidReservation, PaidReservationUncertainError, PaidReservationAbortedError, PaidReservationStaleEpochError} from './reservation.js'
 export {followHeads, unfollowHeads, headFollowerOf, createHeadFollower, type HeadFollower, type HeadFollowerOptions, type FollowedHead} from './headFollower.js'
 export type {PaidReservationQuote, PaidReservationRecord, PaidReservationCheckpoint, ReservePaidOperationOptions, PaidReservationResolution} from './reservation.js'

@@ -31,7 +31,7 @@ import {createMemoryStore} from '../../src/app/memory-store.js'
 import {STORE_COMMIT, storeIdentity, withCommit, type StoreCommitSteps} from '../../src/app/store-commit.js'
 import type {ApplicationStore} from '../../src/app/ready-slot.js'
 import {requirePrepaidSlot} from '../../src/chain/billing.js'
-import {discoverPaidOperationContext, readClientExecutionPolicy, readCurrentBeaconEpoch} from '../../src/chain/prepaid.js'
+import {discoverPaidOperationContext, drawnIntentFields, readClientExecutionPolicy, readCurrentBeaconEpoch} from '../../src/chain/prepaid.js'
 import {fetchDrawnVerifierWitnesses} from '../../src/chain/verifierSnapshot.js'
 import {prepareRegisteredPaidSession, type RegisteredPaidAgentSession} from '../../src/chain/registeredPaidAgent.js'
 import {drivePaidSession} from '../../src/app/paid-session.js'
@@ -72,7 +72,7 @@ beforeEach(() => {
   let next = 0
   vi.mocked(selectAllowanceLane).mockImplementation(async (_env, context) => {
     const lane = next++
-    return {lane, allowanceId: h(0x80 + lane), fields: {...context.intentFields}}
+    return {lane, allowanceId: h(0x80 + lane), fields: drawnIntentFields(context)}
   })
   vi.mocked(fetchDrawnVerifierWitnesses).mockImplementation(() => later(() => ({witnesses, artifact: {}, host: 'http://127.0.0.1:9000'})))
   vi.mocked(obtainAllowanceVoucher).mockImplementation((_env, ticket, payment) => later(() => ({allowance_id: h(0x80 + ticket.lane), seq: 1,

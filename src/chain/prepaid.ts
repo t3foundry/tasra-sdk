@@ -432,10 +432,16 @@ export class PaidDrawMovedError extends Error {
 /** Chain-derived fields safe to copy into the creator's independently bounded payment intent. */
 export type DiscoveredPaymentFields = Pick<PaymentIntentWire, 'chain_id' | 'settlement' | 'key_registry' | 'slot' | 'verification_epoch' | 'verification_seed' | 'verification_root' | 'verification_registry_size' | 'verification_committee' | 'verification_quorum' | 'keeper_assignment'>
 
-/** One canonical pre-signing observation; later reservation and execution must revalidate it. */
-export interface PaidOperationContext extends PrepaidObservation {
-  /** Chain and assignment fields; add the exact action/digest, cap, nonce, expiry and session commitment before signing. */
-  intentFields: DiscoveredPaymentFields
+/** The verifier-draw fields of {@link DiscoveredPaymentFields}: present only on a drawn context. */
+export type PaymentDrawFieldName = 'verification_epoch' | 'verification_seed' | 'verification_root' | 'verification_registry_size' | 'verification_committee' | 'verification_quorum'
+
+/**
+ * The chain and keeper-sharing fields of an UNDRAWN context: no verifier draw at all, so they can
+ * never complete a payment intent (a per-operation intent or an allowance needs the draw fields).
+ */
+export type UndrawnPaymentFields = Omit<DiscoveredPaymentFields, PaymentDrawFieldName>
+
+interface PaidOperationContextBase extends PrepaidObservation {
   /** On-chain slot creator whose EIP-712 signature authorizes spending. */
   creator: Address
   /** Slot mode ordinal for selecting the operation client. */
@@ -452,14 +458,39 @@ export interface PaidOperationContext extends PrepaidObservation {
   ruleCommitment?: Hex
   /** The beacon's latest epoch at this block (the draw is it or, while its anchors land, the one before). */
   beaconEpoch?: bigint
-  /**
-   * Set only with {@link PaidContextOptions.undrawnDuringAnchorGap}: this block has no admissible
-   * complete verifier draw, and `intentFields`' verification fields are ZERO (every reader refuses
-   * them). Such a context may select an existing allowance (which carries its own draw); it never
-   * signs a per-operation payment and never reserves an allowance. Discover again (with the
-   * bounded anchor wait) for anything else.
-   */
-  undrawn?: true
+}
+
+/** A context on an admissible complete verifier draw: the only kind a payment intent is built from. */
+export interface DrawnPaidOperationContext extends PaidOperationContextBase {
+  /** Chain and assignment fields; add the exact action/digest, cap, nonce, expiry and session commitment before signing. */
+  intentFields: DiscoveredPaymentFields
+  /** Never set on a drawn context. */
+  undrawn?: undefined
+}
+
+/**
+ * Returned only with {@link PaidContextOptions.undrawnDuringAnchorGap}: this block has no admissible
+ * complete verifier draw, so `intentFields` carries NO verification fields. Such a context may
+ * select an existing allowance (which carries its own draw); it never signs a per-operation payment
+ * and never reserves an allowance. Discover again (with the bounded anchor wait) for anything else.
+ */
+export interface UndrawnPaidOperationContext extends PaidOperationContextBase {
+  /** Chain and keeper-sharing fields only; no verifier draw. */
+  intentFields: UndrawnPaymentFields
+  /** Always set: this context has no verifier draw. */
+  undrawn: true
+}
+
+/** One canonical pre-signing observation; later reservation and execution must revalidate it. Narrow on `undrawn` before reading draw fields. */
+export type PaidOperationContext = DrawnPaidOperationContext | UndrawnPaidOperationContext
+
+/**
+ * The context's intent fields, refused for an undrawn context: the one path from a context to a
+ * payment intent. Throws rather than ever returning zero or missing draw fields.
+ */
+export function drawnIntentFields(context: PaidOperationContext): DiscoveredPaymentFields {
+  if (context.undrawn === true || !('verification_epoch' in context.intentFields)) throw new Error('an undrawn payment context has no verifier draw; discover again')
+  return context.intentFields
 }
 
 const ZERO32 = `0x${'00'.repeat(32)}`
@@ -942,7 +973,22 @@ function followPaidSlot(client: PublicClient, deployment: PaidContextDeployment,
  * @param deployment - Independently approved contract and beacon addresses.
  * @param slotId - Independently selected slot to fund and operate.
  * @param options - Approved default verifier policy, optional coordinator and transport policy.
+ * @returns A {@link DrawnPaidOperationContext}, unless `undrawnDuringAnchorGap` is set: then possibly an {@link UndrawnPaidOperationContext}.
  */
+export function discoverPaidOperationContext(
+  client: PublicClient, deployment: PaidContextDeployment, slotId: Hex, options?: PaidContextOptions & {undrawnDuringAnchorGap?: false},
+): Promise<DrawnPaidOperationContext>
+/**
+ * As above, with {@link PaidContextOptions.undrawnDuringAnchorGap} possibly set: the result may be an
+ * {@link UndrawnPaidOperationContext} (narrow on `undrawn` before building any payment intent).
+ * @param client - Trusted bounded Viem client supporting EIP-1898 canonical reads.
+ * @param deployment - Independently approved contract and beacon addresses.
+ * @param slotId - Independently selected slot to fund and operate.
+ * @param options - Approved default verifier policy, optional coordinator, transport policy and the anchor-gap opt-in.
+ */
+export function discoverPaidOperationContext(
+  client: PublicClient, deployment: PaidContextDeployment, slotId: Hex, options?: PaidContextOptions,
+): Promise<PaidOperationContext>
 export async function discoverPaidOperationContext(
   client: PublicClient, deployment: PaidContextDeployment, slotId: Hex, options: PaidContextOptions = {},
 ): Promise<PaidOperationContext> {
@@ -1064,12 +1110,16 @@ export async function discoverPaidOperationContext(
   keeperAssignmentCommitment(assignment)
   const endpoints = contributors.map(key => keeperEndpoint(directory.members, key, deployment.chainId, options))
   const coordinator = keeperEndpoint(directory.members, selected.key, deployment.chainId, options)
-  const intentFields: DiscoveredPaymentFields = {chain_id: deployment.chainId, settlement: deployment.settlement, key_registry: deployment.keyRegistry, slot: slotId,
-    verification_epoch: safeInteger(epoch, 'verification epoch'), verification_seed: seed, verification_root: root, verification_registry_size: size,
-    verification_committee: committee, verification_quorum: quorum, keeper_assignment: assignment}
+  const sharing: UndrawnPaymentFields = {chain_id: deployment.chainId, settlement: deployment.settlement, key_registry: deployment.keyRegistry, slot: slotId, keeper_assignment: assignment}
   await finishObservation(client, at)
-  return {...at, intentFields, creator: directory.slot.creator, mode: directory.slot.mode, groupPublicKey: directory.slot.publicKey, coordinator, contributors: endpoints, available,
-    ruleCommitment: directory.slot.ruleCommitment, beaconEpoch: latest, ...undrawn ? {undrawn} : {}}
+  const base: PaidOperationContextBase = {...at, creator: directory.slot.creator, mode: directory.slot.mode, groupPublicKey: directory.slot.publicKey, coordinator, contributors: endpoints, available,
+    ruleCommitment: directory.slot.ruleCommitment, beaconEpoch: latest}
+  // Undrawn: no verification fields at all (not zeroed ones), so no intent can be built from it.
+  if (undrawn) return {...base, intentFields: sharing, undrawn}
+  const intentFields: DiscoveredPaymentFields = {...sharing,
+    verification_epoch: safeInteger(epoch, 'verification epoch'), verification_seed: seed, verification_root: root, verification_registry_size: size,
+    verification_committee: committee, verification_quorum: quorum}
+  return {...base, intentFields}
 }
 
 // readKeeperDirectory bounds a slot to 256 members. Reject the excess range so

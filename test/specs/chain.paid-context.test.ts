@@ -3,7 +3,8 @@ import {ed25519} from '@noble/curves/ed25519'
 import * as randomness from '@noble/hashes/utils'
 import {createPublicClient, custom, decodeFunctionData, encodeFunctionResult, getAddress, keccak256, recoverTypedDataAddress, toHex, type Abi, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {discoverPaidOperationContext, followPaidRequest, PaidDrawMovedError, readClientExecutionPolicy, type PaidContextOptions} from '../../src/chain/prepaid.js'
+import {discoverPaidOperationContext, drawnIntentFields, followPaidRequest, PaidDrawMovedError, readClientExecutionPolicy, type DrawnPaidOperationContext, type PaidContextOptions,
+  type PaidOperationContext} from '../../src/chain/prepaid.js'
 import {UnderfundedSlotError} from '../../src/errors.js'
 import {BillingModeError} from '../../src/chain/billing.js'
 import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, type PaymentIntentWire} from '../../src/committee/payment.js'
@@ -102,7 +103,11 @@ function fixture(change: Changes = {}) {
     return encodeFunctionResult({abi, functionName: name, result: values[name]})
   }}, {retryCount: 0})})
   // Tests observe once unless they ask to wait: the anchor wait is exercised with an injected clock.
-  return {client, deployment, slotId, creator, keys, operators, calls, run: (options?: PaidContextOptions) => discoverPaidOperationContext(client, deployment, slotId, {anchorWait: {timeoutMs: 0}, ...options})}
+  // As discoverPaidOperationContext: drawn unless `undrawnDuringAnchorGap` is asked for.
+  function run(options?: PaidContextOptions & {undrawnDuringAnchorGap?: false}): Promise<DrawnPaidOperationContext>
+  function run(options?: PaidContextOptions): Promise<PaidOperationContext>
+  function run(options?: PaidContextOptions): Promise<PaidOperationContext> { return discoverPaidOperationContext(client, deployment, slotId, {anchorWait: {timeoutMs: 0}, ...options}) }
+  return {client, deployment, slotId, creator, keys, operators, calls, run}
 }
 afterEach(() => { vi.restoreAllMocks(); vi.mocked(randomness.randomBytes).mockReset() })
 const now = () => vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
@@ -368,8 +373,16 @@ it('an allowance-funded discovery during an anchor gap returns at once UNDRAWN (
   // No wait: the anchors of the draw are not this caller's to wait for.
   expect(sleeps).toEqual([])
   expect(context.undrawn).toBe(true)
-  expect(context.intentFields).toMatchObject({verification_epoch: 0, verification_seed: `0x${'00'.repeat(32)}`, verification_root: `0x${'00'.repeat(32)}`,
-    verification_registry_size: 0, verification_committee: 0, verification_quorum: 0})
+  // It carries NO verification fields (not zeroed ones): nothing a payment intent could be built from.
+  for (const field of ['verification_epoch', 'verification_seed', 'verification_root', 'verification_registry_size', 'verification_committee', 'verification_quorum']) {
+    expect(context.intentFields).not.toHaveProperty(field)
+  }
+  expect(() => drawnIntentFields(context)).toThrow('an undrawn payment context has no verifier draw')
+  if (context.undrawn) {
+    const payment = {...context.intentFields, action: 'sign' as const, payload_digest: h(44), nonce: h(45), max_cost: '10', expires: 1060, session_commitment: h(46)}
+    // @ts-expect-error an undrawn context's fields cannot complete a payment intent (no verifier draw)
+    expect(() => paymentIntentTypedData(payment)).toThrow()
+  }
   // The keeper sharing, creator and coordinator are read exactly as for a drawn context.
   const drawn = await fixture().run({fundedByAllowance: true})
   expect(drawn.undrawn).toBeUndefined()

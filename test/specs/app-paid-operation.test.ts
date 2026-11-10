@@ -43,7 +43,8 @@ import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {BillingModeError, requirePrepaidSlot} from '../../src/chain/billing.js'
-import {discoverPaidOperationContext, PaidDrawMovedError, readClientExecutionPolicy, readCurrentBeaconEpoch} from '../../src/chain/prepaid.js'
+import {discoverPaidOperationContext, drawnIntentFields, PaidDrawMovedError, readClientExecutionPolicy, readCurrentBeaconEpoch, type PaidOperationContext,
+  type UndrawnPaidOperationContext} from '../../src/chain/prepaid.js'
 import {fetchDrawnVerifierWitnesses} from '../../src/chain/verifierSnapshot.js'
 import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, selectApplicationGasPayer, ApplicationPayerRecoveryError,
   type ApplicationReservationStatus} from '../../src/app/paid-reservation.js'
@@ -1601,12 +1602,19 @@ describe('explicit status refresh of a paid grant', () => {
   })
 })
 
+/** As discovery returns one during an anchor gap: the keeper sharing only, no verification fields at all. */
+function undrawnOf(context: PaidOperationContext): UndrawnPaidOperationContext {
+  const {verification_epoch: _e, verification_seed: _s, verification_root: _r, verification_registry_size: _n, verification_committee: _c, verification_quorum: _q, ...sharing} =
+    drawnIntentFields(context)
+  return {...context, undrawn: true, intentFields: sharing}
+}
+
 describe('paidOperation with ADR-0090 allowances (default off)', () => {
   const allowance = h(0x44)
   const enabled = (f: ReturnType<typeof setup>) => ({...f.config, allowances: {enabled: true, amount: 1_000n}})
   function lane() {
     vi.mocked(selectAllowanceLane).mockImplementation(async (_env, context) => ({lane: 1, allowanceId: allowance,
-      fields: {...context.intentFields, verification_epoch: 6, verification_seed: h(46)}}))
+      fields: {...drawnIntentFields(context), verification_epoch: 6, verification_seed: h(46)}}))
     vi.mocked(obtainAllowanceVoucher).mockImplementation(async (_env, _ticket, payment) => ({allowance_id: allowance, seq: 3, request_id: prepaidRequestId(payment),
       cost: '40', cumulative: '120', quote_block: h(70), signature: h(5, 64)}))
   }
@@ -1645,9 +1653,7 @@ describe('paidOperation with ADR-0090 allowances (default off)', () => {
     const f = setup()
     lane()
     const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
-    const zero = `0x${'00'.repeat(32)}` as Hex
-    const undrawn = {...base, undrawn: true as const, intentFields: {...base.intentFields, verification_epoch: 0, verification_seed: zero, verification_root: zero,
-      verification_registry_size: 0, verification_committee: 0, verification_quorum: 0}}
+    const undrawn = undrawnOf(base)
     vi.mocked(discoverPaidOperationContext).mockClear()
     vi.mocked(discoverPaidOperationContext).mockResolvedValueOnce(undrawn)
     // The ticket carries the ALLOWANCE's draw (fieldsFor copies it from the allowance intent).
@@ -1666,10 +1672,8 @@ describe('paidOperation with ADR-0090 allowances (default off)', () => {
   it('during an anchor gap with no serving lane, discovers the draw (waiting for its anchors) and never pays from the undrawn context', async () => {
     const f = setup()
     const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
-    const zero = `0x${'00'.repeat(32)}` as Hex
     vi.mocked(discoverPaidOperationContext).mockClear()
-    vi.mocked(discoverPaidOperationContext).mockResolvedValueOnce({...base, undrawn: true, intentFields: {...base.intentFields, verification_epoch: 0, verification_seed: zero,
-      verification_root: zero, verification_registry_size: 0, verification_committee: 0, verification_quorum: 0}})
+    vi.mocked(discoverPaidOperationContext).mockResolvedValueOnce(undrawnOf(base))
     vi.mocked(selectAllowanceLane).mockResolvedValue(undefined)
     const op = await paidOperation(enabled(f), f.request)
     const calls = vi.mocked(discoverPaidOperationContext).mock.calls
@@ -1733,7 +1737,7 @@ describe('paidFinalSign: a final dual-control Sign paid without any presentation
   const allowance = h(0x45), message = new TextEncoder().encode('dual final')
   const enabled = (f: ReturnType<typeof setup>) => ({...f.config, allowances: {enabled: true, amount: 1_000n}})
   function lane() {
-    vi.mocked(selectAllowanceLane).mockImplementation(async (_env, context) => ({lane: 2, allowanceId: allowance, fields: {...context.intentFields}}))
+    vi.mocked(selectAllowanceLane).mockImplementation(async (_env, context) => ({lane: 2, allowanceId: allowance, fields: drawnIntentFields(context)}))
     vi.mocked(obtainAllowanceVoucher).mockImplementation(async (_env, _ticket, payment) => ({allowance_id: allowance, seq: 1, request_id: prepaidRequestId(payment),
       cost: '40', cumulative: '40', quote_block: h(70), signature: h(5, 64)}))
   }
@@ -1802,7 +1806,7 @@ describe('paidSessionDecrypt: one session-grant KEM decrypt paid without any pre
   const allowance = h(0x46)
   const enabled = (f: ReturnType<typeof setup>) => ({...f.config, allowances: {enabled: true, amount: 1_000n}})
   function lane() {
-    vi.mocked(selectAllowanceLane).mockImplementation(async (_env, context) => ({lane: 3, allowanceId: allowance, fields: {...context.intentFields}}))
+    vi.mocked(selectAllowanceLane).mockImplementation(async (_env, context) => ({lane: 3, allowanceId: allowance, fields: drawnIntentFields(context)}))
     vi.mocked(obtainAllowanceVoucher).mockImplementation(async (_env, _ticket, payment) => ({allowance_id: allowance, seq: 1, request_id: prepaidRequestId(payment),
       cost: '40', cumulative: '40', quote_block: h(70), signature: h(5, 64)}))
   }

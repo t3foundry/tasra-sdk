@@ -20,7 +20,7 @@ import type {TasraChainClient} from '../chain/client.js'
 import {keyRegistryAbi} from '../chain/abis/keyRegistry.js'
 import type {BillingModeDetector} from '../chain/billing.js'
 import {discoverPaidOperationContext, followPaidRequest, readClientExecutionPolicy, readCurrentBeaconEpoch, type ExpectedPaidOperation, type PaidContextDeployment,
-  type PaidKeeperEndpoint, type PaidOperationContext, type PaidVerifierWitness} from '../chain/prepaid.js'
+  type PaidKeeperEndpoint, type PaidOperationContext, type PaidVerifierWitness, drawnIntentFields} from '../chain/prepaid.js'
 import {fetchDrawnVerifierWitnesses} from '../chain/verifierSnapshot.js'
 import {prepareRegisteredPaidSession, type PaidAgentSessionParams} from '../chain/registeredPaidAgent.js'
 import type {PaidAgentTransport} from '../chain/paidAgentTransport.js'
@@ -899,7 +899,9 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
     if (context.undrawn) throw new TasraError('Paid operation discovery returned no verifier draw')
     ticket = env ? await selectAllowanceLane(env, context, lane) : undefined
   }
-  const unsigned = {...ticket ? ticket.fields : context.intentFields, action,
+  // A voucher payment names its allowance's draw; a per-operation one this context's, which an
+  // undrawn context does not have (refused, never zero fields).
+  const unsigned = {...ticket ? ticket.fields : drawnIntentFields(context), action,
     payload_digest: toHex(built.payloadDigest), session_commitment: paymentSessionCommitment(random, config.agent.profile.clientId, built.operation.exp),
     nonce: toHex(random32()), max_cost: config.limits.maxCost.toString(), expires: built.operation.exp, ...ticket ? {allowance_id: ticket.allowanceId} : {}}
   const payment: PaymentIntentWire = {...unsigned, signature: await config.creator.signTypedData(paymentIntentTypedData(unsigned))}
@@ -1754,6 +1756,8 @@ async function presentationlessAttempt(config: PaidOperationConfig, request: {sl
   readiness, () => sleep(1_000, readiness))
   if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
   if (context.mode !== spec.mode) throw new TasraError(spec.modeError)
+  // Discovered without `undrawnDuringAnchorGap`: always drawn (refused, never zero fields, otherwise).
+  if (context.undrawn) throw new TasraError('Paid operation discovery returned no verifier draw')
   if (spec.draw && (BigInt(context.intentFields.verification_epoch) !== spec.draw.epoch
     || context.intentFields.verification_seed.toLowerCase() !== spec.draw.seed.toLowerCase())) {
     throw new TasraError('The session grant names a seed the beacon does not hold for its epoch')

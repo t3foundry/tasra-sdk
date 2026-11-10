@@ -421,6 +421,7 @@ describe('prepareAllowances readiness for the actions the work runs', () => {
     const base = vi.mocked(discoverPaidOperationContext).getMockImplementation()!
     vi.mocked(discoverPaidOperationContext).mockImplementation(async (...args) => {
       const c = await base(...args)
+      if (c.undrawn) return c
       return {...c, intentFields: {...c.intentFields, keeper_assignment: {...c.intentFields.keeper_assignment, committee_version: 2}}}
     })
     expect((await prepareAllowances(config, {slot, minOperations: 2, minLifetimeSecs: 600})).lanes).toEqual([{lane: 0, outcome: 'not-needed'}])
@@ -443,6 +444,7 @@ describe('prepareAllowances readiness for the actions the work runs', () => {
     const base = vi.mocked(discoverPaidOperationContext).getMockImplementation()!
     vi.mocked(discoverPaidOperationContext).mockImplementation(async (...args) => {
       const c = await base(...args)
+      if (c.undrawn) return c
       return {...c, intentFields: {...c.intentFields, keeper_assignment: {...c.intentFields.keeper_assignment, key_epoch: 2}}}
     })
     expect((await prepareAllowances(config, {slot, minOperations: 5, actions: ['decrypt']})).lanes).toEqual([{lane: 0, outcome: 'reserved'}])
