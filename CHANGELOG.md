@@ -190,6 +190,15 @@ never does.
 
 ### Fixed
 
+- Head follower: a paid-operation read answered at the followed tip could refuse a state the
+  caller had already observed one block later (a key published, a reservation or allowance mined,
+  a reshare or hand-off). `discoverPaidOperationContext`, `readClientExecutionPolicy`,
+  `readPaidOperationReceipt` and `resolvePaidKeeperTarget` now decide such a refusal (slot
+  inactive or keyless, slot not activated or unfunded, missing reservation or allowance debit,
+  changed sharing, ineligible assigned keeper, changed creator, changed verifier context or
+  standing, a pinned grant epoch one ahead) once more at a fresh RPC `latest` newer than the tip
+  before refusing. A positive answer at the tip and every other refusal are unchanged; the happy
+  path reads nothing more, and a refusal that `latest` confirms costs exactly one extra head read.
 - ADR-0090 allowance lanes: paid operations that selected a lane at the same time in one process
   all took the SAME lane of their slot (every selection read one cursor and the same idle lanes;
   a debit marks its lane pending only once its voucher round starts), so their voucher rounds,

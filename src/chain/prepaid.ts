@@ -140,76 +140,77 @@ export async function readClientExecutionPolicy(client: PublicClient, deployment
   // the KeyRegistry point to; the pointer read at THIS block decides, and a different one is read
   // again at it. One canonicality and freshness recheck follows all of them.
   const member = target !== undefined && drawnMember(payment, target)
-  const at = await observe(client, deployment)
-  // Only a target that is locally a member of the draw is read early; any other is refused below.
-  const hinted = member ? nodeRegistryHint(client, deployment.keyRegistry) : undefined
-  const verifierStanding = (nodes: Address) => Promise.all([
-    registryRead(client,at,nodes,nodeRegistryAbi,'nodeOf',[target!.operator]) as Promise<ReadContractReturnType<typeof nodeRegistryAbi,'nodeOf'>>,
-    registryRead(client,at,nodes,nodeRegistryAbi,'hasTag',[target!.operator,keccak256(toHex('verifier'))]) as Promise<boolean>,
-  ])
-  const [reads, policyReads, early] = await Promise.allSettled([
-    receiptReads(client, deployment, at, payment),
-    Promise.all([
-      registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'getKeySlot', [payment.slot]) as Promise<ReadContractReturnType<typeof keyRegistryAbi, 'getKeySlot'>>,
-      registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'randomBeacon') as Promise<Address>,
-      registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'beacon') as Promise<Address>,
-      registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch') as Promise<bigint>,
-      registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [BigInt(payment.verification_epoch)]) as Promise<Hex>,
-      registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [BigInt(payment.verification_epoch)]) as Promise<readonly [Hex, number]>,
-      registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'verifierPolicy', [payment.slot]) as Promise<readonly [number, number]>,
-      registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'nodeRegistry') as Promise<Address>,
-    ]),
-    hinted ? verifierStanding(hinted) : Promise.resolve(undefined),
-  ])
-  if (reads.status === 'rejected') throw reads.reason
-  const receipt = checkReceiptReads(at, payment, reads.value)
-  if (receipt.settled || BigInt(payment.expires) <= time()) throw new Error('payment cannot approve new work after settlement or expiry')
-  if (policyReads.status === 'rejected') throw policyReads.reason
-  const [slot, keyBeacon, setBeacon, latest, seed, snapshot, verifierPolicy, nodes] = policyReads.value
-  // A standing read at the hinted registry counts only when the pointer at THIS block names it;
-  // otherwise the standing is read again at the registry the pointer names.
-  const hintHolds = hinted !== undefined && hinted.toLowerCase() === nodes.toLowerCase()
-  const standingRead = member && !hintHolds && ADDRESS.test(nodes) && !/^0x0{40}$/i.test(nodes) ? verifierStanding(nodes) : undefined
-  // Still to read: the quote block's epoch (its header and value are kept per client; its canonical
-  // recheck is not) and the recheck of `at`, which starts only once every read at `at` has settled.
-  // Both run beside the checks below; their answers are judged in the original order.
-  const anchorRead = readAssignmentEpoch(client, deployment.beacon, receipt.assignmentBlock)
-  const finishRead = (async () => { await standingRead?.catch(() => {}); await finishObservation(client, at) })()
-  anchorRead.catch(() => {}); finishRead.catch(() => {})
-  const epoch = BigInt(payment.verification_epoch)
-  const [committee, quorum] = verifierPolicy[0] === 0 && verifierPolicy[1] === 0
-    ? [deployment.defaultVerificationPolicy?.committee, deployment.defaultVerificationPolicy?.quorum] : verifierPolicy
-  if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= at.blockTimestamp)
-    || !ADDRESS.test(slot.creator) || /^0x0{40}$/i.test(slot.creator)
-    || [keyBeacon,setBeacon].some(pointer => pointer.toLowerCase() !== deployment.beacon.toLowerCase())
-    || seed.toLowerCase() !== payment.verification_seed.toLowerCase()
-    || snapshot[0].toLowerCase() !== payment.verification_root.toLowerCase()
-    || snapshot[1] !== payment.verification_registry_size
-    || committee !== payment.verification_committee || quorum !== payment.verification_quorum) throw new Error('payment verification context differs from canonical chain policy')
-  // D8: the epoch window is judged at the reservation's stored quote block, where the
-  // accountant quorum judged it, not at this later observation (which may be past a boundary).
-  requirePaidEpoch(epoch, receipt, await anchorRead, latest)
-  if (target) {
-    if (!member || !ADDRESS.test(nodes) || /^0x0{40}$/i.test(nodes)) throw new Error('verifier is not an authenticated member of the paid draw')
-    rememberNodeRegistry(client, deployment.keyRegistry, nodes)
-    let standing: Awaited<ReturnType<typeof verifierStanding>>
-    if (hintHolds) {
-      if (early.status === 'rejected') throw early.reason
-      standing = early.value!
-    } else standing = await standingRead!
-    const [node, tagged] = standing
-    if (!node.active || tagged !== true || node.operator.toLowerCase() !== target.operator.toLowerCase()
-      || node.pubkey.toLowerCase() !== target.publicKey.toLowerCase()) throw new Error('drawn verifier no longer has its registered key and standing')
-  }
-  await finishRead
-  // The recheck started beside the checks above; judge freshness again now, at the decision.
-  requireFresh(at)
-  const nowSecs = Number(time())
-  if (nowSecs >= payment.expires) throw new Error('payment expired during client policy discovery')
-  if (slot.expiry !== 0n && slot.expiry <= BigInt(nowSecs)) throw new Error('slot expired during client policy discovery')
-  return {blockNumber:at.blockNumber,blockHash:at.blockHash,blockTimestamp:at.blockTimestamp,
-    policy:{chainId:deployment.chainId,settlement:deployment.settlement,keyRegistry:deployment.keyRegistry,
-      creator:slot.creator,paymentHash:paymentIntentHash(payment),cost:receipt.cost,nowSecs}}
+  return decideAtFreshHead(client, await observe(client, deployment), async at => {
+    // Only a target that is locally a member of the draw is read early; any other is refused below.
+    const hinted = member ? nodeRegistryHint(client, deployment.keyRegistry) : undefined
+    const verifierStanding = (nodes: Address) => Promise.all([
+      registryRead(client,at,nodes,nodeRegistryAbi,'nodeOf',[target!.operator]) as Promise<ReadContractReturnType<typeof nodeRegistryAbi,'nodeOf'>>,
+      registryRead(client,at,nodes,nodeRegistryAbi,'hasTag',[target!.operator,keccak256(toHex('verifier'))]) as Promise<boolean>,
+    ])
+    const [reads, policyReads, early] = await Promise.allSettled([
+      receiptReads(client, deployment, at, payment),
+      Promise.all([
+        registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'getKeySlot', [payment.slot]) as Promise<ReadContractReturnType<typeof keyRegistryAbi, 'getKeySlot'>>,
+        registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'randomBeacon') as Promise<Address>,
+        registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'beacon') as Promise<Address>,
+        registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch') as Promise<bigint>,
+        registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'seedAt', [BigInt(payment.verification_epoch)]) as Promise<Hex>,
+        registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [BigInt(payment.verification_epoch)]) as Promise<readonly [Hex, number]>,
+        registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'verifierPolicy', [payment.slot]) as Promise<readonly [number, number]>,
+        registryRead(client, at, deployment.keyRegistry, keyRegistryAbi, 'nodeRegistry') as Promise<Address>,
+      ]),
+      hinted ? verifierStanding(hinted) : Promise.resolve(undefined),
+    ])
+    if (reads.status === 'rejected') throw reads.reason
+    const receipt = checkReceiptReads(at, payment, reads.value)
+    if (receipt.settled || BigInt(payment.expires) <= time()) throw new Error('payment cannot approve new work after settlement or expiry')
+    if (policyReads.status === 'rejected') throw policyReads.reason
+    const [slot, keyBeacon, setBeacon, latest, seed, snapshot, verifierPolicy, nodes] = policyReads.value
+    // A standing read at the hinted registry counts only when the pointer at THIS block names it;
+    // otherwise the standing is read again at the registry the pointer names.
+    const hintHolds = hinted !== undefined && hinted.toLowerCase() === nodes.toLowerCase()
+    const standingRead = member && !hintHolds && ADDRESS.test(nodes) && !/^0x0{40}$/i.test(nodes) ? verifierStanding(nodes) : undefined
+    // Still to read: the quote block's epoch (its header and value are kept per client; its canonical
+    // recheck is not) and the recheck of `at`, which starts only once every read at `at` has settled.
+    // Both run beside the checks below; their answers are judged in the original order.
+    const anchorRead = readAssignmentEpoch(client, deployment.beacon, receipt.assignmentBlock)
+    const finishRead = (async () => { await standingRead?.catch(() => {}); await finishObservation(client, at) })()
+    anchorRead.catch(() => {}); finishRead.catch(() => {})
+    const epoch = BigInt(payment.verification_epoch)
+    const [committee, quorum] = verifierPolicy[0] === 0 && verifierPolicy[1] === 0
+      ? [deployment.defaultVerificationPolicy?.committee, deployment.defaultVerificationPolicy?.quorum] : verifierPolicy
+    if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= at.blockTimestamp)
+      || !ADDRESS.test(slot.creator) || /^0x0{40}$/i.test(slot.creator)
+      || [keyBeacon,setBeacon].some(pointer => pointer.toLowerCase() !== deployment.beacon.toLowerCase())
+      || seed.toLowerCase() !== payment.verification_seed.toLowerCase()
+      || snapshot[0].toLowerCase() !== payment.verification_root.toLowerCase()
+      || snapshot[1] !== payment.verification_registry_size
+      || committee !== payment.verification_committee || quorum !== payment.verification_quorum) throw reversible(new Error('payment verification context differs from canonical chain policy'))
+    // D8: the epoch window is judged at the reservation's stored quote block, where the
+    // accountant quorum judged it, not at this later observation (which may be past a boundary).
+    requirePaidEpoch(epoch, receipt, await anchorRead, latest)
+    if (target) {
+      if (!member || !ADDRESS.test(nodes) || /^0x0{40}$/i.test(nodes)) throw new Error('verifier is not an authenticated member of the paid draw')
+      rememberNodeRegistry(client, deployment.keyRegistry, nodes)
+      let standing: Awaited<ReturnType<typeof verifierStanding>>
+      if (hintHolds) {
+        if (early.status === 'rejected') throw early.reason
+        standing = early.value!
+      } else standing = await standingRead!
+      const [node, tagged] = standing
+      if (!node.active || tagged !== true || node.operator.toLowerCase() !== target.operator.toLowerCase()
+        || node.pubkey.toLowerCase() !== target.publicKey.toLowerCase()) throw reversible(new Error('drawn verifier no longer has its registered key and standing'))
+    }
+    await finishRead
+    // The recheck started beside the checks above; judge freshness again now, at the decision.
+    requireFresh(at)
+    const nowSecs = Number(time())
+    if (nowSecs >= payment.expires) throw new Error('payment expired during client policy discovery')
+    if (slot.expiry !== 0n && slot.expiry <= BigInt(nowSecs)) throw new Error('slot expired during client policy discovery')
+    return {blockNumber:at.blockNumber,blockHash:at.blockHash,blockTimestamp:at.blockTimestamp,
+      policy:{chainId:deployment.chainId,settlement:deployment.settlement,keyRegistry:deployment.keyRegistry,
+        creator:slot.creator,paymentHash:paymentIntentHash(payment),cost:receipt.cost,nowSecs}}
+  })
 }
 
 /** Whether `target` is in the payment's recomputed draw with a valid inclusion proof (local only). */
@@ -486,6 +487,7 @@ async function observe(client: PublicClient, d: PrepaidDeployment, atLeastBlock?
     if (await chainIdOf(client) !== d.chainId) throw new Error('prepaid RPC chain mismatch')
     const at = {blockNumber: tip.blockNumber, blockHash: tip.blockHash, blockTimestamp: tip.blockTimestamp}
     requireFresh(at)
+    followedObservations.add(at)
     return at
   }
   // The chain check and the head read are independent; a mismatch is still refused first.
@@ -500,6 +502,49 @@ async function observe(client: PublicClient, d: PrepaidDeployment, atLeastBlock?
   const at = {blockNumber: block.number, blockHash: block.hash, blockTimestamp: block.timestamp}
   requireFresh(at)
   return at
+}
+
+// A followed tip may be one block behind a state the caller already saw elsewhere: another client,
+// or a transaction another code path mined (a key publish, a reshare, a reservation or allowance).
+// A positive answer at that tip stands (the follower's tip is as fresh as a `latest` read within
+// its liveness bound). A REFUSAL that a newer block could reverse is checked once more at a fresh
+// `latest` read by RPC - never the follower's tip, never a shared or remembered head - before it is
+// reported. When `latest` is the same block (or behind the tip), the refusal stands unchanged.
+const followedObservations = new WeakSet<PrepaidObservation>()
+const staleRefusals = new WeakSet<object>()
+
+/** Mark a refusal that a block newer than the observation could reverse. */
+function reversible<E extends Error>(error: E): E {
+  staleRefusals.add(error)
+  return error
+}
+
+/** A `latest` head read by RPC for this decision alone: not the followed tip, not shared with another read. */
+async function observeLatest(client: PublicClient): Promise<PrepaidObservation> {
+  const block = await client.getBlock({blockTag: 'latest'})
+  if (block.number === null || block.hash === null || !HEX32.test(block.hash) || block.hash === ZERO32 || block.timestamp < 0n) {
+    throw new Error('prepaid canonical head unavailable')
+  }
+  const at = {blockNumber: block.number, blockHash: block.hash, blockTimestamp: block.timestamp}
+  requireFresh(at)
+  return at
+}
+
+/**
+ * Decide at `at`; when `at` is a followed tip and the decision is a reversible refusal, decide once
+ * more at a fresh `latest` that is newer than the tip. Any other outcome is returned or thrown as is.
+ */
+async function decideAtFreshHead<T>(client: PublicClient, at: PrepaidObservation, decide: (at: PrepaidObservation) => Promise<T>): Promise<T> {
+  try {
+    return await decide(at)
+  } catch (error) {
+    if (!followedObservations.has(at) || typeof error !== 'object' || error === null || !staleRefusals.has(error)) throw error
+    const latest = await observeLatest(client)
+    if (latest.blockNumber <= at.blockNumber) throw error
+    // Later observations read the RPC head until the follower reaches this block (never this head itself).
+    headFollowerOf(client)?.noteMinedBlock(latest.blockNumber)
+    return decide(latest)
+  }
 }
 
 type ReadName = 'prepaidEnabled' | 'balanceOf' | 'reservedBalanceOf' | 'prepaidCost' | 'prepaidSettled' | 'prepaidRefunded' | 'prepaidAssignmentBlock'
@@ -619,10 +664,11 @@ export async function readPaidOperationReceipt(
 ): Promise<PaidOperationReceipt> {
   deployment = {...deployment}; payment = structuredClone(payment); expected = {...expected}
   requirePaidOperation(deployment, payment, expected)
-  const at = await observe(client, deployment, options.atLeastBlock)
-  const receipt = checkReceiptReads(at, payment, await receiptReads(client, deployment, at, payment))
-  await finishObservation(client, at)
-  return receipt
+  return decideAtFreshHead(client, await observe(client, deployment, options.atLeastBlock), async at => {
+    const receipt = checkReceiptReads(at, payment, await receiptReads(client, deployment, at, payment))
+    await finishObservation(client, at)
+    return receipt
+  })
 }
 
 /** Refuse an intent for another deployment or operation before any read. */
@@ -693,7 +739,7 @@ function checkReceiptReads(at: PrepaidObservation, payment: PaymentIntentWire, o
   if (enabled !== true || typeof cost !== 'bigint' || cost <= 0n || cost > BigInt(payment.max_cost)
     || typeof settled !== 'boolean' || typeof refunded !== 'bigint' || refunded < 0n || refunded > cost
     || (!settled && refunded !== 0n) || typeof assignmentBlock !== 'string' || !HEX32.test(assignmentBlock) || assignmentBlock === ZERO32) {
-    throw new Error('operation has no valid reserved TASRA fee')
+    throw reversible(new Error('operation has no valid reserved TASRA fee'))
   }
   return {...at, requestId: prepaidRequestId(payment), cost, settled, refunded, assignmentBlock: assignmentBlock as Hex}
 }
@@ -727,7 +773,7 @@ function checkAllowanceBacking(at: PrepaidObservation, payment: PaymentIntentWir
     || closed || at.blockTimestamp >= expiresAt || (actions & (1 << bit)) === 0 || cost > maxOpCost || cost > BigInt(payment.max_cost) || BigInt(voucher.cumulative) > amount
     || typeof reservedCost !== 'bigint' || (reservedCost !== 0n && reservedCost !== cost) || typeof settled !== 'boolean' || typeof refunded !== 'bigint'
     || refunded < 0n || refunded > cost || (!settled && (refunded !== 0n || reservedCost !== 0n))) {
-    throw new Error('operation has no valid allowance-backed TASRA debit')
+    throw reversible(new Error('operation has no valid allowance-backed TASRA debit'))
   }
   return {...at, requestId: prepaidRequestId(payment), cost, settled: settled as boolean, refunded, assignmentBlock}
 }
@@ -747,29 +793,30 @@ export async function resolvePaidKeeperTarget(
 ): Promise<PaidKeeperTarget> {
   deployment = {...deployment}; payment = structuredClone(payment); expected = {...expected}; transport = {...transport}
   requirePaidOperation(deployment, payment, expected)
-  const at = await observe(client, deployment)
-  operationHeads.add(at)
-  // The reservation and the keeper directory are independent reads at the same block: issue them
-  // together, then judge them in the order a sequential read would have (same refusals, same order).
-  const [reads, directory] = await Promise.allSettled([receiptReads(client, deployment, at, payment),
-    keeperDirectory(client, at, deployment.keyRegistry, payment.slot)])
-  if (reads.status === 'rejected') throw reads.reason
-  const receipt = checkReceiptReads(at, payment, reads.value)
-  // One canonicality and freshness recheck after ALL reads at `at` (both groups have settled).
-  await finishObservation(client, at)
-  if (receipt.settled) throw new Error('payment already settled; it cannot start another keeper operation')
-  if (BigInt(payment.expires) <= time()) throw new Error('payment expired; reconcile before starting another operation')
-  if (directory.status === 'rejected') throw directory.reason
-  const {slot, members} = directory.value
-  const assignment = payment.keeper_assignment
-  if (slot.epoch !== BigInt(assignment.key_epoch) || slot.committeeVersion !== BigInt(assignment.committee_version) || slot.threshold.k !== assignment.threshold) throw new Error('payment keeper sharing or threshold changed')
-  const creator = await recoverTypedDataAddress({...paymentIntentTypedData(payment), signature: payment.signature})
-  if (creator.toLowerCase() !== slot.creator.toLowerCase()) throw new Error('payment is not signed by the slot creator')
-  const endpoint = (key: Hex) => keeperEndpoint(members, key, deployment.chainId, transport)
-  const contributors = assignment.contributors.map(key => endpoint(toHex(Uint8Array.from(key))))
-  const coordinator = endpoint(toHex(Uint8Array.from(assignment.coordinator)))
-  if (BigInt(payment.expires) <= time()) throw new Error('payment expired during coordinator discovery')
-  return {...coordinator, receipt, contributors, groupPublicKey: slot.publicKey, mode: slot.mode}
+  return decideAtFreshHead(client, await observe(client, deployment), async at => {
+    operationHeads.add(at)
+    // The reservation and the keeper directory are independent reads at the same block: issue them
+    // together, then judge them in the order a sequential read would have (same refusals, same order).
+    const [reads, directory] = await Promise.allSettled([receiptReads(client, deployment, at, payment),
+      keeperDirectory(client, at, deployment.keyRegistry, payment.slot)])
+    if (reads.status === 'rejected') throw reads.reason
+    const receipt = checkReceiptReads(at, payment, reads.value)
+    // One canonicality and freshness recheck after ALL reads at `at` (both groups have settled).
+    await finishObservation(client, at)
+    if (receipt.settled) throw new Error('payment already settled; it cannot start another keeper operation')
+    if (BigInt(payment.expires) <= time()) throw new Error('payment expired; reconcile before starting another operation')
+    if (directory.status === 'rejected') throw directory.reason
+    const {slot, members} = directory.value
+    const assignment = payment.keeper_assignment
+    if (slot.epoch !== BigInt(assignment.key_epoch) || slot.committeeVersion !== BigInt(assignment.committee_version) || slot.threshold.k !== assignment.threshold) throw reversible(new Error('payment keeper sharing or threshold changed'))
+    const creator = await recoverTypedDataAddress({...paymentIntentTypedData(payment), signature: payment.signature})
+    if (creator.toLowerCase() !== slot.creator.toLowerCase()) throw reversible(new Error('payment is not signed by the slot creator'))
+    const endpoint = (key: Hex) => keeperEndpoint(members, key, deployment.chainId, transport)
+    const contributors = assignment.contributors.map(key => endpoint(toHex(Uint8Array.from(key))))
+    const coordinator = endpoint(toHex(Uint8Array.from(assignment.coordinator)))
+    if (BigInt(payment.expires) <= time()) throw new Error('payment expired during coordinator discovery')
+    return {...coordinator, receipt, contributors, groupPublicKey: slot.publicKey, mode: slot.mode}
+  })
 }
 
 interface KeeperDirectoryMember {key: Hex; id: bigint; operator: Address; url: string; eligible: boolean}
@@ -779,7 +826,7 @@ async function keeperDirectory(client: PublicClient, at: PrepaidObservation, reg
     registryRead(client, at, registry, keyRegistryAbi, 'assignedNodes', [slotId]) as Promise<readonly Address[]>,
     registryRead(client, at, registry, keyRegistryAbi, 'nodeRegistry') as Promise<Address>,
   ])
-  if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= acceptedTime) || slot.publicKey === '0x') throw new Error('paid slot is inactive or has no published key')
+  if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= acceptedTime) || slot.publicKey === '0x') throw reversible(new Error('paid slot is inactive or has no published key'))
   if (!ADDRESS.test(nodes) || /^0x0{40}$/i.test(nodes) || assigned.length === 0 || assigned.length > 256
     || assigned.length !== slot.threshold.n || slot.threshold.k === 0 || slot.threshold.k > slot.threshold.n
     || new Set(assigned.map(a => a.toLowerCase())).size !== assigned.length || assigned.some(a => /^0x0{40}$/i.test(a))) throw new Error('invalid assigned keeper roster')
@@ -808,7 +855,7 @@ async function keeperDirectory(client: PublicClient, at: PrepaidObservation, reg
 
 function keeperEndpoint(members: Map<Hex, KeeperDirectoryMember>, key: Hex, chainId: number, transport: PaidKeeperTransportOptions): PaidKeeperEndpoint {
   const member = members.get(key)
-  if (!member?.eligible) throw new Error('paid contributor is not an eligible assigned keeper')
+  if (!member?.eligible) throw reversible(new Error('paid contributor is not an eligible assigned keeper'))
   const url = new URL(member.url)
   if (url.username || url.password || url.search || url.hash
     || (url.protocol !== 'https:' && !(transport.allowLocalHttp === true && chainId === 43112 && url.protocol === 'http:'))) throw new Error('invalid paid keeper URL or transport')
@@ -892,64 +939,86 @@ export async function discoverPaidOperationContext(
   const complete = (seed: Hex, root: Hex, size: number, accountant: readonly [Hex, number]) =>
     seed !== ZERO32 && root !== ZERO32 && size > 0 && accountant[0] !== ZERO32 && accountant[1] > 0 && accountant[1] <= 65535
   const deadline = wait.clock.now() + wait.timeoutMs
+  // One attempt at one observation: the discovered state, or the reason to wait for a newer head.
+  type Attempt = {wait: string} | {at: PrepaidObservation; policy: readonly [number, number]; available: bigint; directory: Awaited<ReturnType<typeof keeperDirectory>>
+    epoch: bigint; seed: Hex; root: Hex; size: number; latest: bigint}
+  // The billing check reads its own head. At a followed tip whose refusal is decided again at a
+  // newer `latest`, it is left to that decision (or, when none follows, run once before refusing).
+  let billing: 'none' | 'deferred' | 'judged' = 'none'
+  const judgeBilling = async (at: PrepaidObservation, error?: unknown) => {
+    if (followedObservations.has(at) && (error === undefined || (typeof error === 'object' && error !== null && staleRefusals.has(error)))) {
+      if (billing === 'none') billing = 'deferred'
+      return
+    }
+    billing = 'judged'
+    await refuseUnlessPrepaid(client, deployment, slotId)
+  }
+  const attempt = async (at: PrepaidObservation): Promise<Attempt> => {
+    const {seedAt, snapshotAt, accountantAt, latestAnchors, reads} = slotReads(client, deployment, slotId, at)
+    // On a failed read, a legacy or unreadable billing mode is the clearer refusal.
+    const [keyBeacon, snapshotBeacon, accountantBeacon, latest, policy, enabled, available, directory, version] = await reads.catch(async (error: unknown) => {
+      await judgeBilling(at, error)
+      throw error
+    })
+    // An unknown version is never guessed prepaid, even with prepaidEnabled set: the typed refusal names it.
+    if (!isPrepaidSettlementVersion(version)) {
+      await refuseUnlessPrepaid(client, deployment, slotId)
+      throw new Error('payment discovery Settlement version is not prepaid')
+    }
+    if (enabled !== true) {
+      // Every outcome below is a refusal (reversible unless a beacon pointer differs).
+      await judgeBilling(at)
+      // Prepaid from genesis but never funded: the first funding activates it.
+      if (available === 0n) throw reversible(new UnderfundedSlotError({slotId, availableTasraUnits: 0n,
+        message: 'payment discovery requires an activated TASRA-funded slot'}))
+    }
+    if ([keyBeacon, snapshotBeacon, accountantBeacon].some(pointer => pointer.toLowerCase() !== deployment.beacon.toLowerCase())) throw new Error('payment discovery beacon pointers differ')
+    if (enabled !== true || typeof available !== 'bigint' || available < 0n) throw reversible(new Error('payment discovery requires an activated TASRA-funded slot'))
+    if (available === 0n && options.fundedByAllowance !== true) throw reversible(new UnderfundedSlotError({slotId, availableTasraUnits: available,
+      message: 'payment discovery requires an activated TASRA-funded slot'}))
+    let epoch = latest
+    let [seed, [root, size], accountant] = await latestAnchors
+    if (seed === ZERO32) throw new Error('current beacon seed unavailable')
+    const pinned = options.verificationEpoch
+    if (pinned !== undefined) {
+      // A session grant's draw: the latest epoch (its anchors may still be landing: wait), or the
+      // previous one, never anything older (no keeper admits that grant) or newer. A grant one epoch
+      // AHEAD of this head was drawn at a newer block than this one: a newer head may admit it.
+      if (pinned !== latest && pinned !== latest - 1n) {
+        const moved = new PaidDrawMovedError(pinned, latest)
+        throw pinned === latest + 1n ? reversible(moved) : moved
+      }
+      if (pinned !== latest) {
+        epoch = pinned
+        ;[seed, [root, size], accountant] = await Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)])
+        if (!complete(seed, root, size, accountant)) throw new Error('pinned verifier epoch has no complete anchors')
+      } else if (!complete(seed, root, size, accountant)) return {wait: 'pinned verifier epoch anchors are not complete yet'}
+      return {at, policy, available, directory, epoch, seed, root, size, latest}
+    }
+    if (!complete(seed, root, size, accountant)) {
+      if (epoch === 0n) throw new Error('no anchored verifier and accountant snapshots')
+      epoch--
+      ;[seed, [root, size], accountant] = await Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)])
+      // A new epoch's anchors have not landed yet (see PaidAnchorWait): wait and observe again.
+      if (!complete(seed, root, size, accountant)) return {wait: 'no current or previous anchored verifier and accountant snapshots'}
+    }
+    return {at, policy, available, directory, epoch, seed, root, size, latest}
+  }
   // One fresh canonical observation per attempt; an attempt that finds no admissible complete
-  // epoch waits (bounded) and observes again at a newer head, never re-reads an old one.
+  // epoch waits (bounded) and observes again at a newer head, never re-reads an old one. A
+  // reversible refusal at a followed tip is decided once more at a newer RPC `latest`.
   const observed = await (async () => {
     for (;;) {
-      const at = await observe(client, deployment)
+      const head = await observe(client, deployment)
       if (headFollowerOf(client)) followPaidSlot(client, deployment, slotId)
-      const {seedAt, snapshotAt, accountantAt, latestAnchors, reads} = slotReads(client, deployment, slotId, at)
-      // On a failed read, a legacy or unreadable billing mode is the clearer refusal.
-      const [keyBeacon, snapshotBeacon, accountantBeacon, latest, policy, enabled, available, directory, version] = await reads.catch(async (error: unknown) => {
-        await refuseUnlessPrepaid(client, deployment, slotId)
+      billing = 'none'
+      const result = await decideAtFreshHead(client, head, attempt).catch(async (error: unknown) => {
+        if (billing === 'deferred') { billing = 'judged'; await refuseUnlessPrepaid(client, deployment, slotId) }
         throw error
       })
-      // An unknown version is never guessed prepaid, even with prepaidEnabled set: the typed refusal names it.
-      if (!isPrepaidSettlementVersion(version)) {
-        await refuseUnlessPrepaid(client, deployment, slotId)
-        throw new Error('payment discovery Settlement version is not prepaid')
-      }
-      if (enabled !== true) {
-        await refuseUnlessPrepaid(client, deployment, slotId)
-        // Prepaid from genesis but never funded: the first funding activates it.
-        if (available === 0n) throw new UnderfundedSlotError({slotId, availableTasraUnits: 0n,
-          message: 'payment discovery requires an activated TASRA-funded slot'})
-      }
-      if ([keyBeacon, snapshotBeacon, accountantBeacon].some(pointer => pointer.toLowerCase() !== deployment.beacon.toLowerCase())) throw new Error('payment discovery beacon pointers differ')
-      if (enabled !== true || typeof available !== 'bigint' || available < 0n) throw new Error('payment discovery requires an activated TASRA-funded slot')
-      if (available === 0n && options.fundedByAllowance !== true) throw new UnderfundedSlotError({slotId, availableTasraUnits: available,
-        message: 'payment discovery requires an activated TASRA-funded slot'})
-      let epoch = latest
-      let [seed, [root, size], accountant] = await latestAnchors
-      if (seed === ZERO32) throw new Error('current beacon seed unavailable')
-      const pinned = options.verificationEpoch
-      if (pinned !== undefined) {
-        // A session grant's draw: the latest epoch (its anchors may still be landing: wait), or the
-        // previous one, never anything older (no keeper admits that grant) or newer.
-        if (pinned !== latest && pinned !== latest - 1n) throw new PaidDrawMovedError(pinned, latest)
-        if (pinned !== latest) {
-          epoch = pinned
-          ;[seed, [root, size], accountant] = await Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)])
-          if (!complete(seed, root, size, accountant)) throw new Error('pinned verifier epoch has no complete anchors')
-        } else if (!complete(seed, root, size, accountant)) {
-          if (wait.clock.now() + wait.pollMs > deadline) throw new Error('pinned verifier epoch anchors are not complete yet')
-          await wait.clock.sleep(wait.pollMs)
-          continue
-        }
-        return {at, policy, available, directory, epoch, seed, root, size, latest}
-      }
-      if (!complete(seed, root, size, accountant)) {
-        if (epoch === 0n) throw new Error('no anchored verifier and accountant snapshots')
-        epoch--
-        ;[seed, [root, size], accountant] = await Promise.all([seedAt(epoch), snapshotAt(epoch), accountantAt(epoch)])
-        if (!complete(seed, root, size, accountant)) {
-          // A new epoch's anchors have not landed yet (see PaidAnchorWait): wait and observe again.
-          if (wait.clock.now() + wait.pollMs > deadline) throw new Error('no current or previous anchored verifier and accountant snapshots')
-          await wait.clock.sleep(wait.pollMs)
-          continue
-        }
-      }
-      return {at, policy, available, directory, epoch, seed, root, size, latest}
+      if (!('wait' in result)) return result
+      if (wait.clock.now() + wait.pollMs > deadline) throw new Error(result.wait)
+      await wait.clock.sleep(wait.pollMs)
     }
   })()
   const {at, policy, available, directory, epoch, seed, root, size, latest} = observed

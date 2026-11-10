@@ -36,6 +36,12 @@ interface Changes {
   anchorEpoch?: bigint; anchorReorg?: boolean; anchorPruned?: boolean
   /** The KeyRegistry now points to another NodeRegistry, where every node is inactive. */
   movedNodes?: boolean
+  /** The RPC's `latest` head (and its recheck by number), when it differs from block 20 / h(20). */
+  latest?: {number: number; hash: Hex}
+  /** The slot's key is not yet published at this block hash only. */
+  noKeyAt?: Hex
+  /** The request's reservation is not yet mined at this block hash only. */
+  unreservedAt?: Hex
 }
 function fixture(change: Changes = {}) {
   const deployment = {chainId: change.chainId ?? 43112, settlement: h(1, 20), keyRegistry: h(2, 20), verifierSet: h(5, 20), accountantSet: h(8, 20), beacon: h(6, 20)}
@@ -49,13 +55,16 @@ function fixture(change: Changes = {}) {
     if (method === 'eth_chainId') {change.onChainId?.(); return toHex(change.chain ?? approved.chainId)}
     if (method === 'eth_getBlockByHash') return (params as [Hex])[0] === h(19) ? {number: '0x13', hash: h(19), timestamp: toHex(990), transactions: []} : null
     if (method === 'eth_getBlockByNumber' && (params as [string])[0] === '0x13') return {number: '0x13', hash: change.anchorReorg ? h(98) : h(19), timestamp: toHex(990), transactions: []}
+    if (method === 'eth_getBlockByNumber' && change.latest && [`latest`, toHex(change.latest.number)].includes((params as [string])[0])) {
+      return {number: toHex(change.latest.number), hash: change.latest.hash, timestamp: toHex(1000), transactions: []}
+    }
     if (method === 'eth_getBlockByNumber') return {number: '0x14', hash: heads++ > 0 && change.orphan ? h(99) : h(20), timestamp: toHex(1000 - (change.age ?? 0)), transactions: []}
     if (method !== 'eth_call') throw new Error(`unexpected RPC ${method}`)
     change.onCall?.()
     if (change.unsupported) throw new Error('canonical reads unavailable')
     const [call, at] = params as [{to: Hex; data: Hex}, {blockHash?: Hex}]
     const anchorRead = at.blockHash === h(19)
-    if (!anchorRead) expect(at).toEqual({blockHash: h(20), requireCanonical: true})
+    if (!anchorRead) expect(at).toEqual({blockHash: change.latest && at.blockHash === change.latest.hash ? change.latest.hash : h(20), requireCanonical: true})
     const abi: Abi = call.to === nodes || call.to.toLowerCase() === moved ? nodeRegistryAbi : call.to === approved.keyRegistry ? keyRegistryAbi
       : call.to === approved.beacon ? thresholdRandomBeaconAbi : call.to === approved.verifierSet ? verifierSetRegistryAbi
         : call.to === approved.accountantSet ? accountantSetRegistryAbi : settlementAbi
@@ -74,7 +83,7 @@ function fixture(change: Changes = {}) {
     const values: Record<string, unknown> = {
       prepaidEnabled: change.enabled ?? true, balanceOf: change.available ?? 100n,
       version: change.version ?? (change.legacy ? '1' : '2'), prepaidFromGenesis: change.genesis ?? false,
-      prepaidCost: change.reserved ?? 5n, prepaidSettled: change.settled ?? false,
+      prepaidCost: change.unreservedAt === at.blockHash ? 0n : change.reserved ?? 5n, prepaidSettled: change.settled ?? false,
       prepaidRefunded: change.refunded ?? 0n, prepaidAssignmentBlock: h(19),
       randomBeacon: change.beaconMismatch === 'key' ? h(99, 20) : approved.beacon,
       beacon: change.beaconMismatch === (accountant ? 'accountant' : 'snapshot') ? h(99, 20) : approved.beacon,
@@ -84,7 +93,7 @@ function fixture(change: Changes = {}) {
         : change.unanchored && !previous || change.noPrevious && previous ? [h(0), 0] : [change.root ?? (previous ? h(17) : h(18)), change.size ?? 5],
       mpk: `0x${'11'.repeat(128)}`, verifierPolicy: change.policy ?? [3, 2], nodeRegistry: change.movedNodes ? moved : nodes, assignedNodes: operators,
       getKeySlot: {creator: change.creator ?? creator.address, ruleCommitment: h(33), threshold: {k: change.insufficient ? 3 : 2, n: 3}, mode: 0,
-        publicKey: change.noKey ? '0x' : keys[0], epoch: change.sharingEpoch ?? 1n, committeeVersion: change.sharingVersion ?? 2n,
+        publicKey: change.noKey || change.noKeyAt === at.blockHash ? '0x' : keys[0], epoch: change.sharingEpoch ?? 1n, committeeVersion: change.sharingVersion ?? 2n,
         exists: true, cancelled: change.cancelled ?? false, expiry: 2000n, ruleVersion: 1n, auth: 0},
       operatorIdOf: change.duplicateId ? 1n : ids[index], hasTag: change.tagged ?? true,
       nodeOf: {operator: operators[index], dns: 'keeper', url: change.url ?? `https://keeper${index}.example`, p2pAddr: '', pubkey: change.registeredKey ?? keys[change.duplicateKey ? 0 : index],
@@ -560,5 +569,81 @@ describe('ADR-0090 D7: a session message pins the grant\'s verifier epoch', () =
   it('never falls back to another epoch when the pinned previous epoch lacks its anchors', async () => {
     now()
     await expect(fixture({noPrevious: true}).run({verificationEpoch: 6n})).rejects.toThrow(/pinned verifier epoch/)
+  })
+})
+
+describe('a refusal at a followed tip one block behind the caller\'s view', () => {
+  // The follower vouches for block 20 (h(20)); the RPC's latest may already be block 21 (h(21)).
+  const follow = async (f: ReturnType<typeof fixture>) => {
+    const source = {getBlock: async () => { throw new Error('no parents needed') }, transport: {type: 'custom'}}
+    const follower = createHeadFollower(source as unknown as typeof f.client, {finality: 'instant', now: () => 1_000_000})
+    attachHeadFollower(f.client, follower)
+    await follower.ingest({number: 19n, hash: h(19), parentHash: h(18), timestamp: 990n})
+    await follower.ingestFinalized({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+    await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+    return follower
+  }
+  const latestReads = (f: ReturnType<typeof fixture>) => f.calls.filter(c => c.method === 'eth_getBlockByNumber' && (c.params as unknown[])[0] === 'latest').length
+
+  it('discovers a slot whose key was published one block past the followed tip, at a fresh latest', async () => {
+    now(); const f = fixture({noKeyAt: h(20), latest: {number: 21, hash: h(21)}}), follower = await follow(f)
+    try {
+      const context = await f.run()
+      expect(context).toMatchObject({blockHash: h(21), blockNumber: 21n, groupPublicKey: f.keys[0]})
+      expect(latestReads(f)).toBe(1)
+      // Until the follower reaches block 21, its older tip is not served to later observations.
+      expect(follower.tip()).toBeUndefined()
+    } finally { unfollowHeads(f.client) }
+  })
+
+  it('still refuses a genuinely inactive slot, after exactly one extra latest read', async () => {
+    // A failed discovery read also runs the billing check, which reads its own `latest` head once
+    // (unchanged): the refusal at the tip alone costs that one; the re-read adds exactly one more.
+    for (const latest of [{number: 21, hash: h(21)}, {number: 20, hash: h(20)}]) {
+      now(); const f = fixture({noKey: true, latest}); await follow(f)
+      try {
+        await expect(f.run()).rejects.toThrow('paid slot is inactive or has no published key')
+        expect(latestReads(f), `latest at ${latest.number}`).toBe(2)
+        // Reads at block 21 happen only when latest is newer than the tip.
+        expect(f.calls.some(c => (c.at as {blockHash?: Hex} | undefined)?.blockHash === h(21)), `latest at ${latest.number}`).toBe(latest.number === 21)
+      } finally { unfollowHeads(f.client) }
+    }
+  })
+
+  it('reads no latest head on the happy path, and never re-reads a refusal no newer block can change', async () => {
+    now(); const f = fixture({latest: {number: 21, hash: h(21)}}); await follow(f)
+    try {
+      expect((await f.run()).blockHash).toBe(h(20))
+      expect(latestReads(f)).toBe(0)
+    } finally { unfollowHeads(f.client) }
+    // A beacon pointer mismatch is not a state a newer block brings: refused at the tip, no latest read.
+    now(); const g = fixture({beaconMismatch: 'key', latest: {number: 21, hash: h(21)}}); await follow(g)
+    try {
+      await expect(g.run()).rejects.toThrow('payment discovery beacon pointers differ')
+      expect(latestReads(g)).toBe(0)
+    } finally { unfollowHeads(g.client) }
+  })
+
+  it('does not re-read when the observation came from the RPC rather than a followed tip', async () => {
+    now(); const f = fixture({noKey: true})
+    await expect(f.run()).rejects.toThrow('paid slot is inactive or has no published key')
+    // The observation's own head and the billing check's: nothing more.
+    expect(latestReads(f)).toBe(2)
+  })
+
+  it('approves client consent for a reservation mined one block past the followed tip', async () => {
+    now(); const payment = reservedPayment()
+    const f = fixture({unreservedAt: h(20), latest: {number: 21, hash: h(21)}}); await follow(f)
+    try {
+      const observation = await readClientExecutionPolicy(f.client, f.deployment, payment, intendedWork)
+      expect(observation).toMatchObject({blockHash: h(21), policy: {cost: 5n}})
+      expect(latestReads(f)).toBe(1)
+    } finally { unfollowHeads(f.client) }
+    // Not reserved at latest either: refused as before.
+    now(); const g = fixture({reserved: 0n, latest: {number: 21, hash: h(21)}}); await follow(g)
+    try {
+      await expect(readClientExecutionPolicy(g.client, g.deployment, payment, intendedWork)).rejects.toThrow('operation has no valid reserved TASRA fee')
+      expect(latestReads(g)).toBe(1)
+    } finally { unfollowHeads(g.client) }
   })
 })
