@@ -32,6 +32,14 @@ export interface StoreCommitSteps {
   withCommit<T>(keys: string | readonly string[], action: (commit: LockedCommit) => Promise<T>): Promise<T>
   saveAll(entries: readonly (readonly [string, unknown])[]): Promise<void>
   saveRederivable(key: string, value: unknown): Promise<void>
+  /**
+   * The durable state this store object is a view of, equal for every store object of this process
+   * on the same state with the same behaviour (the file store: its resolved directory and lock
+   * wait). In-process coalescing that would otherwise be per store object is shared by all of them:
+   * an application that opens one store object per call on one directory still batches its journal
+   * commits. Absent, the store object itself is the identity.
+   */
+  readonly identity?: string
 }
 
 /** Where a store carries its native commit steps. */
@@ -40,6 +48,12 @@ export const STORE_COMMIT: unique symbol = Symbol.for('@t3foundry/tasra-sdk/stor
 function steps(store: ApplicationStore): StoreCommitSteps | undefined {
   const found = (store as {[STORE_COMMIT]?: StoreCommitSteps})[STORE_COMMIT]
   return found && typeof found.withCommit === 'function' ? found : undefined
+}
+
+/** What in-process coalescing keys a store by: its native {@link StoreCommitSteps.identity}, else the store object itself. */
+export function storeIdentity(store: ApplicationStore): string | ApplicationStore {
+  const identity = steps(store)?.identity
+  return typeof identity === 'string' && identity.length > 0 ? identity : store
 }
 
 /**

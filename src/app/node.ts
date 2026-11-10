@@ -288,6 +288,9 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
     }
   }
   const steps: StoreCommitSteps = {
+    // Every store object on this directory with this lock wait reads and writes the same files
+    // under the same in-process lock queues and committer: one state.
+    identity: `file:${lockWaitMs}:${root}`,
     async withCommit(keys, action) {
       const staged = new Map<string, Encoded>()
       return locked(typeof keys === 'string' ? [keys] : keys, false, () => action({stage: (k, v) => { path(k); staged.delete(k); staged.set(k, encode(v)) }}), async unlock => {

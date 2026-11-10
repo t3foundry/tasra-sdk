@@ -56,7 +56,7 @@ import type {IbeExtractionPartial} from '../committee/client.js'
 import {HEX32, RECORD_KEY, RECORD_PREFIX, paidRecordKey as recordKey} from './paid-keys.js'
 import {AllowanceRefusedError, allowanceLaneCount, journaledAllowanceVoucher, obtainAllowanceVoucher, prepareAllowanceLane, selectAllowanceLane, validateAllowanceOptions, validateLaneReadiness, validateReadinessHorizon,
   type AllowanceEnv, type LaneReadiness, type PaidAllowanceOptions} from './paid-allowance.js'
-import {withCommit, type LockedCommit} from './store-commit.js'
+import {storeIdentity, withCommit, type LockedCommit} from './store-commit.js'
 
 /** Approved deployment, signers, services and spending limits shared by paid operations. */
 export interface PaidOperationConfig {
@@ -447,8 +447,20 @@ async function loadSegment(store: ApplicationStore, n: number): Promise<Operatio
   if (!segment || segment.schema !== 1 || !validIds(segment.ids) || segment.ids.length > SEGMENT_IDS) throw new TasraError('Invalid paid operation index')
   return segment
 }
-/** First segment that may still have room, per store object: a hint only, always probed forward. */
-const segmentHints = new WeakMap<ApplicationStore, number>()
+/**
+ * In-process state per store IDENTITY ({@link storeIdentity}): one entry per backing state, shared by
+ * every store object on it (an application may open one file store object per call on one
+ * directory), else per store object. Bounded by the directories a process uses.
+ */
+function perStore<V>() {
+  const named = new Map<string, V>(), objects = new WeakMap<ApplicationStore, V>()
+  return {
+    get: (store: ApplicationStore): V | undefined => { const id = storeIdentity(store); return typeof id === 'string' ? named.get(id) : objects.get(id) },
+    set: (store: ApplicationStore, value: V): void => { const id = storeIdentity(store); if (typeof id === 'string') named.set(id, value); else objects.set(id, value) },
+  }
+}
+/** First segment that may still have room, per store identity: a hint only, always probed forward. */
+const segmentHints = perStore<number>()
 /** Every indexed id, oldest first, without duplicates: the legacy list, then each segment. */
 async function loadIndex(store: ApplicationStore): Promise<Hex[]> {
   const ids = new Set((await loadIndexRecord(store)).ids.map(id => id.toLowerCase() as Hex))
@@ -461,7 +473,7 @@ async function loadIndex(store: ApplicationStore): Promise<Hex[]> {
 }
 /**
  * Stage the index entries of `ids` (lowercase, in order) into the segments: the first segment with
- * room from this store object's hint, then the next ones. Segments fill in order; a crash between
+ * room from this store's hint, then the next ones. Segments fill in order; a crash between
  * filling one and starting the next leaves nothing to repair, because the next writer probes
  * forward from the hint to the first one with room. Needs the index lock. Returns the last segment
  * staged: the caller moves the hint there only once the commit landed, so a failed commit never
@@ -483,8 +495,12 @@ async function stageIndexEntries(store: ApplicationStore, commit: LockedCommit, 
   return last
 }
 interface NewOperation { key: string; id: Hex; record: OperationRecord; resolve(): void; reject(error: unknown): void }
-/** Per store object: the journal commit running now, and the new operations waiting for the next one. */
-const newOperationQueues = new WeakMap<ApplicationStore, {running: Promise<void>; waiting?: NewOperation[]}>()
+/**
+ * Per store identity (not per store object: one store object per call on one directory would
+ * otherwise commit every new operation on its own, one after another, on the global index lock):
+ * the journal commit running now, and the new operations waiting for the next one.
+ */
+const newOperationQueues = perStore<{running: Promise<void>; waiting?: NewOperation[]}>()
 /**
  * Journal a new operation's record and index it, refusing a request that is already journaled.
  * Concurrent new operations of one process share ONE commit instead of queueing on the global index
