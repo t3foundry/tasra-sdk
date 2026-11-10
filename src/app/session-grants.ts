@@ -268,7 +268,7 @@ export class GrantedSession {
   #beaconTimer: ReturnType<typeof setInterval> | undefined
   #inflight: Promise<SessionGrantWire> | undefined
   #following: Promise<boolean> | undefined
-  /** The newest beacon epoch observed (by a payment's discovery, a keeper refusal or the beacon poll). */
+  /** The newest beacon epoch observed on the chain (a payment's discovery, the beacon poll, a fresh read). */
   #beacon: bigint | undefined
 
   /** @internal Use {@link acceptSessionGrant} or {@link loadGrantedSession}. */
@@ -395,8 +395,10 @@ export class GrantedSession {
   get beaconEpoch(): bigint | undefined { return this.#beacon }
 
   /**
-   * Report the beacon's latest epoch (a payment discovery's `beaconEpoch`, a keeper's "beacon latest",
-   * the beacon poll). Once it is past the grant's epoch the grant is refreshed in the BACKGROUND
+   * Report the beacon's latest epoch AS READ FROM THE CHAIN (a payment discovery's `beaconEpoch`,
+   * the beacon poll, a fresh `readCurrentBeaconEpoch`). Never pass an epoch a keeper or any other
+   * service claims: observations never move backwards, so one inflated value would stall the
+   * session until it is presented again. Once it is past the grant's epoch the grant is refreshed in the BACKGROUND
    * ({@link followBeacon}): keepers still admit the current grant for the whole next epoch, so the
    * refresh lands well before the boundary that would end it, and no message waits for it. An
    * observation never moves backwards.

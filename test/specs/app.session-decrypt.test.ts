@@ -36,8 +36,11 @@ function fakeSession(epoch: number, opts: {endsWhenTwoBehind?: boolean} = {}) {
 }
 
 let payments: {epoch: number; requestId: string}[]
+/** The chain's beacon epoch the helper's fresh reads see; undefined makes the read fail. */
+let chainEpoch: bigint | undefined
+let chainReads: number
 beforeEach(() => {
-  payments = []
+  payments = []; chainEpoch = undefined; chainReads = 0
   paidSessionDecrypt.mockReset(); decryptWithSessionGrant.mockReset()
   paidSessionDecrypt.mockImplementation(async (_config: unknown, req: {grant: {epoch: number}; onRequestId?(id: string): Promise<void>; onBeaconEpoch?(e: bigint): void}) => {
     const requestId = '0x' + String(payments.length + 1).padStart(64, '0')
@@ -48,13 +51,15 @@ beforeEach(() => {
 })
 const message = {ciphertext: {} as never, identity: new Uint8Array(1), recipient: {} as never, ciphertextEpoch: 0, decryption: {content_digest: '0x'} as never}
 const request = (session: never) => ({config: {} as never, session, slot, keepers: {nodeUrls: ['a', 'b', 'c'], chainId: 43112, verifyingShares: new Map(), threshold: 2},
-  verifierProofs: async (_s: string, e: bigint) => [{verifier_index: Number(e), operator: '0x', pubkey: '0x', proof: []}], message})
+  verifierProofs: async (_s: string, e: bigint) => [{verifier_index: Number(e), operator: '0x', pubkey: '0x', proof: []}], message,
+  latestBeaconEpoch: async () => { chainReads++; if (chainEpoch === undefined) throw new Error('rpc down'); return chainEpoch }})
 const stale = (latest: number) => ({ok: false, error: 'stale', codes: ['status 403'], stale: true,
   refusals: [{nodeUrl: 'a', status: 403, code: 'status 403', scope: 'request', message: `committee token epoch 1 is not current (beacon latest ${latest}); x`}]})
 
 describe('one message across a beacon-epoch boundary (C19)', () => {
   it('the beacon rolls twice while the message is in flight: keepers refuse it as stale; the grant is refreshed and the message re-paid ONCE on the new draw', async () => {
     const {state, session} = fakeSession(478)
+    chainEpoch = 480n
     decryptWithSessionGrant.mockResolvedValueOnce([stale(480)]).mockResolvedValueOnce([{ok: true, plaintext: new Uint8Array([7])}])
     const retries: string[] = []
     const r = await decryptInSession({...request(session), hooks: {onRetry: reason => retries.push(reason)}})
@@ -72,6 +77,7 @@ describe('one message across a beacon-epoch boundary (C19)', () => {
 
   it('retries at most once: a second stale refusal is the caller\'s error', async () => {
     const {session} = fakeSession(10)
+    chainEpoch = 12n
     decryptWithSessionGrant.mockResolvedValue([stale(12)])
     await expect(decryptInSession(request(session))).rejects.toBeInstanceOf(SessionMessageError)
     expect(payments).toHaveLength(2)
@@ -112,8 +118,30 @@ describe('one message across a beacon-epoch boundary (C19)', () => {
 
   it('a grant the beacon left behind for good ends the session (present again), with nothing paid twice', async () => {
     const {session} = fakeSession(40, {endsWhenTwoBehind: true})
+    chainEpoch = 42n
     decryptWithSessionGrant.mockResolvedValueOnce([stale(42)])
     await expect(decryptInSession(request(session))).rejects.toBeInstanceOf(SessionEndedError)
     expect(payments).toHaveLength(1)
+  })
+
+  it('a keeper\'s forged "beacon latest" never reaches the session: only a fresh chain read does (review F1)', async () => {
+    const {state, session} = fakeSession(478)
+    chainEpoch = 480n
+    decryptWithSessionGrant.mockResolvedValueOnce([stale(99_999)]).mockResolvedValueOnce([{ok: true, plaintext: new Uint8Array([7])}])
+    const r = await decryptInSession(request(session))
+    expect(r.grantEpoch).toBe(480n)
+    expect(chainReads).toBe(1)
+    // The session follows the chain's 480, not the keeper's 99999; the next message is not poisoned.
+    expect(state.beacon).toBe(480n)
+    decryptWithSessionGrant.mockResolvedValueOnce([{ok: true, plaintext: new Uint8Array([8])}])
+    expect((await decryptInSession(request(session))).grantEpoch).toBe(480n)
+  })
+
+  it('an unreadable chain after a stale refusal pays nothing again', async () => {
+    const {state, session} = fakeSession(10)
+    decryptWithSessionGrant.mockResolvedValue([stale(12)])
+    await expect(decryptInSession(request(session))).rejects.toBeInstanceOf(SessionMessageError)
+    expect(payments).toHaveLength(1)
+    expect(state.beacon).toBeUndefined()
   })
 })

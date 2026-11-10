@@ -3,8 +3,9 @@
 //
 // Keepers admit a grant only while its epoch is the beacon's latest or previous, and the agent
 // continues a session exactly ONE epoch per refresh. So a grant must follow the beacon: the
-// session refreshes in the background as soon as an observation (this payment's discovery, a
-// keeper refusal, the beacon poll) shows the beacon past the grant's epoch, while the held grant
+// session refreshes in the background as soon as a CHAIN observation (this payment's discovery,
+// the beacon poll, a fresh read a keeper refusal triggers) shows the beacon past the grant's
+// epoch; a keeper's own claim about the beacon is never taken as one. The held grant
 // stays admissible for the whole next epoch. A message that still crosses the boundary (its grant
 // two epochs behind by the time the keepers judge it) is refused by every keeper BEFORE any item
 // runs; then, and only then, this helper waits for the refreshed grant, pays the message again on
@@ -13,7 +14,7 @@
 
 import type {Hex} from 'viem'
 import {TasraError} from '../errors.js'
-import {PaidDrawMovedError} from '../chain/prepaid.js'
+import {PaidDrawMovedError, readCurrentBeaconEpoch} from '../chain/prepaid.js'
 import type {DecryptionBindingWire} from '../crypto/recipient.js'
 import type {KeeperExecutionApprover} from '../committee/keeperExecution.js'
 import {decryptWithSessionGrant, type SessionDecryptItem, type SessionDecryptOptions, type SessionDecryptResult,
@@ -35,6 +36,12 @@ export interface SessionMessageRequest {
   verifierProofs?(slot: Hex, epoch: bigint): Promise<SessionVerifierProofWire[] | undefined>
   /** The ciphertext, its recipient and its binding ({@link decryptionBinding}). */
   message: Omit<SessionDecryptItem, 'payment' | 'approveExecution' | 'recover'> & {decryption: DecryptionBindingWire}
+  /**
+   * The beacon's latest epoch, read FRESH from the chain for each decision (default
+   * `readCurrentBeaconEpoch` on `config.chain.client` and `config.deployment`). A keeper's refusal
+   * text never sets the session's beacon: it only triggers this read.
+   */
+  latestBeaconEpoch?(): Promise<bigint>
   /** Payment lifetime, seconds. */
   ttlSecs?: number
   signal?: AbortSignal
@@ -67,14 +74,12 @@ export class SessionMessageError extends TasraError {
   get code(): string { return this.result.codes[0] ?? 'session-item' }
 }
 
-/** The beacon's latest epoch a stale refusal names ("... (beacon latest N)"), if any. */
-function refusedAtBeacon(result: Extract<SessionDecryptResult, {ok: false}>): bigint | undefined {
-  let latest: bigint | undefined
-  for (const r of result.refusals) {
-    const m = r.message ? /\(beacon latest (\d+)\)/.exec(r.message) : null
-    if (m) { const n = BigInt(m[1]!); if (latest === undefined || n > latest) latest = n }
-  }
-  return latest
+/** The chain's beacon epoch now, or undefined when the read fails (never cached across decisions). */
+async function chainBeacon(request: SessionMessageRequest): Promise<bigint | undefined> {
+  try {
+    const epoch = await (request.latestBeaconEpoch ? request.latestBeaconEpoch() : readCurrentBeaconEpoch(request.config.chain.client, {...request.config.deployment}))
+    return typeof epoch === 'bigint' && epoch >= 0n ? epoch : undefined
+  } catch { return undefined }
 }
 
 /** Wait until any refresh the session owes is done (a held grant two epochs behind cannot serve). */
@@ -138,13 +143,17 @@ export async function decryptInSession(request: SessionMessageRequest): Promise<
       if (!result) throw new TasraError('Session keepers answered no item')
       if (result.ok) return {plaintext: result.plaintext, requestIds, grantEpoch: BigInt(grant.epoch)}
       if (result.stale && !retried) {
-        // Every keeper refused the grant as no longer current before running anything: learn the
-        // keepers' beacon, wait for the refreshed grant, and pay + send once more.
-        const latest = refusedAtBeacon(result)
-        session.observeBeacon(latest ?? BigInt(grant.epoch) + 1n)
-        retried = true
-        hooks?.onRetry?.('stale')
-        continue
+        // Every keeper refused the grant as no longer current before running anything. Their text
+        // (any "beacon latest N") is the keepers' claim, never fed into the session: it only
+        // triggers a fresh chain read, and the chain's epoch is what the session follows.
+        // An unreadable chain leaves nothing to follow: paying again on the same grant cannot help.
+        const latest = await chainBeacon(request)
+        if (latest !== undefined) {
+          session.observeBeacon(latest)
+          retried = true
+          hooks?.onRetry?.('stale')
+          continue
+        }
       }
       throw new SessionMessageError(result, requestIds)
     } finally { paid.dispose() }
