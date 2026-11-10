@@ -15,6 +15,8 @@
 import {bn254, bn254_Fr} from '@noble/curves/bn254'
 import {keccak_256} from '@noble/hashes/sha3'
 import {bytesToNumberBE, numberToBytesBE} from '@noble/curves/utils.js'
+import {bytesToHex} from '@noble/hashes/utils'
+import {BoundedCache} from '../internal/bounded.js'
 
 const Fp = bn254.fields.Fp, Fp2 = bn254.fields.Fp2, Fp12 = bn254.fields.Fp12
 const G1 = bn254.G1.ProjectivePoint, G2 = bn254.G2.ProjectivePoint
@@ -109,6 +111,18 @@ export function encodeG2(point: G2Point): Uint8Array {
   return out
 }
 
+// Keys a signature is checked against (the group key `beacon.mpk()`, a member's verifying share)
+// are few and static per sharing, and each costs a subgroup-checked decode plus the pairing's
+// line precomputation (noble memoizes those per point OBJECT). A bounded set of decoded keys is
+// kept, so both are paid once per key instead of once per check. Only keys that decoded and
+// passed the subgroup check are stored (a throwing decode stores nothing); the cached value is a
+// pure function of the bytes, an immutable public point.
+const verifiedKeys = new BoundedCache<string, G2Point>(64)
+function decodeKeyG2(bytes: Uint8Array): G2Point {
+  if (bytes.length !== 128) throw new Bn254Error('G2 point must be 128 bytes')
+  return verifiedKeys.getOrCompute(bytesToHex(bytes), () => decodeG2(bytes))
+}
+
 /** `e(a, b) * e(c, d) == 1`, the shape precompile 0x08 computes. */
 function pairingProductIsOne(a: G1Point, b: G2Point, c: G1Point, d: G2Point): boolean {
   return Fp12.eql(bn254.pairingBatch([{g1: a, g2: b}, {g1: c, g2: d}]), Fp12.ONE)
@@ -123,7 +137,7 @@ function pairingProductIsOne(a: G1Point, b: G2Point, c: G1Point, d: G2Point): bo
  */
 export function verifyBn254(key: Uint8Array, digest: Uint8Array, signature: Uint8Array): boolean {
   let sigma: G1Point, pk: G2Point
-  try { sigma = decodeG1(signature); pk = decodeG2(key) } catch { return false }
+  try { sigma = decodeG1(signature); pk = decodeKeyG2(key) } catch { return false }
   if (sigma.equals(G1.ZERO) || pk.equals(G2.ZERO)) return false
   return pairingProductIsOne(sigma.negate(), G2.BASE, hashToG1(digest), pk)
 }
@@ -163,7 +177,9 @@ export function interpolateBn254(partials: readonly Pick<Bn254Partial, 'identifi
   const xs = used.map(p => BigInt(p.identifier))
   try {
     let acc = G1.ZERO
-    for (const p of used) acc = acc.add(decodeG1(p.partial).multiply(lagrangeAtZero(BigInt(p.identifier), xs)))
+    // Every input is public (members' published partials, their identifiers), so the variable-time
+    // multiplication leaks nothing; the result is still only trusted after the group-key check.
+    for (const p of used) acc = acc.add(decodeG1(p.partial).multiplyUnsafe(lagrangeAtZero(BigInt(p.identifier), xs)))
     return encodeG1(acc)
   } catch { return undefined }
 }
