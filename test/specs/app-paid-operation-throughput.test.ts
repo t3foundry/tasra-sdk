@@ -28,7 +28,7 @@ vi.mock('../../src/app/paid-allowance.js', async original => ({...await original
 import {paidOperation, type PaidOperationConfig} from '../../src/app/paid-operation.js'
 import {createFileStore} from '../../src/app/node.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
-import {STORE_COMMIT, storeIdentity, type StoreCommitSteps} from '../../src/app/store-commit.js'
+import {STORE_COMMIT, storeIdentity, withCommit, type StoreCommitSteps} from '../../src/app/store-commit.js'
 import type {ApplicationStore} from '../../src/app/ready-slot.js'
 import {requirePrepaidSlot} from '../../src/chain/billing.js'
 import {discoverPaidOperationContext, readClientExecutionPolicy, readCurrentBeaconEpoch} from '../../src/chain/prepaid.js'
@@ -149,5 +149,28 @@ describe('paidOperation throughput in one process, one payer', () => {
     const memory = createMemoryStore()
     expect(storeIdentity(memory)).toBe(memory)
     expect(storeIdentity(createMemoryStore())).not.toBe(storeIdentity(memory))
+  })
+
+  it('never hands the native steps or identity to a wrapper that spreads or inherits a file store', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'kk-paid-tp-'))
+    directories.push(directory)
+    const raw = createFileStore(directory)
+    const loads: string[] = []
+    const spread: ApplicationStore = {...raw, load: async <T>(key: string) => { loads.push(key); return raw.load<T>(key) }}
+    const inherited = Object.assign(Object.create(raw) as ApplicationStore, {load: spread.load})
+    // The raw store keeps its native identity (and so its shared commit batches).
+    expect(storeIdentity(raw)).toBe(storeIdentity(createFileStore(directory)))
+    expect(typeof storeIdentity(raw)).toBe('string')
+    // A copy is its own, non-native store: no shared batch reads through another caller's load.
+    expect(Object.getOwnPropertySymbols(spread)).not.toContain(STORE_COMMIT)
+    expect(storeIdentity(spread)).toBe(spread)
+    expect(storeIdentity(inherited)).toBe(inherited)
+    // Its commits take the generic path: the wrapper's own lock and save, then visible to its load.
+    const saves: string[] = []
+    const wrapped: ApplicationStore = {...spread, save: async (key, value) => { saves.push(key); await raw.save(key, value) }}
+    await withCommit(wrapped, 'k', async commit => { commit.stage('k', {v: 1}) })
+    expect(saves).toEqual(['k'])
+    expect(await spread.load('k')).toEqual({v: 1})
+    expect(loads).toEqual(['k'])
   })
 })

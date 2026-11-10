@@ -312,8 +312,7 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
       await publish(await stageFiles([[key, encode(value)]]))
     },
   }
-  return {
-    [STORE_COMMIT]: steps,
+  const store = {
     async load<T>(key: string): Promise<T | undefined> {
       const target = path(key)
       await ready()
@@ -362,4 +361,10 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
     },
     withLock(key, action) { return locked([key], true, action) },
   } as ApplicationStore
+  // Not enumerable: an application wrapper `{...store, load: wrapped}` must not copy the native
+  // steps, or it would share this store's identity (and its journal commit batches, whose duplicate
+  // check reads through the first caller's `load`) while behaving differently. A copy is an
+  // ordinary application store: it gets the generic one-save-at-a-time path.
+  Object.defineProperty(store, STORE_COMMIT, {value: steps, enumerable: false, writable: false, configurable: false})
+  return store
 }

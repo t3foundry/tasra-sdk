@@ -46,6 +46,10 @@ export interface StoreCommitSteps {
 export const STORE_COMMIT: unique symbol = Symbol.for('@t3foundry/tasra-sdk/store-commit')
 
 function steps(store: ApplicationStore): StoreCommitSteps | undefined {
+  // Only the store object's OWN property counts: an object inheriting from a native store (or
+  // spreading one, which the file store prevents by making the property non-enumerable) may
+  // override `load`/`save` and is therefore not the state the steps commit to.
+  if (!Object.hasOwn(store, STORE_COMMIT)) return undefined
   const found = (store as {[STORE_COMMIT]?: StoreCommitSteps})[STORE_COMMIT]
   return found && typeof found.withCommit === 'function' ? found : undefined
 }
