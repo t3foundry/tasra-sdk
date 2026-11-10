@@ -144,4 +144,20 @@ describe('one message across a beacon-epoch boundary (C19)', () => {
     expect(payments).toHaveLength(1)
     expect(state.beacon).toBeUndefined()
   })
+
+  it('keepers claiming "stale" while the chain says the grant is admissible: no retry, no second debit (review F2)', async () => {
+    for (const chain of [10n, 11n]) {
+      payments = []; decryptWithSessionGrant.mockReset()
+      const {state, session} = fakeSession(10)
+      chainEpoch = chain
+      const retries: string[] = []
+      // A keeper computed its partial and answered "not current" anyway; the others refused before execution.
+      decryptWithSessionGrant.mockResolvedValue([stale(12)])
+      await expect(decryptInSession({...request(session), hooks: {onRetry: reason => retries.push(reason)}})).rejects.toBeInstanceOf(SessionMessageError)
+      expect(payments).toHaveLength(1)
+      expect(decryptWithSessionGrant).toHaveBeenCalledTimes(1)
+      expect(retries).toEqual([])
+      expect(state.refreshes).toBe(0)
+    }
+  })
 })

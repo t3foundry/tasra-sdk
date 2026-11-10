@@ -8,9 +8,16 @@
 // epoch; a keeper's own claim about the beacon is never taken as one. The held grant
 // stays admissible for the whole next epoch. A message that still crosses the boundary (its grant
 // two epochs behind by the time the keepers judge it) is refused by every keeper BEFORE any item
-// runs; then, and only then, this helper waits for the refreshed grant, pays the message again on
-// its draw and sends it once more. The first payment executed nowhere: no keeper claimed it, and
-// an unused debit closes at zero pay (ADR-0090 closure), so nothing is paid twice for work that ran.
+// runs; then, and only when a fresh chain read confirms the grant really left the window, this
+// helper waits for the refreshed grant, pays the message again on its draw and sends it once more.
+//
+// What the first payment costs: its debit stays in the cumulative allowance voucher (it uses
+// allowance headroom until settled) and, unexecuted, is refunded (paid = 0, prepaidRefunded =
+// cost) when the settlement worker settles it after the payment's expiry; that close is blocked
+// while an operator named on that debit is unreachable. The residual risk is bounded: a keeper can
+// compute its partial yet answer "stale" (and later report the execution it approved), so a
+// message may pay at most TWO debits, and only when every other keeper also refused before
+// execution AND the chain independently shows the grant two epochs behind, i.e. the retry was due.
 
 import type {Hex} from 'viem'
 import {TasraError} from '../errors.js'
@@ -101,8 +108,15 @@ async function settle(session: GrantedSession): Promise<void> {
  * discovery observes starts the grant's background refresh. A message whose grant the beacon has
  * already left is re-paid ONCE on the refreshed grant before anything is signed
  * (`PaidDrawMovedError`), or, refused by the keepers as stale with no keeper having run it
- * (`SessionDecryptResult.stale`), re-paid and re-sent ONCE. Every other refusal throws
- * {@link SessionMessageError}; a session that cannot continue throws `SessionEndedError` (present again).
+ * (`SessionDecryptResult.stale`), re-paid and re-sent ONCE, and only when a fresh chain read
+ * ({@link SessionMessageRequest.latestBeaconEpoch}) confirms it: the beacon's latest epoch is past
+ * the grant's epoch + 1 (so the draw moved and no keeper may admit it). When the chain still says
+ * the grant is admissible, or cannot be read, the keepers' "stale" is unconfirmed and the refusal
+ * is thrown: nothing is paid again. A grant-expiry claim is never confirmed this way (the session
+ * checks `exp` itself before sending). Residual bound: at most two debits per message, the first
+ * refunded unexecuted at settlement unless a keeper lied about not running it (module comment).
+ * Every other refusal throws {@link SessionMessageError}; a session that cannot continue throws
+ * `SessionEndedError` (present again).
  */
 export async function decryptInSession(request: SessionMessageRequest): Promise<SessionMessageResult> {
   const {session, slot, hooks} = request
@@ -146,10 +160,13 @@ export async function decryptInSession(request: SessionMessageRequest): Promise<
         // Every keeper refused the grant as no longer current before running anything. Their text
         // (any "beacon latest N") is the keepers' claim, never fed into the session: it only
         // triggers a fresh chain read, and the chain's epoch is what the session follows.
-        // An unreadable chain leaves nothing to follow: paying again on the same grant cannot help.
+        // Pay again only when the chain CONFIRMS staleness: a keeper that computed its partial and
+        // answered "stale" anyway must not earn a second debit while the grant is still admissible.
+        // An unreadable chain confirms nothing.
         const latest = await chainBeacon(request)
-        if (latest !== undefined) {
-          session.observeBeacon(latest)
+        // The chain's epoch is a fair observation either way (a move past the grant starts its follow).
+        if (latest !== undefined) session.observeBeacon(latest)
+        if (latest !== undefined && latest > BigInt(grant.epoch) + 1n) {
           retried = true
           hooks?.onRetry?.('stale')
           continue

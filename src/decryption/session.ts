@@ -105,8 +105,10 @@ export interface SessionItemRefusal {
  * `stale` (see {@link isStaleSessionRefusal}) is true only when the grant was refused as no longer
  * current (its epoch left the beacon's window, or it passed its `exp`) and NO keeper ran this item:
  * every keeper answered, none contributed, none said it already ran it, and every refusal is one
- * that precedes execution. Only then may the caller refresh the grant and pay the message again
- * ({@link decryptInSession} does, once): the unused payment executed nowhere and closes unused.
+ * that precedes execution. Only then may the caller refresh the grant and pay the message again,
+ * and only after confirming the staleness itself (a keeper's word is not proof): {@link decryptInSession}
+ * does, once, when a fresh chain read shows the grant two epochs behind. The unused debit stays in
+ * the cumulative voucher and is refunded (paid = 0) when it settles after the payment's expiry.
  */
 export type SessionDecryptResult = {ok: true; plaintext: Uint8Array}
   | {ok: false; error: string; codes: string[]; refusals: SessionItemRefusal[]; stale: boolean}

@@ -9,6 +9,22 @@ never does.
 
 ### Added
 
+- Session grants follow the beacon across epoch boundaries (ADR-0090 D7–D9).
+  `GrantedSession.observeBeacon`/`followBeacon` refresh a grant in the background once a CHAIN
+  observation (payment discovery, the optional `start()` beacon poll, a fresh
+  `readCurrentBeaconEpoch`) shows the beacon past the grant's epoch; a keeper's claimed epoch is
+  never an observation. `decryptInSession` pays a message on its grant's draw and, when every
+  keeper refuses it as stale before executing it, re-pays and re-sends it ONCE, and only when a
+  fresh chain read confirms the grant is two epochs behind (`latestBeaconEpoch`, default
+  `readCurrentBeaconEpoch`); while the chain says the grant is admissible the refusal is thrown
+  (`SessionMessageError`) and nothing is paid again. The first payment's debit stays in the
+  cumulative allowance voucher (it uses allowance headroom) and is refunded (paid = 0,
+  `prepaidRefunded` = cost) when the settlement worker settles it after the payment's expiry; that
+  close is blocked while an operator named on that debit is unreachable. Residual bound: a keeper
+  that computed its partial yet answered "stale" can earn from the first debit while the payer
+  pays the second, only when every other keeper also refused before execution and the chain shows
+  the retry was due: at most two debits per message.
+
 - An allowance-funded operation no longer waits for a new verifier epoch's anchors when a
   current allowance serves it. Its payment names the allowance's own draw, so while neither the
   beacon's latest nor previous epoch has both snapshots anchored, discovery (new
