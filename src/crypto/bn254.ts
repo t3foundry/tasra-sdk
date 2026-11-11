@@ -204,7 +204,8 @@ export function combineBn254(groupKey: Uint8Array, digest: Uint8Array, partials:
   }
   const used = partials.slice(0, threshold), xs = used.map(p => BigInt(p.identifier))
   let acc = G1.ZERO
-  for (const p of used) acc = acc.add(decodeG1(p.partial).multiply(lagrangeAtZero(BigInt(p.identifier), xs)))
+  // Public partials and identifiers (as in interpolateBn254): variable-time is safe.
+  for (const p of used) acc = acc.add(decodeG1(p.partial).multiplyUnsafe(lagrangeAtZero(BigInt(p.identifier), xs)))
   const signature = encodeG1(acc)
   if (!verifyBn254(groupKey, digest, signature)) throw new Bn254Error('combined signature does not verify against the group key')
   return signature

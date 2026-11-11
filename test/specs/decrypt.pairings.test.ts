@@ -53,12 +53,15 @@ async function kemKeepers(client: ClientRecipient, corrupt?: number) {
 }
 
 describe('sealed KEM decryption pairings', () => {
-  it('pairing-verifies each of the k shares once: 2 pairings per share', async () => {
+  it('pairing-verifies each of the k shares once: one 2-pair product (one final exponentiation) per share', async () => {
     const opts = await kemKeepers(await createDecryptionRecipient())
-    const pairing = vi.spyOn(bls12_381, 'pairing')
+    const pairing = vi.spyOn(bls12_381, 'pairing'), batch = vi.spyOn(bls12_381, 'pairingBatch')
     expect(await decryptWithCommitteePartials(opts)).toEqual(unhex(kv.plaintext))
-    // k = 2: 4 pairings (was 8 - the combine repeated both checks).
-    expect(pairing).toHaveBeenCalledTimes(2 * opts.threshold)
+    // k = 2: two Miller-loop pairs per share under ONE final exponentiation (was two full pairings
+    // per share; before that 8 - the combine repeated both checks).
+    expect(pairing).not.toHaveBeenCalled()
+    expect(batch).toHaveBeenCalledTimes(opts.threshold)
+    for (const [pairs] of batch.mock.calls) expect(pairs).toHaveLength(2)
   })
 })
 
@@ -87,11 +90,14 @@ async function ibeInput(corrupt?: number) {
 describe('strict IBE extraction pairings', () => {
   it('pairing-verifies each of the k shares once, then checks the combined key against the anchored group key', async () => {
     const input = await ibeInput()
-    const pairing = vi.spyOn(bls12_381, 'pairing')
+    const pairing = vi.spyOn(bls12_381, 'pairing'), batch = vi.spyOn(bls12_381, 'pairingBatch')
     const {key} = await extractIdentityStrict(input)
-    // k = 2: 2 per share + 2 for the group-key check = 6 (was 10 - the combine repeated the per-share checks).
-    expect(pairing).toHaveBeenCalledTimes(2 * input.threshold + 2)
-    pairing.mockRestore()
+    // k = 2: one 2-pair product per share + one for the group-key check = 3 final exponentiations
+    // (was 6 full pairings; before that 10 - the combine repeated the per-share checks).
+    expect(pairing).not.toHaveBeenCalled()
+    expect(batch).toHaveBeenCalledTimes(input.threshold + 1)
+    for (const [pairs] of batch.mock.calls) expect(pairs).toHaveLength(2)
+    pairing.mockRestore(); batch.mockRestore()
     const ct = ibeEncrypt(unhex(iv.mpk), utf8(iv.identity), utf8('note'))
     expect(ibeDecryptWithKey(key, ct, utf8(iv.identity))).toEqual(utf8('note'))
   })

@@ -277,9 +277,9 @@ export function ibeVerifyShareAt(verifyingShare: Uint8Array, qId: G1Point, share
 }
 
 function verifyShareEquation(dI: G1Point, yI: G2Point, qId: G1Point, identifier: number): void {
-  const lhs = bls12_381.pairing(dI, G2.ProjectivePoint.BASE)
-  const rhs = bls12_381.pairing(qId, yI)
-  if (!Fp12.eql(lhs, rhs)) {
+  // e(Dᵢ, g2) == e(Q_ID, Yᵢ)  ⟺  e(Dᵢ, g2) · e(−Q_ID, Yᵢ) == 1 (bilinearity): the same exact
+  // equation with one shared final exponentiation instead of two.
+  if (!Fp12.eql(bls12_381.pairingBatch([{g1: dI, g2: G2.ProjectivePoint.BASE}, {g1: qId.negate(), g2: yI}]), Fp12.ONE)) {
     throw new Error(`ibeVerifyShare: invalid share from identifier ${identifier}`)
   }
 }
@@ -328,7 +328,9 @@ export function combineVerifiedIbeShares(shares: IbeDecryptionShare[]): Uint8Arr
   let skId = G1.ProjectivePoint.ZERO
   for (const s of shares) {
     const lambda = lagrangeAtZero(BigInt(s.identifier), xs)
-    skId = skId.add(decodeG1(s.value, `share ${s.identifier}`).multiply(lambda))
+    // λ is public (identifiers only): the variable-time ladder leaks nothing about it and skips the
+    // per-point wNAF table the constant-time multiply builds.
+    skId = skId.add(decodeG1(s.value, `share ${s.identifier}`).multiplyUnsafe(lambda))
   }
   return skId.toRawBytes(true)
 }
