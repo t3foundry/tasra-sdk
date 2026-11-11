@@ -97,11 +97,11 @@ export function saveRederivable(store: ApplicationStore, key: string, value: unk
  * from what it reads anyway: a crash may leave each one unwritten.
  *
  * An OWED entry ({@link Rederivable.put} with `owed`) is a confirmation a recovery does NOT
- * re-derive: the `confirmed` of a sent write whose `prepared` is already durable. It rides on the
- * flow's next durable commit, which every later send of the flow waits for, so it is durable before
- * anything else is sent; a crash before that leaves the write `prepared`, the state a crash during
- * its send leaves too (never resent, reconciled). {@link Rederivable.flush} publishes owed entries
- * durably.
+ * re-derive: the `confirmed` of a sent write whose `prepared` is already durable. A crash before it
+ * is durable leaves the write `prepared`, which a recovery refuses (never resent; the caller
+ * reconciles), so it may ride on a later commit only when that commit follows the send at once: the
+ * flow calls {@link Rederivable.flushOwed} before any wait or poll that follows a send.
+ * {@link Rederivable.flush} publishes owed entries durably.
  */
 export class Rederivable {
   readonly #pending = new Map<string, unknown>()
@@ -117,6 +117,10 @@ export class Rederivable {
   take(): [string, unknown][] { const out = [...this.#pending]; this.#pending.clear(); return out }
   /** Return entries a failed commit did not publish (a newer put of a key wins). */
   restore(entries: readonly (readonly [string, unknown])[]): void { for (const [key, value] of entries) if (!this.#pending.has(key)) this.#pending.set(key, value) }
+  /** Publish everything pending in one durable commit when any of it is owed; nothing otherwise. */
+  async flushOwed(store: ApplicationStore): Promise<void> {
+    for (const key of this.#pending.keys()) if (this.#owed.has(key)) return this.flush(store)
+  }
   /** Publish whatever is left: each as {@link saveRederivable}, or all in one durable commit when any is owed. */
   async flush(store: ApplicationStore): Promise<void> {
     const out = this.take()

@@ -3,10 +3,12 @@
 // Every billable write (session creation, each operator-stage approval, the wallet
 // presentation, each continuation) is journaled `prepared` in the application store before
 // it is sent and `confirmed` after its reply. A write whose reply was lost stays `prepared`
-// and is never sent again by this driver: the caller reconciles it. Every `confirmed` is
-// published with the drive's next durable write (or durably at its end) instead of on its own:
-// creation's and an approval's are re-derived by a resume from what it reads anyway; any other
-// that a crash loses leaves its write `prepared`, the state a crash during the send leaves.
+// and is never sent again by this driver: the caller reconciles it. Creation's and an approval's
+// `confirmed` are re-derived by a resume from what it reads anyway, so they ride on the drive's
+// next durable write. Every other `confirmed` is published durably before the drive waits or
+// polls after its send, or with the next commit when one follows at once; only a crash inside
+// that short window leaves its write `prepared` (a resume then refuses it, as it does a write
+// whose reply was lost).
 // Services supply proposals, never client intent; every proposal is checked against the anchored draw.
 //
 // One exception, for operator-stage approvals only, when the store implements `claim`: the signed
@@ -165,12 +167,22 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
   // Confirmations of this drive's writes, published with its next durable write (or at its end).
   // Creation's and an approval's are re-derived by a resume from what it reads anyway (creation:
   // the authenticated read every resumed drive makes; an approval: its delivery state). Every
-  // other write's is OWED (Rederivable): it is published with the next durable commit, which each
-  // later journaled write makes before its send, and durably at the drive's end; until then a
-  // crash leaves the write `prepared`, exactly as a crash during its send does.
+  // other write's is OWED (Rederivable): a resume does NOT re-derive it, and a crash before it is
+  // durable leaves the write `prepared`, which a resume refuses. It rides on the next commit only
+  // when that commit follows its send at once (the external acceptance's on its continuation's
+  // `prepared`; a first continuation's on the credential approval, after only the listing of the
+  // proposals its 425 created; when nothing is listed yet, the loop's `owed()` publishes it before
+  // the drive waits). Before any wait or poll that follows a send (a wallet callback can take
+  // minutes) `owed()` publishes it in one durable commit, so no wait leaves a sent write's
+  // outcome only in memory.
   const later = new Rederivable()
+  /** Publish owed confirmations durably now: before a wait or poll that follows a send. */
+  const owed = () => later.flushOwed(store)
   /** The record of `key` as this drive will publish it: a pending confirmation, else the store's. */
   const journaled = async <T>(key: string): Promise<T | undefined> => later.peek<T>(key) ?? await store.load<T>(key)
+  // Every read of a journal record this drive may have written goes through `journaled`: a
+  // confirmation still pending in memory is the record's current state (reading the store instead
+  // would see its `prepared` and refuse the drive's own confirmed write).
   /**
    * Journal, send once, confirm. Returns false when a resumed drive skipped a confirmed original.
    * `prepared` is committed with the unlock (one commit: its data flushed, renamed, the lock
@@ -262,7 +274,7 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
     // without durable approvals) goes one by one, as before.
     if (planned.length > 1 && session.batchApprovals === true && typeof session.sendRetainedApprovals === 'function'
       && planned.every(p => supportsDurableApproval(store, session, prefix + '-' + p.name))
-      && (await Promise.all(planned.map(p => store.load(prefix + '-' + p.name)))).every(r => r === undefined)) {
+      && (await Promise.all(planned.map(p => journaled(prefix + '-' + p.name)))).every(r => r === undefined)) {
       const kept = await retainAndDeliverApprovals(planned.map(({proposed, member, name}) => {
         const key = prefix + '-' + name
         const original = {stage: proposed.stage, operator_key: member.publicKey, unsigned_body: proposed.unsigned_body}
@@ -283,7 +295,7 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
   /** Approve one judged proposal; 1 when it sent or reconciled an approval, 0 when already confirmed. */
   const approveOne = async (proposed: PaidAgentProposal, member: PaidVerifierWitness, name: string, presentation?: ClientApprovedPresentation): Promise<number> => {
     const key = prefix + '-' + name
-    const retained = await store.load<ApprovalJournalRecord>(key)
+    const retained = await journaled<ApprovalJournalRecord>(key)
     // A stage belongs to one operator and one original body. A new proposal ID
     // cannot authorize another billable attempt on the same paid stage.
     const original = {stage: proposed.stage, operator_key: member.publicKey, unsigned_body: proposed.unsigned_body}
@@ -387,6 +399,9 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
     let opened: Awaited<ReturnType<RegisteredPaidAgentSession['requestObject']>>
     for (;;) {
       signal.throwIfAborted()
+      // A fetch after approvals waits for the signer: an approval sent without a durable body
+      // (an owed confirmation) is published first.
+      await owed()
       try { opened = await session.requestObject(signal); break }
       catch (error) {
         if (!pendingConsent(error)) throw error
@@ -452,6 +467,8 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
       if (status.status === 'rejected') throw status.reason
       return {status: status.value, candidates}
     }
+    // The presentation was just sent; observing it can wait for the wallet callback.
+    await owed()
     let observed = await observe()
     for (;;) {
       signal.throwIfAborted()
@@ -490,7 +507,9 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
           progressed = true
         }
       }
-      // Each write is sent once, so `progressed` is true a bounded number of times.
+      // Each write is sent once, so `progressed` is true a bounded number of times. A continuation
+      // sent this round is confirmed durably before the next poll or wait.
+      await owed()
       observed = await observe(progressed ? undefined : await settle(status))
     }
   }

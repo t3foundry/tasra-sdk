@@ -373,7 +373,7 @@ async function durableDrive(dir?: string) {
   } as unknown as RegisteredPaidAgentSession
   const holder = {kind: 'local' as const, makePresentation: vi.fn(() => structuredClone(presentation)), submit: vi.fn(async () => { seen.presentation = await disk(); flags.sent = true })}
   const members = [{index: 0, operator: ('0x' + '11'.repeat(20)) as Hex, publicKey: key, proof: []}]
-  const drive = (resume = false) => drivePaidSession({session, store, members, signal: new AbortController().signal, wait: async () => {}, holder, resume})
+  const drive = (resume = false, wait: () => Promise<void> = async () => {}) => drivePaidSession({session, store, members, signal: new AbortController().signal, wait, holder, resume})
   return {dir, store, session, holder, flags, seen, disk, drive}
 }
 
@@ -419,12 +419,17 @@ it('a second drive started while a write is in flight refuses on its durable pre
   }
 })
 
-it('a write\'s confirmation that is still pending when the drive ends is published durably', async () => {
+it('a continuation\'s confirmation that no later write carries is published durably before the drive polls again', async () => {
   const d = await durableDrive()
   const before = fileStoreSyncCounters.directorySyncs
+  const poll = vi.mocked(d.session.poll), original = poll.getMockImplementation()!
+  const atPoll: Record<string, unknown>[] = []
+  poll.mockImplementation(async (...args) => { atPoll.push((await d.disk()).phases); return original(...args) })
   expect((await d.drive()).status).toBe('done')
   expect(fileStoreSyncCounters.directorySyncs).toBeGreaterThan(before)
-  // The last continuation's \`confirmed\` rode on no later write: the drive's end commits it.
+  // The last continuation's confirmation rides on no later write: it is on disk at the poll that
+  // ends the drive, not only after it.
+  expect(atPoll.at(-1)!['resume-1']).toBe('confirmed')
   expect((await d.disk()).phases['resume-1']).toBe('confirmed')
   // A resume after the drive sees every write confirmed and sends nothing again.
   expect((await d.drive(true)).status).toBe('done')
@@ -461,4 +466,56 @@ it('a crash after a continuation was sent but before its confirmation still refu
   await expect(d.drive()).rejects.toThrow('process died')
   await expect(d.drive(true)).rejects.toMatchObject({name: 'PaidSessionRecoveryError', key: 'wallet-' + d.session.sessionId + '-resume-initial'})
   expect(d.holder.submit).toHaveBeenCalledTimes(1)
+})
+
+it('a crash while the drive waits for the wallet callback after the presentation resumes past it, with nothing sent again', async () => {
+  const d = await durableDrive()
+  // The wallet POST succeeds, but the agent has not retained the callback yet: the drive waits.
+  vi.mocked(d.holder.submit).mockImplementationOnce(async () => {})
+  let waiting!: () => void
+  const entered = new Promise<void>(resolve => { waiting = resolve })
+  // A crash in that wait: the first drive never continues, so nothing it held only in memory is published.
+  void d.drive(false, () => { waiting(); return new Promise<void>(() => {}) })
+  await entered
+  // The callback arrives; a resumed drive continues with the original presentation.
+  d.flags.sent = true
+  expect((await d.drive(true)).status).toBe('done')
+  expect(d.holder.submit).toHaveBeenCalledTimes(1)
+  expect(d.holder.makePresentation).toHaveBeenCalledTimes(1)
+  expect(d.session.create).toHaveBeenCalledTimes(1)
+})
+
+it('a crash while the drive waits after the first continuation (no credential work proposed yet) resumes past it', async () => {
+  const d = await durableDrive()
+  // The agent accepts the first continuation, but has not yet listed its credential proposal.
+  const proposals = vi.mocked(d.session.proposals), original = proposals.getMockImplementation()!
+  let lagging = true
+  proposals.mockImplementation(async (...args) => lagging && d.flags.selected ? [] : original(...args))
+  let waiting!: () => void
+  const entered = new Promise<void>(resolve => { waiting = resolve })
+  void d.drive(false, () => { waiting(); return new Promise<void>(() => {}) })
+  await entered
+  lagging = false
+  expect((await d.drive(true)).status).toBe('done')
+  expect(d.session.resumePresentation).toHaveBeenCalledTimes(2)
+  expect(d.holder.submit).toHaveBeenCalledTimes(1)
+})
+
+it('an approval listed again before its confirmation was committed is recognised as the drive\'s own, not refused', async () => {
+  const d = await durableDrive()
+  // The agent dispatches the approved request-signing work one fetch late: the next request-object
+  // fetch still answers 425 and lists the same (already approved) proposals once more.
+  const send = vi.mocked(d.session.sendRetainedApprovals!), realSend = send.getMockImplementation()!
+  const proposals = vi.mocked(d.session.proposals), realProposals = proposals.getMockImplementation()!
+  let lag = false
+  send.mockImplementationOnce(async (...args) => { const out = await realSend(...args); d.flags.jar = false; lag = true; return out })
+  proposals.mockImplementation(async (...args) => {
+    const listed = await realProposals(...args)
+    if (lag) { lag = false; d.flags.jar = true }
+    return listed
+  })
+  expect((await d.drive()).status).toBe('done')
+  expect(send).toHaveBeenCalledTimes(1)
+  expect(d.session.prepareRequestApproval).toHaveBeenCalledTimes(2)
+  expect(d.session.requestObject).toHaveBeenCalledTimes(3)
 })
