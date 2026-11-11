@@ -1,5 +1,8 @@
 import {describe, expect, it, vi, beforeEach} from 'vitest'
+import {bls12_381} from '@noble/curves/bls12-381'
+import {concatBytes} from '@noble/hashes/utils'
 import {PaidDrawMovedError} from '../../src/chain/prepaid.js'
+import {decodeKemU, encrypt, type Ciphertext, type DecryptShare} from '../../src/crypto/kem.js'
 import {SessionEndedError} from '../../src/app/session-grants.js'
 import {PaidReservationStaleEpochError} from '../../src/chain/reservation.js'
 
@@ -10,6 +13,11 @@ const paidSessionDecrypt = vi.fn()
 const decryptWithSessionGrant = vi.fn()
 vi.mock('../../src/app/paid-operation.js', () => ({paidSessionDecrypt: (...a: unknown[]) => paidSessionDecrypt(...a)}))
 vi.mock('../../src/decryption/session.js', () => ({decryptWithSessionGrant: (...a: unknown[]) => decryptWithSessionGrant(...a)}))
+// The default staleness confirmation (no `latestBeaconEpoch`): a stand-in that answers the RPC
+// `latest` head only when asked for it fresh, and the followed (lagging) tip otherwise.
+const readCurrentBeaconEpoch = vi.fn()
+vi.mock('../../src/chain/prepaid.js', async original => ({...await original<typeof import('../../src/chain/prepaid.js')>(),
+  readCurrentBeaconEpoch: (...a: unknown[]) => readCurrentBeaconEpoch(...a)}))
 const {decryptInSession, SessionMessageError} = await import('../../src/app/session-decrypt.js')
 
 const slot = ('0x' + '01'.repeat(32)) as `0x${string}`
@@ -54,9 +62,24 @@ beforeEach(() => {
     return {requestId, payment: {verification_epoch: req.grant.epoch}, approveExecution: vi.fn(), recoverPartial: vi.fn(), dispose: vi.fn()}
   })
 })
-const message = {ciphertext: {} as never, identity: new Uint8Array(1), recipient: {} as never, ciphertextEpoch: 0, decryption: {content_digest: '0x'} as never}
-const request = (session: never) => ({config: {} as never, session, slot, keepers: {nodeUrls: ['a', 'b', 'c'], chainId: 43112, verifyingShares: new Map(), threshold: 2},
-  verifierProofs: async (_s: string, e: bigint) => [{verifier_index: Number(e), operator: '0x', pubkey: '0x', proof: []}], message,
+// A 2-of-3 Shamir sharing of the slot key over Fr (keeper identifiers 1..3): a re-open's decrypt
+// shares are real, so the helper's own verification and AEAD open run.
+const G1 = bls12_381.G1.ProjectivePoint, G2 = bls12_381.G2.ProjectivePoint, ORDER = bls12_381.fields.Fr.ORDER
+const sk = (id: number) => (0x1234567n + 0x7654321n * BigInt(id)) % ORDER
+const mpk = G2.BASE.multiply(sk(0)).toRawBytes(true)
+const verifyingShares = new Map([1, 2, 3].map(id => [id, concatBytes(G2.BASE.multiply(sk(id)).toRawBytes(true), G1.BASE.multiply(sk(id)).toRawBytes(true))]))
+const kemMessage = (text: string) => {
+  const identity = new TextEncoder().encode('room-7')
+  return {ciphertext: encrypt(mpk, identity, new TextEncoder().encode(text)), identity, recipient: {} as never, ciphertextEpoch: 0, decryption: {content_digest: '0x'} as never}
+}
+/** The decrypt shares a presentation over `ct` opens (D_i = sk_i·U). */
+const sharesFor = (ct: Ciphertext, ids = [1, 2]): DecryptShare[] =>
+  ids.map(id => ({id, decryptionShare: decodeKemU(ct.u)!.multiply(sk(id)).toRawBytes(true), verifyingShare: verifyingShares.get(id)!}))
+const P = ('0x' + 'ab'.repeat(32)) as `0x${string}`
+const text = (b: Uint8Array) => new TextDecoder().decode(b)
+const message = kemMessage('in flight')
+const request = (session: never, m = message) => ({config: {} as never, session, slot, keepers: {nodeUrls: ['a', 'b', 'c'], chainId: 43112, verifyingShares, threshold: 2},
+  verifierProofs: async (_s: string, e: bigint) => [{verifier_index: Number(e), operator: '0x', pubkey: '0x', proof: []}], message: m,
   latestBeaconEpoch: async () => { chainReads++; if (chainEpoch === undefined) throw new Error('rpc down'); return chainEpoch }})
 const stale = (latest: number) => ({ok: false, error: 'stale', codes: ['status 403'], stale: true,
   refusals: [{nodeUrl: 'a', status: 403, code: 'status 403', scope: 'request', message: `committee token epoch 1 is not current (beacon latest ${latest}); x`}]})
@@ -185,7 +208,22 @@ describe('one message across a beacon-epoch boundary (C19)', () => {
   })
 })
 
-describe('a session that ends under a message is re-opened once, transparently (C20)', () => {
+describe('the default staleness confirmation reads a fresh head (C21)', () => {
+  it('a stale refusal is confirmed at the RPC `latest` head, never the followed tip one push behind', async () => {
+    const {session} = fakeSession(10)
+    // The followed tip still says 11 (the grant admissible); the RPC latest head says 12.
+    readCurrentBeaconEpoch.mockReset().mockImplementation(async (_c: unknown, _d: unknown, opts?: {fresh?: boolean}) => opts?.fresh ? 12n : 11n)
+    decryptWithSessionGrant.mockResolvedValueOnce([stale(12)]).mockResolvedValueOnce([{ok: true, plaintext: new Uint8Array([7])}])
+    const {latestBeaconEpoch: _fresh, ...defaults} = request(session)
+    const r = await decryptInSession({...defaults, config: {chain: {client: {}}, deployment: {}} as never})
+    expect(readCurrentBeaconEpoch).toHaveBeenCalledTimes(1)
+    expect(readCurrentBeaconEpoch.mock.calls[0]![2]).toEqual({fresh: true})
+    expect(payments.map(p => p.epoch)).toEqual([10, 12])
+    expect(r.plaintext).toEqual(new Uint8Array([7]))
+  })
+})
+
+describe('a session that ends under a message is re-opened once; its presentation serves the message (C20, review F1/F2)', () => {
   /** A session that has already ended (a definite refusal, or the beacon two epochs past it). */
   function endedSession(code = 'session_context_changed') {
     const {session} = fakeSession(0)
@@ -194,18 +232,21 @@ describe('a session that ends under a message is re-opened once, transparently (
     return session
   }
 
-  it('an ended session is replaced through `reopen` before anything is paid: one payment, on the new grant', async () => {
-    const next = fakeSession(51)
+  it('an end before payment: the presentation\'s shares decrypt THIS message; its payment is the message\'s one debit', async () => {
+    const next = fakeSession(60)
     const reopens: string[] = []
-    const reopen = vi.fn(async () => next.session)
-    decryptWithSessionGrant.mockResolvedValue([{ok: true, plaintext: new Uint8Array([5])}])
+    const reopen = vi.fn(async (_e: SessionEndedError, m: typeof message, budget: {debits: number}) => {
+      expect(m).toBe(message)
+      expect(budget).toEqual({debits: 2})
+      return {shares: sharesFor(m.ciphertext), requestIds: [P], session: next.session}
+    })
     const r = await decryptInSession({...request(endedSession()), reopen, hooks: {onReopen: code => reopens.push(code)}})
-    expect(r.plaintext).toEqual(new Uint8Array([5]))
-    expect(reopen).toHaveBeenCalledTimes(1)
-    expect(reopens).toEqual(['session_context_changed'])
+    expect(text(r.plaintext)).toBe('in flight')
+    expect(r).toMatchObject({presented: true, grantEpoch: 60n, requestIds: [P]})
     expect(r.session).toBe(next.session)
-    expect(r.grantEpoch).toBe(51n)
-    expect(payments.map(p => p.epoch)).toEqual([51])
+    expect(reopens).toEqual(['session_context_changed'])
+    expect(payments).toHaveLength(0)
+    expect(decryptWithSessionGrant).not.toHaveBeenCalled()
   })
 
   it('without `reopen` the end is thrown, nothing paid', async () => {
@@ -213,73 +254,125 @@ describe('a session that ends under a message is re-opened once, transparently (
     expect(payments).toHaveLength(0)
   })
 
-  it('re-opens at most once per message: a second end is thrown', async () => {
-    const reopen = vi.fn(async () => endedSession('local-stale'))
-    await expect(decryptInSession({...request(endedSession()), reopen})).rejects.toMatchObject({code: 'local-stale'})
-    expect(reopen).toHaveBeenCalledTimes(1)
-    expect(payments).toHaveLength(0)
+  it('shares of ANOTHER message never become this message\'s plaintext, and are zeroed (review F2)', async () => {
+    const other = kemMessage('someone else')
+    const shares = sharesFor(other.ciphertext)
+    await expect(decryptInSession({...request(endedSession()), reopen: async () => ({shares, requestIds: [P], session: fakeSession(60).session})}))
+      .rejects.toThrow(/do not decrypt this message/)
+    expect(shares.every(s => s.decryptionShare.every(b => b === 0))).toBe(true)
+    // Valid shares paired with forged verifying shares are re-bound to the keepers' authenticated ones.
+    const forged = sharesFor(message.ciphertext).map(s => ({...s, verifyingShare: new Uint8Array(144)}))
+    const r = await decryptInSession({...request(endedSession()), reopen: async () => ({shares: forged, requestIds: [P]})})
+    expect(text(r.plaintext)).toBe('in flight')
+    expect(r.session).toBeUndefined()
+    expect(r.grantEpoch).toBe(0n)
+    // A bad share beside enough good ones is dropped by the per-share check, never combined.
+    const mixed = sharesFor(message.ciphertext, [1, 2, 3])
+    mixed[0]!.decryptionShare = G2.BASE.multiply(5n).toRawBytes(true)
+    const m2 = await decryptInSession({...request(endedSession()), reopen: async () => ({shares: mixed, requestIds: [P]})})
+    expect(text(m2.plaintext)).toBe('in flight')
   })
 
-  it('a confirmed-stale refusal whose follow ends the session re-opens it and pays the message once more: two debits at most', async () => {
+  it('a re-open that names no payment, or more than the message may still pay, is refused', async () => {
+    for (const requestIds of [[], [P, P, P]]) {
+      await expect(decryptInSession({...request(endedSession()), reopen: async () => ({shares: sharesFor(message.ciphertext), requestIds})}))
+        .rejects.toThrow(/must name its presentation's payment/)
+    }
+  })
+
+  it('a confirmed-stale refusal whose follow ends the session: the re-open serves it; debits = the message\'s one + the presentation (review F1)', async () => {
     const {session} = fakeSession(40, {endsWhenTwoBehind: true})
     chainEpoch = 42n
-    const next = fakeSession(42)
-    const reopen = vi.fn(async () => next.session)
-    decryptWithSessionGrant.mockResolvedValueOnce([stale(42)]).mockResolvedValue([stale(42)])
-    // Even when the re-opened grant is refused as stale too, no third payment is made.
-    await expect(decryptInSession({...request(session), reopen})).rejects.toBeInstanceOf(SessionMessageError)
+    const budgets: number[] = []
+    const reopen = vi.fn(async (_e: SessionEndedError, m: typeof message, budget: {debits: number}) => {
+      budgets.push(budget.debits)
+      return {shares: sharesFor(m.ciphertext), requestIds: [P], session: fakeSession(42).session}
+    })
+    decryptWithSessionGrant.mockResolvedValueOnce([stale(42)]).mockResolvedValue([{ok: true, plaintext: new Uint8Array([9])}])
+    const r = await decryptInSession({...request(session), reopen})
+    expect(text(r.plaintext)).toBe('in flight')
     expect(reopen).toHaveBeenCalledTimes(1)
-    expect(payments.map(p => p.epoch)).toEqual([40, 42])
-    decryptWithSessionGrant.mockReset(); payments = []
-    const again = fakeSession(40, {endsWhenTwoBehind: true})
-    decryptWithSessionGrant.mockResolvedValueOnce([stale(42)]).mockResolvedValueOnce([{ok: true, plaintext: new Uint8Array([9])}])
-    const r = await decryptInSession({...request(again.session), reopen: async () => fakeSession(42).session})
-    expect(r.requestIds).toHaveLength(2)
-    expect(r.grantEpoch).toBe(42n)
+    expect(budgets).toEqual([1])
+    // One message payment (40), then the presentation: two debits, nothing paid on the new grant.
+    expect(payments.map(p => p.epoch)).toEqual([40])
+    expect(r.requestIds).toEqual([payments[0]!.requestId, P])
+    expect(decryptWithSessionGrant).toHaveBeenCalledTimes(1)
+  })
+
+  it('the bound counts debits, not request ids: an allowance fallback\'s refused id leaves the presentation its budget', async () => {
+    const {session} = fakeSession(40, {endsWhenTwoBehind: true})
+    chainEpoch = 42n
+    // The allowance debit was refused (an id, no debit), the per-operation fallback paid (a second id).
+    paidSessionDecrypt.mockImplementationOnce(async (_c: unknown, req: {grant: {epoch: number}; onRequestId?(id: string): Promise<void>}) => {
+      await req.onRequestId?.('0x' + 'f1'.repeat(32)); await req.onRequestId?.('0x' + 'f2'.repeat(32))
+      payments.push({epoch: req.grant.epoch, requestId: '0x' + 'f2'.repeat(32)})
+      return {requestId: '0x' + 'f2'.repeat(32), payment: {}, approveExecution: vi.fn(), recoverPartial: vi.fn(), dispose: vi.fn()}
+    })
+    decryptWithSessionGrant.mockResolvedValueOnce([stale(42)])
+    const reopen = vi.fn(async (_e: SessionEndedError, m: typeof message, budget: {debits: number}) =>
+      ({shares: sharesFor(m.ciphertext), requestIds: Array.from({length: budget.debits}, () => P)}))
+    const r = await decryptInSession({...request(session), reopen})
+    expect(reopen.mock.calls[0]![2]).toEqual({debits: 1})
+    expect(r.requestIds).toEqual(['0x' + 'f1'.repeat(32), '0x' + 'f2'.repeat(32), P])
   })
 })
 
-describe('a re-open whose presentation decrypts the message in flight serves it (C20, 110 ms)', () => {
+describe('concurrent messages of one ended session share ONE re-open (review F3)', () => {
   function endedSession() {
     const {session} = fakeSession(0)
     ;(session as {current(): unknown}).current = () => { throw new SessionEndedError('local-stale', 'ended') }
     return session
   }
 
-  it('an end before payment: the presentation serves the message, nothing else is paid or sent', async () => {
-    const next = fakeSession(60)
-    const reopen = vi.fn(async (_e: SessionEndedError, m: unknown) => { expect(m).toBe(message); return {plaintext: new Uint8Array([3]), session: next.session} })
-    const r = await decryptInSession({...request(endedSession()), reopen})
-    expect(r).toMatchObject({plaintext: new Uint8Array([3]), presented: true, grantEpoch: 60n})
-    expect(r.session).toBe(next.session)
-    expect(payments).toHaveLength(0)
-    expect(decryptWithSessionGrant).not.toHaveBeenCalled()
+  it('one presentation serves the first message; the others continue on its new session, each paying its own decrypt', async () => {
+    const ended = endedSession(), next = fakeSession(51)
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const reopen = vi.fn(async (_e: SessionEndedError, m: typeof message) => { await gate; return {shares: sharesFor(m.ciphertext), requestIds: [P], session: next.session} })
+    decryptWithSessionGrant.mockResolvedValue([{ok: true, plaintext: new Uint8Array([5])}])
+    const messages = ['one', 'two', 'three'].map(kemMessage)
+    const runs = messages.map(m => decryptInSession({...request(ended, m), reopen}))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    release()
+    const results = await Promise.all(runs)
+    expect(reopen).toHaveBeenCalledTimes(1)
+    expect(text(results[0]!.plaintext)).toBe('one')
+    expect(results[0]).toMatchObject({presented: true, requestIds: [P]})
+    for (const r of results.slice(1)) {
+      expect(r.presented).toBeUndefined()
+      expect(r.plaintext).toEqual(new Uint8Array([5]))
+      expect(r.session).toBe(next.session)
+      expect(r.requestIds).toHaveLength(1)
+    }
+    expect(payments.map(p => p.epoch)).toEqual([51, 51])
+    // A later message on the ended session continues on its successor: no presentation.
+    const late = await decryptInSession({...request(ended, kemMessage('late')), reopen})
+    expect(late.session).toBe(next.session)
+    expect(reopen).toHaveBeenCalledTimes(1)
   })
 
-  it('a confirmed-stale refusal: one message debit, then the presentation serves it; a presentation without a grant leaves no session', async () => {
-    const {session} = fakeSession(40, {endsWhenTwoBehind: true})
-    chainEpoch = 42n
-    decryptWithSessionGrant.mockResolvedValueOnce([stale(42)])
-    const r = await decryptInSession({...request(session), reopen: async () => ({plaintext: new Uint8Array([4])})})
-    expect(r.plaintext).toEqual(new Uint8Array([4]))
-    expect(r.session).toBeUndefined()
-    expect(r.grantEpoch).toBe(0n)
-    expect(payments.map(p => p.epoch)).toEqual([40])
-    expect(decryptWithSessionGrant).toHaveBeenCalledTimes(1)
+  it('a shared re-open that fails fails its waiters with their own end, without another presentation', async () => {
+    const ended = endedSession()
+    const reopen = vi.fn(async () => { await new Promise(resolve => setTimeout(resolve, 5)); throw new Error('presentation refused') })
+    const runs = [kemMessage('a'), kemMessage('b')].map(m => decryptInSession({...request(ended, m), reopen}))
+    const [first, second] = await Promise.allSettled(runs)
+    expect(first).toMatchObject({status: 'rejected', reason: {message: 'presentation refused'}})
+    expect(second).toMatchObject({status: 'rejected', reason: {code: 'local-stale'}})
+    expect(reopen).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('a reservation the accountant refused as a stale draw (C21, 110 ms)', () => {
-  const refused = (epoch: number) => Object.assign(new Error('Paid operation stopped during reservation'), {cause: new PaidReservationStaleEpochError(epoch)})
+  const refused = (epoch: number, code = 'reservation-refused') => Object.assign(new Error('Paid operation stopped during reservation'), {code, cause: new PaidReservationStaleEpochError(epoch)})
 
   it('retries once, on a re-opened session, only when a fresh chain read confirms the grant left the window', async () => {
     const {session} = fakeSession(70, {endsWhenTwoBehind: true})
     chainEpoch = 72n
     paidSessionDecrypt.mockRejectedValueOnce(refused(70))
     const retries: string[] = []
-    const reopen = vi.fn(async () => ({plaintext: new Uint8Array([6]), session: fakeSession(72).session}))
+    const reopen = vi.fn(async (_e: SessionEndedError, m: typeof message) => ({shares: sharesFor(m.ciphertext), requestIds: [P], session: fakeSession(72).session}))
     const r = await decryptInSession({...request(session), reopen, hooks: {onRetry: reason => retries.push(reason)}})
-    expect(r.plaintext).toEqual(new Uint8Array([6]))
+    expect(text(r.plaintext)).toBe('in flight')
     expect(retries).toEqual(['reservation-stale'])
     expect(reopen).toHaveBeenCalledTimes(1)
   })
@@ -290,5 +383,15 @@ describe('a reservation the accountant refused as a stale draw (C21, 110 ms)', (
     paidSessionDecrypt.mockRejectedValueOnce(refused(70))
     await expect(decryptInSession(request(session))).rejects.toThrow(/stopped during reservation/)
     expect(paidSessionDecrypt).toHaveBeenCalledTimes(1)
+  })
+
+  it('only a `reservation-refused` (nothing sent) is retried: an uncertain reservation with the same cause is not (review F6)', async () => {
+    const {session} = fakeSession(70)
+    chainEpoch = 72n
+    paidSessionDecrypt.mockRejectedValueOnce(refused(70, 'reservation-uncertain'))
+    const retries: string[] = []
+    await expect(decryptInSession({...request(session), hooks: {onRetry: reason => retries.push(reason)}})).rejects.toThrow(/stopped during reservation/)
+    expect(paidSessionDecrypt).toHaveBeenCalledTimes(1)
+    expect(retries).toEqual([])
   })
 })

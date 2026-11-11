@@ -267,6 +267,25 @@ never does.
   of its own (`readCurrentBeaconEpoch(..., {fresh: true})`): a followed tip lagging the keepers'
   head by one beacon push let six messages fail at 5 ms.
 
+- Session re-open review (C21): `decryptInSession`'s `reopen` now returns `{shares, requestIds,
+  session?}` (`SessionReopened`), never a bare session or a plaintext. Its presentation IS a paid
+  KEM decrypt, so it must decrypt the message in flight: the helper verifies the returned decrypt
+  shares against THIS message's ciphertext and the keepers' authenticated verifying shares and
+  combines them itself (the AEAD open under this message's identity), so another message's
+  plaintext can never be returned; the shares are zeroed after use. The presentation's request ids
+  join `SessionMessageResult.requestIds` and count as debits: `reopen` gets a `{debits}` budget
+  (1 when the message already paid once), a reply naming none or more is refused, and no payment
+  or re-open starts once a message holds `MAX_MESSAGE_DEBITS` (2; an allowance debit refused
+  before the per-operation fallback names an id but is no debit). Concurrent messages of one ended
+  session share ONE re-open: the others continue on its new session, each paying its own
+  decrypt (and re-open in turn only when it opened no grant). A refresh refused
+  `session_context_changed` while the client's own chain read (`beacon.latestEpoch`) shows the
+  grant still admissible (a verifier's beacon or anchor behind) is retried as transient for up to
+  `contextRetryMs` (default 15 s), and ends at once when the read confirms it two epochs behind.
+  A failing `beacon.drawState` no longer stops the follow: the poll falls back to `latestEpoch`
+  with one `console.warn` until it answers. The `reservation-stale` retry also requires
+  `code === 'reservation-refused'`.
+
 - A lane selection now also reserves ahead the replacement of a confirmed allowance that is within
   600 s of funding no operation like its own (its expiry minus 30 s minus the payment's), or on a
   keeper sharing the slot no longer has, not only of a `low()` one. Between 630 and 600 s of life
