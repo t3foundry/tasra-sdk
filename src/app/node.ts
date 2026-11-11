@@ -196,11 +196,6 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
   }
   const flush = committer(root)
   const syncDirectory = () => flush('entries')
-  /** Make the data written through `file` (opened with {@link DSYNC}) durable before anything publishes it. */
-  async function durable(file: import('node:fs/promises').FileHandle) {
-    if (DSYNC === 0) { fileStoreSyncCounters.fileSyncs++; await file.sync(); return }
-    await flush('data')
-  }
   /**
    * Create the lock file exclusively. At the head of this process's queue an existing file belongs
    * to another process (or a crashed one): wait for it to go, at most `lockWaitMs`, then refuse.
@@ -389,15 +384,20 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
     },
     async claim(key) {
       // `O_CREAT | O_EXCL` on the record itself is the exclusive claim, across threads and
-      // processes: exactly one creator wins, every other gets EEXIST. The record is written and
-      // fsynced, then the directory, before this resolves. A crash mid-write still leaves the key
-      // claimed (its content is only a diagnostic), which is the safe direction.
+      // processes: exactly one creator wins, every other gets EEXIST. The entry exists before the
+      // write, so ONE directory flush issued after the write returns makes both durable before
+      // this resolves (without O_DSYNC the file is synced on its own first). A crash before that
+      // flush may leave the entry without its content, exactly as a crash mid-write always could:
+      // the key stays claimed (its content is only a diagnostic), which is the safe direction.
       const target = path(key), contents = JSON.stringify({schemaVersion: 1, value: encode({claimed: true})}) + '\n'
       await ready()
       let file
       try { file = await open(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW | DSYNC, 0o600) }
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false; throw error }
-      try { await file.writeFile(contents, 'utf8'); await durable(file) } finally { await file.close() }
+      try {
+        await file.writeFile(contents, 'utf8')
+        if (DSYNC === 0) { fileStoreSyncCounters.fileSyncs++; await file.sync() }
+      } finally { await file.close() }
       await syncDirectory()
       return true
     },

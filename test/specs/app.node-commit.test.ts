@@ -194,7 +194,7 @@ describe.skipIf(DSYNC === 0)('file store group commit', () => {
     expect(await store.load('b')).toEqual({v: 'later'})
   })
 
-  it('a lock entry is synced before the guarded action runs, without a flush of its own diagnostic content; a claim before it is reported won', async () => {
+  it('a lock entry is synced before the guarded action runs, without a flush of its own diagnostic content; a claim is reported won after ONE flush issued after its write', async () => {
     const store = createFileStore(await directory())
     await store.withLock('lane', async () => { events.push('action') })
     // Nothing reads the lock's content (pid, time). Written O_DSYNC, it is on the device once the
@@ -202,7 +202,7 @@ describe.skipIf(DSYNC === 0)('file store group commit', () => {
     expect(events).toEqual(['open:lane.lock:dsync', 'dirsync', 'action', 'unlink:lane.lock', 'dirsync'])
     events.length = 0
     expect(await store.claim!('send-1')).toBe(true)
-    expect(events).toEqual(['open:send-1.json:dsync', 'dirsync', 'dirsync'])
+    expect(events).toEqual(['open:send-1.json:dsync', 'dirsync'])
     expect(await store.claim!('send-1')).toBe(false)
   })
 })
