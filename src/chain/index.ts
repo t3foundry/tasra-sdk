@@ -27,7 +27,7 @@ export {reservePrepaidAllowance, reconcilePrepaidAllowance, readPrepaidAllowance
   DebitVoucherError, ALLOWANCE_MAX_LIFETIME_SECS, ALLOWANCE_QUOTE_MAX_AGE_SECS} from './allowance.js'
 export type {PrepaidAllowanceState, PrepaidAllowanceQuote, PrepaidAllowanceReservationRecord, PrepaidAllowanceCheckpoint, ReservePrepaidAllowanceOptions,
   DebitPartialWire, DebitRequest, DebitMemberOutcome, CollectDebitVoucherOptions} from './allowance.js'
-export {SlotCommitmentExpiredError, assertExpiredSlotCommitment} from './commitmentRecovery.js'
+export {SlotCommitmentExpiredError, SlotRevealNotYetError, SlotSeedUnavailableError, assertExpiredSlotCommitment} from './commitmentRecovery.js'
 // Payer-side prepaid timeout escape: refund reservations nobody reconciled within the governed delay.
 export {createPrepaidEscapeClient, decodePrepaidEscapeRevert, decodePrepaidEscapeLogs, prepaidEscapeId, MAX_ESCAPE_PER_CALL, MAX_ESCAPE_REQUESTS} from './prepaidEscape.js'
 export type {PrepaidEscapeClient, PrepaidEscapeDeployment, PrepaidEscapeRequestState, PrepaidEscapeStatus, PrepaidEscapeObservation, PrepaidEscapeRecord,
@@ -137,7 +137,7 @@ export type {SlotGroupKey} from './discovery.js'
 // accountant-seeded creation: the per-commitment draw seed. `createSlotCommitReveal` uses this internally; it is
 // exported for a caller that drives commit and reveal itself (the CLI does) or wants to inspect
 // what the accountant set answered before spending gas.
-export {requestSlotSeed} from './slotSeed.js'
+export {DEFAULT_SLOT_SEED_HEDGE_MS, DEFAULT_SLOT_SEED_RETRY_MS, requestSlotSeed} from './slotSeed.js'
 export type {SlotSeed, SlotSeedAnswer, SlotSeedFailure, SlotSeedOptions} from './slotSeed.js'
 
 // The few-lines committee surface, driven by just a slot id: discovers the

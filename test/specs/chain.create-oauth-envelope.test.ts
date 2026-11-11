@@ -44,17 +44,23 @@ function fixture() {
       transport: {request: vi.fn(), relayRequest: vi.fn()},
     },
   })
-  const args = {slotId: hash('04'), salt: hash('05'), ruleSalt: hash('06'), k: 2, n: 3, mode: 'frost' as const}
+  const args = {slotId: hash('04'), salt: hash('05'), ruleSalt: hash('06'), k: 2, n: 3, mode: 'frost' as const, accountantUrls: ['http://a']}
   return {writer, args}
 }
 
+/** The accountant set: every seed ask is answered. Creation has no other path. */
+const SEED_SIG = `0x${'5c'.repeat(64)}` as Hex, SEED_DIGEST = `0x${'aa'.repeat(32)}` as Hex
+const seedFetch = async () => ({ok: true, status: 200, headers: new Headers(), json: async () => ({commitment: `0x${'07'.repeat(32)}`, digest: SEED_DIGEST, signature: SEED_SIG}), text: async () => ''}) as unknown as Response
+
 beforeEach(() => {
+  vi.stubGlobal('fetch', seedFetch)
   vi.clearAllMocks()
   mocks.read.mockImplementation(async ({functionName}: {functionName: string}) => {
     if (functionName === 'computeCommitment') return hash('07')
     if (functionName === 'slotCommits') return [2n, 5n, address, false]
     if (functionName === 'epoch') return 2n
     if (functionName === 'randomBeacon') return address
+    if (functionName === 'commitSeedDigest') return SEED_DIGEST
     throw new Error(`Unexpected read ${functionName}`)
   })
   mocks.receipt.mockResolvedValue({status: 'success'})

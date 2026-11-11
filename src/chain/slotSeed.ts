@@ -1,22 +1,25 @@
 // accountant-seeded creation: the per-commitment draw seed.
 //
-// Under beacon-epoch creation a slot is committed, then revealed once the beacon has advanced past the
-// commit's target epoch. The wait is what makes the committee draw ungrindable - the seed must
-// post-date the commitment - and it costs one BEACON EPOCH, which at the production cadence is up
-// to an hour.
+// Under the older beacon-epoch creation a slot was committed, then revealed once the beacon had
+// advanced past the commit's target epoch. The wait is what made the committee draw ungrindable -
+// the seed must post-date the commitment - and it cost ONE TO TWO BEACON EPOCHS (the target is
+// `COMMIT_GAP = 2` epochs past the epoch the commit landed in), which at the production cadence of
+// one hour is one to two hours.
 //
 // accountant-seeded creation keeps the property and drops the wait: the accountant set threshold-signs
 // `KeyRegistry.commitSeedDigest(commitment)` on demand, and the reveal derives the draw seed from
 // that signature. It post-dates the commitment because it is OVER the commitment.
 //
-// This module is the client half. It is deliberately best-effort: when no accountant answers, the
-// caller falls back to the epoch wait, which still works and is what every existing deployment
-// does. A seed that cannot be fetched is slower, never wrong.
+// This module is the client half, and the ONLY way the SDK creates a slot. There is no fallback to
+// the epoch wait: the epoch seed comes from the same k-of-n accountant set, so a fallback adds no
+// liveness - only a wait of up to two hours. A seed that cannot be had within the bounded window is
+// a typed failure the caller can act on (`SlotSeedUnavailableError`), never a silent wait.
 
 import type {Hex} from 'viem'
 import type {TasraChainClient} from './client.js'
 import {keyRegistryAbi} from './abis/index.js'
 import {resolveAccountantUrls} from './discovery.js'
+import {parseRetryAfter} from '../internal/retryAfter.js'
 
 /** What an accountant returns from `POST /v1/slot-seed`. */
 export interface SlotSeed {
@@ -69,20 +72,31 @@ export interface SlotSeedFailure {
   reason: string
 }
 
-type Asked = {seed: SlotSeed} | {answer: SlotSeedAnswer; retryable: boolean}
+type Asked = {seed: SlotSeed} | {answer: SlotSeedAnswer; retryable: boolean; retryAfterMs?: number}
 
 /**
  * Statuses that mean "not yet" rather than "no":
  * - 404: this accountant's chain view has not reached the commit receipt yet;
+ * - 429: it sheds load and says when to come back (`Retry-After`);
  * - 503: its threshold set is not up, or it is already leading a round (one at a time, by design:
  *   a queue there is a queue in front of the beacon);
  * - 502/504: it could not read the chain, or a proxy timed out.
  * A 409 is the opposite: the commitment is bound to another reveal path, or already revealed, and
  * no retry can change it.
  */
-const RETRYABLE = new Set([404, 502, 503, 504])
+const RETRYABLE = new Set([404, 429, 502, 503, 504])
 
-async function askOne(url: string, commitment: Hex, timeoutMs: number, expectedDigest: string): Promise<Asked> {
+/** Default time the creation path keeps re-asking while the set answers "not yet". */
+export const DEFAULT_SLOT_SEED_RETRY_MS = 90_000
+/**
+ * Default stagger between launching the asks of one round. The asks run CONCURRENTLY and the first
+ * valid seed wins; the stagger only keeps a healthy set from leading n threshold rounds for one
+ * commitment (each accountant leads at most one round at a time and sheds the rest with a 503).
+ * An ask that fails launches the next one at once, without waiting for the stagger.
+ */
+export const DEFAULT_SLOT_SEED_HEDGE_MS = 750
+
+async function askOne(url: string, commitment: Hex, timeoutMs: number, expectedDigest: string, signal: AbortSignal): Promise<Asked> {
   let end = url.length
   while (end > 0 && url[end - 1] === '/') end--
   const base = url.slice(0, end)
@@ -92,17 +106,19 @@ async function askOne(url: string, commitment: Hex, timeoutMs: number, expectedD
       method: 'POST',
       headers: {'content-type': 'application/json'},
       body: JSON.stringify({commitment}),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), signal]),
     })
   } catch (e) {
-    // One unreachable accountant is not a failure of the set - the next one is asked. It is not
-    // retried either: an accountant that is down is down for longer than the retry window, and
-    // a set that is entirely unreachable must reach the epoch wait without paying the window.
-    return {answer: {url, reason: `unreachable: ${e instanceof Error ? e.message : String(e)}`}, retryable: false}
+    // A timeout is "busy", and asked again in the next round. A refused or reset connection is
+    // "down", and is not: an accountant that is down is down for longer than the retry window, and
+    // a set that is entirely unreachable must fail FAST rather than pay the window to say so.
+    const timedOut = e instanceof Error && e.name === 'TimeoutError'
+    return {answer: {url, reason: `${timedOut ? 'timed out' : 'unreachable'}: ${e instanceof Error ? e.message : String(e)}`}, retryable: timedOut}
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    return {answer: {url, status: res.status, reason: text.slice(0, 200) || `HTTP ${res.status}`}, retryable: RETRYABLE.has(res.status)}
+    const retryable = RETRYABLE.has(res.status)
+    return {answer: {url, status: res.status, reason: text.slice(0, 200) || `HTTP ${res.status}`}, retryable, ...retryable ? {retryAfterMs: parseRetryAfter(typeof res.headers?.get === 'function' ? res.headers.get('retry-after') : undefined)} : {}}
   }
   const seed = parseSeed(await res.json().catch(() => null), commitment)
   if (!seed) return {answer: {url, status: res.status, reason: 'malformed seed response'}, retryable: false}
@@ -113,21 +129,78 @@ async function askOne(url: string, commitment: Hex, timeoutMs: number, expectedD
   return {seed}
 }
 
+type Round = {seed: SlotSeed} | {asked: Extract<Asked, {answer: SlotSeedAnswer}>[]; settled: boolean}
+
 /**
- * Accountant endpoint overrides and per-request timeout for committee seed discovery.
+ * One round: every accountant asked once, CONCURRENTLY. Asks launch `hedgeMs` apart in `order`, or at
+ * once when an earlier ask fails; the first valid seed wins and cancels the rest. A 409 ends the
+ * round: it is the chain's answer, not one accountant's state.
+ */
+function askRound(order: string[], commitment: Hex, timeoutMs: number, expected: string, hedgeMs: number, outer?: AbortSignal): Promise<Round> {
+  return new Promise(resolve => {
+    const cancel = new AbortController()
+    const signal = outer ? AbortSignal.any([cancel.signal, outer]) : cancel.signal
+    const asked: Extract<Asked, {answer: SlotSeedAnswer}>[] = []
+    let next = 0, pending = 0, done = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const finish = (r: Round) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      cancel.abort()
+      resolve(r)
+    }
+    const launch = () => {
+      clearTimeout(timer)
+      const url = order[next++]
+      if (done || url === undefined) return
+      pending++
+      void askOne(url, commitment, timeoutMs, expected, signal).then(a => {
+        pending--
+        if (done) return
+        if ('seed' in a) return finish({seed: a.seed})
+        asked.push(a)
+        if (a.answer.status === 409) return finish({asked, settled: true})
+        if (next < order.length) launch()
+        else if (pending === 0) finish({asked, settled: false})
+      })
+      if (next < order.length) timer = setTimeout(launch, hedgeMs)
+    }
+    if (!order.length) return finish({asked, settled: false})
+    launch()
+  })
+}
+
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const aborted = () => {clearTimeout(timer); reject(signal?.reason)}
+    const timer = setTimeout(() => {signal?.removeEventListener('abort', aborted); resolve()}, ms)
+    signal?.addEventListener('abort', aborted, {once: true})
+  })
+}
+
+/**
+ * Accountant endpoint overrides, per-request timeout and the bounded retry window for committee
+ * seed discovery.
  */
 export interface SlotSeedOptions {
   /** Accountant base URLs. Resolved from `NodeRegistry` when omitted. */
   urls?: string[]
-  /** Per-accountant HTTP timeout. The round itself is bounded server-side. */
+  /** Per-accountant HTTP timeout (default 20 s). Within a retry window it is also capped by what is left of the window. */
   timeoutMs?: number
   /**
-   * Keep asking for up to this long while every refusal is a "not yet" (404 before the
-   * accountant's view reaches the commit, 503 while another creation's round holds it). Default 0:
-   * one round. `createSlotCommitReveal` passes a window, because there the alternative is a full
-   * beacon epoch.
+   * Keep asking for up to this long while some refusal is a "not yet" (404 before the
+   * accountant's view reaches the commit, 503 while another creation's round holds it, 429, a
+   * timeout). Rounds back off with jitter and honour `Retry-After`; a `Retry-After` that lands past
+   * the window ends it at once. Default 0: one round. `createSlotCommitReveal` passes
+   * {@link DEFAULT_SLOT_SEED_RETRY_MS}.
    */
   retryForMs?: number
+  /** Stagger between the concurrent asks of one round (default {@link DEFAULT_SLOT_SEED_HEDGE_MS}; 0 asks all at once). */
+  hedgeMs?: number
+  /** Cancels the asks and the waits between rounds. */
+  signal?: AbortSignal
   /** Called once with every answer of the last round when no seed was obtained. */
   onFailure?: (failure: SlotSeedFailure) => void
 }
@@ -143,12 +216,12 @@ function summarise(answers: SlotSeedAnswer[]): string {
 }
 
 /**
- * Request a committee draw seed and compare its digest with the registry. Checks signature encoding and rejects the point at infinity; signature cryptography is verified during the on-chain reveal.
+ * Request a committee draw seed and compare its digest with the registry. Checks signature encoding and rejects the point at infinity; signature cryptography is verified during the on-chain reveal. Accountants are asked concurrently and the first valid seed wins.
  * @param chain Reader for the deployment owning the commitment.
  * @param keyRegistry Registry that will receive the reveal transaction.
  * @param commitment Previously submitted creation commitment.
- * @param opts Accountant endpoints, request timeout and retry window.
- * @returns A seed response, or null when no accountant returns an acceptable response.
+ * @param opts Accountant endpoints, request timeout, retry window and cancellation.
+ * @returns A seed response, or null when no accountant returns an acceptable response within the window.
  */
 export async function requestSlotSeed(
   chain: TasraChainClient,
@@ -164,6 +237,11 @@ export async function requestSlotSeed(
   if (!Number.isSafeInteger(retryForMs) || retryForMs < 0 || retryForMs > 600_000) {
     throw new Error('Invalid slot-seed retry window')
   }
+  const hedgeMs = opts.hedgeMs ?? DEFAULT_SLOT_SEED_HEDGE_MS
+  if (!Number.isSafeInteger(hedgeMs) || hedgeMs < 0 || hedgeMs > 60_000) {
+    throw new Error('Invalid slot-seed hedge delay')
+  }
+  opts.signal?.throwIfAborted()
   const urls = opts.urls ?? (await resolveAccountantUrls(chain).catch(() => []))
   if (!urls.length) {
     opts.onFailure?.({rounds: 0, answers: [], reason: summarise([])})
@@ -179,31 +257,31 @@ export async function requestSlotSeed(
 
   const deadline = Date.now() + retryForMs
   // Start at an accountant picked by the commitment, and move one on per round: concurrent
-  // creators would otherwise all queue on the first one, whose single lead slot then sheds every
+  // creators would otherwise all lead on the first one, whose single lead slot then sheds every
   // caller but one with a 503. Derived, not random, so a given creation asks in a fixed order.
   const offset = Number.parseInt(commitment.slice(-4), 16) % urls.length || 0
   let delay = 250
   for (let round = 1; ; round++) {
-    const answers: SlotSeedAnswer[] = []
-    let retryable = false, settled = false
-    for (let i = 0; i < urls.length; i++) {
-      const url = urls[(offset + round - 1 + i) % urls.length]
-      if (url === undefined) continue
-      const asked = await askOne(url, commitment, timeoutMs, expected)
-      if ('seed' in asked) return asked.seed
-      answers.push(asked.answer)
-      retryable ||= asked.retryable
-      // A 409 is the CHAIN's answer (wrong reveal path, already revealed), not one accountant's
-      // state: another accountant that has not caught up yet would only say 404 and be retried
-      // for nothing.
-      settled ||= asked.answer.status === 409
-    }
-    if (!retryable || settled || Date.now() + delay > deadline) {
+    const order = urls.map((_, i) => urls[(offset + round - 1 + i) % urls.length]).filter((u): u is string => u !== undefined)
+    // Inside a window, no ask outlives it by more than a second: the window is the bound a caller
+    // was promised, not a floor under a 20 s ask that started just before it closed.
+    const askMs = retryForMs > 0 ? Math.max(1_000, Math.min(timeoutMs, deadline - Date.now())) : timeoutMs
+    const r = await askRound(order, commitment, askMs, expected, hedgeMs, opts.signal)
+    if ('seed' in r) return r.seed
+    opts.signal?.throwIfAborted()
+    const answers = r.asked.map(a => a.answer)
+    const notYet = r.asked.filter(a => a.retryable)
+    const fail = () => {
       opts.onFailure?.({rounds: round, answers, reason: summarise(answers)})
       return null
     }
+    if (!notYet.length || r.settled) return fail()
     // Jittered so a burst of creators that were all shed together does not come back together.
-    await new Promise(r => setTimeout(r, delay / 2 + Math.random() * delay / 2))
-    delay = Math.min(delay * 2, 2_000)
+    // When EVERY "not yet" named a Retry-After, nobody will answer sooner than the earliest of them.
+    const hinted = notYet.every(a => a.retryAfterMs !== undefined) ? Math.min(...notYet.map(a => a.retryAfterMs ?? 0)) : 0
+    const wait = Math.max(delay / 2 + Math.random() * delay / 2, hinted)
+    if (Date.now() + wait > deadline) return fail()
+    await pause(wait, opts.signal)
+    delay = Math.min(delay * 2, 4_000)
   }
 }
