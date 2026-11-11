@@ -9,7 +9,8 @@ import {parseRetryAfter} from '../internal/retryAfter.js'
 import {lookup} from 'node:dns'
 import {request} from 'node:https'
 import {request as plainRequest, type IncomingMessage} from 'node:http'
-import {rootCertificates} from 'node:tls'
+import {createSecureContext, rootCertificates, type SecureContext} from 'node:tls'
+import {BoundedCache} from '../internal/bounded.js'
 import {BlockList, isIP, type LookupFunction} from 'node:net'
 import type {ServiceDiscoveryTransport} from './serviceIdentity.js'
 import {acceptsServiceResponse, serviceRequestShape} from './serviceRequestPolicy.js'
@@ -24,6 +25,16 @@ for (const [address, prefix] of [
 for (const [address, prefix] of [['2001::', 23], ['2001:db8::', 32], ['2002::', 16], ['3fff::', 20]] as const) denied.addSubnet(address, prefix, 'ipv6')
 const globalV6 = new BlockList()
 globalV6.addSubnet('2000::', 3, 'ipv6')
+
+// Building a SecureContext parses every bundled root plus the deployment CAs: a few ms of CPU per
+// request when each connection built its own. One context per exact CA set (keyed by the complete
+// CA bytes, never a name) is shared; verification stays per connection (rejectUnauthorized, hostname).
+const secureContexts = new BoundedCache<string, SecureContext>(16)
+function trustContext(ca: string | Buffer | (string | Buffer)[]): SecureContext {
+  const extra = Array.isArray(ca) ? ca : [ca]
+  const key = JSON.stringify(extra.map(c => typeof c === 'string' ? ['s', c] : ['b', c.toString('base64')]))
+  return secureContexts.getOrCompute(key, () => createSecureContext({ca: [...rootCertificates, ...extra]}))
+}
 
 /** A loopback name or a non-public IP literal (plain local-development HTTP only). */
 function localName(host: string): boolean {
@@ -186,8 +197,10 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
       return new Promise<Uint8Array | PaidAgentHttpResponse>((resolve, reject) => {
         const common = {method: shape.method, agent: false as const, lookup: checkedLookup, signal, maxHeaderSize: 8_192,
           headers: {...shape.headers, 'accept-encoding': 'identity', ...(body ? {'content-length': body.length} : {})}}
+        // Inside the executor: a malformed CA still rejects this request, as when tls.connect parsed it.
+        const trust = plain || ca === undefined ? undefined : trustContext(ca)
         const req = plain ? plainRequest(parsed, common, res => respond(res)) : request(parsed, {...common,
-          ca: ca === undefined ? undefined : [...rootCertificates, ...(Array.isArray(ca) ? ca : [ca])], rejectUnauthorized: true,
+          ...(trust === undefined ? {} : {secureContext: trust}), rejectUnauthorized: true,
         }, res => respond(res))
         function respond(res: IncomingMessage) {
           const fail = (error: Error) => { reject(error); req.destroy(error) }
