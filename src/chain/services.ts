@@ -197,8 +197,19 @@ export async function readApprovedServiceRecord(
   if (chainId !== approval.chainId || (chain.client.chain && chain.client.chain.id !== chainId)) {
     throw new Error('Service chain approval mismatch')
   }
-  const blockNumber = await chain.client.getBlockNumber({cacheTime: 0})
-  const record = await chain.readers.serviceRegistry.getService(approval.serviceId, blockNumber)
+  // At a live head follower's tip (confirmed within 2 s; the same head a `latest` read returns, by
+  // subscription or poll), the record is a read pinned to that block's hash and pre-read at every
+  // new head; otherwise the head number and the record at it are read by RPC, as before.
+  const tip = headFollowerOf(chain.client)?.tip()
+  let blockNumber: bigint, record: Awaited<ReturnType<typeof chain.readers.serviceRegistry.getService>>
+  if (tip) {
+    registerHeadPrefetch(chain.client, `service:${registry}:${approval.serviceId}`.toLowerCase(), head => serviceAt(chain.client, registry, approval.serviceId, head))
+    blockNumber = tip.blockNumber
+    record = await serviceAt(chain.client, registry, approval.serviceId, tip)
+  } else {
+    blockNumber = await chain.client.getBlockNumber({cacheTime: 0})
+    record = await chain.readers.serviceRegistry.getService(approval.serviceId, blockNumber)
+  }
   if (record.status !== SERVICE_STATUSES.active) throw new Error('Service is not accepting new work')
   if (record.serviceType !== approval.serviceType || !Object.values(SERVICE_TYPES).includes(record.serviceType)) {
     throw new Error('Service type approval mismatch')
