@@ -8,17 +8,30 @@ const failRename = {next: false}
 const gate: {hold?: Promise<void>} = {}
 // Device flushes in flight at once, and the most seen.
 const inflight = {now: 0, most: 0}
+// Writes that RETURNED, by file label, and device flushes ISSUED, counted synchronously when issued:
+// a directory flush when the store opens the directory (before any I/O), a file flush (only the
+// old per-file barrier, or without O_DSYNC) when its sync is called. What a test waits on and
+// checks instead of wall-clock time; kept out of `events`.
+const wrote: string[] = []
+const issued = {directories: 0, files: 0}
+// Lock removals and renames that RETURNED (`unlink:`/`rename:` events are pushed when called).
+const unlinked: string[] = []
+const renamed: string[] = []
 vi.mock('node:fs/promises', async original => {
   const real = await original<typeof import('node:fs/promises')>()
   const name = (path: unknown) => String(path).split('/').pop()!.replace(/^\.[0-9a-f-]+\.tmp$/, 'tmp')
   return {
     ...real,
     open: async (path: string, flags: number, mode?: number) => {
+      if (typeof flags === 'number' && (flags & constants.O_DIRECTORY)) issued.directories++
       const handle = await real.open(path, flags, mode)
       const label = name(path)
+      const writeFile = handle.writeFile.bind(handle)
+      handle.writeFile = async (...args: Parameters<typeof writeFile>) => { await writeFile(...args); wrote.push(label) }
       if (typeof flags === 'number' && (flags & constants.O_WRONLY)) events.push(`open:${label}:${(flags & ((constants as {O_DSYNC?: number}).O_DSYNC ?? 0)) ? 'dsync' : 'plain'}`)
       const sync = handle.sync.bind(handle)
       handle.sync = async () => {
+        if (!(flags & constants.O_DIRECTORY)) issued.files++
         // Decided when the flush is issued, so a held flush never takes the failure meant for a later one.
         const fail = failSync.next
         if (fail) failSync.next = false
@@ -34,10 +47,15 @@ vi.mock('node:fs/promises', async original => {
     },
     rename: async (from: string, to: string) => {
       if (failRename.next) { failRename.next = false; throw Object.assign(new Error('injected rename failure'), {code: 'EIO'}) }
-      events.push(`rename:${name(to)}`); return real.rename(from, to)
+      events.push(`rename:${name(to)}`); await real.rename(from, to); renamed.push(name(to))
     },
     // Lock removals are durable steps too (temporaries are not traced).
-    unlink: async (path: string) => { if (String(path).endsWith(".lock")) events.push(`unlink:${name(path)}`); return real.unlink(path) },
+    unlink: async (path: string) => {
+      const lock = String(path).endsWith(".lock")
+      if (lock) events.push(`unlink:${name(path)}`)
+      await real.unlink(path)
+      if (lock) unlinked.push(name(path))
+    },
   }
 })
 
@@ -58,6 +76,7 @@ afterEach(async () => {
   await new Promise(done => setTimeout(done, 50))
   const floated = unhandled.splice(0).map(reason => String((reason as Error)?.message ?? reason))
   events.length = 0; failSync.next = false; failRename.next = false; gate.hold = undefined; inflight.now = 0; inflight.most = 0
+  wrote.length = 0; issued.directories = 0; issued.files = 0; unlinked.length = 0; renamed.length = 0
   await Promise.all(roots.splice(0).map(dir => rm(dir, {recursive: true, force: true})))
   expect(floated, 'unhandled rejections').toEqual([])
 })
@@ -93,20 +112,38 @@ describe.skipIf(DSYNC === 0)('file store group commit', () => {
 
   it('a writer waiting for its data barrier and a lock waiting for its entry share ONE flush, issued only after the running one', async () => {
     const store = createFileStore(await directory())
-    let release!: () => void
-    gate.hold = new Promise<void>(done => { release = done })
-    // `a` holds the directory's only flush (its data barrier).
+    // Every step is driven by the store's own progress (no wall-clock assumption): the flushes are
+    // held at the gate and released by the test, and a caller counts as waiting once its write
+    // RETURNED, after which it reaches the flush in microtasks alone (no I/O in between), so by the
+    // next timer turn it has joined.
+    const until = async (done: () => boolean) => { while (!done()) await new Promise(next => setTimeout(next, 1)); await new Promise(next => setImmediate(next)) }
+    const hold = () => { let release!: () => void; gate.hold = new Promise<void>(done => { release = done }); return () => release() }
+    const held = () => events.filter(e => e === 'held').length
+    // `a` holds the directory's only flush (its data barrier): F1.
+    let release = hold()
     const a = store.save('a', {v: 1})
-    while (!events.includes('held')) await new Promise(done => setTimeout(done, 1))
+    await until(() => held() === 1)
     // Meanwhile `b` finishes its write (needs a data barrier) and a lock is created (needs its entry synced).
     const b = store.save('b', {v: 2})
     const lock = store.withLock('lane', async () => { events.push('action') })
-    while (events.filter(e => e.startsWith('open:')).length < 3) await new Promise(done => setTimeout(done, 1))
-    await new Promise(done => setTimeout(done, 20))
-    // Neither started a flush beside the held one (the old store issued the lock's directory sync at once).
+    await until(() => wrote.filter(w => w === 'tmp').length === 2 && wrote.includes('lane.lock'))
+    // Neither started a flush beside the held one (the old store issued the lock's directory sync at
+    // once, beside its held barrier): the only flush issued is F1, still held.
+    expect(issued.directories + issued.files).toBe(1)
+    expect(inflight.now).toBe(1)
     expect(events.filter(e => e === 'dirsync')).toEqual([])
     const before = {...fileStoreSyncCounters}
     events.length = 0
+    // Release F1; the next flush (F2) is held in turn when it starts.
+    let next = hold(); release(); release = next
+    await until(() => held() === 1)
+    // F2 is ONE flush serving both b's barrier and the lock's entry (counted when it started).
+    expect(fileStoreSyncCounters.flushes - before.flushes).toBe(1)
+    expect(fileStoreSyncCounters.shared - before.shared).toBe(1)
+    // Release F2 and hold whatever flush starts next (F3, for `a`'s rename or whoever asks first):
+    // b renames and the action runs with no further flush completing.
+    next = hold(); release(); release = next
+    await until(() => events.includes('rename:b.json') && events.includes('action'))
     release()
     await Promise.all([a, b, lock])
     // The held flush, then ONE flush serving both b's barrier and the lock's entry: b renames and
@@ -126,8 +163,12 @@ describe.skipIf(DSYNC === 0)('file store group commit', () => {
   it('a crash at a flush shared by a published commit and a staged one leaves each what a crash at its own flush left', async () => {
     const dir = await directory(), store = createFileStore(dir)
     await store.save('record', {phase: 'old'}); await store.save('other', {v: 'old'})
-    events.length = 0
-    const until = async (done: () => boolean) => { while (!done()) await new Promise(next => setTimeout(next, 1)); await new Promise(next => setTimeout(next, 20)) }
+    events.length = 0; wrote.length = 0
+    // Driven by the store's progress, never by wall-clock time: a writer waits for its barrier once
+    // its write RETURNED, and A for its directory flush once its lock removal returned; from there
+    // each reaches the flush in microtasks alone, so by the next timer turn it has joined.
+    const until = async (done: () => boolean) => { while (!done()) await new Promise(next => setTimeout(next, 1)); await new Promise(next => setImmediate(next)) }
+    const temporaries = () => wrote.filter(w => w === 'tmp').length
     const held = () => events.filter(e => e === 'held').length
     const hold = () => { let release!: () => void; gate.hold = new Promise<void>(done => { release = done }); return () => release() }
     // F1 (A's data barrier) held; D's data queues for F2, which is held too when it starts.
@@ -136,16 +177,17 @@ describe.skipIf(DSYNC === 0)('file store group commit', () => {
     const a = withCommit(store, 'record', async commit => { commit.stage('record', {phase: 'new'}) }).then(() => { acknowledged = true })
     await until(() => held() === 1)
     const d = store.save('d', {v: 1})
-    await until(() => events.filter(e => e === 'open:tmp:dsync').length === 2)
+    await until(() => temporaries() === 2)
     let next = hold(); release(); release = next
     // While F2 runs, A renames, removes its lock and waits for its directory flush (F3) ...
-    await until(() => held() === 2 && events.includes('unlink:record.lock'))
+    await until(() => held() === 2 && unlinked.includes('record.lock'))
     // ... and B writes and waits for its data barrier: the same F3.
     const before = {...fileStoreSyncCounters}
     const b = store.save('other', {v: 'new'})
-    await until(() => events.filter(e => e === 'open:tmp:dsync').length === 3)
+    await until(() => temporaries() === 3)
     next = hold(); release(); release = next
-    await until(() => held() === 3)
+    // D needed only F2: it is published (renamed) while F3 is held.
+    await until(() => held() === 3 && renamed.includes('d.json'))
     // A crash now, during the shared flush F3. A is renamed and unlocked but NOT acknowledged: a
     // crash before its own directory sync left either value and no lock, and its caller (so
     // anything depending on it) has not been told. B is only a temporary, never renamed: a crash
@@ -175,12 +217,17 @@ describe.skipIf(DSYNC === 0)('file store group commit', () => {
     // Hold the first group's flush, so the next two writers are certain to share the following group.
     let release!: () => void
     gate.hold = new Promise<void>(done => { release = done })
-    events.length = 0
+    events.length = 0; wrote.length = 0
     const first = store.save('c', {v: 'first'})
-    while (!events.includes('open:tmp:dsync')) await new Promise(done => setTimeout(done, 1))
+    // `c`'s barrier is the held flush (not merely its file opened) ...
+    while (!events.includes('held')) await new Promise(done => setTimeout(done, 1))
     // Observed at once: the group may fail while this test is still awaiting `first`.
     const grouped = Promise.allSettled([store.save('a', {v: 'new'}), store.save('b', {v: 'new'})])
-    await new Promise(done => setTimeout(done, 20))
+    // ... and both writers have written, so both wait for the following flush (they join it in
+    // microtasks once their writes returned): that one, and only that one, fails.
+    while (wrote.filter(w => w === 'tmp').length < 3) await new Promise(done => setTimeout(done, 1))
+    await new Promise(done => setImmediate(done))
+    expect(inflight.now).toBe(1)
     failSync.next = true
     release()
     await first
