@@ -1,3 +1,4 @@
+import {createRequire} from 'node:module'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 import {TransactionReceiptNotFoundError, WaitForTransactionReceiptTimeoutError, type Hash, type PublicClient, type TransactionReceipt} from 'viem'
 import {pollTransactionReceipt} from '../../src/chain/receipt.js'
@@ -57,5 +58,46 @@ describe('pollTransactionReceipt', () => {
     const before = pending.reads.length
     await vi.advanceTimersByTimeAsync(5_000)
     expect(pending.reads).toHaveLength(before)
+  })
+})
+
+describe('pollTransactionReceipt with a client from viem\'s CommonJS entry', () => {
+  // A consumer that builds its client with `require('viem')` gets errors from viem's CommonJS
+  // classes, not the ES module classes this package imports: "not found" must still mean "wait".
+  const cjs = createRequire(import.meta.url)('viem') as typeof import('viem')
+  const rpcReceipt = {
+    blockHash: '0x' + 'cd'.repeat(32), blockNumber: '0x14', contractAddress: null, cumulativeGasUsed: '0x5208',
+    effectiveGasPrice: '0x1', from: '0x' + '11'.repeat(20), gasUsed: '0x5208', logs: [], logsBloom: '0x' + '00'.repeat(256),
+    status: '0x1', to: '0x' + '22'.repeat(20), transactionHash: hash, transactionIndex: '0x0', type: '0x2',
+  }
+
+  it('keeps polling on the CommonJS TransactionReceiptNotFoundError and returns the receipt', async () => {
+    vi.useFakeTimers({now: 0})
+    const calls: string[] = []
+    let receiptReads = 0
+    const client = cjs.createPublicClient({
+      transport: cjs.custom({
+        async request({method}: {method: string}) {
+          calls.push(method)
+          if (method === 'eth_getTransactionReceipt') return ++receiptReads <= 2 ? null : rpcReceipt
+          throw new Error(`unexpected ${method}`)
+        },
+      }, {retryCount: 0}),
+    }) as unknown as PublicClient
+    const wait = pollTransactionReceipt(client, hash, {confirmations: 1, timeoutMs: 60_000}).catch((e: unknown) => e)
+    await vi.advanceTimersByTimeAsync(2_000)
+    const got = await wait
+    expect(got).toMatchObject({transactionHash: hash, blockNumber: 20n, status: 'success'})
+    expect(receiptReads).toBe(3)
+    expect(calls.every(m => m === 'eth_getTransactionReceipt')).toBe(true)
+  })
+
+  it('still ends at once on any other CommonJS error', async () => {
+    const client = cjs.createPublicClient({
+      transport: cjs.custom({async request() { throw new cjs.InternalRpcError(new Error('node broke')) }}, {retryCount: 0}),
+    }) as unknown as PublicClient
+    const e = await pollTransactionReceipt(client, hash, {confirmations: 1, timeoutMs: 60_000}).catch((x: unknown) => x)
+    expect((e as Error).name).not.toBe('TransactionReceiptNotFoundError')
+    expect(String((e as Error).message)).toMatch(/node broke|internal/i)
   })
 })

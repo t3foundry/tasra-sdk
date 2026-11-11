@@ -8,8 +8,9 @@
 // Nothing is decided here: a missing receipt keeps waiting until the deadline, any other RPC error
 // ends the wait, and the caller still verifies the transaction, its block and its effects.
 
-import {TransactionReceiptNotFoundError, WaitForTransactionReceiptTimeoutError, type Hash, type PublicClient, type TransactionReceipt} from 'viem'
+import {WaitForTransactionReceiptTimeoutError, type Hash, type PublicClient, type TransactionReceipt} from 'viem'
 import {headFollowerOf} from './headFollower.js'
+import {isViemError} from '../internal/viemErrors.js'
 
 /** First pause before asking again, ms. */
 const FIRST_POLL_MS = 250
@@ -69,7 +70,9 @@ export async function pollTransactionReceipt(client: PublicClient, hash: Hash, o
         headFollowerOf(client)?.noteMinedBlock(receipt.blockNumber)
         break
       }
-      catch (error) { if (!(error instanceof TransactionReceiptNotFoundError)) throw error }
+      // By name: a caller's client built from another copy of viem (its CommonJS entry, say) throws
+      // its own TransactionReceiptNotFoundError class, which instanceof would not recognise.
+      catch (error) { if (!isViemError(error, 'TransactionReceiptNotFoundError')) throw error }
       await next()
     }
     if (options.confirmations <= 1) return receipt

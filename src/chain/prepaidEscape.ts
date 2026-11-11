@@ -21,6 +21,7 @@ import {revertData, revertError} from './revertReason.js'
 import {untilAborted} from './reservation.js'
 import {chainIdOf} from './chainId.js'
 import {pollTransactionReceipt} from './receipt.js'
+import {isViemError} from '../internal/viemErrors.js'
 
 /** Most requests one `escapePrepaid` transaction may name (the contract's `MAX_ESCAPE_PER_CALL`). */
 export const MAX_ESCAPE_PER_CALL = 64
@@ -484,7 +485,7 @@ function sameTransaction(tx: {to: Address | null; from: Address; input: Hex; val
     && (tx.chainId === undefined || tx.chainId === record.chainId)
 }
 
-const notFound = (error: unknown, name: string) => (error as {name?: string} | undefined)?.name === name
+const notFound = (error: unknown, name: string) => isViemError(error, name)
 
 async function escapeCall(client: PublicClient, d: PrepaidEscapeDeployment, slot: Hex, ids: Hex[], signer: WalletClient<Transport, Chain, Account>,
   payer: Account, payerChain: Chain, opts: {maxGas: bigint; maxGasPrice: bigint; persist: EscapePrepaidArgs['persist']; confirmations: number; receiptTimeout: number; signal?: AbortSignal}): Promise<PrepaidEscapeCallResult> {

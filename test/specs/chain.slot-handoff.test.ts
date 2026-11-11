@@ -4,6 +4,7 @@
 //
 // The fixture poisons both direct paths, so every write goes through the relay mock; the mock
 // applies the decoded call to the fixture chain, so a confirmation reads what the call did.
+import {createRequire} from 'node:module'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {
   ContractFunctionZeroDataError,
@@ -196,6 +197,20 @@ describe('proposeSlotTransfer', () => {
 
   it('refuses unsupported on a KeyRegistry without the hand-off', async () => {
     state.handoff = false
+    const e = await refuses(() => fixture().proposeSlotTransfer(SLOT, BUYER), 'unsupported')
+    expect(e.message).toMatch(/predates/)
+  })
+
+  it('refuses unsupported when the caller client comes from the viem CommonJS entry', async () => {
+    // A `require('viem')` client throws the CommonJS ContractFunctionZeroDataError class.
+    const cjs = createRequire(import.meta.url)('viem') as typeof import('viem')
+    const esmRead = mocks.read.getMockImplementation()!
+    mocks.read.mockImplementation(async (args: {functionName: string}) => {
+      if (args.functionName === 'pendingCreator' || args.functionName === 'pendingRuleAdmin') {
+        throw new cjs.ContractFunctionExecutionError(new cjs.ContractFunctionZeroDataError({functionName: args.functionName}), {abi: [], functionName: args.functionName})
+      }
+      return esmRead(args) as unknown
+    })
     const e = await refuses(() => fixture().proposeSlotTransfer(SLOT, BUYER), 'unsupported')
     expect(e.message).toMatch(/predates/)
   })

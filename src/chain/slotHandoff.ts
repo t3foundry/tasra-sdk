@@ -6,8 +6,9 @@
 // raised BEFORE anything is signed, in the contract's order. A KeyRegistry from before the
 // hand-off is refused as `unsupported`, never as a bare revert.
 
-import {BaseError, ContractFunctionRevertedError, ContractFunctionZeroDataError, type Address, type Hex, type PublicClient} from 'viem'
+import {type Address, type Hex, type PublicClient} from 'viem'
 import {TasraError} from '../errors.js'
+import {viemErrorChainHas} from '../internal/viemErrors.js'
 import {keyRegistryAbi} from './abis/keyRegistry.js'
 import type {TasraChainClient} from './client.js'
 import {requireAddress} from './deployments.js'
@@ -65,7 +66,8 @@ const orNull = (a: Address): Address | null => (same(a, ZERO) ? null : a)
 
 /** True when a read reverted or returned no data, as a missing selector does. */
 function missingFunction(e: unknown): boolean {
-  return e instanceof BaseError && !!e.walk(x => x instanceof ContractFunctionRevertedError || x instanceof ContractFunctionZeroDataError)
+  // By name: the read comes from the caller's client, whose viem copy may not be this package's.
+  return viemErrorChainHas(e, ['ContractFunctionRevertedError', 'ContractFunctionZeroDataError'])
 }
 
 /**
