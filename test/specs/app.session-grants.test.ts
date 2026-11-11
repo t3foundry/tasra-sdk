@@ -693,7 +693,7 @@ describe('session recovery: definite refusals end, the follow refreshes once per
     expect(SESSION_RETRYABLE_CODES.has('session_verifier_behind')).toBe(true)
     expect(SESSION_REFUSAL_CODES.has('session_verifier_behind')).toBe(false)
     for (const code of SESSION_RETRYABLE_CODES) expect(SESSION_REFUSAL_CODES.has(code)).toBe(false)
-    // The verifier's own 503 carries Retry-After: 2; the agent relays the code without the header so far.
+    // A Retry-After the agent sets or relays is honoured; an older agent sends the code without one: 2 s.
     for (const [header, expected] of [['5', 5000], [undefined, SESSION_VERIFIER_BEHIND_RETRY_MS]] as const) {
       const ended: string[] = []
       const fetchImpl = (async () => new Response(JSON.stringify({code: 'session_verifier_behind', error: 'session_verifier_behind'}),

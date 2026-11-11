@@ -12,7 +12,7 @@ never does.
 - C24 session refusal codes. `SESSION_RETRYABLE_CODES` names the session-route refusals the same
   request may pass later; the new `session_verifier_behind` (503: a verifier's chain view trails
   the grant) is retried with the held grant, never ended on, pausing for its `Retry-After` or
-  `SESSION_VERIFIER_BEHIND_RETRY_MS` (2 s) when the agent relays it without one. A keeper's
+  `SESSION_VERIFIER_BEHIND_RETRY_MS` (2 s) when an older agent relays it without one. A keeper's
   epoch-window refusal counts as stale (`isStaleSessionRefusal`) only when the grant is behind
   the keeper's window or the keeper says `session-stale`; a keeper whose beacon lags the grant
   (C24 `forbidden`, same text) is not a reason to refresh or pay again.

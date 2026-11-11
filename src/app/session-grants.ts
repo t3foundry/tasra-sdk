@@ -325,7 +325,8 @@ export const SESSION_RETRYABLE_CODES: ReadonlySet<string> = new Set(['session_ve
 
 /**
  * The pause before retrying a `session_verifier_behind` refusal that carries no `Retry-After`
- * (the verifier sends 2 s; the verifier-agent relays the code without the header so far), ms.
+ * (the verifier sends 2 s and a current verifier-agent sets or relays it; an older agent relays the
+ * code without the header), ms. A Retry-After that is present always wins.
  */
 export const SESSION_VERIFIER_BEHIND_RETRY_MS = 2_000
 
