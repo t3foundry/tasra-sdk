@@ -6,6 +6,7 @@
 //
 // `TASRA_THROUGHPUT_PROFILE=<dir>` also writes a CPU profile of the 64-op wave there.
 import {afterEach, describe, expect, it, vi} from 'vitest'
+import {constants} from 'node:fs'
 import {mkdir, mkdtemp, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -126,7 +127,7 @@ async function wave(env: AllowanceEnv, ids: readonly Hex[], n: number) {
   const vouchers = await Promise.all(Array.from({length: n}, (_, i) => operate(env, ids[i % ids.length]!)))
   const wall = performance.now() - started, busy = performance.eventLoopUtilization(elu).active
   const per = (k: keyof typeof syncs) => (fileStoreSyncCounters[k] - syncs[k]) / n
-  return {vouchers, wall, busyPerOp: busy / n, g2Decodes: g2Decodes.mock.calls.length - decodes, syncsPerOp: {barriers: per('barriers'), directorySyncs: per('directorySyncs'), fileSyncs: per('fileSyncs')}}
+  return {vouchers, wall, busyPerOp: busy / n, g2Decodes: g2Decodes.mock.calls.length - decodes, syncsPerOp: {flushes: per('flushes'), shared: per('shared'), fileSyncs: per('fileSyncs')}}
 }
 
 async function profiled<T>(name: string, run: () => Promise<T>): Promise<T> {
@@ -144,6 +145,8 @@ async function profiled<T>(name: string, run: () => Promise<T>): Promise<T> {
     session.disconnect()
   }
 }
+
+const DSYNC = (constants as {O_DSYNC?: number}).O_DSYNC ?? 0
 
 describe('allowance debits with the real voucher round in one process (file store, real BN254)', () => {
   it('64 concurrent debits on 8 slots x 8 lanes overlap, and the group key is decoded once, not once per voucher', async () => {
@@ -163,5 +166,10 @@ describe('allowance debits with the real voucher round in one process (file stor
     // Rounds overlap: 64 rounds serialized on one lane, or CPU-bound one after another at the old
     // per-voucher cost, take several seconds; overlapped they take about one second.
     expect(many.wall).toBeLessThan(5_000)
+    // Each debit is three durable commits (journal, debit + journal, lane advance), each needing a
+    // data barrier and a directory sync. Concurrent debits share them, and since data barriers and
+    // directory syncs are one flush step, a commit's directory sync is the next one's barrier: about
+    // 0.4 device flushes per debit here (0.73-0.83 when barriers and directory syncs were flushed apart).
+    if (DSYNC !== 0) expect(many.syncsPerOp.flushes).toBeLessThan(0.65)
   }, 120_000)
 })

@@ -2,9 +2,12 @@
 // discovery → journal → debit voucher on a lane → execution consent → paid agent session (creation,
 // batched request-object approvals, wallet presentation, continuation, credential approval) →
 // grant → execute. Chain reads, accountants, the agent and the keepers are fakes; everything the
-// SDK journals is the real code on a real directory. Each flush (a coalesced data barrier, a
-// per-file sync or a directory sync, see `fileStoreSyncCounters`) is one device-wide cache flush
-// on macOS, so this count bounds the operations per second a host can journal.
+// SDK journals is the real code on a real directory. Each flush (a coalesced directory flush,
+// serving data barriers and directory syncs alike, or a per-file sync, see
+// `fileStoreSyncCounters`) is one device-wide cache flush on macOS, so this count bounds the
+// operations per second a host can journal. One operation alone shares no flush, so this is the
+// UNSHARED cost: concurrent operations share flushes (one commit's directory flush is another's
+// data barrier), which the file store's own group-commit tests measure.
 import {afterEach, beforeEach, expect, it, vi} from 'vitest'
 import {defineChain, hexToBytes, toHex, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
@@ -97,7 +100,7 @@ const roots: string[] = []
 afterEach(async () => { await settleAllowanceVoucherPushes(); vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(dir => rm(dir, {recursive: true, force: true}))) })
 beforeEach(() => { vi.clearAllMocks() })
 
-const flushes = () => fileStoreSyncCounters.barriers + fileStoreSyncCounters.fileSyncs + fileStoreSyncCounters.directorySyncs
+const flushes = () => fileStoreSyncCounters.flushes + fileStoreSyncCounters.fileSyncs
 
 async function world() {
   const dir = await mkdtemp(join(tmpdir(), 'tasra-flush-budget-')); roots.push(dir)

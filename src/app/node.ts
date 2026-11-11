@@ -89,14 +89,21 @@ const sleep = (ms: number) => new Promise<void>(done => setTimeout(done, ms))
 //   1. each file's data is written with O_DSYNC, so write() returns only once the data reached
 //      the device (synchronized data integrity, as fdatasync; on Linux this is already a FUA or
 //      flush, so durable on its own);
-//   2. ONE `FileHandle.sync()` per group of concurrent writers - on macOS libuv issues it as
-//      `F_FULLFSYNC`, which flushes the drive's whole write cache, so every group member's
-//      O_DSYNC data is now on stable storage;
-//   3. only then the rename / entry, and ONE directory sync per group before anyone is told.
-// Before this, each write paid its own F_FULLFSYNC and directory sync; macOS serializes those
-// device-wide (about 5 ms each), which capped a process at a few hundred durable writes per
-// second however many callers were waiting. Without O_DSYNC (Windows) every file is synced on
-// its own exactly as before and the barrier is skipped.
+//   2. ONE device flush, issued after the write returned - on macOS libuv issues
+//      `FileHandle.sync()` as `F_FULLFSYNC`, which flushes the drive's whole write cache, so
+//      every O_DSYNC write that completed before it is now on stable storage;
+//   3. only then the rename / entry, and ONE more device flush, of the directory, before anyone
+//      is told.
+// Both flushes are the SAME step: an `F_FULLFSYNC` of the directory (`fsync` of the directory
+// on Linux, where O_DSYNC data is already stable when write() returns). It makes every entry
+// created, renamed or removed in the directory before it durable AND empties the drive cache, so
+// it is at once the data barrier of every writer whose data is written and the directory sync of
+// every writer whose renames are done. Concurrent commits in different stages therefore share a
+// flush: one commit's directory sync is the next one's data barrier, and a directory has at most
+// one flush in flight. Before this, each write paid its own F_FULLFSYNC and directory sync; macOS
+// serializes those device-wide (about 5 ms each), which capped a process at a few hundred durable
+// writes per second however many callers were waiting. Without O_DSYNC (Windows) every file is
+// synced on its own exactly as before and only the directory flush is shared.
 const DSYNC: number = (constants as {O_DSYNC?: number}).O_DSYNC ?? 0
 /**
  * Coalesce one asynchronous step among concurrent callers. A caller joins the next step that has
@@ -119,32 +126,33 @@ function coalescer<A>(step: (args: A[]) => Promise<void>) {
     return batch.done
   }
 }
-interface DirectoryCommit {
-  /** Resolves once the data of `file` (written through an O_DSYNC handle, still open) is on stable storage. */
-  barrier(file: import('node:fs/promises').FileHandle): Promise<void>
-  /** Resolves once every entry created, renamed or removed in the directory before the call is durable. */
-  directory(): Promise<void>
-}
-// One committer per directory path, shared by every store object on it in this process.
-const committers = new Map<string, DirectoryCommit>()
-/** Durable-write steps the store counts (for tests and measurement); never part of the stored state. */
-export const fileStoreSyncCounters = {barriers: 0, fileSyncs: 0, directorySyncs: 0}
-function committer(root: string): DirectoryCommit {
-  let found = committers.get(root)
+/**
+ * One coalesced device flush of a directory, issued after the call. Resolves once every O_DSYNC
+ * write that completed before the call is on stable storage (`data`) and every entry created,
+ * renamed or removed in the directory before the call is durable (`entries`); the argument only
+ * says which of the two the caller waits for (counted), the flush always does both.
+ */
+type DirectoryFlush = (purpose: 'data' | 'entries') => Promise<void>
+// One flush per directory path, shared by every store object on it in this process.
+const committers = new Map<string, DirectoryFlush>()
+/**
+ * Durable-write steps the store counts (for tests and measurement); never part of the stored state.
+ * `flushes`: device flushes of a state directory (each one F_FULLFSYNC on macOS), whatever they
+ * served; `shared`: those that served a data barrier and a directory sync at once; `fileSyncs`:
+ * per-file syncs (only without O_DSYNC).
+ */
+export const fileStoreSyncCounters = {flushes: 0, shared: 0, fileSyncs: 0}
+function committer(root: string): DirectoryFlush {
+  const found = committers.get(root)
   if (found) return found
-  // Any member's handle carries the flush: F_FULLFSYNC empties the drive cache for all of them.
-  const barrier = coalescer<import('node:fs/promises').FileHandle>(async files => {
-    fileStoreSyncCounters.barriers++
-    await files[0]!.sync()
-  })
-  const directory = coalescer<void>(async () => {
-    fileStoreSyncCounters.directorySyncs++
+  const flush = coalescer<'data' | 'entries'>(async purposes => {
+    fileStoreSyncCounters.flushes++
+    if (purposes.includes('data') && purposes.includes('entries')) fileStoreSyncCounters.shared++
     const dir = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
     try { await dir.sync() } finally { await dir.close() }
   })
-  found = {barrier, directory: () => directory(undefined)}
-  committers.set(root, found)
-  return found
+  committers.set(root, flush)
+  return flush
 }
 
 /** Options for {@link createFileStore}. */
@@ -186,12 +194,12 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
     }
     if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0 || stat.uid !== process.getuid?.()) throw new TasraError('State directory must be owned by this user with mode 0700')
   }
-  const commit = committer(root)
-  const syncDirectory = () => commit.directory()
+  const flush = committer(root)
+  const syncDirectory = () => flush('entries')
   /** Make the data written through `file` (opened with {@link DSYNC}) durable before anything publishes it. */
   async function durable(file: import('node:fs/promises').FileHandle) {
     if (DSYNC === 0) { fileStoreSyncCounters.fileSyncs++; await file.sync(); return }
-    await commit.barrier(file)
+    await flush('data')
   }
   /**
    * Create the lock file exclusively. At the head of this process's queue an existing file belongs
@@ -212,7 +220,8 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
   }
   /**
    * Write every value to its own temporary file (O_DSYNC), then make all of their data durable
-   * together: one coalesced barrier (or each file's own sync without O_DSYNC). Nothing is renamed
+   * together: one coalesced directory flush issued after the last write returned (or each file's
+   * own sync without O_DSYNC). Nothing is renamed
    * here, so nothing is published before its data is on stable storage. The temporaries are
    * independent files, so they are created and written concurrently: under concurrent device
    * flushes each metadata call and O_DSYNC write waits its turn, and one commit stages up to
@@ -236,7 +245,7 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
       if (failed) throw failed.reason
       written.sort((a, b) => slots.indexOf(a) - slots.indexOf(b))
       if (DSYNC === 0) for (const file of files) { fileStoreSyncCounters.fileSyncs++; await file.sync() }
-      else if (files.length > 0) await commit.barrier(files[0]!)
+      else if (files.length > 0) await flush('data')
       return written
     } catch (error) {
       await discard(written)
@@ -303,7 +312,7 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
       if (durableLock) {
         // The lock's content is a diagnostic nothing reads; only its entry must be durable. With
         // O_DSYNC its data reached the device during the write (Linux: on stable storage; macOS:
-        // the directory's F_FULLFSYNC empties the drive cache), so the directory sync suffices.
+        // the directory's F_FULLFSYNC empties the drive cache), so the directory flush suffices.
         if (DSYNC === 0) for (const h of held) { fileStoreSyncCounters.fileSyncs++; await h.lock.sync() }
         await syncDirectory()
       }

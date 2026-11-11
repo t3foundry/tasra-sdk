@@ -522,19 +522,19 @@ describe('drivePaidSession: batch approvals when the agent advertises them', () 
 // One durable commit per first approval (record, body and in_flight(1) together, before the send),
 // and a confirmation re-derived by recovery: what a crash at each step leaves, and what follows.
 describe('first approvals: one commit before the send, a re-derivable confirmation', () => {
-  it('commits record, body and in_flight(1) with ONE barrier and ONE directory sync before the send, and takes no claim for it', async () => {
+  it('commits record, body and in_flight(1) with ONE data flush and ONE directory flush before the send, and takes no claim for it', async () => {
     const dir = await directory(), h = harness(createFileStore(dir))
     const before = {...fileStoreSyncCounters}
-    let atSend: {barriers: number; directorySyncs: number; record?: unknown; ledger?: unknown} | undefined
+    let atSend: {flushes: number; record?: unknown; ledger?: unknown} | undefined
     vi.mocked(h.session.sendRetainedApproval!).mockImplementationOnce(async () => {
       // What a crash during the send leaves, read through another store object (another process).
       const other = createFileStore(dir)
-      atSend = {barriers: fileStoreSyncCounters.barriers - before.barriers, directorySyncs: fileStoreSyncCounters.directorySyncs - before.directorySyncs,
+      atSend = {flushes: fileStoreSyncCounters.flushes - before.flushes,
         record: await other.load(KEY), ledger: await readApprovalLedger(other, KEY, PROPOSAL)}
       return {status: 'accepted'}
     })
     expect(await h.first()).toBe(true)
-    expect(atSend).toEqual({barriers: 1, directorySyncs: 1, record: {original: ORIGINAL, phase: 'prepared', approval: {schema: APPROVAL_LEDGER_SCHEMA, ...RETAINED}},
+    expect(atSend).toEqual({flushes: 2, record: {original: ORIGINAL, phase: 'prepared', approval: {schema: APPROVAL_LEDGER_SCHEMA, ...RETAINED}},
       ledger: {state: 'in_flight', generation: 1}})
     expect(await h.store.load(approvalClaimKey(KEY, 1))).toBeUndefined()
     expect(await h.record()).toEqual({original: ORIGINAL, phase: 'confirmed'})
@@ -602,13 +602,13 @@ describe('first approvals: one commit before the send, a re-derivable confirmati
     const before = {...fileStoreSyncCounters}
     let atSend: unknown
     session.sendRetainedApprovals = vi.fn(async (approvals: RetainedPaidApproval[]) => {
-      atSend = {barriers: fileStoreSyncCounters.barriers - before.barriers, directorySyncs: fileStoreSyncCounters.directorySyncs - before.directorySyncs,
+      atSend = {flushes: fileStoreSyncCounters.flushes - before.flushes,
         ledgers: await Promise.all(keys.map((k, i) => readApprovalLedger(createFileStore(dir), k, 'p' + i))), create: await createFileStore(dir).load('wallet-' + SESSION + '-create')}
       return {kind: 'results', results: new Map(approvals.map(a => [a.proposalId, 204]))}
     })
     const items = keys.map((key, i) => ({ctx: {...h.ctx, key, rederivable: later}, original: {...ORIGINAL, n: i}, sign: async () => ({...RETAINED, proposalId: 'p' + i})}))
     expect(await retainAndDeliverApprovals(items)).toEqual([true, true, true])
-    expect(atSend).toEqual({barriers: 1, directorySyncs: 1, ledgers: keys.map(() => ({state: 'in_flight', generation: 1})), create: {original: {}, phase: 'confirmed'}})
+    expect(atSend).toEqual({flushes: 2, ledgers: keys.map(() => ({state: 'in_flight', generation: 1})), create: {original: {}, phase: 'confirmed'}})
     // Their confirmations wait for the flow's next commit.
     expect(later.take().map(([k]) => k).sort()).toEqual([...keys].sort())
   })

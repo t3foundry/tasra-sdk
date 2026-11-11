@@ -421,12 +421,12 @@ it('a second drive started while a write is in flight refuses on its durable pre
 
 it('a continuation\'s confirmation that no later write carries is published durably before the drive polls again', async () => {
   const d = await durableDrive()
-  const before = fileStoreSyncCounters.directorySyncs
+  const before = fileStoreSyncCounters.flushes
   const poll = vi.mocked(d.session.poll), original = poll.getMockImplementation()!
   const atPoll: Record<string, unknown>[] = []
   poll.mockImplementation(async (...args) => { atPoll.push((await d.disk()).phases); return original(...args) })
   expect((await d.drive()).status).toBe('done')
-  expect(fileStoreSyncCounters.directorySyncs).toBeGreaterThan(before)
+  expect(fileStoreSyncCounters.flushes).toBeGreaterThan(before)
   // The last continuation's confirmation rides on no later write: it is on disk at the poll that
   // ends the drive, not only after it.
   expect(atPoll.at(-1)!['resume-1']).toBe('confirmed')

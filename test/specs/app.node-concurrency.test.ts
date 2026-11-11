@@ -90,17 +90,18 @@ it.each(['release', 'failed action'] as const)('a lock removal that fails after 
   await store.save('warm', 0)
   reset()
   track.failUnlink = /[/\\]b\.lock$/
-  const before = fileStoreSyncCounters.directorySyncs
+  const before = fileStoreSyncCounters.flushes
   const outcome = withCommit(store, ['a', 'b', 'c'], async commit => {
     commit.stage('a', 1); commit.stage('b', 2); commit.stage('c', 3)
     if (path === 'failed action') throw new Error('action failed')
   })
   await expect(outcome).rejects.toThrow('EIO: injected')
   // Every removal was issued (concurrently); the failed one's lock is left, the others are gone,
-  // and their removal is durable: one directory sync after they settled.
+  // and their removal is durable: one directory flush after they settled (after a release, the
+  // staged values' data flush came first).
   expect(track.unlink.max).toBe(3)
   expect((await readdir(dir)).filter(name => name.endsWith('.lock'))).toEqual(['b.lock'])
-  expect(fileStoreSyncCounters.directorySyncs - before).toBe(1)
+  expect(fileStoreSyncCounters.flushes - before).toBe(path === 'release' ? 2 : 1)
   // After a release the staged values were renamed into place before the removals.
   expect(await store.load('a')).toEqual(path === 'release' ? 1 : undefined)
 })

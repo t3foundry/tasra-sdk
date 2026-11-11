@@ -6,6 +6,8 @@ const events: string[] = []
 const failSync = {next: false}
 const failRename = {next: false}
 const gate: {hold?: Promise<void>} = {}
+// Device flushes in flight at once, and the most seen.
+const inflight = {now: 0, most: 0}
 vi.mock('node:fs/promises', async original => {
   const real = await original<typeof import('node:fs/promises')>()
   const name = (path: unknown) => String(path).split('/').pop()!.replace(/^\.[0-9a-f-]+\.tmp$/, 'tmp')
@@ -18,12 +20,15 @@ vi.mock('node:fs/promises', async original => {
       const sync = handle.sync.bind(handle)
       handle.sync = async () => {
         // Decided when the flush is issued, so a held flush never takes the failure meant for a later one.
-        const fail = failSync.next && !(flags & constants.O_DIRECTORY)
+        const fail = failSync.next
         if (fail) failSync.next = false
-        if (gate.hold && !(flags & constants.O_DIRECTORY)) { const hold = gate.hold; gate.hold = undefined; await hold }
-        if (fail) throw Object.assign(new Error('injected flush failure'), {code: 'EIO'})
-        events.push(flags & constants.O_DIRECTORY ? 'dirsync' : `sync:${label}`)
-        return sync()
+        inflight.now++; inflight.most = Math.max(inflight.most, inflight.now)
+        try {
+          if (gate.hold) { const hold = gate.hold; gate.hold = undefined; events.push('held'); await hold }
+          if (fail) throw Object.assign(new Error('injected flush failure'), {code: 'EIO'})
+          events.push(flags & constants.O_DIRECTORY ? 'dirsync' : `sync:${label}`)
+          return await sync()
+        } finally { inflight.now-- }
       }
       return handle
     },
@@ -52,7 +57,7 @@ afterAll(() => { process.off('unhandledRejection', onUnhandled) })
 afterEach(async () => {
   await new Promise(done => setTimeout(done, 50))
   const floated = unhandled.splice(0).map(reason => String((reason as Error)?.message ?? reason))
-  events.length = 0; failSync.next = false; failRename.next = false; gate.hold = undefined
+  events.length = 0; failSync.next = false; failRename.next = false; gate.hold = undefined; inflight.now = 0; inflight.most = 0
   await Promise.all(roots.splice(0).map(dir => rm(dir, {recursive: true, force: true})))
   expect(floated, 'unhandled rejections').toEqual([])
 })
@@ -63,7 +68,7 @@ describe.skipIf(DSYNC === 0)('file store group commit', () => {
     const store = createFileStore(await directory())
     let acknowledged = -1
     await store.save('intent', {n: 1}).then(() => { acknowledged = events.length })
-    expect(events).toEqual(['open:tmp:dsync', 'sync:tmp', 'rename:intent.json', 'dirsync'])
+    expect(events).toEqual(['open:tmp:dsync', 'dirsync', 'rename:intent.json', 'dirsync'])
     expect(acknowledged).toBe(events.length)
   })
 
@@ -71,19 +76,96 @@ describe.skipIf(DSYNC === 0)('file store group commit', () => {
     const store = createFileStore(await directory())
     const before = {...fileStoreSyncCounters}
     await Promise.all(Array.from({length: 32}, (_, i) => store.save(`key-${i}`, {i})))
-    const barriers = fileStoreSyncCounters.barriers - before.barriers, directorySyncs = fileStoreSyncCounters.directorySyncs - before.directorySyncs
+    const flushes = fileStoreSyncCounters.flushes - before.flushes
     // Old store: 32 file flushes and 32 directory syncs. Grouped: a few waves, however the arrivals spread under disk load.
-    expect(barriers).toBeLessThanOrEqual(8)
-    expect(directorySyncs).toBeLessThanOrEqual(8)
-    expect(events.filter(e => e === 'sync:tmp').length).toBe(barriers)
-    expect(events.filter(e => e === 'dirsync').length).toBe(directorySyncs)
-    expect(barriers).toBeGreaterThan(0)
+    expect(flushes).toBeLessThanOrEqual(16)
+    expect(events.filter(e => e === 'dirsync').length).toBe(flushes)
+    expect(flushes).toBeGreaterThanOrEqual(2)
+    // One flush in flight per directory, never a data barrier beside a directory sync.
+    expect(inflight.most).toBe(1)
     // Every rename comes after the first flush, and the last directory sync after every rename.
-    const firstFlush = events.indexOf('sync:tmp'), renames = events.flatMap((e, i) => e.startsWith('rename:') ? [i] : [])
+    const firstFlush = events.indexOf('dirsync'), renames = events.flatMap((e, i) => e.startsWith('rename:') ? [i] : [])
     expect(renames).toHaveLength(32)
     expect(Math.min(...renames)).toBeGreaterThan(firstFlush)
     expect(events.lastIndexOf('dirsync')).toBeGreaterThan(Math.max(...renames))
     for (let i = 0; i < 32; i++) expect(await store.load(`key-${i}`)).toEqual({i})
+  })
+
+  it('a writer waiting for its data barrier and a lock waiting for its entry share ONE flush, issued only after the running one', async () => {
+    const store = createFileStore(await directory())
+    let release!: () => void
+    gate.hold = new Promise<void>(done => { release = done })
+    // `a` holds the directory's only flush (its data barrier).
+    const a = store.save('a', {v: 1})
+    while (!events.includes('held')) await new Promise(done => setTimeout(done, 1))
+    // Meanwhile `b` finishes its write (needs a data barrier) and a lock is created (needs its entry synced).
+    const b = store.save('b', {v: 2})
+    const lock = store.withLock('lane', async () => { events.push('action') })
+    while (events.filter(e => e.startsWith('open:')).length < 3) await new Promise(done => setTimeout(done, 1))
+    await new Promise(done => setTimeout(done, 20))
+    // Neither started a flush beside the held one (the old store issued the lock's directory sync at once).
+    expect(events.filter(e => e === 'dirsync')).toEqual([])
+    const before = {...fileStoreSyncCounters}
+    events.length = 0
+    release()
+    await Promise.all([a, b, lock])
+    // The held flush, then ONE flush serving both b's barrier and the lock's entry: b renames and
+    // the action runs before any further flush.
+    const second = events.indexOf('dirsync', events.indexOf('dirsync') + 1)
+    expect(second).toBeGreaterThan(0)
+    expect(events.indexOf('rename:b.json')).toBeGreaterThan(second)
+    expect(events.indexOf('action')).toBeGreaterThan(second)
+    const third = events.indexOf('dirsync', second + 1)
+    expect(events.indexOf('rename:b.json')).toBeLessThan(third)
+    expect(events.indexOf('action')).toBeLessThan(third)
+    expect(fileStoreSyncCounters.shared - before.shared).toBeGreaterThanOrEqual(1)
+    expect(inflight.most).toBe(1)
+    expect(await store.load('b')).toEqual({v: 2})
+  })
+
+  it('a crash at a flush shared by a published commit and a staged one leaves each what a crash at its own flush left', async () => {
+    const dir = await directory(), store = createFileStore(dir)
+    await store.save('record', {phase: 'old'}); await store.save('other', {v: 'old'})
+    events.length = 0
+    const until = async (done: () => boolean) => { while (!done()) await new Promise(next => setTimeout(next, 1)); await new Promise(next => setTimeout(next, 20)) }
+    const held = () => events.filter(e => e === 'held').length
+    const hold = () => { let release!: () => void; gate.hold = new Promise<void>(done => { release = done }); return () => release() }
+    // F1 (A's data barrier) held; D's data queues for F2, which is held too when it starts.
+    let release = hold()
+    let acknowledged = false
+    const a = withCommit(store, 'record', async commit => { commit.stage('record', {phase: 'new'}) }).then(() => { acknowledged = true })
+    await until(() => held() === 1)
+    const d = store.save('d', {v: 1})
+    await until(() => events.filter(e => e === 'open:tmp:dsync').length === 2)
+    let next = hold(); release(); release = next
+    // While F2 runs, A renames, removes its lock and waits for its directory flush (F3) ...
+    await until(() => held() === 2 && events.includes('unlink:record.lock'))
+    // ... and B writes and waits for its data barrier: the same F3.
+    const before = {...fileStoreSyncCounters}
+    const b = store.save('other', {v: 'new'})
+    await until(() => events.filter(e => e === 'open:tmp:dsync').length === 3)
+    next = hold(); release(); release = next
+    await until(() => held() === 3)
+    // A crash now, during the shared flush F3. A is renamed and unlocked but NOT acknowledged: a
+    // crash before its own directory sync left either value and no lock, and its caller (so
+    // anything depending on it) has not been told. B is only a temporary, never renamed: a crash
+    // before its own barrier left the old value. Another process sees exactly that.
+    expect(acknowledged).toBe(false)
+    expect(events.includes('rename:other.json')).toBe(false)
+    const after = createFileStore(dir, {lockWaitMs: 0})
+    expect(await after.load('record')).toEqual({phase: 'new'})
+    expect(await after.load('other')).toEqual({v: 'old'})
+    const names = await readdir(dir)
+    expect(names.filter(n => n.endsWith('.lock'))).toEqual([])
+    expect(names.filter(n => n.endsWith('.tmp'))).toHaveLength(1)
+    expect((await after.list!('')).sort()).toEqual(['d', 'other', 'record'])
+    // F3 was ONE flush for both (counted when it started); B renames only after it completes.
+    expect(fileStoreSyncCounters.shared - before.shared).toBe(1)
+    release()
+    await Promise.all([a, b, d])
+    expect(acknowledged).toBe(true)
+    expect(await after.load('other')).toEqual({v: 'new'})
+    expect(inflight.most).toBe(1)
   })
 
   it('a failed flush rejects every writer of that group, publishes none of them and keeps the prior bytes', async () => {
@@ -120,7 +202,7 @@ describe.skipIf(DSYNC === 0)('file store group commit', () => {
     expect(events).toEqual(['open:lane.lock:dsync', 'dirsync', 'action', 'unlink:lane.lock', 'dirsync'])
     events.length = 0
     expect(await store.claim!('send-1')).toBe(true)
-    expect(events).toEqual(['open:send-1.json:dsync', 'sync:send-1.json', 'dirsync'])
+    expect(events).toEqual(['open:send-1.json:dsync', 'dirsync', 'dirsync'])
     expect(await store.claim!('send-1')).toBe(false)
   })
 })
@@ -138,7 +220,7 @@ describe.skipIf(DSYNC === 0)('file store commit steps (internal)', () => {
     // The lock entry is exclusive at once but costs no flush; the two values share one data
     // barrier, both renames and the lock removal share one directory sync, and the caller is
     // acknowledged only after it.
-    expect(events).toEqual(['open:record.lock:plain', 'action', 'open:tmp:dsync', 'open:tmp:dsync', 'sync:tmp',
+    expect(events).toEqual(['open:record.lock:plain', 'action', 'open:tmp:dsync', 'open:tmp:dsync', 'dirsync',
       'rename:index.json', 'rename:record.json', 'unlink:record.lock', 'dirsync'])
     expect(acknowledged).toBe(events.length)
     expect(await store.load('record')).toEqual({phase: 'new'})
@@ -153,8 +235,8 @@ describe.skipIf(DSYNC === 0)('file store commit steps (internal)', () => {
       events.push('send')
       commit.stage('attempt', {phase: 'confirmed'})
     })
-    expect(events).toEqual(['open:attempt.lock:plain', 'open:tmp:dsync', 'sync:tmp', 'rename:attempt.json', 'dirsync', 'send',
-      'open:tmp:dsync', 'sync:tmp', 'rename:attempt.json', 'unlink:attempt.lock', 'dirsync'])
+    expect(events).toEqual(['open:attempt.lock:plain', 'open:tmp:dsync', 'dirsync', 'rename:attempt.json', 'dirsync', 'send',
+      'open:tmp:dsync', 'dirsync', 'rename:attempt.json', 'unlink:attempt.lock', 'dirsync'])
   })
 
   it('withCommit: a failed action publishes nothing it staged and still removes its lock durably; with nothing staged the unlock is synced alone', async () => {
@@ -206,14 +288,14 @@ describe.skipIf(DSYNC === 0)('file store commit steps (internal)', () => {
   it('saveAll: every value flushed by one barrier before any rename, one directory sync after the last', async () => {
     const store = createFileStore(await directory())
     await saveAll(store, [['record', {n: 1}], ['ledger', {n: 2}]])
-    expect(events).toEqual(['open:tmp:dsync', 'open:tmp:dsync', 'sync:tmp', 'rename:record.json', 'rename:ledger.json', 'dirsync'])
+    expect(events).toEqual(['open:tmp:dsync', 'open:tmp:dsync', 'dirsync', 'rename:record.json', 'rename:ledger.json', 'dirsync'])
     expect([await store.load('record'), await store.load('ledger')]).toEqual([{n: 1}, {n: 2}])
   })
 
   it('saveRederivable: flushed before it is renamed into place (never torn), with no directory sync of its own', async () => {
     const store = createFileStore(await directory())
     await saveRederivable(store, 'confirm', {phase: 'confirmed'})
-    expect(events).toEqual(['open:tmp:dsync', 'sync:tmp', 'rename:confirm.json'])
+    expect(events).toEqual(['open:tmp:dsync', 'dirsync', 'rename:confirm.json'])
     expect(await store.load('confirm')).toEqual({phase: 'confirmed'})
   })
 
@@ -228,7 +310,7 @@ describe.skipIf(DSYNC === 0)('file store commit steps (internal)', () => {
     })
     // The two lock removals run concurrently (each after its own close), so their order is not fixed;
     // both come after every rename and before the one directory sync.
-    expect(events.slice(0, 7)).toEqual(['open:journal.lock:plain', 'open:lane.lock:plain', 'open:tmp:dsync', 'open:tmp:dsync', 'sync:tmp',
+    expect(events.slice(0, 7)).toEqual(['open:journal.lock:plain', 'open:lane.lock:plain', 'open:tmp:dsync', 'open:tmp:dsync', 'dirsync',
       'rename:lane.json', 'rename:journal.json'])
     expect(events.slice(7, 9).sort()).toEqual(['unlink:journal.lock', 'unlink:lane.lock'])
     expect(events.slice(9)).toEqual(['dirsync'])
@@ -265,7 +347,7 @@ describe.skipIf(DSYNC === 0)('file store commit steps (internal)', () => {
     later.put('c', {n: 5})
     events.length = 0
     await later.flush(store)
-    expect(events).toEqual(['open:tmp:dsync', 'sync:tmp', 'rename:c.json'])
+    expect(events).toEqual(['open:tmp:dsync', 'dirsync', 'rename:c.json'])
     expect(await store.load('c')).toEqual({n: 5})
   })
 
