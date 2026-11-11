@@ -226,8 +226,12 @@ describe.skipIf(DSYNC === 0)('file store commit steps (internal)', () => {
       await expect(withCommit(store, ['journal', 'other'], async () => 1)).rejects.toThrow('reconcile')
       commit.stage('lane', {seq: 1}); commit.stage('journal', {phase: 'reserved'})
     })
-    expect(events).toEqual(['open:journal.lock:plain', 'open:lane.lock:plain', 'open:tmp:dsync', 'open:tmp:dsync', 'sync:tmp',
-      'rename:lane.json', 'rename:journal.json', 'unlink:journal.lock', 'unlink:lane.lock', 'dirsync'])
+    // The two lock removals run concurrently (each after its own close), so their order is not fixed;
+    // both come after every rename and before the one directory sync.
+    expect(events.slice(0, 7)).toEqual(['open:journal.lock:plain', 'open:lane.lock:plain', 'open:tmp:dsync', 'open:tmp:dsync', 'sync:tmp',
+      'rename:lane.json', 'rename:journal.json'])
+    expect(events.slice(7, 9).sort()).toEqual(['unlink:journal.lock', 'unlink:lane.lock'])
+    expect(events.slice(9)).toEqual(['dirsync'])
     expect((await readdir(dir)).sort()).toEqual(['journal.json', 'lane.json'])
     // Opposite orders from concurrent callers: both complete, one after the other.
     let inside = 0, most = 0

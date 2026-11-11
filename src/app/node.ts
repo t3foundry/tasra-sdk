@@ -268,10 +268,20 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
     const turns: {target: string; tail: Promise<void>; done: () => void}[] = []
     const held: {path: string; released: boolean; lock: import('node:fs/promises').FileHandle; open: boolean}[] = []
     // Distinct lock files, all removed before the caller's one directory sync: concurrently.
+    // Every lock is marked closed before any removal settles, so after a failure no caller runs
+    // its sync (nothing is left open): the removals that DID succeed are synced here, once every
+    // removal has settled, and the first failure is reported.
     const unlock = async () => {
-      const outcomes = await Promise.allSettled(held.map(async h => { h.released = true; if (h.open) { h.open = false; await h.lock.close(); await unlink(h.path) } }))
+      const outcomes = await Promise.allSettled(held.map(async h => {
+        h.released = true
+        if (!h.open) return false
+        h.open = false; await h.lock.close(); await unlink(h.path)
+        return true
+      }))
       const failed = outcomes.find(o => o.status === 'rejected')
-      if (failed) throw failed.reason
+      if (!failed) return
+      if (outcomes.some(o => o.status === 'fulfilled' && o.value)) await syncDirectory().catch(() => {})
+      throw failed.reason
     }
     try {
       // The directory is checked once per lock set (before the first lock), not once per key.
