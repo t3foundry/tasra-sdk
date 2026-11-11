@@ -504,9 +504,16 @@ export async function verifyDebitVoucher(client: PublicClient, deployment: Prepa
   const digest = debitVoucherDigest(deployment.settlement, deployment.chainId, {allowanceId: voucher.allowance_id, seq: BigInt(voucher.seq),
     requestId: voucher.request_id, cost: BigInt(voucher.cost), cumulative: BigInt(voucher.cumulative), quoteBlock: voucher.quote_block})
   const mpk = await readAccountantGroupKey(client, deployment, voucher.quote_block)
-  const key = `${digest}:${voucher.signature.toLowerCase()}:${bytesToHex(mpk)}`
+  const key = voucherKey(digest, voucher.signature, mpk)
   if (verifiedVouchers.has(key)) return
   if (!verifyBn254(mpk, hexToBytes(digest), hexToBytes(voucher.signature))) throw new Error('debit voucher signature does not verify against the accountant group key')
+  rememberVoucher(key)
+}
+// Exact (locally recomputed digest, signature bytes, group key bytes) triples whose pairing check PASSED.
+function voucherKey(digest: Hex, signature: Hex, mpk: Uint8Array): string {
+  return `${digest.toLowerCase()}:${signature.toLowerCase()}:${bytesToHex(mpk)}`
+}
+function rememberVoucher(key: string): void {
   if (verifiedVouchers.size >= MAX_VERIFIED_VOUCHERS) verifiedVouchers.delete(verifiedVouchers.values().next().value!)
   verifiedVouchers.add(key)
 }
@@ -757,6 +764,10 @@ export async function collectDebitVoucher(client: PublicClient, deployment: Prep
         const voucher: DebitVoucherWire = {allowance_id: first.allowance_id, seq: first.seq, request_id: first.request_id, cost: first.cost,
           cumulative: first.cumulative, quote_block: first.quote_block, signature: bytesToHex(signature) as Hex}
         assertDebitVoucherWire(voucher)
+        // This exact aggregate just passed the group-key pairing check over the digest every partial was
+        // checked to carry (recomputed locally in checkPartial): the immediate verifyDebitVoucher of the
+        // same voucher at the same quote block need not repeat it. Keyed by the locally derived digest.
+        rememberVoucher(voucherKey(first.digest, voucher.signature, mpk))
         return {voucher, partials: used}
       }
       // A failed aggregate: from now on every partial is checked against its share before it is

@@ -98,6 +98,11 @@ describe('collectDebitVoucher', () => {
     const second = await allowancePayment(payment.allowance_id!, {nonce: h(0x29)})
     const {voucher} = await collectDebitVoucher(world.client, deployment, {payment: second, seq: 2, previous: first.voucher, quoteBlock, maxOpCost: 100n}, {accountantUrls: world.accountantUrls})
     expect(voucher).toMatchObject({seq: 2, cost: '40', cumulative: '80'})
+    // Both aggregates passed inside their rounds (and are remembered): a remembered pass never
+    // covers another voucher's fields or another valid signature.
+    await verifyDebitVoucher(world.client, deployment, voucher)
+    await expect(verifyDebitVoucher(world.client, deployment, {...voucher, signature: first.voucher.signature})).rejects.toThrow(/does not verify/)
+    await expect(verifyDebitVoucher(world.client, deployment, {...first.voucher, signature: voucher.signature})).rejects.toThrow(/does not verify/)
     expect(world.debits.slice(3).every(d => JSON.stringify(d.body.previous) === JSON.stringify(first.voucher))).toBe(true)
     await expect(collectDebitVoucher(world.client, deployment, {payment: second, seq: 2, quoteBlock, maxOpCost: 100n}, {accountantUrls: world.accountantUrls})).rejects.toThrow(/seq must be 1/)
   }, 30_000)
