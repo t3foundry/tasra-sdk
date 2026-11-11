@@ -39,7 +39,7 @@ import {createTasraWriteClient, ruleCommitment, type CreateSlotArgs} from '../..
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.js'
 
 const mocks = vi.hoisted(() => ({submit: vi.fn(), read: vi.fn(), receipt: vi.fn()}))
-vi.mock('viem', async original => ({...await original<typeof import('viem')>(), createPublicClient: () => ({readContract: mocks.read, waitForTransactionReceipt: mocks.receipt})}))
+vi.mock('viem', async original => ({...await original<typeof import('viem')>(), createPublicClient: () => ({readContract: mocks.read, getTransactionReceipt: mocks.receipt})}))
 vi.mock('../../src/chain/registeredRelay.js', async original => ({...await original<typeof import('../../src/chain/registeredRelay.js')>(), createRegisteredRelaySubmitter: () => ({submit: mocks.submit})}))
 
 const address = `0x${'11'.repeat(20)}` as const

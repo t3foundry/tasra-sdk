@@ -23,7 +23,7 @@ import type {TasraChainClient} from '../../src/chain/client.js'
 const mocks = vi.hoisted(() => ({submit: vi.fn(), read: vi.fn(), receipt: vi.fn()}))
 vi.mock('viem', async original => ({
   ...await original<typeof import('viem')>(),
-  createPublicClient: () => ({readContract: mocks.read, waitForTransactionReceipt: mocks.receipt}),
+  createPublicClient: () => ({readContract: mocks.read, getTransactionReceipt: mocks.receipt}),
 }))
 vi.mock('../../src/chain/registeredRelay.js', async original => ({
   ...await original<typeof import('../../src/chain/registeredRelay.js')>(),
@@ -304,5 +304,36 @@ describe('readSlotHandoff', () => {
   it('reports both pending offers', async () => {
     Object.assign(state, {pendingCreator: BUYER, pendingAdmin: BUYER})
     expect(await readSlotHandoff(reader, SLOT)).toMatchObject({pendingCreator: BUYER, ruleAdmin: OTHER, guardian: GUARDIAN, pendingRuleAdmin: BUYER})
+  })
+})
+
+describe('the write confirmation wait', () => {
+  it('sees a receipt that lands 300 ms after the send within that poll, not on a 1 s grid', async () => {
+    const {TransactionReceiptNotFoundError} = await import('viem')
+    vi.useFakeTimers()
+    try {
+      const sentAt = Date.now()
+      let asked = 0
+      mocks.receipt.mockImplementation(async ({hash: h}: {hash: Hex}) => {
+        asked++
+        if (Date.now() - sentAt < 300) throw new TransactionReceiptNotFoundError({hash: h})
+        return {status: 'success', logs: [], blockNumber: 1n}
+      })
+      let done: number | undefined
+      const write = fixture().proposeSlotTransfer(SLOT, BUYER).then(r => { done = Date.now() - sentAt; return r })
+      await vi.advanceTimersByTimeAsync(600)
+      // Polls at 0, 250 and 625 ms (250 growing by half): seen at the 625 ms poll at the latest.
+      await vi.advanceTimersByTimeAsync(100)
+      expect(done).toBeDefined()
+      expect(done!).toBeLessThan(1_000)
+      expect(asked).toBeGreaterThanOrEqual(2)
+      await expect(write).resolves.toMatchObject({txHash: TX})
+      // A reverted receipt is still refused.
+      state = freshState()
+      mocks.receipt.mockResolvedValue({status: 'reverted', logs: [], blockNumber: 1n})
+      const reverted = fixture().proposeSlotTransfer(SLOT, BUYER).catch((e: unknown) => e)
+      await vi.advanceTimersByTimeAsync(10)
+      expect(String(await reverted)).toMatch(/REVERTED/)
+    } finally { vi.useRealTimers() }
   })
 })

@@ -102,7 +102,7 @@ import {
   type AddressBook,
   type VaultTranche,
 } from './deployments.js'
-import {WRITE_POLL_INTERVAL_MS} from './receipt.js'
+import {pollTransactionReceipt, WRITE_POLL_INTERVAL_MS} from './receipt.js'
 
 /**
  * The slot's key type, mirroring `KeyRegistry.Mode` on-chain:
@@ -517,15 +517,21 @@ export async function amendmentPreflight(rule: string, state: AmendmentOnChain, 
  * salt and never touches the rule.
  */
 
+/** How long a write step waits for its receipt: viem's waitForTransactionReceipt default, unchanged. */
+export const WRITE_RECEIPT_TIMEOUT_MS = 180_000
+
 /**
  * Wait for a receipt and reject reverted transactions. Receipt availability alone does not prove execution succeeded.
+ * The receipt of exactly `hash` is asked for 250 ms after the call, then less and less often (at
+ * most every 1 s; pollTransactionReceipt), instead of on viem's fixed 1 s grid: one confirmation,
+ * the same 180 s deadline (viem's WaitForTransactionReceiptTimeoutError), a reverted one refused.
  */
-async function confirmed<R extends {status: 'success' | 'reverted'}>(
-  pub: {waitForTransactionReceipt: (a: {hash: Hex}) => Promise<R>},
+async function confirmed(
+  pub: PublicClient,
   hash: Hex,
   what: string,
-): Promise<R> {
-  const receipt = await pub.waitForTransactionReceipt({hash})
+) {
+  const receipt = await pollTransactionReceipt(pub, hash, {confirmations: 1, timeoutMs: WRITE_RECEIPT_TIMEOUT_MS})
   if (receipt.status !== 'success') {
     throw new Error(`${what} REVERTED on chain (tx ${hash}) — the call did not take effect`)
   }
@@ -613,7 +619,7 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
   // Reads and receipt-waiting always go through OUR PublicClient, never the
   // supplied wallet's transport - an injected provider is rate-limited, may be on
   // a different node, and can be unavailable while the user's tab is backgrounded.
-  // Receipt waits poll every second (viem's default is 4 s without a chain block time); the
+  // viem receipt waits (none in confirmed(), which polls 250 ms growing) poll every second; the
   // block-number cache keeps viem's 4 s default so nothing else reads the head more often.
   const pub = createPublicClient({chain, transport: http(cfg.rpcUrl), pollingInterval: WRITE_POLL_INTERVAL_MS, cacheTime: 4_000}) as PublicClient
   const addr = cfg.addresses

@@ -28,7 +28,7 @@ import {RuleAmendmentError} from '../../src/chain/ruleAmendment.js'
 const mocks = vi.hoisted(() => ({submit: vi.fn(), read: vi.fn(), receipt: vi.fn(), getBlock: vi.fn()}))
 vi.mock('viem', async original => ({
   ...await original<typeof import('viem')>(),
-  createPublicClient: () => ({readContract: mocks.read, waitForTransactionReceipt: mocks.receipt, getBlock: mocks.getBlock}),
+  createPublicClient: () => ({readContract: mocks.read, getTransactionReceipt: mocks.receipt, getBlock: mocks.getBlock}),
 }))
 vi.mock('../../src/chain/registeredRelay.js', async original => ({
   ...await original<typeof import('../../src/chain/registeredRelay.js')>(),

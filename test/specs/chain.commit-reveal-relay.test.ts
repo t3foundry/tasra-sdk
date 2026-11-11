@@ -10,7 +10,7 @@ let seedStatus = 200
 const seedFetch = vi.fn(async () => ({ok: seedStatus === 200, status: seedStatus, headers: new Headers(),
   json: async () => ({commitment: `0x${'07'.repeat(32)}`, digest: DIGEST, signature: SIG}), text: async () => ''}) as unknown as Response)
 const mocks = vi.hoisted(() => ({submit: vi.fn(), read: vi.fn(), receipt: vi.fn(), block: vi.fn()}))
-vi.mock('viem', async original => ({...await original<typeof import('viem')>(), createPublicClient: () => ({readContract: mocks.read, waitForTransactionReceipt: mocks.receipt, getBlock: mocks.block})}))
+vi.mock('viem', async original => ({...await original<typeof import('viem')>(), createPublicClient: () => ({readContract: mocks.read, getTransactionReceipt: mocks.receipt, getBlock: mocks.block})}))
 vi.mock('../../src/chain/registeredRelay.js', async original => ({...await original<typeof import('../../src/chain/registeredRelay.js')>(), createRegisteredRelaySubmitter: () => ({submit: mocks.submit})}))
 const address = `0x${'11'.repeat(20)}` as const, hash = (v: string) => `0x${v.repeat(32)}` as Hex
 const chain = defineChain({id: 31337, name: 'fixture', nativeCurrency: {name: 'ETH', symbol: 'ETH', decimals: 18}, rpcUrls: {default: {http: ['http://localhost:1']}}})
