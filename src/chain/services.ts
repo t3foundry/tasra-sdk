@@ -197,10 +197,13 @@ export async function readApprovedServiceRecord(
   if (chainId !== approval.chainId || (chain.client.chain && chain.client.chain.id !== chainId)) {
     throw new Error('Service chain approval mismatch')
   }
-  // At a live head follower's tip (confirmed within 2 s; the same head a `latest` read returns, by
-  // subscription or poll), the record is a read pinned to that block's hash and pre-read at every
-  // new head; otherwise the head number and the record at it are read by RPC, as before.
-  const tip = headFollowerOf(chain.client)?.tip()
+  // At a live head follower's tip (confirmed within 2 s) that the follower also proves FINAL
+  // (instant finality, at or below a matching finalized header), the record is a read pinned to
+  // that block's hash and pre-read at every new head; otherwise the head number and the record at
+  // it are read by RPC, as before.
+  const follower = headFollowerOf(chain.client)
+  const live = follower?.tip()
+  const tip = live && follower?.isCanonical(live) === true ? live : undefined
   let blockNumber: bigint, record: Awaited<ReturnType<typeof chain.readers.serviceRegistry.getService>>
   if (tip) {
     registerHeadPrefetch(chain.client, `service:${registry}:${approval.serviceId}`.toLowerCase(), head => serviceAt(chain.client, registry, approval.serviceId, head))
