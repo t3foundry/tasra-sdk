@@ -171,9 +171,19 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(key)) throw new TasraError('Invalid state key')
     return join(root, key + suffix)
   }
+  /**
+   * Check the directory before every operation (created first when absent). One `lstat` when it
+   * exists: a recursive `mkdir` of an existing directory is two more metadata calls per operation,
+   * and under concurrent device flushes (macOS F_FULLFSYNC) every metadata call waits its turn.
+   */
   async function ready() {
-    await mkdir(root, {recursive: true, mode: 0o700})
-    const stat = await lstat(root)
+    let stat
+    try { stat = await lstat(root) }
+    catch (error) {
+      if (!missing(error)) throw error
+      await mkdir(root, {recursive: true, mode: 0o700})
+      stat = await lstat(root)
+    }
     if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0 || stat.uid !== process.getuid?.()) throw new TasraError('State directory must be owned by this user with mode 0700')
   }
   const commit = committer(root)
