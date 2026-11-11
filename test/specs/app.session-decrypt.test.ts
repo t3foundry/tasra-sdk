@@ -11,7 +11,9 @@ import {PaidReservationStaleEpochError} from '../../src/chain/reservation.js'
 // session is a fake whose grant moves one epoch per refresh, and the beacon rolls DURING a message.
 const paidSessionDecrypt = vi.fn()
 const decryptWithSessionGrant = vi.fn()
-vi.mock('../../src/app/paid-operation.js', () => ({paidSessionDecrypt: (...a: unknown[]) => paidSessionDecrypt(...a)}))
+// The real error classes (NewerVerifierEpoch is classified by class AND code), the payment stubbed.
+vi.mock('../../src/app/paid-operation.js', async original => ({...await original<typeof import('../../src/app/paid-operation.js')>(),
+  paidSessionDecrypt: (...a: unknown[]) => paidSessionDecrypt(...a)}))
 vi.mock('../../src/decryption/session.js', () => ({decryptWithSessionGrant: (...a: unknown[]) => decryptWithSessionGrant(...a)}))
 // The default staleness confirmation (no `latestBeaconEpoch`): a stand-in that answers the RPC
 // `latest` head only when asked for it fresh, and the followed (lagging) tip otherwise.
@@ -19,6 +21,7 @@ const readCurrentBeaconEpoch = vi.fn()
 vi.mock('../../src/chain/prepaid.js', async original => ({...await original<typeof import('../../src/chain/prepaid.js')>(),
   readCurrentBeaconEpoch: (...a: unknown[]) => readCurrentBeaconEpoch(...a)}))
 const {decryptInSession, SessionMessageError} = await import('../../src/app/session-decrypt.js')
+const {NewerVerifierEpoch} = await import('../../src/app/paid-operation.js')
 
 const slot = ('0x' + '01'.repeat(32)) as `0x${string}`
 const seedOf = (e: number) => '0x' + e.toString(16).padStart(64, '0')
@@ -393,5 +396,74 @@ describe('a reservation the accountant refused as a stale draw (C21, 110 ms)', (
     await expect(decryptInSession({...request(session), hooks: {onRetry: reason => retries.push(reason)}})).rejects.toThrow(/stopped during reservation/)
     expect(paidSessionDecrypt).toHaveBeenCalledTimes(1)
     expect(retries).toEqual([])
+  })
+})
+
+describe('a reservation refused before it was sent: the verifier epoch moved on while it waited for its payer (110 ms)', () => {
+  /** paidSessionDecrypt as it fails then: the request id was named, the reservation refused unsent, the journal `failed`. */
+  const supersede = (beacon: bigint) => async (_config: unknown, req: {grant: {epoch: number}; onRequestId?(id: string): Promise<void>}) => {
+    const requestId = '0x' + String(payments.length + 1).padStart(64, '0')
+    payments.push({epoch: req.grant.epoch, requestId})
+    await req.onRequestId?.(requestId)
+    throw new NewerVerifierEpoch(requestId as `0x${string}`, beacon)
+  }
+
+  it('pays once more on the refreshed grant; the refusal is no debit, its id is listed', async () => {
+    const {state, session} = fakeSession(90)
+    paidSessionDecrypt.mockImplementationOnce(supersede(92n))
+    decryptWithSessionGrant.mockResolvedValueOnce([{ok: true, plaintext: new Uint8Array([9])}])
+    const retries: string[] = []
+    const r = await decryptInSession({...request(session), hooks: {onRetry: reason => retries.push(reason)}})
+    expect(r.plaintext).toEqual(new Uint8Array([9]))
+    expect(retries).toEqual(['newer-verifier-epoch'])
+    // The retry names the refreshed grant's draw (the error's own chain read started the follow).
+    expect(payments.map(p => p.epoch)).toEqual([90, 92])
+    expect(state.epoch).toBe(92)
+    expect(r.grantEpoch).toBe(92n)
+    expect(r.requestIds).toEqual(payments.map(p => p.requestId))
+    // Only the paid attempt reached the keepers; no keeper claim and no extra chain read was needed.
+    expect(decryptWithSessionGrant).toHaveBeenCalledTimes(1)
+    expect((decryptWithSessionGrant.mock.calls[0]![0] as {grant: {epoch: number}}).grant.epoch).toBe(92)
+    expect(chainReads).toBe(0)
+  })
+
+  it('a second one on the retry is thrown, not looped (class and code pinned)', async () => {
+    const {session} = fakeSession(90)
+    paidSessionDecrypt.mockImplementationOnce(supersede(92n)).mockImplementationOnce(supersede(94n))
+    const retries: string[] = []
+    const error = await decryptInSession({...request(session), hooks: {onRetry: reason => retries.push(reason)}}).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(NewerVerifierEpoch)
+    expect(error).toMatchObject({code: 'newer-verifier-epoch', name: 'NewerVerifierEpoch', beaconEpoch: 94n})
+    expect(paidSessionDecrypt).toHaveBeenCalledTimes(2)
+    expect(decryptWithSessionGrant).not.toHaveBeenCalled()
+    expect(retries).toEqual(['newer-verifier-epoch'])
+  })
+
+  it('does not stretch the two-debit bound: after a confirmed-stale retry it is paid once more, never a third debit', async () => {
+    const {session} = fakeSession(10)
+    chainEpoch = 12n
+    // Debit 1 at epoch 10, refused stale (confirmed); the re-payment is refused unsent; debit 2 serves it.
+    paidSessionDecrypt.mockImplementationOnce(async (_c: unknown, req: {grant: {epoch: number}; onRequestId?(id: string): Promise<void>}) => {
+      const requestId = '0x' + String(payments.length + 1).padStart(64, '0')
+      payments.push({epoch: req.grant.epoch, requestId})
+      await req.onRequestId?.(requestId)
+      return {requestId, payment: {verification_epoch: req.grant.epoch}, approveExecution: vi.fn(), recoverPartial: vi.fn(), dispose: vi.fn()}
+    }).mockImplementationOnce(supersede(14n))
+    decryptWithSessionGrant.mockResolvedValueOnce([stale(12)]).mockResolvedValueOnce([{ok: true, plaintext: new Uint8Array([3])}])
+    const retries: string[] = []
+    const r = await decryptInSession({...request(session), hooks: {onRetry: reason => retries.push(reason)}})
+    expect(r.plaintext).toEqual(new Uint8Array([3]))
+    expect(retries).toEqual(['stale', 'newer-verifier-epoch'])
+    expect(payments.map(p => p.epoch)).toEqual([10, 12, 14])
+    // Two keeper sends = the two debits; the unsent refusal between them is listed but debited nothing.
+    expect(decryptWithSessionGrant).toHaveBeenCalledTimes(2)
+    expect(r.requestIds).toHaveLength(3)
+  })
+
+  it('an Error that only resembles it (same message, no class) is thrown as before', async () => {
+    const {session} = fakeSession(90)
+    paidSessionDecrypt.mockRejectedValueOnce(Object.assign(new Error('the verifier epoch moved on while this reservation waited for its payer; nothing was sent'), {code: 'newer-verifier-epoch', beaconEpoch: 92n}))
+    await expect(decryptInSession(request(session))).rejects.toThrow(/verifier epoch moved on/)
+    expect(paidSessionDecrypt).toHaveBeenCalledTimes(1)
   })
 })

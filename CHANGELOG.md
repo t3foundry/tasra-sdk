@@ -286,6 +286,15 @@ never does.
   with one `console.warn` until it answers. The `reservation-stale` retry also requires
   `code === 'reservation-refused'`.
 
+- `decryptInSession`: a per-operation reservation that waited for its gas payer until the grant's
+  epoch was two behind the beacon is refused before anything is sent (no reservation prepared,
+  persisted or broadcast; its journal `failed`). `paidSessionDecrypt` throws it as the now
+  exported `NewerVerifierEpoch` (`code: 'newer-verifier-epoch'`, `beaconEpoch`: the client's own
+  chain read), and the message is paid ONCE more on the refreshed grant (`onRetry` reason
+  `newer-verifier-epoch`) instead of failing (1/20 messages at 110 ms RPC delay). It debits
+  nothing, so it does not count toward `MAX_MESSAGE_DEBITS`; it is retried at most once per
+  message, never once the message holds two debits, and a second one is thrown.
+
 - A lane selection now also reserves ahead the replacement of a confirmed allowance that is within
   600 s of funding no operation like its own (its expiry minus 30 s minus the payment's), or on a
   keeper sharing the slot no longer has, not only of a `low()` one. Between 630 and 600 s of life

@@ -815,10 +815,17 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
 /**
  * A per-operation reservation that waited for its payer past its verifier epoch, refused BEFORE the
  * first prepare (see {@link reserve}): the signed intent never left this process, so it is
- * journaled `failed` and the operation is signed once more at a current epoch.
+ * journaled `failed` and the operation is signed once more at a current epoch. A
+ * {@link paidOperation} does that itself (once); a {@link paidSessionDecrypt} pays the GRANT's
+ * draw, so it throws this and its caller pays again on a refreshed grant (`decryptInSession`).
+ * `beaconEpoch` is this process's own chain read that refused it.
  */
-class NewerVerifierEpoch extends Error {
-  constructor(readonly requestId: Hex) { super('the verifier epoch moved on while this reservation waited for its payer; nothing was sent') }
+export class NewerVerifierEpoch extends Error {
+  readonly code = 'newer-verifier-epoch' as const
+  constructor(readonly requestId: Hex, readonly beaconEpoch: bigint) {
+    super('the verifier epoch moved on while this reservation waited for its payer; nothing was sent')
+    this.name = 'NewerVerifierEpoch'
+  }
 }
 
 async function paymentAttempt(config: PaidOperationConfig, request: PaidOperationRequest, useAllowance: boolean): Promise<PaidOperation> {
@@ -947,7 +954,7 @@ async function reserve(config: PaidOperationConfig, record: OperationRecord, sig
         let current: bigint | undefined
         try { current = await readCurrentBeaconEpoch(config.chain.client, d) } catch { current = undefined }
         if (typeof current === 'bigint' && current >= BigInt(record.payment.verification_epoch) + 2n
-          && await loadPaidReservationJournal(config.store, requestId) === undefined) throw new NewerVerifierEpoch(requestId)
+          && await loadPaidReservationJournal(config.store, requestId) === undefined) throw new NewerVerifierEpoch(requestId, current)
         return reserveApplicationPayment(config.chain.client, config.gasPayer, d,
           record.payment, record.expected, {store: config.store, session: {random: record.params.random, audience: config.agent.profile.clientId},
             accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, maxGas: config.limits.maxGas, maxGasPrice: config.limits.maxGasPrice, signal})

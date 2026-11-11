@@ -36,7 +36,7 @@ vi.mock('../../src/app/paid-allowance.js', async original => ({...await original
 vi.mock('../../src/chain/keeperRecovery.js', async original => ({...await original<typeof import('../../src/chain/keeperRecovery.js')>(), recoverKeeperExecution: vi.fn()}))
 
 import {paidOperation, paidFinalSign, resumePaidFinalSign, paidSessionDecrypt, resumePaidSessionDecrypt, paidOperationPhase, resumePaidOperation, reconcilePaidOperation, listPaidOperations, abandonPaidOperation, recoverPaidOperation,
-  PaidOperationRecoveryError, PaidOperationAbandonRefusedError, type PaidOperationConfig} from '../../src/app/paid-operation.js'
+  PaidOperationRecoveryError, PaidOperationAbandonRefusedError, NewerVerifierEpoch, type PaidOperationConfig} from '../../src/app/paid-operation.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
 import {createFileStore} from '../../src/app/node.js'
 import {mkdtemp, rm} from 'node:fs/promises'
@@ -1918,6 +1918,23 @@ describe('paidSessionDecrypt: one session-grant KEM decrypt paid without any pre
     vi.mocked(discoverPaidOperationContext).mockRejectedValueOnce(new PaidDrawMovedError(5n, 7n))
     await expect(paidSessionDecrypt(enabled(f), {slot, decryption: b.decryption, grant: {epoch: 5, seed: h(0x99)}})).rejects.toMatchObject({code: 'draw-moved'})
     expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+  })
+
+  it('a per-operation reservation whose payer freed up two epochs past the grant is refused UNSENT: NewerVerifierEpoch, journal failed, nothing reserved', async () => {
+    const f = setup()
+    await blsSlot()
+    vi.mocked(selectAllowanceLane).mockResolvedValue(undefined)
+    vi.mocked(readCurrentBeaconEpoch).mockResolvedValue(9n)
+    const ids: Hex[] = []
+    const error = await paidSessionDecrypt(enabled(f), {slot, decryption: (await binding()).decryption, onRequestId: id => { ids.push(id) }}).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(NewerVerifierEpoch)
+    expect(error).toMatchObject({code: 'newer-verifier-epoch', requestId: ids[0], beaconEpoch: 9n})
+    // Once only, and never past the first prepare: no reservation was attempted, none was journaled.
+    expect(ids).toHaveLength(1)
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    expect(await paidOperationPhase(f.store, ids[0]!)).toBe('failed')
+    await expect(resumePaidSessionDecrypt(enabled(f), ids[0]!)).rejects.toThrow(/failed, not payable/)
     expect(reserveApplicationPayment).not.toHaveBeenCalled()
   })
 

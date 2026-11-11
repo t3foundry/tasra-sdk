@@ -31,7 +31,7 @@ export type {ApplicationReservationOptions, ApplicationReservationState, Applica
 export {AllowanceRefusedError, AllowanceUnavailableError, AllowanceCapacityError, inspectAllowanceLanes, journaledAllowanceVoucher, allowanceLaneCount} from './paid-allowance.js'
 export type {PaidAllowanceOptions} from './paid-allowance.js'
 export {paidOperation, prepareAllowances, paidFinalSign, resumePaidFinalSign, paidSessionDecrypt, resumePaidSessionDecrypt, resumePaidOperation, reconcilePaidOperation, recoverPaidOperation, abandonPaidOperation, paidOperationPhase, listPaidOperations,
-  PaidOperationRecoveryError, PaidOperationAbandonRefusedError} from './paid-operation.js'
+  PaidOperationRecoveryError, PaidOperationAbandonRefusedError, NewerVerifierEpoch} from './paid-operation.js'
 export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PrepareAllowancesRequest, PreparedAllowances, PreparedAllowanceLane, PreparedAllowanceOutcome, PaidFinalSign, PaidFinalSignRequest, PaidSessionDecrypt, PaidSessionDecryptRequest, PaidOperationPhase, PaidOperationJournalPhase, PaidOperationStatus,
   PaidOperationNextStep, ResumePaidOperationOptions, PaidOperationErrorCode, PaidOperationSummary, ListPaidOperationsOptions,
   RecoverIbePartialsOptions, RecoveredIbePartial, RecoveredIbePartials, PaidOperationRecovery, AbandonPaidOperationOptions, AbandonedPaidOperation,

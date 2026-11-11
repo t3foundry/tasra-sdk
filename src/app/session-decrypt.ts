@@ -44,7 +44,7 @@ import type {KeeperExecutionApprover} from '../committee/keeperExecution.js'
 import {combineDecryptShares, decodeKemU, verifyDecryptSharesBatch, type DecryptShare} from '../crypto/kem.js'
 import {decryptWithSessionGrant, type SessionDecryptItem, type SessionDecryptOptions, type SessionDecryptResult,
   type SessionVerifierProofWire} from '../decryption/session.js'
-import {paidSessionDecrypt, type PaidOperationConfig, type PaidSessionDecrypt} from './paid-operation.js'
+import {NewerVerifierEpoch, paidSessionDecrypt, type PaidOperationConfig, type PaidSessionDecrypt} from './paid-operation.js'
 import {SessionEndedError, type GrantedSession} from './session-grants.js'
 
 /** One message to decrypt under a session. */
@@ -87,8 +87,11 @@ export interface SessionMessageRequest {
     onRequestId?(requestId: Hex): void | Promise<void>
     onPaid?(paid: PaidSessionDecrypt): void
     onApproval?(): void
-    /** The message is paid and sent again on a refreshed grant (`reason`: `draw-moved`, `stale` or `reservation-stale`). */
-    onRetry?(reason: 'draw-moved' | 'stale' | 'reservation-stale'): void
+    /**
+     * The message is paid and sent again on a refreshed grant (`reason`: `draw-moved`, `stale`,
+     * `reservation-stale` or `newer-verifier-epoch`).
+     */
+    onRetry?(reason: 'draw-moved' | 'stale' | 'reservation-stale' | 'newer-verifier-epoch'): void
     /** The session ended under this message and `reopen` is called (`code`: the end's). */
     onReopen?(code: string): void
   }
@@ -125,7 +128,8 @@ export interface SessionMessageResult {
   /**
    * Every payment request id this message made, in order, a re-open's presentation included. At most
    * {@link MAX_MESSAGE_DEBITS} of them are debits: an allowance debit the accountant refused before
-   * the per-operation fallback names an id too, but debits nothing.
+   * the per-operation fallback names an id too, but debits nothing, as does a reservation refused
+   * before it was sent because the verifier epoch moved on (`NewerVerifierEpoch`).
    */
   requestIds: Hex[]
   /** The epoch of the grant that served it (after a presenting re-open: the new grant's, 0 without one). */
@@ -233,6 +237,8 @@ export async function decryptInSession(request: SessionMessageRequest): Promise<
   let session = request.session
   const requestIds: Hex[] = []
   let retried = false
+  /** A reservation refused before it was sent (`NewerVerifierEpoch`) was already paid again once. */
+  let epochRetried = false
   /** Debits this message started: each payment, a stale-refused reservation (its intent may land), the re-open's presentation. */
   let debits = 0
   for (;;) {
@@ -292,6 +298,18 @@ export async function decryptInSession(request: SessionMessageRequest): Promise<
         session.observeBeacon(error.beaconEpoch)
         retried = true
         hooks?.onRetry?.('draw-moved')
+        continue
+      }
+      // The reservation waited for its payer until the grant's epoch was two behind the beacon and
+      // was refused BEFORE anything was sent: no reservation was prepared, persisted or broadcast,
+      // and its journal is `failed` (never resumed). It debited nothing, so it does not count as a
+      // debit; it is paid again once, on the refreshed grant (the epoch it carries is this
+      // process's own chain read, which starts the follow), and only while the message is under
+      // its debit bound. A second one is thrown.
+      if (error instanceof NewerVerifierEpoch && error.code === 'newer-verifier-epoch' && !epochRetried && debits < MAX_MESSAGE_DEBITS) {
+        session.observeBeacon(error.beaconEpoch)
+        epochRetried = true
+        hooks?.onRetry?.('newer-verifier-epoch')
         continue
       }
       // The accountant refused the reservation's draw as no longer current or previous (it waited
