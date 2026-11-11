@@ -252,7 +252,7 @@ export async function createApplicationSlot(app: TasraApplication, input: Create
             progress({step, phase: transaction.phase, slotId, ...(transaction.hash ? {transactionHash: transaction.hash} : {})})
           }
         }
-      }, options: {signal, maxWaitMs: timeoutMs}})
+      }, options: {signal}})
       await save()
     }
     let slot = await app.slots.get(slotId)

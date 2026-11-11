@@ -40,7 +40,7 @@ export async function createWalletSlot(cfg: FleetConfig, mode: 'frost'|'bls' = '
   await assertLocalPrepaidFleet(cfg, writer)
   const funder = createTasraWriteClient({rpcUrl:cfg.rpcUrl,addresses:cfg.book,privateKey:cfg.deployPk as Hex,chainId:cfg.chainId})
   await funder.sendEth(writer.address,parseEther('1'))
-  const created = await writer.createSlotCommitReveal({rule:rule,k,n,mode,authType:'oid4vp',tags:['keykeeper'],maxWaitMs:180000})
+  const created = await writer.createSlotCommitReveal({rule:rule,k,n,mode,authType:'oid4vp',tags:['keykeeper']})
   const {slotId,ruleSalt} = created
   await fundFreshWalletSlot(cfg, writer, creatorKey, created, rule)
   const deadline = Date.now()+240000

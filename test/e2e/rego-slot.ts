@@ -127,7 +127,7 @@ const writer = createTasraWriteClient({rpcUrl: cfg.rpcUrl, addresses: book, priv
 const funder = createTasraWriteClient({rpcUrl: cfg.rpcUrl, addresses: book, privateKey: cfg.deployPk as Hex, chainId: cfg.chainId})
 await funder.sendEth(writer.address, parseEther('1'))
 const created = await writer.createSlotCommitReveal({
-  oauthPolicy: {policy: POLICY, tokens}, authType: 'oauth', k: 2, n: 3, mode: 'frost', tags: ['keykeeper'], maxWaitMs: 180_000,
+  oauthPolicy: {policy: POLICY, tokens}, authType: 'oauth', k: 2, n: 3, mode: 'frost', tags: ['keykeeper'],
 })
 const slotId = created.slotId
 s.ok(`slot created from oauthPolicy (${slotId.slice(0, 18)}…, ${created.seeded ? 'seeded' : 'epoch'} reveal)`, created.rule === envelope)

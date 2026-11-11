@@ -108,6 +108,19 @@ never does.
 
 ### Changed
 
+- `createSlotCommitReveal` creates slots ONLY through the accountant-seeded path and never waits
+  for a beacon epoch (one to two hours at the production cadence). Accountants are asked
+  concurrently (`slotSeedHedgeMs`, default 750 ms stagger; the first valid seed wins and cancels
+  the rest), "not yet" answers are retried with jittered backoff that honours `Retry-After` for at
+  most `slotSeedRetryMs` (default now 90 s), and a missing seed throws `SlotSeedUnavailableError`
+  (`detail.committed`: whether the commitment stands and must be resumed). No epoch-path
+  commitment is ever sent, no beacon is polled and no chain-time nudge is sent; a transient
+  failure of the reveal-path probe now fails the call instead of committing on the epoch path.
+  Resuming an older SDK's epoch-path commitment (`recovery.commitTx`) checks once and throws
+  `SlotRevealNotYetError` until its target epoch. **Breaking**: `maxWaitMs` and `onEpoch` are
+  removed, `slotSeed: false` is refused, `onSeed` is no longer called with `null`.
+  `requestSlotSeed` gains `hedgeMs` and `signal`, asks concurrently, and retries 429 and timeouts.
+
 - One allowance-backed paid operation journals with 32 durable device flushes instead of 116
   on `createFileStore` (macOS F_FULLFSYNC is device-wide and serialised across processes, so this
   bounded a host's paid operations per second). Every crash ordering is kept: what guards a send

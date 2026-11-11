@@ -2,13 +2,14 @@
 //
 // What these pin is the CLIENT-SIDE half of the security argument. The chain enforces that the
 // signature is a real k-of-n threshold signature; nothing here can or should re-check that. What
-// this side owes is that a caller never spends gas on an answer that could not possibly work, and
-// that a deployment without the fast path still creates slots.
+// this side owes is that a caller never spends gas on an answer that could not possibly work, that
+// creation never waits for a beacon epoch, and that a missing seed is a typed, fast failure.
 import {afterEach, beforeEach, expect, it, vi} from 'vitest'
 import {concat, createWalletClient, defineChain, http, keccak256, toHex, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {createTasraWriteClient} from '../../src/chain/write.js'
 import {requestSlotSeed} from '../../src/chain/slotSeed.js'
+import {SlotRevealNotYetError, SlotSeedUnavailableError} from '../../src/chain/commitmentRecovery.js'
 import {resolveAccountantUrls, ACCOUNTANT_TAG} from '../../src/chain/discovery.js'
 import type {TasraChainClient} from '../../src/chain/client.js'
 
@@ -30,14 +31,14 @@ function seedChain(digest: Hex = DIGEST): TasraChainClient {
 }
 
 /** Stand in for the accountant fleet: `replies` is consulted per base URL. */
-function fleet(replies: Record<string, {status: number; body?: unknown} | 'throw'>) {
+function fleet(replies: Record<string, {status: number; body?: unknown; headers?: Record<string, string>} | 'throw'>) {
   return vi.fn(async (input: string | URL | Request) => {
     const url = String(input)
     const base = url.replace(/\/v1\/slot-seed$/, '')
     const r = replies[base]
     if (!r) throw new Error(`no stub for ${url}`)
     if (r === 'throw') throw new Error('connection refused')
-    return {ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => r.body, text: async () => JSON.stringify(r.body ?? '')} as Response
+    return {ok: r.status >= 200 && r.status < 300, status: r.status, headers: new Headers(r.headers ?? {}), json: async () => r.body, text: async () => JSON.stringify(r.body ?? '')} as Response
   })
 }
 
@@ -148,23 +149,29 @@ it('pins the rule policy in the seeded reveal, in the same transaction', async (
   expect(reveal?.[0]).toMatchObject({functionName: 'revealKeySlotWithSeedAndPolicy'})
 })
 
-// ⚠ THE FAST PATH MUST ONLY EVER COST TIME. With no accountant reachable the creation still has
-//   to run ADR-0030's epoch wait — which here cannot finish, so a timeout naming the target epoch
-//   is the proof that the fallback was entered rather than the whole call failing on the seed.
-it('falls back to the epoch wait when no accountant serves a seed', async () => {
+// ⚠⚠ THERE IS NO EPOCH WAIT TO FALL BACK TO. With no accountant reachable the creation used to run
+//    ADR-0030's epoch wait (one to two hours at the production cadence). Now the commitment stands
+//    and the caller gets a typed error saying so, fast: an unreachable set is not retried.
+it('fails fast with a typed error when no accountant serves a seed, without polling the beacon', async () => {
   vi.stubGlobal('fetch', fleet({'http://a': 'throw'}))
   const h = writer(false)
-  await expect(h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a'], maxWaitMs: 1}))
-    .rejects.toThrow('beacon did not reach target epoch 9')
+  const started = Date.now()
+  const error = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a']}).catch((e: unknown) => e)
+  expect(Date.now() - started).toBeLessThan(2_000)
+  expect(error).toBeInstanceOf(SlotSeedUnavailableError)
+  expect(error).toMatchObject({detail: {committed: true, commitment: COMMITMENT, expiryEpoch: 20}})
+  expect((error as Error).message).toContain('unreachable')
+  expect(mocks.read.mock.calls.map(c => (c[0] as {functionName: string}).functionName)).not.toContain('epoch')
+  expect(h.direct.mock.calls.map(c => (c[0] as {functionName: string}).functionName)).toEqual(['commitKeySlot'])
 })
 
-it('skips the seed request entirely when slotSeed is false', async () => {
+it('refuses the removed beacon-epoch path (slotSeed: false) before any request or transaction', async () => {
   const f = fleet({})
   vi.stubGlobal('fetch', f)
   const h = writer(false)
-  await expect(h.w.createSlotCommitReveal({...h.args, slotSeed: false, maxWaitMs: 1}))
-    .rejects.toThrow('beacon did not reach target epoch 9')
+  await expect(h.w.createSlotCommitReveal({...h.args, ...{slotSeed: false}})).rejects.toThrow('beacon-epoch creation path was removed')
   expect(f).not.toHaveBeenCalled()
+  expect(h.direct).not.toHaveBeenCalled()
 })
 
 // ⚠⚠ Under a relay a failed seeded reveal must NOT fall through. The relay submitter owns the
@@ -177,11 +184,11 @@ it('rethrows a failed seeded reveal under a relay rather than falling back', asy
     throw new Error('relay: reveal reverted')
   })
   const h = writer(true)
-  await expect(h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a'], maxWaitMs: 1}))
+  await expect(h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a']}))
     .rejects.toThrow('relay: reveal reverted')
 })
 
-it('commits exactly once whichever path completes the reveal', async () => {
+it('commits exactly once', async () => {
   vi.stubGlobal('fetch', fleet({'http://a': {status: 200, body: {commitment: COMMITMENT, digest: DIGEST, signature: SIG}}}))
   const h = writer(false)
   await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a']})
@@ -234,9 +241,9 @@ const FALLBACK = hash('0f')
 const fallbackSalt = (salt: Hex) => keccak256(concat([toHex('tasra/slot-create/epoch-fallback/v1'), salt]))
 
 /** A path-recording registry: six-word `slotCommits`, and commits that bind their reveal path. */
-function pathRegistry(h: ReturnType<typeof writer>, pre: Record<string, {path: number; used?: boolean}> = {}) {
+function pathRegistry(h: ReturnType<typeof writer>, pre: Record<string, {path: number; used?: boolean; target?: bigint}> = {}) {
   const creator = privateKeyToAccount(hash('01')).address
-  const commits = new Map<string, {path: number; used: boolean}>(Object.entries(pre).map(([k, v]) => [k, {path: v.path, used: v.used ?? false}]))
+  const commits = new Map<string, {path: number; used: boolean; target?: bigint}>(Object.entries(pre).map(([k, v]) => [k, {path: v.path, used: v.used ?? false, target: v.target}]))
   const writes: Array<{functionName: string; args: readonly unknown[]}> = []
   mocks.read.mockImplementation(async ({functionName, args}: {functionName: string; args?: readonly unknown[]}) => {
     if (functionName === 'computeCommitment') return args?.[5] === h.args.salt ? COMMITMENT : args?.[5] === fallbackSalt(h.args.salt) ? FALLBACK : hash('ee')
@@ -244,7 +251,7 @@ function pathRegistry(h: ReturnType<typeof writer>, pre: Record<string, {path: n
       const c = commits.get(String(args?.[0]))
       // targetEpoch 2 against a beacon at 2: an epoch reveal CAN complete here, so what decides a
       // case is which commitment and which entry point were used.
-      return c ? [2n, 20n, creator, c.used, 100n, c.path] : [0n, 0n, ZERO, false, 0n, 0]
+      return c ? [c.target ?? 2n, 20n, creator, c.used, 100n, c.path] : [0n, 0n, ZERO, false, 0n, 0]
     }
     if (functionName === 'epoch') return 2n
     if (functionName === 'randomBeacon') return address
@@ -287,33 +294,78 @@ it('re-asks while the set answers "not yet" (404 behind the receipt, 503 busy le
   expect(reg.writes.map(w => w.functionName)).toEqual(['commitKeySlotSeeded', 'revealKeySlotWithSeed'])
 })
 
-it('does not retry a 409, reports why, and completes through a fallback epoch-path commitment', async () => {
+it('does not retry a 409, reports why, and never sends an epoch-path commitment', async () => {
   const f = fleet({'http://a': {status: 409, body: 'the commitment is bound to the beacon-epoch reveal'}})
   vi.stubGlobal('fetch', f)
   const h = writer(false)
   const reg = pathRegistry(h)
   const errors: string[] = []
-  const out = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a'], slotSeedRetryMs: 5_000, onSeedError: e => errors.push(e.reason)})
-  expect(out.seeded).toBe(false)
+  const error = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a'], slotSeedRetryMs: 5_000, onSeedError: e => errors.push(e.reason)}).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(SlotSeedUnavailableError)
   expect(f).toHaveBeenCalledTimes(1)
   expect(errors).toHaveLength(1)
   expect(errors[0]).toContain('409')
-  // The seeded-path commitment can never be revealed on the epoch path (WrongRevealPath), so the
-  // epoch reveal runs on a SECOND commitment, made through commitKeySlot with the derived salt.
-  expect(reg.writes.map(w => w.functionName)).toEqual(['commitKeySlotSeeded', 'commitKeySlot', 'revealKeySlot'])
-  expect(reg.writes[1]?.args).toEqual([FALLBACK])
-  expect(reg.writes[2]?.args[6]).toBe(fallbackSalt(h.args.salt))
+  // ⚠⚠ The SDK used to complete this through a SECOND commitment via commitKeySlot and the epoch wait.
+  expect(reg.writes.map(w => w.functionName)).toEqual(['commitKeySlotSeeded'])
 })
 
-it('commits through commitKeySlot when no seed will be asked for', async () => {
-  const f = fleet({})
-  vi.stubGlobal('fetch', f)
+// ⚠⚠ A transient failure of the reveal-path probe used to read as "legacy registry", which commits
+//    through commitKeySlot: on a path-recording registry, an EPOCH-path commitment no accountant seeds.
+it('sends nothing when the reveal-path probe fails for any reason but a short decode', async () => {
+  vi.stubGlobal('fetch', fleet({'http://a': seedOk}))
   const h = writer(false)
   const reg = pathRegistry(h)
-  await h.w.createSlotCommitReveal({...h.args, slotSeed: false})
+  const inner = mocks.read.getMockImplementation()!
+  mocks.read.mockImplementation(async (arg: {functionName: string}) => arg.functionName === 'slotCommits' ? Promise.reject(new Error('HTTP request failed: 502')) : inner(arg))
+  await expect(h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a']})).rejects.toThrow('502')
+  expect(reg.writes).toEqual([])
+})
+
+it('refuses before committing when no accountant is registered, and says nothing was sent', async () => {
+  const h = writer(false)
+  const reg = pathRegistry(h)
+  const error = await h.w.createSlotCommitReveal({...h.args, accountantUrls: []}).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(SlotSeedUnavailableError)
+  expect(error).toMatchObject({retryable: true, detail: {committed: false, failure: {reason: 'no accountant registered'}}})
+  expect(reg.writes).toEqual([])
+})
+
+it('a seeded commitment resumed after a missing seed is not committed again', async () => {
+  vi.stubGlobal('fetch', fleet({'http://a': seedOk}))
+  const h = writer(false)
+  const reg = pathRegistry(h, {[COMMITMENT]: {path: 2}})
+  const out = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a'], recovery: {commitTx: hash('09'), onTransaction: vi.fn(async () => {})}})
+  expect(out.seeded).toBe(true)
+  expect(reg.writes.map(w => w.functionName)).toEqual(['revealKeySlotWithSeed'])
+})
+
+// --- recovery of an older SDK's beacon-epoch commitment: one check, never a wait ----------------
+
+it('an existing epoch-path commitment before its target says "not yet" at once instead of waiting', async () => {
+  const f = fleet({'http://a': seedOk})
+  vi.stubGlobal('fetch', f)
+  const h = writer(false)
+  const reg = pathRegistry(h, {[COMMITMENT]: {path: 1, target: 9n}})
+  const started = Date.now()
+  const error = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a'], recovery: {commitTx: hash('09'), onTransaction: vi.fn(async () => {})}}).catch((e: unknown) => e)
+  expect(Date.now() - started).toBeLessThan(1_000)
+  expect(error).toBeInstanceOf(SlotRevealNotYetError)
+  expect(error).toMatchObject({targetEpoch: 9, currentEpoch: 2, expiryEpoch: 20, retryable: true})
+  expect((error as Error).message).toContain('not revealable until beacon epoch 9')
   expect(f).not.toHaveBeenCalled()
-  expect(reg.writes.map(w => w.functionName)).toEqual(['commitKeySlot', 'revealKeySlot'])
-  expect(reg.writes[1]?.args[6]).toBe(h.args.salt)
+  expect(reg.writes).toEqual([])
+})
+
+it('an existing epoch-path commitment past its target is revealed once on the epoch path', async () => {
+  const f = fleet({'http://a': seedOk})
+  vi.stubGlobal('fetch', f)
+  const h = writer(false)
+  const reg = pathRegistry(h, {[COMMITMENT]: {path: 1}})
+  const out = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a'], recovery: {commitTx: hash('09'), onTransaction: vi.fn(async () => {})}})
+  expect(out.seeded).toBe(false)
+  expect(f).not.toHaveBeenCalled()
+  expect(reg.writes.map(w => w.functionName)).toEqual(['revealKeySlot'])
+  expect(reg.writes[0]?.args[6]).toBe(h.args.salt)
 })
 
 it('a resumed creation finds its fallback commitment instead of committing a third time', async () => {
@@ -327,4 +379,123 @@ it('a resumed creation finds its fallback commitment instead of committing a thi
   expect(f).not.toHaveBeenCalled()
   expect(reg.writes.map(w => w.functionName)).toEqual(['revealKeySlot'])
   expect(reg.writes[0]?.args[6]).toBe(fallbackSalt(h.args.salt))
+})
+
+it('an older SDK\'s fallback commitment not yet at its target says "not yet" instead of waiting', async () => {
+  const f = fleet({'http://a': seedOk})
+  vi.stubGlobal('fetch', f)
+  const h = writer(false)
+  const reg = pathRegistry(h, {[COMMITMENT]: {path: 2}, [FALLBACK]: {path: 1, target: 9n}})
+  await expect(h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a'], recovery: {commitTx: hash('09'), onTransaction: vi.fn(async () => {})}}))
+    .rejects.toBeInstanceOf(SlotRevealNotYetError)
+  expect(f).not.toHaveBeenCalled()
+  expect(reg.writes).toEqual([])
+})
+
+// --- the ask itself: concurrent, bounded, Retry-After ------------------------------------------
+
+const ordered = `0x${'07'.repeat(30)}0000` as Hex // asks http://a first
+
+it('asks concurrently: a slow first accountant does not hold up a fast second, and is cancelled', async () => {
+  let slowSignal: AbortSignal | undefined
+  const f = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).startsWith('http://a')) {
+      slowSignal = init?.signal ?? undefined
+      return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))))
+    }
+    return {ok: true, status: 200, headers: new Headers(), json: async () => ({commitment: ordered, digest: DIGEST, signature: SIG}), text: async () => ''} as unknown as Response
+  })
+  vi.stubGlobal('fetch', f)
+  const started = Date.now()
+  await expect(requestSlotSeed(seedChain(), address, ordered, {urls: ['http://a', 'http://b'], timeoutMs: 60_000, hedgeMs: 20}))
+    .resolves.toMatchObject({signature: SIG})
+  // Sequential asking would sit out the first accountant's 60 s timeout.
+  expect(Date.now() - started).toBeLessThan(2_000)
+  expect(f).toHaveBeenCalledTimes(2)
+  expect(slowSignal?.aborted).toBe(true)
+})
+
+it('hedgeMs 0 launches every ask of a round at once', async () => {
+  const launched: string[] = []
+  const f = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    launched.push(String(input))
+    return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))))
+  })
+  vi.stubGlobal('fetch', f)
+  const pending = requestSlotSeed(seedChain(), address, ordered, {urls: ['http://a', 'http://b', 'http://c'], timeoutMs: 200, hedgeMs: 0})
+  await new Promise(r => setTimeout(r, 30))
+  expect(launched).toHaveLength(3)
+  await expect(pending).resolves.toBeNull()
+})
+
+it('keeps re-asking a busy set only within the window, then gives up with the last answers', async () => {
+  vi.useFakeTimers()
+  const f = fleet({'http://a': {status: 503, body: 'leading another round'}})
+  vi.stubGlobal('fetch', f)
+  const failures: Array<{rounds: number; reason: string}> = []
+  const pending = requestSlotSeed(seedChain(), address, ordered, {urls: ['http://a'], retryForMs: 10_000, onFailure: x => failures.push(x)})
+  await vi.advanceTimersByTimeAsync(12_000)
+  await expect(pending).resolves.toBeNull()
+  expect(failures).toHaveLength(1)
+  expect(failures[0]?.reason).toContain('503')
+  // 250 ms doubling to a 4 s cap, jittered: a bounded handful of asks, never a tight loop.
+  expect(f.mock.calls.length).toBeGreaterThanOrEqual(3)
+  expect(f.mock.calls.length).toBeLessThanOrEqual(8)
+})
+
+it('honours Retry-After before asking again', async () => {
+  vi.useFakeTimers()
+  const answers = [{status: 503, headers: {'retry-after': '3'}}, seedOk]
+  const f = vi.fn(async () => {
+    const r = answers.shift() ?? seedOk
+    return {ok: r.status === 200, status: r.status, headers: new Headers((r as {headers?: Record<string, string>}).headers ?? {}), json: async () => (r as {body?: unknown}).body, text: async () => ''} as unknown as Response
+  })
+  vi.stubGlobal('fetch', f)
+  const pending = requestSlotSeed(seedChain(), address, ordered, {urls: ['http://a'], retryForMs: 30_000})
+  await vi.advanceTimersByTimeAsync(2_500)
+  // The jittered backoff alone would have asked again after at most 250 ms.
+  expect(f).toHaveBeenCalledTimes(1)
+  await vi.advanceTimersByTimeAsync(1_000)
+  await expect(pending).resolves.toMatchObject({signature: SIG})
+  expect(f).toHaveBeenCalledTimes(2)
+})
+
+it('a Retry-After past the window ends the ask at once instead of waiting it out', async () => {
+  const f = fleet({'http://a': {status: 429, headers: {'retry-after': '600'}}})
+  vi.stubGlobal('fetch', f)
+  const started = Date.now()
+  await expect(requestSlotSeed(seedChain(), address, ordered, {urls: ['http://a'], retryForMs: 30_000})).resolves.toBeNull()
+  expect(Date.now() - started).toBeLessThan(1_000)
+  expect(f).toHaveBeenCalledTimes(1)
+})
+
+it('an unreachable set fails at once rather than paying the retry window', async () => {
+  const f = fleet({'http://a': 'throw', 'http://b': 'throw'})
+  vi.stubGlobal('fetch', f)
+  const started = Date.now()
+  await expect(requestSlotSeed(seedChain(), address, ordered, {urls: ['http://a', 'http://b'], retryForMs: 60_000})).resolves.toBeNull()
+  expect(Date.now() - started).toBeLessThan(1_000)
+  expect(f).toHaveBeenCalledTimes(2)
+})
+
+it('stops waiting between rounds when the caller aborts', async () => {
+  const f = fleet({'http://a': {status: 503}})
+  vi.stubGlobal('fetch', f)
+  const controller = new AbortController()
+  const pending = requestSlotSeed(seedChain(), address, ordered, {urls: ['http://a'], retryForMs: 60_000, signal: controller.signal})
+  setTimeout(() => controller.abort(new Error('cancelled by caller')), 50)
+  await expect(pending).rejects.toThrow('cancelled by caller')
+})
+
+// Real sockets, no fetch stub: accountant URLs that refuse the connection (a closed local port).
+it('with every accountant URL refusing connections, creation fails fast and typed after its one commit', async () => {
+  const h = writer(false)
+  const reg = pathRegistry(h)
+  const started = Date.now()
+  const error = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://127.0.0.1:9', 'http://127.0.0.1:1/']}).catch((e: unknown) => e)
+  expect(Date.now() - started).toBeLessThan(3_000)
+  expect(error).toBeInstanceOf(SlotSeedUnavailableError)
+  expect(error).toMatchObject({detail: {committed: true, failure: {rounds: 1}}})
+  expect((error as SlotSeedUnavailableError).detail.failure.answers.map(a => a.reason)).toEqual([expect.stringContaining('unreachable'), expect.stringContaining('unreachable')])
+  expect(reg.writes.map(w => w.functionName)).toEqual(['commitKeySlotSeeded'])
 })

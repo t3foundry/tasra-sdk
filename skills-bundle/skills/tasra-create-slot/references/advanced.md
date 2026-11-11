@@ -77,10 +77,11 @@ if (eligible.length < n) throw new Error(`${eligible.length} eligible keepers; n
 const oneShot = !(await chain.readers.keyRegistry.requiresCommitReveal())
 const created = oneShot
   ? await writer.createSlot({rule, k, n, mode: 'bls'})
-  // Commits the parameters, then asks the accountants for a seed to reveal immediately.
-  // Falls back to the beacon-epoch wait when no usable seed is available; onEpoch reports
-  // that wait with NUMBERS, not bigints. Returns commitTx, revealTx, and seeded instead of txHash.
-  : await writer.createSlotCommitReveal({rule, k, n, mode: 'bls', onEpoch: (cur, target) => console.log(`epoch ${cur}/${target}`)})
+  // Commits the parameters, then asks the accountants for a seed to reveal immediately. It never
+  // waits for a beacon epoch: without a seed it throws SlotSeedUnavailableError, whose
+  // detail.committed says whether the commitment stands (resume it; never commit again).
+  // Returns commitTx, revealTx, and seeded instead of txHash.
+  : await writer.createSlotCommitReveal({rule, k, n, mode: 'bls'})
 const {slotId, ruleSalt} = created
 const txHash = 'txHash' in created ? created.txHash : created.revealTx
 // slotId and ruleSalt are 0x-hex strings.
@@ -365,11 +366,13 @@ as viem `ContractFunctionExecutionError`.
 
 ## Other write-client methods
 
-`createSlotCommitReveal` accepts `slotSeed: false` to use the beacon-epoch path,
-`accountantUrls` to override accountant discovery, `slotSeedTimeoutMs` for each
-accountant request, and `onSeed` to observe the seed response (or `null` for fallback).
-Its `seeded` result indicates whether the seeded reveal succeeded. A failed seeded
-reveal through a relay propagates the error, leaving retries to the relay submitter.
+`createSlotCommitReveal` accepts `accountantUrls` to override accountant discovery,
+`slotSeedTimeoutMs` for each accountant request, `slotSeedRetryMs` for the total retry
+window (default 90 s), and `onSeed`/`onSeedError` to observe the outcome. There is no
+beacon-epoch path: `slotSeed: false` is refused. Resuming an older SDK's epoch-path
+commitment checks once and throws `SlotRevealNotYetError` before its target epoch.
+A failed seeded reveal propagates the error, leaving retries to the relay submitter
+or to a resume of the same creation.
 
 `createSlotCommitReveal` (two-phase creation — the only one a registry with
 `requireCommitReveal` accepts; see step 3), `fundSlot`, `rotateKey`,
