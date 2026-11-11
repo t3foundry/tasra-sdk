@@ -456,15 +456,18 @@ describe('a session follows the beacon across epoch boundaries (C19)', () => {
     expect(ctx.seqs).toEqual([1, 2, 3])
   })
 
-  it('never waits on a grant the beacon already left: two epochs behind, one attempt, then the session ends', async () => {
+  it('never waits on a grant the beacon already left: two epochs behind, the session ends at once, with no refresh (C20)', async () => {
     const ctx = {now: T0 + 5, drawable: 44n, seqs: [] as number[]}
     const ended: string[] = []
     const o = await opened({clock: () => ctx.now, fetchImpl: agentAt(ctx), onEnded: e => ended.push(e.code), extra: {followRetryMs: 0}})
     ;(ctx as {key?: SessionKeyHandle}).key = o.key
+    // The agent continues one epoch at a time and the verifiers judge the continuation at their live
+    // beacon: no refresh can save a grant two epochs behind, so none is sent (each would spend quota).
     o.session.observeBeacon(44n)
-    await expect(o.session.followBeacon()).rejects.toBeInstanceOf(SessionEndedError)
-    expect(ctx.seqs).toEqual([1])
-    expect(ended).toEqual(['session_expired'])
+    await expect(o.session.followBeacon()).rejects.toMatchObject({code: 'local-stale'})
+    expect(ctx.seqs).toEqual([])
+    expect(ended).toEqual(['local-stale'])
+    expect(() => o.session.current()).toThrow(SessionEndedError)
   })
 
   it('start() polls the beacon and follows it without any message', async () => {
@@ -519,8 +522,11 @@ describe('a failed follow is retried by a later observation at the same epoch (r
       const o = await opened({clock: () => ctx.now, fetchImpl: sameEpochAgent(ctx), extra: {followRetryMs: 100}})
       ctx.key = o.key
       o.session.observeBeacon(43n)
-      // 20 attempts, 19 pauses of 100 ms: the run gives up at ~1.9 s; the backoff is then 100 ms.
-      await vi.advanceTimersByTimeAsync(1_950)
+      // 20 attempts, 19 pauses backing off from 100 ms (100, 200, 400, then 800): the run gives up
+      // at 13.5 s, not after 19 back-to-back retries; the backoff before a new run is then 100 ms.
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(ctx.seqs).toHaveLength(4)
+      await vi.advanceTimersByTimeAsync(12_550)
       expect(ctx.seqs).toHaveLength(20)
       // Within the backoff an observation starts nothing; after it, one does.
       o.session.observeBeacon(43n)
@@ -546,14 +552,14 @@ describe('every follow waiter settles (C19 hang: exit 13, unsettled top-level aw
       return reply(200, {session_grant: grant(ctx.key!, {iat: ctx.now, epoch: ctx.drawable}), refresh_seq: body.seq})
     }) as unknown as typeof fetch
   }
-  // The follow's pauses are the only timers created with this delay.
+  // The follow's pauses (backing off from this delay) are the only timers created with a multiple of it.
   const PAUSE_MS = 37
   function pauses() {
     const created: ReturnType<typeof setTimeout>[] = []
     const real = globalThis.setTimeout
     const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
       const t = real(fn, ms)
-      if (ms === PAUSE_MS) created.push(t)
+      if (ms !== undefined && ms > 0 && ms % PAUSE_MS === 0) created.push(t)
       return t
     }) as typeof setTimeout)
     return {created, restore: () => spy.mockRestore()}
@@ -659,6 +665,138 @@ describe('background refresh does not defeat the idle timeout (review F5)', () =
       }
       expect(ended).toEqual([])
       expect(Math.max(...calls)).toBeGreaterThan(T0 + 1500)
+      o.session.stop()
+    } finally { vi.useRealTimers() }
+  })
+})
+
+describe('session recovery: definite refusals end, the follow refreshes once per epoch at the anchor (C20)', () => {
+  it('a definite refresh refusal ends the session (present again): session_context_changed, session_continuation, a 404 session_unknown', async () => {
+    for (const [status, code] of [[409, 'session_context_changed'], [403, 'session_continuation'], [404, 'session_unknown'], [403, 'session_wrong_key']] as const) {
+      const ended: string[] = []
+      const o = await opened({clock: () => T0 + 10, fetchImpl: (async () => reply(status, {code, error: code})) as unknown as typeof fetch, onEnded: e => ended.push(e.code)})
+      await expect(o.session.refresh()).rejects.toMatchObject({code})
+      expect(ended).toEqual([code])
+      expect(() => o.session.current()).toThrow(SessionEndedError)
+    }
+  })
+
+  it('a transient refusal keeps the session and carries its status, code and Retry-After', async () => {
+    const fetchImpl = (async () => new Response(JSON.stringify({code: 'session_rate_limited'}), {status: 429, headers: {'content-type': 'application/json', 'retry-after': '3'}})) as unknown as typeof fetch
+    const o = await opened({clock: () => T0 + 10, fetchImpl})
+    await expect(o.session.refresh()).rejects.toMatchObject({name: 'SessionRefreshError', status: 429, code: 'session_rate_limited', retryAfterMs: 3000})
+    expect(o.session.current().epoch).toBe(42)
+  })
+
+  it('a follow honours Retry-After before its next attempt (no retry storm against the per-holder quota)', async () => {
+    vi.useFakeTimers()
+    try {
+      const at: number[] = []
+      let limited = true
+      const ref: {key?: SessionKeyHandle} = {}
+      const fetchImpl = (async (_u: string, init: RequestInit) => {
+        at.push(Date.now())
+        const body = JSON.parse(String(init.body)) as {seq: number}
+        if (limited) { limited = false; return new Response(JSON.stringify({code: 'session_rate_limited'}), {status: 429, headers: {'content-type': 'application/json', 'retry-after': '4'}}) }
+        return reply(200, {session_grant: grant(ref.key!, {iat: T0 + 6, epoch: 43n}), refresh_seq: body.seq})
+      }) as unknown as typeof fetch
+      const o = await opened({clock: () => T0 + 5, fetchImpl, extra: {followRetryMs: 100}})
+      ref.key = o.key
+      o.session.observeBeacon(43n)
+      await vi.advanceTimersByTimeAsync(3_900)
+      expect(at).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(200)
+      expect(at).toHaveLength(2)
+      expect(o.session.current().epoch).toBe(43)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('with a draw observation the poll refreshes ONCE per epoch, at the anchor, never while the agent can only re-sign the old epoch (5 ms storm)', async () => {
+    vi.useFakeTimers()
+    try {
+      // The beacon moved to 43 but its verifier snapshot anchors only 8 s later (the lab fleet's
+      // anchoring lag); until then the agent draws on 42 and a refresh re-signs the grant there.
+      const t0 = Date.now()
+      const anchored = () => Date.now() - t0 >= 8_000
+      const seqs: number[] = []
+      const ref: {key?: SessionKeyHandle} = {}
+      let iat = T0 + 5
+      const fetchImpl = (async (_u: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as {seq: number}
+        seqs.push(body.seq)
+        return reply(200, {session_grant: grant(ref.key!, {iat: ++iat, epoch: anchored() ? 43n : 42n}), refresh_seq: body.seq})
+      }) as unknown as typeof fetch
+      const o = await opened({clock: () => T0 + 5, fetchImpl, extra: {followRetryMs: 1000, beacon: {
+        latestEpoch: async () => 43n,
+        drawState: async () => ({latest: 43n, ...anchored() ? {draw: 43n} : {draw: 42n}}),
+        pollMs: 1000}}})
+      ref.key = o.key
+      o.session.start()
+      await vi.advanceTimersByTimeAsync(7_500)
+      expect(seqs).toEqual([])
+      expect(o.session.drawEpoch).toBe(42n)
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(seqs).toEqual([1])
+      expect(o.session.current().epoch).toBe(43)
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(seqs).toEqual([1])
+      o.session.stop()
+    } finally { vi.useRealTimers() }
+  })
+
+  it('a grant born stale (the beacon two epochs past it when the open completes) ends at the first poll, with no refresh', async () => {
+    vi.useFakeTimers()
+    try {
+      const seqs: number[] = []
+      const ended: string[] = []
+      const fetchImpl = (async (_u: string, init: RequestInit) => { seqs.push((JSON.parse(String(init.body)) as {seq: number}).seq); return reply(503, {code: 'session_unavailable'}) }) as unknown as typeof fetch
+      const o = await opened({clock: () => T0 + 5, fetchImpl, onEnded: e => ended.push(e.code), extra: {followRetryMs: 0,
+        beacon: {latestEpoch: async () => 44n, drawState: async () => ({latest: 44n, draw: 43n}), pollMs: 1000}}})
+      o.session.start()
+      await vi.advanceTimersByTimeAsync(10)
+      expect(ended).toEqual(['local-stale'])
+      expect(seqs).toEqual([])
+      expect(() => o.session.current()).toThrow(/local-stale/)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('a grant born one epoch behind with the next epoch already drawable refreshes at the first poll', async () => {
+    vi.useFakeTimers()
+    try {
+      const ref: {key?: SessionKeyHandle} = {}
+      const seqs: number[] = []
+      const fetchImpl = (async (_u: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as {seq: number}
+        seqs.push(body.seq)
+        return reply(200, {session_grant: grant(ref.key!, {iat: T0 + 6, epoch: 43n}), refresh_seq: body.seq})
+      }) as unknown as typeof fetch
+      const o = await opened({clock: () => T0 + 5, fetchImpl, extra: {followRetryMs: 0,
+        beacon: {latestEpoch: async () => 43n, drawState: async () => ({latest: 43n, draw: 43n}), pollMs: 60_000}}})
+      ref.key = o.key
+      o.session.start()
+      await vi.advanceTimersByTimeAsync(10)
+      expect(seqs).toEqual([1])
+      expect(o.session.current().epoch).toBe(43)
+      o.session.stop()
+    } finally { vi.useRealTimers() }
+  })
+
+  it('the expiry refresh backs off on transient failures and honours Retry-After', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(T0 * 1000)
+      const clock = () => Math.floor(Date.now() / 1000)
+      const at: number[] = []
+      const fetchImpl = (async () => { at.push(Date.now()); return new Response(JSON.stringify({code: 'session_rate_limited'}), {status: 429, headers: {'content-type': 'application/json', 'retry-after': '5'}}) }) as unknown as typeof fetch
+      // A 40 s grant refreshed 30 s before exp: the first attempt at +10 s, then every Retry-After (5 s), not every second.
+      const o = await opened({clock, fetchImpl, ttl: 40, extra: {refreshLeadSecs: 30}})
+      o.session.start()
+      await vi.advanceTimersByTimeAsync(10_500)
+      expect(at).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(4_000)
+      expect(at).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(at).toHaveLength(2)
       o.session.stop()
     } finally { vi.useRealTimers() }
   })

@@ -3,7 +3,7 @@ import {ed25519} from '@noble/curves/ed25519'
 import * as randomness from '@noble/hashes/utils'
 import {createPublicClient, custom, decodeFunctionData, encodeFunctionResult, getAddress, keccak256, recoverTypedDataAddress, toHex, type Abi, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {discoverPaidOperationContext, drawnIntentFields, followPaidRequest, PaidDrawMovedError, readClientExecutionPolicy, type DrawnPaidOperationContext, type PaidContextOptions,
+import {discoverPaidOperationContext, drawnIntentFields, followPaidRequest, PaidDrawMovedError, readBeaconDrawState, readClientExecutionPolicy, type DrawnPaidOperationContext, type PaidContextOptions,
   type PaidOperationContext} from '../../src/chain/prepaid.js'
 import {UnderfundedSlotError} from '../../src/errors.js'
 import {BillingModeError} from '../../src/chain/billing.js'
@@ -685,5 +685,30 @@ describe('a refusal at a followed tip one block behind the caller\'s view', () =
       await expect(readClientExecutionPolicy(g.client, g.deployment, payment, intendedWork)).rejects.toThrow('operation has no valid reserved TASRA fee')
       expect(latestReads(g)).toBe(1)
     } finally { unfollowHeads(g.client) }
+  })
+})
+
+describe('readBeaconDrawState: the epoch the verifier-agent draws a session on (C20)', () => {
+  const snapshotReads = (calls: ReturnType<typeof fixture>['calls']) => calls.filter(c => c.name === 'snapshotAt').map(c => c.args?.[0])
+  it('is the latest epoch once its verifier snapshot is anchored, with no read of the previous one', async () => {
+    now()
+    const f = fixture({epoch: 7n})
+    expect(await readBeaconDrawState(f.client, f.deployment)).toEqual({latest: 7n, draw: 7n})
+    expect(snapshotReads(f.calls)).toEqual([7n])
+  })
+  it('is the previous epoch while the latest snapshot is not anchored, and absent when neither is', async () => {
+    now()
+    const f = fixture({epoch: 7n, unanchored: true})
+    expect(await readBeaconDrawState(f.client, f.deployment)).toEqual({latest: 7n, draw: 6n})
+    expect(snapshotReads(f.calls)).toEqual([7n, 6n])
+    const g = fixture({epoch: 7n, unanchored: true, noPrevious: true})
+    expect(await readBeaconDrawState(g.client, g.deployment)).toEqual({latest: 7n})
+  })
+  it('reads every value at one observed head', async () => {
+    now()
+    const f = fixture({epoch: 7n, unanchored: true})
+    await readBeaconDrawState(f.client, f.deployment)
+    const pinned = f.calls.filter(c => c.method === 'eth_call').map(c => (c.at as {blockHash?: Hex}).blockHash)
+    expect(new Set(pinned)).toEqual(new Set([h(20)]))
   })
 })

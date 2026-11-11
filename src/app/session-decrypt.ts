@@ -18,6 +18,13 @@
 // compute its partial yet answer "stale" (and later report the execution it approved), so a
 // message may pay at most TWO debits, and only when every other keeper also refused before
 // execution AND the chain independently shows the grant two epochs behind, i.e. the retry was due.
+//
+// A session that ENDS under a message (a definite refusal such as `session_context_changed`, the
+// beacon two epochs past the grant, idle/absolute expiry) is re-opened ONCE for that message when
+// the caller supplies `reopen` (a fresh presentation is the caller's: only it holds the wallet).
+// The re-open never resends a paid write: the message is paid afresh (a new request id) on the new
+// grant's draw, and only within the same two-debit bound (an end before the message paid costs
+// nothing; an end after a confirmed-stale refusal is that refusal's one retry).
 
 import type {Hex} from 'viem'
 import {TasraError} from '../errors.js'
@@ -35,6 +42,13 @@ export interface SessionMessageRequest {
   config: PaidOperationConfig
   /** The accepted session ({@link GrantedSession}); call its `start()` so it follows the beacon. */
   session: GrantedSession
+  /**
+   * Open a NEW session (a fresh presentation, accepted and started) when `session` ended before
+   * this message was served (`SessionEndedError`). Called at most once per message; without it the
+   * end is thrown. The message then continues on the returned session
+   * ({@link SessionMessageResult.session}); the caller keeps that one for its next messages.
+   */
+  reopen?(ended: SessionEndedError): Promise<GrantedSession>
   /** KEM slot the grant names. */
   slot: Hex
   /** The keepers and their shares: everything {@link decryptWithSessionGrant} takes but the grant, key and proofs. */
@@ -59,6 +73,8 @@ export interface SessionMessageRequest {
     onApproval?(): void
     /** The message is paid and sent again on a refreshed grant (`reason`: `draw-moved` or `stale`). */
     onRetry?(reason: 'draw-moved' | 'stale'): void
+    /** The session ended under this message and `reopen` is called (`code`: the end's). */
+    onReopen?(code: string): void
   }
 }
 
@@ -69,6 +85,8 @@ export interface SessionMessageResult {
   requestIds: Hex[]
   /** The epoch of the grant that served it. */
   grantEpoch: bigint
+  /** The session that served it: `request.session`, or the one `reopen` returned. */
+  session: GrantedSession
 }
 
 /** A message the keepers refused (after the one retry a stale grant earns). */
@@ -125,13 +143,24 @@ async function settle(session: GrantedSession): Promise<void> {
  * `SessionEndedError` (present again).
  */
 export async function decryptInSession(request: SessionMessageRequest): Promise<SessionMessageResult> {
-  const {session, slot, hooks} = request
+  const {slot, hooks} = request
+  let session = request.session
   const requestIds: Hex[] = []
-  let retried = false
+  let retried = false, reopened = false
   for (;;) {
-    await settle(session)
-    const grant = session.current()
-    const verified = await session.verifiedFor(slot)
+    let grant: ReturnType<GrantedSession['current']>, verified: Awaited<ReturnType<GrantedSession['verifiedFor']>>
+    try {
+      await settle(session)
+      grant = session.current()
+      verified = await session.verifiedFor(slot)
+    } catch (error) {
+      // The session ended (nothing of this attempt is paid yet): open a new one, once.
+      if (!(error instanceof SessionEndedError) || !request.reopen || reopened) throw error
+      reopened = true
+      hooks?.onReopen?.(error.code)
+      session = await request.reopen(error)
+      continue
+    }
     const proofs = request.verifierProofs ? await request.verifierProofs(slot, BigInt(grant.epoch)) : undefined
     let paid: PaidSessionDecrypt
     try {
@@ -161,7 +190,7 @@ export async function decryptInSession(request: SessionMessageRequest): Promise<
         ...proofs ? {verifierProofs: proofs} : {}, ...request.signal ? {signal: request.signal} : {}},
       [{...message, payment: paid.payment, approveExecution}])
       if (!result) throw new TasraError('Session keepers answered no item')
-      if (result.ok) return {plaintext: result.plaintext, requestIds, grantEpoch: BigInt(grant.epoch)}
+      if (result.ok) return {plaintext: result.plaintext, requestIds, grantEpoch: BigInt(grant.epoch), session}
       if (result.stale && !retried) {
         // Every keeper refused the grant as no longer current before running anything. Their text
         // (any "beacon latest N") is the keepers' claim, never fed into the session: it only

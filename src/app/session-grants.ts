@@ -18,6 +18,7 @@ import {withCommit} from './store-commit.js'
 import type {ApprovedAgentProfile} from '../chain/registeredAgent.js'
 import type {PaidAgentTransport} from '../chain/paidAgentTransport.js'
 import {validateServiceEndpoint} from '../chain/serviceIdentity.js'
+import type {BeaconDrawState} from '../chain/prepaid.js'
 
 const HEX32 = /^0x[0-9a-fA-F]{64}$/
 
@@ -139,7 +140,11 @@ export interface SessionTransport {
 
 /** A session that can no longer be refreshed: the application must present again. */
 export class SessionEndedError extends TasraError {
-  /** `session_expired`, `session_idle`, `session_revoked`, `session_replayed`, `session_status`, `session_rule_changed`, `unsupported` or `local-*`. */
+  /**
+   * A definite refusal ({@link SESSION_REFUSAL_CODES}), `unsupported` (a verifier-agent without
+   * session refresh) or `local-*` (`local-idle`, `local-absolute`, `local-expired`,
+   * `local-revoking`, `local-stale`: the beacon left the grant's window).
+   */
   readonly code: string
   constructor(code: string, message: string) { super(message); this.code = code }
 }
@@ -181,7 +186,18 @@ export interface GrantedSessionOptions {
    * also polls the beacon every `pollMs` (default 2000) and refreshes the grant in the background
    * the moment the beacon moves past the grant's epoch ({@link GrantedSession.observeBeacon}).
    */
-  beacon?: {latestEpoch(): Promise<bigint>; pollMs?: number}
+  beacon?: {
+    latestEpoch(): Promise<bigint>
+    /**
+     * The beacon's latest epoch AND its draw epoch (`readBeaconDrawState`). When set, the poll
+     * reads this instead of `latestEpoch` and a follow refreshes only once the agent can draw the
+     * next epoch (its verifier snapshot is anchored): ONE refresh per epoch, at the anchor, instead
+     * of re-signing the grant on its old epoch every `followRetryMs` until the anchor lands (each
+     * such refresh spends the holder's per-verifier session quota).
+     */
+    drawState?(): Promise<BeaconDrawState>
+    pollMs?: number
+  }
   /** Pause between follow attempts while a new epoch's anchors land, ms (default 1000; tests use 0). */
   followRetryMs?: number
   /** Clock override, Unix seconds (tests). */
@@ -263,7 +279,36 @@ async function checkGrant(opts: GrantedSessionOptions, grant: SessionGrant, requ
   return verified
 }
 
-const REFUSAL_CODES = new Set(['session_expired', 'session_idle', 'session_revoked', 'session_replayed', 'session_status', 'session_rule_changed'])
+/**
+ * Refresh refusals no retry of the same session can pass (keykeeper-verifier `session_grant.rs`,
+ * relayed by the verifier-agent): the session ends and the application presents again.
+ * `session_context_changed`: the verifiers' live draw no longer admits the grant's epoch or seed
+ * (the beacon left the grant's window, or the draw changed); `session_continuation`: the session
+ * cannot cross an epoch; `session_unknown`: no agent session holds this grant; `session_wrong_key`,
+ * `session_key_not_bound`, `session_mismatch`, `session_invalid_request`, `session_lifetime`: this
+ * session's own refresh is malformed or bound elsewhere, every retry the same. Everything else
+ * (`session_rate_limited`, `session_quorum_unmet`, `session_unavailable`, `session_status_window`,
+ * untyped answers) is transient: the held grant still serves and the refresh is retried, backing off.
+ */
+export const SESSION_REFUSAL_CODES: ReadonlySet<string> = new Set(['session_expired', 'session_idle', 'session_revoked', 'session_replayed', 'session_status',
+  'session_rule_changed', 'session_context_changed', 'session_continuation', 'session_unknown', 'session_wrong_key', 'session_key_not_bound', 'session_mismatch',
+  'session_invalid_request', 'session_lifetime'])
+
+/** A transient refresh failure: the held grant is unchanged and still serves until its `exp`. */
+export class SessionRefreshError extends TasraError {
+  /** Always true: a later refresh may pass. */
+  readonly retryable = true
+  constructor(readonly status: number, readonly code: string | undefined, readonly retryAfterMs: number | undefined) {
+    super(`Session refresh failed (${status}${code ? ', ' + code : ''}); retry before the grant expires`)
+    this.name = 'SessionRefreshError'
+  }
+}
+
+/** The pause before the next transient refresh retry: exponential from `base` (at most 8×), never below a `Retry-After`, at most 30 s. */
+function retryPause(base: number, attempt: number, error: unknown): number {
+  const after = error instanceof SessionRefreshError ? error.retryAfterMs ?? 0 : 0
+  return Math.min(MAX_FOLLOW_BACKOFF_MS, Math.max(after, base * 2 ** Math.min(attempt, 3)))
+}
 
 /** An accepted, refreshable session grant. */
 export class GrantedSession {
@@ -282,9 +327,13 @@ export class GrantedSession {
   #stops = 0
   /** The newest beacon epoch observed on the chain (a payment's discovery, the beacon poll, a fresh read). */
   #beacon: bigint | undefined
+  /** The newest draw epoch observed on the chain ({@link observeDraw}); only with `beacon.drawState`. */
+  #draw: bigint | undefined
   /** Consecutive failed follow runs, and when (Date.now ms) an observation may start the next one. */
   #followFailures = 0
   #followRetryAt = 0
+  /** Consecutive failed expiry refreshes (their retry backs off). */
+  #expiryFailures = 0
   /**
    * Unix seconds of the last USE (a {@link current} read for a keeper request), at least the last
    * refresh this process loaded. Background refreshes (the expiry timer, a beacon follow) never move
@@ -399,12 +448,11 @@ export class GrantedSession {
     const issuedAt = this.#clock()
     const signature = await this.#opts.key.sign(sessionControlHash('refresh', sessionGrantHash(previous.payload), seq, issuedAt))
     const reply = await this.#post('/v1/sessions/refresh', {grant, seq, issued_at: issuedAt, signature: bytesToHex(signature)})
-    if (reply.status === 404) return this.#end(new SessionEndedError('unsupported', 'Verifiers do not support session refresh; present again'))
     const r = reply.json as {session_grant?: SessionGrantWire; refresh_seq?: unknown; code?: unknown}
-    if (reply.status >= 400) {
-      if (typeof r?.code === 'string' && REFUSAL_CODES.has(r.code)) return this.#end(new SessionEndedError(r.code, `Session refresh refused: ${r.code}`))
-      throw new TasraError(`Session refresh failed (${reply.status}); retry before the grant expires`)
-    }
+    const code = typeof r?.code === 'string' ? r.code : undefined
+    if (reply.status >= 400 && code !== undefined && SESSION_REFUSAL_CODES.has(code)) return this.#end(new SessionEndedError(code, `Session refresh refused: ${code}; present again`))
+    if (reply.status === 404) return this.#end(new SessionEndedError('unsupported', 'Verifiers do not support session refresh; present again'))
+    if (reply.status >= 400) throw new SessionRefreshError(reply.status, code, reply.retryAfterMs)
     if (!r?.session_grant || r.refresh_seq !== seq) throw new TasraError('Session refresh reply does not answer this seq')
     const next = decodeSessionGrant(r.session_grant)
     await checkGrant(this.#opts, next, this.#record.requested, previous, this.#clock())
@@ -440,9 +488,33 @@ export class GrantedSession {
     // What was OBSERVED (#beacon) and what the grant has FOLLOWED to (its epoch) are separate: an
     // observation at an epoch already seen still retries a follow that failed (after the backoff).
     if (this.#record.ended || this.#record.revoking || this.#beacon <= BigInt(this.#record.grant.epoch)) return
+    // A grant the beacon has left (two epochs behind) can never be continued: the follow ends the
+    // session at once, whatever the backoff, so the next use presents again instead of failing.
+    if (this.#stale() && !this.#following) { void this.#startFollow().catch(() => undefined); return }
     if (this.#following || Date.now() < this.#followRetryAt) return
     // Errors are the session's own outcome (an end calls onEnded); a later observation retries.
     void this.#startFollow().catch(() => undefined)
+  }
+
+  /**
+   * Report the beacon's latest epoch and its DRAW epoch AS READ FROM THE CHAIN at one head
+   * (`readBeaconDrawState`; the `beacon.drawState` poll does this). As {@link observeBeacon}, and a
+   * follow refreshes only once the draw epoch is past the grant's (the agent can continue the
+   * session onto it); until then nothing is sent. Observations never move backwards.
+   */
+  observeDraw(state: BeaconDrawState): void {
+    const {latest, draw} = state ?? {} as BeaconDrawState
+    if (typeof latest !== 'bigint' || latest < 0n) return
+    if (typeof draw === 'bigint' && draw >= 0n && draw <= latest && (this.#draw === undefined || draw > this.#draw)) this.#draw = draw
+    this.observeBeacon(latest)
+  }
+
+  /** The newest draw epoch observed, if a `beacon.drawState` is configured and has answered. */
+  get drawEpoch(): bigint | undefined { return this.#draw }
+
+  /** The held grant is two or more epochs behind the observed beacon: no keeper or verifier admits it again. */
+  #stale(): boolean {
+    return this.#beacon !== undefined && BigInt(this.#record.grant.epoch) + 1n < this.#beacon
   }
 
   /**
@@ -490,8 +562,24 @@ export class GrantedSession {
         if (ended) throw ended
         throw new TasraError('Session beacon follow stopped (GrantedSession.stop); the held grant is unchanged')
       }
+      // A refresh already in flight (the expiry timer's) may move the grant: judge after it.
+      if (this.#inflight) {
+        await this.#inflight.catch(() => undefined)
+        continue
+      }
       const target = this.#beacon, at = BigInt(this.#record.grant.epoch)
       if (target === undefined || at >= target) return moved
+      // Two epochs behind: the agent continues a session one epoch at a time and the verifiers judge
+      // the continuation at their live beacon, so no refresh can save it (C20: every such attempt
+      // was refused `session_context_changed` or `session_expired`). End now; present again.
+      if (this.#stale()) {
+        const local = this.#localEnd()
+        return this.#end(local ?? new SessionEndedError('local-stale', `Session grant epoch ${at} is two epochs behind the beacon (${target}); present again`))
+      }
+      // With a draw observation: until the agent can draw the next epoch, a refresh would only
+      // re-sign the grant on its own epoch. Wait for the poll to observe the anchor.
+      if (this.#opts.beacon?.drawState && (this.#draw === undefined || this.#draw <= at)) return moved
+      let failure: unknown
       try {
         if (await this.refreshForEpoch(target)) moved = true
         continue
@@ -499,9 +587,12 @@ export class GrantedSession {
         if (error instanceof SessionEndedError) throw error
         // Only while the held grant is still admissible is waiting worth it: past that, nothing
         // this grant authorizes is served, and the caller presents again.
-        if (at + 1n < (this.#beacon ?? target) || attempt + 1 >= FOLLOW_ATTEMPTS) throw error
+        if (this.#stale() || attempt + 1 >= FOLLOW_ATTEMPTS) throw error
+        failure = error
       }
-      const pause = this.#opts.followRetryMs ?? 1000
+      // Back off between attempts (each attempt that reaches the verifiers spends the holder's
+      // session quota there), never below the agent's Retry-After.
+      const pause = retryPause(this.#opts.followRetryMs ?? 1000, attempt, failure)
       if (pause > 0) await this.#followPause(pause)
     }
   }
@@ -549,7 +640,10 @@ export class GrantedSession {
     this.#armExpiry()
     const beacon = this.#opts.beacon
     if (beacon && !this.#beaconTimer) {
-      const poll = () => { beacon.latestEpoch().then(epoch => this.observeBeacon(epoch), () => undefined) }
+      const poll = () => {
+        if (beacon.drawState) beacon.drawState().then(state => this.observeDraw(state), () => undefined)
+        else beacon.latestEpoch().then(epoch => this.observeBeacon(epoch), () => undefined)
+      }
       this.#beaconTimer = setInterval(poll, Math.max(100, beacon.pollMs ?? 2000))
       ;(this.#beaconTimer as {unref?(): void}).unref?.()
       poll()
@@ -564,11 +658,14 @@ export class GrantedSession {
     const delay = Math.max(0, (g.exp - lead - this.#clock()) * 1000)
     this.#timer = setTimeout(() => {
       this.#timer = undefined
-      this.refresh().then(() => this.#armExpiry(), error => {
+      this.refresh().then(() => { this.#expiryFailures = 0; this.#armExpiry() }, error => {
         if (error instanceof SessionEndedError) return
-        // Transient: retry soon while the current grant still has time left.
-        if (this.#clock() < this.#record.grant.exp) this.#timer = setTimeout(() => this.#armExpiry(), 1000)
-        else void this.#end(new SessionEndedError('local-expired', 'Session grant expired before a refresh succeeded; present again')).catch(() => undefined)
+        // Transient: retry while the current grant still has time left, backing off (never below
+        // the agent's Retry-After), so a busy or rate-limited agent is not asked every second.
+        if (this.#clock() < this.#record.grant.exp) {
+          this.#timer = setTimeout(() => this.#armExpiry(), retryPause(1000, this.#expiryFailures++, error))
+          ;(this.#timer as {unref?(): void}).unref?.()
+        } else void this.#end(new SessionEndedError('local-expired', 'Session grant expired before a refresh succeeded; present again')).catch(() => undefined)
       })
     }, delay)
     ;(this.#timer as {unref?(): void}).unref?.()

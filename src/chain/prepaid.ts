@@ -664,6 +664,40 @@ export async function readCurrentBeaconEpoch(client: PublicClient, deployment: P
   return epoch
 }
 
+/** The beacon's latest epoch and the newest epoch a session grant can be drawn on now. */
+export interface BeaconDrawState {
+  /** The beacon's latest epoch. */
+  latest: bigint
+  /**
+   * `latest` once its verifier-set snapshot is anchored, else `latest - 1` when that one is, else
+   * absent: the epoch the verifier-agent draws a new grant (or a session continuation) on, as the
+   * agent picks it (`pick_draw_epoch`). A refresh before it moves past a grant's epoch can only
+   * re-sign the grant on its own epoch.
+   */
+  draw?: bigint
+}
+
+/**
+ * The beacon's latest epoch and its draw epoch ({@link BeaconDrawState}) at ONE fresh observed head
+ * (the followed tip when live, else `latest`), through the block-pinned reads discovery uses. The
+ * previous epoch's snapshot is read only while the latest one is not anchored. Performs no transaction.
+ * @param client - Trusted bounded Viem RPC client for the selected deployment.
+ * @param deployment - Independently approved chain and contract addresses, the beacon and verifier set included.
+ */
+export async function readBeaconDrawState(client: PublicClient, deployment: PaidContextDeployment): Promise<BeaconDrawState> {
+  deployment = {...deployment}
+  const at = await observe(client, deployment)
+  const latest = await registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch')
+  if (typeof latest !== 'bigint' || latest < 0n) throw new Error('invalid beacon epoch')
+  const anchored = async (epoch: bigint) => {
+    const [root, size] = await registryRead(client, at, deployment.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [epoch]) as readonly [Hex, number]
+    return typeof root === 'string' && HEX32.test(root) && root.toLowerCase() !== ZERO32 && size > 0
+  }
+  if (await anchored(latest)) return {latest, draw: latest}
+  if (latest > 0n && await anchored(latest - 1n)) return {latest, draw: latest - 1n}
+  return {latest}
+}
+
 /**
  * Read available, reserved and total slot TASRA at one fresh canonical block. Performs no transaction.
  * @param client - Trusted bounded Viem RPC client for the selected deployment.

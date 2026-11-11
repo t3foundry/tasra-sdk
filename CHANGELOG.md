@@ -236,6 +236,25 @@ never does.
 
 ### Fixed
 
+- A session grant no longer dies quietly, nor spends its holder's session quota re-signing an old
+  epoch (C20 fleet: 22/30 at 5 ms, 5/20 at 110 ms). A definite refresh refusal
+  (`session_context_changed`, `session_continuation`, `session_unknown`, `session_wrong_key`,
+  `session_key_not_bound`, `session_mismatch`, `session_invalid_request`, `session_lifetime`, new
+  `SESSION_REFUSAL_CODES`) ends the session like `session_expired`; before, it was retried as
+  transient and every later message failed until the grant's `exp`. A grant two epochs behind the
+  observed beacon ends at once (`local-stale`) with no refresh: the agent continues a session one
+  epoch at a time and the verifiers judge the continuation at their live beacon, so none could
+  pass. A transient refusal is a typed `SessionRefreshError` (status, code, `retryAfterMs`); the
+  beacon follow and the expiry refresh back off exponentially and never retry before a
+  `Retry-After`. New `readBeaconDrawState` reads the beacon's latest epoch and the epoch the agent
+  draws on (its verifier snapshot anchored) at one head; given as `beacon.drawState`, the session's
+  poll refreshes ONCE per epoch, at the anchor, instead of re-signing the grant on its old epoch
+  every second until the anchor lands (each such refresh spent the per-holder quota of 32 per
+  minute at every verifier: the 5 ms `session_rate_limited` storm). `decryptInSession` takes
+  `reopen`: a session that ended before the message was served is replaced through it once, and
+  the message is paid afresh on the new grant (no paid write is resent; still at most two debits
+  per message); `SessionMessageResult.session` is the session that served it.
+
 - A lane selection now also reserves ahead the replacement of a confirmed allowance that is within
   600 s of funding no operation like its own (its expiry minus 30 s minus the payment's), or on a
   keeper sharing the slot no longer has, not only of a `low()` one. Between 630 and 600 s of life

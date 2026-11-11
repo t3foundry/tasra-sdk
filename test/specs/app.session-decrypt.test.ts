@@ -183,3 +183,57 @@ describe('one message across a beacon-epoch boundary (C19)', () => {
     }
   })
 })
+
+describe('a session that ends under a message is re-opened once, transparently (C20)', () => {
+  /** A session that has already ended (a definite refusal, or the beacon two epochs past it). */
+  function endedSession(code = 'session_context_changed') {
+    const {session} = fakeSession(0)
+    const s = session as {current(): unknown}
+    s.current = () => { throw new SessionEndedError(code, 'ended') }
+    return session
+  }
+
+  it('an ended session is replaced through `reopen` before anything is paid: one payment, on the new grant', async () => {
+    const next = fakeSession(51)
+    const reopens: string[] = []
+    const reopen = vi.fn(async () => next.session)
+    decryptWithSessionGrant.mockResolvedValue([{ok: true, plaintext: new Uint8Array([5])}])
+    const r = await decryptInSession({...request(endedSession()), reopen, hooks: {onReopen: code => reopens.push(code)}})
+    expect(r.plaintext).toEqual(new Uint8Array([5]))
+    expect(reopen).toHaveBeenCalledTimes(1)
+    expect(reopens).toEqual(['session_context_changed'])
+    expect(r.session).toBe(next.session)
+    expect(r.grantEpoch).toBe(51n)
+    expect(payments.map(p => p.epoch)).toEqual([51])
+  })
+
+  it('without `reopen` the end is thrown, nothing paid', async () => {
+    await expect(decryptInSession(request(endedSession()))).rejects.toMatchObject({code: 'session_context_changed'})
+    expect(payments).toHaveLength(0)
+  })
+
+  it('re-opens at most once per message: a second end is thrown', async () => {
+    const reopen = vi.fn(async () => endedSession('local-stale'))
+    await expect(decryptInSession({...request(endedSession()), reopen})).rejects.toMatchObject({code: 'local-stale'})
+    expect(reopen).toHaveBeenCalledTimes(1)
+    expect(payments).toHaveLength(0)
+  })
+
+  it('a confirmed-stale refusal whose follow ends the session re-opens it and pays the message once more: two debits at most', async () => {
+    const {session} = fakeSession(40, {endsWhenTwoBehind: true})
+    chainEpoch = 42n
+    const next = fakeSession(42)
+    const reopen = vi.fn(async () => next.session)
+    decryptWithSessionGrant.mockResolvedValueOnce([stale(42)]).mockResolvedValue([stale(42)])
+    // Even when the re-opened grant is refused as stale too, no third payment is made.
+    await expect(decryptInSession({...request(session), reopen})).rejects.toBeInstanceOf(SessionMessageError)
+    expect(reopen).toHaveBeenCalledTimes(1)
+    expect(payments.map(p => p.epoch)).toEqual([40, 42])
+    decryptWithSessionGrant.mockReset(); payments = []
+    const again = fakeSession(40, {endsWhenTwoBehind: true})
+    decryptWithSessionGrant.mockResolvedValueOnce([stale(42)]).mockResolvedValueOnce([{ok: true, plaintext: new Uint8Array([9])}])
+    const r = await decryptInSession({...request(again.session), reopen: async () => fakeSession(42).session})
+    expect(r.requestIds).toHaveLength(2)
+    expect(r.grantEpoch).toBe(42n)
+  })
+})
