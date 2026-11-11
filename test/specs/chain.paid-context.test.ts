@@ -3,7 +3,7 @@ import {ed25519} from '@noble/curves/ed25519'
 import * as randomness from '@noble/hashes/utils'
 import {createPublicClient, custom, decodeFunctionData, encodeFunctionResult, getAddress, keccak256, recoverTypedDataAddress, toHex, type Abi, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {discoverPaidOperationContext, drawnIntentFields, followPaidRequest, PaidDrawMovedError, readBeaconDrawState, readClientExecutionPolicy, type DrawnPaidOperationContext, type PaidContextOptions,
+import {discoverPaidOperationContext, drawnIntentFields, followPaidRequest, PaidDrawMovedError, readBeaconDrawState, readClientExecutionPolicy, readCurrentBeaconEpoch, type DrawnPaidOperationContext, type PaidContextOptions,
   type PaidOperationContext} from '../../src/chain/prepaid.js'
 import {UnderfundedSlotError} from '../../src/errors.js'
 import {BillingModeError} from '../../src/chain/billing.js'
@@ -711,4 +711,20 @@ describe('readBeaconDrawState: the epoch the verifier-agent draws a session on (
     const pinned = f.calls.filter(c => c.method === 'eth_call').map(c => (c.at as {blockHash?: Hex}).blockHash)
     expect(new Set(pinned)).toEqual(new Set([h(20)]))
   })
+})
+
+it('readCurrentBeaconEpoch({fresh}) reads at an RPC latest head of its own, never the followed tip (C21)', async () => {
+  now()
+  // The followed tip is block 20; the RPC's latest is block 30.
+  const f = fixture({latest: {number: 30, hash: h(30)}})
+  const follower = createHeadFollower(f.client, {finality: 'instant', now: () => 1_000_000})
+  attachHeadFollower(f.client, follower)
+  try {
+    await follower.ingestFinalized({number: 20n, hash: h(20), parentHash: h(21), timestamp: 1000n}); await follower.ingest({number: 20n, hash: h(20), parentHash: h(21), timestamp: 1000n})
+    const at = () => f.calls.filter(c => c.name === 'epoch').map(c => (c.at as {blockHash?: Hex}).blockHash)
+    await readCurrentBeaconEpoch(f.client, f.deployment)
+    expect(at()).toEqual([h(20)])
+    await readCurrentBeaconEpoch(f.client, f.deployment, {fresh: true})
+    expect(at()).toEqual([h(20), h(30)])
+  } finally { unfollowHeads(f.client) }
 })

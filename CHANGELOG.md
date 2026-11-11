@@ -255,6 +255,18 @@ never does.
   the message is paid afresh on the new grant (no paid write is resent; still at most two debits
   per message); `SessionMessageResult.session` is the session that served it.
 
+- Under a fleet-wide 110 ms RPC delay the accountants anchor an epoch's verifier snapshot 4-10 s
+  after its beacon push, often after the next one: a grant then lives about one epoch, less than a
+  re-open (presentation) plus a message. `reopen` may return `{plaintext, session?}`: its opening
+  presentation (a paid KEM decrypt) decrypted the message in flight, which is then served whatever
+  happens to the new grant (`SessionMessageResult.presented`; `session` absent when no grant came
+  with it). A reservation the accountant refused as a stale draw (`PaidReservationStaleEpochError`,
+  nothing sent; the journaled intent is never re-sent and, unexecutable, is refunded if it lands) is
+  paid once more only when a fresh chain read confirms the grant left the window: the same
+  two-debit bound. That confirmation (and the stale-refusal one) now reads an RPC `latest` head
+  of its own (`readCurrentBeaconEpoch(..., {fresh: true})`): a followed tip lagging the keepers'
+  head by one beacon push let six messages fail at 5 ms.
+
 - A lane selection now also reserves ahead the replacement of a confirmed allowance that is within
   600 s of funding no operation like its own (its expiry minus 30 s minus the payment's), or on a
   keeper sharing the slot no longer has, not only of a `low()` one. Between 630 and 600 s of life

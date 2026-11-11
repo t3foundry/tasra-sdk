@@ -567,6 +567,16 @@ function reversible<E extends Error>(error: E): E {
   return error
 }
 
+/** As {@link observeLatest}, after the deployment and chain checks {@link observe} makes. */
+async function observeFresh(client: PublicClient, d: PrepaidDeployment): Promise<PrepaidObservation> {
+  validateDeployment(d)
+  const [chain, head] = await Promise.allSettled([chainIdOf(client), observeLatest(client)])
+  if (chain.status === 'rejected') throw chain.reason
+  if (chain.value !== d.chainId) throw new Error('prepaid RPC chain mismatch')
+  if (head.status === 'rejected') throw head.reason
+  return head.value
+}
+
 /** A `latest` head read by RPC for this decision alone: not the followed tip, not shared with another read. */
 async function observeLatest(client: PublicClient): Promise<PrepaidObservation> {
   const block = await client.getBlock({blockTag: 'latest'})
@@ -656,9 +666,12 @@ async function registryRead(client: PublicClient, at: PrepaidObservation, addres
  * through the same block-pinned read discovery uses. Performs no transaction.
  * @param client - Trusted bounded Viem RPC client for the selected deployment.
  * @param deployment - Independently approved chain and contract addresses, the beacon included.
+ * @param options - `fresh`: read at an RPC `latest` head of its own, never a followed tip. For a
+ *   decision a tip lagging the chain would get wrong (confirming that a grant left the window: a
+ *   keeper judged it at a newer head; C21, two beacon pushes in a second).
  */
-export async function readCurrentBeaconEpoch(client: PublicClient, deployment: PaidContextDeployment): Promise<bigint> {
-  const at = await observe(client, deployment)
+export async function readCurrentBeaconEpoch(client: PublicClient, deployment: PaidContextDeployment, options: {fresh?: boolean} = {}): Promise<bigint> {
+  const at = options.fresh ? await observeFresh(client, deployment) : await observe(client, deployment)
   const epoch = await registryRead(client, at, deployment.beacon, thresholdRandomBeaconAbi, 'epoch')
   if (typeof epoch !== 'bigint') throw new Error('invalid beacon epoch')
   return epoch

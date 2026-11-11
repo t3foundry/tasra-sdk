@@ -41,5 +41,5 @@ export type {PaidSessionDriverOptions, PaidSessionHolder, PaidWalletPresentation
 export {createMemoryStore} from './memory-store.js'
 export {createSessionKey, sessionGrantCreateFragment, acceptSessionGrant, loadGrantedSession, GrantedSession, SessionEndedError, SessionRefreshError, SESSION_REFUSAL_CODES, SessionRevokeIncompleteError, SessionRevokeUnconfirmedError} from './session-grants.js'
 export {decryptInSession, SessionMessageError} from './session-decrypt.js'
-export type {SessionMessageRequest, SessionMessageResult} from './session-decrypt.js'
+export type {SessionMessageRequest, SessionMessageResult, SessionReopened} from './session-decrypt.js'
 export type {SessionKeyHandle, SessionGrantParams, SessionGrantCreateFragment, SlotTrust, SessionTransport, GrantedSessionOptions} from './session-grants.js'

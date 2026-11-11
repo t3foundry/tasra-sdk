@@ -1,6 +1,7 @@
 import {describe, expect, it, vi, beforeEach} from 'vitest'
 import {PaidDrawMovedError} from '../../src/chain/prepaid.js'
 import {SessionEndedError} from '../../src/app/session-grants.js'
+import {PaidReservationStaleEpochError} from '../../src/chain/reservation.js'
 
 // decryptInSession composes paidSessionDecrypt, decryptWithSessionGrant and the session's beacon
 // follow: the two network halves are stand-ins here (their own suites cover their wires), the
@@ -235,5 +236,59 @@ describe('a session that ends under a message is re-opened once, transparently (
     const r = await decryptInSession({...request(again.session), reopen: async () => fakeSession(42).session})
     expect(r.requestIds).toHaveLength(2)
     expect(r.grantEpoch).toBe(42n)
+  })
+})
+
+describe('a re-open whose presentation decrypts the message in flight serves it (C20, 110 ms)', () => {
+  function endedSession() {
+    const {session} = fakeSession(0)
+    ;(session as {current(): unknown}).current = () => { throw new SessionEndedError('local-stale', 'ended') }
+    return session
+  }
+
+  it('an end before payment: the presentation serves the message, nothing else is paid or sent', async () => {
+    const next = fakeSession(60)
+    const reopen = vi.fn(async (_e: SessionEndedError, m: unknown) => { expect(m).toBe(message); return {plaintext: new Uint8Array([3]), session: next.session} })
+    const r = await decryptInSession({...request(endedSession()), reopen})
+    expect(r).toMatchObject({plaintext: new Uint8Array([3]), presented: true, grantEpoch: 60n})
+    expect(r.session).toBe(next.session)
+    expect(payments).toHaveLength(0)
+    expect(decryptWithSessionGrant).not.toHaveBeenCalled()
+  })
+
+  it('a confirmed-stale refusal: one message debit, then the presentation serves it; a presentation without a grant leaves no session', async () => {
+    const {session} = fakeSession(40, {endsWhenTwoBehind: true})
+    chainEpoch = 42n
+    decryptWithSessionGrant.mockResolvedValueOnce([stale(42)])
+    const r = await decryptInSession({...request(session), reopen: async () => ({plaintext: new Uint8Array([4])})})
+    expect(r.plaintext).toEqual(new Uint8Array([4]))
+    expect(r.session).toBeUndefined()
+    expect(r.grantEpoch).toBe(0n)
+    expect(payments.map(p => p.epoch)).toEqual([40])
+    expect(decryptWithSessionGrant).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a reservation the accountant refused as a stale draw (C21, 110 ms)', () => {
+  const refused = (epoch: number) => Object.assign(new Error('Paid operation stopped during reservation'), {cause: new PaidReservationStaleEpochError(epoch)})
+
+  it('retries once, on a re-opened session, only when a fresh chain read confirms the grant left the window', async () => {
+    const {session} = fakeSession(70, {endsWhenTwoBehind: true})
+    chainEpoch = 72n
+    paidSessionDecrypt.mockRejectedValueOnce(refused(70))
+    const retries: string[] = []
+    const reopen = vi.fn(async () => ({plaintext: new Uint8Array([6]), session: fakeSession(72).session}))
+    const r = await decryptInSession({...request(session), reopen, hooks: {onRetry: reason => retries.push(reason)}})
+    expect(r.plaintext).toEqual(new Uint8Array([6]))
+    expect(retries).toEqual(['reservation-stale'])
+    expect(reopen).toHaveBeenCalledTimes(1)
+  })
+
+  it('throws, paying nothing more, while the chain says the grant is admissible', async () => {
+    const {session} = fakeSession(70)
+    chainEpoch = 71n
+    paidSessionDecrypt.mockRejectedValueOnce(refused(70))
+    await expect(decryptInSession(request(session))).rejects.toThrow(/stopped during reservation/)
+    expect(paidSessionDecrypt).toHaveBeenCalledTimes(1)
   })
 })
