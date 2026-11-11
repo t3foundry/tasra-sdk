@@ -1,4 +1,5 @@
-import {encodeAbiParameters, hashTypedData, keccak256, toHex, type Hex, type TypedDataDefinition} from 'viem'
+import {encodeAbiParameters, keccak256, toHex, type Hex, type TypedDataDefinition} from 'viem'
+import {typedDataHash as hashTypedData} from '../internal/typedData.js'
 import {keccak_256} from '@noble/hashes/sha3'
 import {concatBytes} from '@noble/hashes/utils'
 import {bytesToHex, hexToBytes} from '../crypto/hex.js'

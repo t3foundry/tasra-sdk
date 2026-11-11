@@ -12,6 +12,17 @@ export class BoundedCache<K, V> {
   /** Number of entries currently held. */
   get size(): number { return this.#entries.size }
   /**
+   * Return the cached value (refreshing it as most recently used), or `undefined`.
+   * @param key Cache key.
+   */
+  peek(key: K): V | undefined {
+    if (!this.#entries.has(key)) return undefined
+    const value = this.#entries.get(key) as V
+    this.#entries.delete(key)
+    this.#entries.set(key, value)
+    return value
+  }
+  /**
    * Return the cached value, or compute, store and return it. A throwing `compute` stores nothing.
    * @param key Cache key.
    * @param compute Pure derivation of the value from the key.
