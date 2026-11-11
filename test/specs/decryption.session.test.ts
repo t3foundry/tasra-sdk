@@ -349,4 +349,13 @@ describe('a stale grant at a beacon-epoch boundary (C19)', () => {
     expect(isStaleSessionRefusal({status: 409, code: 'conflict', message: STALE})).toBe(false)
     expect(isStaleSessionRefusal({status: 403, code: 'forbidden', message: 'session grant: quorum not met'})).toBe(false)
   })
+
+  it('a C24 keeper whose beacon LAGS the grant answers forbidden with the same epoch text: not stale (no refresh, no second debit)', () => {
+    // Grant epoch 481 ahead of the keeper's latest 480, and the previous epoch (still admissible).
+    expect(isStaleSessionRefusal({status: 403, code: 'forbidden', message: 'committee token epoch 481 is not current (beacon latest 480); x'})).toBe(false)
+    expect(isStaleSessionRefusal({status: 403, code: 'status 403', message: 'committee token epoch 479 is not current (beacon latest 480); x'})).toBe(false)
+    // Behind the window, and the C24 code whatever the text says.
+    expect(isStaleSessionRefusal({status: 403, code: 'forbidden', message: STALE})).toBe(true)
+    expect(isStaleSessionRefusal({status: 403, code: 'session-stale', message: 'committee token epoch 481 is not current (beacon latest 480); x'})).toBe(true)
+  })
 })

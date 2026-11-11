@@ -122,7 +122,12 @@ export type SessionDecryptResult = {ok: true; plaintext: Uint8Array}
 export function isStaleSessionRefusal(r: Pick<SessionItemRefusal, 'status' | 'code' | 'message'>): boolean {
   if (r.code === 'session-stale') return true
   if (r.status !== 403 || !r.message) return false
-  return /^session grant expired at \d+ \(now \d+\)/.test(r.message) || /\bepoch \d+ is not current \(beacon latest \d+\)/.test(r.message)
+  if (/^session grant expired at \d+ \(now \d+\)/.test(r.message)) return true
+  // The epoch-window message is stale only when the grant is BEHIND the keeper's window. A grant
+  // AHEAD of it (the keeper's beacon lags; C24 keepers answer that `forbidden` with the same text)
+  // is the keeper's problem: retry later or elsewhere, never refresh because of it.
+  const window = /\bepoch (\d+) is not current \(beacon latest (\d+)\)/.exec(r.message)
+  return window !== null && BigInt(window[1]!) + 1n < BigInt(window[2]!)
 }
 
 /** Statuses that a keeper answers only before an item runs (409 can mean "already ran"; 5xx is unknown). */

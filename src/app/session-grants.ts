@@ -309,6 +309,27 @@ export const SESSION_REFUSAL_CODES: ReadonlySet<string> = new Set(['session_expi
   'session_invalid_request', 'session_lifetime'])
 
 /**
+ * Session-route refusals the SAME request may pass later (verifier `session_grant.rs`, C24): the
+ * held grant still serves and the refresh is retried, never below the answer's `Retry-After`.
+ * `session_verifier_behind` (503, NEW): a verifier's chain view trails the grant (its live beacon
+ * is older than the grant's epoch, or that epoch's seed is not anchored at its head yet); it
+ * passes once the verifier catches up, with no new presentation. Before C24 a verifier answered
+ * that as `session_context_changed`, which an up-to-date server now sends only for a definite
+ * change (it stays in {@link SESSION_REFUSAL_CODES}, with the chain-confirmed exception for older
+ * servers). `session_rate_limited` (429), `session_unavailable`, `session_quorum_unmet` (503,
+ * the agent's mixed or older answers) and `session_status_window` are transient as before; any
+ * other non-refusal answer stays transient too.
+ */
+export const SESSION_RETRYABLE_CODES: ReadonlySet<string> = new Set(['session_verifier_behind', 'session_rate_limited', 'session_unavailable',
+  'session_quorum_unmet', 'session_status_window'])
+
+/**
+ * The pause before retrying a `session_verifier_behind` refusal that carries no `Retry-After`
+ * (the verifier sends 2 s; the verifier-agent relays the code without the header so far), ms.
+ */
+export const SESSION_VERIFIER_BEHIND_RETRY_MS = 2_000
+
+/**
  * A transient refresh failure: the held grant is unchanged and still serves until its `exp`.
  * `retryAfterMs` is the agent's `Retry-After`, when it sends one: no verifier-agent or verifier
  * sets it today (2026-11), so the backoff alone paces the retries; the support is kept for when
@@ -479,7 +500,8 @@ export class GrantedSession {
     }
     if (reply.status >= 400 && code !== undefined && SESSION_REFUSAL_CODES.has(code)) return this.#end(new SessionEndedError(code, `Session refresh refused: ${code}; present again`))
     if (reply.status === 404) return this.#end(new SessionEndedError('unsupported', 'Verifiers do not support session refresh; present again'))
-    if (reply.status >= 400) throw new SessionRefreshError(reply.status, code, reply.retryAfterMs)
+    if (reply.status >= 400) throw new SessionRefreshError(reply.status, code,
+      reply.retryAfterMs ?? (code === 'session_verifier_behind' ? SESSION_VERIFIER_BEHIND_RETRY_MS : undefined))
     if (!r?.session_grant || r.refresh_seq !== seq) throw new TasraError('Session refresh reply does not answer this seq')
     this.#contextSince = undefined
     const next = decodeSessionGrant(r.session_grant)

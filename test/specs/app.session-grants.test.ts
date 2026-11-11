@@ -688,6 +688,27 @@ describe('session recovery: definite refusals end, the follow refreshes once per
     expect(o.session.current().epoch).toBe(42)
   })
 
+  it('session_verifier_behind (C24) is retried with the same grant, never ended on: its Retry-After, else 2 s', async () => {
+    const {SESSION_RETRYABLE_CODES, SESSION_REFUSAL_CODES, SESSION_VERIFIER_BEHIND_RETRY_MS} = await import('../../src/app/session-grants.js')
+    expect(SESSION_RETRYABLE_CODES.has('session_verifier_behind')).toBe(true)
+    expect(SESSION_REFUSAL_CODES.has('session_verifier_behind')).toBe(false)
+    for (const code of SESSION_RETRYABLE_CODES) expect(SESSION_REFUSAL_CODES.has(code)).toBe(false)
+    // The verifier's own 503 carries Retry-After: 2; the agent relays the code without the header so far.
+    for (const [header, expected] of [['5', 5000], [undefined, SESSION_VERIFIER_BEHIND_RETRY_MS]] as const) {
+      const ended: string[] = []
+      const fetchImpl = (async () => new Response(JSON.stringify({code: 'session_verifier_behind', error: 'session_verifier_behind'}),
+        {status: 503, headers: {'content-type': 'application/json', ...header ? {'retry-after': header} : {}}})) as unknown as typeof fetch
+      const o = await opened({clock: () => T0 + 10, fetchImpl, onEnded: e => ended.push(e.code)})
+      await expect(o.session.refresh()).rejects.toMatchObject({name: 'SessionRefreshError', retryable: true, status: 503, code: 'session_verifier_behind', retryAfterMs: expected})
+      expect(ended).toEqual([])
+      expect(o.session.current().epoch).toBe(42)
+      o.session.stop()
+    }
+    // Another transient code without a header keeps no invented pause.
+    const busy = await opened({clock: () => T0 + 10, fetchImpl: (async () => reply(503, {code: 'session_unavailable'})) as unknown as typeof fetch})
+    await expect(busy.session.refresh()).rejects.toMatchObject({code: 'session_unavailable', retryAfterMs: undefined})
+  })
+
   it('a follow honours Retry-After before its next attempt (no retry storm against the per-holder quota)', async () => {
     vi.useFakeTimers()
     try {

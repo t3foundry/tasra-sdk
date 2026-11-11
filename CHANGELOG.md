@@ -9,6 +9,13 @@ never does.
 
 ### Added
 
+- C24 session refusal codes. `SESSION_RETRYABLE_CODES` names the session-route refusals the same
+  request may pass later; the new `session_verifier_behind` (503: a verifier's chain view trails
+  the grant) is retried with the held grant, never ended on, pausing for its `Retry-After` or
+  `SESSION_VERIFIER_BEHIND_RETRY_MS` (2 s) when the agent relays it without one. A keeper's
+  epoch-window refusal counts as stale (`isStaleSessionRefusal`) only when the grant is behind
+  the keeper's window or the keeper says `session-stale`; a keeper whose beacon lags the grant
+  (C24 `forbidden`, same text) is not a reason to refresh or pay again.
 - Session grants follow the beacon across epoch boundaries (ADR-0090 D7–D9).
   `GrantedSession.observeBeacon`/`followBeacon` refresh a grant in the background once a CHAIN
   observation (payment discovery, the optional `start()` beacon poll, a fresh
