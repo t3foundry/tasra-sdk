@@ -801,3 +801,79 @@ describe('session recovery: definite refusals end, the follow refreshes once per
     } finally { vi.useRealTimers() }
   })
 })
+
+describe('session recovery review fixes (C21 review F4, F7, F8)', () => {
+  const contextChanged = (async () => reply(409, {code: 'session_context_changed', error: 'session_context_changed'})) as unknown as typeof fetch
+
+  it('a `session_context_changed` the chain does not confirm (the grant at the latest epoch: the verifier is behind) is retried, then ends past the bound', async () => {
+    vi.useFakeTimers()
+    try {
+      const ended: string[] = []
+      const o = await opened({clock: () => T0 + 10, fetchImpl: contextChanged, onEnded: e => ended.push(e.code),
+        extra: {contextRetryMs: 5_000, beacon: {latestEpoch: async () => 42n}}})
+      await expect(o.session.refresh()).rejects.toMatchObject({name: 'SessionRefreshError', code: 'session_context_changed'})
+      expect(ended).toEqual([])
+      expect(o.session.current().epoch).toBe(42)
+      await vi.advanceTimersByTimeAsync(4_000)
+      await expect(o.session.refresh()).rejects.toMatchObject({name: 'SessionRefreshError'})
+      // The refusal persisted past the bound: the session ends.
+      await vi.advanceTimersByTimeAsync(1_500)
+      await expect(o.session.refresh()).rejects.toBeInstanceOf(SessionEndedError)
+      expect(ended).toEqual(['session_context_changed'])
+    } finally { vi.useRealTimers() }
+  })
+
+  it('a `session_context_changed` the chain confirms (the grant two epochs behind) ends at once; no retry', async () => {
+    const ended: string[] = []
+    const o = await opened({clock: () => T0 + 10, fetchImpl: contextChanged, onEnded: e => ended.push(e.code),
+      extra: {contextRetryMs: 60_000, beacon: {latestEpoch: async () => 44n}}})
+    await expect(o.session.refresh()).rejects.toMatchObject({code: 'session_context_changed'})
+    expect(ended).toEqual(['session_context_changed'])
+  })
+
+  it('a failing `drawState` falls back to `latestEpoch`: the follow still refreshes, with one warning', async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const ref: {key?: SessionKeyHandle} = {}
+      const seqs: number[] = []
+      const fetchImpl = (async (_u: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as {seq: number}
+        seqs.push(body.seq)
+        return reply(200, {session_grant: grant(ref.key!, {iat: T0 + 6, epoch: 43n}), refresh_seq: body.seq})
+      }) as unknown as typeof fetch
+      const o = await opened({clock: () => T0 + 5, fetchImpl, extra: {followRetryMs: 0,
+        beacon: {latestEpoch: async () => 43n, drawState: async () => { throw new Error('rpc: method not found') }, pollMs: 1000}}})
+      ref.key = o.key
+      o.session.start()
+      await vi.advanceTimersByTimeAsync(3_500)
+      expect(seqs).toEqual([1])
+      expect(o.session.current().epoch).toBe(43)
+      expect(warn).toHaveBeenCalledTimes(1)
+      o.session.stop()
+    } finally { warn.mockRestore(); vi.useRealTimers() }
+  })
+
+  it('a grant the beacon left (two epochs behind) ends at once even inside a failed follow\'s backoff', async () => {
+    vi.useFakeTimers()
+    try {
+      const ctx = {key: undefined as SessionKeyHandle | undefined, now: T0 + 5}
+      const ended: string[] = []
+      // The agent only re-signs the old epoch: every follow attempt fails; the run gives up and backs off.
+      const fetchImpl = (async (_u: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as {seq: number}
+        ctx.now += 1
+        return reply(200, {session_grant: grant(ctx.key!, {iat: ctx.now, epoch: 42n}), refresh_seq: body.seq})
+      }) as unknown as typeof fetch
+      const o = await opened({clock: () => ctx.now, fetchImpl, onEnded: e => ended.push(e.code), extra: {followRetryMs: 1_000}})
+      ctx.key = o.key
+      o.session.observeBeacon(43n)
+      // 20 attempts with 19 pauses (1, 2, 4, then 8 s): the run gives up after ~135 s; the next run may start 1 s later.
+      await vi.advanceTimersByTimeAsync(135_500)
+      expect(ended).toEqual([])
+      o.session.observeBeacon(44n)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(ended).toEqual(['local-stale'])
+    } finally { vi.useRealTimers() }
+  })
+})

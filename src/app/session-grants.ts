@@ -198,6 +198,11 @@ export interface GrantedSessionOptions {
     drawState?(): Promise<BeaconDrawState>
     pollMs?: number
   }
+  /**
+   * How long a run of `session_context_changed` refresh refusals the chain does not confirm is
+   * retried before the session ends, ms (default 15000; needs `beacon`). See {@link SESSION_REFUSAL_CODES}.
+   */
+  contextRetryMs?: number
   /** Pause between follow attempts while a new epoch's anchors land, ms (default 1000; tests use 0). */
   followRetryMs?: number
   /** Clock override, Unix seconds (tests). */
@@ -210,6 +215,8 @@ export interface GrantedSessionOptions {
  * epoch, after a bounded backoff ({@link MAX_FOLLOW_BACKOFF_MS}).
  */
 const FOLLOW_ATTEMPTS = 20
+/** Default {@link GrantedSessionOptions.contextRetryMs}: about one lab epoch plus its anchoring delay. */
+const CONTEXT_RETRY_MS = 15_000
 /** Longest pause before an observation retries a failed follow run, ms. */
 const MAX_FOLLOW_BACKOFF_MS = 30_000
 
@@ -289,12 +296,24 @@ async function checkGrant(opts: GrantedSessionOptions, grant: SessionGrant, requ
  * session's own refresh is malformed or bound elsewhere, every retry the same. Everything else
  * (`session_rate_limited`, `session_quorum_unmet`, `session_unavailable`, `session_status_window`,
  * untyped answers) is transient: the held grant still serves and the refresh is retried, backing off.
+ *
+ * One exception: `session_context_changed` is also what a verifier answers when ITS beacon read lags
+ * the chain (the grant's epoch ahead of its live epoch) or the continuation epoch's seed is not
+ * anchored at it yet (keykeeper-verifier `validate_beacon_draw`), and the agent relays one such
+ * signer's code as final. With a `beacon` reader, the session ends on it only when the client's
+ * own chain read confirms the grant two epochs behind, or the refusal persists past
+ * `contextRetryMs`; until then it is retried as transient (the held grant still serves).
  */
 export const SESSION_REFUSAL_CODES: ReadonlySet<string> = new Set(['session_expired', 'session_idle', 'session_revoked', 'session_replayed', 'session_status',
   'session_rule_changed', 'session_context_changed', 'session_continuation', 'session_unknown', 'session_wrong_key', 'session_key_not_bound', 'session_mismatch',
   'session_invalid_request', 'session_lifetime'])
 
-/** A transient refresh failure: the held grant is unchanged and still serves until its `exp`. */
+/**
+ * A transient refresh failure: the held grant is unchanged and still serves until its `exp`.
+ * `retryAfterMs` is the agent's `Retry-After`, when it sends one: no verifier-agent or verifier
+ * sets it today (2026-11), so the backoff alone paces the retries; the support is kept for when
+ * one does.
+ */
 export class SessionRefreshError extends TasraError {
   /** Always true: a later refresh may pass. */
   readonly retryable = true
@@ -334,6 +353,11 @@ export class GrantedSession {
   #followRetryAt = 0
   /** Consecutive failed expiry refreshes (their retry backs off). */
   #expiryFailures = 0
+  /** When (Date.now ms) the current run of unconfirmed `session_context_changed` refusals began. */
+  #contextSince: number | undefined
+  /** The last `beacon.drawState` read failed: the poll and the follow behave as `latestEpoch`-only until one answers. */
+  #drawFallback = false
+  #drawWarned = false
   /**
    * Unix seconds of the last USE (a {@link current} read for a keeper request), at least the last
    * refresh this process loaded. Background refreshes (the expiry timer, a beacon follow) never move
@@ -450,10 +474,14 @@ export class GrantedSession {
     const reply = await this.#post('/v1/sessions/refresh', {grant, seq, issued_at: issuedAt, signature: bytesToHex(signature)})
     const r = reply.json as {session_grant?: SessionGrantWire; refresh_seq?: unknown; code?: unknown}
     const code = typeof r?.code === 'string' ? r.code : undefined
+    if (reply.status >= 400 && code === 'session_context_changed' && await this.#contextUnconfirmed(BigInt(previous.payload.epoch))) {
+      throw new SessionRefreshError(reply.status, code, reply.retryAfterMs)
+    }
     if (reply.status >= 400 && code !== undefined && SESSION_REFUSAL_CODES.has(code)) return this.#end(new SessionEndedError(code, `Session refresh refused: ${code}; present again`))
     if (reply.status === 404) return this.#end(new SessionEndedError('unsupported', 'Verifiers do not support session refresh; present again'))
     if (reply.status >= 400) throw new SessionRefreshError(reply.status, code, reply.retryAfterMs)
     if (!r?.session_grant || r.refresh_seq !== seq) throw new TasraError('Session refresh reply does not answer this seq')
+    this.#contextSince = undefined
     const next = decodeSessionGrant(r.session_grant)
     await checkGrant(this.#opts, next, this.#record.requested, previous, this.#clock())
     const key = recordKey(this.sessionId)
@@ -468,6 +496,27 @@ export class GrantedSession {
     if (this.#timer) this.#armExpiry()
     try { this.#opts.onRefreshed?.(structuredClone(r.session_grant)) } catch { /* a listener never fails the refresh */ }
     return structuredClone(r.session_grant)
+  }
+
+  /**
+   * Whether a `session_context_changed` refresh refusal is NOT confirmed by the chain (so it is
+   * retried, not ended on): within `contextRetryMs` of the first such refusal in a row, the client's
+   * own fresh read (`beacon.latestEpoch`) shows the grant still admissible (its epoch the latest or
+   * previous: the refusing verifier's beacon or anchor is behind), or cannot be read. Without a
+   * `beacon` reader nothing can show the server is behind: the refusal ends the session.
+   */
+  async #contextUnconfirmed(grantEpoch: bigint): Promise<boolean> {
+    const read = this.#opts.beacon?.latestEpoch
+    if (!read) return false
+    const t = Date.now()
+    this.#contextSince ??= t
+    if (t - this.#contextSince > (this.#opts.contextRetryMs ?? CONTEXT_RETRY_MS)) return false
+    let latest: unknown
+    try { latest = await read() } catch { return true }
+    if (typeof latest !== 'bigint' || latest < 0n) return true
+    // A fair chain observation; the follow (if any) judges it after this refresh settles.
+    if (this.#beacon === undefined || latest > this.#beacon) this.#beacon = latest
+    return grantEpoch + 1n >= latest
   }
 
   /** The newest beacon epoch this session has observed, if any. */
@@ -578,7 +627,7 @@ export class GrantedSession {
       }
       // With a draw observation: until the agent can draw the next epoch, a refresh would only
       // re-sign the grant on its own epoch. Wait for the poll to observe the anchor.
-      if (this.#opts.beacon?.drawState && (this.#draw === undefined || this.#draw <= at)) return moved
+      if (this.#opts.beacon?.drawState && !this.#drawFallback && (this.#draw === undefined || this.#draw <= at)) return moved
       let failure: unknown
       try {
         if (await this.refreshForEpoch(target)) moved = true
@@ -641,8 +690,18 @@ export class GrantedSession {
     const beacon = this.#opts.beacon
     if (beacon && !this.#beaconTimer) {
       const poll = () => {
-        if (beacon.drawState) beacon.drawState().then(state => this.observeDraw(state), () => undefined)
-        else beacon.latestEpoch().then(epoch => this.observeBeacon(epoch), () => undefined)
+        const latest = () => beacon.latestEpoch().then(epoch => this.observeBeacon(epoch), () => undefined)
+        if (!beacon.drawState) { void latest(); return }
+        beacon.drawState().then(state => { this.#drawFallback = false; this.observeDraw(state) }, (error: unknown) => {
+          // A failing draw read never stops the follow: until it answers again, follow the latest
+          // epoch alone (a refresh may then re-sign the old epoch until the anchor lands).
+          this.#drawFallback = true
+          if (!this.#drawWarned) {
+            this.#drawWarned = true
+            console.warn(`tasra session ${this.sessionId}: beacon.drawState failed (${error instanceof Error ? error.message : String(error)}); following the latest epoch only until it answers`)
+          }
+          void latest()
+        })
       }
       this.#beaconTimer = setInterval(poll, Math.max(100, beacon.pollMs ?? 2000))
       ;(this.#beaconTimer as {unref?(): void}).unref?.()
