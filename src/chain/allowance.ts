@@ -24,6 +24,7 @@ import {thresholdRandomBeaconAbi} from './abis/thresholdRandomBeacon.js'
 import {allowanceId, allowanceReserveDigest, assertDebitVoucherWire, assertPaymentIntentWire, debitVoucherDigest, prepaidAllowanceIntentHash,
   prepaidAllowanceIntentTypedData, prepaidRequestId, type DebitVoucherWire, type PaymentIntentWire, type PrepaidAllowanceIntentWire} from '../committee/payment.js'
 import {accountantEndpoints, PaidReservationUncertainError, untilAborted} from './reservation.js'
+import {headFollowerOf} from './headFollower.js'
 import {pollTransactionReceipt} from './receipt.js'
 import {pinnedCall} from './pinnedReads.js'
 import {chainIdOf} from './chainId.js'
@@ -383,8 +384,12 @@ export async function reservePrepaidAllowance(client: PublicClient, wallet: Wall
   if (balance < gas * gasPrice) throw new UnderfundedGasPayerError({payer: payer.address, availableNativeUnits: balance, requiredNativeUnits: gas * gasPrice})
   signal?.throwIfAborted()
   if (block.number === null) throw new Error('allowance quote has no block number')
-  const canonical = await client.getBlock({blockNumber: block.number})
-  if (canonical.hash === null || !same(canonical.hash, quote.quote_block)) throw new Error('allowance quote reorganized')
+  // The quote block's canonical recheck: by the head follower only where it proves this exact block
+  // canonical (as for every other paid observation), otherwise by number.
+  if (headFollowerOf(client)?.isCanonical({blockNumber: block.number, blockHash: quote.quote_block, blockTimestamp: block.timestamp}) !== true) {
+    const canonical = await client.getBlock({blockNumber: block.number})
+    if (canonical.hash === null || !same(canonical.hash, quote.quote_block)) throw new Error('allowance quote reorganized')
+  }
   fresh()
   const record: PrepaidAllowanceReservationRecord = {schema: 1, allowanceId: id, intent, quote: authorized,
     transaction: {chainId: d.chainId, from: payer.address, to: d.settlement, data, value: '0', nonce, gas: gas.toString(), gasPrice: gasPrice.toString()}}

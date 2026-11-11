@@ -272,3 +272,21 @@ describe('the allowance-backed paid receipt (reader arm)', () => {
     await expect(readPrepaidAllowance(world.client, deployment, h(0))).rejects.toThrow(/invalid allowance id/)
   })
 })
+
+describe('the allowance quote block recheck', () => {
+  it('is taken from a head follower that proves that exact block, else read by number before the durable preparation', async () => {
+    const {attachHeadFollower, unfollowHeads} = await import('../../src/chain/headFollower.js')
+    const vouching = (blockHash: Hex) => ({finality: 'instant', tip: () => undefined, isCanonical: (at: {blockHash: Hex}) => at.blockHash.toLowerCase() === blockHash ? true : undefined,
+      live: () => true, ingest: async () => {}, ingestFinalized: async () => {}, noteMinedBlock: () => {}, gaps: () => 0, start: () => {}, stop: () => {}, onHead: () => () => {}}) as never
+    for (const [vouched, expected] of [[h(19), 0], [h(20), 1]] as const) {
+      const world = allowanceWorld(), checkpoints: PrepaidAllowanceCheckpoint[] = []
+      let before = -1
+      attachHeadFollower(world.client, vouching(vouched))
+      try {
+        await reservePrepaidAllowance(world.client, world.wallet, deployment, await signedAllowanceIntent(),
+          {...options(world, checkpoints), persist: async c => { if (c.phase === 'prepared') before = world.trace.length; checkpoints.push(structuredClone(c)) }})
+      } finally { unfollowHeads(world.client) }
+      expect(world.trace.slice(0, before).filter(m => m === 'eth_getBlockByNumber'), `follower vouching ${vouched}`).toHaveLength(expected)
+    }
+  })
+})

@@ -904,3 +904,25 @@ it.each(['changed quote', 'policy refusal'])('coordinator %s stops rather than f
   expect(seen.filter(s => s.method === 'authorize')).toHaveLength(1)
   expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
 })
+
+it('takes the quote block canonical recheck from a head follower that proves that exact block, else reads it by number', async () => {
+  const {attachHeadFollower, unfollowHeads} = await import('../../src/chain/headFollower.js')
+  // Rechecks by number before the durable preparation: the quote block's.
+  const rechecks = (trace: string[]) => trace.slice(0, trace.indexOf('prepared')).filter(m => m === 'eth_getBlockByNumber').length
+  const vouching = (blockHash: Hex) => ({finality: 'instant', tip: () => undefined, isCanonical: (at: {blockHash: Hex}) => at.blockHash.toLowerCase() === blockHash ? true : undefined,
+    live: () => true, ingest: async () => {}, ingestFinalized: async () => {}, noteMinedBlock: () => {}, gaps: () => 0, start: () => {}, stop: () => {}, onHead: () => () => {}}) as never
+  const proven = await fixture({localSigner: true})
+  attachHeadFollower(proven.client, vouching(h(19)))
+  try {
+    await proven.run()
+    expect(rechecks(proven.trace)).toBe(0)
+  } finally { unfollowHeads(proven.client) }
+  // A follower that cannot vouch for the quote block (another block, outside its chain) keeps the RPC recheck, and its refusal.
+  const orphan = await fixture({localSigner: true, orphan: true})
+  attachHeadFollower(orphan.client, vouching(h(20)))
+  try {
+    await expect(orphan.run()).rejects.toThrow(/reorganized/)
+    expect(rechecks([...orphan.trace, 'prepared'])).toBe(1)
+    expect(orphan.transactions).toHaveLength(0)
+  } finally { unfollowHeads(orphan.client) }
+})

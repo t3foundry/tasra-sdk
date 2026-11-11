@@ -7,6 +7,7 @@ import {PaidBackoffError, PaidReservationQuotaError, UnderfundedSlotError, Under
 import {PaidBackoff, paidServerWaitMs, systemPacingClock, type PaidPacingClock} from './paidPacing.js'
 import {chainIdOf} from './chainId.js'
 import {pollTransactionReceipt} from './receipt.js'
+import {headFollowerOf} from './headFollower.js'
 
 /** Accountant authorization for a single operation. This is not a mined reservation. */
 export interface PaidReservationQuote {
@@ -607,8 +608,13 @@ async function reserveOnce(
   if (balance < requiredNativeUnits) throw new UnderfundedGasPayerError({payer: payer.address, availableNativeUnits: balance, requiredNativeUnits})
   signal?.throwIfAborted()
   if (block.number === null) throw new Error('reservation quote has no block number')
-  const canonical = await client.getBlock({blockNumber: block.number})
-  if (canonical.hash === null || !same(canonical.hash, quote.quote_block)) throw new Error('reservation quote reorganized')
+  // The canonical recheck of the quote block after its reads: answered by the head follower only
+  // when it proves this exact block canonical (instant finality, live, gap-free, at or below the
+  // finalized head), as for every other paid observation; anything else reads it by number.
+  if (headFollowerOf(client)?.isCanonical({blockNumber: block.number, blockHash: quote.quote_block, blockTimestamp: block.timestamp}) !== true) {
+    const canonical = await client.getBlock({blockNumber: block.number})
+    if (canonical.hash === null || !same(canonical.hash, quote.quote_block)) throw new Error('reservation quote reorganized')
+  }
   fresh()
   const record: PaidReservationRecord = {schema: 1, requestId, payment, quote: authorized,
     transaction: {chainId: d.chainId, from: payer.address, to: d.settlement, data, value: '0', nonce, gas: gas.toString(), gasPrice: gasPrice.toString()}}
