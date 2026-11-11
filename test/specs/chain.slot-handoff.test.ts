@@ -337,3 +337,16 @@ describe('the write confirmation wait', () => {
     } finally { vi.useRealTimers() }
   })
 })
+
+describe('fundSlot from one owner', () => {
+  it('runs one approve-then-fund at a time across write clients (approve SETS the allowance: interleaved, the second fund would revert)', async () => {
+    const order: string[] = []
+    mocks.receipt.mockImplementation(async () => { await new Promise(done => setTimeout(done, 5)); return {status: 'success', logs: [], blockNumber: 1n} })
+    mocks.submit.mockImplementation(async () => { order.push('fund'); return {id: hash('08'), txHash: TX} })
+    // Two write clients (as one per slot) for the same owner; the fixture's direct writes are let through for approve.
+    const [a, b] = [fixture({TasraToken: SETTLEMENT, Settlement: SETTLEMENT}), fixture({TasraToken: SETTLEMENT, Settlement: SETTLEMENT})]
+    for (const w of [a, b]) vi.spyOn(w.wallet, 'writeContract').mockImplementation(async () => { order.push('approve'); return TX })
+    await Promise.all([a.fundSlot(SLOT, 5n), b.fundSlot(hash('05'), 7n)])
+    expect(order).toEqual(['approve', 'fund', 'approve', 'fund'])
+  })
+})

@@ -517,6 +517,20 @@ export async function amendmentPreflight(rule: string, state: AmendmentOnChain, 
  * salt and never touches the rule.
  */
 
+// One approve-then-fund at a time per (chain, token, owner, spender) in this process. `approve` SETS
+// the allowance, so two concurrent fundSlot calls from one owner (write clients made per slot share
+// no state) could mine approve, approve, fund, fund: the second fund then finds the allowance the
+// first consumed and reverts. The receipt wait's 1 s grid used to space them by chance.
+const fundingQueues = new Map<string, Promise<unknown>>()
+function oneFundingAtATime<T>(key: string, work: () => Promise<T>): Promise<T> {
+  const previous = fundingQueues.get(key) ?? Promise.resolve()
+  const run = previous.then(work, work)
+  const tail = run.then(() => undefined, () => undefined)
+  fundingQueues.set(key, tail)
+  void tail.then(() => { if (fundingQueues.get(key) === tail) fundingQueues.delete(key) })
+  return run
+}
+
 /** How long a write step waits for its receipt: viem's waitForTransactionReceipt default, unchanged. */
 export const WRITE_RECEIPT_TIMEOUT_MS = 180_000
 
@@ -1069,11 +1083,13 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
   async function fundSlot(slotId: Hex, amount: bigint): Promise<{approveTx: Hex; fundTx: Hex; relay?: RelayReceipt}> {
     const token = requireAddress(addr, 'TasraToken')
     const settlement = requireAddress(addr, 'Settlement')
-    const approveTx = await wallet.writeContract({address: token, abi: tasraTokenAbi, functionName: 'approve', args: [settlement, amount]})
-    await confirmed(pub, approveTx, 'approve')
-    const fundTx = await sendCall(settlement, settlementAbi, 'fund', [slotId, amount], 'fund')
-    await confirmed(pub, fundTx, 'fund')
-    return {approveTx, fundTx, relay: relay ? lastRelay : undefined}
+    return oneFundingAtATime(`${chain.id}|${token}|${account.address}|${settlement}`.toLowerCase(), async () => {
+      const approveTx = await wallet.writeContract({address: token, abi: tasraTokenAbi, functionName: 'approve', args: [settlement, amount]})
+      await confirmed(pub, approveTx, 'approve')
+      const fundTx = await sendCall(settlement, settlementAbi, 'fund', [slotId, amount], 'fund')
+      await confirmed(pub, fundTx, 'fund')
+      return {approveTx, fundTx, relay: relay ? lastRelay : undefined}
+    })
   }
 
   /** Send native ETH (gas) - e.g. a funded key backing a faucet. */
