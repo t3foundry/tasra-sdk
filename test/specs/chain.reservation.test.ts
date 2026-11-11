@@ -926,3 +926,14 @@ it('takes the quote block canonical recheck from a head follower that proves tha
     expect(orphan.transactions).toHaveLength(0)
   } finally { unfollowHeads(orphan.client) }
 })
+
+it('asks the wallet and the reader for their chain IDs together, and still refuses a wrong chain before any accountant', async () => {
+  const overlap = {active: 0, most: 0}, inFlight: number[] = []
+  const f = await fixture({localSigner: true, overlap, onChainId: () => { inFlight.push(overlap.active) }})
+  await f.run()
+  // Both chain-ID reads were in flight at once (before: the reader's waited for the wallet's).
+  expect(inFlight[0]).toBe(2)
+  const wrong = await fixture({localSigner: true, chain: 43113})
+  await expect(wrong.run()).rejects.toThrow(/chain mismatch/)
+  expect(wrong.fetcher).not.toHaveBeenCalled()
+})

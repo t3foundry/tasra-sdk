@@ -552,7 +552,14 @@ async function reserveOnce(
   signal?.throwIfAborted()
   const urls = accountantEndpoints(opts, d.chainId)
   if (payer.type !== 'local' && payer.type !== 'json-rpc') throw new Error('reservation requires an EOA gas payer')
-  if (payerChain.id !== d.chainId || await chainIdOf(wallet) !== d.chainId || await chainIdOf(client) !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
+  if (payerChain.id !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
+  // The wallet's and the reader's chain IDs are independent reads (a new wallet client is not
+  // cached yet): asked together, judged in the original order, before anything is contacted.
+  const [walletChain, readerChain] = await Promise.allSettled([chainIdOf(wallet), chainIdOf(client)])
+  if (walletChain.status === 'rejected') throw walletChain.reason
+  if (walletChain.value !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
+  if (readerChain.status === 'rejected') throw readerChain.reason
+  if (readerChain.value !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
   const clock = opts.clock ?? systemPacingClock
   const {quote, authorized} = await collectQuote(urls, payment, requestTimeout, signal, clock)
   const requestId = prepaidRequestId(payment)

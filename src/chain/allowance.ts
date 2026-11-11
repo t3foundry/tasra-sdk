@@ -352,7 +352,14 @@ export async function reservePrepaidAllowance(client: PublicClient, wallet: Wall
   signal?.throwIfAborted()
   const urls = accountantEndpoints(opts, d.chainId)
   if (payer.type !== 'local' && payer.type !== 'json-rpc') throw new Error('allowance reservation requires an EOA gas payer')
-  if (payerChain.id !== d.chainId || await chainIdOf(wallet) !== d.chainId || await chainIdOf(client) !== d.chainId) throw new Error('allowance RPC/wallet chain mismatch')
+  if (payerChain.id !== d.chainId) throw new Error('allowance RPC/wallet chain mismatch')
+  // The wallet's and the reader's chain IDs are independent reads (a new wallet client is not
+  // cached yet): asked together, judged in the original order, before anything is contacted.
+  const [walletChain, readerChain] = await Promise.allSettled([chainIdOf(wallet), chainIdOf(client)])
+  if (walletChain.status === 'rejected') throw walletChain.reason
+  if (walletChain.value !== d.chainId) throw new Error('allowance RPC/wallet chain mismatch')
+  if (readerChain.status === 'rejected') throw readerChain.reason
+  if (readerChain.value !== d.chainId) throw new Error('allowance RPC/wallet chain mismatch')
   const {quote, authorized} = await collectAllowanceQuote(urls, intent, d, requestTimeout, signal, opts.quoteBlock)
   const args = reservationArgs(quote, intent)
   const data = encodeFunctionData({abi: settlementAbi, functionName: 'reservePrepaidAllowanceBls', args: [args, authorized.signature!]})
