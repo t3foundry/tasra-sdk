@@ -102,8 +102,14 @@ const sleep = (ms: number) => new Promise<void>(done => setTimeout(done, ms))
 // flush: one commit's directory sync is the next one's data barrier, and a directory has at most
 // one flush in flight. Before this, each write paid its own F_FULLFSYNC and directory sync; macOS
 // serializes those device-wide (about 5 ms each), which capped a process at a few hundred durable
-// writes per second however many callers were waiting. Without O_DSYNC (Windows) every file is
-// synced on its own exactly as before and only the directory flush is shared.
+// writes per second however many callers were waiting.
+// What this relies on, stated plainly: the state directory is on a local APFS (or ext4/xfs)
+// volume, where an O_DSYNC write has reached the device when it returns and a directory flush
+// commits the temporary file's size and extents with the rename (APFS commits the container in
+// ordered transactions). On a network or FAT volume libuv silently falls back from F_FULLFSYNC,
+// and that ordering is not guaranteed; keep the state directory off such volumes. Without
+// O_DSYNC every file is synced on its own and only the directory flush is shared (Windows never
+// gets here: without `process.getuid` `ready()` refuses the directory).
 const DSYNC: number = (constants as {O_DSYNC?: number}).O_DSYNC ?? 0
 /**
  * Coalesce one asynchronous step among concurrent callers. A caller joins the next step that has
