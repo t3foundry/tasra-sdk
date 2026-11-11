@@ -407,6 +407,22 @@ describe('batched first approvals', () => {
       record2: () => store.load<ApprovalJournalRecord>(KEY2), ledger2: () => readApprovalLedger(store, KEY2, OTHER)}
   }
 
+  it('reads every record of the batch under its held locks at once, then stages them in proposal order (C20)', async () => {
+    const inner = createMemoryStore()
+    // Only the checks for an existing record (none exists yet) are counted, not the reads back after the commit.
+    let reading = 0, most = 0
+    const store: ApplicationStore = {...inner, load: async <T>(key: string) => {
+      if (await inner.load(key) !== undefined) return inner.load<T>(key)
+      reading++; most = Math.max(most, reading)
+      try { await new Promise(done => setTimeout(done, 10)); return await inner.load<T>(key) } finally { reading-- }
+    }, save: inner.save.bind(inner), withLock: inner.withLock.bind(inner), ...inner.claim ? {claim: inner.claim.bind(inner)} : {}}
+    const b = batch(store)
+    b.replies.push(b.results(204, 204))
+    expect(await b.run()).toEqual([true, true])
+    expect(most).toBeGreaterThanOrEqual(2)
+    expect(b.batches).toEqual([[RETAINED, RETAINED2]])
+  })
+
   it('retains each approval under its own key and permit, then sends them in ONE request', async () => {
     const b = batch()
     b.replies.push(b.results(204, 204))

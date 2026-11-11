@@ -213,7 +213,10 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
   /**
    * Write every value to its own temporary file (O_DSYNC), then make all of their data durable
    * together: one coalesced barrier (or each file's own sync without O_DSYNC). Nothing is renamed
-   * here, so nothing is published before its data is on stable storage.
+   * here, so nothing is published before its data is on stable storage. The temporaries are
+   * independent files, so they are created and written concurrently: under concurrent device
+   * flushes each metadata call and O_DSYNC write waits its turn, and one commit stages up to
+   * eight of them (C20: ~90 ms in a row on the 32-stream bench).
    */
   async function stageFiles(entries: readonly (readonly [string, Encoded])[]): Promise<{temporary: string; target: string}[]> {
     const encoded = entries.map(([key, value]) => ({target: path(key), contents: JSON.stringify({schemaVersion: 1, value}) + "\n"}))
@@ -221,12 +224,17 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
     const written: {temporary: string; target: string}[] = []
     const files: import('node:fs/promises').FileHandle[] = []
     try {
-      for (const {target, contents} of encoded) {
-        const temporary = join(root, `.${randomUUID()}.tmp`)
+      // `written` keeps entry order (publish renames by it); every opened handle is recorded before
+      // any await can fail, so a failure closes and removes all of them.
+      const slots = encoded.map(({target}) => ({temporary: join(root, `.${randomUUID()}.tmp`), target}))
+      const outcomes = await Promise.allSettled(slots.map(async ({temporary}, i) => {
         const file = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW | DSYNC, 0o600)
-        written.push({temporary, target}); files.push(file)
-        await file.writeFile(contents, 'utf8')
-      }
+        files.push(file); written.push(slots[i]!)
+        await file.writeFile(encoded[i]!.contents, 'utf8')
+      }))
+      const failed = outcomes.find(o => o.status === 'rejected')
+      if (failed) throw failed.reason
+      written.sort((a, b) => slots.indexOf(a) - slots.indexOf(b))
       if (DSYNC === 0) for (const file of files) { fileStoreSyncCounters.fileSyncs++; await file.sync() }
       else if (files.length > 0) await commit.barrier(files[0]!)
       return written
@@ -259,10 +267,15 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
     for (const {key, target} of targets) if (current.some(held => held.path === target && !held.released)) throw new StoreLockedError(key)
     const turns: {target: string; tail: Promise<void>; done: () => void}[] = []
     const held: {path: string; released: boolean; lock: import('node:fs/promises').FileHandle; open: boolean}[] = []
+    // Distinct lock files, all removed before the caller's one directory sync: concurrently.
     const unlock = async () => {
-      for (const h of held) { h.released = true; if (h.open) { h.open = false; await h.lock.close(); await unlink(h.path) } }
+      const outcomes = await Promise.allSettled(held.map(async h => { h.released = true; if (h.open) { h.open = false; await h.lock.close(); await unlink(h.path) } }))
+      const failed = outcomes.find(o => o.status === 'rejected')
+      if (failed) throw failed.reason
     }
     try {
+      // The directory is checked once per lock set (before the first lock), not once per key.
+      let checked = false
       for (const {key, target} of targets) {
         // Join the queue synchronously, so callers are served in call order.
         const previous = queues.get(target) ?? Promise.resolve()
@@ -272,7 +285,7 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
         queues.set(target, tail)
         turns.push({target, tail, done})
         await previous
-        await ready()
+        if (!checked) { await ready(); checked = true }
         const lock = await acquire(key, target, durableLock)
         held.push({path: target, released: false, lock, open: true})
         await lock.writeFile(JSON.stringify({pid: process.pid, createdAt: new Date().toISOString()}))

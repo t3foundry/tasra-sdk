@@ -241,6 +241,10 @@ export async function retainAndDeliverApproval(ctx: DurableApprovalContext, orig
  */
 async function stageFirstApproval(ctx: DurableApprovalContext, commit: LockedCommit, original: unknown, approval: RetainedPaidApproval): Promise<boolean> {
   if (await ctx.store.load(ctx.key) !== undefined) return false
+  return stageFirst(ctx, commit, original, approval)
+}
+/** {@link stageFirstApproval} once the caller found no record under the held lock. */
+function stageFirst(ctx: DurableApprovalContext, commit: LockedCommit, original: unknown, approval: RetainedPaidApproval): true {
   commit.stage(ctx.key, {original, phase: 'prepared', approval: {schema: APPROVAL_LEDGER_SCHEMA, ...approval}} satisfies ApprovalJournalRecord)
   commit.stage(approvalLedgerKey(ctx.key), {schema: APPROVAL_LEDGER_SCHEMA, proposalId: approval.proposalId, state: 'in_flight', generation: FIRST_APPROVAL_GENERATION})
   return true
@@ -312,9 +316,9 @@ export async function retainAndDeliverApprovals(items: readonly BatchedApproval[
   const store = items[0]!.ctx.store
   if (items.some(i => i.ctx.store !== store)) throw new Error('Invalid approval batch')
   const retained = await commitWithPending(items[0]!.ctx, items.map(i => i.ctx.key), async commit => {
-    const out: boolean[] = []
-    for (const [index, item] of items.entries()) out.push(await stageFirstApproval(item.ctx, commit, item.original, approvals[index]!))
-    return out
+    // Every record is read under the held locks at once; they are staged in proposal order.
+    const existing = await Promise.all(items.map(item => item.ctx.store.load(item.ctx.key)))
+    return items.map((item, index) => existing[index] === undefined && stageFirst(item.ctx, commit, item.original, approvals[index]!))
   })
   await Promise.all(items.map(async (item, index) => {
     const approval = approvals[index]!
