@@ -78,6 +78,10 @@ export interface AllowanceWorld {
   mined: {record?: MinedAllowance}; transactions: Hex[]; accountantUrls: string[]
   /** [start, end) of every RPC when `rpcDelayMs` is set. */
   rpcSpans: [number, number][]
+  /** The JSON-RPC method of each `rpcSpans` entry, at the same index. */
+  rpcSpanMethods: string[]
+  /** The function name of every `eth_call`, in order. */
+  calls: string[]
 }
 export function allowanceWorld(change: ChainChanges = {}): AllowanceWorld {
   vi.spyOn(Date, 'now').mockReturnValue(NOW * 1000)
@@ -87,6 +91,7 @@ export function allowanceWorld(change: ChainChanges = {}): AllowanceWorld {
   const pushes: {url: string; raw: string}[] = []
   let txHash = h(77)
   const transactions: Hex[] = []
+  const calls: string[] = []
   const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input), body = JSON.parse(init?.body as string) as Record<string, unknown>
     trace.push(url)
@@ -138,6 +143,7 @@ export function allowanceWorld(change: ChainChanges = {}): AllowanceWorld {
       const [call] = params as [{to: Hex; data: Hex}]
       const abi: Abi = call.to.toLowerCase() === deployment.keyRegistry ? keyRegistryAbi : call.to.toLowerCase() === deployment.beacon ? thresholdRandomBeaconAbi : settlementAbi
       const {functionName} = decodeFunctionData({abi, data: call.data})
+      calls.push(functionName)
       if (functionName === 'reservePrepaidAllowanceBls') return '0x'
       const version = change.version ?? '4'
       if (functionName === 'prepaidAllowanceSettledSeq' && version !== '5') throw new Error('execution reverted')
@@ -176,17 +182,18 @@ export function allowanceWorld(change: ChainChanges = {}): AllowanceWorld {
     throw new Error(`unexpected RPC ${method}`)
   }
   const rpcSpans: [number, number][] = []
+  const rpcSpanMethods: string[] = []
   const delayed = async (request: {method: string; params?: unknown}): Promise<unknown> => {
     if (!change.rpcDelayMs) return respond(request)
     const start = performance.now()
     await new Promise(done => setTimeout(done, change.rpcDelayMs))
-    try { return await respond(request) } finally { rpcSpans.push([start, performance.now()]) }
+    try { return await respond(request) } finally { rpcSpans.push([start, performance.now()]); rpcSpanMethods.push(request.method) }
   }
   const transport = custom({request: delayed}, {retryCount: 0})
   const client = createPublicClient({chain: localChain, transport}) as PublicClient
   configurePinnedReads(client, false)
   const wallet = createWalletClient({chain: localChain, account: creator, transport})
-  return {client, wallet, fetcher, trace, debits, pushes, mined, transactions, rpcSpans, accountantUrls: ['https://acct0.example', 'https://acct1.example', 'https://acct2.example']}
+  return {client, wallet, fetcher, trace, debits, pushes, mined, transactions, rpcSpans, rpcSpanMethods, calls, accountantUrls: ['https://acct0.example', 'https://acct1.example', 'https://acct2.example']}
 }
 
 /** The longest chain of strictly sequential RPCs among `spans`: the rounds a path waited. */

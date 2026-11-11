@@ -143,6 +143,14 @@ export async function readClientExecutionPolicy(client: PublicClient, deployment
   return decideAtFreshHead(client, await observe(client, deployment), async at => {
     // Only a target that is locally a member of the draw is read early; any other is refused below.
     const hinted = member ? nodeRegistryHint(client, deployment.keyRegistry) : undefined
+    // The quote block's epoch read (header, beacon epoch, and its canonical recheck by number: one
+    // RPC round once the block is older than the head follower's window) needs the receipt's
+    // assignment block. The block this payment's backing named when this client last judged it is a
+    // HINT: its read starts now, beside the reads at `at`, and counts only when the receipt read at
+    // THIS block names the same assignment block; otherwise it is read again for the one it names.
+    const anchorHint = assignmentHint(client, deployment.settlement, payment)
+    const earlyAnchor = anchorHint !== undefined ? readAssignmentEpoch(client, deployment.beacon, anchorHint) : undefined
+    earlyAnchor?.catch(() => {})
     const verifierStanding = (nodes: Address) => Promise.all([
       registryRead(client,at,nodes,nodeRegistryAbi,'nodeOf',[target!.operator]) as Promise<ReadContractReturnType<typeof nodeRegistryAbi,'nodeOf'>>,
       registryRead(client,at,nodes,nodeRegistryAbi,'hasTag',[target!.operator,keccak256(toHex('verifier'))]) as Promise<boolean>,
@@ -173,7 +181,8 @@ export async function readClientExecutionPolicy(client: PublicClient, deployment
     // Still to read: the quote block's epoch (its header and value are kept per client; its canonical
     // recheck is not) and the recheck of `at`, which starts only once every read at `at` has settled.
     // Both run beside the checks below; their answers are judged in the original order.
-    const anchorRead = readAssignmentEpoch(client, deployment.beacon, receipt.assignmentBlock)
+    const anchorRead = earlyAnchor !== undefined && anchorHint!.toLowerCase() === receipt.assignmentBlock.toLowerCase()
+      ? earlyAnchor : readAssignmentEpoch(client, deployment.beacon, receipt.assignmentBlock)
     const finishRead = (async () => { await standingRead?.catch(() => {}); await finishObservation(client, at) })()
     anchorRead.catch(() => {}); finishRead.catch(() => {})
     const epoch = BigInt(payment.verification_epoch)
@@ -189,6 +198,7 @@ export async function readClientExecutionPolicy(client: PublicClient, deployment
     // D8: the epoch window is judged at the reservation's stored quote block, where the
     // accountant quorum judged it, not at this later observation (which may be past a boundary).
     requirePaidEpoch(epoch, receipt, await anchorRead, latest)
+    rememberAssignment(client, deployment.settlement, payment, receipt.assignmentBlock)
     if (target) {
       if (!member || !ADDRESS.test(nodes) || /^0x0{40}$/i.test(nodes)) throw new Error('verifier is not an authenticated member of the paid draw')
       rememberNodeRegistry(client, deployment.keyRegistry, nodes)
@@ -220,6 +230,27 @@ function drawnMember(payment: PaymentIntentWire, target: PaidVerifierWitness): b
   return Number.isSafeInteger(target.index) && drawn.includes(target.index) && target.proof.length <= 32
     && verifyMerkleProof(verifierLeaf(target.index,protocolHex(target.operator,20,'operator'),protocolHex(target.publicKey,32,'verifier key')),
       target.proof.map(p=>protocolHex(p,32,'proof')),protocolHex(payment.verification_root,32,'snapshot root'))
+}
+
+// The assignment block each payment's backing named when this client last judged it (an allowance's
+// is the same for every request it funds; a reservation's is its own): a HINT that only starts the
+// quote block's epoch read early, never a substitute for the receipt read at the observed block.
+// Bounded per client.
+const MAX_ASSIGNMENT_HINTS = 256
+const assignmentHints = new WeakMap<PublicClient, Map<string, Hex>>()
+function assignmentHintKey(settlement: Address, payment: PaymentIntentWire): string {
+  return `${settlement.toLowerCase()}|${payment.slot.toLowerCase()}|${(payment.allowance_id ?? prepaidRequestId(payment)).toLowerCase()}`
+}
+function assignmentHint(client: PublicClient, settlement: Address, payment: PaymentIntentWire): Hex | undefined {
+  return assignmentHints.get(client)?.get(assignmentHintKey(settlement, payment))
+}
+function rememberAssignment(client: PublicClient, settlement: Address, payment: PaymentIntentWire, block: Hex): void {
+  let hints = assignmentHints.get(client)
+  if (!hints) assignmentHints.set(client, hints = new Map<string, Hex>())
+  const key = assignmentHintKey(settlement, payment)
+  hints.delete(key)
+  if (hints.size >= MAX_ASSIGNMENT_HINTS) hints.delete(hints.keys().next().value as string)
+  hints.set(key, block)
 }
 
 // The NodeRegistry each KeyRegistry pointed to when this client last read it: a HINT that lets a
@@ -784,19 +815,37 @@ function receiptReads(client: PublicClient, deployment: PrepaidDeployment, at: P
     const voucher = payment.debit_voucher
     if (!voucher) return Promise.reject(new Error('allowance-backed payment carries no debit voucher'))
     const allowance = allowanceRead(client, deployment.settlement, at, 'prepaidAllowance', payment.allowance_id)
+    const version = settlementVersionAt(client, at, deployment.settlement)
     // ADR-0092 (Settlement "5"): a range-settled allowance advances its settled seq and writes no
     // per-request records, so the request's own `prepaidSettled` stays false. The settled seq is
-    // read beside the rest at the same block; an older version (no getter) never consults it.
-    const settledSeq = allowanceRead(client, deployment.settlement, at, 'prepaidAllowanceSettledSeq', payment.allowance_id)
-      .then(value => ({value}), (error: unknown) => ({error}))
+    // read at the same block, and consulted only when the version read there is "5" (an older
+    // version has no getter: the read reverts, is never cached, and cost one more round each time).
+    const settledSeq = settledSeqAt(client, deployment.settlement, at, payment.allowance_id, version)
     return Promise.all([readAt(client, deployment.settlement, at, 'prepaidEnabled', payment.slot), allowance,
       readAt(client, deployment.settlement, at, 'prepaidCost', payment.slot, requestId), readAt(client, deployment.settlement, at, 'prepaidSettled', payment.slot, requestId),
       readAt(client, deployment.settlement, at, 'prepaidRefunded', payment.slot, requestId), verifyDebitVoucher(client, deployment, voucher),
-      settlementVersionAt(client, at, deployment.settlement), settledSeq]).then(reads => ({kind: 'allowance', reads}))
+      version, settledSeq]).then(reads => ({kind: 'allowance', reads}))
   }
   const names = ['prepaidEnabled', 'prepaidCost', 'prepaidSettled', 'prepaidRefunded', 'prepaidAssignmentBlock'] as const
   return Promise.all(names.map(name =>
     readAt(client, deployment.settlement, at, name, payment.slot, name === 'prepaidEnabled' ? undefined : requestId))).then(reads => ({kind: 'reservation', reads}))
+}
+
+/** A settled-seq read that was not made: the version at the same block is not "5", so it is never consulted. */
+const SETTLED_SEQ_NOT_READ = Object.freeze({error: new Error('settled seq not read: Settlement version is not "5"')})
+
+/**
+ * The allowance's settled seq at `at`, as `{value}` or `{error}`, for a decision that consults it
+ * only when `version` (read at the same block) is "5". Scheduling only, never an answer: while the
+ * last version this client read from `settlement` was "5" (or none was read yet) the getter is read
+ * beside `version`, in the same round; otherwise it is read after `version`, and only when that
+ * version is "5" (an upgrade the hint missed costs one more round, once).
+ */
+function settledSeqAt(client: PublicClient, settlement: Address, at: PrepaidObservation, allowanceId: Hex, version: Promise<unknown>): Promise<{value: unknown} | {error: unknown}> {
+  const read = () => allowanceRead(client, settlement, at, 'prepaidAllowanceSettledSeq', allowanceId).then(value => ({value}), (error: unknown) => ({error}))
+  const hint = settlementVersionHint(client, settlement)
+  if (hint === undefined || hint === '5') return read()
+  return version.then(v => v === '5' ? read() : SETTLED_SEQ_NOT_READ, () => SETTLED_SEQ_NOT_READ)
 }
 
 /** One allowance-keyed Settlement read at `at` (block-hash cached only where the head follower vouches). */
@@ -816,15 +865,22 @@ function allowanceRead(client: PublicClient, settlement: Address, at: PrepaidObs
  * @param deployment Approved deployment.
  * @param payment The operation's creator-signed intent.
  */
-export function followPaidRequest(client: PublicClient, deployment: PrepaidDeployment, payment: PaymentIntentWire): void {
+export function followPaidRequest(client: PublicClient, deployment: PrepaidDeployment & Partial<Pick<ClientExecutionDeployment, 'beacon' | 'verifierSet'>>, payment: PaymentIntentWire): void {
   if (!headFollowerOf(client)) return
   const d = {...deployment}, slot = payment.slot, requestId = prepaidRequestId(payment), allowanceId = payment.allowance_id
+  const epoch = BigInt(payment.verification_epoch)
   registerHeadPrefetch(client, `paid-request:${d.settlement}:${requestId}`.toLowerCase(), tip => {
     const at: PrepaidObservation = {blockNumber: tip.blockNumber, blockHash: tip.blockHash, blockTimestamp: tip.blockTimestamp}
     const names = ['prepaidCost', 'prepaidSettled', 'prepaidRefunded', 'prepaidAssignmentBlock'] as const
+    const version = allowanceId ? settlementVersionAt(client, at, d.settlement) : undefined
+    version?.catch(() => {})
     return Promise.allSettled([readAt(client, d.settlement, at, 'prepaidEnabled', slot), ...names.map(name => readAt(client, d.settlement, at, name, slot, requestId)),
-      ...(allowanceId ? [allowanceRead(client, d.settlement, at, 'prepaidAllowance', allowanceId), allowanceRead(client, d.settlement, at, 'prepaidAllowanceSettledSeq', allowanceId),
-        settlementVersionAt(client, at, d.settlement)] : [])])
+      ...(allowanceId && version ? [allowanceRead(client, d.settlement, at, 'prepaidAllowance', allowanceId), version,
+        settledSeqAt(client, d.settlement, at, allowanceId, version)] : []),
+      // The client execution policy's reads at the payment's own draw epoch (an allowance's draw is
+      // older than the slot pre-read's latest/previous epochs): its seed and verifier snapshot.
+      ...(d.beacon && d.verifierSet ? [registryRead(client, at, d.beacon, thresholdRandomBeaconAbi, 'seedAt', [epoch]),
+        registryRead(client, at, d.verifierSet, verifierSetRegistryAbi, 'snapshotAt', [epoch])] : [])])
   }, payment.expires * 1000)
 }
 
@@ -964,7 +1020,30 @@ function safeInteger(value: bigint, name: string): number {
 
 function settlementVersionAt(client: PublicClient, at: PrepaidObservation, settlement: Address): Promise<unknown> {
   return pinnedRegistryCall(client, at, settlement, encodeFunctionData({abi: settlementAbi, functionName: 'version'}), false)
-    .then(data => { if (data === undefined) throw new Error('empty Settlement version response'); return decodeFunctionResult({abi: settlementAbi, functionName: 'version', data}) })
+    .then(data => {
+      if (data === undefined) throw new Error('empty Settlement version response')
+      const version = decodeFunctionResult({abi: settlementAbi, functionName: 'version', data})
+      if (typeof version === 'string') rememberSettlementVersion(client, settlement, version)
+      return version
+    })
+}
+
+// The Settlement version each settlement answered this client last: a HINT that only decides
+// whether a version-dependent read is issued beside the version read or after it, never an answer
+// (every decision judges the version read at its own block). Bounded per client.
+const MAX_SETTLEMENT_VERSION_HINTS = 64
+const settlementVersionHints = new WeakMap<PublicClient, Map<string, string>>()
+function settlementVersionHint(client: PublicClient, settlement: Address): string | undefined {
+  return settlementVersionHints.get(client)?.get(settlement.toLowerCase())
+}
+function rememberSettlementVersion(client: PublicClient, settlement: Address, version: string): void {
+  let hints = settlementVersionHints.get(client)
+  if (!hints) settlementVersionHints.set(client, hints = new Map<string, string>())
+  const key = settlement.toLowerCase()
+  if (hints.get(key) === version) return
+  hints.delete(key)
+  if (hints.size >= MAX_SETTLEMENT_VERSION_HINTS) hints.delete(hints.keys().next().value as string)
+  hints.set(key, version)
 }
 
 /**
