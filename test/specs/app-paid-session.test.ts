@@ -335,7 +335,7 @@ import {mkdtemp, readdir, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {afterEach} from 'vitest'
-import {createFileStore} from '../../src/app/node.js'
+import {createFileStore, fileStoreSyncCounters} from '../../src/app/node.js'
 import type {RetainedPaidApproval} from '../../src/chain/registeredPaidAgent.js'
 
 const durableRoots: string[] = []
@@ -386,18 +386,50 @@ it('journals each paid write durably before its send, and publishes the previous
   // confirmation, in one commit before their request.
   expect(d.seen.requestApprovals).toEqual({locks: [], phases: {create: 'confirmed',
     'presentation_attest-0': 'prepared', 'presentation_attest-0.attempt': 'in_flight', 'presentation_sign-0': 'prepared', 'presentation_sign-0.attempt': 'in_flight'}})
-  // The presentation: its own \`prepared\` (and the approvals' confirmations) before the wallet POST;
-  // only its own lock is held.
-  expect(d.seen.presentation).toMatchObject({locks: ['wallet-' + d.session.sessionId + '-presentation.lock'],
+  // The presentation: its own \`prepared\` (and the approvals' confirmations) committed with its
+  // unlock before the wallet POST, so no lock is held while it is in flight.
+  expect(d.seen.presentation).toMatchObject({locks: [],
     phases: {presentation: 'prepared', 'presentation_sign-0': 'confirmed', 'presentation_attest-0': 'confirmed'}})
-  // The continuation after the presentation's \`confirmed\` was published with its unlock.
-  expect(d.seen.resumeInitial).toMatchObject({phases: {presentation: 'confirmed', 'resume-initial': 'prepared'}})
+  // Each later write's \`prepared\` commit publishes the previous write's \`confirmed\` (owed) with it.
+  expect(d.seen.resumeInitial).toMatchObject({locks: [], phases: {presentation: 'confirmed', 'resume-initial': 'prepared'}})
   expect(d.seen.credentialApproval).toMatchObject({locks: [], phases: {'resume-initial': 'confirmed', 'credential-0': 'prepared', 'credential-0.attempt': 'in_flight'}})
   expect(d.seen.resume).toMatchObject({phases: {'credential-0': 'confirmed', 'resume-1': 'prepared'}})
   // Everything confirmed at the end, no lock left.
   const end = await d.disk()
   expect(end.locks).toEqual([])
   expect(Object.entries(end.phases).filter(([k]) => !k.endsWith('.attempt')).every(([, phase]) => phase === 'confirmed')).toBe(true)
+})
+
+it('a second drive started while a write is in flight refuses on its durable prepared record and never sends it again', async () => {
+  for (const resume of [false, true]) {
+    const d = await durableDrive()
+    let second: Promise<unknown> | undefined
+    vi.mocked(d.holder.submit).mockImplementationOnce(async () => {
+      // The presentation POST is in flight (no lock held): another driver on the same store.
+      second = d.drive(resume).then(() => 'resolved', (error: unknown) => error)
+      const outcome = await second
+      // A first drive refuses the retained creation; a resumed one reaches the in-flight presentation.
+      expect(outcome).toMatchObject({name: 'PaidSessionRecoveryError', key: 'wallet-' + d.session.sessionId + (resume ? '-presentation' : '-create')})
+      d.flags.sent = true
+    })
+    expect((await d.drive()).status).toBe('done')
+    expect(second).toBeDefined()
+    expect(d.holder.submit).toHaveBeenCalledTimes(1)
+    expect(d.holder.makePresentation).toHaveBeenCalledTimes(1)
+  }
+})
+
+it('a write\'s confirmation that is still pending when the drive ends is published durably', async () => {
+  const d = await durableDrive()
+  const before = fileStoreSyncCounters.directorySyncs
+  expect((await d.drive()).status).toBe('done')
+  expect(fileStoreSyncCounters.directorySyncs).toBeGreaterThan(before)
+  // The last continuation's \`confirmed\` rode on no later write: the drive's end commits it.
+  expect((await d.disk()).phases['resume-1']).toBe('confirmed')
+  // A resume after the drive sees every write confirmed and sends nothing again.
+  expect((await d.drive(true)).status).toBe('done')
+  expect(d.session.resumePresentation).toHaveBeenCalledTimes(2)
+  expect(d.holder.submit).toHaveBeenCalledTimes(1)
 })
 
 it('a crash right after the creation POST (its confirmation not yet written) resumes exactly like one after it: one recovery read, no second POST', async () => {

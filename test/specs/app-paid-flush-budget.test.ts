@@ -182,10 +182,11 @@ it.skipIf(DSYNC === 0)('one allowance-backed paid operation journals within its 
   // 5 grant, 10 execution. Now one commit (a data barrier and a directory sync) per durable step:
   //   reserved   8 = journal+index, lane debit, voucher+`reserved`, lane advance+push journal+unlocks
   //   certified  0 = the consent is committed with the session's creation
-  //   session   18 = creation 2, request-object approvals 2, presentation 4, continuation 4,
-  //                  credential approval 2, final continuation 4 (approval and creation
-  //                  confirmations ride on the next commit)
+  //   session   14 = creation 2, request-object approvals 2, presentation 2, continuation 2,
+  //                  credential approval 2, final continuation 2, the drive's end 2 (every
+  //                  confirmation rides on the next commit; before C20 the presentation and each
+  //                  continuation paid a second commit of their own for it: 18)
   //   authorized 2, executed 4 (`executing` before the keeper work, `executed` after it)
-  expect(phases).toEqual({reserved: 8, certified: 0, session: 18, authorized: 2, executed: 4, background: 0})
+  expect(phases).toEqual({reserved: 8, certified: 0, session: 14, authorized: 2, executed: 4, background: 0})
   expect(total).toBeLessThanOrEqual(32)
 })

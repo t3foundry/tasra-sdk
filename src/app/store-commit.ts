@@ -95,19 +95,36 @@ export function saveRederivable(store: ApplicationStore, key: string, value: unk
  * Re-derivable writes of one flow, published with its next durable commit instead of on their own
  * (or by {@link Rederivable.flush} at its end). Only for values the flow's own recovery re-derives
  * from what it reads anyway: a crash may leave each one unwritten.
+ *
+ * An OWED entry ({@link Rederivable.put} with `owed`) is a confirmation a recovery does NOT
+ * re-derive: the `confirmed` of a sent write whose `prepared` is already durable. It rides on the
+ * flow's next durable commit, which every later send of the flow waits for, so it is durable before
+ * anything else is sent; a crash before that leaves the write `prepared`, the state a crash during
+ * its send leaves too (never resent, reconciled). {@link Rederivable.flush} publishes owed entries
+ * durably.
  */
 export class Rederivable {
   readonly #pending = new Map<string, unknown>()
+  readonly #owed = new Set<string>()
   /** Write `value` under `key` with the next commit (a later put of one key replaces an earlier one). */
-  put(key: string, value: unknown): void { this.#pending.delete(key); this.#pending.set(key, structuredClone(value)) }
+  put(key: string, value: unknown, options: {owed?: boolean} = {}): void {
+    this.#pending.delete(key); this.#pending.set(key, structuredClone(value))
+    if (options.owed === true) this.#owed.add(key); else this.#owed.delete(key)
+  }
+  /** The value `key` will be published with, or undefined when none is pending (a detached copy). */
+  peek<T>(key: string): T | undefined { return this.#pending.has(key) ? structuredClone(this.#pending.get(key)) as T : undefined }
   /** The entries for the commit about to run; give them back with {@link Rederivable.restore} if it failed. */
   take(): [string, unknown][] { const out = [...this.#pending]; this.#pending.clear(); return out }
   /** Return entries a failed commit did not publish (a newer put of a key wins). */
   restore(entries: readonly (readonly [string, unknown])[]): void { for (const [key, value] of entries) if (!this.#pending.has(key)) this.#pending.set(key, value) }
-  /** Publish whatever is left, each as {@link saveRederivable}. */
+  /** Publish whatever is left: each as {@link saveRederivable}, or all in one durable commit when any is owed. */
   async flush(store: ApplicationStore): Promise<void> {
     const out = this.take()
-    try { await Promise.all(out.map(([key, value]) => saveRederivable(store, key, value))) }
-    catch (error) { this.restore(out); throw error }
+    if (out.length === 0) return
+    try {
+      if (out.some(([key]) => this.#owed.has(key))) await saveAll(store, out)
+      else await Promise.all(out.map(([key, value]) => saveRederivable(store, key, value)))
+    } catch (error) { this.restore(out); throw error }
+    for (const [key] of out) if (!this.#pending.has(key)) this.#owed.delete(key)
   }
 }

@@ -3,10 +3,11 @@
 // Every billable write (session creation, each operator-stage approval, the wallet
 // presentation, each continuation) is journaled `prepared` in the application store before
 // it is sent and `confirmed` after its reply. A write whose reply was lost stays `prepared`
-// and is never sent again by this driver: the caller reconciles it. Creation's and an approval's
-// `confirmed` are re-derived by a resume from what it reads anyway, so they are published with
-// the drive's next durable write (or at its end) instead of on their own. Services supply
-// proposals, never client intent; every proposal is checked against the anchored draw.
+// and is never sent again by this driver: the caller reconciles it. Every `confirmed` is
+// published with the drive's next durable write (or durably at its end) instead of on its own:
+// creation's and an approval's are re-derived by a resume from what it reads anyway; any other
+// that a crash loses leaves its write `prepared`, the state a crash during the send leaves.
+// Services supply proposals, never client intent; every proposal is checked against the anchored draw.
 //
 // One exception, for operator-stage approvals only, when the store implements `claim`: the signed
 // approval body is retained BEFORE its first send and, after a definite 429/503 (not processed),
@@ -21,7 +22,7 @@ import type {PaidVerifierWitness} from '../chain/prepaid.js'
 import type {VerifiedRequestObject} from '../oid4vp/request-object.js'
 import {VerifierAgentSessionError, type SessionStatusResult} from '../verifier-agent/index.js'
 import type {ApplicationStore} from './ready-slot.js'
-import {Rederivable, saveAll, withCommit} from './store-commit.js'
+import {Rederivable, withCommit} from './store-commit.js'
 
 /** A presentation the client's own wallet built: the approved body and the encrypted form it posts. */
 export interface PaidWalletPresentation {
@@ -161,38 +162,41 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
   if (!members.length || new Set(members.map(m => m.publicKey.toLowerCase())).size !== members.length) throw new Error('Original drawn witnesses must be distinct')
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,40}$/.test(options.journalPrefix ?? 'wallet-')) throw new Error('Invalid paid session journal prefix')
 
-  // Confirmations a resume re-derives from what it reads anyway (creation: the authenticated read
-  // every resumed drive makes; an operator approval: its delivery state, read whenever the stage
-  // is met again unconfirmed) are published with this drive's next durable write.
+  // Confirmations of this drive's writes, published with its next durable write (or at its end).
+  // Creation's and an approval's are re-derived by a resume from what it reads anyway (creation:
+  // the authenticated read every resumed drive makes; an approval: its delivery state). Every
+  // other write's is OWED (Rederivable): it is published with the next durable commit, which each
+  // later journaled write makes before its send, and durably at the drive's end; until then a
+  // crash leaves the write `prepared`, exactly as a crash during its send does.
   const later = new Rederivable()
-  /** `prepared` of `key`, durable before the send, with the pending re-derivable writes. */
-  const prepare = async (key: string, original: unknown) => {
-    const ride = later.take()
-    try { await saveAll(store, [[key, {original, phase: 'prepared'}], ...ride]) } catch (error) { later.restore(ride); throw error }
-  }
+  /** The record of `key` as this drive will publish it: a pending confirmation, else the store's. */
+  const journaled = async <T>(key: string): Promise<T | undefined> => later.peek<T>(key) ?? await store.load<T>(key)
   /**
    * Journal, send once, confirm. Returns false when a resumed drive skipped a confirmed original.
-   * `prepared` is durable before the send (its directory sync also makes the lock durable, so the
-   * lock is exactly as durable as before at the send); `confirmed` is published with the unlock in
-   * one commit, before the next write starts. A send that failed leaves `prepared`.
+   * `prepared` is committed with the unlock (one commit: its data flushed, renamed, the lock
+   * removed, the directory synced once), together with the confirmations pending from earlier
+   * writes; only then is the write sent, outside the lock. That is safe because the durable record
+   * itself now refuses every other driver (a first drive refuses any retained record; a resumed
+   * one refuses a `prepared` record it cannot recover), so nothing the lock guarded is ever
+   * repeated or replaced. A send that failed leaves `prepared`. `confirmed` is put on `later`.
    *
-   * Creation (the only write with a read-only `recover`) releases its lock with `prepared`, and its
-   * confirmation is re-derivable: every resumed drive recovers creation by the authenticated read,
-   * confirmed or not, so it rides on the next write.
+   * Creation (the only write with a read-only `recover`) journals the caller's first-commit
+   * entries with its `prepared`, and its confirmation is re-derivable.
    */
   const attempt = async (name: string, original: unknown, work: () => Promise<void>, recover?: () => Promise<void>): Promise<boolean> => {
     signal.throwIfAborted()
     const key = prefix + '-' + name
     const recoverable = recover !== undefined, journal = recoverable && first && !first.published ? first : undefined
-    const ride = recoverable ? later.take() : []
-    let send = false, rode = false, skipped: boolean
+    const ride = later.take()
+    let send = false, skipped: boolean
     try {
       skipped = await withCommit(store, [key, ...journal?.lock ?? []], async commit => {
         if (journal) {
           await journal.check()
           for (const [k, v] of journal.entries) commit.stage(k, v)
         }
-        const retained = await store.load<{original: unknown; phase: string}>(key)
+        const pending = ride.find(([k]) => k === key)
+        const retained = (pending ? structuredClone(pending[1]) : await store.load(key)) as {original: unknown; phase: string} | undefined
         if (retained !== undefined) {
           if (resume && retained?.phase === 'confirmed' && same(retained.original, original)) return false
           if (resume && retained?.phase === 'prepared' && same(retained.original, original) && recover) {
@@ -207,28 +211,21 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
             ? 'Original paid write already attempted; reconcile it without redelivery'
             : 'Original paid write already attempted with an unknown or different outcome; reconcile it without redelivery')
         }
-        if (recoverable) {
-          // Committed with the unlock: the record now refuses or recovers any other driver, so the
-          // POST needs no lock (nothing it guards is ever repeated or replaced).
-          for (const [k, v] of ride) commit.stage(k, v)
-          commit.stage(key, {original, phase: 'prepared'})
-          send = rode = true
-          return true
-        }
-        await prepare(key, original)
-        // A crash or uncertain response retains prepared. No catch/retry deletes it.
-        signal.throwIfAborted()
-        await work()
-        commit.stage(key, {original, phase: 'confirmed'})
+        // Committed with the unlock: the record now refuses or recovers any other driver, so the
+        // send needs no lock (nothing it guards is ever repeated or replaced).
+        for (const [k, v] of ride) commit.stage(k, v)
+        commit.stage(key, {original, phase: 'prepared'})
+        send = true
         return true
       })
     } catch (error) { later.restore(ride); throw error }
-    if (!rode) later.restore(ride)
+    if (!send) later.restore(ride)
     if (journal) journal.published = true
     if (!send) return skipped
     signal.throwIfAborted()
+    // A crash or uncertain response retains prepared. No catch/retry deletes it.
     await work()
-    later.put(key, {original, phase: 'confirmed'})
+    later.put(key, {original, phase: 'confirmed'}, {owed: !recoverable})
     return true
   }
   /** First durable approval of a stage; refuses, sending nothing, when a record appeared concurrently. */
@@ -480,7 +477,7 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
       }
       if (callback && accepted) {
         const approved = accepted
-        const initial = await store.load<{phase: string}>(prefix + '-resume-initial')
+        const initial = await journaled<{phase: string}>(prefix + '-resume-initial')
         if (!initial) {
           // HTTP 425 is an explicit refusal to dispatch without client approval. It creates
           // credential proposals; unknown transport outcomes still stop here.
