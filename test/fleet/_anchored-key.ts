@@ -49,3 +49,35 @@ export function waitForSlotKeyOnChain(client: PublicClient, keyRegistry: Address
   return waitForAnchoredKey(() => client.readContract({address: keyRegistry, abi: keyRegistryAbi, functionName: 'getKeySlot', args: [slotId]}),
     keeperKey, {deadlineMs})
 }
+
+/** Where {@link waitForCommitteeKey} looks: the committee, a keeper's served key, the chain. */
+export interface CommitteeKeySources {
+  /** The keepers currently serving the slot (empty while none does). */
+  committee: () => Promise<string[]>
+  /** The group key `keeper` serves for the slot, or undefined while it has none. */
+  keeperKey: (keeper: string) => Promise<string | undefined>
+  /** `KeyRegistry.getKeySlot` at the chain head the paid operations will read. */
+  readSlot: () => Promise<AnchoredSlotView>
+}
+
+/**
+ * Wait (bounded) for a fresh BLS slot's committee to serve its 96-byte group key AND for the chain to have
+ * anchored that same key. Returns the committee and the key (lowercase hex, no `0x`). 2026-11-12
+ * cert run 17 (`verify/bootstrap.ts`): the loop returned on a keeper's key, the slot was funded,
+ * and the paid discovery read the chain at 10:07:05 while the publishing block landed 10:07:08.
+ */
+export async function waitForCommitteeKey(sources: CommitteeKeySources, wait: AnchoredKeyWait): Promise<{committee: string[]; publicKey: string}> {
+  const now = wait.now ?? Date.now, sleep = wait.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)))
+  const pollMs = wait.pollMs ?? 2000
+  for (;;) {
+    const committee = await sources.committee()
+    for (const keeper of committee) {
+      const served = await sources.keeperKey(keeper).catch(() => undefined)
+      if (!served || !/^(0x)?[0-9a-f]{192}$/i.test(served)) continue
+      const anchored = await waitForAnchoredKey(sources.readSlot, served, {...wait, pollMs: Math.min(pollMs, 500)})
+      return {committee, publicKey: anchored.toLowerCase().replace(/^0x/, '')}
+    }
+    if (now() + pollMs > wait.deadlineMs) throw new Error('no committee keeper served the slot key before the deadline')
+    await sleep(pollMs)
+  }
+}
