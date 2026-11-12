@@ -36,6 +36,7 @@ import {paidWalletSettings} from '../fleet/_paid-wallet.ts'
 import {fixturePaymentTtlSeconds} from '../fleet/_certification-timing.ts'
 import {waitForPaidSnapshot} from '../fleet/_paid-wallet-session.ts'
 import {fundFreshWalletSlot} from '../fleet/_prepaid-funding.ts'
+import {waitForSlotKeyOnChain} from '../fleet/_anchored-key.ts'
 import {withDedicatedPayer} from '../fleet/_payer-queue.ts'
 import {createTasraWriteClient, generateClientKey} from '../../src/chain/write.ts'
 import {createTasraChainClient} from '../../src/chain/client.ts'
@@ -145,7 +146,8 @@ for (const deadline = Date.now() + 240_000; ;) {
   committee = await discoverCommittee(cfg, slotId)
   if (committee.length === 3) {
     const pub = (await (await fetch(`${committee[0]}/v1/keys/${slotId}/public`)).json()) as {group_public_key?: string}
-    if (pub.group_public_key) { groupKey = pub.group_public_key; break }
+    // A keeper answers once ITS DKG finished; the paid operations below need the key on chain.
+    if (pub.group_public_key) { await waitForSlotKeyOnChain(writer.pub, book.KeyRegistry, slotId, pub.group_public_key, deadline); groupKey = pub.group_public_key; break }
   }
   if (Date.now() > deadline) break
   await sleep(2000)
