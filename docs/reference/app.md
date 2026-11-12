@@ -1669,7 +1669,7 @@ and their receipts) inside it. Operations otherwise open a cold lane themselves:
 each lane then falls back to a per-operation reservation or waits for the lane.
 
 Each lane is reserved through the same journaled reservation as an operation's background refill
-(intent signed by the creator, `signing` → `prepared` → `submitted` → `confirmed` under the
+(intent signed by the creator, `signing`, then `prepared`, `submitted` and `confirmed` under the
 durable payer claim and the dedicated payer queue), with its own FRESH discovery (never a context
 cached across lanes); a lane that needs nothing is reported `not-needed` without any read or
 send, so the call is idempotent. A lane failure is reported on that lane only; the other lanes
@@ -2937,7 +2937,7 @@ export interface EcdsaSignOptions extends AuthorizedOperationOptions {
 
 Fields:
 
-- **` dualControl `**: The assembled native approval bundle for THIS digest and THIS final payment (`prepareOperationApproval` → `approveDualOperation` → `assembleOperationApproval`). Required by a slot with an approval policy; needs `payment` (it binds the payment's request ID and hash). Checked locally against the slot, SHA-256 of the digest and the grant's payment before the keeper body is approved, and carried inside it unchanged.
+- **` dualControl `**: The assembled native approval bundle for THIS digest and THIS final payment (`prepareOperationApproval`, then `approveDualOperation`, then `assembleOperationApproval`). Required by a slot with an approval policy; needs `payment` (it binds the payment's request ID and hash). Checked locally against the slot, SHA-256 of the digest and the grant's payment before the keeper body is approved, and carried inside it unchanged.
 - **` execution `**: Required with payment: original creator certificate and client-only execution signer.
 - **` payment `**: Existing creator-signed reservation intent for this exact operation. Requires random.
 - **` random `**: Fixed presentation random committed before reservation. Requires payment.
@@ -4460,7 +4460,7 @@ export interface SlotTrust {
 
 Fields:
 
-- **` set `**: Active verifier set (registry size + index → Ed25519 key) at the grant's epoch.
+- **` set `**: Active verifier set (registry size + index to Ed25519 key) at the grant's epoch.
 - **` committee `**: The slot's committee size and quorum.
 - **` quorum `**: Signatures from the slot's drawn committee required.
 - **` ruleHash `**: keccak256 of the slot's raw rule.

@@ -335,7 +335,7 @@ export interface VerifiedSessionGrant {
 export interface VerifySessionGrantOptions {
   /** Decoded grant to verify. */
   grant: SessionGrant
-  /** Active verifier set (registry size + index → Ed25519 key), established independently. */
+  /** Active verifier set (registry size + index to Ed25519 key), established independently. */
   set: VerifierSet
   /** Slot to be served. */
   slotId: Uint8Array
@@ -482,7 +482,7 @@ export function sessionBatchProofHash(grantHash: Uint8Array, requestHashes: Uint
 /**
  * The 32-byte hash a session key signs to refresh (or revoke) a grant:
  * `keccak256(domain ‖ grant_hash ‖ seq u64 BE ‖ issued_at i64 BE)`.
- * ⚠ The plan names the inputs but not their integer widths; u64/i64 BE follow the grant module.
+ * Integer inputs are encoded big-endian as u64/i64, as in the rest of the session-grant module.
  * @param kind - Which control domain to use.
  * @param grantHash - 32-byte grant hash.
  * @param seq - Request sequence number (u64).

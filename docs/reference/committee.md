@@ -3037,7 +3037,7 @@ Returns: ` Uint8Array `.
 
 The 32-byte hash a session key signs to refresh (or revoke) a grant:
 `keccak256(domain ‖ grant_hash ‖ seq u64 BE ‖ issued_at i64 BE)`.
-⚠ The plan names the inputs but not their integer widths; u64/i64 BE follow the grant module.
+Integer inputs are encoded big-endian as u64/i64, as in the rest of the session-grant module.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L491)
 
@@ -6709,7 +6709,7 @@ export interface VerifySessionGrantOptions {
 Fields:
 
 - **` grant `**: Decoded grant to verify.
-- **` set `**: Active verifier set (registry size + index → Ed25519 key), established independently.
+- **` set `**: Active verifier set (registry size + index to Ed25519 key), established independently.
 - **` slotId `**: Slot to be served.
 - **` committee `**: The slot's committee size and quorum.
 - **` quorum `**: Signatures from the slot's drawn committee required.

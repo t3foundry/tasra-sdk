@@ -698,7 +698,7 @@ export interface PreparedAllowances {
  * each lane then falls back to a per-operation reservation or waits for the lane.
  *
  * Each lane is reserved through the same journaled reservation as an operation's background refill
- * (intent signed by the creator, `signing` → `prepared` → `submitted` → `confirmed` under the
+ * (intent signed by the creator, `signing`, then `prepared`, `submitted` and `confirmed` under the
  * durable payer claim and the dedicated payer queue), with its own FRESH discovery (never a context
  * cached across lanes); a lane that needs nothing is reported `not-needed` without any read or
  * send, so the call is idempotent. A lane failure is reported on that lane only; the other lanes

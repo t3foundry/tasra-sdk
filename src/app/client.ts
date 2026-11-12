@@ -104,7 +104,7 @@ export interface AuthorizedOperationOptions {
 export interface EcdsaSignOptions extends AuthorizedOperationOptions {
   /**
    * The assembled native approval bundle for THIS digest and THIS final payment
-   * (`prepareOperationApproval` → `approveDualOperation` → `assembleOperationApproval`). Required
+   * (`prepareOperationApproval`, then `approveDualOperation`, then `assembleOperationApproval`). Required
    * by a slot with an approval policy; needs `payment` (it binds the payment's request ID and
    * hash). Checked locally against the slot, SHA-256 of the digest and the grant's payment before
    * the keeper body is approved, and carried inside it unchanged.

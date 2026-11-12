@@ -113,7 +113,7 @@ export function sessionGrantCreateFragment(key: SessionKeyHandle, params: Sessio
 
 /** Independently established verification material for one granted slot. */
 export interface SlotTrust {
-  /** Active verifier set (registry size + index → Ed25519 key) at the grant's epoch. */
+  /** Active verifier set (registry size + index to Ed25519 key) at the grant's epoch. */
   set: VerifierSet
   /** The slot's committee size and quorum. */
   committee: number
