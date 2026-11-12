@@ -1,0 +1,111 @@
+{
+  "adr": "ADR-0090 D1-D5 Encodings: keccak256(abi.encode(keccak256(domain), ...))",
+  "allowance_id": {
+    "expected": "0xc8a8aaa11a5763fd6d6d3f4726d262545976924ad9ffb567bc8dd8546c8ae034",
+    "intent_hash": "0x4ff61f6bcc95d045d85c896266314458af2c90b9a379c2e5fc5c081687b55330",
+    "slot_id": "0x2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "allowance_intent": {
+    "actions": 79,
+    "amount": "1000000",
+    "eip712_domain": {
+      "name": "Keykeeper Assigned Slot Payment",
+      "version": "1"
+    },
+    "expires_at": 1800000000,
+    "intent_nonce": "0x2323232323232323232323232323232323232323232323232323232323232323",
+    "keeper_assignment": "0xa4cf48dfd2a9c21b21a4d74dc24e9c598289fb71ea32b1b0049681dd800a867b",
+    "key_registry": "0x1212121212121212121212121212121212121212",
+    "max_op_cost": "1000",
+    "signing_hash": "0x4ff61f6bcc95d045d85c896266314458af2c90b9a379c2e5fc5c081687b55330",
+    "slot_id": "0x2222222222222222222222222222222222222222222222222222222222222222",
+    "verification_committee": 3,
+    "verification_epoch": 7,
+    "verification_quorum": 2,
+    "verification_registry_size": 5,
+    "verification_root": "0x2525252525252525252525252525252525252525252525252525252525252525",
+    "verification_seed": "0x2424242424242424242424242424242424242424242424242424242424242424"
+  },
+  "allowance_payment_intent": {
+    "action": 1,
+    "allowance_id": "0xc8a8aaa11a5763fd6d6d3f4726d262545976924ad9ffb567bc8dd8546c8ae034",
+    "expires": 1799999000,
+    "max_cost": "500",
+    "nonce": "0x2828282828282828282828282828282828282828282828282828282828282828",
+    "payload_digest": "0x2626262626262626262626262626262626262626262626262626262626262626",
+    "request_id": "0x2cc3aa0f18fa2002ed59a591d7adbb61fbcefd26615e2cfaf10e63db88736e95",
+    "session_commitment": "0x2727272727272727272727272727272727272727272727272727272727272727",
+    "signing_hash": "0xbe25bea0e11b65c3c53ec6a12a4abff111cc13a5eb1c3061993d1d70e247c831"
+  },
+  "allowance_settle": {
+    "allowance_id": "0xc8a8aaa11a5763fd6d6d3f4726d262545976924ad9ffb567bc8dd8546c8ae034",
+    "batch_id": "0x9999999999999999999999999999999999999999999999999999999999999999",
+    "costs": [
+      "250",
+      "300"
+    ],
+    "deadline": 1800000200,
+    "evidence_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "expected": "0x9293a7adc1e3e032427400997fad940fc3ee436394d0b65a06f24aed72b58be6",
+    "paid": [
+      "200",
+      "300"
+    ],
+    "request_ids": [
+      "0x2cc3aa0f18fa2002ed59a591d7adbb61fbcefd26615e2cfaf10e63db88736e95",
+      "0x8888888888888888888888888888888888888888888888888888888888888888"
+    ],
+    "root": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "chain_id": 43112,
+  "close": {
+    "allowance_id": "0xc8a8aaa11a5763fd6d6d3f4726d262545976924ad9ffb567bc8dd8546c8ae034",
+    "deadline": 1800000300,
+    "expected": "0x2b5308e56b58c519d6f576caa48875cdce93bf40aeda4f310aae1272bafa5124",
+    "final_cumulative": "550"
+  },
+  "debit_voucher": {
+    "allowance_id": "0xc8a8aaa11a5763fd6d6d3f4726d262545976924ad9ffb567bc8dd8546c8ae034",
+    "cost": "250",
+    "cumulative": "1000",
+    "expected": "0x5a88f640b2f551a9a1d006230706218cf91cf8ca063e5505467c63d7bc2e4602",
+    "quote_block": "0x7777777777777777777777777777777777777777777777777777777777777777",
+    "request_id": "0x2cc3aa0f18fa2002ed59a591d7adbb61fbcefd26615e2cfaf10e63db88736e95",
+    "seq": 3
+  },
+  "domains": {
+    "allowance_id": {
+      "string": "keykeeper/prepaid-allowance-id/v1",
+      "word": "0xaf4154b547788bd3fbd539d82b16e2b9a257b2101afd5d2b1fb92a533c42952f"
+    },
+    "allowance_settle": {
+      "string": "keykeeper/prepaid-allowance-settle/v1",
+      "word": "0x9b0a506fcb1e0ad1f6a2a3cdac4b36eae4e435c03adca7095a4a2e8885326b55"
+    },
+    "close": {
+      "string": "keykeeper/prepaid-allowance-close/v1",
+      "word": "0xaaad6e1cc0ed7dd6eceb20fb0729dd8c6d8f3a4ee27f9dbec3acee5414a47a5a"
+    },
+    "debit_voucher": {
+      "string": "keykeeper/prepaid-debit/v1",
+      "word": "0x2dea1ed1ac555f9229c15d03af4ebfb35dd7aef298d16345790f5146682e3f0b"
+    },
+    "reserve": {
+      "string": "keykeeper/prepaid-allowance-reserve/v1",
+      "word": "0xe8c836f404e5ab5d72f8192698de9f43d141d3892e992f891a86cb93ac8b4249"
+    }
+  },
+  "reserve": {
+    "actions": 79,
+    "allowance_id": "0xc8a8aaa11a5763fd6d6d3f4726d262545976924ad9ffb567bc8dd8546c8ae034",
+    "amount": "1000000",
+    "assignment_block": "0x5555555555555555555555555555555555555555555555555555555555555555",
+    "deadline": 1799000100,
+    "expected": "0x4b804818ae072084fcac0f02095c2cdc46577bb2f4954c02fa50d0da8b04b6cc",
+    "expires_at": 1800000000,
+    "legacy_nonce": 7,
+    "max_op_cost": "1000",
+    "slot_id": "0x2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "settlement": "0x1111111111111111111111111111111111111111"
+}

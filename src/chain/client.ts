@@ -14,7 +14,9 @@ import {
   type Abi,
   type Log,
   type ReadContractReturnType,
+  type Transport,
 } from 'viem'
+import {configurePinnedReads} from './pinnedReads.js'
 import {CONTRACT_ABIS, type ContractName} from './abis/index.js'
 import {createServiceRegistryReaders, type ServiceRegistryReaders} from './services.js'
 import {nodeRegistryAbi} from './abis/nodeRegistry.js'
@@ -68,9 +70,69 @@ export interface ChainClientConfig {
   /** getLogs block-window size; keep <= the RPC's range cap (anvil/besu: large; public: ~2k). */
   logWindow?: number
   /**
-   * Multicall3 address for batching. Omit to probe the canonical address, supply an explicit address to probe that deployment, or set false to disable batching. Unavailable batching falls back to individual reads.
+   * Multicall3 address for batching. Omit to probe the canonical address, supply an explicit address to probe that deployment, or set false to disable batching. Unavailable batching falls back to individual reads. Block-pinned paid-operation reads batch through it only where its code matches the canonical Multicall3.
    */
   multicall3?: Address | false
+  /**
+   * JSON-RPC batching for small requests (calls, chain ID, blocks, code, nonces): requests issued
+   * together share one HTTP request of at most `batchSize` (default 32, at most 1000) after
+   * waiting `wait` milliseconds (default 0, at most 100). Each request keeps its own result and
+   * error. Log queries and transactions are never batched. Set false for an RPC without batches.
+   */
+  rpcBatch?: RpcBatchOptions | false
+}
+
+/** Bounds of one JSON-RPC batch. */
+export interface RpcBatchOptions {
+  /** Most requests in one HTTP request. */
+  batchSize?: number
+  /** Milliseconds to collect requests before sending. */
+  wait?: number
+}
+
+/** Methods whose requests and answers are small; everything else goes alone. */
+const BATCHED_METHODS = new Set(['eth_call', 'eth_chainId', 'eth_blockNumber', 'eth_getBlockByNumber', 'eth_getBlockByHash',
+  'eth_getCode', 'eth_getBalance', 'eth_getStorageAt', 'eth_getTransactionCount', 'eth_getTransactionReceipt'])
+
+/** HTTP transport that sends the small methods in bounded JSON-RPC batches and the rest alone. */
+function rpcTransport(url: string, batch: RpcBatchOptions | false | undefined): Transport {
+  const plain = http(url)
+  if (batch === false) return plain
+  const batchSize = batch?.batchSize ?? 32, wait = batch?.wait ?? 0
+  if (!Number.isSafeInteger(batchSize) || batchSize < 1 || batchSize > 1000) throw new Error('rpcBatch.batchSize must be an integer from 1 to 1000')
+  if (!Number.isSafeInteger(wait) || wait < 0 || wait > 100) throw new Error('rpcBatch.wait must be an integer from 0 to 100 milliseconds')
+  // An RPC that does not answer batches (a single object, or a 4xx, for an array) is detected on
+  // its first batch: that batch's requests are sent one by one and answered as the batch would
+  // have been, and every later request goes alone.
+  let batches = true
+  const fetchFn = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const send = globalThis.fetch
+    const entries = typeof init?.body === 'string' && init.body.startsWith('[') ? JSON.parse(init.body) as unknown[] : undefined
+    if (!entries) return send(input, init)
+    if (batches) {
+      const response = await send(input, init)
+      const text = await response.text()
+      let answer: unknown
+      try { answer = JSON.parse(text) } catch { answer = undefined }
+      if (Array.isArray(answer) || response.status >= 500 || (response.ok && answer === undefined)) {
+        return new Response(text, {status: response.status, statusText: response.statusText, headers: response.headers})
+      }
+      batches = false
+    }
+    const answers: unknown[] = []
+    for (const response of await Promise.all(entries.map(entry => send(input, {...init, body: JSON.stringify(entry)})))) {
+      const text = await response.text()
+      if (!response.ok) return new Response(text, {status: response.status, statusText: response.statusText, headers: response.headers})
+      answers.push(JSON.parse(text))
+    }
+    return new Response(JSON.stringify(answers), {status: 200, headers: {'Content-Type': 'application/json'}})
+  }
+  const batched = http(url, {batch: {batchSize, wait}, fetchFn})
+  return params => {
+    const alone = plain(params), grouped = batched(params)
+    const request: typeof alone.request = (args, options) => (batches && BATCHED_METHODS.has(args.method) ? grouped : alone).request(args, options)
+    return {...alone, request}
+  }
 }
 
 /**
@@ -296,8 +358,10 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
   // probe and with a fallback that can actually run. See `multicallAddress`.
   const client: PublicClient = createPublicClient({
     chain,
-    transport: http(cfg.rpcUrl),
+    transport: rpcTransport(cfg.rpcUrl, cfg.rpcBatch),
   })
+  // Block-pinned paid-path reads batch through the same Multicall3 choice, code-hash verified.
+  configurePinnedReads(client, cfg.multicall3)
   const addresses = cfg.addresses
   const defaultWindow = cfg.logWindow ?? 2000
 

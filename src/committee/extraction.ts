@@ -2,7 +2,7 @@ import {recipientPayloadDigest} from '../crypto/recipient.js'
 import {equalBytes} from '@noble/curves/utils.js'
 import {utf8ToBytes} from '@noble/hashes/utils'
 import {sha256} from '@noble/hashes/sha256'
-import {ibeCombineExtract, ibeDecryptWithKey, ibeVerifyShare, type IbeCiphertext} from '../crypto/ibe.js'
+import {combineVerifiedIbeShares, ibeDecryptWithKey, ibeIdentityPoint, ibeVerifyShareAt, type IbeCiphertext} from '../crypto/ibe.js'
 import {TasraError, ThresholdNotMetError} from '../errors.js'
 import {collectIbeExtractionPartials, type IbeExtractOpts} from './client.js'
 import {compoundTokenHash, decodeCompoundToken} from './token.js'
@@ -105,6 +105,8 @@ export async function extractIdentityStrict(input: StrictExtractionOptions): Pro
   if(!input.recipient)throw new TasraError('Client recipient required for sealed extraction')
   const opId = auditOperationId(slot, 'ibe-extract', tokenHash, recipientPayloadDigest(sha256(identity),epoch,input.recipient.recipient))
   const evidence: ExtractionEvidence[] = []
+  // Q_ID once per operation, for every share check and the group-key check.
+  const qId = ibeIdentityPoint(identity)
   const partials = await collectIbeExtractionPartials({...input, nodeUrls: keepers.map(k => k.nodeUrl), ciphertextEpoch: epoch}, p => {
     const k = byUrl.get(p.nodeUrl)
     if (!k || !Number.isSafeInteger(p.identifier) || p.identifier < 1 || p.identifier > 65535 ||
@@ -121,16 +123,18 @@ export async function extractIdentityStrict(input: StrictExtractionOptions): Pro
     }
     if (required && receiptStatus !== 'verified') throw new TasraError('Verified extraction receipt required')
     // A received reply only counts after provenance, receipt and pairing verification.
-    ibeVerifyShare(new Map([[p.identifier, k.verifyingShareG2 ?? p.verifyingShareG2]]), identity, p)
+    ibeVerifyShareAt(k.verifyingShareG2 ?? p.verifyingShareG2, qId, p)
     evidence.push({operator: k.operator, identifier: p.identifier, nodeUrl: p.nodeUrl, ...(p.receipt ? {receipt: p.receipt} : {}), receiptStatus})
   })
   let key: Uint8Array | undefined
   try {
     input.signal?.throwIfAborted()
     if (partials.length < threshold) throw new ThresholdNotMetError({got: partials.length, need: threshold})
-    key = ibeCombineExtract(new Map(partials.map(p => [p.identifier, p.verifyingShareG2])), partials, identity)
+    // Every partial passed the per-share pairing check above (the callback names a bad keeper);
+    // checking it again inside the combine would repeat the same equation on the same bytes.
+    key = combineVerifiedIbeShares(partials)
     // Returned shares must combine to the slot's independently anchored master public key.
-    ibeVerifyShare(new Map([[1, group]]), identity, {identifier: 1, value: key})
+    ibeVerifyShareAt(group, qId, {identifier: 1, value: key})
     return {key, epoch, shareTrust, evidence}
   } catch (error) {
     key?.fill(0)

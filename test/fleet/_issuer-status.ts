@@ -12,16 +12,18 @@ import {localPrepaidSettings} from './_prepaid-funding.ts'
 
 interface Ledger {url: string; issuer?: string; next_index: number; members: Record<string, number>; revoked: number[]}
 const capacity = 131_072
+// The byte bound must hold a FULL list: 131,072 members with long fleet identities (~250 B each).
+const LEDGER_MAX_BYTES = 32 * 1024 * 1024
 function readLedger(file: string, issuer?: string): Ledger {
   const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
     const stat = fstatSync(fd)
-    assert(stat.isFile() && stat.uid === process.getuid?.() && !(stat.mode & 0o077) && stat.size <= 2 * 1024 * 1024,
+    assert(stat.isFile() && stat.uid === process.getuid?.() && !(stat.mode & 0o077) && stat.size <= LEDGER_MAX_BYTES,
       'Issuer allocation ledger must be bounded, private and owned')
-    const bytes = Buffer.alloc(2 * 1024 * 1024 + 1)
+    const bytes = Buffer.alloc(stat.size + 1)
     let length = 0
     while (length < bytes.length) {const n = readSync(fd, bytes, length, bytes.length - length, null); if (!n) break; length += n}
-    assert(length <= 2 * 1024 * 1024, 'Issuer ledger exceeded its bound')
+    assert(length <= stat.size && length <= LEDGER_MAX_BYTES, 'Issuer ledger changed or exceeded its bound')
     const value = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes.subarray(0, length))) as Ledger
     assert(value && typeof value === 'object' && !Array.isArray(value)
       && Object.keys(value).sort().join(',') === (issuer ? 'issuer,members,next_index,revoked,url' : 'members,next_index,revoked,url'), 'Invalid issuer ledger shape')

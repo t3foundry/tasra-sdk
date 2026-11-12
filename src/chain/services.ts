@@ -1,6 +1,31 @@
-import {encodeAbiParameters, keccak256, type Address, type Hex, type PublicClient, type ReadContractReturnType} from 'viem'
+import {decodeFunctionResult, encodeAbiParameters, encodeFunctionData, keccak256, type Address, type Hex, type PublicClient, type ReadContractReturnType} from 'viem'
 import {serviceRegistryAbi} from './abis/serviceRegistry.js'
 import {requireAddress, type AddressBook} from './deployments.js'
+import {chainIdOf} from './chainId.js'
+import {headFollowerOf} from './headFollower.js'
+import {registerHeadPrefetch} from './headPrefetch.js'
+import {pinnedRegistryCall, type PinnedBlock} from './pinnedReads.js'
+
+function serviceAt(client: PublicClient, registry: Address, serviceId: Hex, at: PinnedBlock): Promise<ReadContractReturnType<typeof serviceRegistryAbi, 'getService'>> {
+  return pinnedRegistryCall(client, at, registry, encodeFunctionData({abi: serviceRegistryAbi, functionName: 'getService', args: [serviceId]}), false).then(data => {
+    if (data === undefined) throw new Error('empty ServiceRegistry.getService response')
+    return decodeFunctionResult({abi: serviceRegistryAbi, functionName: 'getService', data})
+  })
+}
+
+/**
+ * A service's registration at the chain head: at a live head follower's tip (a block-pinned read,
+ * pre-read at every new head once asked for), otherwise at `latest` by RPC as before.
+ * @param chain Reader of the deployment.
+ * @param serviceId Registered service.
+ */
+export function currentServiceRecord(chain: ServiceRegistryChainReader, serviceId: Hex): Promise<ReadContractReturnType<typeof serviceRegistryAbi, 'getService'>> {
+  const tip = headFollowerOf(chain.client)?.tip()
+  if (!tip) return chain.readers.serviceRegistry.getService(serviceId)
+  const registry = requireAddress(chain.addresses, 'ServiceRegistry')
+  registerHeadPrefetch(chain.client, `service:${registry}:${serviceId}`.toLowerCase(), head => serviceAt(chain.client, registry, serviceId, head))
+  return serviceAt(chain.client, registry, serviceId, tip)
+}
 
 /** Permanent ServiceRegistry ABI ordinals. Registration grants no operator privileges. */
 export const SERVICE_TYPES = {gasRelayer: 0, verifierAgent: 1, vaultService: 2} as const
@@ -168,12 +193,26 @@ export async function readApprovedServiceRecord(
 ): Promise<{record: ServiceRecord; blockNumber: bigint}> {
   const registry = requireAddress(chain.addresses, 'ServiceRegistry')
   if (registry.toLowerCase() !== approval.registry.toLowerCase()) throw new Error('Service registry approval mismatch')
-  const chainId = await chain.client.getChainId()
+  const chainId = await chainIdOf(chain.client)
   if (chainId !== approval.chainId || (chain.client.chain && chain.client.chain.id !== chainId)) {
     throw new Error('Service chain approval mismatch')
   }
-  const blockNumber = await chain.client.getBlockNumber({cacheTime: 0})
-  const record = await chain.readers.serviceRegistry.getService(approval.serviceId, blockNumber)
+  // At a live head follower's tip (confirmed within 2 s) that the follower also proves FINAL
+  // (instant finality, at or below a matching finalized header), the record is a read pinned to
+  // that block's hash and pre-read at every new head; otherwise the head number and the record at
+  // it are read by RPC, as before.
+  const follower = headFollowerOf(chain.client)
+  const live = follower?.tip()
+  const tip = live && follower?.isCanonical(live) === true ? live : undefined
+  let blockNumber: bigint, record: Awaited<ReturnType<typeof chain.readers.serviceRegistry.getService>>
+  if (tip) {
+    registerHeadPrefetch(chain.client, `service:${registry}:${approval.serviceId}`.toLowerCase(), head => serviceAt(chain.client, registry, approval.serviceId, head))
+    blockNumber = tip.blockNumber
+    record = await serviceAt(chain.client, registry, approval.serviceId, tip)
+  } else {
+    blockNumber = await chain.client.getBlockNumber({cacheTime: 0})
+    record = await chain.readers.serviceRegistry.getService(approval.serviceId, blockNumber)
+  }
   if (record.status !== SERVICE_STATUSES.active) throw new Error('Service is not accepting new work')
   if (record.serviceType !== approval.serviceType || !Object.values(SERVICE_TYPES).includes(record.serviceType)) {
     throw new Error('Service type approval mismatch')

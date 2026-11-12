@@ -71,7 +71,26 @@ execution key, drives the registered session (`drivePaidSession`) and verifies t
 (`makePresentation(request, {requestUri, qrPayload})`, plus an optional `present` hook with
 the same link, so applications never rebuild the request URI), or
 `{kind: 'external', present, accept}` when a phone wallet scans `qrPayload` and the
-application accepts the complete retained presentation.
+application accepts the complete retained presentation, or `{kind: 'oauth', credential}` for an
+OAuth slot rule (`oauth+access-token+dpop` or a `kk_oauth` envelope).
+
+With `kind: 'oauth'` the client presents a DPoP-bound access token itself: no request
+object is fetched and no wallet is involved. `credential({sessionId, nonce, dpopHtu,
+platformAudience})` returns `{accessToken, signer}` (a `DpopSigner` over the key the token's
+`cnf.jkt` names); the token's `aud` must include `platformAudience`. The SDK builds the proof
+and verifies audience, lifetime, `cnf.jkt`, nonce, `htm`, `htu`, `ath` and the proof signature
+locally, journals the exact presentation in the store BEFORE its one submission, then approves
+the drawn verifiers' credential work on that retained presentation. `credential` runs at most
+once per session: a resume reuses the journaled presentation and never asks for a refreshed
+token (an expired one ends the operation; reconcile or abandon it). A submission whose reply was
+lost is confirmed only by a read showing the agent holding exactly that presentation; otherwise
+the resume refuses. Only a definite HTTP 429 is repeated, with the identical token and proof,
+inside the proof's 60-second window; one that ran out is journaled `unsent` and a resume resends
+those same bytes. The holder kind is journaled with the operation: `resumePaidOperation` refuses
+a holder of the other family. A holder that does not match the slot rule's family is refused
+before anything is signed or reserved. Tokens and proofs never appear in errors or
+`listPaidOperations` summaries; they are kept in the private store, which must be protected
+accordingly.
 
 When every approved accountant returns 404 for the anchored verifier snapshot,
 `paidOperation` waits for that exact original artifact before reserving. The wait
@@ -245,6 +264,86 @@ private IP literals unless approved. A browser cannot check where a name resolve
 on its private-network protections; services must allow the origin through CORS and
 expose `Retry-After` and `x-ratelimit-after`.
 
+### Prepaid allowances (opt-in)
+
+By default every paid operation waits for its own reservation transaction. With
+`PaidOperationConfig.allowances` (**off by default**) the SDK instead reserves an
+allowance ahead of use (one transaction escrowing `amount`) and debits each operation with an
+accountant-quorum voucher, so no block interval sits on the operation's path:
+
+```ts
+const config: PaidOperationConfig = {
+  ...paid,
+  allowances: {enabled: true, amount: 50_000n, streams: 16}, // 8 lanes: min(streams, 8)
+}
+```
+
+Enable it only when every reader on the deployment (agent, verifiers, keepers, accountants)
+supports prepaid allowances: the network advertises no capability for it, so the option is the switch.
+
+- **Lanes.** Each of `lanes` (default `min(streams, 8)`) holds one allowance and a strictly
+  serial debit sequence; different lanes debit in parallel. An operation on a lane signs the
+  distinct `SlotAllowancePaymentIntent` (its request ID binds the allowance) with the
+  allowance's verification epoch and keeper sharing.
+- **Vouchers.** The debit request goes to every accountant in parallel at one quote block. Each
+  member's BN254 partial is checked against its verifying share, `k` are combined and the
+  aggregate is verified against `beacon.mpk()` at the quote block before it is attached to the
+  payment.
+- **Journal.** The lane journals the sequence, request and quote block before any request, then
+  the partials and the voucher. A resume asks for the same sequence and request, so a member
+  that already signed returns the same partial.
+- **Open the lanes first.** Without it the first operation on each cold lane finds no allowance
+  and pays for the lane's opening inside itself (or falls back to a per-operation reservation).
+  Open them once, like loading a card, before user operations:
+
+  ```ts
+  const {lanes} = await prepareAllowances(config, {slot}) // every lane; or {slot, lanes: [0, 1]}
+  for (const l of lanes) if (l.outcome === 'failed') console.warn(`lane ${l.lane} not opened`, l.error)
+  ```
+
+  Each lane is reserved through the same journaled reservation as a background top-up, with its
+  own fresh discovery, at most `concurrency` (default 4) at once on the dedicated payer. A lane
+  reports `reserved`, `not-needed` (already open: nothing read or sent, so the call is
+  idempotent), `pending` (broadcast, outcome uncertain; reconciled later, never re-signed),
+  `failed` (that lane only) or `cancelled` (`signal`). Draw lanes are not opened here.
+
+  Preparing for sustained work, say how much is coming. Without it a lane whose confirmed
+  allowance is close to exhaustion or expiry (but not yet "low") reports `not-needed`, and an
+  operation of the work then reserves the replacement inside itself:
+
+  ```ts
+  await prepareAllowances(config, {slot, minOperations: 120, minLifetimeSecs: 1800})
+  ```
+
+  Each lane must then fund `minOperations` more operations at the per-operation cap from its
+  current and reserved-ahead allowances (only one outliving `minLifetimeSecs` counts), and the
+  current one must outlive `minLifetimeSecs`; otherwise the next allowance is reserved ahead now
+  (`reserved`). A spent current allowance first hands over to its confirmed next. A lane holding
+  both that is still short reports `failed` (`AllowanceCapacityError`): it never locks a third
+  (at most 2 x lanes x `amount`). Bounds: `minOperations` 0..2 x floor(`amount` / per-operation
+  cap), `minLifetimeSecs` 0..lifetime - 120 s.
+- **Top-up.** Allowances are fixed-amount and live at most an hour. A replacement is reserved in
+  the background once the remainder is below 25 % or less than 10 minutes remain, using the same
+  dedicated gas payer and durable payer claim as reservations.
+- **Fallback.** Without a lane that can fund the operation (none yet, exhausted, expired, action
+  not funded, keeper sharing changed) the operation uses a per-operation reservation. A definite
+  accountant refusal journals the allowance attempt `failed`, retires the lane and falls back once
+  to a fresh payment with a new request ID (`onRequestId` then sees both). Unreachable accountants
+  leave the debit pending: `resumePaidOperation` retries the same voucher.
+- **Session draws.** A session grant's messages must pay the grant's exact verifier draw, and
+  the grant follows the beacon every epoch. Regular lanes are never retired for that; separate
+  draw lanes (two sets, one per epoch parity) hold one allowance per draw. When a message on the
+  grant's epoch sees the beacon already at the next one, the next draw is discovered (pinned and
+  verified exactly as the message's own) and its lanes are reserved in the background, so the
+  messages after the grant's refresh pay by voucher. A message whose draw lane is still being
+  reserved waits for it (at most 20 s) rather than reserving per operation. The escrow they hold
+  is bounded: at most `maxDrawAllowances` (default `4 x lanes`) allowances of `drawAmount`
+  (default `amount`) per slot, counted until their expiry plus the accountants' 10-minute close
+  grace; at the bound a message pays per operation. On a beacon faster than about
+  (lifetime + 10 min) / 2 per epoch, lower `drawAmount` and `lifetimeSecs` and raise
+  `maxDrawAllowances`.
+- Historical keeper-result recovery of allowance-backed work is not available yet and fails closed.
+
 ### Busy services during a paid operation
 
 Paid clients behind one network address share the verifier-agent's per-client limiter, so a
@@ -253,9 +352,9 @@ out instead of losing the paid request, and never extends a signed expiry to do 
 
 - The session's repeatable reads (proposals, Request Object, presentations, poll, delivery state)
   repeat on 429/503 inside the session's signed expiry; the continuation repeats on 429 only.
-- Each operator approval is signed once and its exact body is retained in the store before the
-  first send. After a 429/503 it is resent byte-identically under a one-use, generation-bound
-  permit that the store's exclusive `claim` consumes before every send. A send without a definite
+- Each operator approval is signed once and its exact body is retained in the store, marked in
+  flight, before the first send. After a 429/503 it is resent byte-identically under a one-use,
+  generation-bound permit that the store's exclusive `claim` consumes before every resend. A send without a definite
   answer (transport error, timeout, abort, crash) is never resent: a resume reads the delivery and
   confirms it, or throws `PaidApprovalUnresolvedError`. Stores without `claim` send once.
 - An accountant `prepare` answered 429 with a wait hint (its reservation quota) is repeated
@@ -314,8 +413,9 @@ const resolution = await reconcileApplicationPayment(
 
 All reservation callers must share the same store and use a dedicated gas payer. The
 lock spans nonce selection, durable preparation, submission and verification. It covers
-different slots and deployments on the same chain. A concurrent call either waits or is
-refused, depending on the store; the file store refuses with `StoreLockedError`.
+different slots and deployments on the same chain. A concurrent call in the same process
+waits its turn. One in another process waits or is refused, depending on the store: the
+file store waits up to its `lockWaitMs` (default 10 s), then refuses with `StoreLockedError`.
 Unrelated CLI, wallet and low-level `reservePaidOperation` writes are outside this lock.
 
 Once preparation claims a payer, any uncertain outcome retains that claim across restart.

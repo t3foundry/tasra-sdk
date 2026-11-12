@@ -1,4 +1,5 @@
 import type {Hex} from 'viem'
+import {headFollowerOf} from '../chain/headFollower.js'
 import {isOauthFormat, validate as validateRule} from '../auth/oid4vp.js'
 import type {TasraApplication} from './client.js'
 import {prepareSlot, createPreparedSlot, type SlotCreationJournal} from './creation.js'
@@ -8,6 +9,7 @@ import {requireRule} from '../chain/ruleInput.js'
 import {resolveSlotKeeperUrls} from '../chain/discovery.js'
 import {TasraError} from '../errors.js'
 import type {TypedDataSigner} from '../oid4vp/verifier-agent.js'
+import {WRITE_POLL_INTERVAL_MS} from '../chain/receipt.js'
 
 /** Stable recovery categories for a durable named slot creation. */
 export type ApplicationSlotRecoveryCode =
@@ -250,7 +252,7 @@ export async function createApplicationSlot(app: TasraApplication, input: Create
             progress({step, phase: transaction.phase, slotId, ...(transaction.hash ? {transactionHash: transaction.hash} : {})})
           }
         }
-      }, options: {signal, maxWaitMs: timeoutMs}})
+      }, options: {signal}})
       await save()
     }
     let slot = await app.slots.get(slotId)
@@ -282,7 +284,8 @@ export async function createApplicationSlot(app: TasraApplication, input: Create
     if (state.verifierPolicy?.phase === 'submitting' && !state.verifierPolicy.hash) throw new ApplicationSlotRecoveryError('VERIFIER_POLICY_OUTCOME_UNKNOWN', request.name, `Verifier policy outcome unknown for ${slotId}; reconcile its transaction hash before resuming`, {slotId})
     if (state.verifierPolicy?.hash && state.verifierPolicy.phase !== 'confirmed') {
       progress({step: 'verifier_policy', phase: 'submitted', slotId, transactionHash: state.verifierPolicy.hash})
-      const receipt = await chain.client.waitForTransactionReceipt({hash: state.verifierPolicy.hash, timeout: timeoutMs})
+      const receipt = await chain.client.waitForTransactionReceipt({hash: state.verifierPolicy.hash, timeout: timeoutMs, pollingInterval: WRITE_POLL_INTERVAL_MS})
+      headFollowerOf(chain.client)?.noteMinedBlock(receipt.blockNumber)
       if (receipt.status !== 'success') throw new ApplicationSlotRecoveryError('VERIFIER_POLICY_REVERTED', request.name, 'Verifier policy transaction reverted; reconcile before resuming', {slotId, transactionHash: state.verifierPolicy.hash})
       state.verifierPolicy.phase = 'confirmed'
       await save()

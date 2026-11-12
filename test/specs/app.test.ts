@@ -11,11 +11,12 @@ import type {TasraChainClient} from '../../src/chain/client.js'
 import {payloadDigestFor, requestHash} from '../../src/oid4vp/binding.js'
 import type {TasraApplicationConfig} from '../../src/app/client.js'
 import * as prepaid from '../../src/chain/prepaid.js'
-import {paymentIntentHash, type PaymentIntentWire} from '../../src/committee/payment.js'
+import {paymentIntentHash, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {keeperExecutionFixture} from '../support/keeperExecution.js'
 import type {ClientExecutionSigner, ExecutionAuthorization} from '../../src/committee/execution.js'
 import {createDecryptionRecipient, decryptionBinding} from '../../src/crypto/recipient.js'
 import {sealIbeFixture} from '../support/sealedIbe.js'
+import {approveDualOperation, assembleDualOperation, prepareDualOperation} from '../../src/committee/dual-operation.js'
 
 const executionSigners: (ClientExecutionSigner & {dispose():void})[] = []
 afterEach(() => { executionSigners.splice(0).forEach(signer=>signer.dispose()); vi.restoreAllMocks(); vi.useRealTimers() })
@@ -74,7 +75,7 @@ async function paidFixture(mode = 2, options: Parameters<typeof fixture>[1] = {}
   const contributors=[keeperKey,otherKey].map((key,i)=>({...endpoint,publicKey:toHex(key),
     operator:`0x${(i+1).toString(16).padStart(40,'0')}` as Hex,url:mode===1?`https://keeper-${i}.example`:i===0?endpoint.url:'https://other-keeper.example'}))
   const target: prepaid.PaidKeeperTarget = {...endpoint,contributors,receipt:{blockTimestamp:BigInt(Math.floor(Date.now()/1000)),
-    blockNumber:20n,blockHash:random,assignmentBlock:random,requestId:random,cost:9n,refunded:0n,settled:false},groupPublicKey:f.metadata.publicKey,mode}
+    blockNumber:20n,blockHash:random,assignmentBlock:random,requestId:prepaidRequestId(payment),cost:9n,refunded:0n,settled:false},groupPublicKey:f.metadata.publicKey,mode}
   // Canonical RPC/creator/roster checks have separate chain.paid-route regressions.
   // Here the boundary is controlled to exercise the app's consent and actual crypto results.
   const resolve = vi.spyOn(prepaid, 'resolvePaidKeeperTarget').mockResolvedValue(target)
@@ -94,7 +95,8 @@ describe('paid application execution', () => {
     expect(f.fetchImpl).toHaveBeenCalledTimes(1)
     expect(String(f.fetchImpl.mock.calls[0]![0])).toMatch(/^https:\/\/paid\.example\//)
     expect(f.chain.readers.keyRegistry.assignedNodes).not.toHaveBeenCalled()
-    expect(f.resolve).toHaveBeenCalledTimes(3)
+    // Before and after the wallet step; the keeper approval reuses the second read.
+    expect(f.resolve).toHaveBeenCalledTimes(2)
     const sent=JSON.parse(String(f.fetchImpl.mock.calls[0]![1]?.body)) as {execution_authorizations:ExecutionAuthorization[]}
     expect(sent.execution_authorizations.map(proof=>proof.stage).sort()).toEqual(['contributor','contributor','coordinator'])
     expect(f.resolve.mock.calls[0]![3].action).toBe(mode === 2 ? 'eoa-sign' : 'sign')
@@ -370,5 +372,39 @@ describe('application API', () => {
     if (field === 'credentials') d.rpcUrl = 'http://user:password@localhost'
     if (field === 'registry') d.addresses.KeyRegistry = '0x' as Hex
     expect(() => defineDeployment(d)).toThrow()
+  })
+})
+
+describe('native approvals on a paid threshold ECDSA signature', () => {
+  const approverSeeds = [31, 32, 33].map(n => new Uint8Array(32).fill(n))
+  const approverFor = (seedBytes: Uint8Array) => ({publicKey: ed25519.getPublicKey(seedBytes), sign: async (payload: Uint8Array) => ed25519.sign(payload, seedBytes)})
+  async function bundle(f: Awaited<ReturnType<typeof paidFixture>>, change: {digest?: Uint8Array; payment?: PaymentIntentWire; nowSecs?: number} = {}) {
+    const payment = change.payment ?? f.payment
+    const prepared = prepareDualOperation({payment, operation: 'secp256k1-sign', epoch: 1, ...(change.nowSecs !== undefined ? {nowSecs: change.nowSecs} : {})})
+    const records = await Promise.all(approverSeeds.slice(0, 2).map(s => approveDualOperation({prepared, payment, expectSlot: slotId,
+      expectPayloadDigest: payment.payload_digest, approver: approverFor(s), ...(change.nowSecs !== undefined ? {nowSecs: change.nowSecs} : {})})))
+    return assembleDualOperation({prepared, approvals: records, quorum: 2, ...(change.nowSecs !== undefined ? {nowSecs: change.nowSecs} : {})})
+  }
+  it('carries the assembled bundle inside the client-approved keeper body, unchanged', async () => {
+    const f = await paidFixture(2), slot = await f.app.slots.ecdsa(slotId), proof = await bundle(f)
+    await slot.signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution, dualControl: proof})
+    expect(f.fetchImpl).toHaveBeenCalledTimes(1)
+    const body = JSON.parse(String(f.fetchImpl.mock.calls[0]![1]?.body)) as {dual_control: unknown; execution_authorizations: ExecutionAuthorization[]}
+    expect(body.dual_control).toEqual(proof)
+    // The keeper approvals sign the complete body: the bundle is inside what the client consented to.
+    expect(body.execution_authorizations).toHaveLength(3)
+  })
+  it.each(['another digest', 'another payment', 'stale', 'no payment'] as const)('refuses a bundle for %s before credential consent or keeper work', async reason => {
+    const f = await paidFixture(2), slot = await f.app.slots.ecdsa(slotId)
+    const other = {...f.payment, nonce: `0x${'77'.repeat(32)}` as Hex}
+    const proof = reason === 'another payment' ? await bundle(f, {payment: other})
+      : reason === 'stale' ? await bundle(f, {nowSecs: Math.floor(Date.now() / 1000) - 600}) : await bundle(f)
+    const digest = reason === 'another digest' ? new Uint8Array(32).fill(2) : f.message
+    const options = reason === 'no payment' ? {authorize: f.unpaidAuthorize, dualControl: proof}
+      : {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution, dualControl: proof}
+    await expect(slot.signDigest(digest, options)).rejects.toThrow()
+    expect(f.authorize).not.toHaveBeenCalled()
+    expect(f.unpaidAuthorize).not.toHaveBeenCalled()
+    expect(f.fetchImpl).not.toHaveBeenCalled()
   })
 })

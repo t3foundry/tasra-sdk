@@ -9,10 +9,11 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 2 classes</summary>
+<summary>Browse 3 classes</summary>
 
 - [CommitteeAuthorizeError](#committeeauthorizeerror)
 - [OperationOutcomeUnknownError](#operationoutcomeunknownerror)
+- [SessionGrantError](#sessiongranterror)
 
 </details>
 
@@ -85,20 +86,57 @@ declare class OperationOutcomeUnknownError {
 
 - ` cause?: unknown; `
 
+### SessionGrantError
+
+A refused grant, key or proof. `code` names the failed check.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L172)
+
+Import: `import {SessionGrantError} from 'tasra-sdk/committee'`
+
+```ts
+declare class SessionGrantError {
+    constructor(code: string, message: string);
+}
+```
+
+- ` readonly code: string; ` — Stable reason (`slot-not-granted`, `expired`, `quorum-not-met`, ...).
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ## Functions
 
 Operations you can import and call.
 
 <details>
-<summary>Browse 89 functions</summary>
+<summary>Browse 126 functions</summary>
 
 - [acceptStatusRefreshRelay](#acceptstatusrefreshrelay)
+- [allowanceActionBits](#allowanceactionbits)
+- [allowanceCloseDigest](#allowanceclosedigest)
+- [allowanceFunds](#allowancefunds)
+- [allowanceId](#allowanceid)
+- [allowanceReserveDigest](#allowancereservedigest)
+- [allowanceSettleDigest](#allowancesettledigest)
+- [approveDualOperation](#approvedualoperation)
 - [approveExecutionRequest](#approveexecutionrequest)
 - [assembleCompoundToken](#assemblecompoundtoken)
+- [assembleDualOperation](#assembledualoperation)
+- [assertDebitVoucherWire](#assertdebitvoucherwire)
 - [assertPaymentIntentWire](#assertpaymentintentwire)
 - [assertStatusAttestationsWire](#assertstatusattestationswire)
 - [auditOperationId](#auditoperationid)
 - [buildVerifierProofs](#buildverifierproofs)
+- [checkJti](#checkjti)
+- [checkProofWindow](#checkproofwindow)
 - [classifyStatusRefreshResponse](#classifystatusrefreshresponse)
 - [clientBindingHash](#clientbindinghash)
 - [collectSealedPartials](#collectsealedpartials)
@@ -108,6 +146,7 @@ Operations you can import and call.
 - [committeeDecryptRequest](#committeedecryptrequest)
 - [committeeSign](#committeesign)
 - [committeeSignEoaDigest](#committeesigneoadigest)
+- [committeeSignP256Digest](#committeesignp256digest)
 - [committeeSignRequest](#committeesignrequest)
 - [compoundTokenCanonicalBytes](#compoundtokencanonicalbytes)
 - [compoundTokenHash](#compoundtokenhash)
@@ -117,14 +156,21 @@ Operations you can import and call.
 - [createExecutionRecoveryAuthorization](#createexecutionrecoveryauthorization)
 - [createLocalExecutionSigner](#createlocalexecutionsigner)
 - [createStatusRefreshProof](#createstatusrefreshproof)
+- [debitVoucherDigest](#debitvoucherdigest)
+- [debitVoucherWireDigest](#debitvoucherwiredigest)
 - [decodeCompoundToken](#decodecompoundtoken)
 - [decodeOperationReceipt](#decodeoperationreceipt)
+- [decodeSessionGrant](#decodesessiongrant)
 - [decryptIdentityStrict](#decryptidentitystrict)
 - [decryptionBinding](#decryptionbinding)
 - [decryptWithCommitteePartials](#decryptwithcommitteepartials)
 - [discoverBlsSharing](#discoverblssharing)
 - [dpopHtu](#dpophtu)
+- [dualOperationFromPayload](#dualoperationfrompayload)
+- [dualOperationPayload](#dualoperationpayload)
 - [dualSignApprovalPayload](#dualsignapprovalpayload)
+- [encodeSessionGrant](#encodesessiongrant)
+- [encodeSessionProof](#encodesessionproof)
 - [evidenceBindingMessage](#evidencebindingmessage)
 - [executionApprovalTypedData](#executionapprovaltypeddata)
 - [executionBodyHash](#executionbodyhash)
@@ -149,25 +195,41 @@ Operations you can import and call.
 - [paidDualSignApprovalPayload](#paiddualsignapprovalpayload)
 - [paidExecutionReportSigningHash](#paidexecutionreportsigninghash)
 - [paidExecutionRequest](#paidexecutionrequest)
+- [parseSessionKeyJwk](#parsesessionkeyjwk)
 - [parseStatusRefreshReply](#parsestatusrefreshreply)
 - [paymentIntentHash](#paymentintenthash)
 - [paymentIntentTypedData](#paymentintenttypeddata)
 - [paymentSessionCommitment](#paymentsessioncommitment)
 - [platformAudience](#platformaudience)
+- [prepaidAllowanceIntentHash](#prepaidallowanceintenthash)
+- [prepaidAllowanceIntentTypedData](#prepaidallowanceintenttypeddata)
 - [prepaidRequestId](#prepaidrequestid)
+- [prepareDualOperation](#preparedualoperation)
 - [recipientPayloadDigest](#recipientpayloaddigest)
 - [refreshStatusDirect](#refreshstatusdirect)
 - [refreshStatusViaAgent](#refreshstatusviaagent)
 - [requestCommitteeToken](#requestcommitteetoken)
 - [requestIbeExtractionPartials](#requestibeextractionpartials)
+- [requireCurrentDualOperation](#requirecurrentdualoperation)
+- [requireDualOperationPayment](#requiredualoperationpayment)
+- [requireDualOperationProof](#requiredualoperationproof)
 - [requireStatusAttestations](#requirestatusattestations)
 - [selectVerifierCommittee](#selectverifiercommittee)
+- [sessionBatchProofHash](#sessionbatchproofhash)
+- [sessionControlHash](#sessioncontrolhash)
+- [sessionGrantCanonicalBytes](#sessiongrantcanonicalbytes)
+- [sessionGrantHash](#sessiongranthash)
+- [sessionGrantPayload](#sessiongrantpayload)
+- [sessionKeyThumbprint](#sessionkeythumbprint)
+- [sessionProofHash](#sessionproofhash)
 - [signersThatVerify](#signersthatverify)
 - [statusAttestationHash](#statusattestationhash)
 - [statusRefreshHash](#statusrefreshhash)
 - [statusRefreshHolderSigner](#statusrefreshholdersigner)
 - [statusRefreshRelayBody](#statusrefreshrelaybody)
 - [statusRefreshRequestBody](#statusrefreshrequestbody)
+- [toBase64Url](#tobase64url)
+- [validateDualOperationStatement](#validatedualoperationstatement)
 - [verifierLeaf](#verifierleaf)
 - [verifyCompoundToken](#verifycompoundtoken)
 - [verifyEvidenceBinding](#verifyevidencebinding)
@@ -177,7 +239,9 @@ Operations you can import and call.
 - [verifyOperationReceipt](#verifyoperationreceipt)
 - [verifyPaidExecutionEvidence](#verifypaidexecutionevidence)
 - [verifyRecoveredExecutionResult](#verifyrecoveredexecutionresult)
+- [verifySessionGrant](#verifysessiongrant)
 - [verifySessionInitialization](#verifysessioninitialization)
+- [verifySessionSignature](#verifysessionsignature)
 - [verifyStatusAttestation](#verifystatusattestation)
 - [verifyStatusAttestations](#verifystatusattestations)
 - [withdrawsOriginal](#withdrawsoriginal)
@@ -206,13 +270,184 @@ declare function acceptStatusRefreshRelay(grant: StatusRefreshGrant, response: S
 
 Returns: ` StatusRefreshResult `.
 
+### allowanceActionBits
+
+The actions bitmap of an allowance (bit `i` = `PrepaidAction` ordinal `i`).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L274)
+
+Import: `import {allowanceActionBits} from 'tasra-sdk/committee'`
+
+```ts
+declare function allowanceActionBits(actions: readonly AllowanceAction[]): number;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` actions ` | ` readonly AllowanceAction[] ` | - Paid actions the allowance funds; at least one. |
+
+Returns: ` number `.
+
+### allowanceCloseDigest
+
+The close digest (`keykeeper/prepaid-allowance-close/v1`).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L508)
+
+Import: `import {allowanceCloseDigest} from 'tasra-sdk/committee'`
+
+```ts
+declare function allowanceCloseDigest(settlement: Hex, chainId: number, allowance: Hex, finalCumulative: bigint, deadline: bigint): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` settlement ` | ` Hex ` | - Settlement proxy. |
+| ` chainId ` | ` number ` | - EVM chain. |
+| ` allowance ` | ` Hex ` | - Allowance. |
+| ` finalCumulative ` | ` bigint ` | - Every debit the quorum issued. |
+| ` deadline ` | ` bigint ` | - Deadline. |
+
+Returns: ` Hex `.
+
+### allowanceFunds
+
+Whether an allowance's actions bitmap funds `action`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L287)
+
+Import: `import {allowanceFunds} from 'tasra-sdk/committee'`
+
+```ts
+declare function allowanceFunds(actions: number, action: AllowanceAction): boolean;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` actions ` | ` number ` | - Allowance bitmap. |
+| ` action ` | ` AllowanceAction ` | - Paid action of one operation. |
+
+Returns: ` boolean `.
+
+### allowanceId
+
+`keccak256(abi.encode(ID_DOMAIN, chainid, settlement, slotId, intentHash))`: the id every reader
+derives from the creator's intent (chain id BEFORE the Settlement here, after it elsewhere).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L384)
+
+Import: `import {allowanceId} from 'tasra-sdk/committee'`
+
+```ts
+declare function allowanceId(chainId: number, settlement: Hex, slot: Hex, intentHash: Hex): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` chainId ` | ` number ` | - EVM chain. |
+| ` settlement ` | ` Hex ` | - Settlement proxy. |
+| ` slot ` | ` Hex ` | - Slot. |
+| ` intentHash ` | ` Hex ` | - [prepaidAllowanceIntentHash](#prepaidallowanceintenthash) of the creator intent. |
+
+Returns: ` Hex `.
+
+### allowanceReserveDigest
+
+The reserve digest (`keykeeper/prepaid-allowance-reserve/v1`).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L417)
+
+Import: `import {allowanceReserveDigest} from 'tasra-sdk/committee'`
+
+```ts
+declare function allowanceReserveDigest(settlement: Hex, chainId: number, a: AllowanceReserveArgs): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` settlement ` | ` Hex ` | - Settlement proxy. |
+| ` chainId ` | ` number ` | - EVM chain. |
+| ` a ` | ` AllowanceReserveArgs ` | - Reservation arguments. |
+
+Returns: ` Hex `.
+
+### allowanceSettleDigest
+
+The allowance-settle digest (`keykeeper/prepaid-allowance-settle/v1`).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L492)
+
+Import: `import {allowanceSettleDigest} from 'tasra-sdk/committee'`
+
+```ts
+declare function allowanceSettleDigest(settlement: Hex, chainId: number, s: AllowanceSettleArgs): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` settlement ` | ` Hex ` | - Settlement proxy. |
+| ` chainId ` | ` number ` | - EVM chain. |
+| ` s ` | ` AllowanceSettleArgs ` | - Settlement arguments. |
+
+Returns: ` Hex `.
+
+### approveDualOperation
+
+`dual-operation approve`: check the statement against the final payment and the approver's own
+expectations, then sign its exact bytes. A credentialed approver adds its holder-bound
+dual-approve grant, which must bind this statement.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L220)
+
+Import: `import {approveDualOperation} from 'tasra-sdk/committee'`
+
+```ts
+declare function approveDualOperation(input: {
+    prepared: PreparedDualOperation;
+    payment: PaymentIntentWire;
+    expectSlot: string;
+    expectPayloadDigest: string;
+    approver: DualOperationApprover;
+    authorization?: {
+        compound_token: CompoundTokenWire;
+        verifier_proofs: VerifierProof[];
+        evidence_ct?: string;
+    };
+    nowSecs?: number;
+}): Promise<DualOperationApprovalRecord>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` input ` | See detailed type below. | - Prepared statement, final payment, the expected slot and operation digest, the approver and its optional grant. |
+
+**` input ` type**
+
+```ts
+{
+    prepared: PreparedDualOperation;
+    payment: PaymentIntentWire;
+    expectSlot: string;
+    expectPayloadDigest: string;
+    approver: DualOperationApprover;
+    authorization?: {
+        compound_token: CompoundTokenWire;
+        verifier_proofs: VerifierProof[];
+        evidence_ct?: string;
+    };
+    nowSecs?: number;
+}
+```
+
+Returns: ` Promise<DualOperationApprovalRecord> `.
+
 ### approveExecutionRequest
 
 Approve a complete proposal ONLY after comparing it with a separately client-built body.
 Applications must construct expected.body from their own intent and validated presentation,
 never echo an agent's proposal into that field. This helper performs no automatic HTTP dispatch.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L389)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L418)
 
 Import: `import {approveExecutionRequest} from 'tasra-sdk/committee'`
 
@@ -266,11 +501,56 @@ declare function assembleCompoundToken(p: CompoundTokenPayload, signatures: Comm
 
 Returns: ` CompoundTokenWire `.
 
+### assembleDualOperation
+
+`dual-operation assemble`: combine independent approvals of ONE statement into the `dual_control`
+bundle. Every approval names exactly that statement and verifies strictly over its bytes; the
+approver keys are distinct and at least `quorum` of them are present (the keeper re-checks them
+against the on-chain policy).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L250)
+
+Import: `import {assembleDualOperation} from 'tasra-sdk/committee'`
+
+```ts
+declare function assembleDualOperation(input: {
+    prepared: PreparedDualOperation;
+    approvals: DualOperationApprovalRecord[];
+    quorum: number;
+    nowSecs?: number;
+}): DualOperationProof;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` input ` | ` { prepared: PreparedDualOperation; approvals: DualOperationApprovalRecord[]; quorum: number; nowSecs?: number; } ` | - Prepared statement, approval records and the slot policy's quorum. |
+
+Returns: ` DualOperationProof `.
+
+### assertDebitVoucherWire
+
+Validate a debit voucher's shape (not its signature). Mirrors the readers' constructor: nonzero
+ids, cost and quote block, `cumulative >= cost`, a 64-byte non-infinity signature encoding.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L228)
+
+Import: `import {assertDebitVoucherWire} from 'tasra-sdk/committee'`
+
+```ts
+declare function assertDebitVoucherWire(value: unknown): asserts value is DebitVoucherWire;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` value ` | ` unknown ` | - Untrusted voucher. |
+
+Returns: ` asserts value is DebitVoucherWire `.
+
 ### assertPaymentIntentWire
 
 Validate the wire representation and its signed commitment, without chain access.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L168)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L249)
 
 Import: `import {assertPaymentIntentWire} from 'tasra-sdk/committee'`
 
@@ -350,6 +630,48 @@ declare function buildVerifierProofs(verifiers: CommitteeVerifier[], registrySiz
 | ` snapshotRoot? ` | ` Uint8Array ` | - Optional independently anchored verifier snapshot root. |
 
 Returns: ` VerifierProof[] | undefined `.
+
+### checkJti
+
+Refuse a jti outside 16..64 URL-safe characters.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L453)
+
+Import: `import {checkJti} from 'tasra-sdk/committee'`
+
+```ts
+declare function checkJti(jti: string): void;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` jti ` | ` string ` | - Proof identifier. |
+
+Returns: ` void `.
+
+### checkProofWindow
+
+A client-side check that a proof would pass a keeper's freshness and key checks.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L519)
+
+Import: `import {checkProofWindow} from 'tasra-sdk/committee'`
+
+```ts
+declare function checkProofWindow(grant: VerifiedSessionGrant, jwk: SessionKeyJwk, proof: {
+    iat: number;
+    jti: string;
+}, now: number): void;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` grant ` | ` VerifiedSessionGrant ` | - Verified grant the proof binds to. |
+| ` jwk ` | ` SessionKeyJwk ` | - Session key that signs the proof. |
+| ` proof ` | ` { iat: number; jti: string; } ` | - The proof's `iat` and `jti`. |
+| ` now ` | ` number ` | - Current time, Unix seconds. |
+
+Returns: ` void `.
 
 ### classifyStatusRefreshResponse
 
@@ -555,7 +877,7 @@ Open the verifier-agent session with action `sign` and message equal to `digest`
 The keeper checks the token's request binding against SHA-256(digest), then
 threshold-signs the original digest. This never falls back to JWT authorization.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L49)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L60)
 
 Import: `import {committeeSignEoaDigest} from 'tasra-sdk/committee'`
 
@@ -575,6 +897,31 @@ Throws: On malformed input/response, network failure, or keeper rejection.
 HTTP 401/403 is an authorization denial; do not retry it as a network failure.
 Approvals, HTTP and response decoding have one 15-second deadline. A timeout
 requires reconciliation of the original operation, not a new paid attempt.
+
+### committeeSignP256Digest
+
+Sign a 32-byte digest with a threshold P-256 (`tecdsa-p256`) slot through the same keeper route
+and authorization as [committeeSignEoaDigest](#committeesigneoadigest). The reply must name mode `tecdsa-p256`,
+carry the expected group key and verify as a P-256 signature over the digest (no prehash);
+anything else is refused.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L89)
+
+Import: `import {committeeSignP256Digest} from 'tasra-sdk/committee'`
+
+```ts
+declare function committeeSignP256Digest(opts: CommitteeP256SignOpts): Promise<P256DigestSignature>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` opts ` | ` CommitteeP256SignOpts ` | - Compound authorization, keeper endpoint, 32-byte digest and the slot's group key. |
+
+Returns: ` Promise<P256DigestSignature> `.
+
+Return details: r, s and the group key.
+
+Throws: On malformed input/response, a signature that does not verify, network failure or keeper rejection.
 
 ### committeeSignRequest
 
@@ -693,7 +1040,7 @@ Returns:
 
 Sign and verify a creator certificate without handing a private execution key to the agent.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L303)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L332)
 
 Import: `import {createExecutionCertificate} from 'tasra-sdk/committee'`
 
@@ -761,7 +1108,7 @@ with Web Crypto, retained only locally and erased by dispose; caller copies rema
 The copy never shares memory with the caller's bytes (a Node `Buffer` or any view of a larger
 buffer included), so the caller may wipe its seed at once and dispose never touches it.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L483)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L512)
 
 Import: `import {createLocalExecutionSigner} from 'tasra-sdk/committee'`
 
@@ -794,6 +1141,46 @@ declare function createStatusRefreshProof(opts: CreateStatusRefreshProofOptions)
 | ` opts ` | ` CreateStatusRefreshProofOptions ` | - Chain, token hash, original payment hash, seq, issue time and prover. |
 
 Returns: ` Promise<StatusRefreshProofWire> `.
+
+### debitVoucherDigest
+
+The debit-voucher digest (`keykeeper/prepaid-debit/v1`) the accountant threshold key signs.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L447)
+
+Import: `import {debitVoucherDigest} from 'tasra-sdk/committee'`
+
+```ts
+declare function debitVoucherDigest(settlement: Hex, chainId: number, v: DebitVoucherFields): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` settlement ` | ` Hex ` | - Settlement proxy. |
+| ` chainId ` | ` number ` | - EVM chain. |
+| ` v ` | ` DebitVoucherFields ` | - Voucher fields. |
+
+Returns: ` Hex `.
+
+### debitVoucherWireDigest
+
+[debitVoucherDigest](#debitvoucherdigest) of a wire voucher.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L460)
+
+Import: `import {debitVoucherWireDigest} from 'tasra-sdk/committee'`
+
+```ts
+declare function debitVoucherWireDigest(settlement: Hex, chainId: number, v: DebitVoucherWire): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` settlement ` | ` Hex ` | - Settlement proxy. |
+| ` chainId ` | ` number ` | - EVM chain. |
+| ` v ` | ` DebitVoucherWire ` | - Shape-checked voucher. |
+
+Returns: ` Hex `.
 
 ### decodeCompoundToken
 
@@ -845,11 +1232,29 @@ declare function decodeOperationReceipt(reply: {
 
 Returns: ` OperationReceipt | undefined `.
 
+### decodeSessionGrant
+
+Decode a wire grant through the payload bounds. Refuses unknown fields and malformed hex.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L267)
+
+Import: `import {decodeSessionGrant} from 'tasra-sdk/committee'`
+
+```ts
+declare function decodeSessionGrant(wire: SessionGrantWire): SessionGrant;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` wire ` | ` SessionGrantWire ` | - Grant as received on the wire. |
+
+Returns: ` SessionGrant `.
+
 ### decryptIdentityStrict
 
 Decrypt an IBE ciphertext and clear the intermediate identity key on every exit.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L146)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/extraction.ts#L150)
 
 Import: `import {decryptIdentityStrict} from 'tasra-sdk/committee'`
 
@@ -908,7 +1313,7 @@ Returns:
 Collect and combine recipient-sealed KEM contributions locally, then clear all partials.
 Servers receive only the authorized public recipient and never the recovered plaintext.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L163)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L166)
 
 Import: `import {decryptWithCommitteePartials} from 'tasra-sdk/committee'`
 
@@ -976,6 +1381,42 @@ declare function dpopHtu(origin: string, sessionId: string): string;
 
 Returns: ` string `.
 
+### dualOperationFromPayload
+
+`Statement::from_payload`: parse signed bytes and refuse any non-canonical encoding.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L151)
+
+Import: `import {dualOperationFromPayload} from 'tasra-sdk/committee'`
+
+```ts
+declare function dualOperationFromPayload(bytes: Uint8Array): DualOperationStatement;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` bytes ` | ` Uint8Array ` | - Domain-prefixed statement bytes. |
+
+Returns: ` DualOperationStatement `.
+
+### dualOperationPayload
+
+`Statement::payload`: the domain followed by serde_json's compact serialization in field order.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L138)
+
+Import: `import {dualOperationPayload} from 'tasra-sdk/committee'`
+
+```ts
+declare function dualOperationPayload(s: DualOperationStatement): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` s ` | ` DualOperationStatement ` | - A valid statement. |
+
+Returns: ` Uint8Array `.
+
 ### dualSignApprovalPayload
 
 Exact existing Rust canonical_dual_sig_payload, including little-endian lengths.
@@ -995,6 +1436,46 @@ declare function dualSignApprovalPayload(slotId: string, message: Uint8Array, re
 | ` requestId ` | ` string ` | - Existing native signing request identifier. |
 
 Returns: ` Uint8Array `.
+
+### encodeSessionGrant
+
+Encode a grant to its wire form (the inverse of [decodeSessionGrant](#decodesessiongrant)).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L301)
+
+Import: `import {encodeSessionGrant} from 'tasra-sdk/committee'`
+
+```ts
+declare function encodeSessionGrant(grant: SessionGrant): SessionGrantWire;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` grant ` | ` SessionGrant ` | - Decoded grant. |
+
+Returns: ` SessionGrantWire `.
+
+### encodeSessionProof
+
+Encode a proof for the wire.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L530)
+
+Import: `import {encodeSessionProof} from 'tasra-sdk/committee'`
+
+```ts
+declare function encodeSessionProof(proof: {
+    iat: number;
+    jti: string;
+    signature: Uint8Array;
+}): SessionProofWire;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` proof ` | ` { iat: number; jti: string; signature: Uint8Array; } ` | - Proof with its 64-byte signature. |
+
+Returns: ` SessionProofWire `.
 
 ### evidenceBindingMessage
 
@@ -1023,7 +1504,7 @@ Returns: ` Uint8Array `.
 
 Reconstruct the complete stage typed data; callers never sign an agent's opaque hash.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L214)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L239)
 
 Import: `import {executionApprovalTypedData} from 'tasra-sdk/committee'`
 
@@ -1100,7 +1581,7 @@ declare function executionApprovalTypedData(payment: PaymentIntentWire, approval
         certificateHash: `0x${string}`;
         stage: number;
         operatorKey: `0x${string}`;
-        action: 0 | 1 | 2 | 6 | 3;
+        action: 0 | 2 | 1 | 6 | 3;
         payloadDigest: `0x${string}`;
         bodyHash: `0x${string}`;
         expires: bigint;
@@ -1195,7 +1676,7 @@ Returns:
         certificateHash: `0x${string}`;
         stage: number;
         operatorKey: `0x${string}`;
-        action: 0 | 1 | 2 | 6 | 3;
+        action: 0 | 2 | 1 | 6 | 3;
         payloadDigest: `0x${string}`;
         bodyHash: `0x${string}`;
         expires: bigint;
@@ -1215,7 +1696,7 @@ Returns:
 Hash the complete unsigned body with the existing RFC8785 encoder and Rust bounds.
 Explicit null and absent fields remain distinct; no operation field is dropped.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L266)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L296)
 
 Import: `import {executionBodyHash} from 'tasra-sdk/committee'`
 
@@ -1233,7 +1714,7 @@ Returns: ` Hex `.
 
 Reconstruct the creator certificate typed data from the original payment.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L193)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L218)
 
 Import: `import {executionCertificateTypedData} from 'tasra-sdk/committee'`
 
@@ -1375,7 +1856,7 @@ Returns:
 Reconstruct the durable binding shared with the worker and accountant journals.
 This is a commitment helper, not permission to execute or evidence of correct computation.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L341)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L370)
 
 Import: `import {executionConsentBinding} from 'tasra-sdk/committee'`
 
@@ -1395,7 +1876,7 @@ Returns: ` Hex `.
 
 Reconstruct session initialization typed data from the original payment and client-built commitments.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L416)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L445)
 
 Import: `import {executionInitializationTypedData} from 'tasra-sdk/committee'`
 
@@ -1693,7 +2174,7 @@ Retain the body, proof and signer privately until expiry: retrying the identical
 the hash of these typed data as its session ID and cannot replace the original ECDH key.
 This function neither reserves funds nor starts or pays an operator.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L460)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L489)
 
 Import: `import {initializeExecutionSession} from 'tasra-sdk/committee'`
 
@@ -1750,7 +2231,7 @@ Returns: ` boolean `.
 
 Hash a validated assignment using the platform's fixed-width canonical encoding.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L85)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L113)
 
 Import: `import {keeperAssignmentCommitment} from 'tasra-sdk/committee'`
 
@@ -1946,6 +2427,24 @@ declare function paidExecutionRequest(payment: PaymentIntentWire): PaidExecution
 
 Returns: ` PaidExecutionRequest `.
 
+### parseSessionKeyJwk
+
+Parse a public session JWK; any private member or unsupported curve is refused.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L414)
+
+Import: `import {parseSessionKeyJwk} from 'tasra-sdk/committee'`
+
+```ts
+declare function parseSessionKeyJwk(jwk: unknown): SessionKeyJwk;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` jwk ` | ` unknown ` | - Candidate JWK. |
+
+Returns: ` SessionKeyJwk `.
+
 ### parseStatusRefreshReply
 
 Strictly validate an untrusted verifier refresh reply. Throws ` StatusRefreshError `
@@ -1970,7 +2469,7 @@ Returns: ` StatusRefreshReplyWire `.
 
 Hash the creator intent. A matching hash is not proof of a mined reservation or a valid creator signature.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L147)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L204)
 
 Import: `import {paymentIntentHash} from 'tasra-sdk/committee'`
 
@@ -1987,208 +2486,28 @@ Returns: ` Hex `.
 ### paymentIntentTypedData
 
 Build creator EIP-712 data. Validate chain backing, price, expiry and creator independently before spending.
+A payment naming an `allowance_id` (a prepaid allowance) is the distinct `SlotAllowancePaymentIntent`; the
+`debit_voucher` is never part of the signed data.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L120)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L189)
 
 Import: `import {paymentIntentTypedData} from 'tasra-sdk/committee'`
 
 ```ts
-declare function paymentIntentTypedData(p: Omit<PaymentIntentWire, 'signature'>): {
-    domain: {
-        name: string;
-        version: string;
-        chainId: number;
-        verifyingContract: `0x${string}`;
-    };
-    primaryType: "SlotAssignedPaymentIntent";
-    types: {
-        readonly SlotAssignedPaymentIntent: readonly [
-            {
-                readonly name: "keyRegistry";
-                readonly type: "address";
-            },
-            {
-                readonly name: "slotId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "action";
-                readonly type: "uint8";
-            },
-            {
-                readonly name: "payloadDigest";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "sessionCommitment";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "nonce";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "maxCost";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "expires";
-                readonly type: "uint64";
-            },
-            {
-                readonly name: "verificationEpoch";
-                readonly type: "uint64";
-            },
-            {
-                readonly name: "verificationSeed";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "verificationRoot";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "verificationRegistrySize";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "verificationCommittee";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "verificationQuorum";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "keeperAssignment";
-                readonly type: "bytes32";
-            }
-        ];
-    };
-    message: {
-        keyRegistry: `0x${string}`;
-        slotId: `0x${string}`;
-        action: 0 | 1 | 2 | 6 | 3;
-        payloadDigest: `0x${string}`;
-        sessionCommitment: `0x${string}`;
-        nonce: `0x${string}`;
-        maxCost: bigint;
-        expires: bigint;
-        verificationEpoch: bigint;
-        verificationSeed: `0x${string}`;
-        verificationRoot: `0x${string}`;
-        verificationRegistrySize: number;
-        verificationCommittee: number;
-        verificationQuorum: number;
-        keeperAssignment: `0x${string}`;
-    };
-};
+declare function paymentIntentTypedData(p: Omit<PaymentIntentWire, 'signature'>): TypedDataDefinition;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` p ` | ` Omit<PaymentIntentWire, 'signature'> ` | - Creator payment intent before attaching its signature. |
 
-Returns:
-
-```ts
-{
-    domain: {
-        name: string;
-        version: string;
-        chainId: number;
-        verifyingContract: `0x${string}`;
-    };
-    primaryType: "SlotAssignedPaymentIntent";
-    types: {
-        readonly SlotAssignedPaymentIntent: readonly [
-            {
-                readonly name: "keyRegistry";
-                readonly type: "address";
-            },
-            {
-                readonly name: "slotId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "action";
-                readonly type: "uint8";
-            },
-            {
-                readonly name: "payloadDigest";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "sessionCommitment";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "nonce";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "maxCost";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "expires";
-                readonly type: "uint64";
-            },
-            {
-                readonly name: "verificationEpoch";
-                readonly type: "uint64";
-            },
-            {
-                readonly name: "verificationSeed";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "verificationRoot";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "verificationRegistrySize";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "verificationCommittee";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "verificationQuorum";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "keeperAssignment";
-                readonly type: "bytes32";
-            }
-        ];
-    };
-    message: {
-        keyRegistry: `0x${string}`;
-        slotId: `0x${string}`;
-        action: 0 | 1 | 2 | 6 | 3;
-        payloadDigest: `0x${string}`;
-        sessionCommitment: `0x${string}`;
-        nonce: `0x${string}`;
-        maxCost: bigint;
-        expires: bigint;
-        verificationEpoch: bigint;
-        verificationSeed: `0x${string}`;
-        verificationRoot: `0x${string}`;
-        verificationRegistrySize: number;
-        verificationCommittee: number;
-        verificationQuorum: number;
-        keeperAssignment: `0x${string}`;
-    };
-}
-```
+Returns: ` TypedDataDefinition `.
 
 ### paymentSessionCommitment
 
 Commit a fixed presentation random and audience before reserving a payment.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L181)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L520)
 
 Import: `import {paymentSessionCommitment} from 'tasra-sdk/committee'`
 
@@ -2227,11 +2546,221 @@ declare function platformAudience(origin: string, chainId: number | bigint): str
 
 Returns: ` string `.
 
+### prepaidAllowanceIntentHash
+
+The allowance intent's EIP-712 signing hash: the `intentHash` argument of `reservePrepaidAllowanceBls`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L362)
+
+Import: `import {prepaidAllowanceIntentHash} from 'tasra-sdk/committee'`
+
+```ts
+declare function prepaidAllowanceIntentHash(p: Omit<PrepaidAllowanceIntentWire, 'signature'>): Hex;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` p ` | ` Omit<PrepaidAllowanceIntentWire, 'signature'> ` | - Allowance intent; the signature is not part of the preimage. |
+
+Returns: ` Hex `.
+
+### prepaidAllowanceIntentTypedData
+
+Build the creator EIP-712 data of an allowance intent (the payment domain: chain + Settlement).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L333)
+
+Import: `import {prepaidAllowanceIntentTypedData} from 'tasra-sdk/committee'`
+
+```ts
+declare function prepaidAllowanceIntentTypedData(p: Omit<PrepaidAllowanceIntentWire, 'signature'>): {
+    domain: {
+        chainId: number;
+        verifyingContract: `0x${string}`;
+        name: "Keykeeper Assigned Slot Payment";
+        version: "1";
+    };
+    primaryType: "SlotPrepaidAllowanceIntent";
+    types: {
+        readonly SlotPrepaidAllowanceIntent: readonly [
+            {
+                readonly name: "keyRegistry";
+                readonly type: "address";
+            },
+            {
+                readonly name: "slotId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "intentNonce";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "amount";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "maxOpCost";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "actions";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "expiresAt";
+                readonly type: "uint64";
+            },
+            {
+                readonly name: "verificationEpoch";
+                readonly type: "uint64";
+            },
+            {
+                readonly name: "verificationSeed";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "verificationRoot";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "verificationRegistrySize";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "verificationCommittee";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "verificationQuorum";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "keeperAssignment";
+                readonly type: "bytes32";
+            }
+        ];
+    };
+    message: {
+        keyRegistry: `0x${string}`;
+        slotId: `0x${string}`;
+        intentNonce: `0x${string}`;
+        amount: bigint;
+        maxOpCost: bigint;
+        actions: number;
+        expiresAt: bigint;
+        verificationEpoch: bigint;
+        verificationSeed: `0x${string}`;
+        verificationRoot: `0x${string}`;
+        verificationRegistrySize: number;
+        verificationCommittee: number;
+        verificationQuorum: number;
+        keeperAssignment: `0x${string}`;
+    };
+};
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` p ` | ` Omit<PrepaidAllowanceIntentWire, 'signature'> ` | - Allowance intent before attaching its signature. |
+
+Returns:
+
+```ts
+{
+    domain: {
+        chainId: number;
+        verifyingContract: `0x${string}`;
+        name: "Keykeeper Assigned Slot Payment";
+        version: "1";
+    };
+    primaryType: "SlotPrepaidAllowanceIntent";
+    types: {
+        readonly SlotPrepaidAllowanceIntent: readonly [
+            {
+                readonly name: "keyRegistry";
+                readonly type: "address";
+            },
+            {
+                readonly name: "slotId";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "intentNonce";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "amount";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "maxOpCost";
+                readonly type: "uint256";
+            },
+            {
+                readonly name: "actions";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "expiresAt";
+                readonly type: "uint64";
+            },
+            {
+                readonly name: "verificationEpoch";
+                readonly type: "uint64";
+            },
+            {
+                readonly name: "verificationSeed";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "verificationRoot";
+                readonly type: "bytes32";
+            },
+            {
+                readonly name: "verificationRegistrySize";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "verificationCommittee";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "verificationQuorum";
+                readonly type: "uint32";
+            },
+            {
+                readonly name: "keeperAssignment";
+                readonly type: "bytes32";
+            }
+        ];
+    };
+    message: {
+        keyRegistry: `0x${string}`;
+        slotId: `0x${string}`;
+        intentNonce: `0x${string}`;
+        amount: bigint;
+        maxOpCost: bigint;
+        actions: number;
+        expiresAt: bigint;
+        verificationEpoch: bigint;
+        verificationSeed: `0x${string}`;
+        verificationRoot: `0x${string}`;
+        verificationRegistrySize: number;
+        verificationCommittee: number;
+        verificationQuorum: number;
+        keeperAssignment: `0x${string}`;
+    };
+}
+```
+
 ### prepaidRequestId
 
-Derive the Settlement reservation identity for this exact payment and operation.
+Derive the Settlement reservation identity for this exact payment and operation. Unchanged by
+Prepaid allowances: an allowance-backed payment's own signing hash is the authorization commitment, so
+the ID binds the allowance too.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L155)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L214)
 
 Import: `import {prepaidRequestId} from 'tasra-sdk/committee'`
 
@@ -2244,6 +2773,31 @@ declare function prepaidRequestId(p: Omit<PaymentIntentWire, 'signature'>): Hex;
 | ` p ` | ` Omit<PaymentIntentWire, 'signature'> ` | - Fixed creator intent; neither hashing nor an ID proves a mined reservation. |
 
 Returns: ` Hex `.
+
+### prepareDualOperation
+
+`dual-operation prepare`: an approval statement for the final paid operation. Sends nothing.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L191)
+
+Import: `import {prepareDualOperation} from 'tasra-sdk/committee'`
+
+```ts
+declare function prepareDualOperation(input: {
+    payment: PaymentIntentWire;
+    operation: DualOperationKind;
+    epoch: number;
+    identity?: string;
+    ttlSecs?: number;
+    nowSecs?: number;
+}): PreparedDualOperation;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` input ` | ` { payment: PaymentIntentWire; operation: DualOperationKind; epoch: number; identity?: string; ttlSecs?: number; nowSecs?: number; } ` | - Final payment, operation, the slot's key epoch, IBE identity, lifetime (≤ 300 s, capped at the payment's expiry). |
+
+Returns: ` PreparedDualOperation `.
 
 ### recipientPayloadDigest
 
@@ -2349,6 +2903,69 @@ declare function requestIbeExtractionPartials(opts: IbeExtractOpts): Promise<Ibe
 
 Returns: ` Promise<IbeExtractionPartial[]> `.
 
+### requireCurrentDualOperation
+
+`Statement::require_current`: valid and `issued_at <= now < expires_at`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L167)
+
+Import: `import {requireCurrentDualOperation} from 'tasra-sdk/committee'`
+
+```ts
+declare function requireCurrentDualOperation(s: DualOperationStatement, nowSecs?: number): void;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` s ` | ` DualOperationStatement ` | - Statement. |
+| ` nowSecs? ` | ` number ` | - Clock, Unix seconds. |
+
+Returns: ` void `.
+
+### requireDualOperationPayment
+
+The CLI's `check_ticket`: the statement names exactly this final payment (either backing).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L177)
+
+Import: `import {requireDualOperationPayment} from 'tasra-sdk/committee'`
+
+```ts
+declare function requireDualOperationPayment(s: DualOperationStatement, payment: PaymentIntentWire): void;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` s ` | ` DualOperationStatement ` | - Statement. |
+| ` payment ` | ` PaymentIntentWire ` | - The final paid operation's payment (a debit voucher, if any, is not hashed). |
+
+Returns: ` void `.
+
+### requireDualOperationProof
+
+The client-side half of the keeper gate, before a bundle travels in an operation body: current,
+the expected operation, and bound to this slot, payload digest and final payment.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L279)
+
+Import: `import {requireDualOperationProof} from 'tasra-sdk/committee'`
+
+```ts
+declare function requireDualOperationProof(proof: DualOperationProof, expected: {
+    operation: DualOperationKind;
+    slot: Uint8Array;
+    payloadDigest: Uint8Array;
+    payment: PaymentIntentWire;
+}): void;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` proof ` | ` DualOperationProof ` | - Assembled bundle. |
+| ` expected ` | ` { operation: DualOperationKind; slot: Uint8Array; payloadDigest: Uint8Array; payment: PaymentIntentWire; } ` | - The operation, slot, SHA-256 of the operation's payload and the final payment. |
+
+Returns: ` void `.
+
 ### requireStatusAttestations
 
 The keeper's status-freshness rule as a REQUIRED client preflight, run before any keeper call:
@@ -2394,6 +3011,144 @@ declare function selectVerifierCommittee(slotId: Uint8Array, epoch: number | big
 | ` count ` | ` number ` | - Number of distinct verifier indices to select. |
 
 Returns: ` number[] `.
+
+### sessionBatchProofHash
+
+`keccak256(SESSION_BATCH_PROOF_DOMAIN ‖ grant_hash ‖ count u32 BE ‖ request_hash* ‖ iat ‖ len(jti) ‖ jti)`, items in order.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L476)
+
+Import: `import {sessionBatchProofHash} from 'tasra-sdk/committee'`
+
+```ts
+declare function sessionBatchProofHash(grantHash: Uint8Array, requestHashes: Uint8Array[], iat: number, jti: string): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` grantHash ` | ` Uint8Array ` | - 32-byte grant hash. |
+| ` requestHashes ` | ` Uint8Array[] ` | - 1..64 32-byte request hashes, in batch order. |
+| ` iat ` | ` number ` | - Proof issued-at, Unix seconds. |
+| ` jti ` | ` string ` | - Proof identifier. |
+
+Returns: ` Uint8Array `.
+
+### sessionControlHash
+
+The 32-byte hash a session key signs to refresh (or revoke) a grant:
+`keccak256(domain ‖ grant_hash ‖ seq u64 BE ‖ issued_at i64 BE)`.
+Integer inputs are encoded big-endian as u64/i64, as in the rest of the session-grant module.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L491)
+
+Import: `import {sessionControlHash} from 'tasra-sdk/committee'`
+
+```ts
+declare function sessionControlHash(kind: 'refresh' | 'revoke', grantHash: Uint8Array, seq: number, issuedAt: number): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` kind ` | ` 'refresh' \| 'revoke' ` | - Which control domain to use. |
+| ` grantHash ` | ` Uint8Array ` | - 32-byte grant hash. |
+| ` seq ` | ` number ` | - Request sequence number (u64). |
+| ` issuedAt ` | ` number ` | - Request time, Unix seconds. |
+
+Returns: ` Uint8Array `.
+
+### sessionGrantCanonicalBytes
+
+The canonical grant bytes (reference module docs give the layout).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L248)
+
+Import: `import {sessionGrantCanonicalBytes} from 'tasra-sdk/committee'`
+
+```ts
+declare function sessionGrantCanonicalBytes(p: SessionGrantPayload): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` p ` | ` SessionGrantPayload ` | - Grant payload. |
+
+Returns: ` Uint8Array `.
+
+### sessionGrantHash
+
+keccak256 of the canonical bytes: what each verifier signs and every session proof binds to.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L259)
+
+Import: `import {sessionGrantHash} from 'tasra-sdk/committee'`
+
+```ts
+declare function sessionGrantHash(p: SessionGrantPayload): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` p ` | ` SessionGrantPayload ` | - Grant payload. |
+
+Returns: ` Uint8Array `.
+
+### sessionGrantPayload
+
+Validate and build a grant payload with the reference bounds: KEM decrypt only, 1..16 strictly
+ascending slots, `0 < exp - iat <= 45`, `1 <= idle <= 1800`, `exp <= absoluteExp <= iat + 12 h`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L227)
+
+Import: `import {sessionGrantPayload} from 'tasra-sdk/committee'`
+
+```ts
+declare function sessionGrantPayload(p: SessionGrantPayload): SessionGrantPayload;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` p ` | ` SessionGrantPayload ` | - Every payload field. |
+
+Returns: ` SessionGrantPayload `.
+
+### sessionKeyThumbprint
+
+RFC 7638 thumbprint: SHA-256 of the required members in lexicographic order, no whitespace.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L437)
+
+Import: `import {sessionKeyThumbprint} from 'tasra-sdk/committee'`
+
+```ts
+declare function sessionKeyThumbprint(jwk: SessionKeyJwk): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` jwk ` | ` SessionKeyJwk ` | - Public session key. |
+
+Returns: ` Uint8Array `.
+
+### sessionProofHash
+
+`keccak256(SESSION_PROOF_DOMAIN ‖ grant_hash ‖ request_hash ‖ iat i64 BE ‖ len(jti) u8 ‖ jti)`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L464)
+
+Import: `import {sessionProofHash} from 'tasra-sdk/committee'`
+
+```ts
+declare function sessionProofHash(grantHash: Uint8Array, requestHash: Uint8Array, iat: number, jti: string): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` grantHash ` | ` Uint8Array ` | - 32-byte grant hash. |
+| ` requestHash ` | ` Uint8Array ` | - 32-byte request hash of the operation. |
+| ` iat ` | ` number ` | - Proof issued-at, Unix seconds. |
+| ` jti ` | ` string ` | - Proof identifier. |
+
+Returns: ` Uint8Array `.
 
 ### signersThatVerify
 
@@ -2517,6 +3272,42 @@ declare function statusRefreshRequestBody(chainId: number, tokenHash: Uint8Array
 
 Returns: ` Uint8Array `.
 
+### toBase64Url
+
+Unpadded base64url (RFC 4648 §5), as JWK members and jtis use.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L207)
+
+Import: `import {toBase64Url} from 'tasra-sdk/committee'`
+
+```ts
+declare function toBase64Url(bytes: Uint8Array): string;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` bytes ` | ` Uint8Array ` | - Bytes to encode. |
+
+Returns: ` string `.
+
+### validateDualOperationStatement
+
+`Statement::validate` plus the strict shape serde enforces (`deny_unknown_fields`, exact types).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L116)
+
+Import: `import {validateDualOperationStatement} from 'tasra-sdk/committee'`
+
+```ts
+declare function validateDualOperationStatement(s: unknown): asserts s is DualOperationStatement;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` s ` | ` unknown ` | - Candidate statement. |
+
+Returns: ` asserts s is DualOperationStatement `.
+
 ### verifierLeaf
 
 `keccak256(DOMAIN || index(u32 BE) || operator(20) || keccak256(pubkey))` - matches the on-chain leaf.
@@ -2585,7 +3376,7 @@ Returns: ` number[] `.
 Verify creator consent, stage/operator/body binding and the strict local client signature.
 The caller must independently authenticate the operator assignment and fresh payment backing.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L320)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L349)
 
 Import: `import {verifyExecutionAuthorization} from 'tasra-sdk/committee'`
 
@@ -2610,7 +3401,7 @@ Verify public financial consent at its original admission time. The caller must 
 authenticate the historical creator, reserved cost, canonical block and operator assignment.
 Work admission must continue to use verifyExecutionAuthorization with the complete body.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L366)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L395)
 
 Import: `import {verifyExecutionConsent} from 'tasra-sdk/committee'`
 
@@ -2752,11 +3543,34 @@ declare function verifyRecoveredExecutionResult(options: {
 
 Returns: ` Promise<string> `.
 
+### verifySessionGrant
+
+Verify a grant for serving one slot, with the reference steps in their order: the slot is
+granted with the slot's own rule; the quorum is non-zero; `now <= exp + 5` and `now + 5 >= iat`
+(the status deadline, never a token leeway); the grant's seed is the beacon seed of its epoch;
+the slot's OWN draw `(slot, epoch, seed)`; every
+signature verifies strictly (a forged one refuses the grant); a quorum of the slot's drawn
+committee signed. Signatures from outside the draw are checked but do not count.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L367)
+
+Import: `import {verifySessionGrant} from 'tasra-sdk/committee'`
+
+```ts
+declare function verifySessionGrant(o: VerifySessionGrantOptions): VerifiedSessionGrant;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` o ` | ` VerifySessionGrantOptions ` | - Grant, verifier set, slot policy and time. |
+
+Returns: ` VerifiedSessionGrant `.
+
 ### verifySessionInitialization
 
 Verify fresh client consent before creating or retrying a registered agent session.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L439)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L468)
 
 Import: `import {verifySessionInitialization} from 'tasra-sdk/committee'`
 
@@ -2774,6 +3588,27 @@ declare function verifySessionInitialization(options: {
 | ` options ` | ` { payment: PaymentIntentWire; policy: ExecutionConsentPolicy; expected: ExpectedInitialization; initialization: SessionInitialization; } ` | Independently selected profile/body/policy, original payment and untrusted proof. |
 
 Returns: ` Promise<void> `.
+
+### verifySessionSignature
+
+Verify a 64-byte session-key signature over a 32-byte hash exactly as a keeper does: Ed25519
+strict, or ES256 (ECDSA over SHA-256 of the hash, `r ‖ s`; high-S accepted like WebCrypto).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L503)
+
+Import: `import {verifySessionSignature} from 'tasra-sdk/committee'`
+
+```ts
+declare function verifySessionSignature(jwk: SessionKeyJwk, hash: Uint8Array, signature: Uint8Array): boolean;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` jwk ` | ` SessionKeyJwk ` | - Public session key. |
+| ` hash ` | ` Uint8Array ` | - 32-byte proof or control hash. |
+| ` signature ` | ` Uint8Array ` | - 64-byte signature. |
+
+Returns: ` boolean `.
 
 ### verifyStatusAttestation
 
@@ -2845,8 +3680,11 @@ Returns: ` boolean `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 87 types</summary>
+<summary>Browse 112 types</summary>
 
+- [AllowanceAction](#allowanceaction)
+- [AllowanceReserveArgs](#allowancereserveargs)
+- [AllowanceSettleArgs](#allowancesettleargs)
 - [BlsSharing](#blssharing)
 - [BlsSharingKeeper](#blssharingkeeper)
 - [BlsSharingOptions](#blssharingoptions)
@@ -2858,6 +3696,7 @@ Options, data structures and return types.
 - [CommitteeDecryptOpts](#committeedecryptopts)
 - [CommitteeDecryptRequestOpts](#committeedecryptrequestopts)
 - [CommitteeEoaSignOpts](#committeeeoasignopts)
+- [CommitteeP256SignOpts](#committeep256signopts)
 - [CommitteeSignature](#committeesignature)
 - [CommitteeSignatureWire](#committeesignaturewire)
 - [CommitteeSignOpts](#committeesignopts)
@@ -2868,7 +3707,15 @@ Options, data structures and return types.
 - [CompoundTokenPayload](#compoundtokenpayload)
 - [CompoundTokenWire](#compoundtokenwire)
 - [CreateStatusRefreshProofOptions](#createstatusrefreshproofoptions)
+- [DebitVoucherFields](#debitvoucherfields)
+- [DebitVoucherWire](#debitvoucherwire)
 - [DecryptionBindingWire](#decryptionbindingwire)
+- [DualOperationApproval](#dualoperationapproval)
+- [DualOperationApprovalRecord](#dualoperationapprovalrecord)
+- [DualOperationApprover](#dualoperationapprover)
+- [DualOperationKind](#dualoperationkind)
+- [DualOperationProof](#dualoperationproof)
+- [DualOperationStatement](#dualoperationstatement)
 - [DualSignApprover](#dualsignapprover)
 - [DualSignConfig](#dualsignconfig)
 - [DualSignRequest](#dualsignrequest)
@@ -2888,6 +3735,9 @@ Options, data structures and return types.
 - [ExtractionEvidence](#extractionevidence)
 - [ExtractionKeeper](#extractionkeeper)
 - [GatherCommitteeTokenOpts](#gathercommitteetokenopts)
+- [GrantSignatureWire](#grantsignaturewire)
+- [GrantSlot](#grantslot)
+- [GrantSlotWire](#grantslotwire)
 - [HolderProofPerVerifier](#holderproofperverifier-1)
 - [IbeExtractionPartial](#ibeextractionpartial)
 - [IbeExtractOpts](#ibeextractopts)
@@ -2898,9 +3748,12 @@ Options, data structures and return types.
 - [KeeperExecutionKind](#keeperexecutionkind)
 - [LocalExecutionSigner](#localexecutionsigner)
 - [OperationReceipt](#operationreceipt)
+- [P256DigestSignature](#p256digestsignature)
 - [PaidExecutionRequest](#paidexecutionrequest-1)
 - [PaidKeeperAssignment](#paidkeeperassignment)
 - [PaymentIntentWire](#paymentintentwire)
+- [PrepaidAllowanceIntentWire](#prepaidallowanceintentwire)
+- [PreparedDualOperation](#prepareddualoperation)
 - [ReceiptExpectation](#receiptexpectation)
 - [RecipientWire](#recipientwire)
 - [RecoveredExecutionReply](#recoveredexecutionreply)
@@ -2911,7 +3764,12 @@ Options, data structures and return types.
 - [SealedPartial](#sealedpartial)
 - [SealedRequestOpts](#sealedrequestopts)
 - [SealedShareWire](#sealedsharewire)
+- [SessionGrant](#sessiongrant)
+- [SessionGrantPayload](#sessiongrantpayload-1)
+- [SessionGrantWire](#sessiongrantwire)
 - [SessionInitialization](#sessioninitialization)
+- [SessionKeyJwk](#sessionkeyjwk)
+- [SessionProofWire](#sessionproofwire)
 - [SignedPaidExecutionReport](#signedpaidexecutionreport)
 - [StatusAttestation](#statusattestation)
 - [StatusAttestationWire](#statusattestationwire)
@@ -2928,14 +3786,88 @@ Options, data structures and return types.
 - [StrictExtractionOptions](#strictextractionoptions)
 - [StrictExtractionResult](#strictextractionresult)
 - [TokenType](#tokentype)
+- [VerifiedSessionGrant](#verifiedsessiongrant)
 - [VerifiedToken](#verifiedtoken)
 - [VerifierProof](#verifierproof)
 - [VerifierSet](#verifierset)
 - [VerifyCompoundTokenOptions](#verifycompoundtokenoptions)
 - [VerifyEvidenceBindingOptions](#verifyevidencebindingoptions)
+- [VerifySessionGrantOptions](#verifysessiongrantoptions)
 - [VerifyStatusAttestationsOptions](#verifystatusattestationsoptions)
 
 </details>
+
+### AllowanceAction
+
+The paid actions an allowance can fund, as `PrepaidAction` bit ordinals.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L266)
+
+```ts
+export type AllowanceAction = keyof typeof ACTIONS;
+```
+
+### AllowanceReserveArgs
+
+The arguments of `reservePrepaidAllowanceBls` the accountant quorum signs.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L390)
+
+```ts
+export interface AllowanceReserveArgs {
+    slot: Hex;
+    legacyNonce: bigint;
+    allowanceId: Hex;
+    amount: bigint;
+    maxOpCost: bigint;
+    actions: number;
+    expiresAt: bigint;
+    assignmentBlock: Hex;
+    deadline: bigint;
+}
+```
+
+Fields:
+
+- **` slot `**: Slot.
+- **` legacyNonce `**: Reconciled legacy settlement cursor.
+- **` allowanceId `**: Derived allowance id.
+- **` amount `**: Escrow.
+- **` maxOpCost `**: Per-operation cap.
+- **` actions `**: Funded actions bitmap.
+- **` expiresAt `**: Expiry, Unix seconds.
+- **` assignmentBlock `**: Quote block, immutable as the allowance's assignment block.
+- **` deadline `**: Authorization deadline, Unix seconds.
+
+### AllowanceSettleArgs
+
+The arguments of `settlePrepaidAllowanceBls` the quorum signs (accountant settle path; for conformance).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L467)
+
+```ts
+export interface AllowanceSettleArgs {
+    allowanceId: Hex;
+    requestIds: readonly Hex[];
+    costs: readonly bigint[];
+    paid: readonly bigint[];
+    batchId: Hex;
+    root: Hex;
+    evidenceHash: Hex;
+    deadline: bigint;
+}
+```
+
+Fields:
+
+- **` allowanceId `**: Allowance.
+- **` requestIds `**: Settled request IDs.
+- **` costs `**: Their costs.
+- **` paid `**: Paid out of each cost.
+- **` batchId `**: Claim batch.
+- **` root `**: Payout root.
+- **` evidenceHash `**: Evidence hash.
+- **` deadline `**: Deadline.
 
 ### BlsSharing
 
@@ -3018,7 +3950,7 @@ Fields:
 
 Local Ed25519 signing capability; implementations must keep their key on the client.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L120)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L123)
 
 ```ts
 export interface ClientExecutionSigner {
@@ -3277,7 +4209,7 @@ Fields:
 
 Compound authorization, keeper endpoint and digest for threshold ECDSA signing.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L11)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L16)
 
 ```ts
 export interface CommitteeEoaSignOpts {
@@ -3292,6 +4224,7 @@ export interface CommitteeEoaSignOpts {
     userSignature?: Uint8Array;
     targetKeykeeper?: string;
     signal?: AbortSignal;
+    dualControl?: DualOperationProof;
 }
 ```
 
@@ -3308,6 +4241,35 @@ Fields:
 - **` userSignature `**: Required only by slots configured with an additional owner-signature gate.
 - **` targetKeykeeper `**: Optional 20-byte operator address to pin the intended keeper.
 - **` signal `**: Optional signal that cancels the request.
+- **` dualControl `**: Dual-control approvals for this exact operation (assembleDualOperation). Required by a slot under an operation dual-control policy; checked here against the token's slot, SHA-256 of the digest and the token's own payment, then carried inside the client-approved body.
+
+### CommitteeP256SignOpts
+
+[committeeSignEoaDigest](#committeesigneoadigest) options plus the slot key the signature must verify under.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L75)
+
+```ts
+export interface CommitteeP256SignOpts extends CommitteeEoaSignOpts {
+    groupPublicKey: Uint8Array;
+}
+```
+
+Fields:
+
+- **` groupPublicKey `**: The slot's anchored P-256 group public key (33-byte compressed or 65-byte uncompressed SEC1).
+- **` evidenceCt `**: Exact sealed presentation ciphertext returned with this authorization.
+- **` approveExecution `**: Required for a paid token: locally verify and approve the complete keeper body.
+- **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
+- **` nodeUrl `**: Keeper HTTP base URL.
+- **` committeeToken `**: Authorization from awaitVerifierAgentResult; its slot selects the signing key.
+- **` digest `**: Exactly 32 bytes: the transaction signing hash, not a serialized transaction.
+- **` verifierProofs `**: Membership proofs returned with the authorization.
+- **` requestId `**: Request identifier used to correlate or resume the operation.
+- **` userSignature `**: Required only by slots configured with an additional owner-signature gate.
+- **` targetKeykeeper `**: Optional 20-byte operator address to pin the intended keeper.
+- **` signal `**: Optional signal that cancels the request.
+- **` dualControl `**: Dual-control approvals for this exact operation (assembleDualOperation). Required by a slot under an operation dual-control policy; checked here against the token's slot, SHA-256 of the digest and the token's own payment, then carried inside the client-approved body.
 
 ### CommitteeSignature
 
@@ -3630,6 +4592,60 @@ Fields:
 - **` issuedAt `**: Unix seconds (default now).
 - **` prover `**: Principal and signer.
 
+### DebitVoucherFields
+
+The fields a debit voucher's threshold signature covers.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L426)
+
+```ts
+export interface DebitVoucherFields {
+    allowanceId: Hex;
+    seq: bigint;
+    requestId: Hex;
+    cost: bigint;
+    cumulative: bigint;
+    quoteBlock: Hex;
+}
+```
+
+Fields:
+
+- **` allowanceId `**: Allowance.
+- **` seq `**: Per-allowance sequence.
+- **` requestId `**: Operation's request ID.
+- **` cost `**: Cost at the quote block.
+- **` cumulative `**: Total debited through `seq`.
+- **` quoteBlock `**: Quote block hash.
+
+### DebitVoucherWire
+
+Accountant-quorum debit of one operation against an allowance (threshold BN254 over [debitVoucherDigest](#debitvoucherdigest)).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L71)
+
+```ts
+export interface DebitVoucherWire {
+    allowance_id: Hex;
+    seq: number;
+    request_id: Hex;
+    cost: string;
+    cumulative: string;
+    quote_block: Hex;
+    signature: Hex;
+}
+```
+
+Fields:
+
+- **` allowance_id `**: Allowance the operation is debited from.
+- **` seq `**: Per-allowance sequence number, from 1.
+- **` request_id `**: The operation's [prepaidRequestId](#prepaidrequestid).
+- **` cost `**: TASRA base units fixed at the quote block, decimal.
+- **` cumulative `**: Total debited through `seq`, decimal; never above the allowance amount.
+- **` quote_block `**: Canonical block the cost was quoted at; the group key is read there.
+- **` signature `**: 64-byte BN254 G1 aggregate (x || y).
+
 ### DecryptionBindingWire
 
 Public decryption context included in the signed authorization session.
@@ -3649,6 +4665,133 @@ Fields:
 - **` recipient `**: Client recipient to which every keeper seals its contribution.
 - **` ciphertext_epoch `**: Nonnegative canonical key epoch of the ciphertext.
 - **` content_digest `**: Hex-encoded content digest: complete KEM ciphertext and identity, or SHA-256 of the IBE identity.
+
+### DualOperationApproval
+
+One approver's signature over the statement (Rust `Approval`).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L55)
+
+```ts
+export interface DualOperationApproval {
+    approver_pubkey: string;
+    signature: string;
+    verifier_proofs: {
+        verifier_index: number;
+        operator: string;
+        pubkey: string;
+        proof: string[];
+    }[];
+    committee_token?: CompoundTokenWire;
+    evidence_ct?: string;
+}
+```
+
+Fields:
+
+- **` approver_pubkey `**: Approver's Ed25519 public key, hex.
+- **` signature `**: Ed25519 signature over the statement's exact payload, hex.
+- **` verifier_proofs `**: Membership proofs of a credentialed approver's grant (empty for a static approver).
+- **` committee_token `**: A credentialed approver's holder-bound dual-approve grant.
+- **` evidence_ct `**: Sealed evidence ciphertext of that grant.
+
+### DualOperationApprovalRecord
+
+One approval with the statement it signs, as an approver hands it back.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L89)
+
+```ts
+export interface DualOperationApprovalRecord {
+    statement: DualOperationStatement;
+    approval: DualOperationApproval;
+}
+```
+
+Fields:
+
+- **` statement `**: The statement the approver signed.
+- **` approval `**: Its signature (and grant).
+
+### DualOperationApprover
+
+An Ed25519 approver: its public key and a callback that signs the exact supplied bytes.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L97)
+
+```ts
+export interface DualOperationApprover {
+    publicKey: Uint8Array;
+    sign(payload: Uint8Array): Promise<Uint8Array>;
+}
+```
+
+Fields:
+
+- **` publicKey `**: 32-byte Ed25519 public key.
+- **` sign `**: Sign the exact supplied bytes; the SDK verifies the result.
+
+### DualOperationKind
+
+The operation a statement approves (Rust `Operation`, kebab-case).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L24)
+
+```ts
+export type DualOperationKind = 'frost-sign' | 'secp256k1-sign' | 'p256-sign' | 'kem-decrypt' | 'ibe-extract';
+```
+
+### DualOperationProof
+
+The `dual_control` field of an operation request (Rust `Proof`).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L69)
+
+```ts
+export interface DualOperationProof {
+    statement: DualOperationStatement;
+    approvals: DualOperationApproval[];
+}
+```
+
+Fields:
+
+- **` statement `**: The one statement every approval signs.
+- **` approvals `**: Distinct approvals of it.
+
+### DualOperationStatement
+
+The Rust `Statement`, field for field, in its serialization order. Byte arrays are JSON number arrays.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L31)
+
+```ts
+export interface DualOperationStatement {
+    chain_id: number;
+    slot: number[];
+    operation: DualOperationKind;
+    epoch: number;
+    payload_digest: number[];
+    request_id: string;
+    payment_hash: number[];
+    issued_at: number;
+    expires_at: number;
+    identity: string | null;
+}
+```
+
+Fields:
+
+- **` chain_id `**: Chain the final payment names.
+- **` slot `**: 32-byte slot ID as a JSON number array.
+- **` operation `**: The approved operation.
+- **` epoch `**: The slot's key epoch the final payment's keeper assignment names.
+- **` payload_digest `**: 32-byte payload digest of the final operation (SHA-256 of an ECDSA digest), as numbers.
+- **` request_id `**: The final payment's request ID, 64 lowercase hex characters.
+- **` payment_hash `**: EIP-712 hash of the final payment intent, as numbers.
+- **` issued_at `**: Unix seconds the statement becomes current.
+- **` expires_at `**: Unix seconds it stops being current (at most 300 s after issue).
+- **` identity `**: IBE approvals cover a reusable identity capability, not a single ciphertext; null otherwise.
 
 ### DualSignApprover
 
@@ -3797,7 +4940,7 @@ Fields:
 
 Client signature authorizing one exact body, stage and assigned operator.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L32)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L35)
 
 ```ts
 export interface ExecutionAuthorization {
@@ -3823,7 +4966,7 @@ Fields:
 
 Creator certificate for one payment and a client-owned Ed25519 public key.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L22)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L25)
 
 ```ts
 export interface ExecutionCertificate {
@@ -3843,7 +4986,7 @@ Fields:
 
 Public proof of the original client-approved work, without its private request body.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L48)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L51)
 
 ```ts
 export interface ExecutionConsent {
@@ -3863,7 +5006,7 @@ Fields:
 
 Independently selected deployment, creator and exact reserved payment.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L80)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L83)
 
 ```ts
 export interface ExecutionConsentPolicy {
@@ -3891,7 +5034,7 @@ Fields:
 
 Creator wallet capable of signing the separate execution certificate.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L202)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L227)
 
 ```ts
 export interface ExecutionCreatorSigner {
@@ -3909,7 +5052,7 @@ Fields:
 
 Untrusted agent proposal. An opaque body hash is deliberately not accepted.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L108)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L111)
 
 ```ts
 export interface ExecutionProposal {
@@ -3977,7 +5120,7 @@ Fields:
 
 Stable stage names and ordinals from the shared execution report protocol.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L18)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L21)
 
 ```ts
 export type ExecutionStage = 'coordinator' | 'contributor' | 'presentation_sign' | 'presentation_attest' | 'credential';
@@ -3987,7 +5130,7 @@ export type ExecutionStage = 'coordinator' | 'contributor' | 'presentation_sign'
 
 Client-built complete unsigned body and independently selected destination.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L98)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L101)
 
 ```ts
 export interface ExpectedExecution {
@@ -4007,7 +5150,7 @@ Fields:
 
 Independent client intent for a registered agent session.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L72)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L75)
 
 ```ts
 export interface ExpectedInitialization {
@@ -4101,6 +5244,60 @@ Fields:
 - **` quorum `**: The slot's verifierPolicy quorum (minimum distinct committee signatures).
 - **` onReplies `**: Observe all replies and the reply used as the token payload reference. Useful when verifiers report different policy versions.
 - **` holderProofFor `**: Mint a separate holder proof for each verifier, overriding authorize.holderProof. Called concurrently; a rejection excludes that verifier while other requests continue.
+
+### GrantSignatureWire
+
+One verifier signature on the wire.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L111)
+
+```ts
+export interface GrantSignatureWire {
+    verifier_index: number;
+    signature: string;
+}
+```
+
+Fields:
+
+- **` verifier_index `**: Signer's index in the verifier registry.
+- **` signature `**: 0x-prefixed 64-byte Ed25519 signature over the grant hash.
+
+### GrantSlot
+
+One slot a grant authorizes and the rule its committee evaluated (keccak256 of the RAW rule).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L58)
+
+```ts
+export interface GrantSlot {
+    slotId: Uint8Array;
+    ruleHash: Uint8Array;
+}
+```
+
+Fields:
+
+- **` slotId `**: 32-byte slot identifier.
+- **` ruleHash `**: keccak256 of the raw rule bytes, the same value a compound token carries.
+
+### GrantSlotWire
+
+One granted slot on the wire.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L104)
+
+```ts
+export interface GrantSlotWire {
+    slot_id: string;
+    rule_hash: string;
+}
+```
+
+Fields:
+
+- **` slot_id `**: 0x-prefixed 32-byte slot identifier.
+- **` rule_hash `**: 0x-prefixed keccak256 of the slot's raw rule.
 
 ### HolderProofPerVerifier
 
@@ -4298,14 +5495,14 @@ Exact public route semantics used to reconstruct client-approved keeper inputs.
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/keeperExecution.ts#L11)
 
 ```ts
-export type KeeperExecutionKind = 'committee-sign' | 'committee-eoa-digest' | 'committee-decrypt' | 'sealed-decrypt' | 'ibe-extract' | 'dual-sign';
+export type KeeperExecutionKind = 'committee-sign' | 'committee-eoa-digest' | 'committee-decrypt' | 'sealed-decrypt' | 'ibe-extract' | 'dual-sign' | 'session-decrypt';
 ```
 
 ### LocalExecutionSigner
 
 Disposable local signer whose private seed never leaves its closure.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L128)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L131)
 
 ```ts
 export interface LocalExecutionSigner extends ClientExecutionSigner {
@@ -4339,6 +5536,26 @@ Fields:
 - **` tokenHash `**: 32-byte compound token hash.
 - **` attestation `**: Ed25519 signature over the chain-bound operation attestation hash.
 
+### P256DigestSignature
+
+Threshold P-256 digest signature (a `tecdsa-p256` slot, mode 4).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L65)
+
+```ts
+export interface P256DigestSignature {
+    groupPublicKey: Uint8Array;
+    r: Uint8Array;
+    s: Uint8Array;
+}
+```
+
+Fields:
+
+- **` groupPublicKey `**: The slot's P-256 group public key, as the keeper returned it (equal to the expected key).
+- **` r `**: 32-byte big-endian r.
+- **` s `**: 32-byte big-endian s.
+
 ### PaidExecutionRequest
 
 Exact request identity in the keeper's public evidence; wire bytes are unsigned arrays.
@@ -4369,7 +5586,7 @@ Fields:
 
 Immutable execution assignment from independently verified slot discovery.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L7)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L8)
 
 ```ts
 export interface PaidKeeperAssignment {
@@ -4393,7 +5610,7 @@ Fields:
 
 Creator spending authorization; it neither reserves funds nor authorizes key access.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L21)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L22)
 
 ```ts
 export interface PaymentIntentWire {
@@ -4415,6 +5632,8 @@ export interface PaymentIntentWire {
     verification_quorum: number;
     keeper_assignment: PaidKeeperAssignment;
     signature: Hex;
+    allowance_id?: Hex;
+    debit_voucher?: DebitVoucherWire;
 }
 ```
 
@@ -4438,6 +5657,78 @@ Fields:
 - **` verification_quorum `**: Pinned verifier quorum.
 - **` keeper_assignment `**: Fixed keeper sharing and execution membership.
 - **` signature `**: Creator's 65-byte EIP-712 signature.
+- **` allowance_id `**: Prepaid allowances: the allowance this operation is debited from. When present the creator signature is over `SlotAllowancePaymentIntent` (these fields plus `allowanceId`), never over `SlotAssignedPaymentIntent`, so neither signature can stand in for the other. Absent on a per-operation (reservation-backed) payment, whose JSON is then unchanged.
+- **` debit_voucher `**: Prepaid allowances: the accountant-quorum debit voucher for this operation; not part of the signed intent.
+
+### PrepaidAllowanceIntentWire
+
+Creator authorization to lock `amount` of a slot's balance as an allowance (`SlotPrepaidAllowanceIntent`).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L292)
+
+```ts
+export interface PrepaidAllowanceIntentWire {
+    chain_id: number;
+    settlement: Hex;
+    key_registry: Hex;
+    slot: Hex;
+    intent_nonce: Hex;
+    amount: string;
+    max_op_cost: string;
+    actions: number;
+    expires_at: number;
+    verification_epoch: number;
+    verification_seed: Hex;
+    verification_root: Hex;
+    verification_registry_size: number;
+    verification_committee: number;
+    verification_quorum: number;
+    keeper_assignment: PaidKeeperAssignment;
+    signature: Hex;
+}
+```
+
+Fields:
+
+- **` chain_id `**: EVM chain identifier.
+- **` settlement `**: Settlement proxy address.
+- **` key_registry `**: KeyRegistry proxy address.
+- **` slot `**: Slot identifier.
+- **` intent_nonce `**: Unique nonzero creator nonce.
+- **` amount `**: Escrow, TASRA base units, decimal.
+- **` max_op_cost `**: Per-operation cap, TASRA base units, decimal; at most `amount`.
+- **` actions `**: Funded actions bitmap ([allowanceActionBits](#allowanceactionbits)).
+- **` expires_at `**: Expiry, Unix seconds; at most one hour ahead.
+- **` verification_epoch `**: Pinned verification epoch.
+- **` verification_seed `**: Pinned beacon seed.
+- **` verification_root `**: Pinned verifier snapshot root.
+- **` verification_registry_size `**: Pinned verifier registry size.
+- **` verification_committee `**: Pinned verifier committee size.
+- **` verification_quorum `**: Pinned verifier quorum.
+- **` keeper_assignment `**: Fixed keeper sharing and execution membership.
+- **` signature `**: Creator's 65-byte EIP-712 signature.
+
+### PreparedDualOperation
+
+A prepared statement and its exact signed bytes.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L77)
+
+```ts
+export interface PreparedDualOperation {
+    statement: DualOperationStatement;
+    message_hex: string;
+    payload_digest: string;
+    action: 'dual-approve';
+}
+```
+
+Fields:
+
+- **` statement `**: The statement approvers sign.
+- **` message_hex `**: Hex of the signed preimage (domain + canonical JSON).
+- **` payload_digest `**: Hex SHA-256 of the preimage: the digest a credentialed approver's dual-approve grant binds.
+- **` action `**: The presentation action a credentialed approver's grant uses.
 
 ### ReceiptExpectation
 
@@ -4723,11 +6014,114 @@ Fields:
 - **` enc `**: RFC 9180 encapsulated X25519 key, encoded as padded base64.
 - **` ciphertext `**: Authenticated encrypted contribution, encoded as padded base64.
 
+### SessionGrant
+
+A grant as received: payload plus `(verifierIndex, ed25519 signature)` pairs over its signing hash.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L96)
+
+```ts
+export interface SessionGrant {
+    payload: SessionGrantPayload;
+    signatures: {
+        verifierIndex: number;
+        signature: Uint8Array;
+    }[];
+}
+```
+
+Fields:
+
+- **` payload `**: The signed payload.
+- **` signatures `**: Verifier registry index and 64-byte Ed25519 signature over [sessionGrantHash](#sessiongranthash).
+
+### SessionGrantPayload
+
+The bytes a verifier quorum signs. Build through [sessionGrantPayload](#sessiongrantpayload), which enforces every bound.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L66)
+
+```ts
+export interface SessionGrantPayload {
+    chainId: bigint;
+    sessionId: Uint8Array;
+    holderHash: Uint8Array;
+    sessionKeyThumbprint: Uint8Array;
+    binding: number;
+    action: 'decrypt';
+    seed: Uint8Array;
+    epoch: bigint;
+    slots: GrantSlot[];
+    iat: number;
+    exp: number;
+    idleTimeoutSecs: number;
+    absoluteExp: number;
+}
+```
+
+Fields:
+
+- **` chainId `**: Chain id the grant is valid on (u64).
+- **` sessionId `**: 32-byte session identifier.
+- **` holderHash `**: keccak256 of the holder DID the verifiers authenticated (32 bytes).
+- **` sessionKeyThumbprint `**: RFC 7638 SHA-256 JWK thumbprint of the session key (32 bytes).
+- **` binding `**: Binding strength byte (`BINDING_*` in token.ts).
+- **` action `**: Always `decrypt` (KEM only).
+- **` seed `**: 32-byte beacon seed of `epoch`; every slot's committee is drawn on it.
+- **` epoch `**: Beacon epoch of the committee draw (u64).
+- **` slots `**: Strictly ascending by slot id.
+- **` iat `**: Issued-at, Unix seconds.
+- **` exp `**: Expiry and status deadline, Unix seconds; `exp - iat` is at most ` MAX_ACCESS_TTL_SECS `.
+- **` idleTimeoutSecs `**: Longest idle period between two refreshes, seconds.
+- **` absoluteExp `**: Latest expiry any refresh may reach, Unix seconds (at most `iat` + 12 h).
+
+### SessionGrantWire
+
+The session grant as the verifier-agent returns it and the client sends it to keepers.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L118)
+
+```ts
+export interface SessionGrantWire {
+    chain_id: number;
+    session_id: string;
+    holder_hash: string;
+    session_key_thumbprint: string;
+    binding: string;
+    action: string;
+    seed: string;
+    epoch: number;
+    slots: GrantSlotWire[];
+    iat: number;
+    exp: number;
+    idle_timeout_secs: number;
+    absolute_exp: number;
+    signatures: GrantSignatureWire[];
+}
+```
+
+Fields:
+
+- **` chain_id `**: ` SessionGrantPayload.chainId `.
+- **` session_id `**: 0x-prefixed ` SessionGrantPayload.sessionId `.
+- **` holder_hash `**: 0x-prefixed ` SessionGrantPayload.holderHash `.
+- **` session_key_thumbprint `**: 0x-prefixed ` SessionGrantPayload.sessionKeyThumbprint `.
+- **` binding `**: Binding strength name: `unbound`, `holder_key` or `issuer_asserted`.
+- **` action `**: Always `decrypt`.
+- **` seed `**: 0x-prefixed ` SessionGrantPayload.seed `.
+- **` epoch `**: ` SessionGrantPayload.epoch `.
+- **` slots `**: Granted slots, strictly ascending by slot id.
+- **` iat `**: Issued-at, Unix seconds.
+- **` exp `**: Expiry and status deadline, Unix seconds.
+- **` idle_timeout_secs `**: ` SessionGrantPayload.idleTimeoutSecs `.
+- **` absolute_exp `**: ` SessionGrantPayload.absoluteExp `.
+- **` signatures `**: Verifier quorum signatures over the grant hash.
+
 ### SessionInitialization
 
 Client authorization to create a session; this is not a paid operator stage.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L58)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L61)
 
 ```ts
 export interface SessionInitialization {
@@ -4746,6 +6140,51 @@ Fields:
 - **` body_hash `**: Hash of the complete unsigned create body, including the client owner bearer.
 - **` expires `**: Unix expiry bounded by the certificate.
 - **` signature `**: Client Ed25519 signature in a separate initialization domain.
+
+### SessionKeyJwk
+
+A public session key JWK (RFC 7517) with exactly the RFC 7638 required members.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L392)
+
+```ts
+export type SessionKeyJwk = {
+    kty: 'OKP';
+    crv: 'Ed25519';
+    x: string;
+} | {
+    kty: 'EC';
+    crv: 'P-256';
+    x: string;
+    y: string;
+};
+```
+
+Fields:
+
+- **` kty `**: Key type.
+- **` crv `**: Curve.
+- **` x `**: base64url public key (32 bytes). base64url x coordinate (32 bytes).
+
+### SessionProofWire
+
+A session-key proof on the wire.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L149)
+
+```ts
+export interface SessionProofWire {
+    iat: number;
+    jti: string;
+    signature: string;
+}
+```
+
+Fields:
+
+- **` iat `**: Proof issued-at, Unix seconds.
+- **` jti `**: One-time proof identifier (16..64 URL-safe characters).
+- **` signature `**: 0x-prefixed 64-byte session-key signature (Ed25519, or P-256 `r ‖ s`).
 
 ### SignedPaidExecutionReport
 
@@ -5088,6 +6527,38 @@ Compound authorization token category, used in the signed canonical encoding.
 export type TokenType = 'JWT' | 'refresh';
 ```
 
+### VerifiedSessionGrant
+
+What a grant verified for ONE slot attests.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L313)
+
+```ts
+export interface VerifiedSessionGrant {
+    grantHash: Uint8Array;
+    slotId: Uint8Array;
+    chainId: bigint;
+    holderHash: Uint8Array;
+    sessionKeyThumbprint: Uint8Array;
+    binding: number;
+    iat: number;
+    exp: number;
+    verifiedSigners: number[];
+}
+```
+
+Fields:
+
+- **` grantHash `**: The grant's signing hash; every session proof binds to it.
+- **` slotId `**: The slot the grant was verified for.
+- **` chainId `**: ` SessionGrantPayload.chainId `.
+- **` holderHash `**: ` SessionGrantPayload.holderHash `.
+- **` sessionKeyThumbprint `**: ` SessionGrantPayload.sessionKeyThumbprint `.
+- **` binding `**: Binding strength byte (`BINDING_*` in token.ts).
+- **` iat `**: Grant issued-at, Unix seconds.
+- **` exp `**: Grant expiry and status deadline, Unix seconds.
+- **` verifiedSigners `**: Distinct drawn verifiers of this slot whose signatures verified.
+
 ### VerifiedToken
 
 What a valid compound token attests.
@@ -5216,6 +6687,36 @@ Fields:
 - **` drawn `**: The drawn committee (the token's `verifier_indexes`).
 - **` quorum `**: How many distinct drawn signers must verify.
 
+### VerifySessionGrantOptions
+
+The anchored set and the slot's own policy a grant is verified against.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L335)
+
+```ts
+export interface VerifySessionGrantOptions {
+    grant: SessionGrant;
+    set: VerifierSet;
+    slotId: Uint8Array;
+    committee: number;
+    quorum: number;
+    slotRuleHash: Uint8Array;
+    seed: Uint8Array;
+    now: number;
+}
+```
+
+Fields:
+
+- **` grant `**: Decoded grant to verify.
+- **` set `**: Active verifier set (registry size + index to Ed25519 key), established independently.
+- **` slotId `**: Slot to be served.
+- **` committee `**: The slot's committee size and quorum.
+- **` quorum `**: Signatures from the slot's drawn committee required.
+- **` slotRuleHash `**: keccak256 of the slot's raw rule, read independently.
+- **` seed `**: The beacon seed of the grant's epoch, `beacon.seedAt(epoch)`, read independently. A grant drawn on any other seed is refused: k colluding verifiers cannot pick a seed that draws themselves (C8 review F4).
+- **` now `**: Current time, Unix seconds.
+
 ### VerifyStatusAttestationsOptions
 
 Inputs of [verifyStatusAttestations](#verifystatusattestations), as a keeper checks them.
@@ -5248,19 +6749,37 @@ Shared values and contract definitions.
 
 | Export | Description | Definition |
 |---|---|---|
+| `ALLOWANCE_ACTIONS` | `ALLOWANCE_ACTIONS`: sign, decrypt, eoa-sign, ibe-extract and dual-approve. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L268) |
+| `DEFAULT_ACCESS_TTL_SECS` | Default `exp - iat` when the SDK requests none. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L39) |
 | `DEFAULT_STATUS_WINDOW_SECS` | Default attested window (`[committee] status_window_secs`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L673) |
-| `EXECUTION_APPROVAL_DOMAIN` | Client stage approvals bind complete request bodies and assigned operator keys. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L11) |
-| `EXECUTION_CERTIFICATE_DOMAIN` | Separate creator-consent domain; original payment commitments remain unchanged. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L9) |
-| `EXECUTION_INITIALIZATION_DOMAIN` | Client consent to one exact session and independently approved registered agent. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L13) |
-| `MAX_EXECUTION_BODY_BYTES` | Maximum complete unsigned request size shared with the Rust verifier. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L15) |
+| `DUAL_OPERATION_DOMAIN` | `DOMAIN`: the statement's signed preimage is this prefix followed by its canonical JSON. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L17) |
+| `DUAL_OPERATION_MAX_LIFETIME_SECS` | `MAX_LIFETIME`: an approval statement is current for at most 300 seconds. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L19) |
+| `EXECUTION_APPROVAL_DOMAIN` | Client stage approvals bind complete request bodies and assigned operator keys. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L14) |
+| `EXECUTION_CERTIFICATE_DOMAIN` | Separate creator-consent domain; original payment commitments remain unchanged. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L12) |
+| `EXECUTION_INITIALIZATION_DOMAIN` | Client consent to one exact session and independently approved registered agent. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L16) |
+| `MAX_ABSOLUTE_TTL_SECS` | Longest a session may live from its opening presentation (12 h). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L43) |
+| `MAX_ACCESS_TTL_SECS` | Longest `exp - iat`: the status attestation's longest window (the grant's `exp` is its status deadline). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L37) |
+| `MAX_BATCH_ITEMS` | Most items one batch proof may cover. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L35) |
+| `MAX_EXECUTION_BODY_BYTES` | Maximum complete unsigned request size shared with the Rust verifier. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L18) |
+| `MAX_IDLE_TIMEOUT_SECS` | Longest idle period between two refreshes (30 min). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L41) |
+| `MAX_JTI_LEN` | Longest accepted proof `jti`, in characters. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L49) |
 | `MAX_SESSION_ID_LEN` | The longest session id an `htu` may carry — mirrors `MAX_SESSION_ID_LEN`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L27) |
+| `MAX_SESSION_SLOTS` | Most slots one grant may name. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L33) |
 | `MAX_STATUS_ATTESTATIONS` | Most attestations one token may carry (mirrors the keeper cap). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L675) |
 | `MAX_STATUS_REFRESH_BODY_BYTES` | Largest request body a verifier accepts, in bytes. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L68) |
 | `MAX_STATUS_WINDOW_SECS` | Longest usable window a verifier may attest (`55 - 10`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L671) |
+| `MIN_JTI_LEN` | Bounds of a proof's `jti` (URL-safe characters only). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L47) |
 | `OAUTH_RESPONSE_PATH` | Legacy session-independent response path. New sessions use dpopHtu(origin, sessionId). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L19) |
 | `OAUTH_RESPONSE_PATH_PREFIX` | The OAuth response route is `{PREFIX}{sessionId}{SUFFIX}` under the agent origin. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L22) |
 | `OAUTH_RESPONSE_PATH_SUFFIX` | The trailing segment of the OAuth response route. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L24) |
+| `PREPAID_ALLOWANCE_DOMAINS` | Domain strings of the prepaid-allowance encodings. A change is a NEW name, never a digit. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L368) |
 | `REVOCATION_BOUND_SECS` | Decided revocation bound: no keeper accepts a grant later than `R + 60 s`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L665) |
+| `SESSION_BATCH_PROOF_DOMAIN` | Domain of a batch session-key proof; a one-item batch proof never verifies as a single proof. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L26) |
+| `SESSION_GRANT_DOMAIN` | Domain of the quorum-signed grant bytes. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L22) |
+| `SESSION_PROOF_DOMAIN` | Domain of a single-operation session-key proof. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L24) |
+| `SESSION_PROOF_FRESHNESS_SECS` | `\|proof.iat - now\|` a keeper accepts. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L45) |
+| `SESSION_REFRESH_DOMAIN` | Domain of a refresh request signed by the session key (plan: phase 1's own domain). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L28) |
+| `SESSION_REVOKE_DOMAIN` | Domain of a revoke request signed by the session key. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L30) |
 | `STATUS_ATTESTATION_DOMAIN` | Domain separator of the status-freshness statement (new name, `/v1`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L663) |
 | `STATUS_CACHE_BOUND_SECS` | The verifier's attestation cache bound: `REVOCATION_BOUND_SECS - STATUS_SKEW_SECS`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L669) |
 | `STATUS_INVALID_CODE` | Stable client preflight code: attestations are present but malformed, duplicated, over the cap or carry a bad signature from a counted verifier (a keeper refuses these without a stable code). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L684) |

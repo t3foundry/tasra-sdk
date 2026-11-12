@@ -14,7 +14,9 @@ import {recipientPayloadDigest} from '../crypto/recipient.js'
 import {dpopHtu, platformAudience, isValidSessionId} from '../committee/oauth.js'
 import {BINDING_HOLDER_KEY, assertStatusAttestationsWire, decodeCompoundToken, selectVerifierCommittee, verifierLeaf, verifyCompoundToken, verifyMerkleProof,
   requireStatusAttestations, compoundTokenHash, type CompoundTokenWire} from '../committee/token.js'
-import {derivedNonce, requestHash, type CommitteeAction} from '../oid4vp/binding.js'
+import {vpNonceBound, requestHash, type CommitteeAction} from '../oid4vp/binding.js'
+import {MAX_SESSION_SLOTS, decodeSessionGrant, parseSessionKeyJwk, sessionKeyThumbprint, verifySessionGrant,
+  type SessionGrantRequestWire, type SessionGrantWire} from '../committee/session-grant.js'
 import {b64urlDecode, decodeJson} from '../oid4vp/jose.js'
 import {verifyRequestObject, type VerifiedRequestObject} from '../oid4vp/request-object.js'
 import {parseVerifierAgentSessionStatus, type CreateSessionParams, type SessionStatusResult} from '../verifier-agent/index.js'
@@ -22,7 +24,10 @@ import {sessionPaymentFields} from '../verifier-agent/payment.js'
 import type {TasraChainClient} from './client.js'
 import type {ApprovedAgentProfile} from './registeredAgent.js'
 import {readClientExecutionPolicy, type ClientExecutionDeployment, type PaidVerifierWitness} from './prepaid.js'
-import {authenticateApprovedService, validateServiceEndpoint} from './serviceIdentity.js'
+import {authenticateApprovedService, validateServiceEndpoint, type AuthenticatedService} from './serviceIdentity.js'
+import {registerHeadPrefetch} from './headPrefetch.js'
+import {chainIdOf} from './chainId.js'
+import {currentServiceRecord} from './services.js'
 import type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
 import {PaidBackoff, paidResponseWaitMs, systemPacingClock, type PaidPacingClock} from './paidPacing.js'
 
@@ -53,6 +58,34 @@ export interface RetainedPaidApproval {
   expires: number
 }
 
+/**
+ * Answer to one batch of retained approvals (`POST /v1/sessions/{id}/execution/approve`):
+ * `busy` when the whole request was refused before processing (HTTP 429/503), otherwise the
+ * per-delivery HTTP status the agent decided (204 accepted; 404, 409, 410 or 422 refused).
+ */
+export type PaidApprovalBatchReply =
+  | {
+    /** The whole batch was refused before processing. */
+    kind: 'busy'
+    /** Observed status. */
+    httpStatus: 429 | 503
+    /** Strict server hint, in ms. */
+    hintMs?: number
+  }
+  | {
+    /** The agent decided each delivery. */
+    kind: 'results'
+    /** HTTP status per delivery. */
+    results: ReadonlyMap<string, 204 | 404 | 409 | 410 | 422>
+  }
+
+/** Manifest capability of an agent that accepts a batch of approvals in one request. */
+export const BATCH_APPROVAL_CAPABILITY = 'execution-approve-batch'
+/** Manifest capability of an agent that holds a proposal listing until one is pending (`?wait_ms=`). */
+export const PROPOSAL_WAIT_CAPABILITY = 'execution-wait'
+/** Longest proposal hold the client asks for (the agent's own cap). */
+export const MAX_PROPOSAL_WAIT_MS = 25_000
+
 /** Outcome of one send of a retained approval. Any other answer throws {@link PaidAgentControlError}. */
 export interface PaidApprovalDelivery {
   /** `accepted`: HTTP 204, the agent accepted the approval. `busy`: HTTP 429/503, definitely refused before processing. */
@@ -71,6 +104,40 @@ export interface PaidAgentSessionParams extends CreateSessionParams {
   random: string
   /** Credential adapter; omitted means wallet. */
   kind?: 'wallet' | 'oauth'
+  /**
+   * Session mode (KEM `decrypt` only): also open a session grant for this FRESH public
+   * session key. The presentation nonce then binds the key's RFC 7638 thumbprint
+   * (`vp-session-nonce/v1`), and every nonce this session checks is that one.
+   */
+  sessionGrant?: SessionGrantRequestWire
+}
+
+/** What a completed session-mode presentation returned beside its compound token. */
+export interface PaidSessionGrantOutcome {
+  /** The quorum-signed grant, already verified against the anchored draw; `refresh_seq` 0. */
+  grant?: {session_grant: SessionGrantWire; refresh_seq: 0}
+  /** Why no grant came with the token (an agent `session_*` code, or `sdk_grant_invalid`). */
+  error?: string
+}
+
+const HEX32_LOWER = /^0x[0-9a-f]{64}$/
+
+/**
+ * Validate a session-mode request before anything is signed: KEM decrypt only, a public key, 1..16
+ * distinct 32-byte slots naming the session's own slot, positive whole-second lifetimes. Returns
+ * the canonical form the create body carries (slots lowercase and ascending, the key re-encoded
+ * with exactly its RFC 7638 members), so a retry and a resume send the same signed bytes.
+ */
+function sessionGrantRequest(params: PaidAgentSessionParams): SessionGrantRequestWire | undefined {
+  const r = params.sessionGrant
+  if (r === undefined) return undefined
+  if (params.operation.action !== 'decrypt') throw new Error('A session grant opens only from a KEM decrypt presentation')
+  if (!r || typeof r !== 'object' || Object.keys(r).some(k => !['session_key', 'slots', 'access_ttl_secs', 'idle_timeout_secs', 'absolute_ttl_secs'].includes(k))) throw new Error('Invalid session grant request')
+  const slots = Array.isArray(r.slots) ? r.slots.map(s => typeof s === 'string' ? s.toLowerCase() : '') : []
+  if (slots.length < 1 || slots.length > MAX_SESSION_SLOTS || new Set(slots).size !== slots.length || slots.some(s => !HEX32_LOWER.test(s))
+    || !slots.includes(params.operation.slot_id.toLowerCase())) throw new Error('A session grant names 1..16 distinct slots, including the presentation slot')
+  for (const n of [r.access_ttl_secs, r.idle_timeout_secs, r.absolute_ttl_secs]) if (!Number.isSafeInteger(n) || n < 1) throw new Error('Session grant lifetimes must be positive whole seconds')
+  return {session_key: parseSessionKeyJwk(r.session_key), slots: slots.sort(), access_ttl_secs: r.access_ttl_secs, idle_timeout_secs: r.idle_timeout_secs, absolute_ttl_secs: r.absolute_ttl_secs}
 }
 
 /** Complete presentation explicitly accepted by the client before verifier work. */
@@ -137,8 +204,22 @@ export interface RegisteredPaidAgentSession {
   create(signal?: AbortSignal): Promise<void>
   /** Recover the original public context via authenticated GET after a lost creation reply. */
   reconcile(signal?: AbortSignal): Promise<SessionStatusResult>
-  /** Read owner-only complete-body proposals, without approving or sending operator work. */
-  proposals(signal?: AbortSignal): Promise<PaidAgentProposal[]>
+  /**
+   * Read owner-only complete-body proposals, without approving or sending operator work. With
+   * `waitMs` and an agent advertising {@link PROPOSAL_WAIT_CAPABILITY}, the agent holds the
+   * answer until one is pending (at most `waitMs`, capped at {@link MAX_PROPOSAL_WAIT_MS}).
+   */
+  proposals(signal?: AbortSignal, options?: {waitMs?: number}): Promise<PaidAgentProposal[]>
+  /** Whether the authenticated agent's manifest advertises {@link BATCH_APPROVAL_CAPABILITY}. */
+  readonly batchApprovals?: boolean
+  /** Whether the authenticated agent's manifest advertises {@link PROPOSAL_WAIT_CAPABILITY}. */
+  readonly proposalWait?: boolean
+  /**
+   * Send several retained approvals' authorizations in ONE request (agents advertising
+   * {@link BATCH_APPROVAL_CAPABILITY}); each authorization is the one its retained body carries,
+   * never re-signed. Distinct deliveries, at most 256.
+   */
+  sendRetainedApprovals?(approvals: readonly RetainedPaidApproval[], signal?: AbortSignal): Promise<PaidApprovalBatchReply>
   /** Approve one JAR signer or distinct attester after canonical member/policy checks and local body reconstruction. */
   approveRequest(proposal: PaidAgentProposal, stage: 'presentation_sign' | 'presentation_attest', member: PaidVerifierWitness, signal?: AbortSignal): Promise<void>
   /** Read retained callback candidates; application acceptance must precede selection or signing. */
@@ -151,8 +232,13 @@ export interface RegisteredPaidAgentSession {
   rejectProposal(id: string, signal?: AbortSignal): Promise<void>
   /** Fetch and independently verify the drawn signer's JAR and every bound session claim before exposing a QR. */
   requestObject(signal?: AbortSignal): Promise<{request: VerifiedRequestObject; requestUri: string; qrPayload: string}>
-  /** Poll the original provider and verify a completed token against the anchored draw and application's rule hash. */
-  poll(signal?: AbortSignal): Promise<SessionStatusResult>
+  /**
+   * Poll the original provider and verify a completed token against the anchored draw and application's rule hash.
+   * With `wait`, ask the agent to hold the reply until the session's status or phase changes
+   * (`?wait=1`, at most 20 s); an agent without long-poll support answers at once. A session whose
+   * attempt budget is under 25 s never asks for a hold.
+   */
+  poll(signal?: AbortSignal, options?: {wait?: boolean}): Promise<SessionStatusResult>
   /** Pacing this session applies to definite 429/503 refusals (present on sessions from {@link prepareRegisteredPaidSession}). */
   readonly pacing?: Readonly<{clock: PaidPacingClock; attemptBudgetMs: number}>
   /** Sign (once) the approval {@link RegisteredPaidAgentSession.approveRequest} would send, without sending it. Retain it durably before the first send. */
@@ -168,6 +254,9 @@ export interface RegisteredPaidAgentSession {
   /** Read one delivery's state (`pending`, `approved`, `dispatched`, `finished`, …); repeated on 429/503 inside the session expiry. */
   approvalState?(proposalId: string, signal?: AbortSignal): Promise<string>
 }
+
+/** Smallest attempt budget that fits the agent's 20 s long-poll hold plus network headroom. */
+const HELD_POLL_MIN_BUDGET_MS = 25_000
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)
@@ -252,6 +341,59 @@ function issuerExpiry(credential: string): number | undefined {
   return undefined
 }
 
+// One provider authentication (registry record, manifest, identity challenge, record recheck)
+// serves later sessions to the same approved agent until its own challenge expiry, but only while
+// the registration read at the head (the followed tip when a live follower is attached, otherwise
+// latest by RPC) is field for field the record it authenticated. A head follower also drops it at
+// the first new head where that record differs. The per-request provider check is unchanged.
+// Accepted trade-off (security review P5): within the 25 s challenge lifetime a reused
+// authentication does NOT re-prove that the endpoint holds the registered auth key. What still
+// binds each request to the registered provider: TLS (certificate and host) is validated on every
+// connection, the registered record (auth key, endpoint, owner, revision, manifest, status) is
+// compared field by field at every reuse and before every agent request, and a mismatch drops the
+// reuse at once. A provider that loses its auth key but keeps its TLS endpoint inside that window
+// is not detected until the next full authentication.
+const MAX_REUSED_AUTHENTICATIONS = 16
+const reusedAuthentications = new WeakMap<object, Map<string, AuthenticatedService>>()
+const RECORD_FIELDS = ['owner','pendingOwner','authKey','serviceType','status','revision','manifestHash','endpoint'] as const
+const sameRecord = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+  RECORD_FIELDS.every(k => typeof a[k] === 'string' && typeof b[k] === 'string' ? (a[k] as string).toLowerCase() === (b[k] as string).toLowerCase() : a[k] === b[k])
+
+const reuseKey = (profile: ApprovedAgentProfile) => {
+  const a = profile.approval
+  return [a.chainId, a.registry, a.serviceId, a.owner, a.revision, a.manifestHash, profile.endpoint].join('|').toLowerCase()
+}
+/** Forget the reused authentication of `profile` on `chain` (synchronously: before the caller sends anything else). */
+function dropReusedAuthentication(chain: TasraChainClient, profile: ApprovedAgentProfile): void {
+  reusedAuthentications.get(chain.client)?.delete(reuseKey(profile))
+}
+
+async function reusableAuthentication(chain: TasraChainClient, profile: ApprovedAgentProfile, authenticate: () => Promise<AuthenticatedService>): Promise<AuthenticatedService> {
+  const a = profile.approval
+  const key = reuseKey(profile)
+  let kept = reusedAuthentications.get(chain.client)
+  if (!kept) reusedAuthentications.set(chain.client, kept = new Map())
+  const cached = kept.get(key)
+  if (cached && Math.floor(Date.now() / 1000) < cached.expiresAt) {
+    const current = await currentServiceRecord(chain, a.serviceId).catch(() => undefined)
+    if (current && sameRecord(current as unknown as Record<string, unknown>, cached.record as unknown as Record<string, unknown>)
+      && Math.floor(Date.now() / 1000) < cached.expiresAt) return cached
+  }
+  kept.delete(key)
+  const fresh = await authenticate()
+  if (!Number.isSafeInteger(fresh.expiresAt)) return fresh
+  if (kept.size >= MAX_REUSED_AUTHENTICATIONS) kept.delete(kept.keys().next().value!)
+  kept.set(key, fresh)
+  const store = kept
+  registerHeadPrefetch(chain.client, `service-auth:${key}`, async () => {
+    if (store.get(key) !== fresh) return
+    const current = await currentServiceRecord(chain, a.serviceId).catch(() => undefined)
+    if (!current || !sameRecord(current as unknown as Record<string, unknown>, fresh.record as unknown as Record<string, unknown>)) store.delete(key)
+  }, fresh.expiresAt * 1000)
+  return fresh
+}
+
+
 /**
  * Authenticate one approved provider and prepare complete client-signed initialization before HTTP.
  * This function reserves nothing, sends no session POST and keeps the execution signer local.
@@ -276,6 +418,10 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   certificate: ExecutionCertificate; signer: ClientExecutionSigner; pollSecret?: string; expires?: number; signal?: AbortSignal;
 }): Promise<RegisteredPaidAgentSession> {
   params = structuredClone(params)
+  // ADR-0090 D7: the fresh session key a session-mode presentation authorizes (its thumbprint is in the nonce).
+  const grantRequest = sessionGrantRequest(params)
+  const sessionThumbprint = grantRequest ? sessionKeyThumbprint(grantRequest.session_key) : undefined
+  const thumbprintField = sessionThumbprint ? {session_key_thumbprint: toHex(sessionThumbprint)} : {}
   const profile = Object.freeze({...config.profile,approval:Object.freeze({...config.profile.approval})})
   const deployment = structuredClone(config.deployment), transport = config.transport
   const paidRequest=transport.paidAgentRequest.bind(transport)
@@ -310,10 +456,18 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   return bounded(consent.signal,async preparationSignal=>{
   sessionPaymentFields(params,profile.clientId)
   preparationSignal.throwIfAborted()
-  const authenticated = await authenticateApprovedService(chain,profile.approval,{request:(url,opts)=>transport.request(url,{...opts,signal:AbortSignal.any([opts.signal,preparationSignal])})})
+  // The provider authentication (registry record, manifest, identity challenge, record recheck) and
+  // the client execution policy are independent: both only read, and the policy read contacts no
+  // agent. Run them together and judge them in the original order: authentication refuses first.
+  const [authenticatedRead,policyRead] = await Promise.allSettled([
+    reusableAuthentication(chain,profile,()=>authenticateApprovedService(chain,profile.approval,{request:(url,opts)=>transport.request(url,{...opts,signal:AbortSignal.any([opts.signal,preparationSignal])})})),
+    readClientExecutionPolicy(chain.client,deployment,payment,expected)])
+  if (authenticatedRead.status === 'rejected') throw authenticatedRead.reason
+  const authenticated = authenticatedRead.value
   if (authenticated.record.endpoint !== profile.endpoint || !authenticated.manifest.capabilities.includes('oid4vp')) throw new Error('Paid agent endpoint/capability mismatch')
   preparationSignal.throwIfAborted()
-  const {policy:originalPolicy} = await readClientExecutionPolicy(chain.client,deployment,payment,expected)
+  if (policyRead.status === 'rejected') throw policyRead.reason
+  const {policy:originalPolicy} = policyRead.value
   preparationSignal.throwIfAborted()
   const a = profile.approval, record = authenticated.record
   const pin = {chainId:a.chainId,registry:a.registry.toLowerCase(),serviceId:a.serviceId.toLowerCase(),serviceType:1,
@@ -322,7 +476,8 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
   const unsigned = {operation:params.operation,operation_sig:params.operationSig,message_hex:params.messageHex,
     ...(params.decryption ? {decryption:params.decryption} : {}),
     ...(params.delegation ? {delegation:params.delegation} : {}),payment,random:params.random,poll_secret:pollSecret,
-    ...(params.kind ? {kind:params.kind} : {})}
+    ...(params.kind ? {kind:params.kind} : {}),
+    ...(grantRequest ? {session_grant:grantRequest} : {})}
   const initialization = await initializeExecutionSession({payment,certificate,signer:activeSigner(preparationSignal),policy:originalPolicy,
     expected:{serviceProfile:pin,body:unsigned},expires})
   preparationSignal.throwIfAborted()
@@ -357,14 +512,16 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
       member.proof.map(p=>protocolHex(p,32,'proof')),protocolHex(payment.verification_root,32,'root'))) throw new Error('Paid verifier witness differs from the anchored draw')
   }
   const jarIndex = drawn[protocolHex(payment.verification_seed,32,'seed')[0]! % drawn.length]!
-  const nonce = derivedNonce(rh,protocolHex(params.random,32,'random'),{epoch:payment.verification_epoch,snapshotRoot:protocolHex(payment.verification_root,32,'root'),
-    registrySize:payment.verification_registry_size,committee:payment.verification_committee,quorum:payment.verification_quorum,operationExp:params.operation.exp})
+  // A session-mode nonce binds THIS client's fresh session key: a holder never presents for a nonce
+  // that authorizes another key (every check below compares against this value).
+  const nonce = vpNonceBound(rh,protocolHex(params.random,32,'random'),{epoch:payment.verification_epoch,snapshotRoot:protocolHex(payment.verification_root,32,'root'),
+    registrySize:payment.verification_registry_size,committee:payment.verification_committee,quorum:payment.verification_quorum,operationExp:params.operation.exp},sessionThumbprint)
   const expectedBinding = {chain_id:payment.chain_id,slot_id:params.operation.slot_id,action:params.operation.action,
     message_sha256:toHex(sha256(message)),identity,payload_digest:payment.payload_digest.toLowerCase(),description:params.operation.description,
     operation:params.operation,operation_sig:params.operationSig,payment:typedPayment,delegation:params.delegation??null,random:params.random.toLowerCase(),
     request_hash:toHex(rh),nonce,epoch:payment.verification_epoch,seed:payment.verification_seed.toLowerCase(),snapshot_root:payment.verification_root.toLowerCase(),
     committee_count:payment.verification_committee,quorum:payment.verification_quorum,registry_size:payment.verification_registry_size,drawn,jar_signer_index:jarIndex,
-    client_id:profile.clientId,service_profile:pin,execution_initialization:initialization,execution_certificate:certificate,
+    client_id:profile.clientId,service_profile:pin,...thumbprintField,execution_initialization:initialization,execution_certificate:certificate,
     execution_policy:{chain_id:originalPolicy.chainId,settlement:originalPolicy.settlement.toLowerCase(),key_registry:originalPolicy.keyRegistry.toLowerCase(),
       creator:originalPolicy.creator.toLowerCase(),cost:toHex(originalPolicy.cost,{size:32})}}
   let context: {state:string;key:Record<string,unknown>|null;expires:number}|undefined
@@ -386,17 +543,26 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     if(context.expires<=Math.floor(Date.now()/1000))throw new Error('Original paid session context expired')
     return context
   }
+  // Before EVERY agent request: the provider's current registration, read at the latest block (one
+  // eth_call; formerly a head-number read and then a call at that number, which is no fresher).
+  // The chain ID is the client's (see chainIdOf); only the registry record is read each time.
   const checkProvider = async (signal: AbortSignal) => {
-    if (chain.addresses.ServiceRegistry?.toLowerCase() !== a.registry.toLowerCase() || await chain.client.getChainId() !== a.chainId) throw new Error('Paid agent chain or registry changed')
+    if (chain.addresses.ServiceRegistry?.toLowerCase() !== a.registry.toLowerCase() || await chainIdOf(chain.client) !== a.chainId) throw new Error('Paid agent chain or registry changed')
     signal.throwIfAborted()
-    const block = await chain.client.getBlockNumber({cacheTime:0})
-    signal.throwIfAborted()
-    const current = await chain.readers.serviceRegistry.getService(a.serviceId,block)
+    // At the followed head when a live follower is attached (the same "latest" registration, without
+    // a round trip), otherwise read at latest as before. The check itself is unchanged.
+    const current = await currentServiceRecord(chain, a.serviceId)
     signal.throwIfAborted()
     if (current.status > 1 || current.revision < a.revision || current.serviceType !== 1
       || current.owner.toLowerCase() !== record.owner.toLowerCase() || current.authKey.toLowerCase() !== record.authKey.toLowerCase()
       || current.pendingOwner.toLowerCase() !== record.pendingOwner.toLowerCase() || current.manifestHash.toLowerCase() !== a.manifestHash.toLowerCase()
-      || current.endpoint !== profile.endpoint) throw new Error('Original paid agent provider changed')
+      || current.endpoint !== profile.endpoint) {
+      // The authentication this session (and any reuse of it) rests on no longer describes the
+      // registered provider: forget it NOW, before this refusal returns, so no later session can
+      // reuse it even if the record changes back.
+      dropReusedAuthentication(chain, profile)
+      throw new Error('Original paid agent provider changed')
+    }
   }
   // One attempt: provider check plus HTTP, cut off at the attempt budget so pacing can count on it.
   const control = (path:string,method:'GET'|'POST',body?:Record<string,unknown>|Uint8Array,signal?:AbortSignal,publicRoute=false,oauth?:{accessToken:string;proof:string}): Promise<PaidAgentHttpResponse> => bounded(signal,async active=>{
@@ -473,6 +639,31 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     if(response.status===204&&response.body.length)throw new Error('Approval reply unexpectedly contains a body')
     return response
   }
+  const batchApprovals = authenticated.manifest.capabilities.includes(BATCH_APPROVAL_CAPABILITY)
+  const proposalWait = authenticated.manifest.capabilities.includes(PROPOSAL_WAIT_CAPABILITY)
+  /** ONE send of several retained approvals; each entry's authorization is its retained body's, unchanged. */
+  const sendRetainedApprovals = async (approvals:readonly RetainedPaidApproval[],signal?:AbortSignal):Promise<PaidApprovalBatchReply> => {
+    if(!batchApprovals)throw new Error('Paid agent does not advertise batch approvals')
+    const deliveries=approvals.map(a=>a.proposalId)
+    if(!approvals.length||approvals.length>256||new Set(deliveries).size!==deliveries.length)throw new Error('Invalid paid approval batch')
+    const authorizations=approvals.map(approval=>{
+      const parsed=object(JSON.parse(new TextDecoder().decode(retainedBytes(approval))) as unknown)
+      return {delivery:approval.proposalId,authorization:object(parsed.authorization)}
+    })
+    const response=await control('/v1/sessions/'+sessionId+'/execution/approve','POST',{authorizations},signal)
+    if(response.status===429||response.status===503){const hintMs=paidResponseWaitMs(response);return {kind:'busy',httpStatus:response.status,...(hintMs!==undefined?{hintMs}:{})}}
+    ok(response,[200])
+    const reply=decode(response.body);exact(reply,['results'])
+    const values=reply.results
+    if(!Array.isArray(values)||values.length!==deliveries.length)throw new Error('Paid approval batch reply does not answer every delivery')
+    const results=new Map<string,204|404|409|410|422>()
+    for(const value of values){
+      const r=object(value);exact(r,['delivery','status'])
+      if(typeof r.delivery!=='string'||!deliveries.includes(r.delivery)||results.has(r.delivery)||![204,404,409,410,422].includes(r.status as number))throw new Error('Invalid paid approval batch result')
+      results.set(r.delivery,r.status as 204|404|409|410|422)
+    }
+    return {kind:'results',results}
+  }
   const sendRetainedApproval = async (approval:RetainedPaidApproval,signal?:AbortSignal):Promise<PaidApprovalDelivery> => {
     const response = await deliver(approval,signal)
     if(response.status===204)return {status:'accepted'}
@@ -486,7 +677,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     return {operation:params.operation,operation_sig:params.operationSig,delegation:params.delegation??null,
       session:{response_uri:profile.endpoint+'/v1/response?session='+sessionId,enc_jwk:c.key,state:c.state,random:params.random.toLowerCase()},
       epoch:payment.verification_epoch,seed:payment.verification_seed.toLowerCase(),committee_count:payment.verification_committee,
-      registry_size:payment.verification_registry_size,quorum:payment.verification_quorum,payment:typedPayment}
+      registry_size:payment.verification_registry_size,quorum:payment.verification_quorum,payment:typedPayment,...thumbprintField}
   }
   /** The complete credential body a drawn verifier is approved for, from the separately accepted presentation. */
   const credentialBody = (accepted:ClientApprovedPresentation):Record<string,unknown> => {
@@ -504,7 +695,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
       seed:payment.verification_seed.toLowerCase(),epoch:payment.verification_epoch,slot_id:params.operation.slot_id,registry_size:payment.verification_registry_size,
       committee:payment.verification_committee,quorum:payment.verification_quorum,iat:approved.iat,exp,...(identity!==null?{identity}:{}),
       chain_id:payment.chain_id,action:params.operation.action,payload_digest:payment.payload_digest.toLowerCase(),random:params.random.toLowerCase(),client_id:profile.clientId,
-      description:params.operation.description,operation_exp:params.operation.exp,operation:params.operation,operation_sig:params.operationSig,...(params.delegation?{delegation:params.delegation}:{})}
+      description:params.operation.description,operation_exp:params.operation.exp,operation:params.operation,operation_sig:params.operationSig,...(params.delegation?{delegation:params.delegation}:{}),...thumbprintField}
   }
   // The direct API keeps its single-attempt behaviour: sign once, send once.
   const approve = async (proposed:PaidAgentProposal,member:PaidVerifierWitness,stage:'presentation_sign'|'presentation_attest'|'credential',body:Record<string,unknown>,signal?:AbortSignal) => {
@@ -545,9 +736,45 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     const publicKey=concatBytes(new Uint8Array([4]),b64urlDecode(jwk.x),b64urlDecode(jwk.y))
     if(!p256.verify(b64urlDecode(proof.split('.')[2]!),sha256(new TextEncoder().encode(proof.split('.').slice(0,2).join('.'))),publicKey,{lowS:false}))throw new Error('Invalid original DPoP signature')
   }
+  /** The creation reply's clamped session parameters: the requested slots and values echoed, each granted value at most the request. */
+  const checkGrantParams = (value:unknown) => {
+    if(!grantRequest){if(value!=null)throw new Error('Paid creation reply opened a session grant that was never requested');return}
+    const g=object(value);exact(g,['session_id','slots','requested','granted'])
+    if(typeof g.session_id!=='string'||!HEX32_LOWER.test(g.session_id)||!Array.isArray(g.slots)||g.slots.length!==grantRequest.slots.length
+      ||g.slots.some((s,i)=>s!==grantRequest.slots[i]))throw new Error('Paid creation reply changed the requested session grant')
+    const requested=object(g.requested),granted=object(g.granted)
+    for(const field of ['access_ttl_secs','idle_timeout_secs','absolute_ttl_secs'] as const){
+      const value=granted[field]
+      if(requested[field]!==grantRequest[field]||typeof value!=='number'||!Number.isSafeInteger(value)||value<1||value>grantRequest[field])throw new Error('Paid creation reply changed the requested session grant')
+    }
+  }
+  /**
+   * A completed session-mode poll: the grant must name THIS chain, this session key, the token's
+   * holder, binding, draw and payment slot, and verify against the anchored draw. Anything else is
+   * not used (`sdk_grant_invalid`); the compound token still authorizes its one operation.
+   */
+  const grantOutcome = (raw:Record<string,unknown>,tokenHolder:Uint8Array):{grant?:{session_grant:SessionGrantWire;refresh_seq:0};error?:string} => {
+    if(raw.session_grant==null){
+      const code=typeof raw.session_grant_error==='string'&&/^session_[a-z_]{1,48}$/.test(raw.session_grant_error)?raw.session_grant_error:'session_grant_missing'
+      return {error:code}
+    }
+    try{
+      if(raw.refresh_seq!==0)throw new Error('an opening grant answers refresh seq 0')
+      const wire=structuredClone(raw.session_grant) as SessionGrantWire,grant=decodeSessionGrant(wire),p=grant.payload
+      const hex=(b:Uint8Array)=>toHex(b).toLowerCase(),slot=protocolHex(payment.slot,32,'slot')
+      if(p.chainId!==BigInt(payment.chain_id)||p.chainId!==BigInt(deployment.chainId)||hex(p.sessionKeyThumbprint)!==hex(sessionThumbprint!)
+        ||hex(p.holderHash)!==hex(tokenHolder)||p.binding!==BINDING_HOLDER_KEY||p.epoch!==BigInt(payment.verification_epoch)
+        ||hex(p.seed)!==payment.verification_seed.toLowerCase()||p.slots.some(s=>!grantRequest!.slots.includes(hex(s.slotId))))throw new Error('grant differs from this session')
+      const set={registrySize:payment.verification_registry_size,pubkeys:new Map(members.map(m=>[m.index,protocolHex(m.publicKey,32,'key')]))}
+      verifySessionGrant({grant,set,slotId:slot,committee:payment.verification_committee,quorum:payment.verification_quorum,slotRuleHash:ruleHash,seed:protocolHex(payment.verification_seed,32,'seed'),now:Math.floor(Date.now()/1000)})
+      return {grant:{session_grant:wire,refresh_seq:0}}
+    }catch{return {error:'sdk_grant_invalid'}}
+  }
   let oauthSubmitted=false
-  const poll = async (signal?:AbortSignal):Promise<SessionStatusResult> => {
-    const response = await read('GET /v1/sessions/{id}','/v1/sessions/'+sessionId,signal);ok(response,[200])
+  const poll = async (signal?:AbortSignal,options?:{wait?:boolean}):Promise<SessionStatusResult> => {
+    // A held poll needs an attempt budget above the agent's 20 s hold.
+    const held=options?.wait===true&&attemptBudgetMs>=HELD_POLL_MIN_BUDGET_MS
+    const response = await read('GET /v1/sessions/{id}','/v1/sessions/'+sessionId+(held?'?wait=1':''),signal);ok(response,[200])
     const raw = decode(response.body)
     // A malformed status list is a typed `revocation_status_invalid` preflight refusal, checked
     // before the generic protocol parse would fold it into a session error.
@@ -558,6 +785,8 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     if (raw.execution_context !== undefined) checkContext(raw.execution_context)
     if (raw.binding_preimage !== null && raw.binding_preimage !== undefined && executionBodyHash(object(raw.binding_preimage)) !== executionBodyHash(expectedBinding)) throw new Error('Paid poll operation binding changed')
     const status = parseVerifierAgentSessionStatus(raw,sessionId)
+    if ((!grantRequest || status.status !== 'done') && (raw.session_grant != null || raw.refresh_seq != null || raw.session_grant_error != null))
+      throw new Error('Paid poll carries a session grant this session cannot have')
     if (status.status === 'done') {
       const token = decodeCompoundToken(status.compoundToken as unknown as CompoundTokenWire)
       if (toHex(token.slotId).toLowerCase() !== payment.slot.toLowerCase() || toHex(token.seed).toLowerCase() !== payment.verification_seed.toLowerCase()
@@ -582,6 +811,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
         const member=members.find(m=>m.index===index)!
         return {verifier_index:index,operator:member.operator.slice(2),pubkey:member.publicKey.slice(2),proof:member.proof.map(p=>p.slice(2))}
       })
+      if (grantRequest) status.sessionGrant = grantOutcome(raw,token.holderHash)
     }
     return status
   }
@@ -605,8 +835,14 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
         // Recheck after asynchronous proof validation to fence concurrent submissions.
         if(oauthSubmitted)throw new Error('OAuth presentation already sent; reconcile the original retained callback')
         oauthSubmitted=true
-        const response=await control('/v1/sessions/'+sessionId+'/oauth-response','POST',undefined,active,false,
-          {accessToken:approved.oauth!.access_token,proof:approved.oauth!.dpop_proof})
+        // A definite 429 (the agent's limiter answers before the handler claims anything) is the
+        // one refusal repeated, with the SAME token and proof, and only while both the session and
+        // the proof's own freshness window (iat + 60 s) leave room for a full attempt. Anything
+        // else, including a PaidBackoffError, means nothing more was sent.
+        const proofIat=Number(decodeJson<Record<string,unknown>>(approved.oauth!.dpop_proof.split('.')[1]!).iat)
+        const deadline=Math.min(sessionDeadline()??0,(proofIat+60)*1000)
+        const response=await paced('POST /v1/sessions/{id}/oauth-response',()=>control('/v1/sessions/'+sessionId+'/oauth-response','POST',undefined,active,false,
+          {accessToken:approved.oauth!.access_token,proof:approved.oauth!.dpop_proof}),LIMITED,deadline>clock.now()?deadline:undefined,active)
         ok(response,[200,202])
         const status=decode(response.body).status
         if(status!==(response.status===202?'awaiting_client_approval':'accepted'))throw new Error('Invalid OAuth presentation submission result')
@@ -620,10 +856,14 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
       if(reply.session_id!==sessionId || reply.poll_secret!==pollSecret || executionBodyHash(object(reply.service_profile))!==executionBodyHash(pin)
         || reply.qr_payload!=null || (params.kind!=='oauth' && reply.request_uri!==requestUri)) throw new Error('Initialized paid creation reply changed identity, owner or provider')
       if(params.kind==='oauth'&&(reply.nonce!==nonce||reply.dpop_htu!==oauthContext.dpopHtu||reply.platform_audience!==oauthContext.platformAudience||reply.request_uri!=null))throw new Error('OAuth creation reply changed its original nonce or audience')
+      checkGrantParams(reply.session_grant_params)
       checkContext(reply.execution_context)
-    },reconcile:poll,poll,
-    async proposals(signal?:AbortSignal) {
-      const response=await read('GET /v1/sessions/{id}/execution','/v1/sessions/'+sessionId+'/execution',signal);ok(response,[200])
+    },reconcile:(signal?:AbortSignal)=>poll(signal),poll,
+    async proposals(signal?:AbortSignal,options?:{waitMs?:number}) {
+      // A held listing only from an agent advertising it, and only inside this attempt's budget.
+      const wait=proposalWait&&options?.waitMs!==undefined&&Number.isSafeInteger(options.waitMs)&&options.waitMs>0
+        ?Math.min(options.waitMs,MAX_PROPOSAL_WAIT_MS,attemptBudgetMs-5_000):0
+      const response=await read('GET /v1/sessions/{id}/execution','/v1/sessions/'+sessionId+'/execution'+(wait>0?'?wait_ms='+wait:''),signal);ok(response,[200])
       const values=decode(response.body).proposals
       if(!Array.isArray(values)||values.length>256)throw new Error('Invalid paid proposals')
       return values.map(value=>{const p=object(value);exact(p,['id','stage','operator_key','unsigned_body','expires']);id(p.id);object(p.unsigned_body);return structuredClone(p) as unknown as PaidAgentProposal})
@@ -637,7 +877,7 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
     prepareCredentialApproval(proposal:PaidAgentProposal,member:PaidVerifierWitness,approved:ClientApprovedPresentation,signal?:AbortSignal) {
       return signApproval(proposal,member,'credential',credentialBody(approved),signal)
     },
-    sendRetainedApproval,
+    sendRetainedApproval,sendRetainedApprovals,batchApprovals,proposalWait,
     async approvalState(proposal:string,signal?:AbortSignal) {
       id(proposal)
       const response=await read('GET /v1/sessions/{id}/execution/{delivery}','/v1/sessions/'+sessionId+'/execution/'+proposal,signal);ok(response,[200])

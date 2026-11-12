@@ -18,9 +18,9 @@ import {ibeVerifyShare} from '../crypto/ibe.js'
 import {hexToBytes, keccak256, toHex, type Account, type Address, type Chain, type Hex, type LocalAccount, type Transport, type WalletClient} from 'viem'
 import type {TasraChainClient} from '../chain/client.js'
 import {keyRegistryAbi} from '../chain/abis/keyRegistry.js'
-import {requirePrepaidSlot, type BillingModeDetector} from '../chain/billing.js'
-import {discoverPaidOperationContext, readClientExecutionPolicy, type ExpectedPaidOperation, type PaidContextDeployment,
-  type PaidKeeperEndpoint, type PaidVerifierWitness} from '../chain/prepaid.js'
+import type {BillingModeDetector} from '../chain/billing.js'
+import {discoverPaidOperationContext, followPaidRequest, readClientExecutionPolicy, readCurrentBeaconEpoch, type ExpectedPaidOperation, type PaidContextDeployment,
+  type PaidKeeperEndpoint, type PaidOperationContext, type PaidVerifierWitness, drawnIntentFields} from '../chain/prepaid.js'
 import {fetchDrawnVerifierWitnesses} from '../chain/verifierSnapshot.js'
 import {prepareRegisteredPaidSession, type PaidAgentSessionParams} from '../chain/registeredPaidAgent.js'
 import type {PaidAgentTransport} from '../chain/paidAgentTransport.js'
@@ -31,19 +31,22 @@ import {ruleCommitment} from '../chain/write.js'
 import {loadPaidReservationJournal} from './paid-journal.js'
 import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, ApplicationPayerRecoveryError,
   type ApplicationReservationState} from './paid-reservation.js'
-import {drivePaidSession, waitForPaidSnapshot, PaidSessionRecoveryError, type PaidSessionHolder} from './paid-session.js'
+import type {SessionGrantCreateFragment} from './session-grants.js'
+import type {SessionGrantRequestWire, SessionGrantWire} from '../committee/session-grant.js'
+import {drivePaidSession, waitForPaidSnapshot, FIRST_COMMIT, PaidSessionRecoveryError, type FirstCommit, type PaidSessionDriverOptions, type PaidSessionHolder} from './paid-session.js'
 import {PaidAgentControlError} from '../chain/registeredPaidAgent.js'
 import {VerifierAgentSessionError} from '../verifier-agent/index.js'
 import type {ApplicationStore} from './ready-slot.js'
 import {withDedicatedPayer} from './payer-queue.js'
 import {createExecutionCertificate, createLocalExecutionSigner, type ExecutionCertificate, type ExecutionStage} from '../committee/execution.js'
 import type {KeeperExecutionApprover} from '../committee/keeperExecution.js'
-import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../committee/payment.js'
+import {allowanceActionBits, paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type AllowanceAction, type DebitVoucherWire, type PaymentIntentWire} from '../committee/payment.js'
 import {compoundTokenHash, decodeCompoundToken, requireStatusAttestations, signersThatVerify, verifyStatusAttestation, verifyStatusAttestations, STATUS_SKEW_SECS,
   type CompoundTokenWire, type StatusAttestationWire} from '../committee/token.js'
 import {acceptStatusRefreshRelay, createStatusRefreshProof, refreshStatusDirect, statusRefreshRelayBody, type StatusRefreshHolderSigner,
   type StatusRefreshPrincipal, type StatusRefreshResult} from '../committee/status-refresh.js'
-import {canonicalize} from '../auth/oid4vp.js'
+import {canonicalize, isOauthFormat} from '../auth/oid4vp.js'
+import {isOauthEnvelope} from '../auth/rego.js'
 import {presentationOperationTypedData, verifierAgentResult, type PresentationOperation} from '../oid4vp/verifier-agent.js'
 import {requestHash, type CommitteeAction} from '../oid4vp/binding.js'
 import type {VerifiedRequestObject} from '../oid4vp/request-object.js'
@@ -52,6 +55,9 @@ import {PaidApprovalUnresolvedError, RevocationStatusPreflightError, StatusRefre
 import {base64Decode} from '../crypto/envelope.js'
 import type {IbeExtractionPartial} from '../committee/client.js'
 import {HEX32, RECORD_KEY, RECORD_PREFIX, paidRecordKey as recordKey} from './paid-keys.js'
+import {AllowanceRefusedError, allowanceLaneCount, journaledAllowanceVoucher, obtainAllowanceVoucher, prepareAllowanceLane, selectAllowanceLane, validateAllowanceOptions, validateLaneReadiness, validateReadinessHorizon,
+  type AllowanceEnv, type LaneReadiness, type PaidAllowanceOptions} from './paid-allowance.js'
+import {storeIdentity, withCommit, type LockedCommit} from './store-commit.js'
 
 /** Approved deployment, signers, services and spending limits shared by paid operations. */
 export interface PaidOperationConfig {
@@ -81,7 +87,12 @@ export interface PaidOperationConfig {
   fetch?: typeof fetch
   /** Longest wait for the current epoch's snapshots to be anchored, ms (default 180000, max 300000). */
   snapshotWaitMs?: number
-  /** Poll interval while waiting on the agent, ms (default 1000). Agent Retry-After hints take precedence. */
+  /**
+   * Poll interval while waiting on the agent with nothing else to go on, ms (default 1000): a wallet
+   * callback, or proposals not yet listed. Agent Retry-After hints take precedence. Approved
+   * proposals and sent continuations are read back at once, and while the committee works the
+   * session status is long-polled (`?wait=1`) instead.
+   */
   pollIntervalMs?: number
   /**
    * Accept a grant WITHOUT revocation-status attestations (with a warning), only for a deployment
@@ -90,6 +101,14 @@ export interface PaidOperationConfig {
    * attestations are always refused.
    */
   allowMissingStatusAttestations?: boolean
+  /**
+   * Prepaid allowances, DEFAULT OFF. With `enabled: true` an operation whose slot has a
+   * lane with room is paid by an accountant-quorum debit voucher against a reserved allowance
+   * instead of its own on-chain reservation; otherwise (no usable lane, exhausted, expired or
+   * refused) it falls back to the per-operation reservation. Enable only when every reader on the
+   * deployment supports prepaid allowances: the network advertises no capability for it.
+   */
+  allowances?: PaidAllowanceOptions
 }
 
 /** The one operation to authorize and how its holder presents. */
@@ -100,7 +119,11 @@ export interface PaidOperationRequest {
   operation: {action: CommitteeAction; message?: Uint8Array; identity?: string; payloadDigest?: Uint8Array; decryption?: DecryptionBindingWire; ttlSecs?: number; description?: string}
   /** Exact provisioned DCQL rule bytes and salt. The chain commitment uses canonical JSON; the verifier token hash binds these original bytes unchanged. */
   rule: {rule: string; salt: Hex}
-  /** Holder strategy: the SDK wallet presents itself, or an external wallet scans the request. */
+  /**
+   * Holder strategy: the SDK wallet presents itself, an external wallet scans the request, or
+   * (`kind: 'oauth'`) the client presents a DPoP-bound OAuth access token for an OAuth slot rule.
+   * The choice is journaled with the operation: a resume must use the same kind.
+   */
   holder: PaidSessionHolder
   /** Pin the coordinator keeper (operator address); otherwise the first eligible keeper. */
   coordinator?: Address
@@ -108,6 +131,13 @@ export interface PaidOperationRequest {
   signal?: AbortSignal
   /** Inspect the verified request object before any credential is disclosed. */
   observeRequest?(request: VerifiedRequestObject): void | Promise<void>
+  /**
+   * Session grants: also open a session grant with this presentation (KEM `decrypt` only), for the
+   * fresh session key in the fragment ({@link sessionGrantCreateFragment}). The fragment is public
+   * and journaled; the presentation nonce binds its key. The verified grant comes back as
+   * {@link PaidOperation.sessionGrant}; accept it with `acceptSessionGrant` and the same key.
+   */
+  sessionGrant?: SessionGrantCreateFragment
   /**
    * Receive the reservation identity as soon as it is derived, before witnesses are fetched or
    * anything is reserved, to link this run to its payment. A throw stops the operation before any
@@ -121,6 +151,12 @@ export interface PaidOperationRequest {
 export interface PaidOperation {
   /** Exact sealed presentation ciphertext persisted with the original grant. */
   readonly evidenceCt?: string
+  /**
+   * Session grants, when the request asked for a session grant: the verified opening grant
+   * (`{session_grant, refresh_seq: 0}`, the input of `acceptSessionGrant`), or why none came. The
+   * compound token authorizes this one operation either way.
+   */
+  readonly sessionGrant?: {grant?: {session_grant: SessionGrantWire; refresh_seq: 0}; error?: string}
   /** Reservation identity (`prepaid-request/v1`), the key for resume and recovery. */
   readonly requestId: Hex
   /** Original creator-signed payment intent. */
@@ -321,9 +357,19 @@ interface OperationRecord {
   abandoned?: {reason: string; at: number; phase: Exclude<Phase, 'abandoned'>}
   /** Gas payer the reservation uses (absent from journals written before payers were recorded). */
   payer?: Address
+  /** Prepaid allowances: the allowance lane this payment is debited on (absent for a per-operation reservation). */
+  allowance?: {lane: number}
+  /** A final dual-control Sign payment ({@link paidFinalSign}): no presentation, session or grant follows. */
+  finalSign?: true
+  /** A session-grant decrypt payment ({@link paidSessionDecrypt}): the grant, not a presentation, authorizes it. */
+  sessionDecrypt?: true
   payment: PaymentIntentWire
   expected: ExpectedPaidOperation
-  params: {operation: PresentationOperation; operationSig: Hex; messageHex: string; random: Hex; decryption?: DecryptionBindingWire}
+  params: {operation: PresentationOperation; operationSig: Hex; messageHex: string; random: Hex; decryption?: DecryptionBindingWire
+    /** OAuth+DPoP session (an OAuth holder); absent for a wallet session, as in every older journal. */
+    kind?: 'oauth'
+    /** Session mode: the public create fragment, signed into the session initialization. */
+    sessionGrant?: SessionGrantRequestWire}
   members: PaidVerifierWitness[]
   rule: string
   ruleSalt: Hex
@@ -336,7 +382,9 @@ interface OperationRecord {
   certificate?: ExecutionCertificate
   pollSecret?: string
   /** `sessionId` is absent from journals written before status refresh existed (relay unavailable for them). */
-  grant?: {compound_token: CompoundTokenWire; verifierProofs: VerifierProof[]; sessionId?: string; evidenceCt?: string}
+  grant?: {compound_token: CompoundTokenWire; verifierProofs: VerifierProof[]; sessionId?: string; evidenceCt?: string
+    /** Session mode: the verified opening grant or why none came (session mode only). */
+    sessionGrant?: {grant?: {session_grant: SessionGrantWire; refresh_seq: 0}; error?: string}}
   /** Status refresh history (absent until the first refresh). */
   statusRefresh?: StatusRefreshJournal
 }
@@ -380,22 +428,133 @@ const MAX_STATUS_REFRESH_ATTEMPTS = 64
 /** Deadline of one relayed refresh (the agent fans out to the committee). */
 const RELAY_REFRESH_TIMEOUT_MS = 30_000
 
+// The operation index, oldest first. `paid-op-index` is the original single list: still read, never
+// dropped, and rewritten only by the one-time backfill (and by older SDKs, whose entries are read
+// too). New operations append to bounded segments `paid-op-index-0`, `-1`, … instead, so indexing
+// one operation rewrites at most SEGMENT_IDS entries rather than the whole history. Readers take
+// the legacy list, then the segments in order until the first absent one; an id is listed once.
 const INDEX_KEY = 'paid-op-index'
+/** Most ids in one index segment; a full segment is never rewritten again. */
+const SEGMENT_IDS = 256
+const segmentKey = (n: number) => `${INDEX_KEY}-${n}`
 /** `backfilled` marks a store whose pre-index journals were indexed once. */
 interface OperationIndex { schema: 1; ids: Hex[]; backfilled?: true }
+interface OperationIndexSegment { schema: 1; ids: Hex[] }
+const validIds = (ids: unknown) => Array.isArray(ids) && !ids.some(id => typeof id !== 'string' || !HEX32.test(id))
 async function loadIndexRecord(store: ApplicationStore): Promise<OperationIndex> {
   const index = await store.load<OperationIndex>(INDEX_KEY)
   if (index === undefined) return {schema: 1, ids: []}
-  if (!index || index.schema !== 1 || !Array.isArray(index.ids) || index.ids.some(id => typeof id !== 'string' || !HEX32.test(id))
+  if (!index || index.schema !== 1 || !validIds(index.ids)
     || (index.backfilled !== undefined && index.backfilled !== true)) throw new TasraError('Invalid paid operation index')
   return index
 }
-const loadIndex = async (store: ApplicationStore) => (await loadIndexRecord(store)).ids
-async function indexOperation(store: ApplicationStore, requestId: Hex): Promise<void> {
-  await store.withLock(INDEX_KEY, async () => {
-    const index = await loadIndexRecord(store), id = requestId.toLowerCase() as Hex
-    if (!index.ids.includes(id)) await store.save(INDEX_KEY, {...index, ids: [...index.ids, id]} satisfies OperationIndex)
-  })
+async function loadSegment(store: ApplicationStore, n: number): Promise<OperationIndexSegment | undefined> {
+  const segment = await store.load<OperationIndexSegment>(segmentKey(n))
+  if (segment === undefined) return undefined
+  if (!segment || segment.schema !== 1 || !validIds(segment.ids) || segment.ids.length > SEGMENT_IDS) throw new TasraError('Invalid paid operation index')
+  return segment
+}
+/**
+ * In-process state per store IDENTITY ({@link storeIdentity}): one entry per backing state, shared by
+ * every store object on it (an application may open one file store object per call on one
+ * directory), else per store object. Bounded by the directories a process uses.
+ */
+function perStore<V>() {
+  const named = new Map<string, V>(), objects = new WeakMap<ApplicationStore, V>()
+  return {
+    get: (store: ApplicationStore): V | undefined => { const id = storeIdentity(store); return typeof id === 'string' ? named.get(id) : objects.get(id) },
+    set: (store: ApplicationStore, value: V): void => { const id = storeIdentity(store); if (typeof id === 'string') named.set(id, value); else objects.set(id, value) },
+  }
+}
+/** First segment that may still have room, per store identity: a hint only, always probed forward. */
+const segmentHints = perStore<number>()
+/** Every indexed id, oldest first, without duplicates: the legacy list, then each segment. */
+async function loadIndex(store: ApplicationStore): Promise<Hex[]> {
+  const ids = new Set((await loadIndexRecord(store)).ids.map(id => id.toLowerCase() as Hex))
+  for (let n = 0; ; n++) {
+    const segment = await loadSegment(store, n)
+    if (!segment) break
+    for (const id of segment.ids) ids.add(id.toLowerCase() as Hex)
+  }
+  return [...ids]
+}
+/**
+ * Stage the index entries of `ids` (lowercase, in order) into the segments: the first segment with
+ * room from this store's hint, then the next ones. Segments fill in order; a crash between
+ * filling one and starting the next leaves nothing to repair, because the next writer probes
+ * forward from the hint to the first one with room. Needs the index lock. Returns the last segment
+ * staged: the caller moves the hint there only once the commit landed, so a failed commit never
+ * leaves the hint past a segment that was never written (a gap would hide every later segment).
+ */
+async function stageIndexEntries(store: ApplicationStore, commit: LockedCommit, ids: readonly Hex[]): Promise<number | undefined> {
+  const left = [...new Set(ids)]
+  let last: number | undefined
+  for (let n = segmentHints.get(store) ?? 0; left.length > 0; n++) {
+    const segment = await loadSegment(store, n)
+    for (const id of segment?.ids ?? []) { const at = left.indexOf(id); if (at !== -1) left.splice(at, 1) }
+    if (left.length === 0) return last
+    if (!segment || segment.ids.length < SEGMENT_IDS) {
+      const added = left.splice(0, SEGMENT_IDS - (segment?.ids.length ?? 0))
+      commit.stage(segmentKey(n), {schema: 1, ids: [...segment?.ids ?? [], ...added]} satisfies OperationIndexSegment)
+      last = n
+    }
+  }
+  return last
+}
+interface NewOperation { key: string; id: Hex; record: OperationRecord; resolve(): void; reject(error: unknown): void }
+/**
+ * Per store identity (not per store object: one store object per call on one directory would
+ * otherwise commit every new operation on its own, one after another, on the global index lock):
+ * the journal commit running now, and the new operations waiting for the next one.
+ */
+const newOperationQueues = perStore<{running: Promise<void>; waiting?: NewOperation[]}>()
+/**
+ * Journal a new operation's record and index it, refusing a request that is already journaled.
+ * Concurrent new operations of one process share ONE commit instead of queueing on the global index
+ * lock one by one: every record lock and the index lock are taken together, and the records and the
+ * index segment are published with one data barrier and one directory sync. A caller joins the next
+ * commit that has not started, so its record is never written before its call.
+ *
+ * A crash before this resolves may leave any subset. A record without its index entry was always
+ * possible (a crash between the two former writes): it is found by its request ID, which
+ * `onRequestId` already handed out. An index entry without its record is listed by no one
+ * (listPaidOperations skips it). Nothing was sent for either: the reservation starts only after.
+ */
+function journalNewOperation(store: ApplicationStore, requestId: Hex, record: OperationRecord): Promise<void> {
+  let queue = newOperationQueues.get(store)
+  if (!queue) { queue = {running: Promise.resolve()}; newOperationQueues.set(store, queue) }
+  let batch = queue.waiting
+  if (!batch) {
+    const own: NewOperation[] = [], q = queue
+    batch = q.waiting = own
+    q.running = q.running.then(() => { if (q.waiting === own) q.waiting = undefined; return commitNewOperations(store, own) })
+  }
+  const joined = batch
+  return new Promise<void>((resolve, reject) => { joined.push({key: recordKey(requestId), id: requestId.toLowerCase() as Hex, record, resolve, reject}) })
+}
+/** One journal commit for a batch of new operations; settles every caller, never rejects. */
+async function commitNewOperations(store: ApplicationStore, batch: readonly NewOperation[]): Promise<void> {
+  const refused = new Map<NewOperation, unknown>()
+  try {
+    let staged: number | undefined
+    await withCommit(store, [INDEX_KEY, ...batch.map(op => op.key)], async commit => {
+      const created: Hex[] = [], seen = new Set<string>()
+      for (const op of batch) {
+        try {
+          if (seen.has(op.key) || await store.load(op.key) !== undefined) throw new TasraError('Paid operation already journaled; resume it')
+        } catch (error) { refused.set(op, error); continue }
+        seen.add(op.key)
+        commit.stage(op.key, op.record)
+        created.push(op.id)
+      }
+      staged = await stageIndexEntries(store, commit, created)
+    })
+    if (staged !== undefined) segmentHints.set(store, staged)
+  } catch (error) {
+    for (const op of batch) op.reject(refused.get(op) ?? error)
+    return
+  }
+  for (const op of batch) { const error = refused.get(op); if (error === undefined) op.resolve(); else op.reject(error) }
 }
 /** Index journals written before the index existed, once per store (by payment expiry). */
 async function backfillIndex(store: ApplicationStore): Promise<void> {
@@ -405,11 +564,12 @@ async function backfillIndex(store: ApplicationStore): Promise<void> {
   await store.withLock(INDEX_KEY, async () => {
     const index = await loadIndexRecord(store)
     if (index.backfilled) return
+    const indexed = new Set(await loadIndex(store))
     const found: {id: Hex; expires: number}[] = []
     for (const key of await list(RECORD_PREFIX)) {
       if (!RECORD_KEY.test(key)) continue
       const id = `0x${key.slice(RECORD_PREFIX.length)}` as Hex
-      if (index.ids.includes(id)) continue
+      if (indexed.has(id)) continue
       const record = await loadRecord(store, id)
       if (record) found.push({id, expires: record.payment.expires})
     }
@@ -441,6 +601,175 @@ function validateConfig(config: PaidOperationConfig): void {
   if (config.chain.addresses.ServiceRegistry?.toLowerCase() !== config.agent.profile.approval.registry.toLowerCase()) throw new TasraError('Agent profile is approved on another ServiceRegistry')
   const wait = config.snapshotWaitMs ?? 180_000, poll = config.pollIntervalMs ?? 1_000
   if (!Number.isSafeInteger(wait) || wait < 1 || wait > 300_000 || !Number.isSafeInteger(poll) || poll < 10 || poll > 60_000) throw new TasraError('Invalid paid operation timing')
+  if (config.allowances?.enabled) validateAllowanceOptions(config.allowances, config.limits)
+}
+
+function allowanceEnv(config: PaidOperationConfig): AllowanceEnv | undefined {
+  if (!config.allowances?.enabled) return undefined
+  const d = {...config.deployment}
+  return {client: config.chain.client, deployment: config.deployment, creator: config.creator, gasPayer: config.gasPayer, store: config.store,
+    accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, limits: config.limits, options: config.allowances,
+    // ADR-0090 D7 reserve-ahead: the next draw, verified exactly as a session message's pinned discovery.
+    discover: (slot, epoch) => discoverPaidOperationContext(config.chain.client, d, slot, {allowLocalHttp: config.allowLocalHttp,
+      defaultVerificationPolicy: d.defaultVerificationPolicy, fundedByAllowance: true, verificationEpoch: epoch})}
+}
+
+/** Which lanes of a slot {@link prepareAllowances} opens, and how. */
+export interface PrepareAllowancesRequest {
+  /** Slot whose allowance lanes to open. */
+  slot: Hex
+  /** Regular lane indices to open, each 0..lanes-1 and distinct (default every lane, see `allowanceLaneCount`). */
+  lanes?: readonly number[]
+  /**
+   * Lanes opened at once, 1..8 (default 4). Every reservation goes through the one dedicated gas
+   * payer queue, and each pins its own fresh discovery as its quote block, which the accountants
+   * accept for only 30 s: a lane that waits behind too many others in the queue is refused.
+   */
+  concurrency?: number
+  /** Coordinator to discover with (as {@link PaidOperationRequest.coordinator}). */
+  coordinator?: Address
+  /**
+   * Each lane must fund at least this many more operations at the per-operation cap
+   * (`limits.maxCost`) from its current allowance and its reserved-ahead one together (only an
+   * allowance outliving `minLifetimeSecs` counts); otherwise the next allowance is reserved ahead
+   * now. 0..2 x floor(amount / maxCost); default 0 (today's rule: a confirmed, not-low current
+   * allowance is enough). Set it, with `minLifetimeSecs`, when preparing for sustained work: a
+   * lane that is confirmed but close to exhaustion or expiry otherwise reports `not-needed` and the
+   * work reserves its replacement inside an operation.
+   */
+  minOperations?: number
+  /**
+   * The current allowance must outlive this many seconds, else the next one is reserved ahead (and
+   * must outlive it). 0..lifetime - 120 s; default 0. A bound on how long the coming work runs.
+   */
+  minLifetimeSecs?: number
+  /**
+   * The paid actions the coming work runs (as `PaidOperationRequest.operation.action`: `sign` is
+   * paid as `eoa-sign` on a threshold-ECDSA slot, exactly as {@link paidOperation} pays it). Given,
+   * a lane is ready only when its current or confirmed reserved-ahead allowance passes the very
+   * check lane selection applies to each of these operations, started at any moment of
+   * `minLifetimeSecs`: the action funded, the keeper sharing (key epoch, committee version,
+   * threshold, contributors) of a FRESH discovery made for this judgement, and an expiry beyond the
+   * operation's own payment lifetime (`operationTtlSecs`) plus the clock margin. A lane that fails it
+   * gets a fitting next allowance reserved ahead; a current one that cannot fund the next operation
+   * at all gives way to it, and a reserved-ahead one that never can (a stale sharing) is replaced.
+   * Without it readiness looks at balance and expiry alone, so a lane can report `not-needed` and
+   * still be refused by every operation (one discovery more per call when given).
+   */
+  actions?: readonly AllowanceAction[]
+  /** The coming operations' payment lifetime, 1..3600 s (default 600, {@link paidOperation}'s default); only with `actions`. */
+  operationTtlSecs?: number
+  /** Cancellation: lanes not yet started are reported `cancelled`; a started one is cancelled until its reservation is prepared. */
+  signal?: AbortSignal
+}
+
+/**
+ * What {@link prepareAllowances} did for one lane:
+ * - `reserved`: an allowance was reserved (confirmed) on the lane now: the lane's current one, or its next reserved ahead for `minOperations` / `minLifetimeSecs`;
+ * - `not-needed`: the lane already had a usable confirmed allowance (or one reserved ahead); nothing was discovered, signed or sent;
+ * - `pending`: a reservation of the lane is uncertain (broadcast, outcome unknown); a later call or operation reconciles it, never re-signs beside it;
+ * - `failed`: the reservation failed (`error`), or (`AllowanceCapacityError`) the lane holds its current and a reserved-ahead allowance and still cannot fund `minOperations` (never a third: at most 2 x lanes x amount locked); nothing of it is left on the lane unless it was broadcast (then `pending` next time);
+ * - `cancelled`: the signal ended it before its reservation was prepared, or before it started.
+ */
+export type PreparedAllowanceOutcome = 'reserved' | 'pending' | 'not-needed' | 'failed' | 'cancelled'
+
+/** One lane's result of {@link prepareAllowances}. */
+export interface PreparedAllowanceLane {
+  /** Lane index. */
+  lane: number
+  /** What happened on the lane. */
+  outcome: PreparedAllowanceOutcome
+  /** The failure, for `failed` (and the abort reason for a `cancelled` lane that had started). */
+  error?: unknown
+}
+
+/** The result of {@link prepareAllowances}, one entry per requested lane, in request order. */
+export interface PreparedAllowances {
+  /** Slot. */
+  slot: Hex
+  /** Per-lane outcomes. */
+  lanes: PreparedAllowanceLane[]
+}
+
+/**
+ * Prepaid allowances: open (reserve) a slot's allowance lanes BEFORE its first paid operation, like loading
+ * a card, so no user operation waits for an allowance reservation (approve + reserve transactions
+ * and their receipts) inside it. Operations otherwise open a cold lane themselves: the first one on
+ * each lane then falls back to a per-operation reservation or waits for the lane.
+ *
+ * Each lane is reserved through the same journaled reservation as an operation's background refill
+ * (intent signed by the creator, `signing`, then `prepared`, `submitted` and `confirmed` under the
+ * durable payer claim and the dedicated payer queue), with its own FRESH discovery (never a context
+ * cached across lanes); a lane that needs nothing is reported `not-needed` without any read or
+ * send, so the call is idempotent. A lane failure is reported on that lane only; the other lanes
+ * are unaffected. Never throws for a lane's outcome; throws only for invalid input or
+ * configuration, and when the signal was aborted before anything started.
+ *
+ * Draw lanes (session grants) are not opened here: their draw is known only once a
+ * grant exists.
+ * @param config Approved deployment, creator, gas payer, store, accountants, limits and `allowances` (enabled).
+ * @param request Slot, lanes, concurrency, readiness for the coming work and cancellation.
+ */
+export async function prepareAllowances(config: PaidOperationConfig, request: PrepareAllowancesRequest): Promise<PreparedAllowances> {
+  validateConfig(config)
+  const env = allowanceEnv(config)
+  if (!env) throw new TasraError('Opening allowances needs the allowances option enabled')
+  const slot = request.slot, signal = request.signal ?? new AbortController().signal
+  if (!HEX32.test(slot)) throw new TasraError('Invalid paid operation slot')
+  const count = allowanceLaneCount(config.allowances!)
+  const lanes = request.lanes ? [...request.lanes] : Array.from({length: count}, (_, i) => i)
+  if (lanes.length === 0 || lanes.some(l => !Number.isSafeInteger(l) || l < 0 || l >= count) || new Set(lanes).size !== lanes.length) throw new TasraError(`Allowance lanes must be distinct indices 0..${count - 1}`)
+  const concurrency = request.concurrency ?? 4
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 8) throw new TasraError('Allowance concurrency must be 1..8')
+  const ready: LaneReadiness = {minOperations: request.minOperations, minLifetimeSecs: request.minLifetimeSecs}
+  validateLaneReadiness(env, ready)
+  if (request.operationTtlSecs !== undefined && request.actions === undefined) throw new TasraError('Allowance operationTtlSecs needs actions')
+  const actions = request.actions, ttlSecs = request.operationTtlSecs ?? 600
+  if (actions !== undefined) {
+    if (actions.length === 0 || new Set(actions).size !== actions.length) throw new TasraError('Allowance readiness actions must be distinct and non-empty')
+    allowanceActionBits(actions)
+    // Before any read; what the configured allowances fund is judged once the slot's mode is known.
+    validateReadinessHorizon(env, request.minLifetimeSecs ?? 0, ttlSecs)
+  }
+  signal.throwIfAborted()
+  if (config.billing) await config.billing.requirePrepaid(slot)
+  const d = {...config.deployment}, client = config.chain.client
+  // One fresh, canonical discovery per reservation, exactly as an allowance-funded operation discovers.
+  const discover = async () => {
+    const readiness = AbortSignal.any([signal, AbortSignal.timeout(config.snapshotWaitMs ?? 180_000)])
+    const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(client, d, slot,
+      {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator, fundedByAllowance: true}),
+    readiness, () => sleep(1_000, readiness))
+    if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
+    return context
+  }
+  const results: PreparedAllowanceLane[] = lanes.map(lane => ({lane, outcome: 'cancelled'}))
+  if (actions !== undefined) {
+    // One fresh discovery judges every lane against what an operation would be paid under now.
+    let context: PaidOperationContext
+    try { context = await discover() } catch (error) {
+      return {slot, lanes: lanes.map(lane => signal.aborted ? {lane, outcome: 'cancelled', error} : {lane, outcome: 'failed', error})}
+    }
+    // Threshold ECDSA slots (mode 2 secp256k1, mode 4 P-256) pay `sign` as `eoa-sign` (as paymentAttempt does).
+    const paid = [...new Set(actions.map((a): AllowanceAction => a === 'sign' && (context.mode === 2 || context.mode === 4) ? 'eoa-sign' as const : a))]
+    ready.work = {context, actions: paid, ttlSecs}
+    validateLaneReadiness(env, ready)
+  }
+  let next = 0
+  const worker = async () => {
+    while (next < lanes.length && !signal.aborted) {
+      const i = next++, lane = lanes[i]!
+      try { results[i] = {lane, outcome: await prepareAllowanceLane(env, slot, lane, discover, signal, ready)} }
+      catch (error) { results[i] = signal.aborted ? {lane, outcome: 'cancelled', error} : {lane, outcome: 'failed', error} }
+    }
+  }
+  await Promise.all(Array.from({length: Math.min(concurrency, lanes.length)}, worker))
+  return {slot, lanes: results}
+}
+
+/** The allowance path refused this operation for good; it was journaled `failed` and is retried once per operation. */
+class AllowanceFallback extends Error {
+  constructor(readonly requestId: Hex, cause: unknown) { super('allowance debit refused; falling back to a per-operation reservation', {cause}) }
 }
 
 /** Decode a commitment-verified retained IBE result into a combinable partial. */
@@ -471,23 +800,102 @@ async function ibePartial(resultJson: string, nodeUrl: string, record: Operation
  */
 export async function paidOperation(config: PaidOperationConfig, request: PaidOperationRequest): Promise<PaidOperation> {
   validateConfig(config)
+  if (!config.allowances?.enabled) return paymentAttempt(config, request, false)
+  // ADR-0090: at most one allowance attempt; a definite refusal (journaled `failed`, no voucher)
+  // falls back to a fresh per-operation payment with its own request ID.
+  try { return await paymentAttempt(config, request, true) }
+  catch (error) {
+    if (!(error instanceof AllowanceFallback)) throw error
+    return paymentAttempt(config, request, false)
+  }
+}
+
+/**
+ * One per-operation payment. A refused reservation is never replaced by a re-signed intent here:
+ * an intent that reached an accountant can still be reserved by anyone holding it (the accountant
+ * accepts a client-pinned quote block up to MAX_QUOTE_AGE old, and `reservePrepaid*` is
+ * permissionless) until its payment expires, so a second intent could be charged as well. The
+ * journal stays `reserving`, reconcilable (`reconcilePaidOperation`, `resumePaidOperation`) and
+ * not abandonable until that window has passed; a reservation that lands meanwhile is found by
+ * reconciliation, and one left unused is refunded by the accountants' unused-reservation close.
+ */
+/**
+ * A per-operation reservation that waited for its payer past its verifier epoch, refused BEFORE the
+ * first prepare (see {@link reserve}): the signed intent never left this process, so it is
+ * journaled `failed` and the operation is signed once more at a current epoch. A
+ * {@link paidOperation} does that itself (once); a {@link paidSessionDecrypt} pays the GRANT's
+ * draw, so it throws this and its caller pays again on a refreshed grant (`decryptInSession`).
+ * `beaconEpoch` is this process's own chain read that refused it.
+ */
+export class NewerVerifierEpoch extends Error {
+  /** Stable reason. */
+  readonly code = 'newer-verifier-epoch' as const
+  constructor(
+    /** The refused reservation's payment request id. */
+    readonly requestId: Hex,
+    /** The beacon epoch this process read when it refused. */
+    readonly beaconEpoch: bigint,
+  ) {
+    super('the verifier epoch moved on while this reservation waited for its payer; nothing was sent')
+    this.name = 'NewerVerifierEpoch'
+  }
+}
+
+async function paymentAttempt(config: PaidOperationConfig, request: PaidOperationRequest, useAllowance: boolean): Promise<PaidOperation> {
+  try { return await paidOperationAttempt(config, request, useAllowance) }
+  catch (error) {
+    if (!(error instanceof NewerVerifierEpoch)) throw error
+    // Once only: a second wait past two epochs is reported like any other refusal.
+    try { return await paidOperationAttempt(config, request, useAllowance) }
+    catch (again) {
+      if (again instanceof NewerVerifierEpoch) throw new PaidOperationRecoveryError(again.requestId, 'reservation', again, {code: 'reservation-refused', resumable: false})
+      throw again
+    }
+  }
+}
+
+async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOperationRequest, useAllowance: boolean): Promise<PaidOperation> {
   const d = {...config.deployment}, client = config.chain.client, signal = request.signal ?? new AbortController().signal
   const slot = request.slot
   if (!HEX32.test(slot)) throw new TasraError('Invalid paid operation slot')
-  if (config.billing) await config.billing.requirePrepaid(slot); else await requirePrepaidSlot(client, d, slot)
+  // Without a cached detector, discovery itself refuses a non-prepaid slot (the Settlement version,
+  // prepaidEnabled and prepaidFromGenesis, read in its own block-pinned round) with the same typed
+  // BillingModeError, instead of a separate billing observation of ~4 sequential reads before it.
+  if (config.billing) await config.billing.requirePrepaid(slot)
   const readiness = AbortSignal.any([signal, AbortSignal.timeout(config.snapshotWaitMs ?? 180_000)])
-  const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(client, d, slot,
-    {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator}),
+  // ADR-0090: an allowance-funded payment names its allowance's draw, so while a new epoch's anchors
+  // land (no admissible complete draw at this head) an operation a current allowance serves need not
+  // wait for them: discovery returns an UNDRAWN context, and only when no lane serves the operation
+  // is the slot discovered again with the bounded anchor wait. Session openings (a pinned draw) wait.
+  const undrawnOk = useAllowance && request.sessionGrant === undefined
+  const discover = (undrawnDuringAnchorGap: boolean) => waitForPaidSnapshot(() => discoverPaidOperationContext(client, d, slot,
+    {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator, fundedByAllowance: useAllowance,
+      ...undrawnDuringAnchorGap ? {undrawnDuringAnchorGap} : {}}),
   readiness, () => sleep(1_000, readiness))
-  if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
-  // The rule the holder will see must be the one the slot committed to on chain.
-  const original = await client.readContract({address: d.keyRegistry, abi: keyRegistryAbi, functionName: 'getKeySlot', args: [slot], blockNumber: context.blockNumber})
-  if (original.ruleCommitment.toLowerCase() !== ruleCommitment(request.rule.salt, request.rule.rule).toLowerCase()) throw new TasraError('Supplied rule or salt differs from the slot commitment')
-  if ((await client.getBlock({blockNumber: context.blockNumber})).hash !== context.blockHash) throw new TasraError('Rule observation reorganized')
+  // The rule the holder will see must be the one the slot committed to on chain. Discovery read the
+  // slot at its canonical, rechecked block hash; a context without that field is read again here.
+  const expectedCommitment = ruleCommitment(request.rule.salt, request.rule.rule).toLowerCase()
+  const checked = async (context: PaidOperationContext): Promise<PaidOperationContext> => {
+    if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
+    if (context.ruleCommitment !== undefined) {
+      if (context.ruleCommitment.toLowerCase() !== expectedCommitment) throw new TasraError('Supplied rule or salt differs from the slot commitment')
+    } else {
+      const original = await client.readContract({address: d.keyRegistry, abi: keyRegistryAbi, functionName: 'getKeySlot', args: [slot], blockNumber: context.blockNumber})
+      if (original.ruleCommitment.toLowerCase() !== expectedCommitment) throw new TasraError('Supplied rule or salt differs from the slot commitment')
+      if ((await client.getBlock({blockNumber: context.blockNumber})).hash !== context.blockHash) throw new TasraError('Rule observation reorganized')
+    }
+    return context
+  }
+  let context = await checked(await discover(undrawnOk))
   // Validate the DCQL JSON, but retain the provisioned bytes. The chain's salted
   // commitment canonicalizes JSON; verifier tokens bind keccak256(raw rule).
   // Rewriting whitespace/key order here changes the expected token hash.
   canonicalize(request.rule.rule)
+  // The holder's presentation family must be the rule's: refused before anything is signed or spent.
+  const oauthHolder = request.holder?.kind === 'oauth'
+  if (oauthRule(request.rule.rule) !== oauthHolder) throw new TasraError(oauthHolder ? 'An OAuth holder needs an OAuth (oauth+access-token+dpop or kk_oauth) slot rule' : 'An OAuth slot rule needs an OAuth holder')
+  // A session grant opens only from a KEM decrypt presentation (checked again, with the slots, before signing).
+  if (request.sessionGrant && request.operation.action !== 'decrypt') throw new TasraError('A session grant opens only from a KEM decrypt presentation')
   const ttlSecs = request.operation.ttlSecs ?? 600
   if (!Number.isSafeInteger(ttlSecs) || ttlSecs <= 0 || ttlSecs > 3600) throw new TasraError('Paid operation lifetime must be 1..3600 seconds')
   const built = presentationOperationTypedData({action: request.operation.action, message: request.operation.message, identity: request.operation.identity,
@@ -495,45 +903,97 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
     description: request.operation.description ?? 'Paid Tasra operation', nowSecs: Math.floor(Date.now() / 1000), ttlSecs})
   const randomBytes = random32(), random = toHex(randomBytes); randomBytes.fill(0)
   const operationSig = await config.creator.signTypedData(built.typedData)
-  const unsigned = {...context.intentFields, action: request.operation.action === 'sign' && context.mode === 2 ? 'eoa-sign' as const : request.operation.action,
+  // Threshold ECDSA slots (mode 2 secp256k1, mode 4 P-256) sign through the keeper's eoa-digest route, paid as `eoa-sign`.
+  const action = request.operation.action === 'sign' && (context.mode === 2 || context.mode === 4) ? 'eoa-sign' as const : request.operation.action
+  // ADR-0090: a lane with room funds this operation by voucher; its verification and keeper
+  // fields are the allowance's (the readers judge them at the allowance's assignment block).
+  const env = useAllowance ? allowanceEnv(config) : undefined
+  // ADR-0090 D7: a session grant is drawn on the OPENING payment's draw and judged at the LIVE
+  // beacon by every verifier and keeper, while a voucher keeps its allowance's (older) draw, whose
+  // epoch is judged at the allowance's quote block. So a session-mode opening is funded only by an
+  // allowance drawn on this fresh discovery's draw, else by a per-operation reservation at it -
+  // never by a voucher whose grant no verifier would sign (C7 fleet: `session_context_changed`).
+  const lane = {action, expires: built.operation.exp, drawPinned: request.sessionGrant !== undefined}
+  let ticket = env ? await selectAllowanceLane(env, context, lane) : undefined
+  // Undrawn and no lane serves it now: discover the draw (waiting, bounded, for its anchors) and
+  // select again, which may start or wait for a lane reservation or fall back per operation.
+  if (!ticket && context.undrawn) {
+    context = await checked(await discover(false))
+    if (context.undrawn) throw new TasraError('Paid operation discovery returned no verifier draw')
+    ticket = env ? await selectAllowanceLane(env, context, lane) : undefined
+  }
+  // A voucher payment names its allowance's draw; a per-operation one this context's, which an
+  // undrawn context does not have (refused, never zero fields).
+  const unsigned = {...ticket ? ticket.fields : drawnIntentFields(context), action,
     payload_digest: toHex(built.payloadDigest), session_commitment: paymentSessionCommitment(random, config.agent.profile.clientId, built.operation.exp),
-    nonce: toHex(random32()), max_cost: config.limits.maxCost.toString(), expires: built.operation.exp}
+    nonce: toHex(random32()), max_cost: config.limits.maxCost.toString(), expires: built.operation.exp, ...ticket ? {allowance_id: ticket.allowanceId} : {}}
   const payment: PaymentIntentWire = {...unsigned, signature: await config.creator.signTypedData(paymentIntentTypedData(unsigned))}
   const expected: ExpectedPaidOperation = {slot, action: payment.action, payloadDigest: payment.payload_digest}
   const requestId = prepaidRequestId(payment)
+  // With a head follower, this request's own settlement state is pre-read at each new head.
+  followPaidRequest(client, d, payment)
   await request.onRequestId?.(requestId)
   signal.throwIfAborted()
   const {witnesses} = await fetchDrawnVerifierWitnesses(config.accountantUrls, payment, d.verifierSet,
     {signal: AbortSignal.any([signal, AbortSignal.timeout(Math.min(150_000, ttlSecs * 1000))]), fetch: config.fetch,
       waitForPublicationMs: Math.min(config.snapshotWaitMs ?? 180_000, 150_000, ttlSecs * 1000)})
   const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: request.rule.rule, ruleSalt: request.rule.salt,
-    params: {operation: built.operation, operationSig, messageHex: built.messageHex, random, ...(request.operation.decryption ? {decryption: structuredClone(request.operation.decryption)} : {})}, coordinator: context.coordinator, contributors: context.contributors,
-    action: request.operation.action, payloadDigest: toHex(built.payloadDigest), payer: config.gasPayer.account.address}
-  const key = recordKey(requestId)
-  await config.store.withLock(key, async () => {
-    if (await config.store.load(key) !== undefined) throw new TasraError('Paid operation already journaled; resume it')
-    await config.store.save(key, record)
-  })
-  await indexOperation(config.store, requestId)
-  await reserve(config, record, signal)
+    params: {operation: built.operation, operationSig, messageHex: built.messageHex, random, ...(oauthHolder ? {kind: 'oauth' as const} : {}), ...(request.operation.decryption ? {decryption: structuredClone(request.operation.decryption)} : {}),
+      ...(request.sessionGrant ? {sessionGrant: structuredClone(request.sessionGrant.session_grant)} : {})}, coordinator: context.coordinator, contributors: context.contributors,
+    action: request.operation.action, payloadDigest: toHex(built.payloadDigest), payer: config.gasPayer.account.address, ...ticket ? {allowance: {lane: ticket.lane}} : {}}
+  await journalNewOperation(config.store, requestId, record)
+  try { await reserve(config, record, signal) }
+  catch (error) {
+    if (ticket && error instanceof PaidOperationRecoveryError && error.code === 'reservation-failed' && error.cause instanceof AllowanceRefusedError) throw new AllowanceFallback(requestId, error)
+    throw error
+  }
   return continueOperation(config, requestId, request.holder, signal, request.observeRequest)
 }
 
 class NoLongerReserving extends Error {}
 
+/** Whether a provisioned rule authorizes OAuth access tokens (a kk_oauth envelope or an OAuth-format DCQL query). */
+function oauthRule(rule: string): boolean {
+  if (isOauthEnvelope(rule)) return true
+  let parsed: unknown
+  try { parsed = JSON.parse(rule) } catch { return false }
+  const credentials = (parsed as {credentials?: unknown})?.credentials
+  if (!Array.isArray(credentials) || credentials.length === 0) return false
+  const formats = credentials.map(c => typeof (c as {format?: unknown})?.format === 'string' && isOauthFormat((c as {format: string}).format))
+  if (formats.some(f => f) && !formats.every(f => f)) throw new TasraError('Slot rule mixes OAuth and wallet credential formats')
+  return formats[0] === true
+}
+
 async function reserve(config: PaidOperationConfig, record: OperationRecord, signal: AbortSignal): Promise<void> {
   const d = {...config.deployment}, requestId = prepaidRequestId(record.payment), key = recordKey(requestId)
   if (signal.aborted) throw abortedError(requestId, 'reservation', record.payment, signal, signal.reason)
+  if (record.payment.allowance_id !== undefined) return debit(config, record, signal)
   try {
     // Under the journal's lock, so abandonPaidOperation cannot close it while a reservation runs.
     await config.store.withLock(key, async () => {
       if ((await config.store.load<OperationRecord>(key))?.phase !== 'reserving') throw new NoLongerReserving()
-      await withDedicatedPayer(`${d.chainId}-${config.gasPayer.account.address.toLowerCase()}`, () => reserveApplicationPayment(config.chain.client, config.gasPayer, d,
-        record.payment, record.expected, {store: config.store, session: {random: record.params.random, audience: config.agent.profile.clientId},
-          accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, maxGas: config.limits.maxGas, maxGasPrice: config.limits.maxGasPrice, signal}))
+      await withDedicatedPayer(`${d.chainId}-${config.gasPayer.account.address.toLowerCase()}`, async () => {
+        // The intent was signed at discovery and may have queued behind this payer for longer than
+        // the accountants' window ({latest-1, latest} at their own head). Until its first prepare it
+        // exists only here - the witness fetch carries no payment - so an epoch already two behind
+        // is certain to be refused and is safely signed again instead. Once a preparation is
+        // journaled the intent may have been seen, and it is never replaced (it could still land).
+        // A failed epoch read changes nothing: the accountants judge the epoch themselves.
+        let current: bigint | undefined
+        try { current = await readCurrentBeaconEpoch(config.chain.client, d) } catch { current = undefined }
+        if (typeof current === 'bigint' && current >= BigInt(record.payment.verification_epoch) + 2n
+          && await loadPaidReservationJournal(config.store, requestId) === undefined) throw new NewerVerifierEpoch(requestId, current)
+        return reserveApplicationPayment(config.chain.client, config.gasPayer, d,
+          record.payment, record.expected, {store: config.store, session: {random: record.params.random, audience: config.agent.profile.clientId},
+            accountantUrls: config.accountantUrls, allowLocalHttp: config.allowLocalHttp, maxGas: config.limits.maxGas, maxGasPrice: config.limits.maxGasPrice, signal})
+      })
     })
   } catch (error) {
     if (error instanceof NoLongerReserving) throw new TasraError('Paid operation was closed before its reservation; it is not reserved again')
+    if (error instanceof NewerVerifierEpoch) {
+      await advance(config.store, requestId, 'reserving', {phase: 'failed', failure: {reason: 'superseded before its first prepare: the verifier epoch moved on; never sent'}})
+      throw error
+    }
     const journal = await loadPaidReservationJournal(config.store, requestId).catch(() => 'unreadable' as const)
     // Another request holds the payer and this one journaled nothing: refuse without uncertainty.
     if (error instanceof ApplicationPayerRecoveryError && journal === undefined) throw error
@@ -548,15 +1008,65 @@ async function reserve(config: PaidOperationConfig, record: OperationRecord, sig
   await advance(config.store, requestId, 'reserving', {phase: 'reserved'})
 }
 
+/**
+ * Prepaid allowances: obtain this payment's debit voucher on its lane instead of a reservation, and journal
+ * the payment WITH the voucher (`reserved`). A definite refusal journals `failed` (no voucher can
+ * exist: fewer than k members signed and the lane is retired); unreachable accountants leave the
+ * debit pending for the same seq and request (`reservation-refused`, resumable).
+ */
+async function debit(config: PaidOperationConfig, record: OperationRecord, signal: AbortSignal): Promise<void> {
+  const requestId = prepaidRequestId(record.payment), key = recordKey(requestId), env = allowanceEnv(config)
+  if (!env || !record.allowance) {
+    const saved = await journaledAllowanceVoucher(config.store, requestId)
+    if (!saved) throw new PaidOperationRecoveryError(requestId, 'reservation', new TasraError('Resuming an allowance-backed operation needs the allowances option'), {code: 'reservation-refused'})
+  }
+  try {
+    // The voucher and the `reserved` phase that carries it are journaled under the ONE record
+    // lock that admitted the debit (one durable lock instead of two; the same checks).
+    // Checked under the journal's lock: only a `reserving` journal is debited.
+    let current: OperationRecord | undefined
+    const check = async () => {
+      current = await config.store.load<OperationRecord>(key)
+      if (current?.phase !== 'reserving') throw new NoLongerReserving()
+      if (current.schema !== 1) throw new TasraError('Paid operation journal changed concurrently')
+    }
+    const reserved = (voucher: DebitVoucherWire): OperationRecord => ({...current!, phase: 'reserved', payment: {...record.payment, debit_voucher: voucher}})
+    const saved = await journaledAllowanceVoucher(config.store, requestId)
+    if (saved) await withCommit(config.store, key, async commit => { await check(); commit.stage(key, reserved(saved)) })
+    else {
+      // A fresh round runs under the journal's lock together with the lane's (one set of locks,
+      // released in the lane's commit), and journals `reserved` WITH the voucher under its request
+      // (one commit, before the lane advances past the seq): either one lets a resume continue
+      // from the voucher, and the lane completes an interrupted advance from whichever a crash kept.
+      let journaled = false
+      const voucher = await obtainAllowanceVoucher(env!, record.allowance!, record.payment, signal,
+        {lock: [key], check, journal: found => { journaled = true; return [[key, reserved(found)]] }})
+      // A voucher another call journaled meanwhile: journal `reserved` with it now.
+      if (!journaled) await withCommit(config.store, key, async commit => { await check(); commit.stage(key, reserved(voucher)) })
+    }
+  } catch (error) {
+    if (error instanceof NoLongerReserving) throw new TasraError('Paid operation was closed before its debit; it is not debited again')
+    if (error instanceof AllowanceRefusedError) {
+      await advance(config.store, requestId, 'reserving', {phase: 'failed', failure: {reason: `allowance debit refused: ${error.message}`}})
+      throw new PaidOperationRecoveryError(requestId, 'reservation', error, {code: 'reservation-failed'})
+    }
+    if (signal.aborted) throw abortedError(requestId, 'reservation', record.payment, signal, error)
+    throw new PaidOperationRecoveryError(requestId, 'reservation', error, expired(record.payment) ? {code: 'reservation-refused', resumable: false} : {code: 'reservation-refused'})
+  }
+}
+
 async function advance(store: ApplicationStore, requestId: Hex, from: Phase | Phase[], patch: Partial<OperationRecord>,
   guard?: (current: OperationRecord) => void): Promise<OperationRecord> {
   const key = recordKey(requestId)
-  return store.withLock(key, async () => {
+  // A local transition: nothing is sent under this lock, so the new phase is published with the
+  // unlock in one commit. A crash before it resolves leaves the previous phase (the transition did
+  // not happen; its caller was not told and sent nothing after it) or the new one.
+  return withCommit(store, key, async commit => {
     const current = await store.load<OperationRecord>(key)
     if (!current || current.schema !== 1 || !(Array.isArray(from) ? from : [from]).includes(current.phase)) throw new TasraError('Paid operation journal changed concurrently')
     guard?.(current)
     const next = {...current, ...patch}
-    await store.save(key, next)
+    commit.stage(key, next)
     return next
   })
 }
@@ -566,23 +1076,58 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
   const d = {...config.deployment}, client = config.chain.client, store = config.store
   let record = await store.load<OperationRecord>(recordKey(requestId))
   if (!record || record.schema !== 1 || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('No paid operation journal for this request')
+  if (record.finalSign) throw new TasraError('A final Sign payment has no session; resume it with resumePaidFinalSign')
+  if (record.sessionDecrypt) throw new TasraError('A session-grant decrypt payment has no presentation; resume it with resumePaidSessionDecrypt')
   if (signal.aborted && (record.phase === 'reserved' || record.phase === 'certified')) throw abortedError(requestId, 'session', record.payment, signal, signal.reason)
+  // A fresh execution consent is journaled with the session's first write (its creation), not on
+  // its own: the session's identity derives from it, and nothing bound to it is sent before that
+  // commit. A crash before it leaves `reserved`, which a resume certifies anew (nothing was sent);
+  // one that kept only the creation record leaves it under a session identity nobody derives again.
+  let consent: FirstCommit | undefined
   if (record.phase === 'reserved') {
     const {policy} = await readClientExecutionPolicy(client, {...d, defaultVerificationPolicy: d.defaultVerificationPolicy}, record.payment, record.expected)
     const seed = random32(), signer = createLocalExecutionSigner(seed)
     try {
       const certificate = await createExecutionCertificate({payment: record.payment, policy, publicKey: signer.publicKey, expires: record.payment.expires,
         creator: config.creator})
-      record = await advance(store, requestId, 'reserved', {phase: 'certified', seed: Uint8Array.from(seed), certificate, pollSecret: toHex(random32()).slice(2)})
+      const certified: OperationRecord = {...record, phase: 'certified', seed: Uint8Array.from(seed), certificate, pollSecret: toHex(random32()).slice(2)}
+      const key = recordKey(requestId)
+      consent = {lock: [key], entries: [[key, certified]], check: async () => {
+        const current = await store.load<OperationRecord>(key)
+        if (!current || current.schema !== 1 || current.phase !== 'reserved') throw new TasraError('Paid operation journal changed concurrently')
+      }}
+      record = certified
     } finally { signer.dispose(); seed.fill(0) }
+  }
+  /**
+   * The consent on its own, as before, when the drive did not journal it: a session that failed
+   * before its first write (nothing bound to the consent was sent) or a driver that does not
+   * journal it (a test double). Keeps such a failure resumable with the same consent. A journal
+   * already holding exactly this consent (a store without native commits that failed mid-commit) is
+   * left as it is.
+   */
+  const journalConsent = async () => {
+    if (!consent || consent.published) return
+    const key = recordKey(requestId), certified = consent.entries[0]![1] as OperationRecord
+    await withCommit(store, key, async commit => {
+      const current = await store.load<OperationRecord>(key)
+      if (current?.schema === 1 && current.phase === 'certified' && current.certificate?.execution_key === certified.certificate?.execution_key) return
+      if (!current || current.schema !== 1 || current.phase !== 'reserved') throw new TasraError('Paid operation journal changed concurrently')
+      commit.stage(key, certified)
+    })
+    consent.published = true
   }
   if (!record.seed || !record.certificate || !record.pollSecret) throw new TasraError('Paid operation journal lacks its execution consent')
   const signer = createLocalExecutionSigner(record.seed)
   try {
     if (record.phase === 'certified') {
       if (!holder) throw new TasraError('Resuming a paid session requires its holder strategy')
+      // The session's identity binds its kind: a resume with another holder family is refused, sending nothing.
+      if ((holder.kind === 'oauth') !== (record.params.kind === 'oauth')) throw new TasraError(record.params.kind === 'oauth'
+        ? 'This paid operation was journaled with an OAuth holder; resume it with one' : 'This paid operation was journaled with a wallet holder; resume it with one')
       const params: PaidAgentSessionParams = {operation: record.params.operation, operationSig: record.params.operationSig,
-        messageHex: record.params.messageHex, payment: record.payment, random: record.params.random, ...(record.params.decryption ? {decryption: record.params.decryption} : {})}
+        messageHex: record.params.messageHex, payment: record.payment, random: record.params.random, ...(record.params.kind === 'oauth' ? {kind: 'oauth' as const} : {}), ...(record.params.decryption ? {decryption: record.params.decryption} : {}),
+        ...(record.params.sessionGrant ? {sessionGrant: record.params.sessionGrant} : {})}
       let session
       try {
         session = await prepareRegisteredPaidSession(config.chain, {profile: config.agent.profile, deployment: {...d, defaultVerificationPolicy: d.defaultVerificationPolicy},
@@ -590,6 +1135,8 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
           allowMissingStatusAttestations: config.allowMissingStatusAttestations === true},
         params, {certificate: record.certificate, signer, pollSecret: record.pollSecret, signal})
       } catch (error) {
+        // Best effort: unjournaled, a resume certifies anew, which is safe as nothing was sent.
+        await journalConsent().catch(() => {})
         if (signal.aborted) throw abortedError(requestId, 'session', record.payment, signal, error)
         throw error
       }
@@ -597,8 +1144,10 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
       let result
       try {
         result = await drivePaidSession({session, members: record.members, store, signal, holder, observeRequest, resume: true,
-          wait: hint => sleep(Math.min(Math.max(hint ?? interval, 10), 60_000), signal)})
+          wait: hint => sleep(Math.min(Math.max(hint ?? interval, 10), 60_000), signal), ...consent ? {[FIRST_COMMIT]: consent} : {}} as PaidSessionDriverOptions)
       } catch (error) {
+        // Best effort, as above: the drive's own failure is what the caller must see.
+        await journalConsent().catch(() => {})
         // The completed grant failed the revocation-status preflight: nothing reached a keeper and
         // the journal stays `certified`. Never a new session or payment automatically.
         if (error instanceof RevocationStatusPreflightError) throw statusRefusal(requestId, error)
@@ -609,7 +1158,9 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
       const grant = verifierAgentResult({sessionId: session.sessionId, paymentHash: paymentIntentHash(record.payment),
         requestHash: requestHash(d.chainId, hexToBytes(record.payment.slot), record.action, hexToBytes(record.payloadDigest))}, result)
       if (!grant.verifierProofs?.length) throw new TasraError('Paid grant lacks anchored verifier proofs')
-      record = await advance(store, requestId, 'certified', {phase: 'authorized', grant: {compound_token: grant.token, verifierProofs: grant.verifierProofs, sessionId: session.sessionId, ...(grant.evidenceCt !== undefined ? {evidenceCt: grant.evidenceCt} : {})}})
+      await journalConsent()
+      record = await advance(store, requestId, 'certified', {phase: 'authorized', grant: {compound_token: grant.token, verifierProofs: grant.verifierProofs, sessionId: session.sessionId, ...(grant.evidenceCt !== undefined ? {evidenceCt: grant.evidenceCt} : {}),
+        ...(record.params.sessionGrant ? {sessionGrant: result.sessionGrant ?? {error: 'session_grant_missing'}} : {})}})
     }
     return handle(config, record, signer)
   } catch (error) { signer.dispose(); throw error }
@@ -630,6 +1181,7 @@ function handle(config: PaidOperationConfig, record: OperationRecord, signer: Re
     requestId, payment: structuredClone(record.payment), coordinatorUrl: route(record.coordinator.url),
     get compound_token() { return structuredClone(current) },
     get evidenceCt() { return grant.evidenceCt },
+    get sessionGrant() { return grant.sessionGrant && structuredClone(grant.sessionGrant) },
     verifierProofs: structuredClone(grant.verifierProofs),
     verifier_proofs: grant.verifierProofs.map(p => ({verifier_index: p.verifierIndex, operator: p.operator, pubkey: p.pubkey, proof: [...p.proof]})),
     approveExecution,
@@ -1060,6 +1612,15 @@ export async function reconcilePaidOperation(config: PaidOperationConfig, reques
   const record = await loadRecord(config.store, requestId)
   if (!record) throw new TasraError('No paid operation journal for this request')
   const payer = record.payer ? {payer: record.payer} : {}
+  if (record.phase === 'reserving' && record.payment.allowance_id !== undefined) {
+    // ADR-0090: a journaled voucher completes the debit; otherwise resume requests the same seq and request.
+    const voucher = await journaledAllowanceVoucher(config.store, requestId)
+    if (voucher) {
+      const phase = (await advance(config.store, requestId, 'reserving', {phase: 'reserved', payment: {...record.payment, debit_voucher: voucher}})).phase
+      return {requestId, phase, ...payer, reservation: 'reserved', payerLocked: false, next: NEXT[phase]}
+    }
+    return {requestId, phase: record.phase, ...payer, reservation: 'none', payerLocked: false, next: 'reserve', reason: 'allowance debit not completed; resume requests the same voucher'}
+  }
   if (record.phase !== 'reserving') {
     return {requestId, phase: record.phase, ...payer, reservation: impliedReservation(record), payerLocked: false, next: NEXT[record.phase],
       ...(record.abandoned ? {reason: record.abandoned.reason} : record.failure ? {reason: record.failure.reason} : {})}
@@ -1116,7 +1677,10 @@ export async function resumePaidOperation(config: PaidOperationConfig, requestId
   if (!record) throw new TasraError('No paid operation journal for this request')
   if (record.phase === 'failed') throw new PaidOperationRecoveryError(requestId, 'reservation', new Error(record.failure?.reason ?? 'reservation never happened'), {code: 'reservation-failed'})
   if (record.phase === 'abandoned') throw new TasraError('Paid operation was abandoned; it is never resumed')
-  if (record.phase === 'reserving') {
+  if (record.phase === 'reserving' && record.payment.allowance_id !== undefined) {
+    // ADR-0090: no per-operation reservation to reconcile; resume the same journaled debit.
+    await reserve(config, record, signal)
+  } else if (record.phase === 'reserving') {
     // The reservation must use the payer the journal recorded (its claim and nonce live there).
     if (record.payer && record.payer.toLowerCase() !== config.gasPayer.account.address.toLowerCase()) {
       throw new TasraError(`Paid operation was journaled with gas payer ${record.payer}; resume it with that payer`)
@@ -1136,6 +1700,313 @@ export async function resumePaidOperation(config: PaidOperationConfig, requestId
  * Read the journaled phase of a paid operation, for deciding between resume and recovery.
  * @param store Store the operation was journaled in.
  * @param requestId Reservation identity.
+ */
+/** A final dual-control Sign: the message whose SHA-256 the payment binds, and its lifetime. */
+export interface PaidFinalSignRequest {
+  /** FROST slot under a dual-control policy. */
+  slot: Hex
+  /** Exact message the dual-control request will sign. */
+  message: Uint8Array
+  /** Payment lifetime, 1..3600 seconds (default 600). */
+  ttlSecs?: number
+  /** Pin the coordinator keeper (operator address); otherwise the drawn one. */
+  coordinator?: Address
+  /** Cancellation (discovery, debit or reservation). */
+  signal?: AbortSignal
+  /** Receive the request identity before anything is debited or reserved; a throw stops it. */
+  onRequestId?(requestId: Hex): void | Promise<void>
+}
+
+/** A paid final Sign ready for `createDualSignClient`: its payment, keeper and execution approvals. */
+export interface PaidFinalSign {
+  /** Request identity (the dual-sign request id without `0x`). */
+  requestId: Hex
+  /** The backed final Sign payment (with its debit voucher when allowance-backed). */
+  payment: PaymentIntentWire
+  /** The payment's coordinator keeper URL (after `keeperUrl` routing). */
+  coordinatorUrl: string
+  /** Approves the keeper's final work for exactly this payment (the dual-sign `approveExecution`). */
+  approveExecution: KeeperExecutionApprover
+  /** Erase the execution key from memory. */
+  dispose(): void
+}
+
+/**
+ * Pay a final dual-control Sign without any presentation: no verifier-agent session and no
+ * credential grant follows, because a static-key dual-control quorum authorizes the work at the
+ * keeper. With `config.allowances` it is debited from an allowance lane and falls back
+ * to a per-operation reservation exactly as {@link paidOperation} does; the journal, the execution
+ * certificate and the keeper approvals are the ones paidOperation uses. Resume an interrupted one
+ * with {@link resumePaidFinalSign}.
+ * @param config - Paid operation configuration (its agent settings are not used).
+ * @param request - Slot, message, lifetime and cancellation.
+ */
+export async function paidFinalSign(config: PaidOperationConfig, request: PaidFinalSignRequest): Promise<PaidFinalSign> {
+  validateConfig(config)
+  if (!config.allowances?.enabled) return finalSignAttempt(config, request, false)
+  try { return await finalSignAttempt(config, request, true) }
+  catch (error) {
+    if (!(error instanceof AllowanceFallback)) throw error
+    return finalSignAttempt(config, request, false)
+  }
+}
+
+async function finalSignAttempt(config: PaidOperationConfig, request: PaidFinalSignRequest, useAllowance: boolean): Promise<PaidFinalSign> {
+  if (!(request.message instanceof Uint8Array) || request.message.length === 0) throw new TasraError('Final Sign requires the exact message')
+  const requestId = await presentationlessAttempt(config, request, useAllowance, {marker: 'finalSign', action: 'sign', mode: 0,
+    modeError: 'A final dual-control Sign requires a FROST slot', description: 'Paid final dual-control Sign',
+    build: (d, nowSecs, ttlSecs) => {
+      const built = presentationOperationTypedData({action: 'sign', message: request.message, chainId: d.chainId, keyRegistry: d.keyRegistry, slotId: request.slot,
+        description: 'Paid final dual-control Sign', nowSecs, ttlSecs})
+      if (toHex(built.payloadDigest).toLowerCase() !== toHex(sha256(request.message)).toLowerCase()) throw new TasraError('Final Sign payload differs from its message digest')
+      return built
+    }})
+  return continueFinalSign(config, requestId)
+}
+
+/** What a presentationless paid operation pays for: its journal marker, action, slot mode and operation. */
+interface PresentationlessSpec {
+  marker: 'finalSign' | 'sessionDecrypt'
+  action: 'sign' | 'decrypt'
+  mode: number
+  modeError: string
+  description: string
+  build(d: PaidContextDeployment & {chainId: number; keyRegistry: Address}, nowSecs: number, ttlSecs: number): ReturnType<typeof presentationOperationTypedData>
+  decryption?: DecryptionBindingWire
+  /** Session grants: the session grant's draw the payment must name (the keeper refuses any other). */
+  draw?: {epoch: bigint; seed: Hex}
+  /** Sees the discovery the payment is built from (the beacon epoch it observed). */
+  onContext?(context: PaidOperationContext): void
+}
+
+/** Pay one operation without any presentation (final dual Sign, session-grant decrypt): journaled, reserved, never presented. */
+async function presentationlessAttempt(config: PaidOperationConfig, request: {slot: Hex; ttlSecs?: number; coordinator?: Address; signal?: AbortSignal;
+  onRequestId?(requestId: Hex): void | Promise<void>}, useAllowance: boolean, spec: PresentationlessSpec): Promise<Hex> {
+  const d = {...config.deployment}, client = config.chain.client, signal = request.signal ?? new AbortController().signal
+  const slot = request.slot
+  if (!HEX32.test(slot)) throw new TasraError('Invalid paid operation slot')
+  if (config.billing) await config.billing.requirePrepaid(slot)
+  const readiness = AbortSignal.any([signal, AbortSignal.timeout(config.snapshotWaitMs ?? 180_000)])
+  const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(client, d, slot,
+    {allowLocalHttp: config.allowLocalHttp, defaultVerificationPolicy: d.defaultVerificationPolicy, coordinator: request.coordinator, fundedByAllowance: useAllowance,
+      ...spec.draw ? {verificationEpoch: spec.draw.epoch} : {}}),
+  // A moved draw (PaidDrawMovedError) is not an absent anchor: it is thrown, never waited on.
+  readiness, () => sleep(1_000, readiness))
+  if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
+  if (context.mode !== spec.mode) throw new TasraError(spec.modeError)
+  // Discovered without `undrawnDuringAnchorGap`: always drawn (refused, never zero fields, otherwise).
+  if (context.undrawn) throw new TasraError('Paid operation discovery returned no verifier draw')
+  if (spec.draw && (BigInt(context.intentFields.verification_epoch) !== spec.draw.epoch
+    || context.intentFields.verification_seed.toLowerCase() !== spec.draw.seed.toLowerCase())) {
+    throw new TasraError('The session grant names a seed the beacon does not hold for its epoch')
+  }
+  spec.onContext?.(context)
+  const ttlSecs = request.ttlSecs ?? 600
+  if (!Number.isSafeInteger(ttlSecs) || ttlSecs <= 0 || ttlSecs > 3600) throw new TasraError('Paid operation lifetime must be 1..3600 seconds')
+  // The operation record keeps the presentation shape; nothing is signed or presented for it.
+  const built = spec.build(d, Math.floor(Date.now() / 1000), ttlSecs)
+  const payloadDigest = built.payloadDigest
+  const randomBytes = random32(), random = toHex(randomBytes); randomBytes.fill(0)
+  const env = useAllowance ? allowanceEnv(config) : undefined
+  // A session message pays the GRANT's draw (all six fields: the keeper's
+  // `require_payment_names_draw`), so only a lane drawn on it funds one, else a per-operation
+  // reservation at it.
+  const ticket = env ? await selectAllowanceLane(env, context, {action: spec.action, expires: built.operation.exp, drawPinned: spec.draw !== undefined}) : undefined
+  const unsigned = {...ticket ? ticket.fields : context.intentFields, action: spec.action,
+    payload_digest: toHex(payloadDigest), session_commitment: paymentSessionCommitment(random, config.agent.profile.clientId, built.operation.exp),
+    nonce: toHex(random32()), max_cost: config.limits.maxCost.toString(), expires: built.operation.exp, ...ticket ? {allowance_id: ticket.allowanceId} : {}}
+  const payment: PaymentIntentWire = {...unsigned, signature: await config.creator.signTypedData(paymentIntentTypedData(unsigned))}
+  const expected: ExpectedPaidOperation = {slot, action: spec.action, payloadDigest: payment.payload_digest}
+  const requestId = prepaidRequestId(payment)
+  followPaidRequest(client, d, payment)
+  await request.onRequestId?.(requestId)
+  signal.throwIfAborted()
+  const record: OperationRecord = {schema: 1, phase: 'reserving', ...spec.marker === 'finalSign' ? {finalSign: true as const} : {sessionDecrypt: true as const}, payment, expected, members: [], rule: '', ruleSalt: `0x${'00'.repeat(32)}`,
+    params: {operation: built.operation, operationSig: '0x', messageHex: built.messageHex, random, ...spec.decryption ? {decryption: spec.decryption} : {}},
+    coordinator: context.coordinator, contributors: context.contributors, action: spec.action, payloadDigest: toHex(payloadDigest), payer: config.gasPayer.account.address, ...ticket ? {allowance: {lane: ticket.lane}} : {}}
+  await journalNewOperation(config.store, requestId, record)
+  try { await reserve(config, record, signal) }
+  catch (error) {
+    if (ticket && error instanceof PaidOperationRecoveryError && error.code === 'reservation-failed' && error.cause instanceof AllowanceRefusedError) throw new AllowanceFallback(requestId, error)
+    throw error
+  }
+  return requestId
+}
+
+/**
+ * Resume a journaled final Sign ({@link paidFinalSign}) after an interruption: a `reserving` one is
+ * reconciled through the same debit or reservation path (never a second payment), then certified.
+ * @param config - The original configuration.
+ * @param requestId - The final Sign's request identity.
+ * @param signal - Cancellation.
+ */
+export async function resumePaidFinalSign(config: PaidOperationConfig, requestId: Hex, signal?: AbortSignal): Promise<PaidFinalSign> {
+  validateConfig(config)
+  const record = await config.store.load<OperationRecord>(recordKey(requestId))
+  if (!record || record.schema !== 1 || !record.finalSign) throw new TasraError('No final Sign journal for this request')
+  if (record.phase === 'reserving') await reserve(config, record, signal ?? new AbortController().signal)
+  return continueFinalSign(config, requestId)
+}
+
+async function continueFinalSign(config: PaidOperationConfig, requestId: Hex): Promise<PaidFinalSign> {
+  const d = {...config.deployment}, store = config.store
+  let record = await store.load<OperationRecord>(recordKey(requestId))
+  if (!record || record.schema !== 1 || !record.finalSign || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('No final Sign journal for this request')
+  if (record.phase === 'reserved') {
+    const {policy} = await readClientExecutionPolicy(config.chain.client, {...d, defaultVerificationPolicy: d.defaultVerificationPolicy}, record.payment, record.expected)
+    const seed = random32(), signer = createLocalExecutionSigner(seed)
+    try {
+      const certificate = await createExecutionCertificate({payment: record.payment, policy, publicKey: signer.publicKey, expires: record.payment.expires, creator: config.creator})
+      record = await advance(store, requestId, 'reserved', {phase: 'certified', seed: Uint8Array.from(seed), certificate, pollSecret: toHex(random32()).slice(2)})
+    } finally { signer.dispose(); seed.fill(0) }
+  }
+  if (record.phase !== 'certified' || !record.seed || !record.certificate) throw new TasraError(`Final Sign journal is ${record.phase}, not payable`)
+  const signer = createLocalExecutionSigner(record.seed)
+  const approveExecution = createKeeperExecutionApprover({client: config.chain.client, deployment: d, payment: record.payment, expected: record.expected,
+    certificate: record.certificate, signer, keeperUrl: config.keeperUrl, transportPolicy: {allowLocalHttp: config.allowLocalHttp}})
+  const route = config.keeperUrl ?? ((url: string) => url)
+  return {requestId, payment: structuredClone(record.payment), coordinatorUrl: route(record.coordinator.url), approveExecution, dispose: () => signer.dispose()}
+}
+
+/** One session-grant KEM decrypt to pay: the slot and the exact recipient binding. */
+export interface PaidSessionDecryptRequest {
+  /** KEM (BLS) slot named by the session grant. */
+  slot: Hex
+  /** Recipient binding of this ciphertext ({@link decryptionBinding}); fixes the payload digest. */
+  decryption: DecryptionBindingWire
+  /** Payment lifetime, 1..3600 seconds (default 600). */
+  ttlSecs?: number
+  /** Cancellation (discovery, debit or reservation). */
+  signal?: AbortSignal
+  /** Receive the request identity before anything is debited or reserved; a throw stops it. */
+  onRequestId?(requestId: Hex): void | Promise<void>
+  /**
+   * The session grant this decrypt is served under (`GrantedSession.current()`). The payment then
+   * names THE GRANT'S verifier draw, as the keeper requires of every session item (any other draw
+   * is refused: "payment names another verifier draw than the session grant"). While the grant's
+   * epoch is the beacon's latest or previous it is paid there; past that a `PaidDrawMovedError`
+   * (`code: 'draw-moved'`) is thrown before anything is signed: refresh the grant first. Without
+   * it the payment takes the freshly discovered draw, which is the grant's only by chance.
+   */
+  grant?: {epoch: number; seed: string}
+  /**
+   * Sees the beacon's latest epoch the moment discovery reads it, before anything is signed
+   * (`GrantedSession.observeBeacon`: the grant's background refresh then starts while this
+   * payment is still being reserved). A throw is ignored.
+   */
+  onBeaconEpoch?(epoch: bigint): void
+}
+
+/** A paid session-grant decrypt ready for the session partials client. */
+export interface PaidSessionDecrypt {
+  /** Request identity. */
+  requestId: Hex
+  /** The backed decrypt payment (with its debit voucher when allowance-backed). */
+  payment: PaymentIntentWire
+  /** Approves each keeper's contribution for exactly this payment (kind `session-decrypt`). */
+  approveExecution: KeeperExecutionApprover
+  /**
+   * Read ONE assigned contributor's retained partial for this decrypt after it answered that the item
+   * already ran (`409 recoverable` / `already claimed`): the paid-execution recovery route, which
+   * performs no new work and spends nothing. `nodeUrl` is the keeper URL the request went to (after
+   * `keeperUrl` routing). Returns the retained partial JSON for `decryptWithSessionGrant`'s `recover`.
+   */
+  recoverPartial(options: {nodeUrl: string; transport: KeeperRecoveryTransport; signal?: AbortSignal}): Promise<unknown>
+  /** Erase the execution key from memory. */
+  dispose(): void
+  /**
+   * The beacon's latest epoch the payment's discovery observed (absent on a resume). Once it is past
+   * the grant's epoch, refresh the grant before the beacon moves again: a refresh continues ONE
+   * epoch; a skipped epoch needs a new presentation.
+   */
+  beaconEpoch?: bigint
+}
+
+/**
+ * Pay one KEM decrypt that a session grant authorizes: no presentation and no
+ * verifier round, because the grant and the session-key proof authorize the keeper work. With
+ * `config.allowances` it is debited from an allowance lane and falls back to a per-operation
+ * reservation exactly as {@link paidOperation}; journal, certificate and keeper approvals are the
+ * ones every paid operation uses. Resume an interrupted one with {@link resumePaidSessionDecrypt}.
+ * @param config - Paid operation configuration (its agent settings are not used).
+ * @param request - Slot, recipient binding, lifetime and cancellation.
+ */
+export async function paidSessionDecrypt(config: PaidOperationConfig, request: PaidSessionDecryptRequest): Promise<PaidSessionDecrypt> {
+  validateConfig(config)
+  const grant = request.grant
+  if (grant !== undefined && (!Number.isSafeInteger(grant.epoch) || grant.epoch < 0 || typeof grant.seed !== 'string' || !HEX32.test(grant.seed))) {
+    throw new TasraError('Invalid session grant draw')
+  }
+  const draw = grant ? {epoch: BigInt(grant.epoch), seed: grant.seed as Hex} : undefined
+  let beaconEpoch: bigint | undefined
+  const attempt = (useAllowance: boolean) => presentationlessAttempt(config, request, useAllowance, {marker: 'sessionDecrypt', action: 'decrypt', mode: 1,
+    modeError: 'A session-grant decrypt requires a BLS slot', description: 'Paid session-grant decrypt', decryption: structuredClone(request.decryption),
+    build: (d, nowSecs, ttlSecs) => presentationOperationTypedData({action: 'decrypt', decryption: request.decryption, chainId: d.chainId, keyRegistry: d.keyRegistry,
+      slotId: request.slot, description: 'Paid session-grant decrypt', nowSecs, ttlSecs}),
+    ...draw ? {draw} : {}, onContext: context => {
+      beaconEpoch = context.beaconEpoch
+      if (beaconEpoch !== undefined) try { request.onBeaconEpoch?.(beaconEpoch) } catch { /* an observer never fails the payment */ }
+    }})
+  if (!request.decryption || typeof request.decryption.content_digest !== 'string') throw new TasraError('A session-grant decrypt requires the complete recipient binding')
+  let requestId: Hex
+  if (!config.allowances?.enabled) requestId = await attempt(false)
+  else {
+    try { requestId = await attempt(true) }
+    catch (error) {
+      if (!(error instanceof AllowanceFallback)) throw error
+      requestId = await attempt(false)
+    }
+  }
+  const paid = await continueSessionDecrypt(config, requestId)
+  return beaconEpoch === undefined ? paid : {...paid, beaconEpoch}
+}
+
+/**
+ * Resume a journaled session-grant decrypt payment ({@link paidSessionDecrypt}): a `reserving`
+ * one is reconciled through the same debit or reservation path (never a second payment).
+ * @param config - The original configuration.
+ * @param requestId - The decrypt's request identity.
+ * @param signal - Cancellation.
+ */
+export async function resumePaidSessionDecrypt(config: PaidOperationConfig, requestId: Hex, signal?: AbortSignal): Promise<PaidSessionDecrypt> {
+  validateConfig(config)
+  const record = await config.store.load<OperationRecord>(recordKey(requestId))
+  if (!record || record.schema !== 1 || !record.sessionDecrypt) throw new TasraError('No session-grant decrypt journal for this request')
+  if (record.phase === 'reserving') await reserve(config, record, signal ?? new AbortController().signal)
+  return continueSessionDecrypt(config, requestId)
+}
+
+async function continueSessionDecrypt(config: PaidOperationConfig, requestId: Hex): Promise<PaidSessionDecrypt> {
+  const d = {...config.deployment}, store = config.store
+  let record = await store.load<OperationRecord>(recordKey(requestId))
+  if (!record || record.schema !== 1 || !record.sessionDecrypt || prepaidRequestId(record.payment).toLowerCase() !== requestId.toLowerCase()) throw new TasraError('No session-grant decrypt journal for this request')
+  if (record.phase === 'reserved') {
+    const {policy} = await readClientExecutionPolicy(config.chain.client, {...d, defaultVerificationPolicy: d.defaultVerificationPolicy}, record.payment, record.expected)
+    const seed = random32(), signer = createLocalExecutionSigner(seed)
+    try {
+      const certificate = await createExecutionCertificate({payment: record.payment, policy, publicKey: signer.publicKey, expires: record.payment.expires, creator: config.creator})
+      record = await advance(store, requestId, 'reserved', {phase: 'certified', seed: Uint8Array.from(seed), certificate, pollSecret: toHex(random32()).slice(2)})
+    } finally { signer.dispose(); seed.fill(0) }
+  }
+  if (record.phase !== 'certified' || !record.seed || !record.certificate) throw new TasraError(`Session-grant decrypt journal is ${record.phase}, not payable`)
+  const signer = createLocalExecutionSigner(record.seed)
+  const approveExecution = createKeeperExecutionApprover({client: config.chain.client, deployment: d, payment: record.payment, expected: record.expected,
+    certificate: record.certificate, signer, keeperUrl: config.keeperUrl, transportPolicy: {allowLocalHttp: config.allowLocalHttp}})
+  const reads = recoveryReads(config, record, record.certificate, signer), route = config.keeperUrl ?? ((url: string) => url)
+  const norm = (url: string) => url.replace(/\/$/, '')
+  const recoverPartial: PaidSessionDecrypt['recoverPartial'] = async ({nodeUrl, transport, signal}) => {
+    const member = record!.contributors?.find(m => norm(route(m.url)) === norm(nodeUrl))
+    if (!member) throw new TasraError('Recovery keeper is not an assigned contributor of this decrypt')
+    const recovered = await reads.recover({transport, contributorKey: member.publicKey, signal})
+    return JSON.parse(recovered.resultJson) as unknown
+  }
+  return {requestId, payment: structuredClone(record.payment), approveExecution, recoverPartial, dispose: () => signer.dispose()}
+}
+
+/**
+ * The journaled phase of a paid operation, or `undefined` when the store holds no record of it.
+ * @param store - Application store holding the operation journal.
+ * @param requestId - Payment request id of the operation.
  */
 export async function paidOperationPhase(store: ApplicationStore, requestId: Hex): Promise<PaidOperationJournalPhase | undefined> {
   const record = await store.load<OperationRecord>(recordKey(requestId))
@@ -1186,7 +2057,7 @@ export async function listPaidOperations(store: ApplicationStore, filter: ListPa
   if (filter.backfill) await backfillIndex(store)
   const out: PaidOperationSummary[] = []
   for (const requestId of await loadIndex(store)) {
-    const record = await loadRecord(store, requestId)
+    const record = await loadRecord(store, requestId as Hex)
     if (!record || (phases && !phases.includes(record.phase)) || (record.phase === 'abandoned' && !abandoned)) continue
     out.push({requestId, phase: record.phase, slot: record.payment.slot, action: record.payment.action, expires: record.payment.expires,
       ...(record.payer ? {payer: record.payer} : {}), ...(record.abandoned ? {abandoned: {...record.abandoned}} : {})})
@@ -1227,6 +2098,9 @@ export interface AbandonedPaidOperation {
   at: number
 }
 
+/** The accountants accept a client-pinned reservation quote block at most this old (accountant `MAX_QUOTE_AGE`). */
+const RESERVATION_QUOTE_MAX_AGE_SECS = 30
+
 /**
  * Close a paid operation for good, only when nothing can still land under it: no reservation,
  * session write or keeper work can still be accepted. The journal is kept (phase `abandoned`),
@@ -1234,7 +2108,9 @@ export interface AbandonedPaidOperation {
  * Abandoning an already abandoned operation returns its original record.
  *
  * Allowed when the journal proves it:
- * - `reserving` with no reservation ever prepared (nothing was sent);
+ * - `reserving` with no reservation ever prepared, once the payment has expired plus the quote
+ *   window (MAX_QUOTE_AGE, 30 s) and the skew margin: until then the signed intent the accountants
+ *   saw could still be reserved by whoever holds it;
  * - `failed` (the reservation provably never happened);
  * - `executed` (completed and recorded);
  * - `reserved`, `certified`, `authorized` or `executing` once the creator-signed payment has
@@ -1264,6 +2140,11 @@ export async function abandonPaidOperation(store: ApplicationStore, requestId: H
       if (await loadPaidReservationJournal(store, requestId).catch(() => 'unreadable' as const) !== undefined) {
         throw refuse('its reservation was prepared and may have been sent; reconcile it first')
       }
+      // Even with nothing of ours prepared, the signed intent reached the accountants: anyone holding
+      // it can still have it reserved at a quote block up to MAX_QUOTE_AGE old, and never once the
+      // payment has expired (its quote block cannot postdate the expiry). Wait out both.
+      const notBefore = record.payment.expires + RESERVATION_QUOTE_MAX_AGE_SECS + ABANDON_EXPIRY_MARGIN_SECS
+      if (now < notBefore) throw refuse('its signed intent can still be reserved by its holder; reconcile it, or abandon it after the payment and quote windows', notBefore)
     } else if (from !== 'failed' && from !== 'executed') {
       const notBefore = record.payment.expires + ABANDON_EXPIRY_MARGIN_SECS
       if (now < notBefore) throw refuse('its payment has not expired, so its reservation, session or keeper work can still be accepted', notBefore)

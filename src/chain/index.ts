@@ -7,7 +7,8 @@
 // Contract ABIs (generated from the Foundry artifacts) + nametoabi map.
 export * from './abis/index.js'
 export {UnderfundedSlotError, UnderfundedGasPayerError, PaidBackoffError, PaidApprovalUnresolvedError, PaidReservationQuotaError} from '../errors.js'
-export {readSlotFunding, readPaidOperationReceipt, resolvePaidKeeperTarget, discoverPaidOperationContext} from './prepaid.js'
+export {readSlotFunding, readPaidOperationReceipt, resolvePaidKeeperTarget, discoverPaidOperationContext, readCurrentBeaconEpoch, readBeaconDrawState, PaidDrawMovedError} from './prepaid.js'
+export type {BeaconDrawState} from './prepaid.js'
 export {readBillingMode, createBillingModeDetector, requirePrepaidSlot, BillingModeError} from './billing.js'
 export {drawnVerifierWitnesses, fetchDrawnVerifierWitnesses} from './verifierSnapshot.js'
 export {encodePrepaidFaultContest, contestPrepaidFault, readPrepaidFaultResolution, submitPrepaidFaultClaim, readPrepaidFaultStatus,
@@ -16,10 +17,17 @@ export type {PrepaidFaultKind, PrepaidFaultVerdict, PrepaidFaultHttpOptions} fro
 export type {OriginalVerifierPolicy} from './verifierSnapshot.js'
 export type {BillingMode, BillingModeObservation, BillingDeployment, BillingModeDetector} from './billing.js'
 export type {PrepaidDeployment, PrepaidObservation, SlotFunding, PaidOperationReceipt, ExpectedPaidOperation, PaidKeeperEndpoint, PaidKeeperTarget, PaidKeeperTransportOptions,
-  PaidContextDeployment, PaidContextOptions, DiscoveredPaymentFields, PaidOperationContext} from './prepaid.js'
-export {reservePaidOperation, reconcilePaidReservation, PaidReservationUncertainError, PaidReservationAbortedError} from './reservation.js'
+  PaidContextDeployment, PaidContextOptions, DiscoveredPaymentFields, PaidOperationContext, DrawnPaidOperationContext, UndrawnPaidOperationContext,
+  UndrawnPaymentFields, PaymentDrawFieldName} from './prepaid.js'
+export {reservePaidOperation, reconcilePaidReservation, PaidReservationUncertainError, PaidReservationAbortedError, PaidReservationStaleEpochError} from './reservation.js'
+export {followHeads, unfollowHeads, headFollowerOf, createHeadFollower, type HeadFollower, type HeadFollowerOptions, type FollowedHead} from './headFollower.js'
 export type {PaidReservationQuote, PaidReservationRecord, PaidReservationCheckpoint, ReservePaidOperationOptions, PaidReservationResolution} from './reservation.js'
-export {SlotCommitmentExpiredError, assertExpiredSlotCommitment} from './commitmentRecovery.js'
+// ADR-0090 prepaid allowances: reserve once, debit per operation by accountant-quorum voucher.
+export {reservePrepaidAllowance, reconcilePrepaidAllowance, readPrepaidAllowance, prepaidAllowanceId, collectDebitVoucher, verifyDebitVoucher, readAccountantGroupKey,
+  DebitVoucherError, ALLOWANCE_MAX_LIFETIME_SECS, ALLOWANCE_QUOTE_MAX_AGE_SECS} from './allowance.js'
+export type {PrepaidAllowanceState, PrepaidAllowanceQuote, PrepaidAllowanceReservationRecord, PrepaidAllowanceCheckpoint, ReservePrepaidAllowanceOptions,
+  DebitPartialWire, DebitRequest, DebitMemberOutcome, CollectDebitVoucherOptions} from './allowance.js'
+export {SlotCommitmentExpiredError, SlotRevealNotYetError, SlotSeedUnavailableError, assertExpiredSlotCommitment} from './commitmentRecovery.js'
 // Payer-side prepaid timeout escape: refund reservations nobody reconciled within the governed delay.
 export {createPrepaidEscapeClient, decodePrepaidEscapeRevert, decodePrepaidEscapeLogs, prepaidEscapeId, MAX_ESCAPE_PER_CALL, MAX_ESCAPE_REQUESTS} from './prepaidEscape.js'
 export type {PrepaidEscapeClient, PrepaidEscapeDeployment, PrepaidEscapeRequestState, PrepaidEscapeStatus, PrepaidEscapeObservation, PrepaidEscapeRecord,
@@ -58,6 +66,7 @@ export type {EventCategory, DecodedEvent} from './events.js'
 export {createTasraChainClient} from './client.js'
 export type {
   ChainClientConfig,
+  RpcBatchOptions,
   GetLogsWindowedOpts,
   TasraChainClient,
 } from './client.js'
@@ -128,8 +137,8 @@ export type {SlotGroupKey} from './discovery.js'
 // accountant-seeded creation: the per-commitment draw seed. `createSlotCommitReveal` uses this internally; it is
 // exported for a caller that drives commit and reveal itself (the CLI does) or wants to inspect
 // what the accountant set answered before spending gas.
-export {requestSlotSeed} from './slotSeed.js'
-export type {SlotSeed, SlotSeedOptions} from './slotSeed.js'
+export {DEFAULT_SLOT_SEED_HEDGE_MS, DEFAULT_SLOT_SEED_RETRY_MS, requestSlotSeed} from './slotSeed.js'
+export type {SlotSeed, SlotSeedAnswer, SlotSeedFailure, SlotSeedOptions} from './slotSeed.js'
 
 // The few-lines committee surface, driven by just a slot id: discovers the
 // keeper node + verifier set from chain, then sign / encrypt / decrypt.
@@ -169,9 +178,9 @@ export {assertRelayVoucher, assertRelayVoucherIntent} from './relayVoucher.js'
 export {createRegisteredAgentClient, AgentSessionCreationUnknownError} from './registeredAgent.js'
 export type {AgentTransport, ApprovedAgentProfile, RegisteredAgentSession, UnpaidAgentSessionRecovery} from './registeredAgent.js'
 export type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
-export {prepareRegisteredPaidSession, PaidAgentControlError} from './registeredPaidAgent.js'
+export {prepareRegisteredPaidSession, PaidAgentControlError, BATCH_APPROVAL_CAPABILITY, PROPOSAL_WAIT_CAPABILITY, MAX_PROPOSAL_WAIT_MS} from './registeredPaidAgent.js'
 export type {RegisteredPaidAgentSession, PaidAgentSessionParams, ClientApprovedPresentation, PaidRetainedPresentation, PaidAgentProposal,
-  PaidPacingOptions, RetainedPaidApproval, PaidApprovalDelivery} from './registeredPaidAgent.js'
+  PaidPacingOptions, RetainedPaidApproval, PaidApprovalDelivery, PaidApprovalBatchReply} from './registeredPaidAgent.js'
 export {paidServerWaitMs, systemPacingClock} from './paidPacing.js'
 export type {PaidPacingClock} from './paidPacing.js'
 export {readClientExecutionPolicy} from './prepaid.js'

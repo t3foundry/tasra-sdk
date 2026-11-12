@@ -1,5 +1,6 @@
 import {createPublicClient, createWalletClient, custom, defineChain, http, keccak256, toHex, parseTransaction, recoverTransactionAddress,
   type Account, type Address, type Chain, type EIP1193Provider, type Hex, type LocalAccount, type TransactionReceipt, type TransactionSerialized, type Transport, type WalletClient} from 'viem'
+import {headFollowerOf} from '../chain/headFollower.js'
 import {generatePrivateKey, privateKeyToAccount} from 'viem/accounts'
 import {TasraError} from '../errors.js'
 import type {TypedDataSigner} from '../oid4vp/verifier-agent.js'
@@ -7,6 +8,7 @@ import {defineDeployment, type TasraDeployment} from './deployment.js'
 import type {AuthorizedOperationOptions, TasraApplication} from './client.js'
 import {toViemAccount} from './viem.js'
 import type {ApplicationStore} from './ready-slot.js'
+import {WRITE_POLL_INTERVAL_MS} from '../chain/receipt.js'
 
 /**
  * Recipient, native-token value and optional calldata, gas limit and nonce.
@@ -116,7 +118,7 @@ async function verifySignedTransaction(journal: WalletTransactionJournal) {
 }
 function wrap(deployment: TasraDeployment, wallet: TasraWallet['wallet'], local?: LocalAccount): TasraWallet {
   const config = defineDeployment(deployment), address = wallet.account.address
-  const pub = createPublicClient({chain: chainFor(config), transport: http(config.rpcUrl, {retryCount: 0})})
+  const pub = createPublicClient({chain: chainFor(config), transport: http(config.rpcUrl, {retryCount: 0}), pollingInterval: WRITE_POLL_INTERVAL_MS, cacheTime: 4_000})
   async function assertChain() {
     if (await pub.getChainId() !== config.chainId || await wallet.getChainId() !== config.chainId) throw new TasraError('Wallet or RPC chain differs from the deployment')
     if (!local && !(await wallet.getAddresses()).some(a => a.toLowerCase() === address.toLowerCase())) throw new TasraError('Connected wallet account changed')
@@ -173,6 +175,7 @@ function wrap(deployment: TasraDeployment, wallet: TasraWallet['wallet'], local?
       await verifySignedTransaction(journal)
       await assertChain()
       const receipt = await pub.waitForTransactionReceipt({hash: journal.hash, timeout: timeoutMs, checkReplacement: false})
+      headFollowerOf(pub)?.noteMinedBlock(receipt.blockNumber)
       journal.phase = 'confirmed'
       journal.receipt = receipt
       await persist?.(structuredClone(journal))

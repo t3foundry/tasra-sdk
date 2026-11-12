@@ -35,6 +35,8 @@ import {createTasraWriteClient, generateClientKey} from '../../src/chain/write.t
 import {bondingCurveAbi} from '../../src/chain/abis/bondingCurve.ts'
 import {mockEurcAbi} from '../../src/chain/abis/mockEurc.ts'
 import {ensureGas} from './_faucet.ts'
+import {waitForCommitteeKey} from '../fleet/_anchored-key.ts'
+import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.ts'
 import {fleetConfig} from './_run.ts'
 import {fetchMpk} from '../../src/keys/node-client.ts'
 import {encryptEnvelope, fromBytes, toBytes} from '../../src/crypto/envelope.ts'
@@ -94,31 +96,26 @@ s.ok('account now holds TSRA', (await client.tsraBalance()) > 0n, `${formatEther
 // ── 4. self-create a slot on-chain (production commit→reveal)
 const tCreate = Date.now()
 const createPath = 'commit-reveal'
-const created = await client.createSlotCommitReveal({rule:SLOT_DCQL_RULE,k:2,n:3,mode:'bls',authType:'oid4vp',tags:['keykeeper'],maxWaitMs:180000,onEpoch:(cur,t)=>s.info(`beacon epoch ${cur}/${t}…`)})
+const created = await client.createSlotCommitReveal({rule:SLOT_DCQL_RULE,k:2,n:3,mode:'bls',authType:'oid4vp',tags:['keykeeper']})
 const {slotId,ruleSalt} = created
 const createMs = Date.now() - tCreate
 s.ok('account self-created a TSRA-funded slot on-chain', /^0x[0-9a-f]{64}$/.test(slotId), `${createPath}, ${(createMs / 1000).toFixed(1)}s`)
 metric('slot_create_ms', createMs, 'ms', {path: createPath})
 
-// ── 5. wait for the drawn committee's auto-DKG (anchored key) ──────────────────
+// ── 5. wait for the drawn committee's auto-DKG (key ANCHORED on chain) ─────────
+// A keeper serves /v1/keys/:id/public once ITS DKG finished, before the k-th publish vote lands;
+// the paid discovery below reads KeyRegistry at a chain head, so readiness is the anchored key.
 const tDkg = Date.now()
 let committee: string[] = []
 let mpkHex = ''
-const dkgDeadline = Date.now() + 120_000
-while (!mpkHex && Date.now() < dkgDeadline) {
-  committee = await discoverCommittee(cfg, slotId)
-  for (const u of committee) {
-    try {
-      const r = (await (await fetch(`${u}/v1/keys/${slotId}/public`, {signal: AbortSignal.timeout(4000)})).json()) as {group_public_key?: string}
-      if (r.group_public_key && /^[0-9a-f]{192}$/i.test(r.group_public_key)) {
-        mpkHex = r.group_public_key
-        break
-      }
-    } catch {
-      /* node transiently unavailable */
-    }
-  }
-  if (!mpkHex) await new Promise(r => setTimeout(r, 2000))
+try {
+  ;({committee, publicKey: mpkHex} = await waitForCommitteeKey({
+    committee: () => discoverCommittee(cfg, slotId),
+    keeperKey: async u => ((await (await fetch(`${u}/v1/keys/${slotId}/public`, {signal: AbortSignal.timeout(4000)})).json()) as {group_public_key?: string}).group_public_key,
+    readSlot: () => client.pub.readContract({address: cfg.book.KeyRegistry!, abi: keyRegistryAbi, functionName: 'getKeySlot', args: [slotId]}),
+  }, {deadlineMs: Date.now() + 120_000}))
+} catch (error) {
+  s.info(`anchored key wait: ${error instanceof Error ? error.message : String(error)}`)
 }
 const dkgMs = Date.now() - tDkg
 s.ok('committee auto-DKG anchored the slot key', /^[0-9a-f]{192}$/i.test(mpkHex), `committee=${committee.length}, ${(dkgMs / 1000).toFixed(1)}s`)

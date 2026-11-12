@@ -67,6 +67,43 @@ describe('ServiceRegistry approval boundary', () => {
     await expect(readApprovedServiceRecord(chain, approval)).rejects.toThrow('RPC unavailable')
   })
 
+  it('reads the record by RPC when the live tip is not proven final', async () => {
+    const {attachHeadFollower, unfollowHeads} = await import('../../src/chain/headFollower.js')
+    const {chain, read} = fixture()
+    const tipHash = `0x${'7b'.repeat(32)}` as const
+    attachHeadFollower(chain.client, {finality: 'instant', tip: () => ({blockNumber: 456n, blockHash: tipHash, blockTimestamp: 1n, parentHash: tipHash}),
+      isCanonical: () => undefined, live: () => true, ingest: async () => {}, ingestFinalized: async () => {}, noteMinedBlock: () => {}, gaps: () => 0,
+      start: () => {}, stop: () => {}, onHead: () => () => {}} as never)
+    const call = vi.spyOn(chain.client, 'call')
+    try {
+      expect(await readApprovedServiceRecord(chain, approval)).toEqual({record, blockNumber: 123n})
+      expect(read).toHaveBeenCalled()
+      expect(call).not.toHaveBeenCalledWith(expect.objectContaining({blockHash: tipHash}))
+    } finally { unfollowHeads(chain.client) }
+  })
+
+  it('reads the record at a live, final head follower tip, pinned to its hash, without a head-number round', async () => {
+    const {attachHeadFollower, unfollowHeads} = await import('../../src/chain/headFollower.js')
+    const {encodeFunctionResult} = await import('viem')
+    const {serviceRegistryAbi} = await import('../../src/chain/abis/serviceRegistry.js')
+    const {chain, read} = fixture()
+    const tipHash = `0x${'7a'.repeat(32)}` as const
+    attachHeadFollower(chain.client, {finality: 'instant', tip: () => ({blockNumber: 456n, blockHash: tipHash, blockTimestamp: 1n, parentHash: tipHash}),
+      isCanonical: () => true, live: () => true, ingest: async () => {}, ingestFinalized: async () => {}, noteMinedBlock: () => {}, gaps: () => 0,
+      start: () => {}, stop: () => {}, onHead: () => () => {}} as never)
+    const answer = (r: ServiceRecord) => encodeFunctionResult({abi: serviceRegistryAbi, functionName: 'getService', result: r as never})
+    const call = vi.spyOn(chain.client, 'call').mockResolvedValue({data: answer(record)})
+    try {
+      expect(await readApprovedServiceRecord(chain, approval)).toEqual({record, blockNumber: 456n})
+      expect(chain.client.getBlockNumber).not.toHaveBeenCalled()
+      expect(read).not.toHaveBeenCalled()
+      expect(call).toHaveBeenCalledWith(expect.objectContaining({to: registry, blockHash: tipHash, requireCanonical: true}))
+      // The same approval checks at the tip.
+      call.mockResolvedValue({data: answer({...record, revision: 2n})})
+      await expect(readApprovedServiceRecord(chain, approval)).rejects.toThrow('revision approval')
+    } finally { unfollowHeads(chain.client) }
+  })
+
   it('does not cache approval across a rotation', async () => {
     const {chain, read} = fixture()
     await readApprovedServiceRecord(chain, approval)

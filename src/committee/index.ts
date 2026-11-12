@@ -7,8 +7,13 @@ export {extractIdentityStrict, decryptIdentityStrict} from './extraction.js'
 export type {StrictExtractionOptions, StrictExtractionResult, ExtractionKeeper, ExtractionEvidence} from './extraction.js'
 export {createDualSignClient, dualSignApprovalPayload, paidDualSignApprovalPayload, OperationOutcomeUnknownError} from './dual-sign.js'
 export type {DualSignConfig, DualSignApprover, DualSignRequest, DualSignStatus} from './dual-sign.js'
-export {committeeSignEoaDigest} from './ecdsa.js'
+export {committeeSignEoaDigest, committeeSignP256Digest} from './ecdsa.js'
+export type {CommitteeP256SignOpts, P256DigestSignature} from './ecdsa.js'
 export type {CommitteeEoaSignOpts} from './ecdsa.js'
+export {DUAL_OPERATION_DOMAIN, DUAL_OPERATION_MAX_LIFETIME_SECS, approveDualOperation, assembleDualOperation, dualOperationFromPayload, dualOperationPayload,
+  prepareDualOperation, requireCurrentDualOperation, requireDualOperationPayment, requireDualOperationProof, validateDualOperationStatement} from './dual-operation.js'
+export type {DualOperationApproval, DualOperationApprovalRecord, DualOperationApprover, DualOperationKind, DualOperationProof, DualOperationStatement,
+  PreparedDualOperation} from './dual-operation.js'
 export {
   selectVerifierCommittee,
   compoundTokenCanonicalBytes,
@@ -144,6 +149,10 @@ export {
 
 export {keeperAssignmentCommitment, paymentIntentTypedData, paymentIntentHash, prepaidRequestId, paymentSessionCommitment, assertPaymentIntentWire} from './payment.js'
 export type {PaidKeeperAssignment, PaymentIntentWire} from './payment.js'
+// ADR-0090 prepaid allowances and debit vouchers (the shared Encodings table).
+export {ALLOWANCE_ACTIONS, PREPAID_ALLOWANCE_DOMAINS, allowanceActionBits, allowanceFunds, prepaidAllowanceIntentTypedData, prepaidAllowanceIntentHash, allowanceId,
+  allowanceReserveDigest, debitVoucherDigest, debitVoucherWireDigest, allowanceSettleDigest, allowanceCloseDigest, assertDebitVoucherWire} from './payment.js'
+export type {AllowanceAction, PrepaidAllowanceIntentWire, DebitVoucherWire, DebitVoucherFields, AllowanceReserveArgs, AllowanceSettleArgs} from './payment.js'
 export {EXECUTION_CERTIFICATE_DOMAIN, EXECUTION_APPROVAL_DOMAIN, EXECUTION_INITIALIZATION_DOMAIN, MAX_EXECUTION_BODY_BYTES,
   executionCertificateTypedData, executionApprovalTypedData, executionInitializationTypedData, initializeExecutionSession, verifySessionInitialization, executionBodyHash,
   createExecutionCertificate, approveExecutionRequest, verifyExecutionAuthorization, executionConsentBinding, verifyExecutionConsent, createLocalExecutionSigner} from './execution.js'
@@ -160,3 +169,11 @@ export {createDecryptionRecipient, decryptionBinding, kemContentDigest, recipien
 export type {ClientRecipient, RecipientWire, DecryptionBindingWire, SealedShareWire} from '../crypto/recipient.js'
 export {collectSealedPartials, decryptWithCommitteePartials} from '../decryption/sealed.js'
 export type {SealedRequestOpts, SealedPartial} from '../decryption/sealed.js'
+// ADR-0090 D7 session grants: shared format with the reference `keykeeper_committee::session_grant`.
+export {SESSION_GRANT_DOMAIN, SESSION_PROOF_DOMAIN, SESSION_BATCH_PROOF_DOMAIN, SESSION_REFRESH_DOMAIN, SESSION_REVOKE_DOMAIN, MAX_SESSION_SLOTS, MAX_BATCH_ITEMS,
+  MAX_ACCESS_TTL_SECS, DEFAULT_ACCESS_TTL_SECS, MAX_IDLE_TIMEOUT_SECS, MAX_ABSOLUTE_TTL_SECS, SESSION_PROOF_FRESHNESS_SECS, MIN_JTI_LEN, MAX_JTI_LEN,
+  SessionGrantError, sessionGrantPayload, sessionGrantCanonicalBytes, sessionGrantHash, decodeSessionGrant, encodeSessionGrant, verifySessionGrant,
+  parseSessionKeyJwk, sessionKeyThumbprint, checkJti, sessionProofHash, sessionBatchProofHash, sessionControlHash, verifySessionSignature, checkProofWindow,
+  encodeSessionProof, toBase64Url} from './session-grant.js'
+export type {GrantSlot, SessionGrantPayload, SessionGrant, GrantSlotWire, GrantSignatureWire, SessionGrantWire, SessionProofWire, VerifiedSessionGrant,
+  VerifySessionGrantOptions, SessionKeyJwk} from './session-grant.js'

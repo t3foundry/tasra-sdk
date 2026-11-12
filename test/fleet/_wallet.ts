@@ -9,6 +9,7 @@ import {
 } from '../../src/oid4vp/index.ts'
 import {discoverCommittee, mintAdminJwt, provisionRule, type FleetConfig} from './_fleet.ts'
 import {assertLocalPrepaidFleet, fundFreshWalletSlot, localPrepaidSettings} from './_prepaid-funding.ts'
+import {waitForSlotKeyOnChain} from './_anchored-key.ts'
 import {authorizePaidWallet} from './_paid-wallet.ts'
 import {issuerStatus} from './_issuer-status.ts'
 
@@ -40,7 +41,7 @@ export async function createWalletSlot(cfg: FleetConfig, mode: 'frost'|'bls' = '
   await assertLocalPrepaidFleet(cfg, writer)
   const funder = createTasraWriteClient({rpcUrl:cfg.rpcUrl,addresses:cfg.book,privateKey:cfg.deployPk as Hex,chainId:cfg.chainId})
   await funder.sendEth(writer.address,parseEther('1'))
-  const created = await writer.createSlotCommitReveal({rule:rule,k,n,mode,authType:'oid4vp',tags:['keykeeper'],maxWaitMs:180000})
+  const created = await writer.createSlotCommitReveal({rule:rule,k,n,mode,authType:'oid4vp',tags:['keykeeper']})
   const {slotId,ruleSalt} = created
   await fundFreshWalletSlot(cfg, writer, creatorKey, created, rule)
   const deadline = Date.now()+240000
@@ -51,6 +52,8 @@ export async function createWalletSlot(cfg: FleetConfig, mode: 'frost'|'bls' = '
       assert.equal(response.status,200)
       const pub = await response.json() as {group_public_key?:string}
       if (pub.group_public_key) {
+        // A keeper answers once ITS DKG finished; paid operations need the key anchored on chain.
+        await waitForSlotKeyOnChain(writer.pub, cfg.book.KeyRegistry!, slotId, pub.group_public_key, deadline)
         const provisioned = await provisionRule(committee,slotId,rule,ruleSalt,mintAdminJwt(cfg))
         assert(provisioned.ok,provisioned.errors.join('; '))
         return {slotId,ruleSalt,committee,publicKey:pub.group_public_key,creatorKey,writer}

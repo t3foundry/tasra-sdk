@@ -5,6 +5,9 @@ import {keyRegistryAbi} from './abis/keyRegistry.js'
 import {readPaidOperationReceipt, type ExpectedPaidOperation, type PaidOperationReceipt, type PrepaidDeployment} from './prepaid.js'
 import {PaidBackoffError, PaidReservationQuotaError, UnderfundedSlotError, UnderfundedGasPayerError} from '../errors.js'
 import {PaidBackoff, paidServerWaitMs, systemPacingClock, type PaidPacingClock} from './paidPacing.js'
+import {chainIdOf} from './chainId.js'
+import {pollTransactionReceipt} from './receipt.js'
+import {headFollowerOf} from './headFollower.js'
 
 /** Accountant authorization for a single operation. This is not a mined reservation. */
 export interface PaidReservationQuote {
@@ -143,8 +146,33 @@ export class PaidReservationUncertainError extends Error {
   }
 }
 
+/**
+ * The accountant's unpinned `prepare` refused the intent because its signed verifier epoch is no
+ * longer the beacon's current or previous one at the accountant's own latest block (the reservation
+ * waited past an epoch tick). This client sent no transaction, but the intent is NOT dead: an
+ * accountant judges the epoch at a client-pinned quote block up to MAX_QUOTE_AGE (30 s) old, and
+ * `reservePrepaid*` is permissionless, so whoever holds the intent may still get it reserved until
+ * its payment expires. Keep its journal and reconcile it; never replace it with a re-signed intent
+ * while it can still land.
+ */
+export class PaidReservationStaleEpochError extends Error {
+  /** Stable machine-readable reason. */
+  readonly code = 'stale-verification-epoch' as const
+  constructor(
+    /** The intent's signed verifier epoch the accountant refused. */
+    readonly verificationEpoch: number,
+  ) {
+    super(`accountant refused verifier epoch ${verificationEpoch} as no longer current or previous; nothing was sent`)
+    this.name = 'PaidReservationStaleEpochError'
+  }
+}
+
 const HEX32 = /^0x[0-9a-f]{64}$/i
 const MAX_BODY = 64 * 1024
+/** The accountant's fixed 503 reason for an intent epoch outside {latest-1, latest} (assignments.rs). */
+const STALE_EPOCH_REASON = 'reservation verifier epoch is not current or previous'
+/** Longest 503 reason read; the accountant's reasons are one short line. */
+const MAX_REASON = 512
 const now = () => Math.floor(Date.now() / 1000)
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 function live(payment: PaymentIntentWire, quote?: PaidReservationQuote): void {
@@ -243,7 +271,7 @@ export async function reconcilePaidReservation(
     || !same(tx.to, d.settlement) || !same(tx.data, data) || tx.value !== '0'
     || !Number.isSafeInteger(tx.nonce) || tx.nonce < 0 || typeof tx.gas !== 'string' || !/^[1-9][0-9]{0,77}$/.test(tx.gas) || BigInt(tx.gas) >= 1n << 64n
     || typeof tx.gasPrice !== 'string' || !/^[1-9][0-9]{0,77}$/.test(tx.gasPrice) || BigInt(tx.gasPrice) >= 1n << 128n) throw new Error('invalid saved reservation transaction')
-  if (await client.getChainId() !== d.chainId) throw new Error('reservation recovery chain mismatch')
+  if (await chainIdOf(client) !== d.chainId) throw new Error('reservation recovery chain mismatch')
   const [transaction, mined, head, quoteBlock] = await Promise.all([
     client.getTransaction({hash: transactionHash}), client.getTransactionReceipt({hash: transactionHash}),
     client.getBlock({blockTag: 'latest'}), client.getBlock({blockHash: quote.quote_block}),
@@ -270,7 +298,7 @@ export async function reconcilePaidReservation(
   const slot = decodeFunctionResult({abi: keyRegistryAbi, functionName: 'getKeySlot', data: result.data})
   const creator = await recoverTypedDataAddress({...paymentIntentTypedData(payment), signature: payment.signature})
   if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= quoteBlock.timestamp) || !same(creator, slot.creator)) throw new Error('saved payment is not from the original active slot creator')
-  const receipt = mined.status === 'success' ? await readPaidOperationReceipt(client, d, payment, operation) : undefined
+  const receipt = mined.status === 'success' ? await readPaidOperationReceipt(client, d, payment, operation, {atLeastBlock: mined.blockNumber}) : undefined
   if (receipt && (receipt.blockNumber < mined.blockNumber || receipt.cost !== BigInt(quote.costs[0]!) || !same(receipt.assignmentBlock, quote.quote_block))) throw new Error('recovered reservation differs from the saved quote')
   const [canonicalMined, canonicalQuote, canonicalHead] = await Promise.all([
     client.getBlock({blockNumber: mined.blockNumber}), client.getBlock({blockNumber: quoteBlock.number}), client.getBlock({blockNumber: head.number}),
@@ -287,7 +315,12 @@ export async function reconcilePaidReservation(
 function unsigned(q: PaidReservationQuote): string {
   return JSON.stringify([q.slot.toLowerCase(), q.quote_block.toLowerCase(), q.request_ids.map(s => s.toLowerCase()), q.costs.map(s => BigInt(s).toString()), q.legacy_nonce, q.deadline, q.digest.toLowerCase()])
 }
-function endpoints(options: ReservePaidOperationOptions, chainId: number): string[] {
+/**
+ * Validated, de-duplicated accountant base URLs (HTTPS; HTTP only on local chain 43112 when allowed).
+ * @param options Endpoints and the local HTTP exception.
+ * @param chainId Deployment chain.
+ */
+export function accountantEndpoints(options: Pick<ReservePaidOperationOptions, 'accountantUrls' | 'allowLocalHttp'>, chainId: number): string[] {
   if (options.accountantUrls.length < 1 || options.accountantUrls.length > 32) throw new Error('supply 1..32 accountant endpoints')
   const urls = options.accountantUrls.map(value => {
     const url = new URL(value)
@@ -312,6 +345,28 @@ export function untilAborted<T>(work: Promise<T>, signal: AbortSignal | undefine
     work.then(value => {signal.removeEventListener('abort', abort); resolve(value)}, (error: unknown) => {signal.removeEventListener('abort', abort); reject(error)})
   })
 }
+/** At most `limit` bytes of a refusal body as text, '' when unreadable; the rest is cancelled. */
+async function boundedText(response: Response, limit: number): Promise<string> {
+  if (!response.body) return ''
+  const reader = response.body.getReader(), chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    while (size < limit) {
+      const {done, value} = await reader.read()
+      if (done) break
+      chunks.push(value.subarray(0, limit - size))
+      size += Math.min(value.length, limit - size)
+    }
+  } catch { return '' } finally {
+    void reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
+  return new TextDecoder().decode(bytes)
+}
+
 /** Ceiling on how long one `prepare` may wait out the accountant's reservation quota, ms. */
 const PREPARE_RETRY_BUDGET_MS = 150_000
 /** Least time a REPEATED prepare must have left in its window; its HTTP timeout is then the time left. */
@@ -319,7 +374,28 @@ const PREPARE_ATTEMPT_BUDGET_MS = 10_000
 
 // Availability is distinct from policy/credit refusals or an invalid successful response.
 // Only this private error permits trying a different endpoint before any transaction exists.
-class AccountantUnavailableError extends Error {}
+class AccountantUnavailableError extends Error {
+  /** A 503 to an unpinned prepare carrying {@link PRE_WRITE_REASON}: refused before anything was recorded. */
+  readonly preWrite: boolean
+  constructor(message: string, options?: ErrorOptions & {preWrite?: boolean}) {
+    super(message, options)
+    this.preWrite = options?.preWrite === true
+  }
+}
+
+/**
+ * The accountant's fixed 503 label for a failed verifier-assignment check (every release; the
+ * detail follows a `:`). That check runs BEFORE the reservation archive record and the signer's
+ * digest approval - the only things a `prepare` writes - so a member answering it recorded and
+ * approved nothing. It is what an accountant deciding at a head older than the client's answers:
+ * 2026-11-12 cert run 16, the previous epoch's verifier anchor landed in the block after the beacon
+ * advanced and every rolled-back accountant decided one block before it, where it was still empty.
+ */
+const PRE_WRITE_REASON = 'reservation assignments unavailable'
+const preWriteReason = (text: string) => {
+  const t = text.trimStart()
+  return t.startsWith(PRE_WRITE_REASON) && (t.length === PRE_WRITE_REASON.length || t[PRE_WRITE_REASON.length] === ':')
+}
 
 /**
  * The prepare retry window: never more than {@link PREPARE_RETRY_BUDGET_MS} and never more than HALF
@@ -365,6 +441,12 @@ async function ask(endpoint: string, method: 'prepare' | 'authorize', payment: P
     try { await backoff.wait(429, hint, signal) } catch (cause) { throw quota(cause) }
   }
   if (!response.ok) {
+    // Only an unpinned prepare picks its quote block, so only it can find the signed epoch stale.
+    if (method === 'prepare' && block === null && response.status === 503) {
+      const reason = await boundedText(response, MAX_REASON)
+      if (reason.includes(STALE_EPOCH_REASON)) throw new PaidReservationStaleEpochError(payment.verification_epoch)
+      throw new AccountantUnavailableError('accountant reservation request refused (503)', {preWrite: preWriteReason(reason)})
+    }
     void response.body?.cancel().catch(() => {})
     if (response.status >= 500 && response.status < 600) throw new AccountantUnavailableError(`accountant reservation request refused (${response.status})`)
     if (response.status === 402) throw new UnderfundedSlotError({slotId: payment.slot, status: 402,
@@ -398,9 +480,17 @@ async function ask(endpoint: string, method: 'prepare' | 'authorize', payment: P
   return parseQuote(JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(body)), payment, method === 'authorize')
 }
 
-/** One intent and quote across available members; no transaction or journal mutation here. */
+/**
+ * One intent and quote across available members; no transaction or journal mutation here.
+ *
+ * When EVERY member refused the unpinned prepare with the pre-write 503 ({@link PRE_WRITE_REASON}),
+ * the seed round is repeated ONCE with the same signed intent, naming the client's fresh `latest`
+ * block, so each member judges it there instead of at its own possibly older head; the accountant
+ * still applies every freshness and canonical check to a named block. Any other mix (a transport
+ * error, whose effect is unknown, another status or reason) is never repeated.
+ */
 async function collectQuote(urls: string[], payment: PaymentIntentWire, requestTimeout: number,
-  signal: AbortSignal | undefined, clock: PaidPacingClock): Promise<{quote: PaidReservationQuote; authorized: PaidReservationQuote}> {
+  signal: AbortSignal | undefined, clock: PaidPacingClock, latest: () => Promise<Hex>): Promise<{quote: PaidReservationQuote; authorized: PaidReservationQuote}> {
   const budget = prepareRetryWindowMs(payment.expires, clock.now()), end = clock.now() + budget
   if (budget <= 0) throw new Error('payment expired before reservation collection')
   const limit = AbortSignal.timeout(budget), bounded = signal ? AbortSignal.any([signal, limit]) : limit
@@ -421,9 +511,24 @@ async function collectQuote(urls: string[], payment: PaymentIntentWire, requestT
     }
   }
   let seed: {quote: PaidReservationQuote; index: number} | undefined, lastUnavailable: AccountantUnavailableError | undefined
-  for (const [index, url] of urls.entries()) {
-    try { seed = {quote: await request(url, 'prepare', null), index}; break }
-    catch (error) { if (!(error instanceof AccountantUnavailableError)) throw error; lastUnavailable = error }
+  const seedRound = async (block: Hex | null) => {
+    let preWrite = 0
+    for (const [index, url] of urls.entries()) {
+      try {
+        const quote = await request(url, 'prepare', block)
+        if (block !== null && !same(quote.quote_block, block)) throw new Error('accountant prepared a different quote block than the one named')
+        seed = {quote, index}; return 0
+      } catch (error) {
+        if (!(error instanceof AccountantUnavailableError)) throw error
+        lastUnavailable = error; preWrite += error.preWrite ? 1 : 0
+      }
+    }
+    return preWrite
+  }
+  if (await seedRound(null) === urls.length && urls.length > 0) {
+    const head = await untilAborted(latest(), bounded)
+    remaining()
+    await seedRound(head)
   }
   if (!seed) throw lastUnavailable ?? new Error('no reachable accountant prepared the reservation')
   const {quote, index} = seed, prepared = [urls[index]!]
@@ -494,54 +599,83 @@ async function reserveOnce(
   live(payment)
   progress.requestId = prepaidRequestId(payment)
   signal?.throwIfAborted()
-  const urls = endpoints(opts, d.chainId)
+  const urls = accountantEndpoints(opts, d.chainId)
   if (payer.type !== 'local' && payer.type !== 'json-rpc') throw new Error('reservation requires an EOA gas payer')
-  if (payerChain.id !== d.chainId || await wallet.getChainId() !== d.chainId || await client.getChainId() !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
+  if (payerChain.id !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
+  // The wallet's and the reader's chain IDs are independent reads (a new wallet client is not
+  // cached yet): asked together, judged in the original order, before anything is contacted.
+  const [walletChain, readerChain] = await Promise.allSettled([chainIdOf(wallet), chainIdOf(client)])
+  if (walletChain.status === 'rejected') throw walletChain.reason
+  if (walletChain.value !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
+  if (readerChain.status === 'rejected') throw readerChain.reason
+  if (readerChain.value !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
   const clock = opts.clock ?? systemPacingClock
-  const {quote, authorized} = await collectQuote(urls, payment, requestTimeout, signal, clock)
+  const latestHash = async (): Promise<Hex> => {
+    const head = await client.getBlock({blockTag: 'latest'})
+    if (head.hash === null) throw new Error('latest block has no hash')
+    return head.hash
+  }
+  const {quote, authorized} = await collectQuote(urls, payment, requestTimeout, signal, clock, latestHash)
   const requestId = prepaidRequestId(payment)
   const args = [payment.slot, BigInt(quote.legacy_nonce), quote.quote_block, [requestId], [BigInt(quote.costs[0]!)], BigInt(quote.deadline)] as const
   const data = encodeFunctionData({abi: settlementAbi, functionName: 'reservePrepaidBls', args: [...args, authorized.signature!]})
-  const block = await client.getBlock({blockHash: quote.quote_block})
+  // The quote block's header is read beside the observations below (all pinned to that same hash)
+  // and judged before them, as when it was read first on its own.
+  const blockRead = client.getBlock({blockHash: quote.quote_block})
+  blockRead.catch(() => {})
+  const call = async (to: Address, data: Hex) => {
+    const result = await client.call({to, data, account: payer, blockHash: quote.quote_block, requireCanonical: true, batch: false})
+    if (result.data === undefined) throw new Error('empty reservation observation')
+    return result.data
+  }
+  // Every observation below is independent of the others: they are sent together and judged in the
+  // order they were once read one by one, so the same answer refuses with the same error.
+  const settled = <T>(work: Promise<T>) => work.then(value => ({value}), (error: unknown) => ({error}))
+  const outcome = <T>(result: {value: T} | {error: unknown}): T => { if ('error' in result) throw result.error; return result.value }
+  const [digestRead, costRead, slotRead, simulation, feeReads] = await Promise.all([
+    settled(call(d.settlement, encodeFunctionData({abi: settlementAbi, functionName: 'prepaidReserveDigest', args}))),
+    settled(call(d.settlement, encodeFunctionData({abi: settlementAbi, functionName: 'prepaidCost', args: [payment.slot, requestId]}))),
+    settled(call(d.keyRegistry, encodeFunctionData({abi: keyRegistryAbi, functionName: 'getKeySlot', args: [payment.slot]}))),
+    // Contract simulation verifies the accountant threshold signature and reservation state without gas.
+    settled(client.call({to: d.settlement, data, account: payer, blockHash: quote.quote_block, requireCanonical: true, batch: false})),
+    settled(Promise.all([
+      // A local Account makes viem prepare EIP-1559 fees during estimation, but
+      // this flow signs a bounded legacy transaction below. Estimate execution
+      // with zero simulation fees, then check the actual legacy gas cost. Without
+      // this separation a balance-capped BN254 precompile can report BadSignature.
+      client.getGasPrice(), client.estimateGas({account: payer.address, to: d.settlement, data, value: 0n, gasPrice: 0n, type: 'legacy'}),
+      client.getTransactionCount({address: payer.address, blockTag: 'pending'}),
+      client.getBalance({address: payer.address, blockTag: 'pending'}),
+    ])),
+  ])
+  const block = await blockRead
   const fresh = () => {
     if (block.number === null || block.hash === null || !same(block.hash, quote.quote_block)
       || BigInt(now()) - block.timestamp > 30n || block.timestamp - BigInt(now()) > 2n) throw new Error('reservation quote block is stale or invalid')
     live(payment, quote)
   }
   fresh()
-  const call = async (to: Address, data: Hex) => {
-    const result = await client.call({to, data, account: payer, blockHash: quote.quote_block, requireCanonical: true, batch: false})
-    if (result.data === undefined) throw new Error('empty reservation observation')
-    return result.data
-  }
-  const digest = decodeFunctionResult({abi: settlementAbi, functionName: 'prepaidReserveDigest', data: await call(d.settlement,
-    encodeFunctionData({abi: settlementAbi, functionName: 'prepaidReserveDigest', args}))})
+  const digest = decodeFunctionResult({abi: settlementAbi, functionName: 'prepaidReserveDigest', data: outcome(digestRead)})
   if (!same(digest, quote.digest)) throw new Error('deployment reservation digest mismatch')
-  const previousCost = decodeFunctionResult({abi: settlementAbi, functionName: 'prepaidCost', data: await call(d.settlement,
-    encodeFunctionData({abi: settlementAbi, functionName: 'prepaidCost', args: [payment.slot, requestId]}))})
+  const previousCost = decodeFunctionResult({abi: settlementAbi, functionName: 'prepaidCost', data: outcome(costRead)})
   if (previousCost !== 0n) throw new Error('operation already reserved; inspect its receipt instead of spending again')
-  const slot = decodeFunctionResult({abi: keyRegistryAbi, functionName: 'getKeySlot', data: await call(d.keyRegistry,
-    encodeFunctionData({abi: keyRegistryAbi, functionName: 'getKeySlot', args: [payment.slot]}))})
+  const slot = decodeFunctionResult({abi: keyRegistryAbi, functionName: 'getKeySlot', data: outcome(slotRead)})
   const creator = await recoverTypedDataAddress({...paymentIntentTypedData(payment), signature: payment.signature})
   if (!slot.exists || slot.cancelled || (slot.expiry !== 0n && slot.expiry <= BigInt(now())) || !same(creator, slot.creator)) throw new Error('reservation intent is not from an active slot creator')
-  // Contract simulation verifies the accountant threshold signature and reservation state without gas.
-  await client.call({to: d.settlement, data, account: payer, blockHash: quote.quote_block, requireCanonical: true, batch: false})
-  const [gasPrice, gas, nonce, balance] = await Promise.all([
-    // A local Account makes viem prepare EIP-1559 fees during estimation, but
-    // this flow signs a bounded legacy transaction below. Estimate execution
-    // with zero simulation fees, then check the actual legacy gas cost. Without
-    // this separation a balance-capped BN254 precompile can report BadSignature.
-    client.getGasPrice(), client.estimateGas({account: payer.address, to: d.settlement, data, value: 0n, gasPrice: 0n, type: 'legacy'}),
-    client.getTransactionCount({address: payer.address, blockTag: 'pending'}),
-    client.getBalance({address: payer.address, blockTag: 'pending'}),
-  ])
+  outcome(simulation)
+  const [gasPrice, gas, nonce, balance] = outcome(feeReads)
   if (gas <= 0n || gas > opts.maxGas || gasPrice <= 0n || gasPrice > opts.maxGasPrice) throw new Error('reservation exceeds native gas budget')
   const requiredNativeUnits = gas * gasPrice
   if (balance < requiredNativeUnits) throw new UnderfundedGasPayerError({payer: payer.address, availableNativeUnits: balance, requiredNativeUnits})
   signal?.throwIfAborted()
   if (block.number === null) throw new Error('reservation quote has no block number')
-  const canonical = await client.getBlock({blockNumber: block.number})
-  if (canonical.hash === null || !same(canonical.hash, quote.quote_block)) throw new Error('reservation quote reorganized')
+  // The canonical recheck of the quote block after its reads: answered by the head follower only
+  // when it proves this exact block canonical (instant finality, live, gap-free, at or below the
+  // finalized head), as for every other paid observation; anything else reads it by number.
+  if (headFollowerOf(client)?.isCanonical({blockNumber: block.number, blockHash: quote.quote_block, blockTimestamp: block.timestamp}) !== true) {
+    const canonical = await client.getBlock({blockNumber: block.number})
+    if (canonical.hash === null || !same(canonical.hash, quote.quote_block)) throw new Error('reservation quote reorganized')
+  }
   fresh()
   const record: PaidReservationRecord = {schema: 1, requestId, payment, quote: authorized,
     transaction: {chainId: d.chainId, from: payer.address, to: d.settlement, data, value: '0', nonce, gas: gas.toString(), gasPrice: gasPrice.toString()}}
@@ -580,16 +714,21 @@ async function reserveOnce(
     await opts.persist({phase: 'submitted', requestId, transactionHash})
     // A broadcast transaction cannot be cancelled: an abort only ends this wait, as uncertain.
     const sent = transactionHash
-    const mined = await untilAborted(client.waitForTransactionReceipt({hash: sent, confirmations, timeout: receiptTimeout, pollingInterval: 1000, retryCount: 0}), signal)
+    const mined = await untilAborted(pollTransactionReceipt(client, sent, {confirmations, timeoutMs: receiptTimeout, signal}), signal)
     if (!same(mined.transactionHash, transactionHash) || mined.status !== 'success') throw new Error('reservation transaction reverted or was replaced')
-    const transaction = await untilAborted(client.getTransaction({hash: sent}), signal)
+    // The mined transaction, the reservation it made and its block are read together, and judged
+    // in the order they were once read one by one.
+    const [transactionRead, receiptRead, minedBlockRead] = await untilAborted(Promise.all([
+      settled(client.getTransaction({hash: sent})), settled(readPaidOperationReceipt(client, d, payment, operation, {atLeastBlock: mined.blockNumber})),
+      settled(client.getBlock({blockNumber: mined.blockNumber}))]), signal)
+    const transaction = outcome(transactionRead)
     if (transaction.to === null || !same(transaction.to, d.settlement) || !same(transaction.from, record.transaction.from)
       || !same(transaction.input, data) || transaction.value !== 0n || transaction.nonce !== nonce
       || transaction.type !== 'legacy' || transaction.gas !== gas || transaction.gasPrice !== gasPrice || transaction.chainId !== d.chainId
       || transaction.blockHash === null || !same(transaction.blockHash, mined.blockHash)) throw new Error('mined transaction differs from the durable reservation')
-    const receipt = await untilAborted(readPaidOperationReceipt(client, d, payment, operation), signal)
+    const receipt = outcome(receiptRead)
     if (receipt.blockNumber < mined.blockNumber || receipt.cost !== BigInt(quote.costs[0]!) || !same(receipt.assignmentBlock, quote.quote_block)) throw new Error('mined reservation differs from the saved quote')
-    const minedBlock = await untilAborted(client.getBlock({blockNumber: mined.blockNumber}), signal)
+    const minedBlock = outcome(minedBlockRead)
     if (minedBlock.hash === null || !same(minedBlock.hash, mined.blockHash)) throw new Error('reservation receipt reorganized')
     await opts.persist({phase: 'confirmed', requestId, transactionHash, blockHash: mined.blockHash})
     return {transactionHash, receipt}

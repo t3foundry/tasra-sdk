@@ -59,7 +59,7 @@ it('resolves only the creator-signed coordinator using the same canonical block 
   expect(result).toMatchObject({operator: getAddress(f.operators[0]!), publicKey: toHex(f.publicKeys[0]!), url: 'https://keeper0.example', groupPublicKey: h(44), mode: 0})
   expect(result.receipt.cost).toBe(10n)
   expect(result.contributors).toEqual(f.operators.map((operator, i) => ({operator: getAddress(operator), publicKey: toHex(f.publicKeys[i]!), url: `https://keeper${i}.example`})))
-  expect(f.calls.every(m => ['eth_chainId', 'eth_getBlockByNumber', 'eth_call'].includes(m))).toBe(true)
+  expect(f.calls.every(m => ['eth_chainId', 'eth_getBlockByNumber', 'eth_call', 'eth_getCode'].includes(m))).toBe(true)
 })
 it('checks transport for every paid contributor even when the coordinator uses HTTPS', async () => {
   const f = await fixture({contributorUrl: 'http://keeper2.example'})

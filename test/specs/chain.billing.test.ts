@@ -48,21 +48,21 @@ describe('billing mode detection', () => {
     // An enabled slot does not need the genesis getter (older version 2 builds lack it).
     expect((await readBillingMode(rpc({enabled: true, noGenesisGetter: true}).client, deployment, slot)).mode).toBe('prepaid')
   })
-  it('accepts version 3 (the timeout escape) exactly like version 2, and still refuses an unknown version', async () => {
-    for (const version of ['2', '3']) {
+  it('accepts versions 3 (the timeout escape), 4 (ADR-0090 allowances) and 5 (ADR-0092 range settlement) exactly like version 2, and still refuses an unknown version', async () => {
+    for (const version of ['2', '3', '4', '5']) {
       expect(await readBillingMode(rpc({version, enabled: true}).client, deployment, slot)).toMatchObject({mode: 'prepaid', settlementVersion: version, prepaidEnabled: true})
       expect(await readBillingMode(rpc({version, genesis: true}).client, deployment, slot)).toMatchObject({mode: 'prepaid', settlementVersion: version, prepaidFromGenesis: true})
       expect(await readBillingMode(rpc({version}).client, deployment, slot)).toMatchObject({mode: 'legacy', settlementVersion: version, prepaidFromGenesis: false})
       await expect(requirePrepaidSlot(rpc({version, enabled: true}).client, deployment, slot)).resolves.toMatchObject({mode: 'prepaid', settlementVersion: version})
     }
-    for (const version of ['4', '2.1', '03']) {
+    for (const version of ['6', '2.1', '05']) {
       const observed = await readBillingMode(rpc({version, enabled: true}).client, deployment, slot)
       expect(observed, version).toMatchObject({mode: 'unknown', settlementVersion: version, reason: `unsupported Settlement version ${JSON.stringify(version)}`})
       await expect(requirePrepaidSlot(rpc({version, enabled: true}).client, deployment, slot)).rejects.toMatchObject({mode: 'unknown', settlementVersion: version})
     }
   })
   it('answers unknown, never a guess, for every unreadable or inconsistent chain', async () => {
-    for (const state of [{version: '4'}, {version: ''}, {fail: 'version'}, {fail: 'prepaidEnabled'}, {noGenesisGetter: true},
+    for (const state of [{version: '6'}, {version: ''}, {fail: 'version'}, {fail: 'prepaidEnabled'}, {noGenesisGetter: true},
       {chain: 43113}, {orphan: true, enabled: true}, {empty: true}, {head: 'fail' as const}]) {
       const observed = await readBillingMode(rpc(state).client, deployment, slot)
       expect(observed.mode, JSON.stringify(state)).toBe('unknown')

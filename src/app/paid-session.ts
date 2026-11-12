@@ -3,8 +3,13 @@
 // Every billable write (session creation, each operator-stage approval, the wallet
 // presentation, each continuation) is journaled `prepared` in the application store before
 // it is sent and `confirmed` after its reply. A write whose reply was lost stays `prepared`
-// and is never sent again by this driver: the caller reconciles it. Services supply
-// proposals, never client intent; every proposal is checked against the anchored draw.
+// and is never sent again by this driver: the caller reconciles it. Creation's and an approval's
+// `confirmed` are re-derived by a resume from what it reads anyway, so they ride on the drive's
+// next durable write. Every other `confirmed` is published durably before the drive waits or
+// polls after its send, or with the next commit when one follows at once; only a crash inside
+// that short window leaves its write `prepared` (a resume then refuses it, as it does a write
+// whose reply was lost).
+// Services supply proposals, never client intent; every proposal is checked against the anchored draw.
 //
 // One exception, for operator-stage approvals only, when the store implements `claim`: the signed
 // approval body is retained BEFORE its first send and, after a definite 429/503 (not processed),
@@ -12,13 +17,16 @@
 // expiry (paid-approval.ts). Repeatable reads are paced the same way by the session itself.
 
 import {executionBodyHash} from '../committee/execution.js'
-import {PaidAgentControlError, type ClientApprovedPresentation, type PaidAgentProposal,
+import {MAX_PROPOSAL_WAIT_MS, PaidAgentControlError, type ClientApprovedPresentation, type PaidAgentProposal,
   type PaidRetainedPresentation, type RegisteredPaidAgentSession, type RetainedPaidApproval} from '../chain/registeredPaidAgent.js'
-import {reconcileRetainedApproval, retainAndDeliverApproval, supportsDurableApproval, type ApprovalJournalRecord} from './paid-approval.js'
+import {reconcileRetainedApproval, retainAndDeliverApproval, retainAndDeliverApprovals, supportsDurableApproval, type ApprovalJournalRecord} from './paid-approval.js'
 import type {PaidVerifierWitness} from '../chain/prepaid.js'
+import type {DpopSigner} from '../auth/dpop.js'
+import {isPaidBackoffError} from '../errors.js'
 import type {VerifiedRequestObject} from '../oid4vp/request-object.js'
 import {VerifierAgentSessionError, type SessionStatusResult} from '../verifier-agent/index.js'
 import type {ApplicationStore} from './ready-slot.js'
+import {Rederivable, withCommit} from './store-commit.js'
 
 /** A presentation the client's own wallet built: the approved body and the encrypted form it posts. */
 export interface PaidWalletPresentation {
@@ -34,6 +42,30 @@ export interface PaidSessionRequestLink {
   requestUri: string
   /** `openid4vp://?client_id=…&request_uri=…`, for a QR code or deep link. */
   qrPayload: string
+}
+
+/**
+ * What an OAuth holder's token must bind, derived locally from the original session:
+ * the access token's `aud` must include `platformAudience`, and the DPoP proof is minted over
+ * `POST dpopHtu` with `nonce` by the key the token's `cnf.jkt` names. Public values only.
+ */
+export interface PaidOAuthContext {
+  /** Original locally derived session identity. */
+  sessionId: string
+  /** Derived presentation nonce the DPoP proof must carry. */
+  nonce: string
+  /** The session's OAuth response URL, the proof's `htu`. */
+  dpopHtu: string
+  /** The audience the access token must name. */
+  platformAudience: string
+}
+
+/** A DPoP-bound access token and the signer holding the key it is bound to. */
+export interface PaidOAuthCredential {
+  /** Compact JWS access token with `cnf.jkt`; a bearer token is refused. Never logged by the SDK. */
+  accessToken: string
+  /** Signs the session's DPoP proof with the token's bound key. */
+  signer: DpopSigner
 }
 
 /** How the holder answers the session's request object. */
@@ -56,6 +88,21 @@ export type PaidSessionHolder =
     /** Accept or refuse the complete presentation the agent retained from the wallet callback. */
     accept(candidate: PaidRetainedPresentation, request: VerifiedRequestObject): boolean | Promise<boolean>
   }
+  | {
+    /**
+     * The client presents a DPoP-bound OAuth access token itself: no wallet request
+     * object, no JAR stages. The SDK builds the proof, verifies audience, nonce, session, htm,
+     * htu, ath and key binding locally, journals the exact presentation privately BEFORE its one
+     * submission, and approves the drawn verifiers' credential work on that retained presentation.
+     */
+    kind: 'oauth'
+    /**
+     * Supply the token for this session. Called at most once per session, before anything is
+     * disclosed; never again once the presentation is journaled (a resumed drive reuses the
+     * retained original and never asks for a refreshed token, even when it has expired).
+     */
+    credential(context: PaidOAuthContext): PaidOAuthCredential | Promise<PaidOAuthCredential>
+  }
 
 /** Inputs to {@link drivePaidSession}. */
 export interface PaidSessionDriverOptions {
@@ -69,7 +116,12 @@ export interface PaidSessionDriverOptions {
   signal: AbortSignal
   /** Holder strategy. */
   holder: PaidSessionHolder
-  /** Wait between polls; receives the agent's Retry-After hint when it sent one. */
+  /**
+   * Wait between polls when nothing else signals progress; receives the agent's Retry-After hint
+   * when it sent one. While committee work is in flight (phase `verifying`) the driver holds a
+   * status poll instead (`?wait=1`) and continues as soon as the agent answers a change; right
+   * after it approved new proposals it continues at once.
+   */
   wait(retryAfterMs?: number): Promise<void>
   /** Observe the verified request before any credential is disclosed (receives a detached copy). */
   observeRequest?(request: VerifiedRequestObject): void | Promise<void>
@@ -91,6 +143,25 @@ export class PaidSessionRecoveryError extends Error {
     this.name = 'PaidSessionRecoveryError'
   }
 }
+
+/**
+ * SDK-internal: entries the caller journals with the drive's FIRST durable write (creation's
+ * `prepared`), under the extra locks and after the check, in the same commit. paid-operation.ts
+ * publishes the execution consent (`certified`) this way: a session's identity derives from that
+ * consent, so creation's record and the consent are useful only together, and nothing bound to the
+ * consent is sent before that commit. `published` is set once the commit resolved.
+ */
+export const FIRST_COMMIT = Symbol('paid-session-first-commit')
+/** See {@link FIRST_COMMIT}. */
+export interface FirstCommit {
+  lock: readonly string[]
+  check(): Promise<void>
+  entries: readonly (readonly [string, unknown])[]
+  published?: boolean
+}
+
+/** A held status poll that took this long ended on the agent's hold timer (20 s), not on a change. */
+const HELD_POLL_ENDED_MS = 15_000
 
 const ABSENT_ANCHORS = ['no anchored verifier and accountant snapshots', 'no current or previous anchored verifier and accountant snapshots']
 
@@ -129,37 +200,101 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
   const {session, store, signal, wait, holder} = options
   const members = structuredClone([...options.members]), prefix = (options.journalPrefix ?? 'wallet-') + session.sessionId
   const resume = options.resume === true
+  const first = (options as {[FIRST_COMMIT]?: FirstCommit})[FIRST_COMMIT]
   if (!/^[0-9a-f]{64}$/.test(session.sessionId)) throw new Error('Invalid original SDK session')
   if (!members.length || new Set(members.map(m => m.publicKey.toLowerCase())).size !== members.length) throw new Error('Original drawn witnesses must be distinct')
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,40}$/.test(options.journalPrefix ?? 'wallet-')) throw new Error('Invalid paid session journal prefix')
 
-  /** Journal, send once, confirm. Returns false when a resumed drive skipped a confirmed original. */
-  const attempt = async (name: string, original: unknown, work: () => Promise<void>, recover?: () => Promise<void>): Promise<boolean> => {
+  // Confirmations of this drive's writes, published with its next durable write (or at its end).
+  // Creation's and an approval's are re-derived by a resume from what it reads anyway (creation:
+  // the authenticated read every resumed drive makes; an approval: its delivery state). Every
+  // other write's is OWED (Rederivable): a resume does NOT re-derive it, and a crash before it is
+  // durable leaves the write `prepared`, which a resume refuses. It rides on the next commit only
+  // when that commit follows its send at once (the external acceptance's on its continuation's
+  // `prepared`; a first continuation's on the credential approval, after only the listing of the
+  // proposals its 425 created; when nothing is listed yet, the loop's `owed()` publishes it before
+  // the drive waits). Before any wait or poll that follows a send (a wallet callback can take
+  // minutes) `owed()` publishes it in one durable commit, so no wait leaves a sent write's
+  // outcome only in memory.
+  const later = new Rederivable()
+  /** Publish owed confirmations durably now: before a wait or poll that follows a send. */
+  const owed = () => later.flushOwed(store)
+  /** The record of `key` as this drive will publish it: a pending confirmation, else the store's. */
+  const journaled = async <T>(key: string): Promise<T | undefined> => later.peek<T>(key) ?? await store.load<T>(key)
+  // Every read of a journal record this drive may have written goes through `journaled`: a
+  // confirmation still pending in memory is the record's current state (reading the store instead
+  // would see its `prepared` and refuse the drive's own confirmed write).
+  /**
+   * Journal, send once, confirm. Returns false when a resumed drive skipped a confirmed original.
+   * `prepared` is committed with the unlock (one commit: its data flushed, renamed, the lock
+   * removed, the directory synced once), together with the confirmations pending from earlier
+   * writes; only then is the write sent, outside the lock. That is safe because the durable record
+   * itself now refuses every other driver (a first drive refuses any retained record; a resumed
+   * one refuses a `prepared` record it cannot recover), so nothing the lock guarded is ever
+   * repeated or replaced. A send that failed leaves `prepared`. `confirmed` is put on `later`.
+   *
+   * Creation (the only write with a read-only `recover`) journals the caller's first-commit
+   * entries with its `prepared`, and its confirmation is re-derivable.
+   */
+  const attempt = async (name: string, original: unknown, work: () => Promise<void>, recover?: () => Promise<void>,
+    /** Only for writes the agent provably did not process (a paced 429 run out): journal `unsent`, resendable byte-identically on resume. */
+    unsent?: (error: unknown) => boolean): Promise<boolean> => {
     signal.throwIfAborted()
     const key = prefix + '-' + name
-    return store.withLock(key, async () => {
-      const retained = await store.load<{original: unknown; phase: string}>(key)
-      if (retained !== undefined) {
-        if (resume && retained?.phase === 'confirmed' && same(retained.original, original)) return false
-        if (resume && retained?.phase === 'prepared' && same(retained.original, original) && recover) {
-          // Only creation supplies this read-only recovery. It checks the original
-          // provider, bearer and full context; no POST is repeated or replaced.
-          await recover()
-          signal.throwIfAborted()
-          await store.save(key, {original: retained.original, phase: 'confirmed'})
-          return false
+    const recoverable = recover !== undefined, journal = recoverable && first && !first.published ? first : undefined
+    const ride = later.take()
+    let send = false, skipped: boolean
+    try {
+      skipped = await withCommit(store, [key, ...journal?.lock ?? []], async commit => {
+        if (journal) {
+          await journal.check()
+          for (const [k, v] of journal.entries) commit.stage(k, v)
         }
-        throw new PaidSessionRecoveryError(key, retained?.phase === 'confirmed' && !resume
-          ? 'Original paid write already attempted; reconcile it without redelivery'
-          : 'Original paid write already attempted with an unknown or different outcome; reconcile it without redelivery')
+        const pending = ride.find(([k]) => k === key)
+        const retained = (pending ? structuredClone(pending[1]) : await store.load(key)) as {original: unknown; phase: string} | undefined
+        if (retained !== undefined) {
+          if (resume && retained?.phase === 'confirmed' && same(retained.original, original)) return false
+          // Provably never processed: the same original bytes may go out once more (the record
+          // turns `prepared` in this commit first, so a concurrent drive refuses it).
+          const resendable = resume && unsent !== undefined && retained?.phase === 'unsent' && same(retained.original, original)
+          if (resume && retained?.phase === 'prepared' && same(retained.original, original) && recover) {
+            // Only creation supplies this read-only recovery. It checks the original
+            // provider, bearer and full context; no POST is repeated or replaced.
+            await recover()
+            signal.throwIfAborted()
+            commit.stage(key, {original: retained.original, phase: 'confirmed'})
+            return false
+          }
+          if (!resendable) throw new PaidSessionRecoveryError(key, retained?.phase === 'confirmed' && !resume
+            ? 'Original paid write already attempted; reconcile it without redelivery'
+            : 'Original paid write already attempted with an unknown or different outcome; reconcile it without redelivery')
+        }
+        // Committed with the unlock: the record now refuses or recovers any other driver, so the
+        // send needs no lock (nothing it guards is ever repeated or replaced).
+        for (const [k, v] of ride) commit.stage(k, v)
+        commit.stage(key, {original, phase: 'prepared'})
+        send = true
+        return true
+      })
+    } catch (error) { later.restore(ride); throw error }
+    if (!send) later.restore(ride)
+    if (journal) journal.published = true
+    if (!send) return skipped
+    signal.throwIfAborted()
+    // A crash or uncertain response retains prepared. No catch/retry deletes it.
+    try { await work() }
+    catch (error) {
+      if (unsent?.(error)) {
+        // Established non-processing only: the record keeps the exact original, now `unsent`.
+        await withCommit(store, [key], async commit => {
+          const current = await store.load<{original: unknown; phase: string}>(key)
+          if (current?.phase === 'prepared' && same(current.original, original)) commit.stage(key, {original, phase: 'unsent'})
+        }).catch(() => {})
       }
-      await store.save(key, {original, phase: 'prepared'})
-      // A crash or uncertain response retains prepared. No catch/retry deletes it.
-      signal.throwIfAborted()
-      await work()
-      await store.save(key, {original, phase: 'confirmed'})
-      return true
-    })
+      throw error
+    }
+    later.put(key, {original, phase: 'confirmed'}, {owed: !recoverable})
+    return true
   }
   /** First durable approval of a stage; refuses, sending nothing, when a record appeared concurrently. */
   const firstApproval = async (ctx: Parameters<typeof retainAndDeliverApproval>[0], original: unknown, sign: () => Promise<RetainedPaidApproval>) => {
@@ -168,57 +303,116 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
       throw new PaidSessionRecoveryError(ctx.key, 'Original paid write already attempted with an unknown or different outcome; reconcile it without redelivery')
     }
   }
-  const approve = async (presentation?: ClientApprovedPresentation) => {
-    let count = 0
-    for (const proposed of await session.proposals(signal)) {
-      signal.throwIfAborted()
+  const approve = async (presentation?: ClientApprovedPresentation, listed?: readonly PaidAgentProposal[]) => {
+    // Every proposal is judged before any is sent: an operator outside the draw or an invalid stage
+    // refuses the whole batch with nothing delivered. `listed` is a listing read beside a status poll.
+    const planned = (listed ?? await session.proposals(signal)).map(proposed => {
       const member = members.find(m => m.publicKey.toLowerCase() === proposed.operator_key.toLowerCase())
       if (!member) throw new Error('Agent proposed an operator outside the original anchored draw')
       if (!['presentation_sign', 'presentation_attest', 'credential'].includes(proposed.stage)) throw new Error('Invalid agent operator stage')
-      const name = proposed.stage + '-' + member.index, key = prefix + '-' + name
-      const retained = await store.load<ApprovalJournalRecord>(key)
-      // A stage belongs to one operator and one original body. A new proposal ID
-      // cannot authorize another billable attempt on the same paid stage.
-      const original = {stage: proposed.stage, operator_key: member.publicKey, unsigned_body: proposed.unsigned_body}
-      // Durable approvals: the signed body is retained before the first send and resent only
-      // byte-identically under a generation-bound, exclusively claimed permit (see paid-approval.ts).
-      const durable = supportsDurableApproval(store, session, key)
-      const ctx = {store, session, key, signal}
-      if (retained) {
-        if (!same(retained.original, original)) throw new PaidSessionRecoveryError(key, 'Agent changed an already approved operator stage')
-        if (retained.phase === 'confirmed') continue
-        // A retained body may be reconciled on resume: confirmed if the agent already holds it,
-        // resent identically only while the agent shows it pending under a durable permit.
-        // A record without a retained body (an older SDK) or any unknown outcome still refuses.
-        if (!(resume && durable && retained.phase === 'prepared' && retained.approval !== undefined)) {
-          throw new PaidSessionRecoveryError(key, 'Original operator approval outcome is unknown; reconcile it')
-        }
-        await reconcileRetainedApproval(ctx, retained)
-        count++
-        continue
-      }
-      if (proposed.stage === 'credential') {
-        if (!presentation) throw new Error('Credential work requires the original locally accepted presentation')
-        if (durable) await firstApproval(ctx, original, () => session.prepareCredentialApproval!(proposed, member, presentation, signal))
-        else await attempt(name, original, () => session.approveCredentials(proposed, member, presentation, signal))
-      } else {
-        if (presentation) throw new Error('Unexpected new request-signing stage after credential disclosure')
-        const stage = proposed.stage === 'presentation_sign' ? 'presentation_sign' : 'presentation_attest'
-        if (durable) await firstApproval(ctx, original, () => session.prepareRequestApproval!(proposed, stage, member, signal))
-        else await attempt(name, original, () => session.approveRequest(proposed, stage, member, signal))
-      }
-      count++
+      if (proposed.stage === 'credential' && !presentation) throw new Error('Credential work requires the original locally accepted presentation')
+      if (proposed.stage !== 'credential' && presentation) throw new Error('Unexpected new request-signing stage after credential disclosure')
+      return {proposed, member, name: proposed.stage + '-' + member.index}
+    })
+    // Distinct stages have distinct journal keys, signers and agent delivery rows: their approvals are
+    // independent and go out together (one round trip per batch, not one per operator). A batch that
+    // names one stage twice keeps the one-by-one order, where the second sees the first's journal.
+    const one = (item: typeof planned[number]) => approveOne(item.proposed, item.member, item.name, presentation)
+    if (new Set(planned.map(p => p.name)).size !== planned.length) {
+      let count = 0
+      for (const item of planned) { signal.throwIfAborted(); count += await one(item) }
+      return count
     }
-    return count
+    signal.throwIfAborted()
+    // An agent advertising batch approvals takes a batch of FIRST approvals in one request. Each
+    // keeps its own signing, journal entry, permit and outcome (paid-approval.ts); only the send is
+    // shared. Anything else (one proposal, a retained record to reconcile, a store or session
+    // without durable approvals) goes one by one, as before.
+    if (planned.length > 1 && session.batchApprovals === true && typeof session.sendRetainedApprovals === 'function'
+      && planned.every(p => supportsDurableApproval(store, session, prefix + '-' + p.name))
+      && (await Promise.all(planned.map(p => journaled(prefix + '-' + p.name)))).every(r => r === undefined)) {
+      const kept = await retainAndDeliverApprovals(planned.map(({proposed, member, name}) => {
+        const key = prefix + '-' + name
+        const original = {stage: proposed.stage, operator_key: member.publicKey, unsigned_body: proposed.unsigned_body}
+        const stage = proposed.stage === 'presentation_sign' ? 'presentation_sign' as const : 'presentation_attest' as const
+        return {ctx: {store, session, key, signal, rederivable: later}, original, sign: proposed.stage === 'credential'
+          ? () => session.prepareCredentialApproval!(proposed, member, presentation!, signal)
+          : () => session.prepareRequestApproval!(proposed, stage, member, signal)}
+      }))
+      const raced = kept.findIndex(k => !k)
+      if (raced !== -1) throw new PaidSessionRecoveryError(prefix + '-' + planned[raced]!.name, 'Original paid write already attempted with an unknown or different outcome; reconcile it without redelivery')
+      return planned.length
+    }
+    const results = await Promise.allSettled(planned.map(one))
+    // Every send has settled (none is left in flight); report the first refusal in proposal order.
+    for (const result of results) if (result.status === 'rejected') throw result.reason
+    return results.reduce((sum, result) => sum + (result.status === 'fulfilled' ? result.value : 0), 0)
+  }
+  /** Approve one judged proposal; 1 when it sent or reconciled an approval, 0 when already confirmed. */
+  const approveOne = async (proposed: PaidAgentProposal, member: PaidVerifierWitness, name: string, presentation?: ClientApprovedPresentation): Promise<number> => {
+    const key = prefix + '-' + name
+    const retained = await journaled<ApprovalJournalRecord>(key)
+    // A stage belongs to one operator and one original body. A new proposal ID
+    // cannot authorize another billable attempt on the same paid stage.
+    const original = {stage: proposed.stage, operator_key: member.publicKey, unsigned_body: proposed.unsigned_body}
+    // Durable approvals: the signed body is retained before the first send and resent only
+    // byte-identically under a generation-bound, exclusively claimed permit (see paid-approval.ts).
+    const durable = supportsDurableApproval(store, session, key)
+    const ctx = {store, session, key, signal, rederivable: later}
+    if (retained) {
+      if (!same(retained.original, original)) throw new PaidSessionRecoveryError(key, 'Agent changed an already approved operator stage')
+      if (retained.phase === 'confirmed') return 0
+      // A retained body may be reconciled on resume: confirmed if the agent already holds it,
+      // resent identically only while the agent shows it pending under a durable permit.
+      // A record without a retained body (an older SDK) or any unknown outcome still refuses.
+      if (!(resume && durable && retained.phase === 'prepared' && retained.approval !== undefined)) {
+        throw new PaidSessionRecoveryError(key, 'Original operator approval outcome is unknown; reconcile it')
+      }
+      await reconcileRetainedApproval(ctx, retained)
+      return 1
+    }
+    if (proposed.stage === 'credential') {
+      if (durable) await firstApproval(ctx, original, () => session.prepareCredentialApproval!(proposed, member, presentation!, signal))
+      else await attempt(name, original, () => session.approveCredentials(proposed, member, presentation!, signal))
+    } else {
+      const stage = proposed.stage === 'presentation_sign' ? 'presentation_sign' : 'presentation_attest'
+      if (durable) await firstApproval(ctx, original, () => session.prepareRequestApproval!(proposed, stage, member, signal))
+      else await attempt(name, original, () => session.approveRequest(proposed, stage, member, signal))
+    }
+    return 1
   }
   const pendingConsent = (error: unknown) => error instanceof PaidAgentControlError
     && error.sessionId === session.sessionId && error.httpStatus === 425
-  const checkedPoll = async () => {
+  const checkedPoll = async (held = false) => {
     signal.throwIfAborted()
-    const status = await session.poll(signal)
+    const status = await (held ? session.poll(signal, {wait: true}) : session.poll(signal))
     if (status.status === 'failed') throw new VerifierAgentSessionError('refused', session.sessionId,
       'Original paid credential verification refused' + (status.error ? ': ' + status.error.slice(0, 500) : ''))
     return status
+  }
+  /**
+   * Wait, when this drive has nothing to send, until the session may have moved past `last`.
+   * While committee work is in flight (`verifying`) its end is a status or phase change the agent
+   * announces, so one held poll waits for it (O(1) on the agent) and its answer is returned for the
+   * drive to continue on at once. A held answer that came back at once unchanged (an agent without
+   * long-poll support) falls back to the caller's pacing, so no agent is polled in a loop; a held
+   * request that failed in transport returns nothing and the caller's next plain poll decides, as
+   * before. In any other phase (waiting for a wallet callback, which the agent does not announce)
+   * the caller's pacing applies unchanged. Returns the held answer, or undefined when it did not poll.
+   */
+  const settle = async (last: SessionStatusResult, hint?: number): Promise<SessionStatusResult | undefined> => {
+    if (last.phase === 'verifying') {
+      const started = Date.now()
+      let next: SessionStatusResult
+      try { next = await checkedPoll(true) }
+      catch (error) {
+        if (signal.aborted || error instanceof VerifierAgentSessionError || error instanceof PaidAgentControlError) throw error
+        return undefined
+      }
+      if (next.status !== 'pending' || next.phase !== last.phase || Date.now() - started >= HELD_POLL_ENDED_MS) return next
+    }
+    await wait(hint)
+    return undefined
   }
   const resumeCallback = async (callback: string, approved: ClientApprovedPresentation) => {
     try {await session.resumePresentation(callback, approved, signal)}
@@ -233,101 +427,205 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
     }
   }
 
-  let creationRecovered = false
-  const created = await attempt('create', {sessionId: session.sessionId, paymentHash: session.paymentHash, initialization: session.initialization},
-    () => session.create(signal), async () => {
-      try {await session.reconcile(signal)}
-      catch (error) {
-        signal.throwIfAborted()
-        // A failed read (including 404) does not prove that the original POST
-        // was refused. Preserve the uncertain creation and its application fence.
-        throw new Error('Original session creation cannot be verified; resume only this session', {cause: error})
-      }
-      creationRecovered = true
-    })
-  // A resumed drive recovers the original public context by an authenticated read instead.
-  if (!created && !creationRecovered) await session.reconcile(signal)
-  let opened: Awaited<ReturnType<RegisteredPaidAgentSession['requestObject']>>
-  for (;;) {
-    signal.throwIfAborted()
-    try { opened = await session.requestObject(signal); break }
-    catch (error) {
-      if (!pendingConsent(error)) throw error
-      await checkedPoll()
-      await approve()
-      await wait((error as PaidAgentControlError).retryAfterMs)
-    }
+  let drove: SessionStatusResult
+  try { drove = await drive() }
+  catch (error) {
+    // Best effort: each pending write is re-derivable, and the drive's own failure is what matters.
+    await later.flush(store).catch(() => {})
+    throw error
   }
-  const request = opened.request
-  // An optional observation completes before credential disclosure, on a detached copy.
-  await options.observeRequest?.(structuredClone(request))
-  signal.throwIfAborted()
+  await later.flush(store)
+  return drove
 
-  let accepted: ClientApprovedPresentation | undefined
-  const link: PaidSessionRequestLink = {requestUri: opened.requestUri, qrPayload: opened.qrPayload}
-  if (holder.kind === 'local') {
-    await holder.present?.({request: structuredClone(request), ...link})
-    const retained = await store.load<{original: {presentation: PaidWalletPresentation}; phase: string}>(prefix + '-presentation')
-    if (retained !== undefined && resume) {
-      // Never build or post a second presentation; continue with the original once it is confirmed.
-      if (retained?.phase !== 'confirmed' || !retained.original?.presentation?.approved) throw new PaidSessionRecoveryError(prefix + '-presentation', 'Original presentation outcome is unknown; reconcile it without redelivery')
-      accepted = structuredClone(retained.original.presentation.approved)
-    }
-  }
-  if (holder.kind === 'local' && !accepted) {
-    const presentation = structuredClone(await holder.makePresentation(structuredClone(request), {...link}))
-    // Validate canonical plain JSON before persisting or disclosing credentials.
-    executionBodyHash(presentation.approved as unknown as Record<string, unknown>)
-    const keys = Object.keys(presentation.approved).sort()
-    if (keys.join(',') !== 'credentials,holder,holder_proof,iat,oauth' || presentation.approved.oauth !== null
-      || !presentation.approved.credentials.length || !presentation.form.response) throw new Error('Paid wallet requires the original encrypted credential presentation')
-    await attempt('presentation', {request: request.claims, presentation}, () => holder.submit(request, presentation))
-    accepted = presentation.approved
-  } else if (holder.kind === 'external') {
-    // Showing the request is not billable; a resumed drive shows it again.
-    await holder.present(structuredClone(opened))
-    const retained = await store.load<{original: {presentation?: ClientApprovedPresentation}; phase: string}>(prefix + '-accepted')
-    if (retained) {
-      if (retained.phase !== 'confirmed' || !retained.original.presentation) throw new PaidSessionRecoveryError(prefix + '-accepted', 'Original presentation acceptance is unknown; reconcile it')
-      accepted = retained.original.presentation
-    }
-  }
-
-  let callback: string | undefined
-  let approvedCredentialCount = 0
-  for (;;) {
-    signal.throwIfAborted()
-    const status = await checkedPoll()
-    if (status.status === 'done') return status
-    const retainedCandidates = await session.presentations(signal)
-    for (const candidate of retainedCandidates) {
-      if (!accepted) {
-        // External wallet: the client decides on the complete retained body, once.
-        if (!await (holder as Extract<PaidSessionHolder, {kind: 'external'}>).accept(structuredClone(candidate), structuredClone(request))) {
-          throw new VerifierAgentSessionError('refused', session.sessionId, 'Client refused the retained wallet presentation')
+  async function drive(): Promise<SessionStatusResult> {
+    let creationRecovered = false
+    const created = await attempt('create', {sessionId: session.sessionId, paymentHash: session.paymentHash, initialization: session.initialization},
+      () => session.create(signal), async () => {
+        try {await session.reconcile(signal)}
+        catch (error) {
+          signal.throwIfAborted()
+          // A failed read (including 404) does not prove that the original POST
+          // was refused. Preserve the uncertain creation and its application fence.
+          throw new Error('Original session creation cannot be verified; resume only this session', {cause: error})
         }
-        const chosen = structuredClone(candidate.presentation)
-        await attempt('accepted', {presentation: chosen, callback: candidate.id}, async () => {})
-        accepted = chosen
+        creationRecovered = true
+      })
+    // A resumed drive recovers the original public context by an authenticated read instead.
+    if (!created && !creationRecovered) await session.reconcile(signal)
+    // An OAuth session has no request object and no JAR stages: the client presents its token.
+    const oauth = holder.kind === 'oauth' ? await presentOAuth(holder) : undefined
+    const wallet = oauth ? undefined : await presentWallet()
+    const accepted: ClientApprovedPresentation | undefined = oauth ?? wallet!.accepted
+    const request = wallet?.request
+    return observeCallbacks(accepted, request)
+  }
+
+  /**
+   * The OAuth presentation, exactly once: a resumed drive continues with the retained original
+   * (confirmed, or reconciled by a read showing the agent retained it); a `prepared` one that no
+   * read accounts for refuses, and only a provably unprocessed (`unsent`) one is resent, with the
+   * same bytes. The holder's credential callback runs only when no presentation is journaled.
+   */
+  async function presentOAuth(oauthHolder: Extract<PaidSessionHolder, {kind: 'oauth'}>): Promise<ClientApprovedPresentation> {
+    const key = prefix + '-presentation'
+    type Retained = {original?: {oauth?: ClientApprovedPresentation}; phase: string}
+    const retained = await journaled<Retained>(key)
+    const submit = (approved: ClientApprovedPresentation) => attempt('presentation', {oauth: approved}, async () => {
+      try { await session.submitOAuthPresentation(approved, signal) }
+      catch (error) {
+        // A definite refusal of this session: its authenticated state says whether it failed.
+        if (error instanceof PaidAgentControlError && error.sessionId === session.sessionId && [400, 403, 409, 410].includes(error.httpStatus)) await checkedPoll()
+        throw error
       }
-      if (!same(candidate.presentation, accepted)) throw new Error('Agent callback changed the original client presentation')
-      if (callback && callback !== candidate.id) throw new Error('Agent changed the original retained callback')
-      callback = candidate.id
+    }, undefined, isPaidBackoffError)
+    if (retained !== undefined) {
+      const original = retained.original?.oauth
+      if (!resume || !original || original.oauth === null || original.oauth?.session_id !== session.sessionId) {
+        throw new PaidSessionRecoveryError(key, 'Original OAuth presentation already attempted; reconcile it without redelivery')
+      }
+      if (retained.phase === 'confirmed') return structuredClone(original)
+      if (retained.phase === 'unsent') { await submit(structuredClone(original)); return structuredClone(original) }
+      // `prepared`: its reply was lost. Only a read that shows the agent holding exactly this
+      // presentation (or a session already past it) confirms it; nothing is ever sent again.
+      const [status, candidates] = await Promise.all([checkedPoll(), session.presentations(signal)])
+      if (status.status === 'done' || candidates.some(c => same(c.presentation, original))) {
+        later.put(key, {original: retained.original, phase: 'confirmed'}, {owed: true})
+        return structuredClone(original)
+      }
+      throw new PaidSessionRecoveryError(key, 'Original OAuth presentation outcome is unknown; reconcile it without redelivery')
     }
-    if (callback && accepted) {
-      const approved = accepted
-      const initial = await store.load<{phase: string}>(prefix + '-resume-initial')
-      if (!initial) {
-        // HTTP 425 is an explicit refusal to dispatch without client approval. It creates
-        // credential proposals; unknown transport outcomes still stop here.
-        await attempt('resume-initial', {callback, approved}, () => resumeCallback(callback!, approved))
-      } else if (initial.phase !== 'confirmed') throw new PaidSessionRecoveryError(prefix + '-resume-initial', 'Original continuation outcome is unknown; reconcile it')
-      const approvals = await approve(approved)
-      if (approvals > 0) {
-        approvedCredentialCount += approvals
-        await attempt('resume-' + approvedCredentialCount, {callback, approved}, () => resumeCallback(callback!, approved))
+    const context = session.oauthContext
+    const credential = await oauthHolder.credential({sessionId: session.sessionId, nonce: context.nonce, dpopHtu: context.dpopHtu, platformAudience: context.platformAudience})
+    signal.throwIfAborted()
+    // Verified locally (audience, time, cnf.jkt, nonce, htm, htu, ath, signature) before it is kept or sent.
+    const approved = structuredClone(await session.prepareOAuthPresentation(credential.accessToken, credential.signer, signal))
+    if (approved.oauth === null || approved.oauth.session_id !== session.sessionId || approved.credentials.length !== 0) throw new Error('Invalid original OAuth presentation')
+    await submit(approved)
+    return approved
+  }
+
+  /** The wallet paths: request-object approvals, then the local or external presentation. */
+  async function presentWallet(): Promise<{accepted: ClientApprovedPresentation | undefined; request: VerifiedRequestObject}> {
+    let opened: Awaited<ReturnType<RegisteredPaidAgentSession['requestObject']>>
+    for (;;) {
+      signal.throwIfAborted()
+      // A fetch after approvals waits for the signer: an approval sent without a durable body
+      // (an owed confirmation) is published first.
+      await owed()
+      try { opened = await session.requestObject(signal); break }
+      catch (error) {
+        if (!pendingConsent(error)) throw error
+        // The status poll and the proposal listing are independent reads: read them together and
+        // judge the status first, so a failed session still refuses before anything is approved.
+        const [polled, listed] = await Promise.allSettled([checkedPoll(), session.proposals(signal)])
+        if (polled.status === 'rejected') throw polled.reason
+        if (listed.status === 'rejected') throw listed.reason
+        const status = polled.value
+        // Nothing listed yet from an agent that can hold the listing: ask it to answer when one is
+        // pending instead of pacing locally (the same owner-only read, judged the same way).
+        if (listed.value.length === 0 && session.proposalWait === true) {
+          const held = await session.proposals(signal, {waitMs: MAX_PROPOSAL_WAIT_MS})
+          if (await approve(undefined, held) > 0) continue
+        }
+        // 425 with proposals: once they are approved the next request-object fetch dispatches them
+        // (and waits for the signer), so fetch again at once. Otherwise wait for the session to move.
+        if (await approve(undefined, listed.value) > 0) continue
+        await settle(status, (error as PaidAgentControlError).retryAfterMs)
       }
     }
-    await wait()
+    const request = opened.request
+    // An optional observation completes before credential disclosure, on a detached copy.
+    await options.observeRequest?.(structuredClone(request))
+    signal.throwIfAborted()
+
+    let accepted: ClientApprovedPresentation | undefined
+    const link: PaidSessionRequestLink = {requestUri: opened.requestUri, qrPayload: opened.qrPayload}
+    if (holder.kind === 'local') {
+      await holder.present?.({request: structuredClone(request), ...link})
+      const retained = await store.load<{original: {presentation: PaidWalletPresentation}; phase: string}>(prefix + '-presentation')
+      if (retained !== undefined && resume) {
+        // Never build or post a second presentation; continue with the original once it is confirmed.
+        if (retained?.phase !== 'confirmed' || !retained.original?.presentation?.approved) throw new PaidSessionRecoveryError(prefix + '-presentation', 'Original presentation outcome is unknown; reconcile it without redelivery')
+        accepted = structuredClone(retained.original.presentation.approved)
+      }
+    }
+    if (holder.kind === 'local' && !accepted) {
+      const presentation = structuredClone(await holder.makePresentation(structuredClone(request), {...link}))
+      // Validate canonical plain JSON before persisting or disclosing credentials.
+      executionBodyHash(presentation.approved as unknown as Record<string, unknown>)
+      const keys = Object.keys(presentation.approved).sort()
+      if (keys.join(',') !== 'credentials,holder,holder_proof,iat,oauth' || presentation.approved.oauth !== null
+        || !presentation.approved.credentials.length || !presentation.form.response) throw new Error('Paid wallet requires the original encrypted credential presentation')
+      await attempt('presentation', {request: request.claims, presentation}, () => holder.submit(request, presentation))
+      accepted = presentation.approved
+    } else if (holder.kind === 'external') {
+      // Showing the request is not billable; a resumed drive shows it again.
+      await holder.present(structuredClone(opened))
+      const retained = await store.load<{original: {presentation?: ClientApprovedPresentation}; phase: string}>(prefix + '-accepted')
+      if (retained) {
+        if (retained.phase !== 'confirmed' || !retained.original.presentation) throw new PaidSessionRecoveryError(prefix + '-accepted', 'Original presentation acceptance is unknown; reconcile it')
+        accepted = retained.original.presentation
+      }
+    }
+    return {accepted, request}
+  }
+
+  /** Accept the retained callback, continue it and approve the drawn verifiers' credential work until done. */
+  async function observeCallbacks(accepted: ClientApprovedPresentation | undefined, request: VerifiedRequestObject | undefined): Promise<SessionStatusResult> {
+    let callback: string | undefined
+    let approvedCredentialCount = 0
+    // The session status and the retained presentations are independent reads: each round reads them
+    // together and judges the status first (a done or failed session ends the drive before any write).
+    const observe = async (polled?: SessionStatusResult) => {
+      const [status, candidates] = await Promise.allSettled([polled ?? checkedPoll(), session.presentations(signal)])
+      if (status.status === 'rejected') throw status.reason
+      return {status: status.value, candidates}
+    }
+    // The presentation was just sent; observing it can wait for the wallet callback.
+    await owed()
+    let observed = await observe()
+    for (;;) {
+      signal.throwIfAborted()
+      const status = observed.status
+      if (status.status === 'done') return status
+      // Whether this round sent a write: its effect is read back at once instead of after a wait.
+      let progressed = false
+      if (observed.candidates.status === 'rejected') throw observed.candidates.reason
+      const retainedCandidates = observed.candidates.value
+      for (const candidate of retainedCandidates) {
+        if (!accepted) {
+          // External wallet: the client decides on the complete retained body, once.
+          if (holder.kind !== 'external' || !request) throw new Error('Agent retained a presentation this client did not make')
+          if (!await holder.accept(structuredClone(candidate), structuredClone(request))) {
+            throw new VerifierAgentSessionError('refused', session.sessionId, 'Client refused the retained wallet presentation')
+          }
+          const chosen = structuredClone(candidate.presentation)
+          await attempt('accepted', {presentation: chosen, callback: candidate.id}, async () => {})
+          accepted = chosen
+        }
+        if (!same(candidate.presentation, accepted)) throw new Error('Agent callback changed the original client presentation')
+        if (callback && callback !== candidate.id) throw new Error('Agent changed the original retained callback')
+        callback = candidate.id
+      }
+      if (callback && accepted) {
+        const approved = accepted
+        const initial = await journaled<{phase: string}>(prefix + '-resume-initial')
+        if (!initial) {
+          // HTTP 425 is an explicit refusal to dispatch without client approval. It creates
+          // credential proposals; unknown transport outcomes still stop here.
+          progressed = await attempt('resume-initial', {callback, approved}, () => resumeCallback(callback!, approved))
+        } else if (initial.phase !== 'confirmed') throw new PaidSessionRecoveryError(prefix + '-resume-initial', 'Original continuation outcome is unknown; reconcile it')
+        const approvals = await approve(approved)
+        if (approvals > 0) {
+          approvedCredentialCount += approvals
+          await attempt('resume-' + approvedCredentialCount, {callback, approved}, () => resumeCallback(callback!, approved))
+          progressed = true
+        }
+      }
+      // Each write is sent once, so `progressed` is true a bounded number of times. A continuation
+      // sent this round is confirmed durably before the next poll or wait.
+      await owed()
+      observed = await observe(progressed ? undefined : await settle(status))
+    }
   }
 }

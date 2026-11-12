@@ -236,6 +236,24 @@ describe('complete JSON body commitment', () => {
     expect(() => executionBodyHash({credential: '😀'.repeat(MAX_EXECUTION_BODY_BYTES / 3)})).toThrow(/byte bound/)
   })
 
+  it('caches only passed key and signature checks, by exact bytes: other keys and signatures are re-checked', async () => {
+    const f = await fixture(), mixed = '0x9a276fd96db6d6b855f4115053d81f74006dcf69dd6df902430469beaae00f37' as Hex
+    const authorization = await approveExecutionRequest(f.options)
+    // The prime-order operator and certificate keys and this exact signature are now cached passes.
+    for (let i = 0; i < 2; i++) {
+      await expect(f.verify(authorization)).resolves.toBeUndefined()
+      // A mixed-order key never inherits a cached pass, however often a prime-order one passed.
+      expect(() => executionApprovalTypedData(f.payment, {...authorization, operator_key: mixed})).toThrow(/prime-order/)
+      expect(() => executionCertificateTypedData(f.payment, {...f.certificate, execution_key: mixed})).toThrow(/prime-order/)
+    }
+    // One flipped bit in the cached signature, or the same signature over another approval hash.
+    const bytes = Uint8Array.from(Buffer.from(authorization.signature.slice(2), 'hex')); bytes[63]! ^= 0x01
+    await expect(f.verify({...authorization, signature: toHex(bytes)})).rejects.toThrow(/client execution signature/)
+    await expect(f.verify({...authorization, expires: authorization.expires - 1})).rejects.toThrow(/client execution signature/)
+    await expect(f.verify(authorization)).resolves.toBeUndefined()
+    f.signer.dispose()
+  })
+
   it('refuses accessor proposals before cloning can evaluate them', async () => {
     const f = await fixture(), getter = vi.fn(() => ['attacker credential'])
     const unsigned_body = Object.defineProperty({}, 'credentials', {enumerable: true, get: getter})

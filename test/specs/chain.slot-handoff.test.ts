@@ -4,6 +4,7 @@
 //
 // The fixture poisons both direct paths, so every write goes through the relay mock; the mock
 // applies the decoded call to the fixture chain, so a confirmation reads what the call did.
+import {createRequire} from 'node:module'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {
   ContractFunctionZeroDataError,
@@ -23,7 +24,7 @@ import type {TasraChainClient} from '../../src/chain/client.js'
 const mocks = vi.hoisted(() => ({submit: vi.fn(), read: vi.fn(), receipt: vi.fn()}))
 vi.mock('viem', async original => ({
   ...await original<typeof import('viem')>(),
-  createPublicClient: () => ({readContract: mocks.read, waitForTransactionReceipt: mocks.receipt}),
+  createPublicClient: () => ({readContract: mocks.read, getTransactionReceipt: mocks.receipt}),
 }))
 vi.mock('../../src/chain/registeredRelay.js', async original => ({
   ...await original<typeof import('../../src/chain/registeredRelay.js')>(),
@@ -200,6 +201,20 @@ describe('proposeSlotTransfer', () => {
     expect(e.message).toMatch(/predates/)
   })
 
+  it('refuses unsupported when the caller client comes from the viem CommonJS entry', async () => {
+    // A `require('viem')` client throws the CommonJS ContractFunctionZeroDataError class.
+    const cjs = createRequire(import.meta.url)('viem') as typeof import('viem')
+    const esmRead = mocks.read.getMockImplementation()!
+    mocks.read.mockImplementation(async (args: {functionName: string}) => {
+      if (args.functionName === 'pendingCreator' || args.functionName === 'pendingRuleAdmin') {
+        throw new cjs.ContractFunctionExecutionError(new cjs.ContractFunctionZeroDataError({functionName: args.functionName}), {abi: [], functionName: args.functionName})
+      }
+      return esmRead(args) as unknown
+    })
+    const e = await refuses(() => fixture().proposeSlotTransfer(SLOT, BUYER), 'unsupported')
+    expect(e.message).toMatch(/predates/)
+  })
+
   it('a transport failure on the read stays itself, never unsupported', async () => {
     mocks.read.mockImplementation(async ({functionName}: {functionName: string}) => {
       if (functionName === 'pendingCreator') throw new Error('fetch failed')
@@ -304,5 +319,49 @@ describe('readSlotHandoff', () => {
   it('reports both pending offers', async () => {
     Object.assign(state, {pendingCreator: BUYER, pendingAdmin: BUYER})
     expect(await readSlotHandoff(reader, SLOT)).toMatchObject({pendingCreator: BUYER, ruleAdmin: OTHER, guardian: GUARDIAN, pendingRuleAdmin: BUYER})
+  })
+})
+
+describe('the write confirmation wait', () => {
+  it('sees a receipt that lands 300 ms after the send within that poll, not on a 1 s grid', async () => {
+    const {TransactionReceiptNotFoundError} = await import('viem')
+    vi.useFakeTimers()
+    try {
+      const sentAt = Date.now()
+      let asked = 0
+      mocks.receipt.mockImplementation(async ({hash: h}: {hash: Hex}) => {
+        asked++
+        if (Date.now() - sentAt < 300) throw new TransactionReceiptNotFoundError({hash: h})
+        return {status: 'success', logs: [], blockNumber: 1n}
+      })
+      let done: number | undefined
+      const write = fixture().proposeSlotTransfer(SLOT, BUYER).then(r => { done = Date.now() - sentAt; return r })
+      await vi.advanceTimersByTimeAsync(600)
+      // Polls at 0, 250 and 625 ms (250 growing by half): seen at the 625 ms poll at the latest.
+      await vi.advanceTimersByTimeAsync(100)
+      expect(done).toBeDefined()
+      expect(done!).toBeLessThan(1_000)
+      expect(asked).toBeGreaterThanOrEqual(2)
+      await expect(write).resolves.toMatchObject({txHash: TX})
+      // A reverted receipt is still refused.
+      state = freshState()
+      mocks.receipt.mockResolvedValue({status: 'reverted', logs: [], blockNumber: 1n})
+      const reverted = fixture().proposeSlotTransfer(SLOT, BUYER).catch((e: unknown) => e)
+      await vi.advanceTimersByTimeAsync(10)
+      expect(String(await reverted)).toMatch(/REVERTED/)
+    } finally { vi.useRealTimers() }
+  })
+})
+
+describe('fundSlot from one owner', () => {
+  it('runs one approve-then-fund at a time across write clients (approve SETS the allowance: interleaved, the second fund would revert)', async () => {
+    const order: string[] = []
+    mocks.receipt.mockImplementation(async () => { await new Promise(done => setTimeout(done, 5)); return {status: 'success', logs: [], blockNumber: 1n} })
+    mocks.submit.mockImplementation(async () => { order.push('fund'); return {id: hash('08'), txHash: TX} })
+    // Two write clients (as one per slot) for the same owner; the fixture's direct writes are let through for approve.
+    const [a, b] = [fixture({TasraToken: SETTLEMENT, Settlement: SETTLEMENT}), fixture({TasraToken: SETTLEMENT, Settlement: SETTLEMENT})]
+    for (const w of [a, b]) vi.spyOn(w.wallet, 'writeContract').mockImplementation(async () => { order.push('approve'); return TX })
+    await Promise.all([a.fundSlot(SLOT, 5n), b.fundSlot(hash('05'), 7n)])
+    expect(order).toEqual(['approve', 'fund', 'approve', 'fund'])
   })
 })

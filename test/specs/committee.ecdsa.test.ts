@@ -1,5 +1,6 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
-import {committeeSignEoaDigest} from '../../src/committee/ecdsa.js'
+import {p256} from '@noble/curves/p256'
+import {committeeSignEoaDigest, committeeSignP256Digest} from '../../src/committee/ecdsa.js'
 import {isAuthDenied} from '../../src/errors.js'
 import type {CompoundTokenWire} from '../../src/committee/token.js'
 
@@ -59,5 +60,47 @@ describe('committeeSignEoaDigest', () => {
   ])('rejects malformed or non-Ethereum signature replies (%#)', async reply => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(Response.json(reply))))
     await expect(committeeSignEoaDigest(options)).rejects.toThrow('invalid secp256k1')
+  })
+})
+
+describe('committeeSignP256Digest', () => {
+  const secret = new Uint8Array(32).fill(7), groupPublicKey = p256.getPublicKey(secret, true)
+  const digest = new Uint8Array(32).fill(9)
+  const hex = (b: Uint8Array) => Buffer.from(b).toString('hex')
+  const signed = p256.sign(digest, secret, {prehash: false})
+  const reply = {mode: 'tecdsa-p256', group_public_key: hex(p256.getPublicKey(secret, false)),
+    signature_r: signed.r.toString(16).padStart(64, '0'), signature_s: signed.s.toString(16).padStart(64, '0')}
+  const p256Options = {...options, digest, groupPublicKey}
+
+  it('uses the eoa-digest route and returns a signature that verifies under the slot key', async () => {
+    const fetcher = vi.fn(() => Promise.resolve(Response.json(reply)))
+    vi.stubGlobal('fetch', fetcher)
+    const result = await committeeSignP256Digest(p256Options)
+    const [url] = fetcher.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://keeper.example/v1/committee/sign/eoa-digest')
+    expect(hex(result.r)).toBe(reply.signature_r)
+    expect(hex(result.s)).toBe(reply.signature_s)
+  })
+  it('refuses a reply whose group key is not the slot key, even if its signature verifies under that key', async () => {
+    const other = new Uint8Array(32).fill(8), sig = p256.sign(digest, other, {prehash: false})
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(Response.json({mode: 'tecdsa-p256', group_public_key: hex(p256.getPublicKey(other, true)),
+      signature_r: sig.r.toString(16).padStart(64, '0'), signature_s: sig.s.toString(16).padStart(64, '0')}))))
+    await expect(committeeSignP256Digest(p256Options)).rejects.toThrow('differs from the slot key')
+  })
+  it('refuses a signature that does not verify over the digest', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(Response.json({...reply, signature_s: '11'.repeat(32)}))))
+    await expect(committeeSignP256Digest(p256Options)).rejects.toThrow('does not verify')
+  })
+  it.each([null, {...reply, mode: 'tecdsa'}, {...reply, signature_r: 'zz'.repeat(32)}, {...reply, group_public_key: '05' + '22'.repeat(32)}])(
+    'refuses a malformed or non-P-256 reply (%#)', async bad => {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(Response.json(bad))))
+      await expect(committeeSignP256Digest(p256Options)).rejects.toThrow('invalid P-256')
+    })
+  it('refuses a wrong digest length or an invalid expected key before network I/O', async () => {
+    const fetcher = vi.fn()
+    vi.stubGlobal('fetch', fetcher)
+    await expect(committeeSignP256Digest({...p256Options, digest: new Uint8Array(31)})).rejects.toThrow('digest must be 32')
+    await expect(committeeSignP256Digest({...p256Options, groupPublicKey: new Uint8Array(33)})).rejects.toThrow('expected P-256')
+    expect(fetcher).not.toHaveBeenCalled()
   })
 })

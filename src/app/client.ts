@@ -14,6 +14,7 @@ import {decryptIdentityStrict, extractIdentityStrict, type StrictExtractionOptio
 import {TasraError} from '../errors.js'
 import {committeeSign, type VerifierProof} from '../committee/client.js'
 import {committeeSignEoaDigest} from '../committee/ecdsa.js'
+import {requireDualOperationProof, type DualOperationProof} from '../committee/dual-operation.js'
 import {createDualSignClient} from '../committee/dual-sign.js'
 import {auditOperationId, protocolHex, verifyOperationReceipt} from '../committee/receipts.js'
 import {compoundTokenHash, decodeCompoundToken, type CompoundTokenWire} from '../committee/token.js'
@@ -22,8 +23,19 @@ import type {OperationInput} from '../oid4vp/verifier-agent.js'
 import {defineDeployment, type TasraDeployment} from './deployment.js'
 import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
 import {resolvePaidKeeperTarget, type PaidKeeperEndpoint, type PaidKeeperTarget} from '../chain/prepaid.js'
-import {createKeeperExecutionApprover,type KeeperExecutionClientConsent} from '../chain/keeperExecution.js'
+import {createKeeperExecutionApprover,createKeeperExecutionApproverWithTarget,type KeeperExecutionClientConsent} from '../chain/keeperExecution.js'
 import {resolveKeeperMembers, withNetworkDeadline} from '../internal/network.js'
+import {SingleFlight} from '../internal/bounded.js'
+import {chainIdOf} from '../chain/chainId.js'
+
+/** Run independent reads together; on failure, surface the error of the first failing read in
+ *  argument order, the one a sequential read would have reported. */
+async function inOrder<A, B>(first: Promise<A>, second: Promise<B>): Promise<[A, B]> {
+  const [a, b] = await Promise.allSettled([first, second])
+  if (a.status === 'rejected') throw a.reason
+  if (b.status === 'rejected') throw b.reason
+  return [a.value, b.value]
+}
 
 /**
  * Failure categories for deployment, slot, authorization and result validation.
@@ -86,6 +98,18 @@ export interface AuthorizedOperationOptions {
    * Optional holder signature forwarded to the keeper operation.
    */
   userSignature?: Uint8Array
+}
+
+/** {@link AuthorizedOperationOptions} for a threshold ECDSA digest signature. */
+export interface EcdsaSignOptions extends AuthorizedOperationOptions {
+  /**
+   * The assembled native approval bundle for THIS digest and THIS final payment
+   * (`prepareOperationApproval`, then `approveDualOperation`, then `assembleOperationApproval`). Required
+   * by a slot with an approval policy; needs `payment` (it binds the payment's request ID and
+   * hash). Checked locally against the slot, SHA-256 of the digest and the grant's payment before
+   * the keeper body is approved, and carried inside it unchanged.
+   */
+  dualControl?: DualOperationProof
 }
 
 /** Authorization, receipt requirements and fan-out deadline for a BLS identity operation. */
@@ -160,8 +184,11 @@ export function createTasra(config: TasraApplicationConfig) {
   }
   const route = config.keeperUrl ?? ((url: string) => url), fetchImpl = config.fetchImpl
   const allowLocalPaidHttp = config.allowLocalPaidHttp === true
+  // Concurrent operations on one slot share an in-flight `latest` slot read; an answered read is
+  // never reused, so every later check (including the post-authorization recheck) reads again.
+  const slotReads = new SingleFlight<Awaited<ReturnType<typeof chain.readers.keyRegistry.getKeySlot>>>(1024)
   async function assertChain() {
-    if (await chain.client.getChainId() !== deployment.chainId) throw new TasraApplicationError('CHAIN_MISMATCH', 'RPC chain does not match the application deployment')
+    if (await chainIdOf(chain.client) !== deployment.chainId) throw new TasraApplicationError('CHAIN_MISMATCH', 'RPC chain does not match the application deployment')
   }
   /**
    * Read slot metadata after checking the deployment chain and slot status.
@@ -169,8 +196,7 @@ export function createTasra(config: TasraApplicationConfig) {
    */
   async function get(slotId: Hex): Promise<SlotMetadata> {
     protocolHex(slotId, 32, 'slot id')
-    await assertChain()
-    const s = await chain.readers.keyRegistry.getKeySlot(slotId)
+    const [, s] = await inOrder(assertChain(), slotReads.run(slotId.toLowerCase(), () => chain.readers.keyRegistry.getKeySlot(slotId)))
     if (!s.exists) throw new TasraApplicationError('SLOT_NOT_FOUND', 'Slot does not exist on this deployment')
     if (s.cancelled) throw new TasraApplicationError('SLOT_CANCELLED', 'Slot is cancelled')
     return {slotId, mode: Number(s.mode), epoch: Number(s.epoch), threshold: {k: Number(s.threshold.k), n: Number(s.threshold.n)},
@@ -219,7 +245,7 @@ export function createTasra(config: TasraApplicationConfig) {
       const settlement = deployment.addresses.Settlement
       if (!settlement || action === 'dual-approve') throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Paid operation needs a pinned Settlement and a supported fee action')
       const target = await resolvePaidKeeperTarget(chain.client, {chainId: deployment.chainId, settlement, keyRegistry: deployment.addresses.KeyRegistry!}, payment,
-        {slot: s.slotId, action: action === 'sign' && s.mode === 2 ? 'eoa-sign' : action, payloadDigest: toHex(expectedDigest)}, {allowLocalHttp: allowLocalPaidHttp})
+        {slot: s.slotId, action: action === 'sign' && (s.mode === 2 || s.mode === 4) ? 'eoa-sign' : action, payloadDigest: toHex(expectedDigest)}, {allowLocalHttp: allowLocalPaidHttp})
       if (target.mode !== s.mode || target.groupPublicKey.toLowerCase() !== s.publicKey.toLowerCase() || payment.keeper_assignment.key_epoch !== s.epoch) throw new TasraApplicationError('SLOT_CHANGED', 'Paid slot changed before keeper execution')
       paidNode(target)
       target.contributors.forEach(paidNode)
@@ -248,13 +274,15 @@ export function createTasra(config: TasraApplicationConfig) {
     } else if (grant.token.payment != null || grant.token.payment_hash != null) {
       throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Grant introduced an unexpected payment')
     }
-    await unchanged(s)
-    const target = await paidTarget()
+    // The slot recheck and the paid target re-read are independent; the target read here is the
+    // one every keeper approval of this operation then shares while it stays recent.
+    const [, target] = await inOrder(unchanged(s), paidTarget())
     options.signal?.throwIfAborted()
-    const approveExecution=payment&&execution?createKeeperExecutionApprover({client:chain.client,
+    const approverOptions=payment&&execution&&{client:chain.client,
       deployment:{chainId:deployment.chainId,settlement:deployment.addresses.Settlement!,keyRegistry:deployment.addresses.KeyRegistry!},
-      payment,expected:{slot:s.slotId,action:action==='sign'&&s.mode===2?'eoa-sign':action,payloadDigest:toHex(expectedDigest)},
-      ...execution,transportPolicy:{allowLocalHttp:allowLocalPaidHttp},keeperUrl:route}):undefined
+      payment,expected:{slot:s.slotId,action:action==='sign'&&(s.mode===2||s.mode===4)?'eoa-sign' as const:action,payloadDigest:toHex(expectedDigest)},
+      ...execution,transportPolicy:{allowLocalHttp:allowLocalPaidHttp},keeperUrl:route}
+    const approveExecution=approverOptions?target?createKeeperExecutionApproverWithTarget(approverOptions,target):createKeeperExecutionApprover(approverOptions):undefined
     return {...grant, paidTarget: target,approveExecution}
   }
   return {
@@ -290,13 +318,18 @@ export function createTasra(config: TasraApplicationConfig) {
            * @param input Exactly 32 digest bytes.
            * @param options Fresh operation authorization and cancellation controls.
            */
-          async signDigest(input: Uint8Array, options: AuthorizedOperationOptions): Promise<EoaSignature> {
+          async signDigest(input: Uint8Array, options: EcdsaSignOptions): Promise<EoaSignature> {
             if (input.length !== 32) throw new TasraError('Ethereum digest must be exactly 32 bytes')
+            const dualControl = options.dualControl && structuredClone(options.dualControl)
+            if (dualControl && !options.payment) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Native approvals bind a final payment; supply it')
             const digest = input.slice(), s = await ready(slotId, 2)
+            // Judged before any credential work: the bundle names this slot, digest and payment.
+            if (dualControl) requireDualOperationProof(dualControl, {operation: 'secp256k1-sign', slot: protocolHex(slotId, 32, 'slot'), payloadDigest: sha256(digest), payment: options.payment!})
             const grant = await authorize(s, 'sign', {message: digest}, options), node = grant.paidTarget ? paidNode(grant.paidTarget) : (await keepers(slotId, options.signal))[0]!
             options.signal?.throwIfAborted()
             const result = await committeeSignEoaDigest({nodeUrl: node.nodeUrl, committeeToken: grant.token, evidenceCt: grant.evidenceCt, verifierProofs: grant.verifierProofs,
-              digest, userSignature: options.userSignature, targetKeykeeper: node.operator, signal: options.signal, fetchImpl,approveExecution:grant.approveExecution})
+              digest, userSignature: options.userSignature, targetKeykeeper: node.operator, signal: options.signal, fetchImpl,approveExecution:grant.approveExecution,
+              ...(dualControl ? {dualControl} : {})})
             const publicKey = protocolHex(s.publicKey, 33, 'secp256k1 public key')
             const recovered = await recoverAddress({hash: toHex(digest), signature: {r: toHex(result.r), s: toHex(result.s), yParity: result.yParity}})
             if (!equalBytes(result.groupPublicKey, publicKey) || recovered.toLowerCase() !== addressFromEoaPubkey(publicKey).toLowerCase()) throw new TasraApplicationError('INVALID_RESULT', 'Signature does not match the anchored Ethereum account')

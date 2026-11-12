@@ -142,6 +142,10 @@ const callResults: Record<string, unknown> = {
 const chainIdAnswer = 1337
 
 const realFetch = globalThis.fetch
+const ACCOUNTANT = 'http://accountant.test'
+const SEED_DIGEST = `0x${'5d'.repeat(32)}` as Hex
+const SEED_SIG = `0x${'5c'.repeat(64)}` as Hex
+let seedAsks = 0
 
 function rpc(method: string, params: unknown[]): unknown {
   switch (method) {
@@ -215,7 +219,12 @@ function rpc(method: string, params: unknown[]): unknown {
   }
 }
 
-globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+globalThis.fetch = (async (url: string, init?: RequestInit) => {
+  if (String(url) === `${ACCOUNTANT}/v1/slot-seed`) {
+    seedAsks++
+    const seed = {commitment: (JSON.parse(String(init?.body)) as {commitment: string}).commitment, digest: SEED_DIGEST, signature: SEED_SIG}
+    return {ok: true, status: 200, json: async () => seed, text: async () => JSON.stringify(seed), headers: new Headers()} as unknown as Response
+  }
   const body = JSON.parse(String(init?.body)) as {id: number; method: string; params?: unknown[]}
   let payload: unknown
   try {
@@ -689,55 +698,32 @@ try {
 
   // ─── commit-reveal creation ─────────────────────────────────────────────────
   {
-    // The production default, and grinding-resistant BECAUSE of the wait: the committee
-    // draw must use a beacon seed that did not exist when the parameters were committed.
-    // So the ordering is the property — commit, then wait for the beacon to pass the
-    // pinned target epoch, then reveal.
+    // The production default: commit, obtain the accountant seed OVER the commitment, reveal.
+    // Grinding-resistant because the seed post-dates the commitment; there is NO beacon-epoch
+    // wait (one to two hours at the production cadence), so the beacon's epoch is never polled.
+    // This stub serves a pre-reveal-path registry (four-word slotCommits): it keeps
+    // `commitKeySlot`, which on such a registry admits the seeded reveal too.
     reset()
-    const epochs: Array<[number, number]> = []
-    // The beacon starts below the commit's target and advances once, so the wait is real
-    // rather than skipped.
-    callResults['ThresholdRandomBeacon.epoch'] = 5n
     callResults['KeyRegistry.slotCommits'] = [6n, 20n, account.address, false]
-    let polls = 0
-    const advanceOnSecondPoll = {
-      get value() {
-        polls++
-        return polls >= 2 ? 6n : 5n
-      },
-    }
-    Object.defineProperty(callResults, 'ThresholdRandomBeacon.epoch', {
-      get: () => advanceOnSecondPoll.value,
-      configurable: true,
-    })
-
-    const res = await client.createSlotCommitReveal({
-      rule: 'any',
-      k: 2,
-      n: 3,
-      mode: 'frost',
-      slotId,
-      maxWaitMs: 60_000,
-      onEpoch: (cur, target) => epochs.push([cur, target]),
-    })
+    callResults['KeyRegistry.commitSeedDigest'] = SEED_DIGEST
+    seedAsks = 0
+    const res = await client.createSlotCommitReveal({rule: 'any', k: 2, n: 3, mode: 'frost', slotId, accountantUrls: [ACCOUNTANT]})
+    eq('commit-reveal reports the seeded path', res.seeded, true)
     eq('commit-reveal returns the pinned target epoch', res.targetEpoch, 6)
     ok('commit and reveal are distinct transactions', res.commitTx !== res.revealTx)
     ok('a rule salt comes back from the commit-reveal path too', /^0x[0-9a-f]{64}$/.test(res.ruleSalt))
     // ⚠ The ordering IS the grinding resistance: commit first, reveal only after.
     const commitSel = selectorOf('KeyRegistry', 'commitKeySlot')
-    const revealSel = selectorOf('KeyRegistry', 'revealKeySlot')
+    const revealSel = selectorOf('KeyRegistry', 'revealKeySlotWithSeed')
     const order = txs.map(t => t.data.slice(0, 10)).filter(s => s === commitSel || s === revealSel)
-    eq('the commit is sent before the reveal', order, [commitSel, revealSel])
-    ok('the wait actually polled the beacon below the target', epochs.some(([cur, target]) => cur < target))
-    ok('onEpoch reported the target it was waiting for', epochs.every(([, target]) => target === 6))
-    // The target epoch is READ from the contract, not computed client-side (computing it
-    // races the beacon), so a different pinned value must change the wait.
-    ok(
-      'the target epoch came from an on-chain slotCommits read',
-      calls.some(c => c.data.slice(0, 10) === selectorOf('KeyRegistry', 'slotCommits')),
-    )
+    eq('the commit is sent before the seeded reveal', order, [commitSel, revealSel])
+    eq('the seed was asked for exactly once', seedAsks, 1)
+    ok('the reveal carries the served seed signature', lastTx().data.toLowerCase().includes(SEED_SIG.slice(2)))
+    ok('the beacon epoch was never polled', !calls.some(c => c.data.slice(0, 10) === selectorOf('ThresholdRandomBeacon', 'epoch')))
+    ok('no chain-time nudge was sent', !txs.some(t => t.to === account.address.toLowerCase() && t.data === '0x'))
 
-    // A raw-export slot has no commit-reveal entry point, so it is refused up front.
+    // A raw-export slot has no commit-reveal entry point, so it is refused up front; so is a
+    // caller still asking for the removed beacon-epoch path.
     reset()
     await rejectsWith(
       'commit-reveal refuses an exportable slot',
@@ -745,50 +731,11 @@ try {
       () => client.createSlotCommitReveal({rule: 'any', k: 2, n: 3, mode: 'frost', exportable: true}),
     )
     await rejectsWith(
-      'commit-reveal validates its wait bound',
-      /Invalid commit-reveal wait/,
-      () => client.createSlotCommitReveal({rule: 'any', k: 2, n: 3, mode: 'frost', maxWaitMs: 0}),
+      'commit-reveal refuses the removed beacon-epoch path',
+      /beacon-epoch creation path was removed/,
+      () => client.createSlotCommitReveal({rule: 'any', k: 2, n: 3, mode: 'frost', ...{slotSeed: false}}),
     )
     eq('neither refusal signed anything', txs.length, 0)
-
-    // ─── the chain-time nudge ───────────────────────────────────────────────
-    // The beacon is anchored to CHAIN time, and on a mint-on-demand chain (the local dev
-    // chain) `block.timestamp` only moves when a transaction mints a block. An idle chain
-    // therefore FREEZES the beacon, and without this nudge every commit-reveal on a local
-    // fleet would sit out its full deadline and fail. The nudge is a zero-value
-    // self-transfer, sent only when the epoch has not moved since the last poll AND the
-    // head is stale — so on a live chain it never fires.
-    reset()
-    let stalledPolls = 0
-    Object.defineProperty(callResults, 'ThresholdRandomBeacon.epoch', {
-      get: () => {
-        stalledPolls++
-        // Stay put long enough for two consecutive polls to see the same epoch, which is
-        // the condition the nudge is gated on.
-        return stalledPolls >= 3 ? 6n : 5n
-      },
-      configurable: true,
-    })
-    callResults['KeyRegistry.slotCommits'] = [6n, 20n, account.address, false]
-    const nudged = await client.createSlotCommitReveal({
-      rule: 'any', k: 2, n: 3, mode: 'frost', slotId, maxWaitMs: 60_000,
-    })
-    const selfTransfers = txs.filter(t => t.to === account.address.toLowerCase() && t.data === '0x' && t.value === 0n)
-    eq('a stalled beacon is nudged with a zero-value self-transfer', selfTransfers.length, 1)
-    ok('and the reveal still lands afterwards', !!nudged.revealTx)
-
-    // ─── the reveal retries across the epoch boundary ───────────────────────
-    // EpochNotReached / BeaconSeedUnavailable can fire transiently right at the boundary,
-    // until the seed for the target epoch has landed. That is a wait, not a failure, so
-    // the reveal retries rather than discarding a paid-for commit.
-    reset()
-    stalledPolls = 3 // beacon already at the target
-    selectorFailures.set(selectorOf('KeyRegistry', 'revealKeySlot'), 1)
-    const retried = await client.createSlotCommitReveal({
-      rule: 'any', k: 2, n: 3, mode: 'frost', slotId, maxWaitMs: 60_000,
-    })
-    ok('a transient reveal revert is retried, not surfaced', !!retried.revealTx)
-    eq('the injected reveal failure was consumed', selectorFailures.get(selectorOf('KeyRegistry', 'revealKeySlot')), 0)
 
     // A deployment with no beacon is a configuration error with an actionable name, found
     // before anything is signed.

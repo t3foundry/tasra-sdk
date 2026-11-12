@@ -856,7 +856,7 @@ A Verifier Agent session did not produce a compound token. `kind` says why;
 `retryable` is true only for `timeout` and `unavailable` - the session may
 still complete, so poll again. Extends [TasraError](#tasraerror).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L146)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L152)
 
 Import: `import {VerifierAgentSessionError} from '@t3foundry/tasra-sdk'`
 
@@ -1261,7 +1261,7 @@ Returns: ` Promise<SealedPartial[]> `.
 
 Interpolate distinct partial decryptions and authenticate the plaintext. Enable verify to check each share before combining; the caller supplies a sufficient threshold.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L286)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L374)
 
 Import: `import {combineDecryptShares} from '@t3foundry/tasra-sdk'`
 
@@ -1348,7 +1348,7 @@ Open an `oauth` session - same creator authorisation, same committee draw, same
 derived nonce, same poll contract as [createOid4vpSession](#createoid4vpsession). No QR, no Request
 Object, no JWE key: the client presents an access token its own IdP minted.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L308)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L314)
 
 Import: `import {createOauthSession} from '@t3foundry/tasra-sdk'`
 
@@ -1371,7 +1371,7 @@ The verifier-agent derives a nonce, generates an ECDH key for JWE, and returns a
 payload the wallet scans. The session ID and poll secret are used to poll
 for the result.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L266)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L272)
 
 Import: `import {createOid4vpSession} from '@t3foundry/tasra-sdk'`
 
@@ -1533,7 +1533,7 @@ Returns:
 Collect and combine recipient-sealed KEM contributions locally, then clear all partials.
 Servers receive only the authorized public recipient and never the recovered plaintext.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L163)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L166)
 
 Import: `import {decryptWithCommitteePartials} from '@t3foundry/tasra-sdk'`
 
@@ -1554,7 +1554,7 @@ Returns: ` Promise<Uint8Array> `.
 
 Decrypt with a reconstructed BLS master secret key and the original associated data. Reject malformed keys or failed authentication.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L214)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L215)
 
 Import: `import {decryptWithMasterKey} from '@t3foundry/tasra-sdk'`
 
@@ -1969,7 +1969,7 @@ Combine k extraction partials and AEAD-decrypt `ct` - mirrors
 `bls::ibe::combine_decrypt` (verify every share to Lagrange-combine to `T = e(sk_ID,U)`
 to KDF to open). The intermediate `sk_ID` never leaves this function.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L298)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L348)
 
 Import: `import {ibeCombineDecrypt} from '@t3foundry/tasra-sdk'`
 
@@ -1996,7 +1996,7 @@ this identity - prefer [ibeCombineDecrypt](#ibecombinedecrypt), which uses and d
 every share first (a caller combining unverified shares could be fed garbage that
 silently fails the AEAD later, unattributed).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L267)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L300)
 
 Import: `import {ibeCombineExtract} from '@t3foundry/tasra-sdk'`
 
@@ -2059,7 +2059,7 @@ Returns: ` Promise<Uint8Array> `.
 Decrypt with an already-extracted identity key (48-byte compressed G1) - the
 custody-opt-in path pairing with [ibeCombineExtract](#ibecombineextract).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L320)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L370)
 
 Import: `import {ibeDecryptWithKey} from '@t3foundry/tasra-sdk'`
 
@@ -2080,7 +2080,7 @@ Returns: ` Uint8Array `.
 Encrypt `message` to `identity` under the slot's master public key (96-byte
 compressed G2). Offline and permissionless - the identity's key need not exist yet.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L193)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L210)
 
 Import: `import {ibeEncrypt} from '@t3foundry/tasra-sdk'`
 
@@ -2198,7 +2198,7 @@ Verify one extraction partial against its node's dual-group verifying share (the
 96-byte G2 half): `e(D_i, G2) == e(Q_ID, Y_i)`. Throws naming the identifier -
 identifiable abort: the caller knows WHICH node served a bad share.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L237)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L254)
 
 Import: `import {ibeVerifyShare} from '@t3foundry/tasra-sdk'`
 
@@ -2687,7 +2687,7 @@ Compute the `payload_digest` for a given action and message.
 For `sign` and `ibe-extract`, this is `sha256(message_bytes)` as 0x-hex.
 Other actions should supply the digest directly.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L243)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L249)
 
 Import: `import {payloadDigest} from '@t3foundry/tasra-sdk'`
 
@@ -2704,14 +2704,14 @@ Returns: ` string `.
 
 ### pollOid4vpSession
 
-Fetch and validate one authorization session status. Transport failures and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error. The polling secret is sent in the Authorization header.
+Fetch and validate one authorization session status. Transport failures, a request that exceeds its timeout and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error; an aborted signal produces a cancelled error. The polling secret is sent in the Authorization header.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L459)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L483)
 
 Import: `import {pollOid4vpSession} from '@t3foundry/tasra-sdk'`
 
 ```ts
-declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, pollSecret: string): Promise<SessionStatusResult>;
+declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, pollSecret: string, opts?: PollSessionOpts): Promise<SessionStatusResult>;
 ```
 
 | Parameter | Type | Description |
@@ -2719,6 +2719,7 @@ declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, 
 | ` verifierAgentUrl ` | ` string ` | - Verifier-agent HTTP base URL. |
 | ` sessionId ` | ` string ` | - Opened session identifier. |
 | ` pollSecret ` | ` string ` | - Secret returned at session creation; do not expose it in logs. |
+| ` opts? ` | ` PollSessionOpts ` | - Long-poll request, cancellation and per-request timeout. |
 
 Returns: ` Promise<SessionStatusResult> `.
 
@@ -3075,7 +3076,7 @@ Throws `VerifierAgentSessionError`: `refused` when the agent reports the session
 (the committee refused, or could not be reached — `message` says which; not retryable on
 this session), `unavailable` for other 502/503/504, `protocol` for any other non-2xx.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L381)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L387)
 
 Import: `import {submitOauthResponse} from '@t3foundry/tasra-sdk'`
 
@@ -3198,7 +3199,7 @@ Returns: ` void `.
 
 Check a partial decryption against its supplied verifying share using a pairing. Return false for missing or malformed material.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L260)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L261)
 
 Import: `import {verifyDecryptShare} from '@t3foundry/tasra-sdk'`
 
@@ -3294,12 +3295,18 @@ Returns: ` Promise<IssuedToken> `.
 
 Poll until the session reaches a terminal state (done or failed) - bounded by
 `timeoutMs`, with a growing jittered interval so many clients never poll in lock-step.
+Every request asks the verifier-agent to hold its reply until the session moves
+(`?wait=1`). A reply whose phase moved forward is followed by the next request at once;
+an unchanged reply is followed by the backoff sleep, unless it took 15 s or more (the
+server's hold ended), when the next request also goes at once. A server without long-poll
+support answers at once and is polled on the backoff schedule. Any phase change resets the
+backoff to `intervalMs`.
 A transient `unavailable` answer (a 503, a dropped connection) is retried within the
 deadline; a `protocol` answer stops at once; the deadline is a `timeout` error; the
 caller's `signal` is a `cancelled` error. A terminal `failed` is RETURNED (the caller
 decides how to explain it) - see `awaitVerifierAgentResult` for the version that throws `refused`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L564)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L620)
 
 Import: `import {waitForSession} from '@t3foundry/tasra-sdk'`
 
@@ -3323,7 +3330,7 @@ Returns: ` Promise<SessionStatusResult> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 82 types</summary>
+<summary>Browse 83 types</summary>
 
 - [BlsPeer](#blspeer)
 - [BuildHolderProofOpts](#buildholderproofopts)
@@ -3378,6 +3385,7 @@ Options, data structures and return types.
 - [OpenSessionOpts](#opensessionopts)
 - [PaidApprovalUnresolvedReason](#paidapprovalunresolvedreason)
 - [PaidBackoffCode](#paidbackoffcode)
+- [PollSessionOpts](#pollsessionopts)
 - [PrepaidEscapeCode](#prepaidescapecode)
 - [PresentationDelegation](#presentationdelegation)
 - [PresentationOperation](#presentationoperation)
@@ -3462,7 +3470,7 @@ Fields:
 
 BLS group encryption ciphertext containing an ephemeral key, nonce and authenticated payload.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L128)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L129)
 
 ```ts
 export interface Ciphertext {
@@ -3519,7 +3527,7 @@ Fields:
 
 an `oauth` session - the client brings a DPoP-bound access token.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L92)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L93)
 
 ```ts
 export interface CreateOauthSessionResult {
@@ -3543,7 +3551,7 @@ Fields:
 
 Signed operation, optional delegation and payload submitted to the verifier agent.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L62)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L63)
 
 ```ts
 export interface CreateSessionParams {
@@ -3571,7 +3579,7 @@ Fields:
 
 Wallet presentation link and polling credentials for an opened authorization session.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L80)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L81)
 
 ```ts
 export interface CreateSessionResult {
@@ -3791,7 +3799,7 @@ Fields:
 
 One participant's partial BLS decryption and optional public verification material.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L241)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/kem.ts#L242)
 
 ```ts
 export interface DecryptShare {
@@ -4248,7 +4256,7 @@ Fields:
 
 Encrypted message - wire shape of `bls::ibe::Ciphertext`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L46)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L47)
 
 ```ts
 export interface IbeCiphertext {
@@ -4268,7 +4276,7 @@ Fields:
 
 One node's partial `D_i = sk_i * Q_ID` (48-byte compressed G1).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L56)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L57)
 
 ```ts
 export interface IbeDecryptionShare {
@@ -4408,7 +4416,7 @@ Fields:
 
 A node's dual-group verifying share - only the 96-byte G2 half is needed here.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L64)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/ibe.ts#L65)
 
 ```ts
 export type IbeVerifyingShares = ReadonlyMap<number, Uint8Array>;
@@ -4608,6 +4616,26 @@ Stable code of a paid backoff refusal (see [PaidBackoffError](#paidbackofferror)
 export type PaidBackoffCode = 'deadline_exceeded' | 'server_wait_too_long' | 'no_time_to_send' | 'attempts_exhausted';
 ```
 
+### PollSessionOpts
+
+Options for one session status request.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L466)
+
+```ts
+export interface PollSessionOpts {
+    wait?: boolean;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+}
+```
+
+Fields:
+
+- **` wait `**: Ask the verifier-agent to hold the reply until the session status or phase changes (`?wait=1`, up to 20 s). A server without that support answers at once.
+- **` signal `**: Cancel the request: rejects with `cancelled`.
+- **` timeoutMs `**: Per-request ceiling in milliseconds (default 30000, which covers the 20 s hold); a reply that does not arrive in time is `unavailable`.
+
 ### PrepaidEscapeCode
 
 Stable code of a prepaid timeout-escape refusal (see [PrepaidEscapeError](#prepaidescapeerror)).
@@ -4632,7 +4660,7 @@ export type PrepaidEscapeCode = 'escape_disabled' | 'escape_not_open' | 'reserva
 
 EIP-712 delegation from the slot creator to a delegate address.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L44)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L45)
 
 ```ts
 export interface PresentationDelegation {
@@ -4660,7 +4688,7 @@ Fields:
 
 Operation details signed by a slot creator or delegate for credential authorization.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L28)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L29)
 
 ```ts
 export interface PresentationOperation {
@@ -5014,7 +5042,7 @@ Fields:
 
 Authorization session progress and optional committee result or failure detail.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L109)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L110)
 
 ```ts
 export interface SessionStatusResult {
@@ -5025,6 +5053,13 @@ export interface SessionStatusResult {
     verifierProofs?: unknown;
     bindingPreimage?: Record<string, unknown>;
     error?: string;
+    sessionGrant?: {
+        grant?: {
+            session_grant: SessionGrantWire;
+            refresh_seq: 0;
+        };
+        error?: string;
+    };
 }
 ```
 
@@ -5037,6 +5072,7 @@ Fields:
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
 - **` bindingPreimage `**: Operation context used to derive the request-binding hash.
 - **` error `**: Optional failure detail reported by the verifier agent.
+- **` sessionGrant `**: Session mode, once `done`: the grant the paid session client verified against the anchored draw (`refresh_seq` 0), or why none came with the token. Absent otherwise.
 
 ### ShardDecryptOpts
 
@@ -5285,7 +5321,7 @@ Fields:
 Why a session did not yield a token - the class the UI explains, with a NON-SECRET
 correlation reference (the session id; the poll secret is never part of an error).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L129)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L135)
 
 ```ts
 export type VerifierAgentSessionErrorKind = 'timeout' | 'refused' | 'unavailable' | 'protocol' | 'cancelled';

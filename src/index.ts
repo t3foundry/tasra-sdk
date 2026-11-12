@@ -278,6 +278,7 @@ export type {
   CreateSessionResult,
   CreateOauthSessionResult,
   SessionStatusResult,
+  PollSessionOpts,
 } from './verifier-agent/index.js'
 
 // DPoP (RFC 9449)

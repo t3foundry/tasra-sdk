@@ -13,6 +13,7 @@
 
 import {decodeFunctionResult, encodeFunctionData, parseAbi, type Abi, type Address, type Hex, type PublicClient} from 'viem'
 import {TasraError} from '../errors.js'
+import {chainIdOf} from './chainId.js'
 
 /** Billing a slot uses; `unknown` means the chain could not be read consistently. */
 export type BillingMode = 'legacy' | 'prepaid' | 'unknown'
@@ -71,8 +72,15 @@ const probeAbi = parseAbi([
   'function prepaidEnabled(bytes32 slot) view returns (bool)',
   'function prepaidFromGenesis() view returns (bool)',
 ])
-/** Settlement versions with prepaid billing. "3" adds only the payer timeout escape. Any other version is unknown. */
-const PREPAID_SETTLEMENT_VERSIONS: ReadonlySet<string> = new Set(['2', '3'])
+/** Settlement versions with prepaid billing. "3" adds only the payer timeout escape; "4" adds only the prepaid
+ *  allowances beside the unchanged per-request path; "5" adds only allowance range settlement (a
+ *  range-settled voucher is settled by the allowance's settled seq, read by the backing checks). Any other
+ *  version is unknown. */
+const PREPAID_SETTLEMENT_VERSIONS: ReadonlySet<string> = new Set(['2', '3', '4', '5'])
+/** True for a `Settlement.version()` with prepaid billing ("2", "3" or "4"); any other answer is not. */
+export function isPrepaidSettlementVersion(version: unknown): boolean {
+  return typeof version === 'string' && PREPAID_SETTLEMENT_VERSIONS.has(version)
+}
 const HEX32 = /^0x[0-9a-f]{64}$/i
 const ADDRESS = /^0x[0-9a-f]{40}$/i
 
@@ -105,7 +113,7 @@ export async function readBillingMode(client: PublicClient, deployment: BillingD
   validate(d, slot)
   let blockNumber: bigint, blockHash: Hex
   try {
-    if (await client.getChainId() !== d.chainId) return unknown(slot, 'RPC chain mismatch')
+    if (await chainIdOf(client) !== d.chainId) return unknown(slot, 'RPC chain mismatch')
     const block = await client.getBlock({blockTag: 'latest'})
     if (block.number === null || block.hash === null || !HEX32.test(block.hash)) return unknown(slot, 'canonical head unavailable')
     blockNumber = block.number; blockHash = block.hash
@@ -124,7 +132,7 @@ export async function readBillingMode(client: PublicClient, deployment: BillingD
     if (typeof version !== 'string' || version.length > 32) return unknown(slot, 'invalid Settlement version')
     observed.settlementVersion = version
     if (version === '1') mode = 'legacy'
-    else if (PREPAID_SETTLEMENT_VERSIONS.has(version)) {
+    else if (isPrepaidSettlementVersion(version)) {
       const enabled = await read('prepaidEnabled', [slot])
       if (typeof enabled !== 'boolean') return unknown(slot, 'invalid prepaidEnabled', observed)
       observed.prepaidEnabled = enabled

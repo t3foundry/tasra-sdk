@@ -2,6 +2,7 @@ import {readFileSync} from 'node:fs'
 import {createServer, type Server} from 'node:https'
 import {createServer as createPlainServer, type Server as PlainServer} from 'node:http'
 import {lookup} from 'node:dns'
+import {rootCertificates} from 'node:tls'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 import {createNodeKeeperRecoveryTransport, createNodePaidAgentTransport, createNodeServiceStatusTransport, createNodeAgentWalletFetch, createNodeAgentTransport, createNodeRelayTransport, createNodeServiceDiscoveryTransport, isPublicServiceAddress} from '../../src/chain/node.js'
 import {authenticateApprovedService, encodeServiceManifest, serviceChallengeTypedData, type ServiceChallenge, type ServiceManifest} from '../../src/chain/serviceIdentity.js'
@@ -160,6 +161,23 @@ describe('service HTTPS destination boundary', () => {
   })
   it.each(vector.publicAddresses)('allows public address %s', address => expect(isPublicServiceAddress(address)).toBe(true))
   it.each(vector.privateAddresses)('refuses special address %s', address => expect(isPublicServiceAddress(address)).toBe(false))
+  it('shares one trust context per exact CA set and never serves it for a different CA set', async () => {
+    const endpoint = await serve((_req, res) => { res.writeHead(200, {'content-type': 'application/json'}); res.end('{}') })
+    const trusted = () => createNodeServiceDiscoveryTransport({allowedPrivateHosts: ['localhost'], ca}).request(endpoint, options())
+    await expect(trusted()).resolves.toBeDefined()
+    await expect(trusted()).resolves.toBeDefined() // the shared context, re-used by a new transport
+    // A different deployment CA (another root), the same CA as a string, and none at all: each is its
+    // own trust set; only one containing the test CA verifies the server.
+    const other = rootCertificates[0]!
+    await expect(createNodeServiceDiscoveryTransport({allowedPrivateHosts: ['localhost'], ca: other}).request(endpoint, options())).rejects.toThrow()
+    await expect(createNodeServiceDiscoveryTransport({allowedPrivateHosts: ['localhost']}).request(endpoint, options())).rejects.toThrow()
+    await expect(createNodeServiceDiscoveryTransport({allowedPrivateHosts: ['localhost'], ca: [other, ca.toString()]}).request(endpoint, options())).resolves.toBeDefined()
+    await expect(createNodeServiceDiscoveryTransport({allowedPrivateHosts: ['localhost'], ca: [other]}).request(endpoint, options())).rejects.toThrow()
+    // A malformed CA still rejects its request rather than throwing at construction.
+    const malformed = createNodeServiceDiscoveryTransport({allowedPrivateHosts: ['localhost'], ca: '-----BEGIN CERTIFICATE-----\nnot a certificate\n-----END CERTIFICATE-----'})
+    await expect(malformed.request(endpoint, options())).rejects.toThrow()
+    await expect(trusted()).resolves.toBeDefined()
+  })
   it('refuses private DNS before connecting and permits an explicit host with verified TLS', async () => {
     const hits = vi.fn()
     const endpoint = await serve((req, res) => { hits(req.headers); res.writeHead(200, {'content-type': 'application/json'}); res.end('{}') })

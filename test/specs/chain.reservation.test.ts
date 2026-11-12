@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createPublicClient, createWalletClient, custom, decodeFunctionData, defineChain, encodeAbiParameters, encodeFunctionData, encodeFunctionResult, keccak256, parseTransaction, toHex, type Abi, type Hex, type TransactionSerialized} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {PaidReservationAbortedError, PaidReservationUncertainError, reservePaidOperation, reconcilePaidReservation, type PaidReservationRecord, type PaidReservationCheckpoint, type PaidReservationQuote, type ReservePaidOperationOptions} from '../../src/chain/reservation.js'
+import {PaidReservationAbortedError, PaidReservationStaleEpochError, PaidReservationUncertainError, reservePaidOperation, reconcilePaidReservation, type PaidReservationRecord, type PaidReservationCheckpoint, type PaidReservationQuote, type ReservePaidOperationOptions} from '../../src/chain/reservation.js'
 import {paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {createFileStore} from '../../src/app/node.js'
 import {createPaidReservationJournal} from '../../src/app/paid-journal.js'
@@ -21,6 +21,8 @@ const expected = {slot: h(3), action: 'sign' as const, payloadDigest: h(4)}
 const chain = defineChain({id: 43112, name: 'local', nativeCurrency: {name: 'AVAX', symbol: 'AVAX', decimals: 18}, rpcUrls: {default: {http: ['http://127.0.0.1:1']}}})
 const encoded = (abi: Abi, functionName: string, result: unknown) => encodeFunctionResult({abi, functionName, result})
 interface Changes {
+  /** Answer every RPC a macrotask later and record how many were in flight at once. */
+  overlap?: {active: number; most: number}
   paymentNonce?: Hex; payerNonce?: number; applicationJournal?: boolean
   session?: {random: Hex; audience: string}
   quote?: (quote: PaidReservationQuote, method: string, index: number) => void
@@ -63,7 +65,13 @@ async function fixture(change: Changes = {}) {
     return change.response?.clone() ?? Response.json(result)
   })
   vi.stubGlobal('fetch', fetcher)
-  const transport = custom({request: async ({method, params}: {method: string; params?: unknown}) => {
+  const answer = async ({method, params}: {method: string; params?: unknown}): Promise<unknown> => {
+    if (!change.overlap) return respond({method, params})
+    const o = change.overlap
+    o.most = Math.max(o.most, ++o.active)
+    try { await new Promise(resolve => setTimeout(resolve, 1)); return await respond({method, params}) } finally { o.active-- }
+  }
+  const respond = async ({method, params}: {method: string; params?: unknown}): Promise<unknown> => {
     trace.push(method)
     if (method === 'eth_chainId') {change.onChainId?.(); return toHex(change.chain ?? 43112)}
     if (method === 'eth_getBlockByHash') return {number: '0x13', hash: h(19), timestamp: toHex(change.stale ? 960 : 1000), transactions: []}
@@ -124,7 +132,8 @@ async function fixture(change: Changes = {}) {
     }
     if (method === 'eth_getTransactionReceipt') return change.receiptMissing ? null : {transactionHash, blockHash: h(20), blockNumber: '0x14', transactionIndex: '0x0', from: creator.address, to: deployment.settlement, cumulativeGasUsed: '0x186a0', gasUsed: '0x186a0', contractAddress: null, logs: [], logsBloom: '0x' + '00'.repeat(256), status: change.reverted ? '0x0' : '0x1', effectiveGasPrice: '0x19', type: '0x0'}
     throw new Error(`unexpected RPC ${method}`)
-  }}, {retryCount: 0})
+  }
+  const transport = custom({request: answer}, {retryCount: 0})
   const client = createPublicClient({chain, transport})
   const wallet = createWalletClient({chain, account: change.localSigner ? creator : creator.address, transport})
   const options: ReservePaidOperationOptions = {accountantUrls: ['https://acct0.example', 'https://acct1.example'], maxGas: 200000n, maxGasPrice: 50n,
@@ -144,6 +153,27 @@ async function fixture(change: Changes = {}) {
     recover: (confirmations = 1) => reconcilePaidReservation(client, deployment, record(), expected, transactionHash, confirmations)}
 }
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+it('sends the pre-broadcast observations together and the post-receipt reads together', async () => {
+  const overlap = {active: 0, most: 0}
+  const f = await fixture({localSigner: true, overlap})
+  await f.run()
+  // Digest, prior cost, slot, simulation and the four fee reads at once (8); before, one at a time.
+  expect(overlap.most).toBeGreaterThanOrEqual(8)
+  expect(f.transactions).toHaveLength(1)
+})
+
+it('reads the quote block header beside the pre-broadcast observations and still refuses a stale quote before preparing', async () => {
+  const overlap = {active: 0, most: 0}
+  const f = await fixture({localSigner: true, overlap})
+  await f.run()
+  // The header joins the eight observations in one round (9), instead of a round of its own before them.
+  expect(overlap.most).toBeGreaterThanOrEqual(9)
+  const stale = await fixture({localSigner: true, stale: true})
+  await expect(stale.run()).rejects.toThrow(/stale or invalid/)
+  expect(stale.checkpoints).toEqual([])
+  expect(stale.transactions).toHaveLength(0)
+})
 
 it('reports insufficient native gas separately from TASRA before preparation or broadcast', async () => {
   const f = await fixture({localSigner: true, gas: 100000n, price: 25n, balance: 2499999n})
@@ -429,10 +459,14 @@ it('serializes different operations for one payer and retains uncertain claims a
     const attempt = f.run(slow).catch((error: unknown) => error)
     await waiting
     const different = {...f.payment, nonce: h(44)}, before = f.trace.length
-    await expect(f.run(createFileStore(f.directory), different)).rejects.toThrow(/locked/)
+    // Another store instance in this process queues behind the held payer lock: nothing runs yet.
+    const queued = f.run(createFileStore(f.directory), different).catch((error: unknown) => error)
+    await new Promise(resolve => setTimeout(resolve, 50))
     expect(f.trace).toHaveLength(before)
     resume()
     expect(await attempt).toBeInstanceOf(PaidReservationUncertainError)
+    // Once granted, it sees the uncertain claim and refuses without sending.
+    expect(await queued).toBeInstanceOf(ApplicationPayerRecoveryError)
     await expect(f.run(createFileStore(f.directory), different)).rejects.toBeInstanceOf(ApplicationPayerRecoveryError)
     expect(f.transactions).toHaveLength(1)
     expect(await f.store.load(f.payerKey)).toMatchObject({pending: {requestId: prepaidRequestId(f.payment), nonce: 4}})
@@ -804,6 +838,85 @@ it('all unavailable members stop before any journal or broadcast', async () => {
   expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
 })
 
+it('a stale-epoch prepare refusal is typed and final for this intent: no failover, journal or broadcast', async () => {
+  const stale = 'reservation assignments unavailable: reservation verifier epoch is not current or previous'
+  const f = await fixture(), seen = quorumHttp(f, () => new Response(stale, {status: 503}))
+  const error: unknown = await f.run({accountantUrls: quorumUrls}).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(PaidReservationStaleEpochError)
+  expect(error).toMatchObject({code: 'stale-verification-epoch', verificationEpoch: 7})
+  expect(seen).toHaveLength(1) // every member judges the same epoch: asking another cannot help
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+  // Any other 503 keeps its meaning: an unavailable member, skipped for the next one. This one is
+  // the pre-write refusal from every member, so the seed round is repeated once at latest.
+  const g = await fixture(), other = quorumHttp(g, () => new Response('reservation assignments unavailable: rpc timeout', {status: 503}))
+  const unavailable: unknown = await g.run({accountantUrls: quorumUrls}).catch((e: unknown) => e)
+  expect(unavailable).not.toBeInstanceOf(PaidReservationStaleEpochError)
+  expect(unavailable).toBeInstanceOf(Error)
+  expect(other).toHaveLength(6)
+})
+
+// 2026-11-12 cert run 16 (L4 versions rollback): the previous epoch's verifier anchor landed one
+// block after the beacon advanced; the client signed that epoch from the newer block while every
+// (rolled-back) accountant decided one block before it and answered 503 "reservation assignments
+// unavailable: reservation verifier seed or snapshot unavailable" - before recording anything.
+const PRE_WRITE = 'reservation assignments unavailable: reservation verifier seed or snapshot unavailable'
+const prepares = (seen: ReturnType<typeof quorumHttp>) => seen.filter(s => s.method === 'prepare')
+
+it('every member refusing before any write is asked once more, at the client latest block, with the same intent', async () => {
+  const change: Changes = {headNumber: 19}
+  const f = await fixture(change)
+  const seen = quorumHttp(f, (_url, method, init) => {
+    const body = JSON.parse(init.body as string) as {quote_block: Hex | null}
+    if (method === 'prepare' && body.quote_block === null) return new Response(PRE_WRITE, {status: 503})
+    change.headNumber = undefined // the broadcast and its receipt follow at block 20
+    return undefined
+  })
+  await f.run({accountantUrls: quorumUrls})
+  expect(f.transactions).toHaveLength(1)
+  expect(f.checkpoints.map(c => c.phase)).toEqual(['prepared', 'submitted', 'confirmed'])
+  const p = prepares(seen)
+  expect(p).toHaveLength(6) // three refused, then the one repeated round
+  expect(p.slice(0, 3).map(s => s.body.quote_block)).toEqual([null, null, null])
+  expect(p.slice(3).map(s => s.body.quote_block)).toEqual([h(19), h(19), h(19)])
+  expect(seen.filter(s => s.method === 'authorize')).toHaveLength(1)
+})
+
+it.each([
+  ['a member whose refusal is not the pre-write one', () => new Response('reservation archive unavailable: disk', {status: 503})],
+  ['the pre-write text under another status', () => new Response(PRE_WRITE, {status: 502})],
+  ['an unknown 503', () => new Response('offline', {status: 503})],
+  ['a near-miss label', () => new Response('reservation assignments unavailablex', {status: 503})],
+  // A transport failure: whether that member recorded anything is unknown.
+  ['an uncertain transport failure', () => { throw new TypeError('fetch failed') }],
+])('%s beside pre-write refusals is never repeated', async (_case, answer) => {
+  const f = await fixture()
+  const seen = quorumHttp(f, url => url.startsWith(quorumUrls[1]!) ? answer() : new Response(PRE_WRITE, {status: 503}))
+  await expect(f.run({accountantUrls: quorumUrls})).rejects.toBeInstanceOf(Error)
+  expect(prepares(seen)).toHaveLength(3)
+  expect(prepares(seen).every(s => s.body.quote_block === null)).toBe(true)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+it('a repeated round refused again is surfaced after exactly one repeat, with nothing journaled or sent', async () => {
+  const f = await fixture({headNumber: 19})
+  const seen = quorumHttp(f, () => new Response(PRE_WRITE, {status: 503}))
+  await expect(f.run({accountantUrls: quorumUrls})).rejects.toThrow(/refused \(503\)/)
+  expect(prepares(seen)).toHaveLength(6)
+  expect(seen.filter(s => s.method === 'authorize')).toHaveLength(0)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+it('a repeated round answered at another block than the one named is refused', async () => {
+  const f = await fixture({headNumber: 21})
+  const seen = quorumHttp(f, (_url, method, init) => {
+    const body = JSON.parse(init.body as string) as {quote_block: Hex | null}
+    return method === 'prepare' && body.quote_block === null ? new Response(PRE_WRITE, {status: 503}) : undefined
+  })
+  await expect(f.run({accountantUrls: quorumUrls})).rejects.toThrow(/different quote block/)
+  expect(prepares(seen)).toHaveLength(4)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
 it('a caller abort during an unavailable response stops collection without failover', async () => {
   const f = await fixture(), controller = new AbortController()
   const seen = quorumHttp(f, () => { controller.abort('cancelled by caller'); return new Response('offline', {status: 503}) })
@@ -853,4 +966,37 @@ it.each(['changed quote', 'policy refusal'])('coordinator %s stops rather than f
   await expect(f.run()).rejects.toThrow(fault === 'policy refusal' ? /403/ : /authorization changed/)
   expect(seen.filter(s => s.method === 'authorize')).toHaveLength(1)
   expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+it('takes the quote block canonical recheck from a head follower that proves that exact block, else reads it by number', async () => {
+  const {attachHeadFollower, unfollowHeads} = await import('../../src/chain/headFollower.js')
+  // Rechecks by number before the durable preparation: the quote block's.
+  const rechecks = (trace: string[]) => trace.slice(0, trace.indexOf('prepared')).filter(m => m === 'eth_getBlockByNumber').length
+  const vouching = (blockHash: Hex) => ({finality: 'instant', tip: () => undefined, isCanonical: (at: {blockHash: Hex}) => at.blockHash.toLowerCase() === blockHash ? true : undefined,
+    live: () => true, ingest: async () => {}, ingestFinalized: async () => {}, noteMinedBlock: () => {}, gaps: () => 0, start: () => {}, stop: () => {}, onHead: () => () => {}}) as never
+  const proven = await fixture({localSigner: true})
+  attachHeadFollower(proven.client, vouching(h(19)))
+  try {
+    await proven.run()
+    expect(rechecks(proven.trace)).toBe(0)
+  } finally { unfollowHeads(proven.client) }
+  // A follower that cannot vouch for the quote block (another block, outside its chain) keeps the RPC recheck, and its refusal.
+  const orphan = await fixture({localSigner: true, orphan: true})
+  attachHeadFollower(orphan.client, vouching(h(20)))
+  try {
+    await expect(orphan.run()).rejects.toThrow(/reorganized/)
+    expect(rechecks([...orphan.trace, 'prepared'])).toBe(1)
+    expect(orphan.transactions).toHaveLength(0)
+  } finally { unfollowHeads(orphan.client) }
+})
+
+it('asks the wallet and the reader for their chain IDs together, and still refuses a wrong chain before any accountant', async () => {
+  const overlap = {active: 0, most: 0}, inFlight: number[] = []
+  const f = await fixture({localSigner: true, overlap, onChainId: () => { inFlight.push(overlap.active) }})
+  await f.run()
+  // Both chain-ID reads were in flight at once (before: the reader's waited for the wallet's).
+  expect(inFlight[0]).toBe(2)
+  const wrong = await fixture({localSigner: true, chain: 43113})
+  await expect(wrong.run()).rejects.toThrow(/chain mismatch/)
+  expect(wrong.fetcher).not.toHaveBeenCalled()
 })

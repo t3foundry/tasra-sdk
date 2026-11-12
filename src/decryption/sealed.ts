@@ -6,8 +6,8 @@ import {withNetworkDeadline} from '../internal/network.js'
 import {sha256} from '@noble/hashes/sha256'
 import {base64Decode, base64Encode} from '../crypto/envelope.js'
 import {bytesToHex} from '../crypto/hex.js'
-import {combineDecryptShares, verifyDecryptShare, type Ciphertext, type DecryptShare} from '../crypto/kem.js'
-import {ibeVerifyShare} from '../crypto/ibe.js'
+import {combineDecryptShares, decodeKemU, verifyDecryptShareAt, type Ciphertext, type DecryptShare} from '../crypto/kem.js'
+import {ibeIdentityPoint, ibeVerifyShareAt} from '../crypto/ibe.js'
 import {checkedDecryptionRequestHash, kemContentDigest, recipientPayloadDigest, type ClientRecipient, type SealedShareWire} from '../crypto/recipient.js'
 import type {CompoundTokenWire} from '../committee/token.js'
 import type {VerifierProof} from '../committee/client.js'
@@ -84,6 +84,9 @@ async function collectWithinDeadline(opts: SealedRequestOpts, action: 'decrypt' 
   const hash = checkedDecryptionRequestHash(opts.chainId, opts.committeeToken.slot_id, action, digest, opts.committeeToken.request_hash)
   // Refuse lossy UTF-8 conversion: the request must bind the same identity bytes.
   const textIdentity = new TextDecoder('utf-8', {fatal: true}).decode(identity)
+  // Decode U / hash Q_ID once per operation, not once per share.
+  const U = action === 'decrypt' ? decodeKemU(ciphertext!.u) : undefined
+  let qId: ReturnType<typeof ibeIdentityPoint> | undefined
   const controller = new AbortController()
   const requests = opts.nodeUrls.map(async nodeUrl => {
     const url = `${nodeUrl.replace(/\/$/, '')}${action === 'decrypt' ? '/v1/committee/decrypt/partial' : '/v1/shards/ibe/extract'}`
@@ -110,9 +113,9 @@ async function collectWithinDeadline(opts: SealedRequestOpts, action: 'decrypt' 
     const value = await opts.recipient.open(d.sealed_share, hash, d.identifier, d.epoch, vs)
     try {
       if (action === 'decrypt') {
-        if (value.length !== 96 || !verifyDecryptShare({id: d.identifier, decryptionShare: value, verifyingShare: vs}, ciphertext!.u)) throw new Error('invalid KEM partial')
+        if (value.length !== 96 || !verifyDecryptShareAt({id: d.identifier, decryptionShare: value, verifyingShare: vs}, U)) throw new Error('invalid KEM partial')
       } else {
-        ibeVerifyShare(new Map([[d.identifier, vs.slice(0, 96)]]), identity, {identifier: d.identifier, value})
+        ibeVerifyShareAt(vs.slice(0, 96), qId ??= ibeIdentityPoint(identity), {identifier: d.identifier, value})
       }
       return {...(decodeOperationReceipt(d)?{receipt:decodeOperationReceipt(d)}:{}),identifier: d.identifier, value, verifyingShare: vs, epoch: d.epoch, nodeUrl}
     } catch (e) {value.fill(0); throw e}
@@ -163,6 +166,8 @@ async function collectWithinDeadline(opts: SealedRequestOpts, action: 'decrypt' 
 export async function decryptWithCommitteePartials(opts: SealedRequestOpts & {ciphertext: Ciphertext; identity: Uint8Array}): Promise<Uint8Array> {
   const partials = await collectSealedPartials(opts, 'decrypt', opts.identity, opts.ciphertext)
   const shares: DecryptShare[] = partials.map(p => ({id: p.identifier, decryptionShare: p.value, verifyingShare: p.verifyingShare}))
-  try {return combineDecryptShares(shares, opts.ciphertext, opts.identity, {verify: true})}
+  // collectSealedPartials pairing-verified every share against its authenticated verifying share
+  // and this ciphertext's U; the combine's AEAD still authenticates the result.
+  try {return combineDecryptShares(shares, opts.ciphertext, opts.identity, {verify: false})}
   finally {for (const p of partials) p.value.fill(0)}
 }

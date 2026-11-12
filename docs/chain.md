@@ -80,6 +80,7 @@ const slot = await chain.readers.keyRegistry.getKeySlot(slotId)
 | `chainId` | Pass explicitly | Deployment chain ID. The constructor does not query the RPC to verify it. |
 | `logWindow` | No | Maximum block range per `getLogs` query; defaults to 2,000. |
 | `multicall3` | No | Auto-detected by default; pass an address or `false` to disable batching. |
+| `rpcBatch` | No | JSON-RPC batching of small requests; defaults to batches of 32. Pass `{batchSize, wait}` to tune it or `false` for an RPC without batch support. |
 
 **Returns:** a `TasraChainClient`. Use `client` for underlying viem calls and `readers`
 for typed Tasra contract calls. Creating the client performs no network request;
@@ -149,17 +150,28 @@ commands and separate wallet/slot balance checks.
 
 ## Commit/reveal slot creation
 
-`writer.createSlotCommitReveal(args)` commits the slot parameters, then requests a
-per-commitment seed from the accountant set. Compatible deployments can reveal the
-slot immediately with that seed. If a seed is unavailable or the registry does not
-support it, the client falls back to waiting for the beacon epoch before revealing.
+`writer.createSlotCommitReveal(args)` commits the slot parameters, asks the accountant
+set for a per-commitment seed, and reveals the slot with it in the next transaction.
+It never waits for a beacon epoch. The accountants are asked concurrently (the first
+valid seed wins); "not yet" answers are retried with jittered backoff that honours
+`Retry-After`, for at most `slotSeedRetryMs` (default 90 s).
+
+Without a seed it throws `SlotSeedUnavailableError`. When `detail.committed` is
+`false`, no accountant was known and nothing was sent. When it is `true`, the
+commitment stands: resume the same creation (same `slotId`, `salt`, `ruleSalt`, and
+`recovery.commitTx`; `createPreparedSlot` does this from its journal) and nothing is
+committed again.
 
 The options in `CommitRevealOptions` let you set `accountantUrls`, bound each request
-with `slotSeedTimeoutMs`, observe the seed request with `onSeed`, or use
-`slotSeed: false` to select the epoch path. `onEpoch` reports only the fallback wait;
-`maxWaitMs` bounds that wait. The result includes `seeded`, which reports whether the
-seeded reveal succeeded, alongside `slotId`, `ruleSalt`, `commitTx`, `revealTx`, and
-`targetEpoch`.
+with `slotSeedTimeoutMs`, set the window with `slotSeedRetryMs` and the stagger between
+concurrent asks with `slotSeedHedgeMs`, and observe the outcome with `onSeed` and
+`onSeedError`. The result includes `slotId`, `ruleSalt`, `commitTx`, `revealTx`,
+`targetEpoch` and `seeded`.
+
+A beacon-epoch commitment made by an older SDK can still be completed by resuming it
+with `recovery.commitTx`. The resume checks the beacon once: before the commitment's
+target epoch it throws `SlotRevealNotYetError` (with `targetEpoch` and `currentEpoch`)
+instead of waiting; after its expiry it throws `SlotCommitmentExpiredError`.
 
 For a custom commit/reveal flow, use `resolveAccountantUrls(chain)` and
 `requestSlotSeed(chain, keyRegistry, commitment, options)`. Seed responses are checked

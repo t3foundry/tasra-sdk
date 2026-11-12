@@ -22,7 +22,8 @@
 import {chacha20poly1305} from '@noble/ciphers/chacha'
 import {bls12_381} from '@noble/curves/bls12-381'
 import {sha256} from '@noble/hashes/sha256'
-import {randomBytes} from '@noble/hashes/utils'
+import {bytesToHex, randomBytes} from '@noble/hashes/utils'
+import {BoundedCache} from '../internal/bounded.js'
 
 import {KEM_DOMAIN} from './constants.js'
 
@@ -258,18 +259,105 @@ export interface DecryptShare {
  * @param u - 96-byte compressed ephemeral G2 key from the ciphertext.
  */
 export function verifyDecryptShare(share: DecryptShare, u: Uint8Array): boolean {
+  return verifyDecryptShareAt(share, decodeKemU(u))
+}
+
+type G2Point = InstanceType<typeof G2.ProjectivePoint>
+// Verifying shares are static per slot epoch; keep a bounded set of decoded public points.
+const verifyingG1 = new BoundedCache<string, InstanceType<typeof G1.ProjectivePoint>>(256)
+// −g1, the fixed generator side of every share equation.
+const NEG_G1 = G1.ProjectivePoint.BASE.negate()
+
+/**
+ * @internal Decode a ciphertext's U once for every share check of one operation. Undefined when
+ * it is malformed, which makes every {@link verifyDecryptShareAt} check fail, as before.
+ * @param u - 96-byte compressed ephemeral G2 key from the ciphertext.
+ */
+export function decodeKemU(u: Uint8Array): G2Point | undefined {
+  try { return G2.ProjectivePoint.fromHex(u) } catch { return undefined }
+}
+
+/**
+ * @internal {@link verifyDecryptShare} with U already decoded by {@link decodeKemU}.
+ * @param share - Partial decryption and its public verifying share.
+ * @param U - Decoded ephemeral key, or undefined when it did not decode.
+ */
+export function verifyDecryptShareAt(share: DecryptShare, U: G2Point | undefined): boolean {
   try {
     if (!share.verifyingShare || share.verifyingShare.length !== 144) return false
-    const yiG1 = G1.ProjectivePoint.fromHex(share.verifyingShare.subarray(96, 144))
-    const U = G2.ProjectivePoint.fromHex(u)
+    const g1 = share.verifyingShare.subarray(96, 144)
+    const yiG1 = verifyingG1.getOrCompute(bytesToHex(g1), () => G1.ProjectivePoint.fromHex(g1))
+    if (!U) return false
     const di = G2.ProjectivePoint.fromHex(share.decryptionShare)
-    return Fp12.eql(
-      bls12_381.pairing(yiG1, U),
-      bls12_381.pairing(G1.ProjectivePoint.BASE, di),
-    )
+    // e(Yᵢ, U) == e(g1, Dᵢ)  ⟺  e(Yᵢ, U) · e(−g1, Dᵢ) == 1, since e(−g1, Dᵢ) = e(g1, Dᵢ)⁻¹ by
+    // bilinearity. The SAME equation, exactly (no randomness): one Miller-loop product and ONE
+    // final exponentiation instead of two. Identity points throw in both forms (→ false).
+    return Fp12.eql(bls12_381.pairingBatch([{g1: yiG1, g2: U}, {g1: NEG_G1, g2: di}]), Fp12.ONE)
   } catch {
     return false
   }
+}
+
+// Batch verification (ADR-0090 D9): a random linear combination of the pairing equations,
+// e(Σ rᵢ·Yᵢ, U) == e(g1, Σ rᵢ·Dᵢ), checked as one multi-pairing. A valid batch holds every
+// share; a failed one falls back to the per-share check, so the verdicts are EXACTLY the
+// per-share ones (an invalid share escapes the combination only with probability ≤ 2⁻¹²⁸,
+// the rᵢ being independent uniform 128-bit scalars the sender cannot predict).
+function randomBatchScalar(): bigint {
+  while (true) {
+    let n = 0n
+    for (const b of randomBytes(16)) n = (n << 8n) | BigInt(b)
+    if (n !== 0n) return n
+  }
+}
+
+/**
+ * Verify many partial decryptions of ONE ciphertext with one multi-pairing. Returns, per share,
+ * exactly what {@link verifyDecryptShareAt} returns for it: a share that does not decode is
+ * false, and a failed combination re-checks each share individually.
+ * @param shares - Partial decryptions with their verifying shares.
+ * @param U - Ciphertext ephemeral key decoded by {@link decodeKemU}; undefined fails every share.
+ */
+export function verifyDecryptSharesBatch(shares: DecryptShare[], U: G2Point | undefined): boolean[] {
+  const verdict = shares.map(() => false)
+  if (!U || shares.length === 0) return verdict
+  const decoded: {index: number; y: InstanceType<typeof G1.ProjectivePoint>; d: G2Point}[] = []
+  shares.forEach((share, index) => {
+    try {
+      if (!share.verifyingShare || share.verifyingShare.length !== 144) return
+      const g1 = share.verifyingShare.subarray(96, 144)
+      const y = verifyingG1.getOrCompute(bytesToHex(g1), () => G1.ProjectivePoint.fromHex(g1))
+      decoded.push({index, y, d: G2.ProjectivePoint.fromHex(share.decryptionShare)})
+    } catch { /* undecodable: false, exactly as the per-share check */ }
+  })
+  if (decoded.length === 0) return verdict
+  if (decoded.length === 1) {
+    verdict[decoded[0]!.index] = verifyDecryptShareAt(shares[decoded[0]!.index]!, U)
+    return verdict
+  }
+  let a = G1.ProjectivePoint.ZERO, b = G2.ProjectivePoint.ZERO
+  for (const {y, d} of decoded) {
+    const r = randomBatchScalar()
+    a = a.add(y.multiply(r)); b = b.add(d.multiply(r))
+  }
+  let holds: boolean
+  try {
+    // e(A, U) · e(-g1, B) == 1, one final exponentiation for the whole batch.
+    holds = Fp12.eql(bls12_381.pairingBatch([{g1: a, g2: U}, {g1: NEG_G1, g2: b}]), Fp12.ONE)
+  } catch { holds = false }
+  if (holds) for (const {index} of decoded) verdict[index] = true
+  else for (const {index} of decoded) verdict[index] = verifyDecryptShareAt(shares[index]!, U)
+  return verdict
+}
+
+// Lagrange coefficients at 0 per signer set: a chat combines the same k keepers again and again.
+const lagrangeSets = new BoundedCache<string, Map<number, bigint>>(256)
+function lagrangeFor(ids: number[]): Map<number, bigint> {
+  const sorted = [...ids].sort((x, y) => x - y)
+  return lagrangeSets.getOrCompute(sorted.join(','), () => {
+    const xs = sorted.map(id => BigInt(id))
+    return new Map(sorted.map(id => [id, lagrangeAtZero(BigInt(id), xs)]))
+  })
 }
 
 // Combine k partial decryption shares into the plaintext. With `verify`, each
@@ -306,12 +394,14 @@ export function combineDecryptShares(
     }
   }
 
-  const xs = shares.map(s => BigInt(s.id))
+  const lambdas = lagrangeFor(shares.map(s => s.id))
   let dPoint = G2.ProjectivePoint.ZERO
   for (const s of shares) {
     const di = G2.ProjectivePoint.fromHex(s.decryptionShare)
-    const lambda = lagrangeAtZero(BigInt(s.id), xs)
-    if (lambda !== 0n) dPoint = dPoint.add(di.multiply(lambda))
+    const lambda = lambdas.get(s.id)!
+    // λ is public (a function of the public identifiers only), so the variable-time ladder leaks
+    // nothing about it; the constant-time multiply built a full wNAF table for this one-off point.
+    if (lambda !== 0n) dPoint = dPoint.add(di.multiplyUnsafe(lambda))
   }
 
   const aeadKey = deriveKey(identity, dPoint.toRawBytes(true)) // compress(S)

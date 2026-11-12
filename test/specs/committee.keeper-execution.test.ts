@@ -9,7 +9,7 @@ import {committeeSign,committeeDecrypt,requestIbeExtractionPartials} from '../..
 import {committeeSignEoaDigest} from '../../src/committee/ecdsa.js'
 import {createDualSignClient,OperationOutcomeUnknownError} from '../../src/committee/dual-sign.js'
 import {executionBodyHash,verifyExecutionAuthorization,type ExecutionAuthorization} from '../../src/committee/execution.js'
-import {withKeeperExecutionApprovals,type KeeperExecutionKind,type KeeperExecutionApprover} from '../../src/committee/keeperExecution.js'
+import {requireKeeperExecutionPayload,withKeeperExecutionApprovals,type KeeperExecutionKind,type KeeperExecutionApprover} from '../../src/committee/keeperExecution.js'
 import {paymentIntentHash} from '../../src/committee/payment.js'
 import type {CompoundTokenWire} from '../../src/committee/token.js'
 import {decryptPayloadDigest} from '../../src/oid4vp/binding.js'
@@ -152,5 +152,78 @@ describe('client approvals on outgoing keeper requests',()=>{
       await new Promise<void>(resolve=>{setTimeout(resolve,0)})
       expect(f.fetchImpl).not.toHaveBeenCalled()
     }finally{release();f.signer.dispose()}
+  })
+})
+
+describe('the client-built keeper body is checked against the retained payment before any approval is signed',()=>{
+  const signDigest=toHex(sha256(message))
+  async function signCase(){
+    const f=await keeperExecutionFixture('sign',signDigest)
+    const token={slot_id:f.payment.slot,payment:f.payment,payment_hash:paymentIntentHash(f.payment)} as unknown as Record<string,unknown>
+    return {f,check:(kind:KeeperExecutionKind,body:Record<string,unknown>,payment=f.payment)=>()=>requireKeeperExecutionPayload({kind,body,payment,nodeUrl:'https://keeper.example'}),token}
+  }
+  it('accepts the exact signed body, and refuses an envelope, a malformed message and a body without its grant',async()=>{
+    const {f,check,token}=await signCase()
+    try{
+      expect(check('committee-sign',{committee_token:token,message_hex:'010203'})).not.toThrow()
+      expect(check('committee-sign',{committee_token:token,message_hex:'010203',execution_authorizations:[]})).toThrow('Keeper approval body must exclude its envelope')
+      expect(check('committee-sign',{committee_token:token,message_hex:'zz'})).toThrow('Invalid client-built message')
+      expect(check('committee-sign',{committee_token:token,message_hex:7})).toThrow('Invalid client-built message')
+      expect(check('committee-sign',{message_hex:'010203'})).toThrow('Missing client-built keeper grant')
+      expect(check('committee-sign',{committee_token:[token],message_hex:'010203'})).toThrow('Missing client-built keeper grant')
+      expect(check('committee-sign',{committee_token:{...token,slot_id:'0x'+'44'.repeat(32)},message_hex:'010203'})).toThrow('Client-built keeper grant differs from retained payment')
+      expect(check('committee-sign',{committee_token:token,message_hex:'010204'})).toThrow('Client-built keeper payload differs from retained payment')
+      expect(check('no-such-route' as KeeperExecutionKind,{committee_token:token})).toThrow('Unknown keeper execution route')
+    }finally{f.signer.dispose()}
+  })
+  it('a dual Sign carries the payment for exactly this slot',async()=>{
+    const {f,check}=await signCase()
+    try{
+      expect(check('dual-sign',{payment:f.payment,key_slot_id:f.payment.slot,message_hex:'010203'})).not.toThrow()
+      expect(check('dual-sign',{payment:f.payment,key_slot_id:'0x'+'44'.repeat(32),message_hex:'010203'})).toThrow('Client-built dual request differs from retained payment')
+      expect(check('dual-sign',{payment:f.payment,message_hex:'010203'})).toThrow('Client-built dual request differs from retained payment')
+    }finally{f.signer.dispose()}
+  })
+  it('an ECDSA digest is exactly 32 bytes',async()=>{
+    const f=await keeperExecutionFixture('eoa-sign',toHex(sha256(new Uint8Array(31).fill(7))))
+    try{
+      expect(()=>requireKeeperExecutionPayload({kind:'committee-eoa-digest',body:{digest:'07'.repeat(31)},payment:f.payment,nodeUrl:'https://keeper.example'}))
+        .toThrow('Client-built ECDSA digest must contain 32 bytes')
+    }finally{f.signer.dispose()}
+  })
+  it('decrypt and sealed bodies refuse a missing or mistyped ciphertext, identity or recipient',async()=>{
+    const f=await keeperExecutionFixture('decrypt',toHex(new Uint8Array(32).fill(1)))
+    const check=(kind:KeeperExecutionKind,body:Record<string,unknown>)=>()=>requireKeeperExecutionPayload({kind,body,payment:f.payment,nodeUrl:'https://keeper.example'})
+    const ct={u:'CAk',nonce:'CgoKCgoKCgoKCgoK',aead_ct:'Cww'}
+    try{
+      expect(check('committee-decrypt',{})).toThrow('Invalid client-built ciphertext')
+      expect(check('committee-decrypt',{ciphertext:[ct]})).toThrow('Invalid client-built ciphertext')
+      expect(check('committee-decrypt',{ciphertext:{...ct,nonce:1}})).toThrow('Invalid client-built ciphertext bytes')
+      expect(check('sealed-decrypt',{ciphertext:ct})).toThrow('Invalid client-built sealed ciphertext')
+      expect(check('session-decrypt',{ciphertext:{...ct,u:null},identity:'x'})).toThrow('Invalid sealed ciphertext bytes')
+      expect(check('sealed-decrypt',{ciphertext:ct,identity:'x',ciphertext_epoch:1})).toThrow('Recipient and epoch required for sealed keeper approval')
+      expect(check('sealed-decrypt',{ciphertext:ct,identity:'x',recipient:{suite:'x',public_key:'y'}})).toThrow('Recipient and epoch required for sealed keeper approval')
+      expect(check('sealed-decrypt',{ciphertext:ct,identity:'x',ciphertext_epoch:1,recipient:{suite:1,public_key:'y'}})).toThrow('Invalid sealed recipient')
+    }finally{f.signer.dispose()}
+  })
+  it('an IBE extraction needs a string identity',async()=>{
+    const f=await keeperExecutionFixture('ibe-extract',toHex(new Uint8Array(32).fill(1)))
+    try{
+      expect(()=>requireKeeperExecutionPayload({kind:'ibe-extract',body:{identity:7},payment:f.payment,nodeUrl:'https://keeper.example'})).toThrow('Invalid client-built IBE identity')
+    }finally{f.signer.dispose()}
+  })
+  it('unpaid work is never approved, and a paid request with no proofs is refused before sending',async()=>{
+    const {f,token}=await signCase()
+    try{
+      const approver=vi.fn(f.approveExecution)
+      const body={committee_token:token,message_hex:'010203'}
+      await expect(withKeeperExecutionApprovals({body,kind:'committee-sign',nodeUrl:'https://keeper.example',approveExecution:approver}))
+        .rejects.toThrow('Keeper execution approvals require the retained paid intent')
+      expect(approver).not.toHaveBeenCalled()
+      const unpaid=await withKeeperExecutionApprovals({body,kind:'committee-sign',nodeUrl:'https://keeper.example'})
+      expect(unpaid).toEqual(body); expect(unpaid).not.toBe(body)
+      await expect(withKeeperExecutionApprovals({body,kind:'committee-sign',nodeUrl:'https://keeper.example',payment:f.payment,
+        approveExecution:async()=>({policy:f.policy,authorizations:[]})})).rejects.toThrow('Invalid keeper client approval count')
+    }finally{f.signer.dispose()}
   })
 })

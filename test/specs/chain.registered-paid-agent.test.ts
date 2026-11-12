@@ -1,4 +1,7 @@
-import {afterEach, beforeEach, expect, it, vi} from 'vitest'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {drivePaidSession} from '../../src/app/paid-session.js'
+import {createMemoryStore} from '../../src/app/memory-store.js'
+import type {DpopSigner} from '../../src/auth/dpop.js'
 import {ed25519} from '@noble/curves/ed25519'
 import {p256} from '@noble/curves/p256'
 import {sha256} from '@noble/hashes/sha256'
@@ -20,6 +23,9 @@ import type {ApprovedAgentProfile} from '../../src/chain/registeredAgent.js'
 import type {PaidAgentTransport} from '../../src/chain/paidAgentTransport.js'
 import type {ServiceRecord} from '../../src/chain/services.js'
 import {RevocationStatusPreflightError} from '../../src/errors.js'
+import {encodeFunctionResult, type PublicClient} from 'viem'
+import {serviceRegistryAbi} from '../../src/chain/abis/serviceRegistry.js'
+import {attachHeadFollower, createHeadFollower, unfollowHeads} from '../../src/chain/headFollower.js'
 import {createDecryptionRecipient, decryptionBinding, type DecryptionBindingWire} from '../../src/crypto/recipient.js'
 
 // Policy reads have their own real ABI/RPC regressions in chain.paid-context.test.ts.
@@ -88,7 +94,7 @@ async function fixture(kind:'wallet'|'oauth'='wallet',allowMissingStatusAttestat
         request_uri:kind==='wallet'?endpoint+'/v1/request/'+sessionId:null,qr_payload:null,nonce:kind==='oauth'?nonce:null,
         dpop_htu:kind==='oauth'?endpoint+'/v1/sessions/'+sessionId+'/oauth-response':null,platform_audience:kind==='oauth'?endpoint+'/authz/43112':null})}
     }
-    if(url===endpoint+'/v1/sessions/'+sessionId)return {status:200,body:bytes({status:'pending',phase:'awaiting_wallet',execution_context:context,binding_preimage:context?.binding_preimage})}
+    if(url===endpoint+'/v1/sessions/'+sessionId||url===endpoint+'/v1/sessions/'+sessionId+'?wait=1')return {status:200,body:bytes({status:'pending',phase:'awaiting_wallet',execution_context:context,binding_preimage:context?.binding_preimage})}
     return {status:204,body:new Uint8Array()}
   })}
   const prepare=(signal?:AbortSignal)=>prepareRegisteredPaidSession(chain,{profile,deployment,transport,members,ruleHash:h(33),dcqlQuery:{credentials:[{id:'all',format:'dc+sd-jwt'}]},
@@ -785,4 +791,300 @@ it('waits out a busy 503 on creation inside the payment window and resends the i
   vi.mocked(g.transport.paidAgentRequest).mockResolvedValueOnce({status:503,body:bytes({error:'busy'})})
   await expect(g.session.create()).rejects.toMatchObject({name:'PaidAgentControlError',httpStatus:503})
   expect(late.state.sleeps).toEqual([])
+})
+
+it('checks the provider registration with one latest read before every agent request, never a head read',async()=>{
+  const f=await fixture(), send=vi.mocked(f.transport.paidAgentRequest), read=vi.mocked(f.chain.readers.serviceRegistry.getService)
+  read.mockClear();vi.mocked(f.chain.client.getBlockNumber).mockClear()
+  await f.session.create()
+  await f.session.poll()
+  await f.session.proposals().catch(()=>{})
+  const requests=send.mock.calls.length
+  expect(read).toHaveBeenCalledTimes(requests)
+  for(const call of read.mock.calls)expect(call).toEqual([f.profile.approval.serviceId])
+  expect(f.chain.client.getBlockNumber).not.toHaveBeenCalled()
+  // A changed registration is still refused before the request is sent.
+  read.mockResolvedValueOnce({...f.record,status:2})
+  await expect(f.session.poll()).rejects.toThrow('Original paid agent provider changed')
+  expect(send).toHaveBeenCalledTimes(requests)
+})
+
+it('asks for a held status poll only when the attempt budget fits the agent hold',async()=>{
+  const f=await fixture(), send=vi.mocked(f.transport.paidAgentRequest)
+  await f.session.create()
+  await f.session.poll(undefined,{wait:true})
+  expect(send.mock.calls.at(-1)![0]).toBe(f.profile.endpoint+'/v1/sessions/'+f.session.sessionId+'?wait=1')
+  await f.session.poll()
+  expect(send.mock.calls.at(-1)![0]).toBe(f.profile.endpoint+'/v1/sessions/'+f.session.sessionId)
+  const short=await fixture('wallet',undefined,{attemptBudgetMs:20_000}), shortSend=vi.mocked(short.transport.paidAgentRequest)
+  await short.session.create()
+  await short.session.poll(undefined,{wait:true})
+  expect(shortSend.mock.calls.at(-1)![0]).toBe(short.profile.endpoint+'/v1/sessions/'+short.session.sessionId)
+})
+
+it('reads the client execution policy beside the provider authentication and still refuses on authentication first',async()=>{
+  const f=await fixture()
+  // Overlap: the policy read starts while the authentication is still pending (one round trip, not two in sequence).
+  let finish:(value:Awaited<ReturnType<typeof authenticateApprovedService>>)=>void=()=>{}
+  vi.mocked(authenticateApprovedService).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve}))
+  vi.mocked(readClientExecutionPolicy).mockClear()
+  const pending=f.prepare()
+  await vi.waitFor(()=>expect(readClientExecutionPolicy).toHaveBeenCalledTimes(1))
+  finish({record:{...f.record},manifest:{capabilities:['oid4vp']}} as Awaited<ReturnType<typeof authenticateApprovedService>>)
+  await expect(pending).resolves.toMatchObject({sessionId:f.session.sessionId})
+  // Both fail: the authentication refusal is the one reported, as when they ran one after the other.
+  vi.mocked(authenticateApprovedService).mockRejectedValueOnce(new Error('Service changed during authentication'))
+  vi.mocked(readClientExecutionPolicy).mockRejectedValueOnce(new Error('payment verification context differs from canonical chain policy'))
+  await expect(f.prepare()).rejects.toThrow(/Service changed during authentication/)
+  // A policy refusal after a good authentication still refuses.
+  vi.mocked(readClientExecutionPolicy).mockRejectedValueOnce(new Error('payment verification context differs from canonical chain policy'))
+  await expect(f.prepare()).rejects.toThrow(/canonical chain policy/)
+})
+
+it('checks the provider before every agent request at the followed head, and at latest by RPC when the follower is not live',async()=>{
+  const f=await fixture()
+  const client=f.chain.client as unknown as PublicClient
+  const raw=f.chain.client as unknown as {call:ReturnType<typeof vi.fn>}
+  const record={...f.record,pendingOwner:f.record.pendingOwner}
+  const pinned:Hex[]=[]
+  raw.call=vi.fn(async({blockHash}:{blockHash:Hex})=>{
+    pinned.push(blockHash)
+    return {data:encodeFunctionResult({abi:serviceRegistryAbi,functionName:'getService',result:record})}
+  })
+  let clock=0
+  const follower=createHeadFollower(client,{finality:'instant',liveAfterMs:1000,now:()=>clock})
+  attachHeadFollower(client,follower)
+  try{
+    await follower.ingestFinalized({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n}); await follower.ingest({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n})
+    const getService=vi.mocked(f.chain.readers.serviceRegistry.getService);getService.mockClear()
+    await f.session.create()
+    expect(getService).not.toHaveBeenCalled()
+    expect(pinned.every(hash=>hash===h(40))).toBe(true)
+    expect(pinned.length).toBeGreaterThan(0)
+    // A registration changed in the next followed block refuses before the request.
+    record.endpoint='https://elsewhere.example'
+    await follower.ingestFinalized({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n}); await follower.ingest({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n})
+    const prepared=await f.prepare()
+    await expect(prepared.create()).rejects.toThrow(/provider changed/)
+    record.endpoint=f.record.endpoint
+    // Not live: the registration is read at latest by RPC, as before.
+    clock=5000;raw.call.mockClear()
+    await (await f.prepare()).create()
+    expect(getService).toHaveBeenCalled()
+    expect(raw.call).not.toHaveBeenCalled()
+  }finally{unfollowHeads(client)}
+})
+
+it('reuses one provider authentication across sessions until its challenge expiry, while the registration is unchanged',async()=>{
+  const f=await fixture()
+  const authenticated={record:{...f.record},manifest:{capabilities:['oid4vp']},expiresAt:1025} as unknown as Awaited<ReturnType<typeof authenticateApprovedService>>
+  vi.mocked(authenticateApprovedService).mockReset().mockResolvedValue(authenticated)
+  const getService=vi.mocked(f.chain.readers.serviceRegistry.getService)
+  await f.prepare();await f.prepare()
+  expect(authenticateApprovedService).toHaveBeenCalledTimes(1)
+  // The reuse read the registration at the head (by RPC here) and found it unchanged.
+  expect(getService).toHaveBeenCalled()
+  // A changed registration authenticates again (the new record would also fail the request check).
+  getService.mockResolvedValueOnce({...f.record,authKey:h(70,20)})
+  await f.prepare()
+  expect(authenticateApprovedService).toHaveBeenCalledTimes(2)
+  // At the challenge expiry it authenticates again.
+  vi.spyOn(Date,'now').mockReturnValue(1_025_000)
+  await f.prepare().catch(()=>{})
+  expect(authenticateApprovedService).toHaveBeenCalledTimes(3)
+})
+
+it('drops a reused authentication at the first followed head whose registration differs',async()=>{
+  const f=await fixture()
+  const authenticated={record:{...f.record},manifest:{capabilities:['oid4vp']},expiresAt:1025} as unknown as Awaited<ReturnType<typeof authenticateApprovedService>>
+  vi.mocked(authenticateApprovedService).mockReset().mockResolvedValue(authenticated)
+  const client=f.chain.client as unknown as PublicClient
+  const raw=f.chain.client as unknown as {call:ReturnType<typeof vi.fn>}
+  const record={...f.record}
+  raw.call=vi.fn(async()=>({data:encodeFunctionResult({abi:serviceRegistryAbi,functionName:'getService',result:record})}))
+  const follower=createHeadFollower(client,{finality:'instant',now:()=>Date.now()})
+  attachHeadFollower(client,follower)
+  try{
+    await follower.ingestFinalized({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n}); await follower.ingest({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n})
+    await f.prepare();await f.prepare()
+    // Reused at the followed head while the registration there is unchanged.
+    expect(authenticateApprovedService).toHaveBeenCalledTimes(1)
+    // The owner rotates the auth key in block 41: the followed head drops the authentication.
+    record.authKey=h(71,20)
+    await follower.ingestFinalized({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n}); await follower.ingest({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n})
+    await new Promise(r=>setTimeout(r,0))
+    record.authKey=f.record.authKey
+    await follower.ingestFinalized({number:42n,hash:h(42),parentHash:h(41),timestamp:1002n}); await follower.ingest({number:42n,hash:h(42),parentHash:h(41),timestamp:1002n})
+    await f.prepare()
+    expect(authenticateApprovedService).toHaveBeenCalledTimes(2)
+  }finally{unfollowHeads(client)}
+})
+
+it('sends a batch of retained approvals in one request only to an agent advertising it, and holds a proposal listing only then',async()=>{
+  const f=await fixture()
+  const send=vi.mocked(f.transport.paidAgentRequest), original=send.getMockImplementation()!
+  vi.mocked(authenticateApprovedService).mockResolvedValue({record:{...f.record},manifest:{capabilities:['oid4vp','execution-approve-batch','execution-wait']}} as Awaited<ReturnType<typeof authenticateApprovedService>>)
+  const session=await f.prepare();await session.create()
+  expect(session.batchApprovals).toBe(true);expect(session.proposalWait).toBe(true)
+  const signer=f.members[f.jarIndex]!, attester=f.members[1-f.jarIndex]!
+  const a=await session.prepareRequestApproval!(f.proposal('presentation_sign'),'presentation_sign',signer)
+  const b={...await session.prepareRequestApproval!(f.proposal('presentation_attest'),'presentation_attest',attester),proposalId:'ce'.repeat(32)}
+  send.mockClear()
+  send.mockImplementationOnce(async(url,opts)=>{
+    expect(url).toBe(f.profile.endpoint+'/v1/sessions/'+session.sessionId+'/execution/approve');expect(opts.method).toBe('POST')
+    return {status:200,body:bytes({results:[{delivery:b.proposalId,status:409},{delivery:a.proposalId,status:204}]})}
+  })
+  const reply=await session.sendRetainedApprovals!([a,b])
+  expect(reply).toEqual({kind:'results',results:new Map([[b.proposalId,409],[a.proposalId,204]])})
+  // One request; each entry carries exactly the authorization its retained body holds (never re-signed).
+  expect(send).toHaveBeenCalledTimes(1)
+  const body=JSON.parse(new TextDecoder().decode(send.mock.calls[0]![1].body)) as {authorizations:{delivery:string;authorization:unknown}[]}
+  expect(body).toEqual({authorizations:[{delivery:a.proposalId,authorization:(JSON.parse(a.body) as {authorization:unknown}).authorization},
+    {delivery:b.proposalId,authorization:(JSON.parse(b.body) as {authorization:unknown}).authorization}]})
+  // The provider is still checked before the request.
+  expect(vi.mocked(f.chain.readers.serviceRegistry.getService)).toHaveBeenCalled()
+  // Busy before processing; a reply that does not answer every delivery is refused.
+  send.mockResolvedValueOnce({status:429,body:new Uint8Array()})
+  expect(await session.sendRetainedApprovals!([a,b])).toMatchObject({kind:'busy',httpStatus:429})
+  send.mockResolvedValueOnce({status:200,body:bytes({results:[{delivery:a.proposalId,status:204}]})})
+  await expect(session.sendRetainedApprovals!([a,b])).rejects.toThrow(/every delivery/)
+  send.mockResolvedValueOnce({status:200,body:bytes({results:[{delivery:a.proposalId,status:204},{delivery:a.proposalId,status:204}]})})
+  await expect(session.sendRetainedApprovals!([a,b])).rejects.toThrow(/batch result/)
+  await expect(session.sendRetainedApprovals!([a,a])).rejects.toThrow(/batch/)
+  // The held listing asks the agent to wait.
+  send.mockImplementation(original);send.mockClear()
+  const empty={status:200,body:bytes({proposals:[]})}
+  send.mockResolvedValueOnce(empty)
+  await session.proposals(undefined,{waitMs:60_000})
+  expect(send.mock.calls[0]![0]).toBe(f.profile.endpoint+'/v1/sessions/'+session.sessionId+'/execution?wait_ms=25000')
+  // An agent without the capabilities: no batch, no held listing.
+  vi.mocked(authenticateApprovedService).mockResolvedValue({record:{...f.record},manifest:{capabilities:['oid4vp']}} as Awaited<ReturnType<typeof authenticateApprovedService>>)
+  const plain=await f.prepare();await plain.create()
+  expect(plain.batchApprovals).toBe(false)
+  await expect(plain.sendRetainedApprovals!([a])).rejects.toThrow(/does not advertise/)
+  send.mockClear();send.mockResolvedValueOnce(empty);await plain.proposals(undefined,{waitMs:5000})
+  expect(send.mock.calls[0]![0]).toBe(f.profile.endpoint+'/v1/sessions/'+plain.sessionId+'/execution')
+})
+
+it('drops a reused authentication at a provider mismatch before any further request, even if the record changes back',async()=>{
+  const f=await fixture()
+  const log:string[]=[]
+  vi.mocked(authenticateApprovedService).mockReset().mockImplementation(async()=>{log.push('authenticate');return {record:{...f.record},manifest:{capabilities:['oid4vp']},expiresAt:1025} as unknown as Awaited<ReturnType<typeof authenticateApprovedService>>})
+  const send=vi.mocked(f.transport.paidAgentRequest), original=send.getMockImplementation()!
+  send.mockImplementation(async(url,opts)=>{log.push('request '+new URL(url).pathname.replace(/[0-9a-f]{64}/,':id'));return original(url,opts)})
+  const getService=vi.mocked(f.chain.readers.serviceRegistry.getService)
+  const first=await f.prepare();await first.create()
+  // The provider rotates its auth key: the next request of the session is refused before it is sent.
+  getService.mockResolvedValue({...f.record,authKey:h(72,20)})
+  log.length=0
+  await expect(first.poll()).rejects.toThrow(/provider changed/)
+  expect(log).toEqual([])
+  // ...and rotates back. The authentication that was refused is not reused: the next session
+  // authenticates again before its first request goes out.
+  getService.mockResolvedValue({...f.record})
+  const second=await f.prepare();await second.create()
+  expect(log).toEqual(['authenticate','request /v1/sessions'])
+})
+
+it('with a head follower: a provider mismatch at a newer head drops the reused authentication before any further request',async()=>{
+  const f=await fixture()
+  const log:string[]=[]
+  vi.mocked(authenticateApprovedService).mockReset().mockImplementation(async()=>{log.push('authenticate');return {record:{...f.record},manifest:{capabilities:['oid4vp']},expiresAt:1025} as unknown as Awaited<ReturnType<typeof authenticateApprovedService>>})
+  const send=vi.mocked(f.transport.paidAgentRequest), original=send.getMockImplementation()!
+  send.mockImplementation(async(url,opts)=>{log.push('request '+new URL(url).pathname.replace(/[0-9a-f]{64}/,':id'));return original(url,opts)})
+  const client=f.chain.client as unknown as PublicClient
+  const raw=f.chain.client as unknown as {call:ReturnType<typeof vi.fn>}
+  // The registered record per block: rotated in 41, rotated back in 42.
+  const records:Record<string,ServiceRecord>={[h(40)]:{...f.record},[h(41)]:{...f.record,authKey:h(73,20)},[h(42)]:{...f.record}}
+  raw.call=vi.fn(async({blockHash}:{blockHash:Hex})=>({data:encodeFunctionResult({abi:serviceRegistryAbi,functionName:'getService',result:records[blockHash]!})}))
+  const follower=createHeadFollower(client,{finality:'instant',now:()=>Date.now()})
+  attachHeadFollower(client,follower)
+  try{
+    await follower.ingestFinalized({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n}); await follower.ingest({number:40n,hash:h(40),parentHash:h(39),timestamp:1000n})
+    const first=await f.prepare();await first.create()
+    await follower.ingestFinalized({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n}); await follower.ingest({number:41n,hash:h(41),parentHash:h(40),timestamp:1001n})
+    log.length=0
+    await expect(first.poll()).rejects.toThrow(/provider changed/)
+    expect(log).toEqual([])
+    await follower.ingestFinalized({number:42n,hash:h(42),parentHash:h(41),timestamp:1002n}); await follower.ingest({number:42n,hash:h(42),parentHash:h(41),timestamp:1002n})
+    const second=await f.prepare();await second.create()
+    expect(log).toEqual(['authenticate','request /v1/sessions'])
+    // Every provider read was pinned to a followed head; none read latest by RPC.
+    expect(vi.mocked(f.chain.readers.serviceRegistry.getService)).not.toHaveBeenCalled()
+  }finally{unfollowHeads(client)}
+})
+
+// ---- The OAuth holder strategy over a real prepared session (drivePaidSession, kind 'oauth') ----
+describe('paid OAuth holder over the real session', () => {
+  const stepClock:PaidPacingOptions={clock:{now:()=>Date.now(),sleep:async()=>{},jitter:()=>0},attemptBudgetMs:1_000}
+  const issueToken=async(f:Awaited<ReturnType<typeof fixture>>,claims:Record<string,unknown>={})=>{
+    const key=await createDpopKey()
+    const token=signCompactJws({typ:'at+jwt'},{iss:'https://idp.example',sub:'holder',iat:1000,exp:1060,
+      aud:f.profile.endpoint+'/authz/43112',cnf:{jkt:await key.thumbprint()},...claims},{alg:'ES256',privateKey:new Uint8Array(32).fill(5)})
+    return {key,token}
+  }
+  const oauthSends=(f:Awaited<ReturnType<typeof fixture>>)=>vi.mocked(f.transport.paidAgentRequest).mock.calls.filter(([url])=>url.endsWith('/oauth-response'))
+  const drive=(f:Awaited<ReturnType<typeof fixture>>,store:ReturnType<typeof createMemoryStore>,credential:()=>Promise<{accessToken:string;signer:DpopSigner}>)=>
+    drivePaidSession({session:f.session,members:f.members,store,signal:new AbortController().signal,wait:async()=>{},holder:{kind:'oauth',credential}})
+
+  it('submits the locally verified presentation once, with the journaled token and proof as its exact headers',async()=>{
+    const f=await fixture('oauth',undefined,stepClock),store=createMemoryStore(),{key,token}=await issueToken(f)
+    const send=vi.mocked(f.transport.paidAgentRequest),original=send.getMockImplementation()!
+    send.mockImplementation(async(url,opts)=>{
+      if(url.endsWith('/oauth-response'))return {status:202,body:bytes({status:'awaiting_client_approval'})}
+      if(url.endsWith('/presentations'))return {status:500,body:bytes({error:'stop here'})}
+      return original(url,opts)
+    })
+    await expect(drive(f,store,async()=>({accessToken:token,signer:key.signer}))).rejects.toBeInstanceOf(PaidAgentControlError)
+    const sends=oauthSends(f)
+    expect(sends).toHaveLength(1)
+    const kept=await store.load<{phase:string;original:{oauth:ClientApprovedPresentation}}>('wallet-'+f.session.sessionId+'-presentation')
+    expect(kept?.phase).toBe('confirmed')
+    expect(sends[0]![1].oauth).toEqual({accessToken:kept!.original.oauth.oauth!.access_token,proof:kept!.original.oauth.oauth!.dpop_proof})
+    expect(kept!.original.oauth.oauth!.access_token).toBe(token)
+  })
+
+  it.each([
+    ['another audience',{aud:'https://other.example/authz/43112'},/does not bind this original audience, time or DPoP key/],
+    ['an expired token',{exp:999},/does not bind this original audience, time or DPoP key/],
+    ['a bearer token (no DPoP binding)',{cnf:undefined},/bearer token/],
+  ] as const)('refuses %s before anything is journaled or sent, without the token in the error',async(_name,claims,refusal)=>{
+    const f=await fixture('oauth',undefined,stepClock),store=createMemoryStore(),{key,token}=await issueToken(f,claims as Record<string,unknown>)
+    const credential=vi.fn(async()=>({accessToken:token,signer:key.signer}))
+    const error=await drive(f,store,credential).catch((e:unknown)=>e)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toMatch(refusal)
+    expect(credential).toHaveBeenCalledTimes(1)
+    expect((error as Error).message).not.toContain(token)
+    expect(oauthSends(f)).toHaveLength(0)
+    expect(await store.load('wallet-'+f.session.sessionId+'-presentation')).toBeUndefined()
+  })
+
+  it.each(['another DPoP key','another session target'] as const)('refuses a proof from %s before anything is journaled or sent',async variant=>{
+    const f=await fixture('oauth',undefined,stepClock),store=createMemoryStore(),{key,token}=await issueToken(f),other=await createDpopKey()
+    const signer:DpopSigner=variant==='another DPoP key'?other.signer:{proof:args=>key.signer.proof({...args,htu:'https://agent.example/v1/sessions/'+'99'.repeat(32)+'/oauth-response'})}
+    await expect(drive(f,store,async()=>({accessToken:token,signer}))).rejects.toThrow(/DPoP proof differs|Invalid original DPoP/)
+    expect(oauthSends(f)).toHaveLength(0)
+    expect(await store.load('wallet-'+f.session.sessionId+'-presentation')).toBeUndefined()
+  })
+
+  it('repeats a definite 429 with the identical token and proof inside the proof window, and only then',async()=>{
+    const f=await fixture('oauth',undefined,stepClock);await f.session.create()
+    const {key,token}=await issueToken(f),approved=await f.session.prepareOAuthPresentation(token,key.signer)
+    const send=vi.mocked(f.transport.paidAgentRequest)
+    send.mockClear()
+    send.mockResolvedValueOnce({status:429,body:bytes({error:'slow down'})}).mockResolvedValueOnce({status:202,body:bytes({status:'awaiting_client_approval'})})
+    await f.session.submitOAuthPresentation(approved)
+    const sends=oauthSends(f)
+    expect(sends).toHaveLength(2)
+    expect(sends[1]![1].oauth).toEqual(sends[0]![1].oauth)
+    expect(sends[0]![1].oauth).toEqual({accessToken:token,proof:approved.oauth!.dpop_proof})
+    // Any other refusal is never repeated.
+    const g=await fixture('oauth',undefined,stepClock);await g.session.create()
+    const second=await issueToken(g),again=await g.session.prepareOAuthPresentation(second.token,second.key.signer)
+    vi.mocked(g.transport.paidAgentRequest).mockClear()
+    vi.mocked(g.transport.paidAgentRequest).mockResolvedValueOnce({status:503,body:bytes({error:'unavailable'})})
+    await expect(g.session.submitOAuthPresentation(again)).rejects.toMatchObject({httpStatus:503})
+    expect(oauthSends(g)).toHaveLength(1)
+  })
 })

@@ -39,7 +39,7 @@ import {createTasraWriteClient, ruleCommitment, type CreateSlotArgs} from '../..
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.js'
 
 const mocks = vi.hoisted(() => ({submit: vi.fn(), read: vi.fn(), receipt: vi.fn()}))
-vi.mock('viem', async original => ({...await original<typeof import('viem')>(), createPublicClient: () => ({readContract: mocks.read, waitForTransactionReceipt: mocks.receipt})}))
+vi.mock('viem', async original => ({...await original<typeof import('viem')>(), createPublicClient: () => ({readContract: mocks.read, getTransactionReceipt: mocks.receipt})}))
 vi.mock('../../src/chain/registeredRelay.js', async original => ({...await original<typeof import('../../src/chain/registeredRelay.js')>(), createRegisteredRelaySubmitter: () => ({submit: mocks.submit})}))
 
 const address = `0x${'11'.repeat(20)}` as const
@@ -77,11 +77,16 @@ function fixture() {
   // collides with 'oauth' 2 the same way. Verified by mutation: with the colliding
   // fixture a mode/auth swap failed only 3 of 6 affected cases, with these values it
   // fails all of them.
-  const args = {slotId: hash('04'), salt: hash('05'), ruleSalt: hash('06'), rule: 'verify:demo', k: 5, n: 7, mode: 'tecdsa-p256' as const}
+  const args = {slotId: hash('04'), salt: hash('05'), ruleSalt: hash('06'), rule: 'verify:demo', k: 5, n: 7, mode: 'tecdsa-p256' as const, accountantUrls: ['http://a']}
   return {writer, args}
 }
 
+/** The accountant set: every seed ask is answered. Creation has no other path. */
+const SEED_SIG = `0x${'5c'.repeat(64)}` as Hex, SEED_DIGEST = `0x${'aa'.repeat(32)}` as Hex
+const seedFetch = async () => ({ok: true, status: 200, headers: new Headers(), json: async () => ({commitment: `0x${'07'.repeat(32)}`, digest: SEED_DIGEST, signature: SEED_SIG}), text: async () => ''}) as unknown as Response
+
 beforeEach(() => {
+  vi.stubGlobal('fetch', seedFetch)
   vi.restoreAllMocks()
   vi.clearAllMocks()
   mocks.read.mockImplementation(async ({functionName}: {functionName: string}) => {
@@ -89,6 +94,7 @@ beforeEach(() => {
     if (functionName === 'slotCommits') return [2n, 5n, address, false]
     if (functionName === 'epoch') return 2n
     if (functionName === 'randomBeacon') return address
+    if (functionName === 'commitSeedDigest') return SEED_DIGEST
     if (functionName === 'MIN_RULE_TIMELOCK') return 120
     throw new Error(`Unexpected read ${functionName}`)
   })
@@ -142,8 +148,8 @@ it('createKeySlotFilteredWithPolicy carries the policy tuple after the tags', as
 })
 
 it.each<[string, Partial<CreateSlotArgs>, string, number]>([
-  ['revealKeySlot', {}, 'revealKeySlot', 8],
-  ['revealKeySlotWithPolicy', {rulePolicy: POLICY}, 'revealKeySlotWithPolicy', 9],
+  ['revealKeySlotWithSeed', {}, 'revealKeySlotWithSeed', 9],
+  ['revealKeySlotWithSeedAndPolicy', {rulePolicy: POLICY}, 'revealKeySlotWithSeedAndPolicy', 10],
 ])('createSlotCommitReveal encodes %s at the pinned argument positions', async (_label, extra, functionName, arity) => {
   const h = fixture()
   await h.writer.createSlotCommitReveal({...h.args, ...extra, authType: 'oid4vp'})
@@ -151,6 +157,25 @@ it.each<[string, Partial<CreateSlotArgs>, string, number]>([
   expect(calls.map(c => c.functionName)).toEqual(['commitKeySlot', functionName])
   expect(calls[1]!.args).toHaveLength(arity)
   expectCreationPrefix(calls[1]!.args!, {...h.args, auth: 1})
+  // The seed signature follows the tags (and precedes the policy).
+  expect(calls[1]!.args![8]).toBe(SEED_SIG)
+})
+
+// The epoch reveals are sent only to RECONCILE a beacon-epoch commitment an older SDK made; their
+// encoding is pinned all the same, since a transposition there strands a paid-for commitment.
+it.each<[string, Partial<CreateSlotArgs>, string, number]>([
+  ['revealKeySlot', {}, 'revealKeySlot', 8],
+  ['revealKeySlotWithPolicy', {rulePolicy: POLICY}, 'revealKeySlotWithPolicy', 9],
+])('resuming an epoch-path commitment encodes %s at the pinned argument positions', async (_label, extra, functionName, arity) => {
+  const h = fixture()
+  const creator = privateKeyToAccount(hash('01')).address
+  const inner = mocks.read.getMockImplementation()!
+  mocks.read.mockImplementation(async (arg: {functionName: string}) => arg.functionName === 'slotCommits' ? [2n, 5n, creator, false, 100n, 1] : inner(arg))
+  await h.writer.createSlotCommitReveal({...h.args, ...extra, authType: 'oid4vp', recovery: {commitTx: hash('0a'), onTransaction: vi.fn(async () => {})}})
+  const calls = relayed()
+  expect(calls.map(c => c.functionName)).toEqual([functionName])
+  expect(calls[0]!.args).toHaveLength(arity)
+  expectCreationPrefix(calls[0]!.args!, {...h.args, auth: 1})
 })
 
 it('computeCommitment takes 8 args and does NOT carry auth — index 5 is the salt there', async () => {

@@ -103,7 +103,8 @@ describe('canonical prepaid reads', () => {
     await expect(readSlotFunding(client, {...deployment, chainId: 1.5}, h(3))).rejects.toThrow(/chain ID/)
     expect(calls).toHaveLength(0)
     await expect(readSlotFunding(client, deployment, h(3))).rejects.toThrow(/chain mismatch/)
-    expect(calls.map(c => c.method)).toEqual(['eth_chainId'])
+    // The head is read beside the chain check; nothing at that head is read on a mismatch.
+    expect(calls.map(c => c.method).sort()).toEqual(['eth_chainId', 'eth_getBlockByNumber'])
   })
   it('refuses stale/future/invalid heads and a reorg during reads', async () => {
     for (const options of [{age: 31}, {age: -3}, {hash: h(0)}, {orphan: true}]) {
@@ -120,8 +121,27 @@ describe('canonical prepaid reads', () => {
     for (const options of [{unsupported: true}, {empty: true}, {failure: true}]) {
       const {client, calls} = rpc({}, options)
       await expect(readPaidOperationReceipt(client, deployment, intent(), expected)).rejects.toThrow()
-      expect(calls.every(c => ['eth_chainId', 'eth_getBlockByNumber', 'eth_call'].includes(c.method))).toBe(true)
+      expect(calls.every(c => ['eth_chainId', 'eth_getBlockByNumber', 'eth_call', 'eth_getCode'].includes(c.method))).toBe(true)
       expect(calls.filter(c => c.method === 'eth_call').length).toBeLessThanOrEqual(5)
     }
+  })
+})
+
+describe('a receipt read after the caller saw its own transaction mined', () => {
+  it('does not use a followed tip older than the mined block', async () => {
+    // The follower polls about once a second: right after a reservation mines, its tip can still be
+    // the block before, where the reservation does not exist yet ("no valid reserved TASRA fee").
+    const {attachHeadFollower, unfollowHeads} = await import('../../src/chain/headFollower.js')
+    const {client, calls} = rpc()
+    const stale = {blockNumber: 19n, blockHash: h(21), blockTimestamp: BigInt(Math.floor(Date.now() / 1000)), parentHash: h(22)}
+    attachHeadFollower(client, {finality: 'instant', tip: () => stale, isCanonical: () => undefined, live: () => true,
+      ingest: async () => {}, ingestFinalized: async () => {}, start: () => {}, stop: () => {}} as never)
+    try {
+      const receipt = await readPaidOperationReceipt(client, deployment, intent(), expected, {atLeastBlock: 20n})
+      expect(receipt).toMatchObject({blockHash: h(20), cost: 10n})
+      expect(calls.some(c => c.method === 'eth_getBlockByNumber' && JSON.stringify(c.params) === JSON.stringify(['latest', false]))).toBe(true)
+      // Without the bound the followed tip is used as before (its block is pinned on every read).
+      await expect(readPaidOperationReceipt(client, deployment, intent(), expected)).rejects.toThrow()
+    } finally { unfollowHeads(client) }
   })
 })

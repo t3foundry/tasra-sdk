@@ -130,3 +130,42 @@ files with the application so restarts use the same deployment. The examples use
 `lowest-operator-id` as the explicit coordinator convention; confirm it matches
 the selected service. Fund each newly printed creator address with at least one
 native token on the selected chain before continuing.
+
+## Threshold ECDSA (and BLS) operations: approval bundles
+
+On a threshold ECDSA slot (secp256k1 or P-256) the network enforces the same on-chain policy
+through an operation-specific **bundle** carried inside the final paid keeper request, not
+through the FROST collector. Install the policy exactly as above: `setApprovalPolicy` accepts a
+ready FROST, BLS or threshold ECDSA slot. The creator wallet sends `setDualControlPolicy`; no
+slot-key signature is involved. Policies are set-once: an identical installed policy resolves
+`{phase: 'already-installed'}` without sending, and a different one is refused before sending.
+`readApprovalPolicy` reads what is installed.
+
+Approvals bind ONE final paid operation, so prepare them after its payment exists and before
+the keeper request (a statement is current for at most 300 seconds):
+
+```ts
+import {prepareOperationApproval, approveDualOperation, assembleOperationApproval} from '@t3foundry/tasra-sdk/app'
+import {committeeSignEoaDigest} from '@t3foundry/tasra-sdk/committee'
+
+const op = await paidOperation(config, {slot, operation: {action: 'sign', message: digest}, rule, holder})
+const prepared = await prepareOperationApproval(tasra, {payment: op.payment})
+// Each approver checks the statement against what it expects, then signs its exact bytes.
+const alice = await approveDualOperation({prepared, payment: op.payment, expectSlot: slot,
+  expectPayloadDigest: op.payment.payload_digest, approver: identityApprover(aliceIdentity)})
+const bob = await approveDualOperation({prepared, payment: op.payment, expectSlot: slot,
+  expectPayloadDigest: op.payment.payload_digest, approver: identityApprover(bobIdentity)})
+const dualControl = await assembleOperationApproval(tasra, {prepared, approvals: [alice, bob]})
+const signature = await op.execute(o => committeeSignEoaDigest({nodeUrl: o.coordinatorUrl,
+  committeeToken: o.compound_token, evidenceCt: o.evidenceCt, verifierProofs: o.verifierProofs,
+  approveExecution: o.approveExecution, digest, dualControl}))
+```
+
+`slots.ecdsa(slot).signDigest(digest, {payment, random, execution, authorize, dualControl})`
+takes the same bundle for a payment the application reserved itself. The statement binds the
+chain, slot, operation, key epoch, SHA-256 of the digest, the payment's request ID and payment
+hash. `assembleOperationApproval` judges the bundle against the ON-CHAIN quorum and approver set;
+missing approvals, a duplicate approver, a key outside the set, a stale statement or an approval
+of another payment are refused before anything is sent, and the keeper and every ECDSA member
+re-check all of it. Approver keys are Ed25519 only (the network has no other approver type), and
+a credential-gated policy needs each approver's own holder-bound `dual-approve` grant.

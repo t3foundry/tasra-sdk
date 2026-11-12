@@ -21,7 +21,7 @@ A Verifier Agent session did not produce a compound token. `kind` says why;
 `retryable` is true only for `timeout` and `unavailable` - the session may
 still complete, so poll again. Extends ` TasraError `.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L146)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L152)
 
 Import: `import {VerifierAgentSessionError} from 'tasra-sdk/oid4vp'`
 
@@ -52,7 +52,7 @@ declare class VerifierAgentSessionError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 64 functions</summary>
+<summary>Browse 66 functions</summary>
 
 - [assertCompoundTokenWire](#assertcompoundtokenwire)
 - [awaitVerifierAgentResult](#awaitverifieragentresult)
@@ -117,6 +117,8 @@ Operations you can import and call.
 - [verifyCompactJws](#verifycompactjws)
 - [verifyKbJwt](#verifykbjwt)
 - [verifyRequestObject](#verifyrequestobject)
+- [vpNonceBound](#vpnoncebound)
+- [vpSessionNonce](#vpsessionnonce)
 - [waitForSession](#waitforsession)
 
 </details>
@@ -126,7 +128,7 @@ Operations you can import and call.
 The compound token the verifier-agent hands back must be the wire shape the keepers verify -
  checked field by field before anything is built on it.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L174)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L180)
 
 Import: `import {assertCompoundTokenWire} from 'tasra-sdk/oid4vp'`
 
@@ -287,7 +289,7 @@ The verifier-agent derives a nonce, generates an ECDH key for JWE, and returns a
 payload the wallet scans. The session ID and poll secret are used to poll
 for the result.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L266)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L272)
 
 Import: `import {createOid4vpSession} from 'tasra-sdk/oid4vp'`
 
@@ -345,7 +347,7 @@ The `decrypt` action's digest, mirroring the reference decrypt digest:
 `sha256(DOMAIN || len(u) u64 LE || u || len(aead_ct) u64 LE || aead_ct)` - the AEAD nonce is
 deliberately excluded (it is not authorised content).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L149)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L174)
 
 Import: `import {decryptPayloadDigest} from 'tasra-sdk/oid4vp'`
 
@@ -689,7 +691,7 @@ Returns: ` Jwk `.
 The next polling delay: geometric growth (times1.5) capped at `max`, plus or minus20 % full jitter.
  Pure, so the schedule is testable without timers.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L542)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L589)
 
 Import: `import {nextPollDelay} from 'tasra-sdk/oid4vp'`
 
@@ -880,7 +882,7 @@ Compute the `payload_digest` for a given action and message.
 For `sign` and `ibe-extract`, this is `sha256(message_bytes)` as 0x-hex.
 Other actions should supply the digest directly.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L243)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L249)
 
 Import: `import {payloadDigest} from 'tasra-sdk/oid4vp'`
 
@@ -902,7 +904,7 @@ The per-action `payload_digest` the keeper recomputes at `enforce_request_bindin
 digest ([decryptPayloadDigest](#decryptpayloaddigest)), `dual-approve` = the digest the caller already
 holds. Pass exactly one of the inputs the action needs.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L119)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L144)
 
 Import: `import {payloadDigestFor} from 'tasra-sdk/oid4vp'`
 
@@ -976,14 +978,14 @@ Returns: ` PresentationPlan `.
 
 ### pollOid4vpSession
 
-Fetch and validate one authorization session status. Transport failures and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error. The polling secret is sent in the Authorization header.
+Fetch and validate one authorization session status. Transport failures, a request that exceeds its timeout and HTTP 502, 503 or 504 produce an unavailable error; malformed or other failed replies produce a protocol error; an aborted signal produces a cancelled error. The polling secret is sent in the Authorization header.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L459)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L483)
 
 Import: `import {pollOid4vpSession} from 'tasra-sdk/oid4vp'`
 
 ```ts
-declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, pollSecret: string): Promise<SessionStatusResult>;
+declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, pollSecret: string, opts?: PollSessionOpts): Promise<SessionStatusResult>;
 ```
 
 | Parameter | Type | Description |
@@ -991,6 +993,7 @@ declare function pollOid4vpSession(verifierAgentUrl: string, sessionId: string, 
 | ` verifierAgentUrl ` | ` string ` | - Verifier-agent HTTP base URL. |
 | ` sessionId ` | ` string ` | - Opened session identifier. |
 | ` pollSecret ` | ` string ` | - Secret returned at session creation; do not expose it in logs. |
+| ` opts? ` | ` PollSessionOpts ` | - Long-poll request, cancellation and per-request timeout. |
 
 Returns: ` Promise<SessionStatusResult> `.
 
@@ -1449,16 +1452,70 @@ declare function verifyRequestObject(jwt: string, opts?: VerifyRequestObjectOpts
 
 Returns: ` Promise<VerifiedRequestObject> `.
 
+### vpNonceBound
+
+The nonce a presentation must carry: [vpSessionNonce](#vpsessionnonce) when it opens a session (a session key
+thumbprint is named), else [derivedNonce](#derivednonce). The reference `vp_nonce_bound`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L123)
+
+Import: `import {vpNonceBound} from 'tasra-sdk/oid4vp'`
+
+```ts
+declare function vpNonceBound(reqHash: Uint8Array, random: Uint8Array, ctx: NonceContext, sessionKeyThumbprint?: Uint8Array): string;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` reqHash ` | ` Uint8Array ` | - 32-byte request-binding hash. |
+| ` random ` | ` Uint8Array ` | - The session's 32-byte random. |
+| ` ctx ` | ` NonceContext ` | - Nonce context. |
+| ` sessionKeyThumbprint? ` | ` Uint8Array ` | - The fresh session key's thumbprint, only when a session grant is requested. |
+
+Returns: ` string `.
+
+### vpSessionNonce
+
+The nonce of a presentation that also OPENS a session grant:
+`base64url(keccak256("keykeeper/vp-session-nonce/v1" || request_hash || random || epoch u64 BE ||
+snapshot_root || registry_size u32 BE || committee u32 BE || quorum u32 BE || operation_exp i64 BE
+|| session_key_thumbprint))`, unpadded. The holder key that signs the KB-JWT (or the DPoP proof)
+thereby authorizes exactly the session key with that RFC 7638 thumbprint. Mirrors the reference
+`vp_session_nonce`; vectors: `test/vp-session-nonce-vectors.json`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L109)
+
+Import: `import {vpSessionNonce} from 'tasra-sdk/oid4vp'`
+
+```ts
+declare function vpSessionNonce(reqHash: Uint8Array, random: Uint8Array, ctx: NonceContext, sessionKeyThumbprint: Uint8Array): string;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` reqHash ` | ` Uint8Array ` | - 32-byte request-binding hash. |
+| ` random ` | ` Uint8Array ` | - The session's 32-byte random. |
+| ` ctx ` | ` NonceContext ` | - Beacon epoch, verifier snapshot, committee policy and operation expiry to bind. |
+| ` sessionKeyThumbprint ` | ` Uint8Array ` | - 32-byte RFC 7638 SHA-256 thumbprint of the fresh session key. |
+
+Returns: ` string `.
+
 ### waitForSession
 
 Poll until the session reaches a terminal state (done or failed) - bounded by
 `timeoutMs`, with a growing jittered interval so many clients never poll in lock-step.
+Every request asks the verifier-agent to hold its reply until the session moves
+(`?wait=1`). A reply whose phase moved forward is followed by the next request at once;
+an unchanged reply is followed by the backoff sleep, unless it took 15 s or more (the
+server's hold ended), when the next request also goes at once. A server without long-poll
+support answers at once and is polled on the backoff schedule. Any phase change resets the
+backoff to `intervalMs`.
 A transient `unavailable` answer (a 503, a dropped connection) is retried within the
 deadline; a `protocol` answer stops at once; the deadline is a `timeout` error; the
 caller's `signal` is a `cancelled` error. A terminal `failed` is RETURNED (the caller
 decides how to explain it) - see `awaitVerifierAgentResult` for the version that throws `refused`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L564)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L620)
 
 Import: `import {waitForSession} from 'tasra-sdk/oid4vp'`
 
@@ -1594,7 +1651,7 @@ export type CommitteeAction = 'sign' | 'decrypt' | 'ibe-extract' | 'dual-approve
 
 Signed operation, optional delegation and payload submitted to the verifier agent.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L62)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L63)
 
 ```ts
 export interface CreateSessionParams {
@@ -1622,7 +1679,7 @@ Fields:
 
 Wallet presentation link and polling credentials for an opened authorization session.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L80)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L81)
 
 ```ts
 export interface CreateSessionResult {
@@ -2146,7 +2203,7 @@ Fields:
 
 EIP-712 delegation from the slot creator to a delegate address.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L44)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L45)
 
 ```ts
 export interface PresentationDelegation {
@@ -2174,7 +2231,7 @@ Fields:
 
 Operation details signed by a slot creator or delegate for credential authorization.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L28)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L29)
 
 ```ts
 export interface PresentationOperation {
@@ -2438,7 +2495,7 @@ Fields:
 
 Displayable authorization progress. A done phase means the committee answered; it does not mean the requested signing or decryption operation executed.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L106)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L107)
 
 ```ts
 export type SessionPhase = 'awaiting_wallet' | 'verifying' | 'done' | 'failed';
@@ -2448,7 +2505,7 @@ export type SessionPhase = 'awaiting_wallet' | 'verifying' | 'done' | 'failed';
 
 Authorization session progress and optional committee result or failure detail.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L109)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L110)
 
 ```ts
 export interface SessionStatusResult {
@@ -2459,6 +2516,13 @@ export interface SessionStatusResult {
     verifierProofs?: unknown;
     bindingPreimage?: Record<string, unknown>;
     error?: string;
+    sessionGrant?: {
+        grant?: {
+            session_grant: SessionGrantWire;
+            refresh_seq: 0;
+        };
+        error?: string;
+    };
 }
 ```
 
@@ -2471,6 +2535,7 @@ Fields:
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
 - **` bindingPreimage `**: Operation context used to derive the request-binding hash.
 - **` error `**: Optional failure detail reported by the verifier agent.
+- **` sessionGrant `**: Session mode, once `done`: the grant the paid session client verified against the anchored draw (`refresh_seq` 0), or why none came with the token. Absent otherwise.
 
 ### TypedDataSigner
 
@@ -2562,7 +2627,7 @@ Fields:
 Why a session did not yield a token - the class the UI explains, with a NON-SECRET
 correlation reference (the session id; the poll secret is never part of an error).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L129)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L135)
 
 ```ts
 export type VerifierAgentSessionErrorKind = 'timeout' | 'refused' | 'unavailable' | 'protocol' | 'cancelled';
@@ -2592,7 +2657,7 @@ Fields:
 
 Polling backoff, cancellation, progress callback and randomness options.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L522)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/verifier-agent/index.ts#L569)
 
 ```ts
 export interface WaitOpts {
@@ -2632,3 +2697,4 @@ Shared values and contract definitions.
 | `REQUEST_OBJECT_TYP` | JOSE type identifier for a signed authorization request object. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/request-object.ts#L14) |
 | `SD_JWT_TYP` | JOSE type identifier for a selectively disclosable verifiable credential. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/sd-jwt.ts#L9) |
 | `VP_NONCE_DOMAIN` | Domain separator for deriving a wallet presentation nonce from the operation context. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L12) |
+| `VP_SESSION_NONCE_DOMAIN` | Domain of the session-mode nonce ([vpSessionNonce](#vpsessionnonce)): a new name, so it never equals a plain nonce. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/oid4vp/binding.ts#L94) |

@@ -107,3 +107,20 @@ describe('fetchDrawnVerifierWitnesses', () => {
     } finally {vi.useRealTimers()}
   })
 })
+
+describe('kept verifier snapshots', () => {
+  it('serves a later payment of the same anchored epoch without a fetch, verifying it again in full', async () => {
+    const f = fixture()
+    const fetch = vi.fn(async () => json(f.artifact)) as unknown as typeof globalThis.fetch
+    const first = await fetchDrawnVerifierWitnesses(['https://a.example'], f.payment, f.registry, {fetch})
+    const second = await fetchDrawnVerifierWitnesses(['https://a.example'], f.payment, f.registry, {fetch})
+    expect(second.witnesses).toEqual(first.witnesses)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    // Another anchored root is another snapshot: fetched (and here refused, its leaves differ).
+    await expect(fetchDrawnVerifierWitnesses(['https://a.example'], {...f.payment, verification_root: hash(8)}, f.registry, {fetch})).rejects.toThrow(/No approved accountant/)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    // A host no longer approved is never answered from what it once served.
+    await fetchDrawnVerifierWitnesses(['https://b.example'], f.payment, f.registry, {fetch})
+    expect(fetch).toHaveBeenCalledTimes(3)
+  })
+})

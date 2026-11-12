@@ -1,6 +1,9 @@
 import {ed25519} from '@noble/curves/ed25519'
 import {equalBytes} from '@noble/curves/utils.js'
-import {hashTypedData, keccak256, recoverTypedDataAddress, toHex, type Address, type Hex} from 'viem'
+import {keccak256, toHex, type Address, type Hex} from 'viem'
+import {bytesToHex} from '@noble/hashes/utils'
+import {BoundedCache} from '../internal/bounded.js'
+import {recoverTypedDataSigner, typedDataHash as hashTypedData} from '../internal/typedData.js'
 import {canonicalize} from '../auth/oid4vp.js'
 import {protocolHex} from './receipts.js'
 import {assertPaymentIntentWire, paymentIntentHash, paymentIntentTypedData, prepaidRequestId, type PaymentIntentWire} from './payment.js'
@@ -154,11 +157,30 @@ const ACTIONS = {sign: 0, decrypt: 1, 'eoa-sign': 2, 'ibe-extract': 3, 'dual-app
 function integer(value: number): void {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error('Invalid execution timestamp or chain ID')
 }
+// Exact 32-byte encodings already proven to be strict prime-order points. One paid operation
+// re-checks the same certificate and keeper keys a dozen times; the torsion check is a full
+// scalar multiplication each time. Only keys that PASSED are stored, keyed by their exact bytes.
+const primeOrderKeys = new BoundedCache<string, true>(1024)
 function strongKey(key: Hex): Uint8Array {
   const bytes = protocolHex(key, 32, 'execution public key')
-  const point = ed25519.Point.fromHex(bytes, false)
-  if (point.isSmallOrder() || !point.isTorsionFree()) throw new Error('Execution public key must be a prime-order Ed25519 point')
+  primeOrderKeys.getOrCompute(bytesToHex(bytes), () => {
+    const point = ed25519.Point.fromHex(bytes, false)
+    if (point.isSmallOrder() || !point.isTorsionFree()) throw new Error('Execution public key must be a prime-order Ed25519 point')
+    return true
+  })
   return bytes
+}
+// Strict (non-ZIP-215) Ed25519 verifications that PASSED, keyed by the exact signature, message and
+// key bytes (fixed 64/32/32 lengths): an approval the client just signed and checked is checked
+// again by the keeper-request wrapper with the identical triple. A failure is never stored.
+const verifiedSignatures = new BoundedCache<string, true>(1024)
+function strictSignature(signature: Uint8Array, message: Uint8Array, key: Uint8Array): boolean {
+  if (signature.length !== 64 || message.length !== 32 || key.length !== 32) return ed25519.verify(signature, message, key, {zip215: false})
+  const id = bytesToHex(signature) + bytesToHex(message) + bytesToHex(key)
+  if (verifiedSignatures.peek(id)) return true
+  if (!ed25519.verify(signature, message, key, {zip215: false})) return false
+  verifiedSignatures.getOrCompute(id, () => true)
+  return true
 }
 function stage(stage: ExecutionStage): number {
   if (!Object.hasOwn(STAGES, stage)) throw new Error('Unknown execution stage')
@@ -174,10 +196,13 @@ function exactObject(value: object, keys: readonly string[]): void {
 function certificateShape(certificate: ExecutionCertificate): void {
   exactObject(certificate, ['execution_key', 'expires', 'creator_signature'])
 }
-function expectedSnapshot(expected: ExpectedExecution): ExpectedExecution {
+// Validate the caller's object, then hash the SNAPSHOT once: the snapshot is what every later
+// comparison reads, so its hash is returned with it rather than recomputed per comparison.
+function expectedSnapshot(expected: ExpectedExecution): {expected: ExpectedExecution; bodyHash: Hex} {
   exactObject(expected, ['stage', 'operatorKey', 'body'])
-  stage(expected.stage); strongKey(expected.operatorKey); executionBodyHash(expected.body)
-  return structuredClone(expected)
+  stage(expected.stage); strongKey(expected.operatorKey); bodyShape(expected.body)
+  const snapshot = structuredClone(expected)
+  return {expected: snapshot, bodyHash: executionBodyHash(snapshot.body)}
 }
 function common(payment: PaymentIntentWire) {
   assertPaymentIntentWire(payment)
@@ -258,14 +283,18 @@ function unicode(value: string): void {
   }
 }
 
+// The structural half of executionBodyHash (the byte bound needs the encoding and stays there).
+function bodyShape(body: Record<string, unknown>): void {
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.hasOwn(body, 'execution_authorization')) throw new Error('Execution body must be an unsigned JSON object')
+  jsonShape(body, 0, {remaining: 65_536})
+}
 /**
  * Hash the complete unsigned body with the existing RFC8785 encoder and Rust bounds.
  * Explicit null and absent fields remain distinct; no operation field is dropped.
  * @param body Complete unsigned JSON object, excluding only its approval envelope.
  */
 export function executionBodyHash(body: Record<string, unknown>): Hex {
-  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.hasOwn(body, 'execution_authorization')) throw new Error('Execution body must be an unsigned JSON object')
-  jsonShape(body, 0, {remaining: 65_536})
+  bodyShape(body)
   const encoded = JSON.stringify(body)
   if (new TextEncoder().encode(encoded).length > MAX_EXECUTION_BODY_BYTES) throw new Error('Execution body exceeds serialized byte bound')
   return keccak256(toHex(canonicalize(encoded)))
@@ -280,13 +309,13 @@ async function paymentConsent(payment: PaymentIntentWire, policy: ExecutionConse
     || payment.key_registry.toLowerCase() !== policy.keyRegistry.toLowerCase() || paymentIntentHash(payment).toLowerCase() !== policy.paymentHash.toLowerCase()
     || payment.expires <= policy.nowSecs || payment.expires - policy.nowSecs > 3600 || policy.cost <= 0n || policy.cost > BigInt(payment.max_cost)
     || [payment.session_commitment, payment.nonce, payment.verification_seed].some(value => /^0x0{64}$/i.test(value))) throw new Error('Execution payment differs from independent consent policy')
-  const creator = await recoverTypedDataAddress({...paymentIntentTypedData(payment), signature: payment.signature})
+  const creator = await recoverTypedDataSigner(paymentIntentTypedData(payment), payment.signature)
   if (creator.toLowerCase() !== policy.creator.toLowerCase()) throw new Error('Execution payment is not signed by the slot creator')
 }
 async function certified(payment: PaymentIntentWire, certificate: ExecutionCertificate, policy: ExecutionConsentPolicy): Promise<void> {
   if (certificate.expires <= policy.nowSecs) throw new Error('Execution certificate expired')
   protocolHex(certificate.creator_signature, 65, 'execution creator signature')
-  const creator = await recoverTypedDataAddress({...executionCertificateTypedData(payment, certificate), signature: certificate.creator_signature})
+  const creator = await recoverTypedDataSigner(executionCertificateTypedData(payment, certificate), certificate.creator_signature)
   if (creator.toLowerCase() !== policy.creator.toLowerCase()) throw new Error('Execution key is not certified by the slot creator')
 }
 function keeperTarget(payment: PaymentIntentWire, stage: ExecutionStage, operator: Hex): void {
@@ -322,13 +351,13 @@ export async function verifyExecutionAuthorization(options: {payment: PaymentInt
   exactObject(options.authorization, ['certificate', 'stage', 'operator_key', 'body_hash', 'expires', 'signature'])
   certificateShape(options.authorization.certificate)
   const payment = structuredClone(options.payment), policy = {...options.policy}
-  const expected = expectedSnapshot(options.expected), proof = structuredClone(options.authorization)
+  const {expected, bodyHash} = expectedSnapshot(options.expected), proof = structuredClone(options.authorization)
   await paymentConsent(payment, policy); await certified(payment, proof.certificate, policy)
   if (proof.stage !== expected.stage || proof.operator_key.toLowerCase() !== expected.operatorKey.toLowerCase()
-    || proof.expires <= policy.nowSecs || proof.body_hash.toLowerCase() !== executionBodyHash(expected.body).toLowerCase()) throw new Error('Execution approval differs from the intended live stage and body')
+    || proof.expires <= policy.nowSecs || proof.body_hash.toLowerCase() !== bodyHash.toLowerCase()) throw new Error('Execution approval differs from the intended live stage and body')
   keeperTarget(payment, proof.stage, proof.operator_key)
   const hash = protocolHex(hashTypedData(executionApprovalTypedData(payment, proof)), 32, 'execution approval hash')
-  if (!ed25519.verify(protocolHex(proof.signature, 64, 'execution signature'), hash, strongKey(proof.certificate.execution_key), {zip215: false})) throw new Error('Invalid client execution signature')
+  if (!strictSignature(protocolHex(proof.signature, 64, 'execution signature'), hash, strongKey(proof.certificate.execution_key))) throw new Error('Invalid client execution signature')
 }
 
 /**
@@ -376,8 +405,8 @@ export async function verifyExecutionConsent(options: {payment: PaymentIntentWir
   await paymentConsent(payment, policy); await certified(payment, proof.certificate, policy)
   keeperTarget(payment, proof.stage, proof.operator_key)
   const hash = protocolHex(hashTypedData(executionApprovalTypedData(payment, proof)), 32, 'execution approval hash')
-  if (!ed25519.verify(protocolHex(proof.signature, 64, 'execution signature'), hash,
-    strongKey(proof.certificate.execution_key), {zip215: false})) throw new Error('Invalid original client execution signature')
+  if (!strictSignature(protocolHex(proof.signature, 64, 'execution signature'), hash,
+    strongKey(proof.certificate.execution_key))) throw new Error('Invalid original client execution signature')
 }
 
 /**
@@ -390,10 +419,10 @@ export async function approveExecutionRequest(options: {payment: PaymentIntentWi
   signer: ClientExecutionSigner; policy: ExecutionConsentPolicy; expected: ExpectedExecution; proposal: ExecutionProposal}): Promise<ExecutionAuthorization> {
   certificateShape(options.certificate)
   exactObject(options.proposal, ['stage', 'operator_key', 'unsigned_body', 'expires'])
-  executionBodyHash(options.proposal.unsigned_body)
+  bodyShape(options.proposal.unsigned_body)
   const payment = structuredClone(options.payment), certificate = structuredClone(options.certificate), policy = {...options.policy}
-  const expected = expectedSnapshot(options.expected), proposal = structuredClone(options.proposal), signer = options.signer
-  const publicKey = signer.publicKey.slice(), bodyHash = executionBodyHash(expected.body)
+  const {expected, bodyHash} = expectedSnapshot(options.expected), proposal = structuredClone(options.proposal), signer = options.signer
+  const publicKey = signer.publicKey.slice()
   if (proposal.stage !== expected.stage || proposal.operator_key.toLowerCase() !== expected.operatorKey.toLowerCase()
     || executionBodyHash(proposal.unsigned_body) !== bodyHash) throw new Error('Agent execution proposal differs from the client-built intent')
   if (!equalBytes(publicKey, strongKey(certificate.execution_key))) throw new Error('Local execution signer differs from creator certificate')
@@ -447,7 +476,7 @@ export async function verifySessionInitialization(options: {payment: PaymentInte
   if (proof.profile_hash.toLowerCase() !== executionBodyHash(expected.serviceProfile)
     || proof.body_hash.toLowerCase() !== executionBodyHash(expected.body)) throw new Error('Session initialization differs from the approved agent and client body')
   const hash = protocolHex(hashTypedData(executionInitializationTypedData(payment, proof)), 32, 'session initialization hash')
-  if (!ed25519.verify(protocolHex(proof.signature, 64, 'session initialization signature'), hash, strongKey(proof.certificate.execution_key), {zip215: false})) throw new Error('Invalid client session initialization signature')
+  if (!strictSignature(protocolHex(proof.signature, 64, 'session initialization signature'), hash, strongKey(proof.certificate.execution_key))) throw new Error('Invalid client session initialization signature')
 }
 
 /**

@@ -21,7 +21,7 @@ const ibeRecovery = {recipient: ibeRecipient, identity: ibeVector.identity, veri
 
 vi.mock('../../src/chain/billing.js', async original => ({...await original<typeof import('../../src/chain/billing.js')>(), requirePrepaidSlot: vi.fn()}))
 vi.mock('../../src/chain/prepaid.js', async original => ({...await original<typeof import('../../src/chain/prepaid.js')>(),
-  discoverPaidOperationContext: vi.fn(), readClientExecutionPolicy: vi.fn()}))
+  discoverPaidOperationContext: vi.fn(), readClientExecutionPolicy: vi.fn(), readCurrentBeaconEpoch: vi.fn()}))
 vi.mock('../../src/chain/verifierSnapshot.js', () => ({fetchDrawnVerifierWitnesses: vi.fn()}))
 vi.mock('../../src/app/paid-reservation.js', async original => ({...await original<typeof import('../../src/app/paid-reservation.js')>(),
   reserveApplicationPayment: vi.fn(), reconcileApplicationPayment: vi.fn(), reconcileApplicationReservation: vi.fn()}))
@@ -31,13 +31,21 @@ vi.mock('../../src/app/paid-session.js', async original => ({...await original<t
 vi.mock('../../src/oid4vp/verifier-agent.js', async original => ({...await original<typeof import('../../src/oid4vp/verifier-agent.js')>(), verifierAgentResult: vi.fn()}))
 vi.mock('../../src/committee/execution.js', async original => ({...await original<typeof import('../../src/committee/execution.js')>(), createExecutionCertificate: vi.fn()}))
 vi.mock('../../src/chain/keeperExecution.js', () => ({createKeeperExecutionApprover: vi.fn(() => vi.fn())}))
+vi.mock('../../src/app/paid-allowance.js', async original => ({...await original<typeof import('../../src/app/paid-allowance.js')>(),
+  selectAllowanceLane: vi.fn(async () => undefined), obtainAllowanceVoucher: vi.fn()}))
 vi.mock('../../src/chain/keeperRecovery.js', async original => ({...await original<typeof import('../../src/chain/keeperRecovery.js')>(), recoverKeeperExecution: vi.fn()}))
 
-import {paidOperation, paidOperationPhase, resumePaidOperation, reconcilePaidOperation, listPaidOperations, abandonPaidOperation, recoverPaidOperation,
-  PaidOperationRecoveryError, PaidOperationAbandonRefusedError, type PaidOperationConfig} from '../../src/app/paid-operation.js'
+import {paidOperation, paidFinalSign, resumePaidFinalSign, paidSessionDecrypt, resumePaidSessionDecrypt, paidOperationPhase, resumePaidOperation, reconcilePaidOperation, listPaidOperations, abandonPaidOperation, recoverPaidOperation,
+  PaidOperationRecoveryError, PaidOperationAbandonRefusedError, NewerVerifierEpoch, type PaidOperationConfig} from '../../src/app/paid-operation.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
+import {paidRecordKey} from '../../src/app/paid-keys.js'
+import {createFileStore} from '../../src/app/node.js'
+import {mkdtemp, rm} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import {BillingModeError, requirePrepaidSlot} from '../../src/chain/billing.js'
-import {discoverPaidOperationContext, readClientExecutionPolicy} from '../../src/chain/prepaid.js'
+import {discoverPaidOperationContext, drawnIntentFields, PaidDrawMovedError, readClientExecutionPolicy, readCurrentBeaconEpoch, type PaidOperationContext,
+  type UndrawnPaidOperationContext} from '../../src/chain/prepaid.js'
 import {fetchDrawnVerifierWitnesses} from '../../src/chain/verifierSnapshot.js'
 import {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, selectApplicationGasPayer, ApplicationPayerRecoveryError,
   type ApplicationReservationStatus} from '../../src/app/paid-reservation.js'
@@ -52,12 +60,15 @@ import {assembleCompoundToken, compoundTokenHash, decodeCompoundToken, selectVer
   type CompoundTokenWire} from '../../src/committee/token.js'
 import {statusRefreshHash, statusRefreshHolderSigner} from '../../src/committee/status-refresh.js'
 import {decodeJson, p256HolderKey, verifyCompactJws, type Jwk} from '../../src/oid4vp/jose.js'
-import {PaidReservationAbortedError, PaidReservationUncertainError} from '../../src/chain/reservation.js'
+import {PaidReservationAbortedError, PaidReservationStaleEpochError, PaidReservationUncertainError} from '../../src/chain/reservation.js'
 import {verifierAgentResult} from '../../src/oid4vp/verifier-agent.js'
 import {createExecutionCertificate} from '../../src/committee/execution.js'
 import {recoverKeeperExecution} from '../../src/chain/keeperRecovery.js'
 import {ruleCommitment} from '../../src/chain/write.js'
-import {paymentIntentHash, prepaidRequestId} from '../../src/committee/payment.js'
+import {paymentIntentHash, paymentIntentTypedData, prepaidRequestId} from '../../src/committee/payment.js'
+import {selectAllowanceLane, obtainAllowanceVoucher, AllowanceRefusedError, AllowanceUnavailableError} from '../../src/app/paid-allowance.js'
+import {recoverTypedDataAddress} from 'viem'
+import {createSessionKey, sessionGrantCreateFragment} from '../../src/app/session-grants.js'
 
 const h = (n: number, len = 32): Hex => `0x${n.toString(16).padStart(2, '0').repeat(len)}`
 const creator = privateKeyToAccount(h(7)), payer = privateKeyToAccount(h(8))
@@ -122,6 +133,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(requirePrepaidSlot).mockResolvedValue({slot, mode: 'prepaid'})
   vi.mocked(loadPaidReservationJournal).mockResolvedValue(undefined)
+  // The beacon at the payment's own epoch: no reservation waited past it.
+  vi.mocked(readCurrentBeaconEpoch).mockReset().mockResolvedValue(7n)
   reservation('none')
 })
 const observedAt = {blockNumber: 20n, blockHash: h(20), blockTimestamp: 1n}
@@ -132,6 +145,18 @@ function reservation(state: ApplicationReservationStatus['state'], payerLocked =
 }
 
 describe('paidOperation', () => {
+  it('checks the rule against the commitment discovery read at its canonical block, without a second slot read', async () => {
+    const f = setup()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockResolvedValueOnce({...base, ruleCommitment: ruleCommitment(salt, rule)})
+    await paidOperation(f.config, f.request)
+    expect(f.client.readContract).not.toHaveBeenCalled()
+    expect(f.client.getBlock).not.toHaveBeenCalled()
+    vi.mocked(discoverPaidOperationContext).mockResolvedValueOnce({...base, ruleCommitment: h(66)})
+    await expect(paidOperation(f.config, f.request)).rejects.toThrow('differs from the slot commitment')
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+  })
+
   it('preserves supplied rule bytes for the verifier token hash across journal and resume', async () => {
     const f = setup()
     const raw = JSON.stringify(JSON.parse(rule), null, 2) + '\n'
@@ -169,10 +194,14 @@ describe('paidOperation', () => {
     op.dispose()
   })
 
-  it('refuses a legacy or unknown slot before any discovery, signature or reservation', async () => {
+  it('refuses a legacy or unknown slot before any signature or reservation; a cached detector refuses before discovery', async () => {
     const f = setup()
-    vi.mocked(requirePrepaidSlot).mockRejectedValue(new BillingModeError({slot, mode: 'legacy', settlementVersion: '1'}))
+    // Without a detector the billing check is discovery's own (same block-pinned round): no separate observation.
+    vi.mocked(discoverPaidOperationContext).mockRejectedValueOnce(new BillingModeError({slot, mode: 'legacy', settlementVersion: '1'}))
     await expect(paidOperation(f.config, f.request)).rejects.toMatchObject({name: 'BillingModeError', mode: 'legacy'})
+    expect(requirePrepaidSlot).not.toHaveBeenCalled()
+    expect(fetchDrawnVerifierWitnesses).not.toHaveBeenCalled()
+    vi.mocked(discoverPaidOperationContext).mockClear()
     const detector = {mode: vi.fn(), invalidate: vi.fn(), requirePrepaid: vi.fn(async () => { throw new BillingModeError({slot, mode: 'unknown', reason: 'rpc'}) })}
     await expect(paidOperation({...f.config, billing: detector}, f.request)).rejects.toMatchObject({mode: 'unknown'})
     expect(discoverPaidOperationContext).not.toHaveBeenCalled()
@@ -381,6 +410,14 @@ describe('paidOperation edges', () => {
     expect(op.payment.action).toBe('eoa-sign')
   })
 
+  it('pays a sign on a threshold P-256 slot (mode 4) as eoa-sign, the keeper eoa-digest route', async () => {
+    const f = setup()
+    const resolved = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockReset().mockResolvedValue({...resolved, mode: 4})
+    const op = await paidOperation(f.config, f.request)
+    expect(op.payment.action).toBe('eoa-sign')
+  })
+
   it('refuses invalid inputs before reading the chain', async () => {
     const f = setup()
     await expect(paidOperation(f.config, {...f.request, slot: '0x01'})).rejects.toThrow(/slot/)
@@ -541,6 +578,63 @@ describe('paid operation error classification', () => {
     const expiredError = await paidOperation(k.config, k.request).catch((e: unknown) => e)
     vi.restoreAllMocks()
     expect(expiredError).toMatchObject({code: 'reservation-refused', resumable: false})
+  })
+
+  it('never replaces a stale-epoch refusal with a re-signed intent: the journal stays reconcilable and is found if it lands', async () => {
+    const f = setup(), ids: Hex[] = []
+    vi.mocked(reserveApplicationPayment).mockRejectedValueOnce(new PaidReservationStaleEpochError(7))
+    const error = await paidOperation(f.config, {...f.request, onRequestId: (id: Hex) => { ids.push(id) }}).catch((e: unknown) => e)
+    expect(error).toMatchObject({phase: 'reservation', code: 'reservation-refused', resumable: true})
+    // One intent only: no second discovery, signature or reservation.
+    expect(vi.mocked(discoverPaidOperationContext)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(reserveApplicationPayment)).toHaveBeenCalledTimes(1)
+    expect(ids).toHaveLength(1)
+    expect(await paidOperationPhase(f.store, ids[0]!)).toBe('reserving')
+    // Not abandonable while whoever holds the intent could still get it reserved (payment expiry + 30 s quote age).
+    const refused = await abandonPaidOperation(f.store, ids[0]!, {reason: 'retry'}).catch((e: unknown) => e) as PaidOperationAbandonRefusedError
+    expect(refused).toBeInstanceOf(PaidOperationAbandonRefusedError)
+    const record = await f.store.load<{payment: {expires: number}}>('paid-op-' + ids[0]!.slice(2).toLowerCase())
+    expect(refused.notBefore).toBeGreaterThanOrEqual(record!.payment.expires + 30)
+    // If someone lands it meanwhile, reconciliation finds it on chain: it is reserved, never forgotten.
+    reservation('reserved')
+    expect(await reconcilePaidOperation(f.config, ids[0]!)).toMatchObject({phase: 'reserved'})
+  })
+
+  it('signs once more when the payer freed up two epochs after discovery and nothing was prepared yet', async () => {
+    const f = setup(), ids: Hex[] = []
+    vi.mocked(readCurrentBeaconEpoch).mockResolvedValueOnce(9n).mockResolvedValue(7n)
+    const op = await paidOperation(f.config, {...f.request, onRequestId: (id: Hex) => { ids.push(id) }})
+    expect(ids).toHaveLength(2)
+    expect(op.requestId).toBe(ids[1])
+    // The stale intent never reached an accountant: no reservation was attempted for it.
+    expect(vi.mocked(reserveApplicationPayment)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(reserveApplicationPayment).mock.calls[0]![3]).toMatchObject({nonce: op.payment.nonce})
+    expect(vi.mocked(discoverPaidOperationContext)).toHaveBeenCalledTimes(2)
+    expect(await paidOperationPhase(f.store, ids[0]!)).toBe('failed')
+  })
+
+  it('keeps an intent one epoch behind (still admissible) and never re-signs once a preparation is journaled', async () => {
+    const f = setup(), ids: Hex[] = []
+    vi.mocked(readCurrentBeaconEpoch).mockResolvedValue(8n)
+    await paidOperation(f.config, {...f.request, onRequestId: (id: Hex) => { ids.push(id) }})
+    expect(ids).toHaveLength(1)
+    const g = setup(), later: Hex[] = []
+    vi.mocked(readCurrentBeaconEpoch).mockResolvedValue(50n)
+    vi.mocked(loadPaidReservationJournal).mockResolvedValue({phase: 'prepared'} as Awaited<ReturnType<typeof loadPaidReservationJournal>>)
+    vi.mocked(reserveApplicationPayment).mockClear()
+    await paidOperation(g.config, {...g.request, onRequestId: (id: Hex) => { later.push(id) }})
+    expect(later).toHaveLength(1)
+    expect(vi.mocked(reserveApplicationPayment)).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a second wait past two epochs as a refusal, with both unsent intents journaled failed', async () => {
+    const f = setup(), ids: Hex[] = []
+    vi.mocked(readCurrentBeaconEpoch).mockResolvedValue(9n)
+    const error = await paidOperation(f.config, {...f.request, onRequestId: (id: Hex) => { ids.push(id) }}).catch((e: unknown) => e)
+    expect(error).toMatchObject({phase: 'reservation', code: 'reservation-refused', resumable: false})
+    expect(ids).toHaveLength(2)
+    expect(vi.mocked(reserveApplicationPayment)).not.toHaveBeenCalled()
+    for (const id of ids) expect(await paidOperationPhase(f.store, id)).toBe('failed')
   })
 
   it('codes resume outcomes and execution uncertainty', async () => {
@@ -714,6 +808,10 @@ describe('abandonPaidOperation', () => {
 
   it('closes an unsent reservation, hides it from the list and refuses to resume or reserve it', async () => {
     const f = await unsent()
+    // The signed intent reached the accountants: not before its payment and quote windows have passed.
+    const early = await abandonPaidOperation(f.store, f.requestId, {reason: 'user cancelled'}).catch((e: unknown) => e) as PaidOperationAbandonRefusedError
+    expect(early).toBeInstanceOf(PaidOperationAbandonRefusedError)
+    vi.spyOn(Date, 'now').mockReturnValue(early.notBefore! * 1000)
     const closed = await abandonPaidOperation(f.store, f.requestId, {reason: 'user cancelled'})
     expect(closed).toMatchObject({requestId: f.requestId.toLowerCase(), from: 'reserving', reason: 'user cancelled'})
     expect(await paidOperationPhase(f.store, f.requestId)).toBe('abandoned')
@@ -931,7 +1029,8 @@ describe('paid operation index backfill', () => {
     const f = setup()
     const a = await paidOperation(f.config, f.request)
     const b = await paidOperation(f.config, f.request)
-    await f.store.save('paid-op-index', {schema: 1, ids: [b.requestId.toLowerCase()]})
+    // `a` was journaled before the index existed: only `b` is indexed.
+    await f.store.save('paid-op-index-0', {schema: 1, ids: [b.requestId.toLowerCase()]})
     await f.store.save('paid-op-unrelated', {x: 1})
     expect((await listPaidOperations(f.store)).map(o => o.requestId)).toEqual([b.requestId.toLowerCase()])
     const all = await listPaidOperations(f.store, {backfill: true})
@@ -939,6 +1038,7 @@ describe('paid operation index backfill', () => {
     expect(await f.store.load('paid-op-index')).toMatchObject({backfilled: true})
     // Once: a later unindexed journal is not picked up again.
     await f.store.save('paid-op-index', {schema: 1, ids: [], backfilled: true})
+    await f.store.save('paid-op-index-0', {schema: 1, ids: []})
     expect(await listPaidOperations(f.store, {backfill: true})).toEqual([])
     const c = await paidOperation(f.config, f.request)
     expect((await listPaidOperations(f.store)).map(o => o.requestId)).toEqual([c.requestId.toLowerCase()])
@@ -946,11 +1046,223 @@ describe('paid operation index backfill', () => {
     await expect(listPaidOperations(f.store)).rejects.toThrow(/index/)
   })
 
+  it('keeps reading an existing single-list index and appends new operations to bounded segments', async () => {
+    const f = setup()
+    // A store an earlier SDK wrote: two operations in the original `paid-op-index` list.
+    const x = await paidOperation(f.config, f.request), y = await paidOperation(f.config, f.request)
+    const legacy = {schema: 1, ids: [x.requestId.toLowerCase(), y.requestId.toLowerCase()]}
+    await f.store.save('paid-op-index', legacy)
+    await f.store.save('paid-op-index-0', {schema: 1, ids: Array.from({length: 256}, (_, i) => '0x' + i.toString(16).padStart(64, '0'))})
+    const z = await paidOperation(f.config, f.request)
+    // The legacy list is read first and never rewritten; a full segment is never rewritten either.
+    expect(await f.store.load('paid-op-index')).toEqual(legacy)
+    expect((await f.store.load<{ids: Hex[]}>('paid-op-index-0'))!.ids).toHaveLength(256)
+    expect(await f.store.load('paid-op-index-1')).toEqual({schema: 1, ids: [z.requestId.toLowerCase()]})
+    expect((await listPaidOperations(f.store)).map(o => o.requestId)).toEqual([x, y, z].map(o => o.requestId.toLowerCase()))
+    // An id listed in both the legacy list and a segment is listed once.
+    await f.store.save('paid-op-index-1', {schema: 1, ids: [x.requestId.toLowerCase(), z.requestId.toLowerCase()]})
+    expect((await listPaidOperations(f.store)).map(o => o.requestId)).toEqual([x, y, z].map(o => o.requestId.toLowerCase()))
+    await f.store.save('paid-op-index-1', {schema: 1, ids: ['0x12']})
+    await expect(listPaidOperations(f.store)).rejects.toThrow(/index/)
+  })
+
+  it('continues in the next segment after a crash left it started', async () => {
+    const f = setup()
+    const full = Array.from({length: 256}, (_, i) => ('0x' + i.toString(16).padStart(64, '0')) as Hex)
+    await f.store.save('paid-op-index-0', {schema: 1, ids: full})
+    await f.store.save('paid-op-index-1', {schema: 1, ids: [h(77)]})
+    const op = await paidOperation(f.config, f.request)
+    expect(await f.store.load('paid-op-index-1')).toEqual({schema: 1, ids: [h(77), op.requestId.toLowerCase()]})
+    expect(await f.store.load('paid-op-index-2')).toBeUndefined()
+  })
+
+  it('a failed index commit spanning two segments leaves no gap that hides later operations', async () => {
+    const f = setup()
+    let failSegment = true
+    const store: ApplicationStore = {...f.store, load: f.store.load.bind(f.store), withLock: f.store.withLock.bind(f.store), list: f.store.list?.bind(f.store),
+      save: async (key: string, value: unknown) => {
+        if (failSegment && key === 'paid-op-index-0') { failSegment = false; throw new Error('disk full') }
+        return f.store.save(key, value)
+      }}
+    const config = {...f.config, store}
+    // More new operations than one segment holds, in one journal commit that fails on the first segment.
+    const results = await Promise.allSettled(Array.from({length: 257}, () => paidOperation(config, f.request)))
+    expect(results.some(r => r.status === 'rejected')).toBe(true)
+    expect(await f.store.load('paid-op-index-0')).toBeUndefined()
+    const later = await paidOperation(config, f.request)
+    expect((await listPaidOperations(store)).map(o => o.requestId)).toContain(later.requestId.toLowerCase())
+  })
+
+  it('journals concurrent operations in one process with a file store, none refused on its locks', async () => {
+    const f = setup()
+    const dir = await mkdtemp(join(tmpdir(), 'tasra-paid-index-'))
+    try {
+      const config = {...f.config, store: createFileStore(dir)}
+      const ops = await Promise.all(Array.from({length: 32}, () => paidOperation(config, f.request)))
+      const listed = (await listPaidOperations(config.store)).map(o => o.requestId)
+      expect(new Set(listed)).toEqual(new Set(ops.map(op => op.requestId.toLowerCase())))
+      expect(listed).toHaveLength(32)
+    } finally { await rm(dir, {recursive: true, force: true}) }
+  })
+
   it('needs a store that can list its keys', async () => {
     const inner = createMemoryStore()
     const store: ApplicationStore = {load: inner.load.bind(inner), save: inner.save.bind(inner), withLock: inner.withLock.bind(inner)}
     await expect(listPaidOperations(store, {backfill: true})).rejects.toThrow(/list its keys/)
     expect(await listPaidOperations(store)).toEqual([])
+  })
+})
+
+// The operation journal's own commits: a new operation's record and index entry (one commit for
+// every concurrent new operation of a process), each local phase transition (one commit with its
+// unlock), and the execution consent (with the session's creation). A crash may keep any subset
+// of one commit; each case below resumes to what a crash at that point always resumed to.
+describe('paid operation journal commits', () => {
+  it('concurrent new operations of one process share the index commit instead of queueing on its lock one by one', async () => {
+    const f = setup(), inner = createMemoryStore(), locks: string[] = []
+    // A store without native commit steps: every lock is visible.
+    const store: ApplicationStore = {load: inner.load.bind(inner), save: inner.save.bind(inner), claim: inner.claim!.bind(inner), list: inner.list!.bind(inner),
+      withLock: (key, action) => { locks.push(key); return inner.withLock(key, action) }}
+    const config = {...f.config, store}
+    const ops = await Promise.all(Array.from({length: 32}, () => paidOperation(config, f.request)))
+    const listed = (await listPaidOperations(store)).map(o => o.requestId)
+    expect(new Set(listed)).toEqual(new Set(ops.map(op => op.requestId.toLowerCase())))
+    expect(listed).toHaveLength(32)
+    // One index commit per wave of arrivals, not one per operation.
+    const indexCommits = locks.filter(k => k === 'paid-op-index').length
+    expect(indexCommits).toBeGreaterThan(0)
+    expect(indexCommits).toBeLessThanOrEqual(4)
+    for (const op of ops) op.dispose()
+  })
+
+  it('an operation already journaled under its request ID is refused alone; the others of its commit are journaled', async () => {
+    const f = setup()
+    const clash = paidOperation(f.config, {...f.request, onRequestId: async id => { await f.store.save(`paid-op-${id.slice(2).toLowerCase()}`, {schema: 1, phase: 'reserving'}) }})
+    const fine = paidOperation(f.config, f.request)
+    await expect(clash).rejects.toThrow(/already journaled/)
+    const op = await fine
+    expect((await listPaidOperations(f.store)).map(o => o.requestId)).toEqual([op.requestId.toLowerCase()])
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    op.dispose()
+  })
+
+  it('a crash that kept the index entry but not the record: listed by no one, resumed by no one, nothing reserved', async () => {
+    const f = setup(), ghost = h(0x66)
+    await f.store.save('paid-op-index-0', {schema: 1, ids: [ghost]})
+    expect(await listPaidOperations(f.store)).toEqual([])
+    await expect(resumePaidOperation(f.config, ghost, {holder: f.holder})).rejects.toThrow(/No paid operation journal/)
+    const op = await paidOperation(f.config, f.request)
+    expect((await f.store.load<{ids: Hex[]}>('paid-op-index-0'))?.ids).toEqual([ghost, op.requestId.toLowerCase()])
+    expect((await listPaidOperations(f.store)).map(o => o.requestId)).toEqual([op.requestId.toLowerCase()])
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    op.dispose()
+  })
+
+  it('a crash that kept the record but not its index entry: found and resumed by its request ID, reserved once', async () => {
+    const f = setup(), inner = f.store, save = inner.save.bind(inner)
+    let requestId: Hex | undefined
+    inner.save = async (key, value) => { if (key.startsWith('paid-op-index')) throw new Error('crash before the index entry'); return save(key, value) }
+    await expect(paidOperation(f.config, {...f.request, onRequestId: id => { requestId = id }})).rejects.toThrow('crash')
+    inner.save = save
+    // Nothing was reserved: the reservation starts only after the journal commit resolved.
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    expect(await paidOperationPhase(f.store, requestId!)).toBe('reserving')
+    const op = await resumePaidOperation(f.config, requestId!, {holder: f.holder})
+    expect(await paidOperationPhase(f.store, requestId!)).toBe('authorized')
+    op.dispose()
+  })
+
+  it('a crash before the `executing` commit: nothing ran, the journal stays `authorized`, and execute runs once later', async () => {
+    const f = setup(), save = f.store.save.bind(f.store)
+    const op = await paidOperation(f.config, f.request)
+    let crash = true
+    f.store.save = async (key, value) => {
+      if (crash && (value as {phase?: string}).phase === 'executing') { crash = false; throw new Error('crash before the commit') }
+      return save(key, value)
+    }
+    const work = vi.fn(async () => 'signature')
+    await expect(op.execute(work)).rejects.toBeInstanceOf(PaidOperationRecoveryError)
+    expect(work).not.toHaveBeenCalled()
+    expect(await paidOperationPhase(f.store, op.requestId)).toBe('authorized')
+    expect(await op.execute(work)).toBe('signature')
+    expect(work).toHaveBeenCalledTimes(1)
+    expect(await paidOperationPhase(f.store, op.requestId)).toBe('executed')
+    op.dispose()
+  })
+})
+
+describe('execution consent journaled with the session creation', () => {
+  /** The real driver; each session's identity derives from its consent, as prepareRegisteredPaidSession derives it. */
+  async function realDriver(f: ReturnType<typeof setup>) {
+    const actual = await vi.importActual<typeof import('../../src/app/paid-session.js')>('../../src/app/paid-session.js')
+    vi.mocked(drivePaidSession).mockImplementation(actual.drivePaidSession)
+    const created: string[] = [], phaseAtCreate: (string | undefined)[] = []
+    vi.mocked(prepareRegisteredPaidSession).mockImplementation(async (_chain, _config, params, consent) => {
+      const sessionId = keccak256(toHex(consent.certificate.execution_key)).slice(2)
+      return {sessionId, paymentHash: paymentIntentHash(params.payment), initialization: {expires: params.operation.exp, key: consent.certificate.execution_key},
+        create: vi.fn(async () => { created.push(sessionId); phaseAtCreate.push(await paidOperationPhase(f.store, prepaidRequestId(params.payment))) }),
+        reconcile: vi.fn(async () => ({status: 'pending'})),
+        requestObject: vi.fn(async () => { throw new Error('stopped after creation') }),
+      } as unknown as RegisteredPaidAgentSession
+    })
+    return {created, phaseAtCreate}
+  }
+
+  it('is durable before the creation POST, and a failed creation keeps it for the resume', async () => {
+    const f = setup(), d = await realDriver(f)
+    const error = await paidOperation(f.config, f.request).catch((e: unknown) => e) as PaidOperationRecoveryError
+    expect(error).toMatchObject({phase: 'session'})
+    expect(d.phaseAtCreate).toEqual(['certified'])
+    expect(await paidOperationPhase(f.store, error.requestId)).toBe('certified')
+    await expect(resumePaidOperation(f.config, error.requestId, {holder: f.holder})).rejects.toMatchObject({phase: 'session'})
+    // Resumed with the same consent: the same session, never created twice.
+    expect(new Set(d.created).size).toBe(1)
+    expect(d.created).toHaveLength(1)
+    expect(createExecutionCertificate).toHaveBeenCalledTimes(1)
+  })
+
+  it('a crash that kept the creation record but not the consent: nothing was sent; the resume certifies anew under a new session and never repeats the old POST', async () => {
+    const f = setup(), d = await realDriver(f), save = f.store.save.bind(f.store)
+    let requestId: Hex | undefined
+    // The commit's consent never reached the disk, its creation record did, and the process died:
+    // nothing it does afterwards reaches the disk either.
+    let dead = false
+    f.store.save = async (key, value) => {
+      if (dead || (value as {phase?: string}).phase === 'certified') return
+      if (key.endsWith('-create')) { await save(key, value); dead = true; throw new Error('process died') }
+      return save(key, value)
+    }
+    await expect(paidOperation(f.config, {...f.request, onRequestId: id => { requestId = id }})).rejects.toThrow()
+    f.store.save = save
+    expect(d.created).toEqual([])
+    expect(await paidOperationPhase(f.store, requestId!)).toBe('reserved')
+    await expect(resumePaidOperation(f.config, requestId!, {holder: f.holder})).rejects.toMatchObject({phase: 'session'})
+    expect(createExecutionCertificate).toHaveBeenCalledTimes(2)
+    expect(d.created).toHaveLength(1)
+    const [first, second] = vi.mocked(prepareRegisteredPaidSession).mock.calls
+    expect(second![3].certificate).not.toEqual(first![3].certificate)
+    expect(await paidOperationPhase(f.store, requestId!)).toBe('certified')
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+  })
+
+  it('a crash that kept the consent but not the creation record: the resume creates that same session once', async () => {
+    const f = setup(), d = await realDriver(f), save = f.store.save.bind(f.store)
+    let requestId: Hex | undefined
+    let dead = false
+    f.store.save = async (key, value) => {
+      if (dead) return
+      if (key.endsWith('-create')) { dead = true; throw new Error('process died') }
+      return save(key, value)
+    }
+    await expect(paidOperation(f.config, {...f.request, onRequestId: id => { requestId = id }})).rejects.toThrow()
+    f.store.save = save
+    expect(d.created).toEqual([])
+    expect(await paidOperationPhase(f.store, requestId!)).toBe('certified')
+    await expect(resumePaidOperation(f.config, requestId!, {holder: f.holder})).rejects.toMatchObject({phase: 'session'})
+    expect(createExecutionCertificate).toHaveBeenCalledTimes(1)
+    expect(d.created).toHaveLength(1)
+    const [first, second] = vi.mocked(prepareRegisteredPaidSession).mock.calls
+    expect(second![3].certificate).toEqual(first![3].certificate)
   })
 })
 
@@ -1288,5 +1600,479 @@ describe('explicit status refresh of a paid grant', () => {
     expect(paidAgentRequest).not.toHaveBeenCalled()
     expect((await journal(f, op.requestId)).statusRefresh).toBeUndefined()
     op.dispose()
+  })
+})
+
+/** As discovery returns one during an anchor gap: the keeper sharing only, no verification fields at all. */
+function undrawnOf(context: PaidOperationContext): UndrawnPaidOperationContext {
+  const {verification_epoch: _e, verification_seed: _s, verification_root: _r, verification_registry_size: _n, verification_committee: _c, verification_quorum: _q, ...sharing} =
+    drawnIntentFields(context)
+  return {...context, undrawn: true, intentFields: sharing}
+}
+
+describe('paidOperation with ADR-0090 allowances (default off)', () => {
+  const allowance = h(0x44)
+  const enabled = (f: ReturnType<typeof setup>) => ({...f.config, allowances: {enabled: true, amount: 1_000n}})
+  function lane() {
+    vi.mocked(selectAllowanceLane).mockImplementation(async (_env, context) => ({lane: 1, allowanceId: allowance,
+      fields: {...drawnIntentFields(context), verification_epoch: 6, verification_seed: h(46)}}))
+    vi.mocked(obtainAllowanceVoucher).mockImplementation(async (_env, _ticket, payment) => ({allowance_id: allowance, seq: 3, request_id: prepaidRequestId(payment),
+      cost: '40', cumulative: '120', quote_block: h(70), signature: h(5, 64)}))
+  }
+
+  it('stays on the per-operation reservation unless explicitly enabled', async () => {
+    const f = setup()
+    lane()
+    await paidOperation(f.config, f.request)
+    expect(selectAllowanceLane).not.toHaveBeenCalled()
+    expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(discoverPaidOperationContext).mock.calls[0]![3]).toMatchObject({fundedByAllowance: false})
+  })
+
+  it('signs the allowance payment intent on a lane with room and is debited by voucher, never reserved', async () => {
+    const f = setup()
+    lane()
+    const op = await paidOperation(enabled(f), f.request)
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    expect(vi.mocked(discoverPaidOperationContext).mock.calls[0]![3]).toMatchObject({fundedByAllowance: true})
+    expect(op.payment).toMatchObject({allowance_id: allowance, verification_epoch: 6, verification_seed: h(46), debit_voucher: {seq: 3, request_id: op.requestId}})
+    // The creator signed the distinct SlotAllowancePaymentIntent; the request ID binds the allowance.
+    const {debit_voucher: _voucher, ...signed} = op.payment
+    expect(paymentIntentTypedData(signed).primaryType).toBe('SlotAllowancePaymentIntent')
+    expect(await recoverTypedDataAddress({...paymentIntentTypedData(signed), signature: op.payment.signature})).toBe(creator.address)
+    expect(op.requestId).toBe(prepaidRequestId(signed))
+    expect(vi.mocked(obtainAllowanceVoucher).mock.calls[0]![1]).toEqual({lane: 1})
+    expect(vi.mocked(obtainAllowanceVoucher).mock.calls[0]![2].debit_voucher).toBeUndefined()
+    // Execution consent reads the backing with the voucher attached.
+    expect(vi.mocked(readClientExecutionPolicy).mock.calls[0]![2].debit_voucher).toMatchObject({seq: 3})
+    expect(await f.store.load(`paid-op-${op.requestId.slice(2)}`)).toMatchObject({phase: 'authorized', allowance: {lane: 1}})
+    op.dispose()
+  })
+
+  it('during an anchor gap a lane that serves the operation pays at once: one undrawn discovery, the allowance\'s draw, no anchor wait', async () => {
+    const f = setup()
+    lane()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    const undrawn = undrawnOf(base)
+    vi.mocked(discoverPaidOperationContext).mockClear()
+    vi.mocked(discoverPaidOperationContext).mockResolvedValueOnce(undrawn)
+    // The ticket carries the ALLOWANCE's draw (fieldsFor copies it from the allowance intent).
+    vi.mocked(selectAllowanceLane).mockImplementation(async () => ({lane: 1, allowanceId: allowance,
+      fields: {...base.intentFields, verification_epoch: 6, verification_seed: h(46)}}))
+    const op = await paidOperation(enabled(f), f.request)
+    // Asked for an undrawn answer during a gap, discovered ONCE: it waited for no anchors.
+    expect(vi.mocked(discoverPaidOperationContext)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(discoverPaidOperationContext).mock.calls[0]![3]).toMatchObject({fundedByAllowance: true, undrawnDuringAnchorGap: true})
+    expect(vi.mocked(selectAllowanceLane).mock.calls[0]![1].undrawn).toBe(true)
+    expect(op.payment).toMatchObject({allowance_id: allowance, verification_epoch: 6, verification_seed: h(46)})
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    op.dispose()
+  })
+
+  it('during an anchor gap with no serving lane, discovers the draw (waiting for its anchors) and never pays from the undrawn context', async () => {
+    const f = setup()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockClear()
+    vi.mocked(discoverPaidOperationContext).mockResolvedValueOnce(undrawnOf(base))
+    vi.mocked(selectAllowanceLane).mockResolvedValue(undefined)
+    const op = await paidOperation(enabled(f), f.request)
+    const calls = vi.mocked(discoverPaidOperationContext).mock.calls
+    expect(calls).toHaveLength(2)
+    expect(calls[1]![3]).not.toHaveProperty('undrawnDuringAnchorGap')
+    // Selected again on the drawn context, then paid per operation at THAT draw.
+    expect(vi.mocked(selectAllowanceLane).mock.calls.map(c => c[1].undrawn)).toEqual([true, undefined])
+    expect(op.payment).toMatchObject({verification_epoch: 7, verification_seed: h(41), verification_root: h(42)})
+    expect(op.payment.allowance_id).toBeUndefined()
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    op.dispose()
+  })
+
+  it('falls back to a per-operation reservation when no lane has room', async () => {
+    const f = setup()
+    vi.mocked(selectAllowanceLane).mockResolvedValue(undefined)
+    const op = await paidOperation(enabled(f), f.request)
+    expect(op.payment.allowance_id).toBeUndefined()
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
+    op.dispose()
+  })
+
+  it('a refused debit is journaled failed and the operation falls back once to a fresh per-operation payment', async () => {
+    const f = setup()
+    lane()
+    vi.mocked(obtainAllowanceVoucher).mockRejectedValueOnce(new AllowanceRefusedError('the accountants refused the debit'))
+    const ids: Hex[] = []
+    const op = await paidOperation(enabled(f), {...f.request, onRequestId: id => { ids.push(id) }})
+    expect(ids).toHaveLength(2)
+    expect(op.requestId).toBe(ids[1])
+    expect(op.payment.allowance_id).toBeUndefined()
+    expect(await paidOperationPhase(f.store, ids[0]!)).toBe('failed')
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(selectAllowanceLane).toHaveBeenCalledTimes(1)
+    await expect(resumePaidOperation(enabled(f), ids[0]!)).rejects.toMatchObject({code: 'reservation-failed'})
+    op.dispose()
+  })
+
+  it('unreachable accountants leave the debit resumable; resume asks for the SAME payment and continues', async () => {
+    const f = setup()
+    lane()
+    vi.mocked(obtainAllowanceVoucher).mockRejectedValueOnce(new AllowanceUnavailableError('accountants unavailable'))
+    const error = await paidOperation(enabled(f), f.request).catch((e: unknown) => e) as PaidOperationRecoveryError
+    expect(error).toBeInstanceOf(PaidOperationRecoveryError)
+    expect(error).toMatchObject({code: 'reservation-refused', resumable: true, phase: 'reservation'})
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    expect(await reconcilePaidOperation(enabled(f), error.requestId)).toMatchObject({phase: 'reserving', next: 'reserve'})
+    const op = await resumePaidOperation(enabled(f), error.requestId, {holder: f.holder})
+    const [first, second] = vi.mocked(obtainAllowanceVoucher).mock.calls
+    expect(second![2]).toEqual(first![2])
+    expect(op.requestId).toBe(error.requestId)
+    expect(op.payment.debit_voucher).toMatchObject({request_id: error.requestId})
+    expect(reconcileApplicationReservation).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    op.dispose()
+  })
+})
+
+describe('paidFinalSign: a final dual-control Sign paid without any presentation', () => {
+  const allowance = h(0x45), message = new TextEncoder().encode('dual final')
+  const enabled = (f: ReturnType<typeof setup>) => ({...f.config, allowances: {enabled: true, amount: 1_000n}})
+  function lane() {
+    vi.mocked(selectAllowanceLane).mockImplementation(async (_env, context) => ({lane: 2, allowanceId: allowance, fields: drawnIntentFields(context)}))
+    vi.mocked(obtainAllowanceVoucher).mockImplementation(async (_env, _ticket, payment) => ({allowance_id: allowance, seq: 1, request_id: prepaidRequestId(payment),
+      cost: '40', cumulative: '40', quote_block: h(70), signature: h(5, 64)}))
+  }
+
+  it('debits the final Sign from an allowance lane, certifies it and never opens a session or presentation', async () => {
+    const f = setup()
+    lane()
+    const paid = await paidFinalSign(enabled(f), {slot, message})
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    expect(fetchDrawnVerifierWitnesses).not.toHaveBeenCalled()
+    expect(prepareRegisteredPaidSession).not.toHaveBeenCalled()
+    expect(drivePaidSession).not.toHaveBeenCalled()
+    expect(f.holder.makePresentation).not.toHaveBeenCalled()
+    expect(vi.mocked(selectAllowanceLane).mock.calls[0]![2]).toMatchObject({action: 'sign'})
+    expect(paid.payment).toMatchObject({action: 'sign', allowance_id: allowance, payload_digest: toHex(sha256(message)), debit_voucher: {seq: 1, request_id: paid.requestId}})
+    const {debit_voucher: _voucher, ...signed} = paid.payment
+    expect(await recoverTypedDataAddress({...paymentIntentTypedData(signed), signature: paid.payment.signature})).toBe(creator.address)
+    expect(createExecutionCertificate).toHaveBeenCalledTimes(1)
+    expect(paid.coordinatorUrl).toBe(coordinator.url)
+    expect(typeof paid.approveExecution).toBe('function')
+    expect(await f.store.load(`paid-op-${paid.requestId.slice(2)}`)).toMatchObject({phase: 'certified', finalSign: true, allowance: {lane: 2}})
+    // A final Sign has no session to resume through paidOperation's path.
+    await expect(resumePaidOperation(enabled(f), paid.requestId, {holder: f.holder})).rejects.toThrow(/no session/)
+    paid.dispose()
+  })
+
+  it('falls back to a per-operation reservation when no lane has room, like paidOperation', async () => {
+    const f = setup()
+    vi.mocked(selectAllowanceLane).mockResolvedValue(undefined)
+    const paid = await paidFinalSign(enabled(f), {slot, message})
+    expect(paid.payment.allowance_id).toBeUndefined()
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
+    paid.dispose()
+  })
+
+  it('an interrupted debit resumes the SAME payment, never a second one', async () => {
+    const f = setup()
+    lane()
+    vi.mocked(obtainAllowanceVoucher).mockRejectedValueOnce(new AllowanceUnavailableError('accountants unavailable'))
+    const error = await paidFinalSign(enabled(f), {slot, message}).catch((e: unknown) => e) as PaidOperationRecoveryError
+    expect(error).toMatchObject({code: 'reservation-refused', resumable: true})
+    const paid = await resumePaidFinalSign(enabled(f), error.requestId)
+    const [first, second] = vi.mocked(obtainAllowanceVoucher).mock.calls
+    expect(second![2]).toEqual(first![2])
+    expect(paid.requestId).toBe(error.requestId)
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    paid.dispose()
+  })
+
+  it('refuses a non-FROST slot and a slot it is not the creator of, before any payment', async () => {
+    const f = setup()
+    lane()
+    const resolved = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockResolvedValueOnce({...resolved, mode: 2})
+    await expect(paidFinalSign(enabled(f), {slot, message})).rejects.toThrow(/FROST/)
+    const g = setup({creator: h(77, 20)})
+    await expect(paidFinalSign(enabled(g), {slot, message})).rejects.toThrow(/creator/)
+    await expect(paidFinalSign(enabled(g), {slot, message: new Uint8Array(0)})).rejects.toThrow(/message/)
+    expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+  })
+})
+
+describe('paidSessionDecrypt: one session-grant KEM decrypt paid without any presentation (ADR-0090 D7)', () => {
+  const allowance = h(0x46)
+  const enabled = (f: ReturnType<typeof setup>) => ({...f.config, allowances: {enabled: true, amount: 1_000n}})
+  function lane() {
+    vi.mocked(selectAllowanceLane).mockImplementation(async (_env, context) => ({lane: 3, allowanceId: allowance, fields: drawnIntentFields(context)}))
+    vi.mocked(obtainAllowanceVoucher).mockImplementation(async (_env, _ticket, payment) => ({allowance_id: allowance, seq: 1, request_id: prepaidRequestId(payment),
+      cost: '40', cumulative: '40', quote_block: h(70), signature: h(5, 64)}))
+  }
+  async function blsSlot() {
+    const resolved = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockResolvedValue({...resolved, mode: 1})
+  }
+  async function binding() {
+    const recipient = await createDecryptionRecipient()
+    return decryptionBinding(sha256(new TextEncoder().encode('one chat message')), 0, recipient)
+  }
+
+  it('debits the decrypt from an allowance lane bound to this ciphertext and recipient, and never presents', async () => {
+    const f = setup()
+    lane(); await blsSlot()
+    const b = await binding()
+    const paid = await paidSessionDecrypt(enabled(f), {slot, decryption: b.decryption})
+    expect(fetchDrawnVerifierWitnesses).not.toHaveBeenCalled()
+    expect(prepareRegisteredPaidSession).not.toHaveBeenCalled()
+    expect(drivePaidSession).not.toHaveBeenCalled()
+    expect(f.holder.makePresentation).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    expect(vi.mocked(selectAllowanceLane).mock.calls[0]![2]).toMatchObject({action: 'decrypt'})
+    expect(paid.payment).toMatchObject({action: 'decrypt', allowance_id: allowance, payload_digest: toHex(b.payloadDigest), debit_voucher: {seq: 1, request_id: paid.requestId}})
+    expect(await f.store.load(`paid-op-${paid.requestId.slice(2)}`)).toMatchObject({phase: 'certified', sessionDecrypt: true, allowance: {lane: 3}})
+    // Neither the presentation path nor the final Sign path resumes a session-grant decrypt.
+    await expect(resumePaidOperation(enabled(f), paid.requestId, {holder: f.holder})).rejects.toThrow(/no presentation/)
+    await expect(resumePaidFinalSign(enabled(f), paid.requestId)).rejects.toThrow(/No final Sign journal/)
+    paid.dispose()
+  })
+
+  it('an interrupted debit resumes the SAME payment; a missing lane falls back to a per-operation reservation', async () => {
+    const f = setup()
+    lane(); await blsSlot()
+    const b = await binding()
+    vi.mocked(obtainAllowanceVoucher).mockRejectedValueOnce(new AllowanceUnavailableError('accountants unavailable'))
+    const error = await paidSessionDecrypt(enabled(f), {slot, decryption: b.decryption}).catch((e: unknown) => e) as PaidOperationRecoveryError
+    expect(error).toMatchObject({code: 'reservation-refused', resumable: true})
+    const paid = await resumePaidSessionDecrypt(enabled(f), error.requestId)
+    const [first, second] = vi.mocked(obtainAllowanceVoucher).mock.calls
+    expect(second![2]).toEqual(first![2])
+    expect(paid.requestId).toBe(error.requestId)
+    paid.dispose()
+    const g = setup()
+    await blsSlot()
+    vi.mocked(selectAllowanceLane).mockResolvedValue(undefined)
+    const fallback = await paidSessionDecrypt(enabled(g), {slot, decryption: (await binding()).decryption})
+    expect(fallback.payment.allowance_id).toBeUndefined()
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+    fallback.dispose()
+  })
+
+  it('refuses a FROST slot, a missing recipient binding and a foreign creator before any payment', async () => {
+    const f = setup()
+    lane()
+    const b = await binding()
+    await expect(paidSessionDecrypt(enabled(f), {slot, decryption: b.decryption})).rejects.toThrow(/BLS slot/)
+    await expect(paidSessionDecrypt(enabled(f), {slot, decryption: {...b.decryption, content_digest: undefined}})).rejects.toThrow(/recipient binding/)
+    await blsSlot()
+    await expect(paidSessionDecrypt(enabled(setup({creator: h(77, 20)})), {slot, decryption: b.decryption})).rejects.toThrow(/creator/)
+    expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+  })
+
+  it('pays the GRANT\'s draw: discovery is pinned to its epoch, only a lane on that draw funds it, and the beacon epoch comes back', async () => {
+    const f = setup()
+    lane(); await blsSlot()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockResolvedValue({...base, mode: 1, beaconEpoch: 8n})
+    const b = await binding()
+    const grant = {epoch: base.intentFields.verification_epoch, seed: base.intentFields.verification_seed}
+    const paid = await paidSessionDecrypt(enabled(f), {slot, decryption: b.decryption, grant})
+    const discovery = vi.mocked(discoverPaidOperationContext).mock.calls.at(-1)!
+    expect(discovery[3]).toMatchObject({verificationEpoch: BigInt(grant.epoch)})
+    expect(vi.mocked(selectAllowanceLane).mock.calls.at(-1)![2]).toMatchObject({action: 'decrypt', drawPinned: true})
+    expect(paid.payment).toMatchObject({verification_epoch: grant.epoch, verification_seed: grant.seed})
+    expect(paid.beaconEpoch).toBe(8n)
+    paid.dispose()
+    // Without a grant the payment takes the fresh draw, unpinned (the earlier behaviour).
+    const unpinned = await paidSessionDecrypt(enabled(f), {slot, decryption: (await binding()).decryption})
+    expect(vi.mocked(discoverPaidOperationContext).mock.calls.at(-1)![3]).not.toHaveProperty('verificationEpoch')
+    expect(vi.mocked(selectAllowanceLane).mock.calls.at(-1)![2]).toMatchObject({drawPinned: false})
+    unpinned.dispose()
+  })
+
+  it('hands the lanes a reserve-ahead discovery of the next draw that is pinned and verified like a message\'s own', async () => {
+    const f = setup()
+    lane(); await blsSlot()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    const paid = await paidSessionDecrypt(enabled(f), {slot, decryption: (await binding()).decryption,
+      grant: {epoch: base.intentFields.verification_epoch, seed: base.intentFields.verification_seed}})
+    const env = vi.mocked(selectAllowanceLane).mock.calls.at(-1)![0]
+    expect(env.discover).toBeTypeOf('function')
+    await env.discover!(slot, 9n)
+    const discovery = vi.mocked(discoverPaidOperationContext).mock.calls.at(-1)!
+    expect(discovery[2]).toBe(slot)
+    expect(discovery[3]).toMatchObject({verificationEpoch: 9n, fundedByAllowance: true})
+    paid.dispose()
+  })
+
+  it('refuses a grant whose seed is not the beacon\'s, and a moved draw, before anything is signed or debited', async () => {
+    const f = setup()
+    lane(); await blsSlot()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    const b = await binding()
+    await expect(paidSessionDecrypt(enabled(f), {slot, decryption: b.decryption, grant: {epoch: base.intentFields.verification_epoch, seed: h(0x99)}}))
+      .rejects.toThrow(/seed the beacon does not hold/)
+    await expect(paidSessionDecrypt(enabled(f), {slot, decryption: b.decryption, grant: {epoch: -1, seed: h(0x99)}})).rejects.toThrow(/Invalid session grant draw/)
+    vi.mocked(discoverPaidOperationContext).mockRejectedValueOnce(new PaidDrawMovedError(5n, 7n))
+    await expect(paidSessionDecrypt(enabled(f), {slot, decryption: b.decryption, grant: {epoch: 5, seed: h(0x99)}})).rejects.toMatchObject({code: 'draw-moved'})
+    expect(obtainAllowanceVoucher).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+  })
+
+  it('a per-operation reservation whose payer freed up two epochs past the grant is refused UNSENT: NewerVerifierEpoch, journal failed, nothing reserved', async () => {
+    const f = setup()
+    await blsSlot()
+    vi.mocked(selectAllowanceLane).mockResolvedValue(undefined)
+    vi.mocked(readCurrentBeaconEpoch).mockResolvedValue(9n)
+    const ids: Hex[] = []
+    const error = await paidSessionDecrypt(enabled(f), {slot, decryption: (await binding()).decryption, onRequestId: id => { ids.push(id) }}).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(NewerVerifierEpoch)
+    expect(error).toMatchObject({code: 'newer-verifier-epoch', requestId: ids[0], beaconEpoch: 9n})
+    // Once only, and never past the first prepare: no reservation was attempted, none was journaled.
+    expect(ids).toHaveLength(1)
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    expect(await paidOperationPhase(f.store, ids[0]!)).toBe('failed')
+    await expect(resumePaidSessionDecrypt(enabled(f), ids[0]!)).rejects.toThrow(/failed, not payable/)
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+  })
+
+  it('funds a session-grant OPENING only from a lane on the fresh draw (verifiers judge the grant at the live beacon)', async () => {
+    const f = setup()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockResolvedValue({...base, mode: 1})
+    vi.mocked(selectAllowanceLane).mockResolvedValue(undefined)
+    const key = await createSessionKey({alg: 'Ed25519'})
+    const fragment = sessionGrantCreateFragment(key, {slots: [slot]})
+    const recipient = await createDecryptionRecipient()
+    const b = decryptionBinding(sha256(new TextEncoder().encode('first message')), 0, recipient)
+    vi.mocked(drivePaidSession).mockResolvedValue({status: 'done', phase: 'done', sessionGrant: {error: 'session_context_changed'}} as Awaited<ReturnType<typeof drivePaidSession>>)
+    const op = await paidOperation(enabled(f), {...f.request, operation: {action: 'decrypt', decryption: b.decryption}, sessionGrant: fragment})
+    expect(vi.mocked(selectAllowanceLane).mock.calls.at(-1)![2]).toMatchObject({action: 'decrypt', drawPinned: true})
+    op.dispose()
+    const plain = await paidOperation(enabled(setup()), {...f.request, operation: {action: 'decrypt', decryption: b.decryption}})
+    expect(vi.mocked(selectAllowanceLane).mock.calls.at(-1)![2]).toMatchObject({drawPinned: false})
+    plain.dispose()
+  })
+})
+
+describe('paidOperation: session-grant presentation (ADR-0090 D7)', () => {
+  it('journals the public create fragment, passes it to the session, and exposes the verified grant', async () => {
+    const f = setup()
+    const base = await discoverPaidOperationContext(undefined as never, undefined as never, slot)
+    vi.mocked(discoverPaidOperationContext).mockResolvedValue({...base, mode: 1})
+    const key = await createSessionKey({alg: 'Ed25519'})
+    const fragment = sessionGrantCreateFragment(key, {slots: [slot]})
+    const recipient = await createDecryptionRecipient()
+    const b = decryptionBinding(sha256(new TextEncoder().encode('first message')), 0, recipient)
+    const outcome = {grant: {session_grant: {stand_in: 'verified grant'} as never, refresh_seq: 0 as const}}
+    vi.mocked(drivePaidSession).mockResolvedValue({status: 'done', phase: 'done', sessionGrant: outcome} as Awaited<ReturnType<typeof drivePaidSession>>)
+    const op = await paidOperation(f.config, {...f.request, operation: {action: 'decrypt', decryption: b.decryption}, sessionGrant: fragment})
+    expect(vi.mocked(prepareRegisteredPaidSession).mock.calls[0]![2].sessionGrant).toEqual(fragment.session_grant)
+    expect(op.sessionGrant).toEqual(outcome)
+    const journal = await f.store.load<{params: {sessionGrant?: unknown}; grant: {sessionGrant?: unknown}}>(`paid-op-${op.requestId.slice(2)}`)
+    expect(journal?.params.sessionGrant).toEqual(fragment.session_grant)
+    expect(JSON.stringify(journal)).not.toMatch(/"d":/)
+    expect(journal?.grant.sessionGrant).toEqual(outcome)
+    op.dispose()
+    // A sign presentation cannot open a session, refused before anything is paid.
+    vi.mocked(reserveApplicationPayment).mockClear()
+    await expect(paidOperation(f.config, {...f.request, sessionGrant: fragment})).rejects.toThrow(/KEM decrypt/)
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+  })
+})
+
+describe('paid OAuth holder through paidOperation', () => {
+  const oauthRule = JSON.stringify({credentials: [{id: 'kc', format: 'oauth+access-token+dpop', claims: [{path: ['iss'], values: ['https://idp.example']}]}]})
+  const oauthHolder = {kind: 'oauth' as const, credential: vi.fn()}
+
+  it('propagates OAuth mode to the session it prepares and journals it with the operation', async () => {
+    const f = setup({ruleCommitment: ruleCommitment(salt, oauthRule)})
+    const ids: Hex[] = []
+    await paidOperation(f.config, {...f.request, rule: {rule: oauthRule, salt}, holder: oauthHolder, onRequestId: id => { ids.push(id) }})
+    expect(vi.mocked(prepareRegisteredPaidSession).mock.calls[0]![2]).toMatchObject({kind: 'oauth'})
+    expect(vi.mocked(drivePaidSession).mock.calls[0]![0].holder).toBe(oauthHolder)
+    expect((await f.store.load<{params: {kind?: string}}>(paidRecordKey(ids[0]!)))?.params.kind).toBe('oauth')
+  })
+
+  it('a resume must use the journaled holder family; a wallet holder cannot resume an OAuth session (and vice versa)', async () => {
+    for (const [journaled, resumedWith] of [['oauth', 'local'], ['local', 'oauth']] as const) {
+      const f = setup(journaled === 'oauth' ? {ruleCommitment: ruleCommitment(salt, oauthRule)} : {})
+      const ids: Hex[] = []
+      vi.mocked(drivePaidSession).mockRejectedValueOnce(new PaidSessionRecoveryError('k', 'unknown outcome'))
+      await expect(paidOperation(f.config, {...f.request, ...(journaled === 'oauth' ? {rule: {rule: oauthRule, salt}, holder: oauthHolder} : {}),
+        onRequestId: id => { ids.push(id) }})).rejects.toBeInstanceOf(PaidOperationRecoveryError)
+      vi.mocked(prepareRegisteredPaidSession).mockClear()
+      await expect(resumePaidOperation(f.config, ids[0]!, {holder: resumedWith === 'oauth' ? oauthHolder : f.holder}))
+        .rejects.toThrow(journaled === 'oauth' ? 'journaled with an OAuth holder' : 'journaled with a wallet holder')
+      expect(prepareRegisteredPaidSession).not.toHaveBeenCalled()
+      // The matching holder resumes the original session (same params, same kind).
+      await resumePaidOperation(f.config, ids[0]!, {holder: journaled === 'oauth' ? oauthHolder : f.holder})
+      const params = vi.mocked(prepareRegisteredPaidSession).mock.calls[0]![2]
+      expect(params.kind).toBe(journaled === 'oauth' ? 'oauth' : undefined)
+    }
+  })
+
+  it.each(['OAuth holder on a wallet rule', 'wallet holder on an OAuth rule'] as const)('refuses an %s before anything is signed or reserved', async name => {
+    const oauthOnWallet = name === 'OAuth holder on a wallet rule'
+    const f = setup(oauthOnWallet ? {} : {ruleCommitment: ruleCommitment(salt, oauthRule)})
+    const sign = vi.spyOn(f.config.creator, 'signTypedData')
+    await expect(paidOperation(f.config, {...f.request, ...(oauthOnWallet ? {holder: oauthHolder} : {rule: {rule: oauthRule, salt}})}))
+      .rejects.toThrow(oauthOnWallet ? 'An OAuth holder needs an OAuth' : 'An OAuth slot rule needs an OAuth holder')
+    expect(sign).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    sign.mockRestore()
+  })
+  it.each([
+    ['a rule mixing OAuth and wallet formats', JSON.stringify({credentials: [{id: 'w', format: 'dc+sd-jwt', claims: [{path: ['iss'], values: ['did:web:issuer.example']}]},
+      {id: 'kc', format: 'oauth+access-token+dpop', claims: [{path: ['iss'], values: ['https://idp.example']}]}]}), 'oauth', 'Slot rule mixes OAuth and wallet credential formats'],
+    ['the same mix under a wallet holder', JSON.stringify({credentials: [{id: 'kc', format: 'oauth+access-token+dpop', claims: [{path: ['iss'], values: ['https://idp.example']}]},
+      {id: 'w', format: 'dc+sd-jwt', claims: [{path: ['iss'], values: ['did:web:issuer.example']}]}]}), 'local', 'Slot rule mixes OAuth and wallet credential formats'],
+    ['an OAuth holder on a rule with no credential queries', JSON.stringify({credentials: []}), 'oauth', 'An OAuth holder needs an OAuth'],
+    ['a wallet holder on a kk_oauth envelope', JSON.stringify({kk_oauth: {v: 1, tokens: {kc: {iss: 'https://idp.example'}},
+      policy: {lang: 'rego/v1', entrypoint: 'data.tasra.slot.allow', source: 'package tasra.slot\n\ndefault allow := false\n'}}}), 'local', 'An OAuth slot rule needs an OAuth holder'],
+  ] as const)('refuses %s before anything is signed, journaled or reserved', async (_name, slotRule, holderKind, message) => {
+    const f = setup({ruleCommitment: ruleCommitment(salt, slotRule)})
+    const sign = vi.spyOn(f.config.creator, 'signTypedData')
+    await expect(paidOperation(f.config, {...f.request, rule: {rule: slotRule, salt}, ...(holderKind === 'oauth' ? {holder: oauthHolder} : {})})).rejects.toThrow(message)
+    expect(sign).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    expect(await listPaidOperations(f.store)).toEqual([])
+    sign.mockRestore()
+  })
+})
+
+describe('a journal is served only under its own request id', () => {
+  // A journal copied (or restored) under another request's key never continues that request: its
+  // payment hashes to a different id, and every resume entry point refuses it before any work.
+  async function copied(extra: Record<string, unknown>) {
+    const f = setup(), ids: Hex[] = []
+    await paidOperation(f.config, {...f.request, onRequestId: id => { ids.push(id) }})
+    const original = await f.store.load<Record<string, unknown>>(paidRecordKey(ids[0]!))
+    const foreign = h(0x7e)
+    await f.store.save(paidRecordKey(foreign), {...original, phase: 'certified', ...extra})
+    vi.mocked(readClientExecutionPolicy).mockClear(); vi.mocked(createExecutionCertificate).mockClear()
+    return {f, foreign}
+  }
+  it('reconcile and resume refuse a journal whose payment names another request', async () => {
+    const {f, foreign} = await copied({})
+    await expect(reconcilePaidOperation(f.config, foreign)).rejects.toThrow('Paid operation journal does not match its request')
+    await expect(resumePaidOperation(f.config, foreign)).rejects.toThrow('Paid operation journal does not match its request')
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+  })
+  it('a final Sign resume refuses another request\'s journal, and a journal that is not a final Sign', async () => {
+    const {f, foreign} = await copied({finalSign: true})
+    await expect(resumePaidFinalSign(f.config, foreign)).rejects.toThrow('No final Sign journal for this request')
+    await expect(resumePaidFinalSign(f.config, h(0x7f))).rejects.toThrow('No final Sign journal for this request')
+    expect(readClientExecutionPolicy).not.toHaveBeenCalled()
+  })
+  it('a session-grant decrypt resume refuses another request\'s journal, and a journal that is not one', async () => {
+    const {f, foreign} = await copied({sessionDecrypt: true})
+    await expect(resumePaidSessionDecrypt(f.config, foreign)).rejects.toThrow('No session-grant decrypt journal for this request')
+    await expect(resumePaidSessionDecrypt(f.config, h(0x7f))).rejects.toThrow('No session-grant decrypt journal for this request')
+    expect(readClientExecutionPolicy).not.toHaveBeenCalled()
+    expect(createExecutionCertificate).not.toHaveBeenCalled()
   })
 })

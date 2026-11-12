@@ -1,9 +1,10 @@
-import {afterEach, expect, it, vi} from 'vitest'
+import {afterEach, describe, expect, it, vi} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
 import * as randomness from '@noble/hashes/utils'
 import {createPublicClient, custom, decodeFunctionData, encodeFunctionResult, getAddress, keccak256, recoverTypedDataAddress, toHex, type Abi, type Hex} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {discoverPaidOperationContext, readClientExecutionPolicy, type PaidContextOptions} from '../../src/chain/prepaid.js'
+import {discoverPaidOperationContext, drawnIntentFields, followPaidRequest, PaidDrawMovedError, readBeaconDrawState, readClientExecutionPolicy, readCurrentBeaconEpoch, type DrawnPaidOperationContext, type PaidContextOptions,
+  type PaidOperationContext} from '../../src/chain/prepaid.js'
 import {UnderfundedSlotError} from '../../src/errors.js'
 import {BillingModeError} from '../../src/chain/billing.js'
 import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, type PaymentIntentWire} from '../../src/committee/payment.js'
@@ -14,6 +15,8 @@ import {settlementAbi} from '../../src/chain/abis/settlement.js'
 import {thresholdRandomBeaconAbi} from '../../src/chain/abis/thresholdRandomBeacon.js'
 import {verifierSetRegistryAbi} from '../../src/chain/abis/verifierSetRegistry.js'
 import {accountantSetRegistryAbi} from '../../src/chain/abis/accountantSetRegistry.js'
+import {attachHeadFollower, createHeadFollower, unfollowHeads} from '../../src/chain/headFollower.js'
+import {readAccountantGroupKey} from '../../src/chain/allowance.js'
 
 vi.mock('@noble/hashes/utils', async importOriginal => {
   const actual = await importOriginal<typeof import('@noble/hashes/utils')>()
@@ -27,15 +30,23 @@ interface Changes {
   accountantUnanchored?: boolean; accountantNoPrevious?: boolean; accountantSize?: number
   inactive?: number[]; duplicateId?: boolean; duplicateKey?: boolean; insufficient?: boolean
   enabled?: boolean; available?: bigint; cancelled?: boolean; noKey?: boolean; age?: number; orphan?: boolean
-  chain?: number; unsupported?: boolean; url?: string; chainId?: number; onChainId?: () => void
+  chain?: number; unsupported?: boolean; url?: string; chainId?: number; onChainId?: () => void; onCall?: () => void
   reserved?: bigint; settled?: boolean; refunded?: bigint; root?: Hex; tagged?: boolean; creator?: Hex; registeredKey?: Hex
-  legacy?: boolean; genesis?: boolean
+  legacy?: boolean; genesis?: boolean; version?: string
   // D8: the reservation's stored quote block h(19) (block 19), read for the paid epoch only.
   anchorEpoch?: bigint; anchorReorg?: boolean; anchorPruned?: boolean
+  /** The KeyRegistry now points to another NodeRegistry, where every node is inactive. */
+  movedNodes?: boolean
+  /** The RPC's `latest` head (and its recheck by number), when it differs from block 20 / h(20). */
+  latest?: {number: number; hash: Hex}
+  /** The slot's key is not yet published at this block hash only. */
+  noKeyAt?: Hex
+  /** The request's reservation is not yet mined at this block hash only. */
+  unreservedAt?: Hex
 }
 function fixture(change: Changes = {}) {
   const deployment = {chainId: change.chainId ?? 43112, settlement: h(1, 20), keyRegistry: h(2, 20), verifierSet: h(5, 20), accountantSet: h(8, 20), beacon: h(6, 20)}
-  const nodes = h(7, 20), approved = {...deployment}, slotId = h(3), creator = privateKeyToAccount(h(11))
+  const nodes = h(7, 20), moved = h(77, 20), approved = {...deployment}, slotId = h(3), creator = privateKeyToAccount(h(11))
   const keys = [1, 2, 3].map(n => toHex(ed25519.getPublicKey(new Uint8Array(32).fill(n))))
   const operators = [11, 12, 13].map(n => h(n, 20)), ids = [30n, 10n, 20n]
   const calls: {method: string; name?: string; args?: readonly unknown[]; at?: unknown; params?: unknown}[] = []
@@ -45,13 +56,17 @@ function fixture(change: Changes = {}) {
     if (method === 'eth_chainId') {change.onChainId?.(); return toHex(change.chain ?? approved.chainId)}
     if (method === 'eth_getBlockByHash') return (params as [Hex])[0] === h(19) ? {number: '0x13', hash: h(19), timestamp: toHex(990), transactions: []} : null
     if (method === 'eth_getBlockByNumber' && (params as [string])[0] === '0x13') return {number: '0x13', hash: change.anchorReorg ? h(98) : h(19), timestamp: toHex(990), transactions: []}
+    if (method === 'eth_getBlockByNumber' && change.latest && [`latest`, toHex(change.latest.number)].includes((params as [string])[0])) {
+      return {number: toHex(change.latest.number), hash: change.latest.hash, timestamp: toHex(1000), transactions: []}
+    }
     if (method === 'eth_getBlockByNumber') return {number: '0x14', hash: heads++ > 0 && change.orphan ? h(99) : h(20), timestamp: toHex(1000 - (change.age ?? 0)), transactions: []}
     if (method !== 'eth_call') throw new Error(`unexpected RPC ${method}`)
+    change.onCall?.()
     if (change.unsupported) throw new Error('canonical reads unavailable')
     const [call, at] = params as [{to: Hex; data: Hex}, {blockHash?: Hex}]
     const anchorRead = at.blockHash === h(19)
-    if (!anchorRead) expect(at).toEqual({blockHash: h(20), requireCanonical: true})
-    const abi: Abi = call.to === nodes ? nodeRegistryAbi : call.to === approved.keyRegistry ? keyRegistryAbi
+    if (!anchorRead) expect(at).toEqual({blockHash: change.latest && at.blockHash === change.latest.hash ? change.latest.hash : h(20), requireCanonical: true})
+    const abi: Abi = call.to === nodes || call.to.toLowerCase() === moved ? nodeRegistryAbi : call.to === approved.keyRegistry ? keyRegistryAbi
       : call.to === approved.beacon ? thresholdRandomBeaconAbi : call.to === approved.verifierSet ? verifierSetRegistryAbi
         : call.to === approved.accountantSet ? accountantSetRegistryAbi : settlementAbi
     const {functionName: name, args} = decodeFunctionData({abi, data: call.data})
@@ -68,8 +83,8 @@ function fixture(change: Changes = {}) {
     const accountant = call.to === approved.accountantSet
     const values: Record<string, unknown> = {
       prepaidEnabled: change.enabled ?? true, balanceOf: change.available ?? 100n,
-      version: change.legacy ? '1' : '2', prepaidFromGenesis: change.genesis ?? false,
-      prepaidCost: change.reserved ?? 5n, prepaidSettled: change.settled ?? false,
+      version: change.version ?? (change.legacy ? '1' : '2'), prepaidFromGenesis: change.genesis ?? false,
+      prepaidCost: change.unreservedAt === at.blockHash ? 0n : change.reserved ?? 5n, prepaidSettled: change.settled ?? false,
       prepaidRefunded: change.refunded ?? 0n, prepaidAssignmentBlock: h(19),
       randomBeacon: change.beaconMismatch === 'key' ? h(99, 20) : approved.beacon,
       beacon: change.beaconMismatch === (accountant ? 'accountant' : 'snapshot') ? h(99, 20) : approved.beacon,
@@ -77,18 +92,22 @@ function fixture(change: Changes = {}) {
       snapshotAt: accountant
         ? change.accountantUnanchored && !previous || change.accountantNoPrevious && previous ? [h(0), 0] : [h(19), change.accountantSize ?? 3]
         : change.unanchored && !previous || change.noPrevious && previous ? [h(0), 0] : [change.root ?? (previous ? h(17) : h(18)), change.size ?? 5],
-      verifierPolicy: change.policy ?? [3, 2], nodeRegistry: nodes, assignedNodes: operators,
+      mpk: `0x${'11'.repeat(128)}`, verifierPolicy: change.policy ?? [3, 2], nodeRegistry: change.movedNodes ? moved : nodes, assignedNodes: operators,
       getKeySlot: {creator: change.creator ?? creator.address, ruleCommitment: h(33), threshold: {k: change.insufficient ? 3 : 2, n: 3}, mode: 0,
-        publicKey: change.noKey ? '0x' : keys[0], epoch: change.sharingEpoch ?? 1n, committeeVersion: change.sharingVersion ?? 2n,
+        publicKey: change.noKey || change.noKeyAt === at.blockHash ? '0x' : keys[0], epoch: change.sharingEpoch ?? 1n, committeeVersion: change.sharingVersion ?? 2n,
         exists: true, cancelled: change.cancelled ?? false, expiry: 2000n, ruleVersion: 1n, auth: 0},
       operatorIdOf: change.duplicateId ? 1n : ids[index], hasTag: change.tagged ?? true,
       nodeOf: {operator: operators[index], dns: 'keeper', url: change.url ?? `https://keeper${index}.example`, p2pAddr: '', pubkey: change.registeredKey ?? keys[change.duplicateKey ? 0 : index],
-        stake: 100n, rewardBalance: 0n, unbondingAt: 0n, active: !change.inactive?.includes(index)},
+        stake: 100n, rewardBalance: 0n, unbondingAt: 0n, active: call.to.toLowerCase() !== moved && !change.inactive?.includes(index)},
     }
     return encodeFunctionResult({abi, functionName: name, result: values[name]})
   }}, {retryCount: 0})})
   // Tests observe once unless they ask to wait: the anchor wait is exercised with an injected clock.
-  return {client, deployment, slotId, creator, keys, operators, calls, run: (options?: PaidContextOptions) => discoverPaidOperationContext(client, deployment, slotId, {anchorWait: {timeoutMs: 0}, ...options})}
+  // As discoverPaidOperationContext: drawn unless `undrawnDuringAnchorGap` is asked for.
+  function run(options?: PaidContextOptions & {undrawnDuringAnchorGap?: false}): Promise<DrawnPaidOperationContext>
+  function run(options?: PaidContextOptions): Promise<PaidOperationContext>
+  function run(options?: PaidContextOptions): Promise<PaidOperationContext> { return discoverPaidOperationContext(client, deployment, slotId, {anchorWait: {timeoutMs: 0}, ...options}) }
+  return {client, deployment, slotId, creator, keys, operators, calls, run}
 }
 afterEach(() => { vi.restoreAllMocks(); vi.mocked(randomness.randomBytes).mockReset() })
 const now = () => vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
@@ -107,6 +126,21 @@ it('refuses a legacy Settlement or a slot not cut over with a typed billing refu
   await expect(fixture({unsupported: true}).run()).rejects.toMatchObject({name: 'BillingModeError', mode: 'unknown', retryable: true})
 })
 
+it('judges billing inside discovery: an unknown Settlement version is refused even with prepaidEnabled, and no separate billing observation runs', async () => {
+  now()
+  for (const version of ['6', '2.1']) {
+    const refused: unknown = await fixture({version}).run().catch((error: unknown) => error)
+    expect(refused, version).toBeInstanceOf(BillingModeError)
+    expect(refused).toMatchObject({mode: 'unknown', settlementVersion: version})
+  }
+  for (const version of ['2', '3', '4', '5']) {
+    const f = fixture({version}); await f.run()
+    // One head observation and one canonical recheck: the version is read at discovery's own block.
+    expect(f.calls.filter(c => c.method === 'eth_getBlockByNumber'), version).toHaveLength(2)
+    expect(f.calls.filter(c => c.name === 'version'), version).toHaveLength(1)
+  }
+})
+
 it('identifies an exhausted activated slot without inventing an HTTP response or starting payment work', async () => {
   now(); const f = fixture({available: 0n})
   const error: unknown = await f.run().catch((error: unknown) => error)
@@ -115,7 +149,7 @@ it('identifies an exhausted activated slot without inventing an HTTP response or
   if (!(error instanceof UnderfundedSlotError)) throw new Error('Expected the typed funding refusal')
   expect(error.status).toBeUndefined()
   expect(error.url).toBeUndefined()
-  expect(f.calls.every(call => ['eth_chainId', 'eth_getBlockByNumber', 'eth_call'].includes(call.method))).toBe(true)
+  expect(f.calls.every(call => ['eth_chainId', 'eth_getBlockByNumber', 'eth_call', 'eth_getCode'].includes(call.method))).toBe(true)
 })
 
 it('discovers one canonical assignment/policy and produces creator-signable intent fields without mutations', async () => {
@@ -129,7 +163,7 @@ it('discovers one canonical assignment/policy and produces creator-signable inte
     session_commitment: paymentSessionCommitment(h(46), 'did:web:agent.example', 1060)}
   const typed = paymentIntentTypedData(payment), signature = await f.creator.signTypedData(typed)
   expect(await recoverTypedDataAddress({...typed, signature})).toBe(f.creator.address)
-  expect(f.calls.every(call => ['eth_chainId', 'eth_call', 'eth_getBlockByNumber'].includes(call.method))).toBe(true)
+  expect(f.calls.every(call => ['eth_chainId', 'eth_call', 'eth_getBlockByNumber', 'eth_getCode'].includes(call.method))).toBe(true)
 })
 it('uses only the immediately previous anchored snapshot and refuses missing current seed', async () => {
   now(); const f = fixture({unanchored: true})
@@ -222,7 +256,7 @@ it('reads client consent from the original mined reservation and one canonical r
     paymentHash:paymentIntentHash(payment),cost:5n,nowSecs:1000}})
   expect(f.calls.filter(c=>c.name==='prepaidCost')[0]?.args).toHaveLength(2)
   expect(f.calls.filter(c=>c.name==='snapshotAt').map(c=>c.args)).toEqual([[7n]])
-  expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber','eth_getBlockByHash'].includes(c.method))).toBe(true)
+  expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber','eth_getBlockByHash','eth_getCode'].includes(c.method))).toBe(true)
   // D8: the paid epoch is read once at the stored quote block, canonically, then rechecked by number.
   expect(f.calls.filter(c=>c.method==='eth_call'&&(c.at as {blockHash?:Hex}).blockHash===h(19)).map(c=>[c.name,c.at]))
     .toEqual([['epoch',{blockHash:h(19),requireCanonical:true}]])
@@ -237,7 +271,7 @@ it('refuses new client consent on settled, expired, unavailable or changed canon
     {age:31},{orphan:true},{unsupported:true},{chain:43113}]){
     const f=fixture(change)
     await expect(readClientExecutionPolicy(f.client,f.deployment,reservedPayment(),intendedWork)).rejects.toThrow()
-    expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber','eth_getBlockByHash'].includes(c.method))).toBe(true)
+    expect(f.calls.every(c=>['eth_chainId','eth_call','eth_getBlockByNumber','eth_getBlockByHash','eth_getCode'].includes(c.method))).toBe(true)
   }
   // D8: quote-block failures carry their exact code, so an assertion thrown inside the fake
   // transport (which would surface as unavailable) cannot pass for a definite refusal.
@@ -287,6 +321,24 @@ it('requires an anchored drawn key that is still active and tagged before approv
     expect(f.calls.some(c=>c.name==='nodeOf')).toBe(false)
   }
 })
+it('reads a verifier standing early at the last seen NodeRegistry, but judges it at the registry the pointer names now',async()=>{
+  now();const base=fixture(), member={index:0,operator:base.operators[0]!,publicKey:base.keys[0]!,proof:[] as Hex[]}
+  const root=toHex(verifierLeaf(0,Uint8Array.from(Buffer.from(member.operator.slice(2),'hex')),
+    Uint8Array.from(Buffer.from(member.publicKey.slice(2),'hex'))))
+  const payment={...reservedPayment(),verification_root:root,verification_registry_size:1,verification_committee:1,verification_quorum:1}
+  const change:Changes={root,size:1,policy:[1,1]}, f=fixture(change)
+  await readClientExecutionPolicy(f.client,f.deployment,payment,intendedWork,member)
+  // The pointer moves: the early read at the old registry is discarded and the moved one decides.
+  change.movedNodes=true
+  const before=f.calls.length
+  await expect(readClientExecutionPolicy(f.client,f.deployment,payment,intendedWork,member)).rejects.toThrow(/standing/)
+  const standing=f.calls.slice(before).filter(c=>c.name==='nodeOf').map(c=>(c.params as [{to:Hex}])[0].to.toLowerCase())
+  expect(standing).toEqual([h(7,20),h(77,20)])
+  // Learned: the next decision reads the moved registry early, once.
+  const next=f.calls.length
+  await expect(readClientExecutionPolicy(f.client,f.deployment,payment,intendedWork,member)).rejects.toThrow(/standing/)
+  expect(f.calls.slice(next).filter(c=>c.name==='nodeOf').map(c=>(c.params as [{to:Hex}])[0].to.toLowerCase())).toEqual([h(77,20)])
+})
 it('waits a bounded time for an admissible complete epoch while a new epoch\'s anchors land, then refuses', async () => {
   now()
   // Neither the latest nor the previous epoch is complete for two polls; the anchors then land.
@@ -309,4 +361,370 @@ it('waits a bounded time for an admissible complete epoch while a new epoch\'s a
   // The default keeps a single observation when told so, and refuses an unbounded or absurd wait.
   await expect(fixture({unanchored: true, noPrevious: true}).run()).rejects.toThrow(/no current or previous/)
   for (const bad of [{timeoutMs: -1}, {timeoutMs: 120_001}, {pollMs: 50}, {pollMs: 10_001}]) await expect(f.run({anchorWait: bad})).rejects.toThrow('invalid anchor wait')
+})
+
+it('an allowance-funded discovery during an anchor gap returns at once UNDRAWN (zero draw, live keeper sharing); never otherwise', async () => {
+  now()
+  const sleeps: number[] = []
+  let t = 1_000_000
+  const anchorWait = {timeoutMs: 5_000, pollMs: 1_000, clock: {now: () => t, sleep: async (ms: number) => { sleeps.push(ms); t += ms }, jitter: () => 0}}
+  const gap = fixture({unanchored: true, noPrevious: true})
+  const context = await gap.run({anchorWait, fundedByAllowance: true, undrawnDuringAnchorGap: true})
+  // No wait: the anchors of the draw are not this caller's to wait for.
+  expect(sleeps).toEqual([])
+  expect(context.undrawn).toBe(true)
+  // It carries NO verification fields (not zeroed ones): nothing a payment intent could be built from.
+  for (const field of ['verification_epoch', 'verification_seed', 'verification_root', 'verification_registry_size', 'verification_committee', 'verification_quorum']) {
+    expect(context.intentFields).not.toHaveProperty(field)
+  }
+  expect(() => drawnIntentFields(context)).toThrow('an undrawn payment context has no verifier draw')
+  if (context.undrawn) {
+    const payment = {...context.intentFields, action: 'sign' as const, payload_digest: h(44), nonce: h(45), max_cost: '10', expires: 1060, session_commitment: h(46)}
+    // @ts-expect-error an undrawn context's fields cannot complete a payment intent (no verifier draw)
+    expect(() => paymentIntentTypedData(payment)).toThrow()
+  }
+  // The keeper sharing, creator and coordinator are read exactly as for a drawn context.
+  const drawn = await fixture().run({fundedByAllowance: true})
+  expect(drawn.undrawn).toBeUndefined()
+  expect(context.intentFields.keeper_assignment.contributors).toEqual(drawn.intentFields.keeper_assignment.contributors)
+  expect(context.creator).toBe(drawn.creator)
+  // A complete draw is returned drawn even with the option; without `fundedByAllowance`, or for a
+  // pinned session draw, the gap is waited for (and refused past the bound) as before.
+  expect((await fixture().run({fundedByAllowance: true, undrawnDuringAnchorGap: true})).undrawn).toBeUndefined()
+  for (const options of [{undrawnDuringAnchorGap: true}, {fundedByAllowance: true}]) {
+    await expect(fixture({unanchored: true, noPrevious: true}).run({...options, anchorWait: {...anchorWait, timeoutMs: 1_500}}))
+      .rejects.toThrow('no current or previous anchored verifier and accountant snapshots')
+  }
+  expect(sleeps).toEqual([1_000, 1_000])
+})
+
+it('serves a repeated discovery at a followed, vouched-for head from the block-pinned cache and its pre-reads', async () => {
+  now()
+  const f = fixture()
+  const follower = createHeadFollower(f.client, {finality: 'instant', now: () => 1_000_000})
+  attachHeadFollower(f.client, follower)
+  try {
+    await follower.ingestFinalized({number: 20n, hash: h(20), parentHash: h(21), timestamp: 1000n}); await follower.ingest({number: 20n, hash: h(20), parentHash: h(21), timestamp: 1000n})
+    const first = await f.run()
+    // Let the slot's pre-read (registered by the first discovery) settle.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const before = f.calls.filter(c => c.method === 'eth_call').length
+    const second = await f.run()
+    const {keeper_assignment: _a, ...rest} = first.intentFields
+    expect(second.intentFields).toMatchObject(rest)
+    expect(f.calls.filter(c => c.method === 'eth_call').length - before).toBe(0)
+  } finally { unfollowHeads(f.client) }
+  // A follower that cannot vouch (probabilistic finality) never serves the cache: every read is sent.
+  const g = fixture()
+  attachHeadFollower(g.client, createHeadFollower(g.client, {now: () => 1_000_000}))
+  try {
+    await g.run(); const before = g.calls.filter(c => c.method === 'eth_call').length
+    await g.run()
+    expect(g.calls.filter(c => c.method === 'eth_call').length - before).toBeGreaterThan(10)
+  } finally { unfollowHeads(g.client) }
+})
+
+describe('observation from a followed head', () => {
+  const head = (n: number, hash: Hex, parentHash: Hex) => ({number: BigInt(n), hash, parentHash, timestamp: 1000n})
+  // The follower links missed or forked heads through its own block source; the operation's client is the fixture's.
+  const followed = (f: ReturnType<typeof fixture>, clock: {ms: number}, known: Record<string, ReturnType<typeof head>> = {}) => {
+    const source = {getBlock: async ({blockHash}: {blockHash: Hex}) => { const b = known[blockHash]; if (!b) throw new Error('unknown block'); return b }, transport: {type: 'custom'}}
+    const follower = createHeadFollower(source as unknown as typeof f.client, {finality: 'instant', liveAfterMs: 2000, now: () => clock.ms})
+    attachHeadFollower(f.client, follower)
+    return follower
+  }
+  const heads = (f: ReturnType<typeof fixture>) => f.calls.filter(c => c.method === 'eth_getBlockByNumber').length
+
+  it('takes the head and the canonical recheck from a live, vouching follower: no head or recheck RPC', async () => {
+    now(); const f = fixture(), follower = followed(f, {ms: 0})
+    try {
+      await follower.ingest(head(19, h(19), h(18))); await follower.ingest(head(20, h(20), h(19))); await follower.ingestFinalized(head(20, h(20), h(19)))
+      expect((await f.run()).blockHash).toBe(h(20))
+      expect(heads(f)).toBe(0)
+    } finally { unfollowHeads(f.client) }
+  })
+
+  it('falls back to the RPC head when the follower is not live', async () => {
+    now(); const clock = {ms: 0}, f = fixture(), follower = followed(f, clock)
+    try {
+      await follower.ingest(head(20, h(20), h(19))); await follower.ingestFinalized(head(20, h(20), h(19))); clock.ms = 5000
+      await f.run()
+      expect(heads(f)).toBe(2)
+    } finally { unfollowHeads(f.client) }
+  })
+
+  it('keeps the RPC recheck after a gap, after the follower stops being live, and after a reorg found by parentHash', async () => {
+    const cases: {name: string; during: (follower: ReturnType<typeof followed>, clock: {ms: number}) => void}[] = [
+      // An unlinkable header (its parent cannot be fetched): the observed block is no longer vouched for.
+      {name: 'gap', during: follower => { void follower.ingest(head(30, h(30), h(29))) }},
+      {name: 'not live', during: (_follower, clock) => { clock.ms = 5000 }},
+      // Block 20 is replaced by h(97) (same number, parent h(19)): the observed hash is no longer the one held.
+      {name: 'reorg', during: follower => { void follower.ingest(head(20, h(97), h(19))) }},
+    ]
+    for (const c of cases) {
+      now(); const clock = {ms: 0}
+      const ref: {follower?: ReturnType<typeof followed>} = {}
+      let once = false
+      const f = fixture({onCall: () => { if (!once && ref.follower) { once = true; c.during(ref.follower, clock) } }})
+      const follower = ref.follower = followed(f, clock)
+      try {
+        await follower.ingest(head(19, h(19), h(18))); await follower.ingest(head(20, h(20), h(19))); await follower.ingestFinalized(head(20, h(20), h(19)))
+        await f.run()
+        // The head came from the follower; the recheck went to the RPC (one canonical read by number).
+        expect(heads(f), c.name).toBe(1)
+      } finally { unfollowHeads(f.client) }
+    }
+    // The RPC recheck still refuses a reorganized observation.
+    now(); const clock = {ms: 0}
+    const ref: {follower?: ReturnType<typeof followed>} = {}
+    let once = false
+    const f = fixture({orphan: true, onCall: () => { if (!once && ref.follower) { once = true; void ref.follower.ingest(head(20, h(97), h(19))) } }})
+    const follower = ref.follower = followed(f, clock)
+    try {
+      await follower.ingest(head(19, h(19), h(18))); await follower.ingest(head(20, h(20), h(19))); await follower.ingestFinalized(head(20, h(20), h(19)))
+      // The fixture answers its second head read with another hash: consume the first.
+      await f.client.getBlock({blockTag: 'latest'})
+      await expect(f.run()).rejects.toThrow(/reorganized/)
+    } finally { unfollowHeads(f.client) }
+  })
+})
+
+it('answers an in-flight request\'s client policy check at a followed head from its pre-reads, with no RPC', async () => {
+  now()
+  const f = fixture(), payment = reservedPayment()
+  const source = {getBlock: async () => { throw new Error('no parents needed') }, transport: {type: 'custom'}}
+  const follower = createHeadFollower(source as unknown as typeof f.client, {finality: 'instant', now: () => 1_000_000})
+  attachHeadFollower(f.client, follower)
+  try {
+    await follower.ingest({number: 19n, hash: h(19), parentHash: h(18), timestamp: 990n})
+    await follower.ingestFinalized({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n}); await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+    // The slot's interest comes from a discovery; the request's from followPaidRequest (as paidOperation does).
+    await f.run()
+    followPaidRequest(f.client, f.deployment, payment)
+    // The quote block's epoch is kept per client after its first read; warm it, then let pre-reads settle.
+    await readClientExecutionPolicy(f.client, f.deployment, payment, intendedWork)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const before = f.calls.length
+    const observation = await readClientExecutionPolicy(f.client, f.deployment, payment, intendedWork)
+    expect(observation).toMatchObject({blockHash: h(20), policy: {cost: 5n}})
+    // No chain read at all (a custom transport's chain ID is asked per call; HTTP clients keep it).
+    expect(f.calls.slice(before).map(c => c.name ?? c.method).filter(m => m !== 'eth_chainId')).toEqual([])
+  } finally { unfollowHeads(f.client) }
+})
+
+it('pre-reads a new in-flight request at the current followed head, before any check asks for it', async () => {
+  now()
+  const f = fixture(), payment = reservedPayment()
+  const follower = createHeadFollower(f.client, {finality: 'instant', now: () => 1_000_000})
+  attachHeadFollower(f.client, follower)
+  try {
+    await follower.ingestFinalized({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n}); await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+    followPaidRequest(f.client, f.deployment, payment)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(f.calls.filter(c => c.name === 'prepaidCost' || c.name === 'prepaidSettled' || c.name === 'prepaidRefunded').map(c => c.name).sort())
+      .toEqual(['prepaidCost', 'prepaidRefunded', 'prepaidSettled'])
+  } finally { unfollowHeads(f.client) }
+})
+
+it('re-proves the paid-epoch anchor at every use unless the follower vouches for that exact block', async () => {
+  // [holds block 19 (the assignment block), finalized 20] vouches; [holds only 20] or [finalized 19 unknown] does not.
+  for (const [name, hold19, finalize, rechecks] of [['vouched', true, true, false], ['not held', false, true, true], ['not finalized', true, false, true]] as const) {
+    now()
+    const f = fixture(), payment = reservedPayment()
+    const follower = createHeadFollower(f.client, {finality: 'instant', now: () => 0})
+    attachHeadFollower(f.client, follower)
+    try {
+      if (hold19) await follower.ingest({number: 19n, hash: h(19), parentHash: h(18), timestamp: 990n})
+      await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+      if (finalize) await follower.ingestFinalized({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+      await readClientExecutionPolicy(f.client, f.deployment, payment, intendedWork)
+      const before = f.calls.length
+      await readClientExecutionPolicy(f.client, f.deployment, payment, intendedWork)
+      const byNumber = f.calls.slice(before).filter(c => c.method === 'eth_getBlockByNumber' && (c.params as [string])[0] === '0x13')
+      expect(byNumber.length > 0, name).toBe(rechecks)
+    } finally { unfollowHeads(f.client) }
+  }
+})
+
+it('pre-reads the accountant group key at each followed head, so a debit quoted there verifies its voucher without a read', async () => {
+  now()
+  const f = fixture()
+  attachHeadFollower(f.client, createHeadFollower(f.client, {finality: 'instant', now: () => 1_000_000}))
+  try {
+    await headFollowerIngest(f, 20)
+    await f.run()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const before = f.calls.length
+    expect(await readAccountantGroupKey(f.client, f.deployment, h(20))).toHaveLength(128)
+    expect(f.calls.slice(before).filter(c => c.method === 'eth_call')).toEqual([])
+  } finally { unfollowHeads(f.client) }
+})
+async function headFollowerIngest(f: ReturnType<typeof fixture>, n: number) {
+  const {headFollowerOf} = await import('../../src/chain/headFollower.js')
+  await headFollowerOf(f.client)!.ingestFinalized({number: BigInt(n), hash: h(n), parentHash: h(n - 1), timestamp: 1000n}); await headFollowerOf(f.client)!.ingest({number: BigInt(n), hash: h(n), parentHash: h(n - 1), timestamp: 1000n})
+}
+
+it('never caches block-pinned answers at a followed head that is not yet finalized', async () => {
+  now()
+  const f = fixture()
+  const follower = createHeadFollower(f.client, {finality: 'instant', now: () => 1_000_000})
+  attachHeadFollower(f.client, follower)
+  try {
+    await follower.ingest({number: 19n, hash: h(19), parentHash: h(18), timestamp: 990n})
+    await follower.ingestFinalized({number: 19n, hash: h(19), parentHash: h(18), timestamp: 990n})
+    // latest (20) is ahead of finalized (19): a processing block that could still be rejected.
+    await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+    await f.run(); await new Promise(resolve => setTimeout(resolve, 0))
+    const before = f.calls.filter(c => c.method === 'eth_call').length
+    await f.run()
+    expect(f.calls.filter(c => c.method === 'eth_call').length - before).toBeGreaterThan(10)
+    // And its canonicality is rechecked by RPC.
+    expect(f.calls.filter(c => c.method === 'eth_getBlockByNumber').length).toBeGreaterThan(0)
+  } finally { unfollowHeads(f.client) }
+})
+
+describe('ADR-0090 D7: a session message pins the grant\'s verifier epoch', () => {
+  it('pays the grant\'s previous epoch while it is the beacon\'s previous, even when the latest is anchored', async () => {
+    now()
+    const f = fixture(), context = await f.run({verificationEpoch: 6n})
+    expect(context.intentFields).toMatchObject({verification_epoch: 6, verification_seed: h(8), verification_root: h(17)})
+    expect(context.beaconEpoch).toBe(7n)
+    // An unpinned discovery takes the latest (the grant's epoch only by chance).
+    expect((await fixture().run()).intentFields.verification_epoch).toBe(7)
+  })
+  it('pays the latest epoch when the grant is on it, and reports the beacon epoch', async () => {
+    now()
+    const context = await fixture().run({verificationEpoch: 7n})
+    expect(context.intentFields).toMatchObject({verification_epoch: 7, verification_seed: h(9), verification_root: h(18)})
+    expect(context.beaconEpoch).toBe(7n)
+  })
+  it('throws a typed draw-moved refusal, before anything is signed, once the grant is two epochs behind (or ahead)', async () => {
+    now()
+    for (const pinned of [5n, 8n]) {
+      const error = await fixture().run({verificationEpoch: pinned}).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(PaidDrawMovedError)
+      expect(error).toMatchObject({code: 'draw-moved', pinnedEpoch: pinned, beaconEpoch: 7n})
+    }
+  })
+  it('never falls back to another epoch when the pinned previous epoch lacks its anchors', async () => {
+    now()
+    await expect(fixture({noPrevious: true}).run({verificationEpoch: 6n})).rejects.toThrow(/pinned verifier epoch/)
+  })
+})
+
+describe('a refusal at a followed tip one block behind the caller\'s view', () => {
+  // The follower vouches for block 20 (h(20)); the RPC's latest may already be block 21 (h(21)).
+  const follow = async (f: ReturnType<typeof fixture>) => {
+    const source = {getBlock: async () => { throw new Error('no parents needed') }, transport: {type: 'custom'}}
+    const follower = createHeadFollower(source as unknown as typeof f.client, {finality: 'instant', now: () => 1_000_000})
+    attachHeadFollower(f.client, follower)
+    await follower.ingest({number: 19n, hash: h(19), parentHash: h(18), timestamp: 990n})
+    await follower.ingestFinalized({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+    await follower.ingest({number: 20n, hash: h(20), parentHash: h(19), timestamp: 1000n})
+    return follower
+  }
+  const latestReads = (f: ReturnType<typeof fixture>) => f.calls.filter(c => c.method === 'eth_getBlockByNumber' && (c.params as unknown[])[0] === 'latest').length
+
+  it('discovers a slot whose key was published one block past the followed tip, at a fresh latest', async () => {
+    now(); const f = fixture({noKeyAt: h(20), latest: {number: 21, hash: h(21)}}), follower = await follow(f)
+    try {
+      const context = await f.run()
+      expect(context).toMatchObject({blockHash: h(21), blockNumber: 21n, groupPublicKey: f.keys[0]})
+      expect(latestReads(f)).toBe(1)
+      // Until the follower reaches block 21, its older tip is not served to later observations.
+      expect(follower.tip()).toBeUndefined()
+    } finally { unfollowHeads(f.client) }
+  })
+
+  it('still refuses a genuinely inactive slot, after exactly one extra latest read', async () => {
+    // A failed discovery read also runs the billing check, which reads its own `latest` head once
+    // (unchanged): the refusal at the tip alone costs that one; the re-read adds exactly one more.
+    for (const latest of [{number: 21, hash: h(21)}, {number: 20, hash: h(20)}]) {
+      now(); const f = fixture({noKey: true, latest}); await follow(f)
+      try {
+        await expect(f.run()).rejects.toThrow('paid slot is inactive or has no published key')
+        expect(latestReads(f), `latest at ${latest.number}`).toBe(2)
+        // Reads at block 21 happen only when latest is newer than the tip.
+        expect(f.calls.some(c => (c.at as {blockHash?: Hex} | undefined)?.blockHash === h(21)), `latest at ${latest.number}`).toBe(latest.number === 21)
+      } finally { unfollowHeads(f.client) }
+    }
+  })
+
+  it('reads no latest head on the happy path, and never re-reads a refusal no newer block can change', async () => {
+    now(); const f = fixture({latest: {number: 21, hash: h(21)}}); await follow(f)
+    try {
+      expect((await f.run()).blockHash).toBe(h(20))
+      expect(latestReads(f)).toBe(0)
+    } finally { unfollowHeads(f.client) }
+    // A beacon pointer mismatch is not a state a newer block brings: refused at the tip, no latest read.
+    now(); const g = fixture({beaconMismatch: 'key', latest: {number: 21, hash: h(21)}}); await follow(g)
+    try {
+      await expect(g.run()).rejects.toThrow('payment discovery beacon pointers differ')
+      expect(latestReads(g)).toBe(0)
+    } finally { unfollowHeads(g.client) }
+  })
+
+  it('does not re-read when the observation came from the RPC rather than a followed tip', async () => {
+    now(); const f = fixture({noKey: true})
+    await expect(f.run()).rejects.toThrow('paid slot is inactive or has no published key')
+    // The observation's own head and the billing check's: nothing more.
+    expect(latestReads(f)).toBe(2)
+  })
+
+  it('approves client consent for a reservation mined one block past the followed tip', async () => {
+    now(); const payment = reservedPayment()
+    const f = fixture({unreservedAt: h(20), latest: {number: 21, hash: h(21)}}); await follow(f)
+    try {
+      const observation = await readClientExecutionPolicy(f.client, f.deployment, payment, intendedWork)
+      expect(observation).toMatchObject({blockHash: h(21), policy: {cost: 5n}})
+      expect(latestReads(f)).toBe(1)
+    } finally { unfollowHeads(f.client) }
+    // Not reserved at latest either: refused as before.
+    now(); const g = fixture({reserved: 0n, latest: {number: 21, hash: h(21)}}); await follow(g)
+    try {
+      await expect(readClientExecutionPolicy(g.client, g.deployment, payment, intendedWork)).rejects.toThrow('operation has no valid reserved TASRA fee')
+      expect(latestReads(g)).toBe(1)
+    } finally { unfollowHeads(g.client) }
+  })
+})
+
+describe('readBeaconDrawState: the epoch the verifier-agent draws a session on (C20)', () => {
+  const snapshotReads = (calls: ReturnType<typeof fixture>['calls']) => calls.filter(c => c.name === 'snapshotAt').map(c => c.args?.[0])
+  it('is the latest epoch once its verifier snapshot is anchored, with no read of the previous one', async () => {
+    now()
+    const f = fixture({epoch: 7n})
+    expect(await readBeaconDrawState(f.client, f.deployment)).toEqual({latest: 7n, draw: 7n})
+    expect(snapshotReads(f.calls)).toEqual([7n])
+  })
+  it('is the previous epoch while the latest snapshot is not anchored, and absent when neither is', async () => {
+    now()
+    const f = fixture({epoch: 7n, unanchored: true})
+    expect(await readBeaconDrawState(f.client, f.deployment)).toEqual({latest: 7n, draw: 6n})
+    expect(snapshotReads(f.calls)).toEqual([7n, 6n])
+    const g = fixture({epoch: 7n, unanchored: true, noPrevious: true})
+    expect(await readBeaconDrawState(g.client, g.deployment)).toEqual({latest: 7n})
+  })
+  it('reads every value at one observed head', async () => {
+    now()
+    const f = fixture({epoch: 7n, unanchored: true})
+    await readBeaconDrawState(f.client, f.deployment)
+    const pinned = f.calls.filter(c => c.method === 'eth_call').map(c => (c.at as {blockHash?: Hex}).blockHash)
+    expect(new Set(pinned)).toEqual(new Set([h(20)]))
+  })
+})
+
+it('readCurrentBeaconEpoch({fresh}) reads at an RPC latest head of its own, never the followed tip (C21)', async () => {
+  now()
+  // The followed tip is block 20; the RPC's latest is block 30.
+  const f = fixture({latest: {number: 30, hash: h(30)}})
+  const follower = createHeadFollower(f.client, {finality: 'instant', now: () => 1_000_000})
+  attachHeadFollower(f.client, follower)
+  try {
+    await follower.ingestFinalized({number: 20n, hash: h(20), parentHash: h(21), timestamp: 1000n}); await follower.ingest({number: 20n, hash: h(20), parentHash: h(21), timestamp: 1000n})
+    const at = () => f.calls.filter(c => c.name === 'epoch').map(c => (c.at as {blockHash?: Hex}).blockHash)
+    await readCurrentBeaconEpoch(f.client, f.deployment)
+    expect(at()).toEqual([h(20)])
+    await readCurrentBeaconEpoch(f.client, f.deployment, {fresh: true})
+    expect(at()).toEqual([h(20), h(30)])
+  } finally { unfollowHeads(f.client) }
 })

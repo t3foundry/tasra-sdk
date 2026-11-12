@@ -4,6 +4,7 @@ import type {ServiceApproval, ServiceRecord} from './services.js'
 import {parseVerifierAgentSessionStatus, type CreateSessionParams, type CreateSessionResult, type SessionStatusResult} from '../verifier-agent/index.js'
 import {sessionPaymentFields} from '../verifier-agent/payment.js'
 import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
+import {chainIdOf} from './chainId.js'
 
 /**
  * Guarded HTTPS transport for service discovery and verifier-agent sessions.
@@ -160,11 +161,10 @@ function retainedSession(chain: TasraChainClient, transport: AgentTransport, pro
     get unpaidRecovery() { return paid.payment ? undefined : structuredClone(checkpoint) },
     poll: (pollSignal?: AbortSignal) => bounded(pollSignal, async activeSignal => {
       const a = profile.approval
-      if (chain.addresses.ServiceRegistry?.toLowerCase() !== a.registry.toLowerCase() || await chain.client.getChainId() !== a.chainId) throw new Error('Agent session chain/registry changed')
+      if (chain.addresses.ServiceRegistry?.toLowerCase() !== a.registry.toLowerCase() || await chainIdOf(chain.client) !== a.chainId) throw new Error('Agent session chain/registry changed')
       activeSignal.throwIfAborted()
-      const block = await chain.client.getBlockNumber({cacheTime: 0})
-      activeSignal.throwIfAborted()
-      const current = await chain.readers.serviceRegistry.getService(a.serviceId, block)
+      // The current registration at the latest block, in one call.
+      const current = await chain.readers.serviceRegistry.getService(a.serviceId)
       activeSignal.throwIfAborted()
       if (current.status > 1 || current.revision < a.revision || current.serviceType !== 1
         || current.owner.toLowerCase() !== expected.owner || current.authKey.toLowerCase() !== expected.authKey
