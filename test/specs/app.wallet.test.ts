@@ -2,11 +2,11 @@ import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {keccak256, type EIP1193Provider, type Hex, type LocalAccount, type TransactionSerializable} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {createLocalWallet, connectWallet, type WalletTransactionJournal} from '../../src/app/wallet.js'
-const state = vi.hoisted(() => ({rpcChain: vi.fn(), walletChain: vi.fn(), raw: vi.fn(), send: vi.fn(), prepare: vi.fn(), sign: vi.fn(), wait: vi.fn(), accounts: vi.fn(), request: vi.fn(), typed: vi.fn()}))
+const state = vi.hoisted(() => ({rpcChain: vi.fn(), walletChain: vi.fn(), raw: vi.fn(), send: vi.fn(), prepare: vi.fn(), sign: vi.fn(), wait: vi.fn(), accounts: vi.fn(), request: vi.fn(), typed: vi.fn(), balance: vi.fn(), count: vi.fn()}))
 vi.mock('viem', async importOriginal => {
   const original = await importOriginal<typeof import('viem')>()
   return {...original,
-    createPublicClient: () => ({getChainId: state.rpcChain, sendRawTransaction: state.raw, waitForTransactionReceipt: state.wait}),
+    createPublicClient: () => ({getChainId: state.rpcChain, sendRawTransaction: state.raw, waitForTransactionReceipt: state.wait, getBalance: state.balance, getTransactionCount: state.count}),
     createWalletClient: (config: {account?: {address: Hex} | Hex; chain: unknown}) => ({...config, account: typeof config.account === 'string' ? {address: config.account} : config.account,
       getChainId: state.walletChain, requestAddresses: state.request, getAddresses: state.accounts, prepareTransactionRequest: state.prepare, signTransaction: state.sign, sendTransaction: state.send, signTypedData: state.typed}),
   }
@@ -98,5 +98,44 @@ describe('application wallet adapters', () => {
       await expect(wallet.waitForTransaction({...journal, ...changed})).rejects.toThrow()
     }
     expect(state.wait).not.toHaveBeenCalled()
+  })
+})
+
+describe('wallet reads and typed-data signatures are chain-checked first', () => {
+  const typedData = {domain: {name: 'Tasra', chainId: 43112}, types: {Op: [{name: 'n', type: 'uint256'}]}, primaryType: 'Op', message: {n: 1n}} as const
+  it('signs a copy of the typed data after the chain check, so a caller mutating its argument changes nothing signed', async () => {
+    let seen: unknown
+    state.typed.mockImplementation(async (data: unknown) => { seen = structuredClone(data); return '0x01' })
+    const args = structuredClone(typedData) as {message: {n: bigint}}
+    const pending = make().signer.signTypedData(args as never)
+    args.message.n = 2n
+    await expect(pending).resolves.toBe('0x01')
+    expect(seen).toMatchObject({message: {n: 1n}})
+  })
+  it.each(['rpc', 'wallet'])('refuses a typed-data signature and both reads on a %s chain mismatch, without touching the account', async side => {
+    (side === 'rpc' ? state.rpcChain : state.walletChain).mockResolvedValue(1)
+    const wallet = make()
+    await expect(wallet.signer.signTypedData(typedData as never)).rejects.toThrow('Wallet or RPC chain differs from the deployment')
+    await expect(wallet.getBalance()).rejects.toThrow('Wallet or RPC chain differs from the deployment')
+    await expect(wallet.getTransactionCount()).rejects.toThrow('Wallet or RPC chain differs from the deployment')
+    expect(state.typed).not.toHaveBeenCalled(); expect(state.balance).not.toHaveBeenCalled(); expect(state.count).not.toHaveBeenCalled()
+  })
+  it('reads the balance and the PENDING nonce of the wallet address', async () => {
+    state.balance.mockResolvedValue(5n); state.count.mockResolvedValue(3)
+    const wallet = make()
+    await expect(wallet.getBalance()).resolves.toBe(5n)
+    await expect(wallet.getTransactionCount()).resolves.toBe(3)
+    expect(state.balance).toHaveBeenCalledWith({address: from})
+    expect(state.count).toHaveBeenCalledWith({address: from, blockTag: 'pending'})
+  })
+  it('a connected wallet whose account changed is refused before a read; connecting needs the chain and an authorized account', async () => {
+    const wallet = await connectWallet(deployment, {} as EIP1193Provider)
+    state.accounts.mockResolvedValue(['0x' + '99'.repeat(20)])
+    await expect(wallet.getBalance()).rejects.toThrow('Connected wallet account changed')
+    expect(state.balance).not.toHaveBeenCalled()
+    state.walletChain.mockResolvedValue(1)
+    await expect(connectWallet(deployment, {} as EIP1193Provider)).rejects.toThrow('Connected wallet chain differs from the deployment')
+    state.walletChain.mockResolvedValue(43112); state.request.mockResolvedValue([])
+    await expect(connectWallet(deployment, {} as EIP1193Provider)).rejects.toThrow('Wallet did not authorize an account')
   })
 })

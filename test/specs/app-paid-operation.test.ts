@@ -2025,4 +2025,54 @@ describe('paid OAuth holder through paidOperation', () => {
     expect(reserveApplicationPayment).not.toHaveBeenCalled()
     sign.mockRestore()
   })
+  it.each([
+    ['a rule mixing OAuth and wallet formats', JSON.stringify({credentials: [{id: 'w', format: 'dc+sd-jwt', claims: [{path: ['iss'], values: ['did:web:issuer.example']}]},
+      {id: 'kc', format: 'oauth+access-token+dpop', claims: [{path: ['iss'], values: ['https://idp.example']}]}]}), 'oauth', 'Slot rule mixes OAuth and wallet credential formats'],
+    ['the same mix under a wallet holder', JSON.stringify({credentials: [{id: 'kc', format: 'oauth+access-token+dpop', claims: [{path: ['iss'], values: ['https://idp.example']}]},
+      {id: 'w', format: 'dc+sd-jwt', claims: [{path: ['iss'], values: ['did:web:issuer.example']}]}]}), 'local', 'Slot rule mixes OAuth and wallet credential formats'],
+    ['an OAuth holder on a rule with no credential queries', JSON.stringify({credentials: []}), 'oauth', 'An OAuth holder needs an OAuth'],
+    ['a wallet holder on a kk_oauth envelope', JSON.stringify({kk_oauth: {v: 1, tokens: {kc: {iss: 'https://idp.example'}},
+      policy: {lang: 'rego/v1', entrypoint: 'data.tasra.slot.allow', source: 'package tasra.slot\n\ndefault allow := false\n'}}}), 'local', 'An OAuth slot rule needs an OAuth holder'],
+  ] as const)('refuses %s before anything is signed, journaled or reserved', async (_name, slotRule, holderKind, message) => {
+    const f = setup({ruleCommitment: ruleCommitment(salt, slotRule)})
+    const sign = vi.spyOn(f.config.creator, 'signTypedData')
+    await expect(paidOperation(f.config, {...f.request, rule: {rule: slotRule, salt}, ...(holderKind === 'oauth' ? {holder: oauthHolder} : {})})).rejects.toThrow(message)
+    expect(sign).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    expect(await listPaidOperations(f.store)).toEqual([])
+    sign.mockRestore()
+  })
+})
+
+describe('a journal is served only under its own request id', () => {
+  // A journal copied (or restored) under another request's key never continues that request: its
+  // payment hashes to a different id, and every resume entry point refuses it before any work.
+  async function copied(extra: Record<string, unknown>) {
+    const f = setup(), ids: Hex[] = []
+    await paidOperation(f.config, {...f.request, onRequestId: id => { ids.push(id) }})
+    const original = await f.store.load<Record<string, unknown>>(paidRecordKey(ids[0]!))
+    const foreign = h(0x7e)
+    await f.store.save(paidRecordKey(foreign), {...original, phase: 'certified', ...extra})
+    vi.mocked(readClientExecutionPolicy).mockClear(); vi.mocked(createExecutionCertificate).mockClear()
+    return {f, foreign}
+  }
+  it('reconcile and resume refuse a journal whose payment names another request', async () => {
+    const {f, foreign} = await copied({})
+    await expect(reconcilePaidOperation(f.config, foreign)).rejects.toThrow('Paid operation journal does not match its request')
+    await expect(resumePaidOperation(f.config, foreign)).rejects.toThrow('Paid operation journal does not match its request')
+    expect(reserveApplicationPayment).toHaveBeenCalledTimes(1)
+  })
+  it('a final Sign resume refuses another request\'s journal, and a journal that is not a final Sign', async () => {
+    const {f, foreign} = await copied({finalSign: true})
+    await expect(resumePaidFinalSign(f.config, foreign)).rejects.toThrow('No final Sign journal for this request')
+    await expect(resumePaidFinalSign(f.config, h(0x7f))).rejects.toThrow('No final Sign journal for this request')
+    expect(readClientExecutionPolicy).not.toHaveBeenCalled()
+  })
+  it('a session-grant decrypt resume refuses another request\'s journal, and a journal that is not one', async () => {
+    const {f, foreign} = await copied({sessionDecrypt: true})
+    await expect(resumePaidSessionDecrypt(f.config, foreign)).rejects.toThrow('No session-grant decrypt journal for this request')
+    await expect(resumePaidSessionDecrypt(f.config, h(0x7f))).rejects.toThrow('No session-grant decrypt journal for this request')
+    expect(readClientExecutionPolicy).not.toHaveBeenCalled()
+    expect(createExecutionCertificate).not.toHaveBeenCalled()
+  })
 })

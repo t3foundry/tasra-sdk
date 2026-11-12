@@ -561,3 +561,63 @@ describe('relay refresh through the verifier-agent', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 })
+
+describe('status refresh boundary refusals (nothing is signed or sent past a malformed input)', () => {
+  const base = {chainId: 43112, tokenHash: bytes(32, 9), principal: 'client_execution' as const, seq: 1, issuedAt: 1_760_000_000}
+  it('the proof hash refuses an unknown principal, non-integer or out-of-range widths and hashes that are not 32 bytes', () => {
+    expect(() => statusRefreshHash({...base, principal: 'bearer' as 'holder_key'})).toThrow('status refresh principal must be holder_key or client_execution')
+    expect(() => statusRefreshHash({...base, seq: 1.5})).toThrow('status refresh seq must be an integer')
+    expect(() => statusRefreshHash({...base, seq: '1' as unknown as number})).toThrow('status refresh seq must be an integer')
+    expect(() => statusRefreshHash({...base, seq: 0})).toThrow('status refresh seq is out of range')
+    expect(() => statusRefreshHash({...base, chainId: 1n << 64n})).toThrow('status refresh chain_id is out of range')
+    expect(() => statusRefreshHash({...base, issuedAt: 1.5})).toThrow('status refresh issued_at must be a safe integer')
+    expect(() => statusRefreshHash({...base, tokenHash: bytes(31, 9)})).toThrow('status refresh token hash must be 32 bytes')
+    expect(() => statusRefreshHash({...base, paymentHash: bytes(33, 9)})).toThrow('status refresh payment hash must be 32 bytes')
+    // A bigint seq hashes exactly like the same number.
+    expect(hex(statusRefreshHash({...base, seq: 5n}))).toBe(hex(statusRefreshHash({...base, seq: 5})))
+  })
+  it('a proof is never produced for a zero seq, an unknown prover, a mismatched holder algorithm or a malformed holder signature', async () => {
+    const signer = createLocalExecutionSigner(bytes(32, 3))
+    const common = {chainId: 43112, tokenHash: bytes(32, 9), issuedAt: 1_760_000_000}
+    await expect(createStatusRefreshProof({...common, seq: 0, prover: {kind: 'client_execution', signer}})).rejects.toThrow('status refresh seq must be a positive safe integer')
+    await expect(createStatusRefreshProof({...common, seq: 1, prover: {kind: 'bearer', signer} as never})).rejects.toThrow('status refresh principal must be holder_key or client_execution')
+    const ed = statusRefreshHolderSigner(ed25519HolderKey(bytes(32, 4)))
+    const sign = vi.fn(ed.sign)
+    await expect(createStatusRefreshProof({...common, seq: 1, prover: {kind: 'holder_key', signer: {...ed, alg: 'ES256', sign}}})).rejects
+      .toThrow('holder signer algorithm does not match its key type')
+    await expect(createStatusRefreshProof({...common, seq: 1, prover: {kind: 'holder_key', signer: {...ed, sign: async () => new Uint8Array(63)}}})).rejects
+      .toThrow('holder signer produced an invalid JWS signature')
+    expect(sign).not.toHaveBeenCalled()
+  })
+  it('the request body refuses a negative chain id and a client_execution proof whose signature is not 64 bytes of hex', () => {
+    expect(() => statusRefreshRequestBody(-1, bytes(32, 9), proof)).toThrow('status refresh chain_id must be a safe non-negative integer')
+    expect(() => statusRefreshRequestBody(43112, bytes(32, 9), {...proof, signature: '0x' + 'aa'.repeat(63)})).toThrow('Invalid client_execution refresh signature')
+    expect(() => statusRefreshRequestBody(43112, bytes(32, 9), {...proof, seq: 0})).toThrow('Invalid status refresh proof')
+  })
+  it('the direct path refuses a zero quorum, a non-integer cap, a bad timeout, a duplicated or non-https endpoint before any request', async () => {
+    const g = grant(), fetch = vi.fn()
+    const direct = (o: Record<string, unknown>) => refreshStatusDirect({...g, chainId: 43112, proof, verifiers, fetch, ...o} as Parameters<typeof refreshStatusDirect>[0])
+    await expect(direct({quorum: 0})).rejects.toThrow('status refresh quorum must be a positive integer')
+    await expect(direct({caps: [now() + 60.5]})).rejects.toThrow('status refresh caps must be Unix seconds')
+    await expect(direct({timeoutMs: 0})).rejects.toThrow('Invalid status refresh timeout')
+    await expect(direct({verifiers: [verifiers[0]!, {index: 0, url: 'https://other.example'}]})).rejects.toThrow('Duplicate status refresh endpoint for verifier #0')
+    await expect(direct({verifiers: [{index: 0, url: 'http://v0.example'}]})).rejects.toThrow('Status refresh endpoints must use https')
+    await expect(direct({verifiers: [{index: 0, url: 'not a url'}]})).rejects.toThrow('Invalid status refresh endpoint')
+    await expect(direct({verifiers: [{index: 0, url: 'https://user:pw@v0.example'}]})).rejects.toThrow('Invalid status refresh endpoint')
+    await expect(direct({verifiers: [{index: 0, url: 'https://v0.example/?q=1'}]})).rejects.toThrow('Invalid status refresh endpoint')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+  it('the relay path refuses a malformed session id or secret and a bad timeout before any request, and maps a transport failure to unreachable', async () => {
+    const g = grant(), fetch = vi.fn()
+    const relay = (o: Record<string, unknown>) => refreshStatusViaAgent({...g, proof, agentUrl: 'https://agent.example', sessionId: 'session-1', pollSecret: 'p'.repeat(32), fetch, ...o} as Parameters<typeof refreshStatusViaAgent>[0])
+    await expect(relay({sessionId: 'a/b'})).rejects.toThrow('Invalid verifier-agent session id')
+    await expect(relay({pollSecret: 'short'})).rejects.toThrow('Invalid verifier-agent session secret')
+    await expect(relay({timeoutMs: 120_001})).rejects.toThrow('Invalid status refresh timeout')
+    expect(fetch).not.toHaveBeenCalled()
+    fetch.mockRejectedValueOnce(new Error('connection reset'))
+    const e = await relay({}).catch((error: unknown) => error)
+    expect(isStatusRefreshError(e) && e.code).toBe('status_refresh_unreachable')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch.mock.calls[0]![0]).toBe('https://agent.example/v1/sessions/session-1/status-refresh')
+  })
+})

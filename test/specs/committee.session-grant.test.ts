@@ -8,7 +8,7 @@ import {bytesToHex, hexToBytes} from '../../src/crypto/hex.js'
 import {selectVerifierCommittee, type VerifierSet} from '../../src/committee/token.js'
 import {
   SESSION_BATCH_PROOF_DOMAIN, SESSION_GRANT_DOMAIN, SESSION_PROOF_DOMAIN, SessionGrantError, checkJti, checkProofWindow, decodeSessionGrant, encodeSessionGrant,
-  parseSessionKeyJwk, sessionBatchProofHash, sessionControlHash, sessionGrantCanonicalBytes, sessionGrantHash, sessionKeyThumbprint, sessionProofHash,
+  encodeSessionProof, parseSessionKeyJwk, sessionBatchProofHash, sessionControlHash, sessionGrantCanonicalBytes, sessionGrantHash, sessionGrantPayload, sessionKeyThumbprint, sessionProofHash, toBase64Url,
   verifySessionGrant, verifySessionSignature, type SessionGrantWire, type SessionKeyJwk,
 } from '../../src/committee/session-grant.js'
 
@@ -163,5 +163,98 @@ describe('session grant refusals', () => {
     const high = new p256.Signature(sig.r, p256.CURVE.n - sig.s)
     expect(verifySessionSignature(p.session_key_jwk, hash, high.toCompactRawBytes())).toBe(true)
     expect(verifySessionSignature(p.session_key_jwk, sha256(hash), sig.toCompactRawBytes())).toBe(false)
+  })
+})
+
+describe('session grant boundary refusals: every check names its own code', () => {
+  const c = vectors.cases[0]!
+  const slot = c.grant.slots[0]!.slot_id
+  const payload = () => decodeSessionGrant(c.grant).payload
+  const bad = (mutate: (g: SessionGrantWire & Record<string, unknown>) => void) => {
+    const g = structuredClone(c.grant) as SessionGrantWire & Record<string, unknown>; mutate(g); return code(() => decodeSessionGrant(g))
+  }
+
+  it('the payload builder refuses what the wire decoder never hands it (a direct caller is held to the same bounds)', () => {
+    expect(code(() => sessionGrantPayload({...payload(), action: 'sign' as 'decrypt'}))).toBe('unsupported-action')
+    expect(code(() => sessionGrantPayload({...payload(), slots: []}))).toBe('slot-count')
+    expect(code(() => sessionGrantPayload({...payload(), slots: [{slotId: new Uint8Array(31), ruleHash: new Uint8Array(32)}]}))).toBe('malformed')
+    expect(code(() => sessionGrantPayload({...payload(), sessionId: new Uint8Array(31)}))).toBe('malformed')
+    expect(code(() => sessionGrantPayload({...payload(), seed: 'seed' as unknown as Uint8Array}))).toBe('malformed')
+    expect(code(() => sessionGrantPayload({...payload(), binding: 7}))).toBe('malformed')
+    expect(code(() => sessionGrantPayload({...payload(), chainId: -1n}))).toBe('malformed')
+    expect(code(() => sessionGrantPayload({...payload(), epoch: 1n << 64n}))).toBe('malformed')
+    // A duplicated slot is not strictly ascending: the equal-prefix arm of the comparison refuses it.
+    const s = payload().slots[0]!
+    expect(code(() => sessionGrantPayload({...payload(), slots: [s, {slotId: s.slotId.slice(), ruleHash: s.ruleHash}]}))).toBe('slot-order')
+    // The accepted payload is a COPY: mutating the caller's slot bytes afterwards changes nothing.
+    const input = payload(), built = sessionGrantPayload(input)
+    input.slots[0]!.slotId.fill(0)
+    expect(bytesToHex(built.slots[0]!.slotId)).toBe(c.grant.slots[0]!.slot_id)
+  })
+
+  it('the wire decoder refuses a non-object, missing signatures, an unknown binding and malformed slot or signature entries', () => {
+    expect(code(() => decodeSessionGrant(null as unknown as SessionGrantWire))).toBe('malformed')
+    expect(code(() => decodeSessionGrant([] as unknown as SessionGrantWire))).toBe('malformed')
+    expect(bad(g => { delete (g as Record<string, unknown>).signatures })).toBe('malformed')
+    expect(bad(g => { g.signatures = Array.from({length: 4097}, () => g.signatures[0]!) })).toBe('malformed')
+    expect(bad(g => { g.binding = 'strong' as SessionGrantWire['binding'] })).toBe('malformed')
+    expect(bad(g => { (g.slots[0] as unknown as Record<string, unknown>).extra = 1 })).toBe('malformed')
+    expect(bad(g => { (g.slots as unknown[])[0] = null })).toBe('malformed')
+    expect(bad(g => { (g.signatures[0] as unknown as Record<string, unknown>).extra = 1 })).toBe('malformed')
+    expect(bad(g => { g.signatures[0]!.signature = '0x' + '11'.repeat(63) })).toBe('malformed')
+    expect(bad(g => { g.chain_id = 1.5 })).toBe('malformed')
+    expect(bad(g => { g.epoch = -1 })).toBe('malformed')
+    expect(bad(g => { (g as Record<string, unknown>).iat = '1800000000' })).toBe('malformed')
+    expect(bad(g => { g.signatures[0]!.verifier_index = -1 })).toBe('malformed')
+  })
+
+  it('verification refuses a zero or fractional quorum before it counts a single signature', () => {
+    const grant = decodeSessionGrant(c.grant)
+    for (const quorum of [0, -1, 1.5]) {
+      expect(code(() => verifySessionGrant({grant, set, slotId: hexToBytes(slot), committee: vectors.committee, quorum, slotRuleHash: hexToBytes(RULES[slot]!),
+        seed: hexToBytes(c.grant.seed), now: NOW}))).toBe('zero-quorum')
+    }
+    // A slot id of the wrong length matches no granted slot (it is never truncated or padded).
+    expect(code(() => verifySessionGrant({grant, set, slotId: hexToBytes(slot).subarray(0, 31), committee: vectors.committee, quorum: vectors.quorum,
+      slotRuleHash: hexToBytes(RULES[slot]!), seed: hexToBytes(c.grant.seed), now: NOW}))).toBe('slot-not-granted')
+  })
+
+  it('a session JWK is refused for every malformed shape: not an object, non-base64url, wrong lengths, off-curve points', () => {
+    expect(code(() => parseSessionKeyJwk(null))).toBe('bad-key')
+    expect(code(() => parseSessionKeyJwk(['OKP']))).toBe('bad-key')
+    expect(code(() => parseSessionKeyJwk({kty: 'OKP', crv: 'Ed25519', x: 'a+b/'}))).toBe('bad-key')
+    expect(code(() => parseSessionKeyJwk({kty: 'OKP', crv: 'Ed25519', x: 42}))).toBe('bad-key')
+    expect(code(() => parseSessionKeyJwk({kty: 'OKP', crv: 'Ed25519', x: toBase64Url(new Uint8Array(31).fill(1))}))).toBe('bad-key')
+    // 0x02 repeated is not the encoding of any Ed25519 point.
+    expect(code(() => parseSessionKeyJwk({kty: 'OKP', crv: 'Ed25519', x: toBase64Url(new Uint8Array(32).fill(2))}))).toBe('bad-key')
+    expect(code(() => parseSessionKeyJwk({kty: 'EC', crv: 'P-256', x: toBase64Url(new Uint8Array(32).fill(1)), y: toBase64Url(new Uint8Array(31).fill(1))}))).toBe('bad-key')
+    expect(code(() => parseSessionKeyJwk({kty: 'EC', crv: 'P-256', x: toBase64Url(new Uint8Array(32).fill(1)), y: toBase64Url(new Uint8Array(32).fill(1))}))).toBe('bad-key')
+    // The thumbprint goes through the same parser, so a bad key never yields a thumbprint either.
+    expect(code(() => sessionKeyThumbprint({kty: 'OKP', crv: 'Ed25519', x: toBase64Url(new Uint8Array(32).fill(2))}))).toBe('bad-key')
+  })
+
+  it('proof, batch and control hashes refuse inputs of the wrong width instead of hashing them', () => {
+    const gh = hexToBytes(c.grant_hash), rh = hexToBytes(c.request_hashes[0]!)
+    expect(code(() => sessionProofHash(gh.subarray(0, 31), rh, NOW, c.proof_jti))).toBe('malformed')
+    expect(code(() => sessionProofHash(gh, new Uint8Array(33), NOW, c.proof_jti))).toBe('malformed')
+    expect(code(() => sessionBatchProofHash(gh, [rh, new Uint8Array(31)], NOW, c.proof_jti))).toBe('malformed')
+    expect(code(() => sessionControlHash('refresh', gh, -1, NOW))).toBe('malformed')
+    expect(code(() => sessionControlHash('revoke', gh, 1.5, NOW))).toBe('malformed')
+    expect(code(() => sessionControlHash('refresh', gh.subarray(1), 1, NOW))).toBe('malformed')
+    expect(code(() => sessionControlHash('refresh', gh, 1, Number.NaN))).toBe('malformed')
+  })
+
+  it('a session signature of the wrong length, or over a hash of the wrong length, is false, never an exception', () => {
+    const secret = hexToBytes('0x' + '77'.repeat(32)), hash = sessionControlHash('refresh', hexToBytes(c.grant_hash), 1, NOW)
+    const sig = ed25519.sign(hash, secret)
+    expect(verifySessionSignature(c.session_key_jwk, hash, sig)).toBe(true)
+    expect(verifySessionSignature(c.session_key_jwk, hash, sig.subarray(0, 63))).toBe(false)
+    expect(verifySessionSignature(c.session_key_jwk, hash.subarray(0, 31), sig)).toBe(false)
+  })
+
+  it('encodes a proof only with a valid jti and a 64-byte signature', () => {
+    expect(encodeSessionProof({iat: NOW, jti: c.proof_jti, signature: new Uint8Array(64).fill(7)})).toEqual({iat: NOW, jti: c.proof_jti, signature: '0x' + '07'.repeat(64)})
+    expect(code(() => encodeSessionProof({iat: NOW, jti: c.proof_jti, signature: new Uint8Array(63)}))).toBe('malformed')
+    expect(code(() => encodeSessionProof({iat: NOW, jti: 'short', signature: new Uint8Array(64)}))).toBe('bad-jti')
   })
 })

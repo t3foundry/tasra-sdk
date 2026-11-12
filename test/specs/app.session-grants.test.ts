@@ -898,3 +898,58 @@ describe('session recovery review fixes (C21 review F4, F7, F8)', () => {
     } finally { vi.useRealTimers() }
   })
 })
+
+describe('session grant acceptance and resume refusals', () => {
+  it('a session key signs 32-byte hashes only, on either key kind', async () => {
+    for (const alg of ['Ed25519', 'ES256'] as const) {
+      const key = await createSessionKey({alg})
+      await expect(key.sign(new Uint8Array(31))).rejects.toThrow('Session key signs 32-byte hashes only')
+      await expect(key.sign(new Uint8Array(33))).rejects.toThrow('Session key signs 32-byte hashes only')
+    }
+  })
+  it('without a working WebCrypto ECDSA the default key is Ed25519; an explicit ES256 request fails instead of downgrading', async () => {
+    const spy = vi.spyOn(globalThis.crypto.subtle, 'generateKey').mockRejectedValue(new Error('no ECDSA here'))
+    try {
+      const key = await createSessionKey()
+      expect(key.jwk).toMatchObject({kty: 'OKP', crv: 'Ed25519'})
+      const hash = new Uint8Array(32).fill(3)
+      expect(verifySessionSignature(key.jwk, hash, await key.sign(hash))).toBe(true)
+      await expect(createSessionKey({alg: 'ES256'})).rejects.toThrow('no ECDSA here')
+    } finally { spy.mockRestore() }
+  })
+  it('refuses a grant naming a slot that was not requested, and an absolute lifetime above the request', async () => {
+    const clock = () => T0 + 1, key = await createSessionKey({alg: 'Ed25519'})
+    const accept = (fragment: ReturnType<typeof sessionGrantCreateFragment>, g: SessionGrantWire) =>
+      acceptSessionGrant({store: createMemoryStore(), key, clock, transport: transportFor(vi.fn() as unknown as typeof fetch)}, fragment, {session_grant: g, refresh_seq: 0})
+    await expect(accept(sessionGrantCreateFragment(key, {slots: [slotA]}), grant(key, {iat: T0}))).rejects.toMatchObject({code: 'slot-not-granted'})
+    await expect(accept(sessionGrantCreateFragment(key, {slots: [slotA, slotB], absoluteTtlSecs: 600}), grant(key, {iat: T0, absoluteExp: T0 + 601}))).rejects
+      .toMatchObject({code: 'absolute-exp'})
+    await expect(accept(sessionGrantCreateFragment(key, {slots: [slotA, slotB], absoluteTtlSecs: 600}), grant(key, {iat: T0, absoluteExp: T0 + 600}))).resolves.toBeDefined()
+  })
+  it('refuses to accept the same session twice into one store, leaving the first journal unchanged', async () => {
+    const o = await opened({clock: () => T0 + 1})
+    const id = 'tasra.session-grant.0x' + '5a'.repeat(32), before = structuredClone(await o.store.load(id))
+    expect(before).toBeDefined()
+    const fragment = sessionGrantCreateFragment(o.key, {slots: [slotB, slotA], accessTtlSecs: 40, idleTimeoutSecs: 600, absoluteTtlSecs: 3600})
+    await expect(acceptSessionGrant({store: o.store, key: o.key, clock: () => T0 + 1, transport: transportFor(o.fetchImpl)}, fragment,
+      {session_grant: grant(o.key, {iat: T0 + 1}), refresh_seq: 0})).rejects.toThrow('Session grant already accepted for this session')
+    expect(await o.store.load(id)).toEqual(before)
+    expect(o.session.key).toBe(o.key)
+  })
+  it('current() refuses a grant past its exp (refresh first) while the session is otherwise live', async () => {
+    let now = T0 + 1
+    const o = await opened({clock: () => now})
+    expect(o.session.current().exp).toBe(T0 + 30)
+    now = T0 + 31
+    expect(() => o.session.current()).toThrow(expect.objectContaining({code: 'expired'}))
+  })
+  it('resume refuses a malformed session id, a missing journal and another session key', async () => {
+    const o = await opened({clock: () => T0 + 1})
+    const opts = {store: o.store, key: o.key, transport: transportFor(o.fetchImpl), clock: () => T0 + 1}
+    await expect(loadGrantedSession(opts, '0x5a')).rejects.toThrow('Invalid session id')
+    await expect(loadGrantedSession(opts, '0x' + '6b'.repeat(32))).rejects.toThrow('No session grant journal for this session')
+    const other = await createSessionKey({alg: 'Ed25519'})
+    await expect(loadGrantedSession({...opts, key: other}, '0x' + '5a'.repeat(32))).rejects.toMatchObject({code: 'wrong-key'})
+    expect((await loadGrantedSession(opts, '0x' + '5a'.repeat(32))).sessionId).toBe('0x' + '5a'.repeat(32))
+  })
+})

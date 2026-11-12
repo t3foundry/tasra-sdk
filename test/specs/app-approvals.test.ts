@@ -135,4 +135,15 @@ describe('application approval helpers', () => {
     expect(approve).not.toHaveBeenCalled()
     expect(s.frost).not.toHaveBeenCalled()
   })
+  it('an unpaid request refuses a lone approval payment or random, and a random that is not 32 bytes, before any credential work', async () => {
+    const s = setup(), message = new Uint8Array([3, 4]), identity = s.identities[0]!, authorize = vi.fn(), approve = vi.fn()
+    const status = vi.fn(async () => ({status: 'pending' as const, have: 0, need: 2}))
+    const request = {requestId: 'request-1', slotId: slot, approve, status} as unknown as DualSignRequest
+    const h = (n: number, size = 32) => ('0x' + n.toString(16).padStart(2, '0').repeat(size)) as Hex
+    const intent = {chain_id: 43112, settlement: h(1, 20), key_registry: registry, slot, action: 'dual-approve', payload_digest: h(4)} as unknown as PaymentIntentWire
+    await expect(approveWithCredential(s.app, request, message, {identity, authorize, payment: intent})).rejects.toThrow('Approval payment and presentation random are required together')
+    await expect(approveWithCredential(s.app, request, message, {identity, authorize, random: h(33)})).rejects.toThrow('Approval payment and presentation random are required together')
+    await expect(approveWithCredential(s.app, request, message, {identity, authorize, payment: intent, random: '0x1234'})).rejects.toThrow('Approval presentation random must contain 32 bytes')
+    expect(authorize).not.toHaveBeenCalled(); expect(approve).not.toHaveBeenCalled(); expect(s.frost).not.toHaveBeenCalled()
+  })
 })

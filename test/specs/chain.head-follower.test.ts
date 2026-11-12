@@ -1,6 +1,6 @@
 import {expect, it, vi} from 'vitest'
 import type {Hex, PublicClient} from 'viem'
-import {createHeadFollower, type HeadFollowerOptions} from '../../src/chain/headFollower.js'
+import {createHeadFollower, followHeads, headFollowerOf, unfollowHeads, type HeadFollowerOptions} from '../../src/chain/headFollower.js'
 
 // Block n on branch b has hash H(b, n); its parent is H(b, n - 1) unless a fork point says otherwise.
 const H = (branch: number, n: number): Hex => `0x${branch.toString(16).padStart(2, '0')}${n.toString(16).padStart(62, '0')}`
@@ -196,4 +196,82 @@ it('hands out no tip older than a block this process saw its own transaction min
   expect(f.follower.tip()).toBeUndefined()
   await f.follower.ingest(header(0, 4))
   expect(f.follower.tip()).toMatchObject({blockNumber: 4n, blockHash: H(0, 4)})
+})
+
+it('a fork that reaches below the held window is a gap: it vouches only for what follows the new header', async () => {
+  // Branch 1 shares no held block with the followed chain 5..7: the walk stops at the window's floor.
+  const f = fixture({}, [header(1, 5)])
+  for (let n = 5; n <= 7; n++) await f.follower.ingest(header(0, n))
+  await f.follower.ingest(header(1, 6))
+  expect(f.follower.gaps()).toBe(1)
+  expect(f.follower.tip()).toMatchObject({blockNumber: 6n, blockHash: H(1, 6)})
+  await f.follower.ingestFinalized(header(1, 6))
+  expect(f.follower.isCanonical(f.at(header(0, 5)))).toBeUndefined()
+  expect(f.follower.isCanonical(f.at(header(1, 6)))).toBe(true)
+})
+
+it('an unsubscribed listener is not called again, and a malformed finalized header changes nothing', async () => {
+  const f = fixture()
+  const seen: bigint[] = []
+  const off = f.follower.onHead(tip => { seen.push(tip.blockNumber) })
+  await f.follower.ingest(header(0, 1))
+  off()
+  await f.follower.ingest(header(0, 2))
+  expect(seen).toEqual([1n])
+  await f.follower.ingestFinalized({number: 2n, hash: '0x12'})
+  expect(f.follower.isCanonical(f.at(header(0, 2)))).toBeUndefined()
+})
+
+it('on a WebSocket transport subscribes once, reads the finalized head at each new head, and unsubscribes on stop', async () => {
+  let onBlock: ((block: Header) => void) | undefined
+  const unwatch = vi.fn()
+  const watchBlocks = vi.fn((args: {onBlock: (block: Header) => void}) => { onBlock = args.onBlock; return unwatch })
+  let finalized: Header | Error = header(0, 1)
+  const getBlock = vi.fn(async ({blockTag}: {blockTag?: string}) => {
+    expect(blockTag).toBe('finalized')
+    if (finalized instanceof Error) throw finalized
+    return finalized
+  })
+  const client = {getBlock, watchBlocks, transport: {type: 'webSocket'}} as unknown as PublicClient
+  const follower = createHeadFollower(client, {finality: 'instant', now: () => 0})
+  follower.start(); follower.start()
+  expect(watchBlocks).toHaveBeenCalledTimes(1)
+  expect(watchBlocks.mock.calls[0]![0]).toMatchObject({emitOnBegin: true, includeTransactions: false})
+  const settled = async () => { for (let i = 0; i < 10; i++) await Promise.resolve() }
+  onBlock!(header(0, 1)); await settled()
+  expect(follower.tip()).toMatchObject({blockNumber: 1n})
+  expect(follower.isCanonical({blockNumber: 1n, blockHash: H(0, 1), blockTimestamp: 1001n})).toBe(true)
+  // A failed finalized read still ingests the new head (it only cannot advance finality).
+  finalized = new Error('rpc down')
+  onBlock!(header(0, 2)); await settled()
+  expect(follower.tip()).toMatchObject({blockNumber: 2n})
+  expect(follower.isCanonical({blockNumber: 2n, blockHash: H(0, 2), blockTimestamp: 1002n})).toBeUndefined()
+  follower.stop()
+  expect(unwatch).toHaveBeenCalledTimes(1)
+  expect(follower.tip()).toBeUndefined()
+})
+
+it('followHeads attaches a started follower per client and replaces (stopping) an earlier one; unfollowHeads detaches it', async () => {
+  vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+  try {
+    const getBlock = vi.fn(async ({blockTag}: {blockTag?: string}) => blockTag === 'latest' ? header(0, 2) : header(0, 1))
+    const client = {getBlock, transport: {type: 'http'}} as unknown as PublicClient
+    expect(headFollowerOf(client)).toBeUndefined()
+    const first = followHeads(client, {finality: 'instant'})
+    await vi.advanceTimersByTimeAsync(0)
+    expect(headFollowerOf(client)).toBe(first)
+    expect(first.tip()).toMatchObject({blockNumber: 2n})
+    const second = followHeads(client, {finality: 'instant'})
+    expect(headFollowerOf(client)).toBe(second)
+    // The replaced follower was stopped: it holds nothing and stops polling.
+    expect(first.tip()).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(second.tip()).toMatchObject({blockNumber: 2n})
+    unfollowHeads(client)
+    expect(headFollowerOf(client)).toBeUndefined()
+    expect(second.tip()).toBeUndefined()
+    const calls = getBlock.mock.calls.length
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(getBlock.mock.calls.length).toBe(calls)
+  } finally { vi.useRealTimers() }
 })

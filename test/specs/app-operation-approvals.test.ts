@@ -116,3 +116,40 @@ describe('operation approval bundles for a final paid ECDSA signature', () => {
     await expect(approveDualOperation({prepared, payment: p, expectSlot: slot, expectPayloadDigest: h(55), approver: approver(seeds[0]!)})).rejects.toThrow('unexpected operation digest')
   })
 })
+
+describe('operation approvals: modes, credential policies and wallet chain', () => {
+  const installed = {quorum: 2, ruleHash: zero, approvers: keys}
+  it('names the KEM or IBE operation on a threshold BLS slot, and carries the IBE identity into the statement', async () => {
+    const s = setup(1, {installed})
+    expect((await prepareOperationApproval(s.app, {payment: payment({action: 'decrypt'})})).statement).toMatchObject({operation: 'kem-decrypt', identity: null})
+    expect((await prepareOperationApproval(s.app, {payment: payment({action: 'ibe-extract'}), identity: 'issuer/patient-7'})).statement)
+      .toMatchObject({operation: 'ibe-extract', identity: 'issuer/patient-7'})
+  })
+  it('refuses an action the slot mode has no approvals for, naming the mode and action', async () => {
+    await expect(prepareOperationApproval(setup(2, {installed}).app, {payment: payment({action: 'decrypt'})})).rejects
+      .toMatchObject({code: 'WRONG_SLOT_MODE', message: expect.stringContaining('Slot mode 2 has no operation approvals for action decrypt')})
+    await expect(prepareOperationApproval(setup(1, {installed}).app, {payment: payment({action: 'eoa-sign'})})).rejects.toMatchObject({code: 'WRONG_SLOT_MODE'})
+  })
+  it('assemble refuses a slot with no policy', async () => {
+    const p = payment(), prepared = await prepareOperationApproval(setup(2, {installed}).app, {payment: p})
+    const a = await approveDualOperation({prepared, payment: p, expectSlot: slot, expectPayloadDigest: p.payload_digest, approver: approver(seeds[0]!)})
+    await expect(assembleOperationApproval(setup(2).app, {prepared, approvals: [a]})).rejects.toMatchObject({code: 'INVALID_AUTHORIZATION', message: expect.stringContaining('no native approval policy')})
+  })
+  it('under a credential policy every approval needs its holder-bound grant; any approver key may then count', async () => {
+    const s = setup(2, {installed: {quorum: 1, ruleHash: h(0x33), approvers: []}}), p = payment()
+    const prepared = await prepareOperationApproval(s.app, {payment: p})
+    const outsider = await approveDualOperation({prepared, payment: p, expectSlot: slot, expectPayloadDigest: p.payload_digest, approver: approver(new Uint8Array(32).fill(99))})
+    await expect(assembleOperationApproval(s.app, {prepared, approvals: [outsider]})).rejects
+      .toMatchObject({code: 'INVALID_AUTHORIZATION', message: expect.stringContaining('holder-bound grant')})
+    const granted = {...outsider, approval: {...outsider.approval, committee_token: {binding: 'holder_key'} as never}}
+    const proof = await assembleOperationApproval(s.app, {prepared, approvals: [granted]})
+    expect(proof.approvals).toHaveLength(1)
+    expect(proof.approvals[0]!.committee_token).toEqual({binding: 'holder_key'})
+  })
+  it('refuses to install a policy from a wallet on another chain, before reading or sending', async () => {
+    const s = setup(2)
+    const wallet = {wallet: {chain: {id: 1}}, transfer: s.transfer} as unknown as TasraWallet
+    await expect(setApprovalPolicy(s.app, slot, {quorum: 1, approvers: [ed25519.getPublicKey(seeds[0]!)]}, {wallet, store: s.store})).rejects.toThrow('Approval wallet uses a different chain')
+    expect(s.transfer).not.toHaveBeenCalled()
+  })
+})

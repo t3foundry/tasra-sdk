@@ -4,7 +4,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
 import {sha256} from '@noble/hashes/sha256'
 import {privateKeyToAccount} from 'viem/accounts'
-import {approveDualOperation, assembleDualOperation, dualOperationFromPayload, dualOperationPayload, prepareDualOperation, requireCurrentDualOperation,
+import {approveDualOperation, assembleDualOperation, dualOperationFromPayload, dualOperationPayload, prepareDualOperation, requireCurrentDualOperation, requireDualOperationProof, validateDualOperationStatement,
   type DualOperationApprover, type DualOperationStatement} from '../../src/committee/dual-operation.js'
 import {committeeSignEoaDigest} from '../../src/committee/ecdsa.js'
 import {paymentIntentHash, paymentIntentTypedData, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
@@ -148,5 +148,56 @@ describe('the dual_control body on eoa-digest', () => {
     await expect(committeeSignEoaDigest({...opts, committeeToken: {...token, payment: undefined} as CompoundTokenWire})).rejects.toThrow(/paid authorization/)
     await expect(committeeSignEoaDigest({...opts, dualControl: {...proof, statement: {...proof.statement, operation: 'p256-sign'}}})).rejects.toThrow(/another operation/)
     expect(fetcher).not.toHaveBeenCalled()
+  })
+})
+
+describe('dual-operation boundary refusals', () => {
+  it('refuses a statement that is not an object or carries a field of the wrong type', () => {
+    for (const s of [null, 'statement', [statement()]]) expect(() => validateDualOperationStatement(s)).toThrow(/^invalid dual-operation statement$/)
+    expect(() => validateDualOperationStatement(statement({chain_id: -1}))).toThrow(/statement types/)
+    expect(() => validateDualOperationStatement(statement({slot: Array(31).fill(1)}))).toThrow(/statement types/)
+    expect(() => validateDualOperationStatement(statement({payload_digest: Array(32).fill(256)}))).toThrow(/statement types/)
+    expect(() => validateDualOperationStatement(statement({operation: 'ed25519-sign' as DualOperationStatement['operation']}))).toThrow(/statement types/)
+    expect(() => validateDualOperationStatement(statement({identity: 7 as unknown as string}))).toThrow(/statement types/)
+  })
+  it('parses only bounded, correctly-domained, valid UTF-8 JSON payloads', () => {
+    const bytes = dualOperationPayload(statement())
+    expect(() => dualOperationFromPayload(new Uint8Array(8193))).toThrow(/exceeds limit/)
+    const wrong = bytes.slice(); wrong[0] = wrong[0]! ^ 1
+    expect(() => dualOperationFromPayload(wrong)).toThrow(/wrong dual-operation domain/)
+    const domain = bytes.subarray(0, bytes.indexOf(0) + 1)
+    expect(() => dualOperationFromPayload(new Uint8Array([...domain, 0xff, 0xfe]))).toThrow(/statement encoding/)
+    expect(() => dualOperationFromPayload(new Uint8Array([...domain, ...new TextEncoder().encode('{"chain_id":')]))).toThrow(/statement encoding/)
+  })
+  it('refuses a zero or non-integer lifetime at prepare', async () => {
+    const p = await payment()
+    for (const ttlSecs of [0, -5, 1.5]) expect(() => prepareDualOperation({payment: p, operation: 'secp256k1-sign', epoch: 2, ttlSecs})).toThrow(/invalid dual-operation lifetime/)
+  })
+  it('a credentialed approval carries the verifier proofs as bare hex and the sealed evidence unchanged', async () => {
+    const p = await payment(), prepared = prepareDualOperation({payment: p, operation: 'secp256k1-sign', epoch: 2})
+    const bound = requestHash(43112, Uint8Array.from(prepared.statement.slot), 'dual-approve', sha256(dualOperationPayload(prepared.statement)))
+    const record = await approveDualOperation({prepared, payment: p, expectSlot: p.slot, expectPayloadDigest: p.payload_digest, approver: approver(11),
+      authorization: {compound_token: {binding: 'holder_key', request_hash: `0x${hex(bound)}`} as CompoundTokenWire, evidence_ct: 'AAEC',
+        verifier_proofs: [{verifierIndex: 3, operator: h(0xaa, 20), pubkey: h(0xbb), proof: [h(0xcc), h(0xdd)]}]}})
+    expect(record.approval.verifier_proofs).toEqual([{verifier_index: 3, operator: 'aa'.repeat(20), pubkey: 'bb'.repeat(32), proof: ['cc'.repeat(32), 'dd'.repeat(32)]}])
+    expect(record.approval.evidence_ct).toBe('AAEC')
+  })
+  it('assemble refuses an invalid quorum, too many approvals and malformed approval records', async () => {
+    const p = await payment(), prepared = prepareDualOperation({payment: p, operation: 'secp256k1-sign', epoch: 2})
+    const base = {prepared, payment: p, expectSlot: p.slot, expectPayloadDigest: p.payload_digest}
+    const a = await approveDualOperation({...base, approver: approver(11)})
+    for (const quorum of [0, 65, 1.5]) expect(() => assembleDualOperation({prepared, approvals: [a], quorum})).toThrow(/invalid approval quorum/)
+    expect(() => assembleDualOperation({prepared, approvals: Array(65).fill(a), quorum: 2})).toThrow(/at most 64 approvals/)
+    expect(() => assembleDualOperation({prepared, approvals: [{...a, approval: {...a.approval, signature: undefined as unknown as string}}], quorum: 1})).toThrow(/missing approver or signature/)
+    expect(() => assembleDualOperation({prepared, approvals: [{...a, approval: {...a.approval, approver_pubkey: '11'.repeat(31)}}], quorum: 1})).toThrow(/invalid key length/)
+    expect(() => assembleDualOperation({prepared, approvals: [{...a, approval: {...a.approval, signature: '11'.repeat(63)}}], quorum: 1})).toThrow(/invalid signature length/)
+    expect(assembleDualOperation({prepared, approvals: [a], quorum: 1}).approvals).toEqual([a.approval])
+  })
+  it('a bundle without approvals is refused before it travels', async () => {
+    const p = await payment(), prepared = prepareDualOperation({payment: p, operation: 'secp256k1-sign', epoch: 2})
+    const expected = {operation: 'secp256k1-sign' as const, slot: Uint8Array.from(prepared.statement.slot), payloadDigest: Uint8Array.from(prepared.statement.payload_digest), payment: p}
+    expect(() => requireDualOperationProof({statement: prepared.statement, approvals: []}, expected)).toThrow(/invalid dual-operation approvals/)
+    const a = await approveDualOperation({prepared, payment: p, expectSlot: p.slot, expectPayloadDigest: p.payload_digest, approver: approver(11)})
+    expect(() => requireDualOperationProof({statement: prepared.statement, approvals: [a.approval]}, expected)).not.toThrow()
   })
 })
