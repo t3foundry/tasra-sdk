@@ -374,7 +374,28 @@ const PREPARE_ATTEMPT_BUDGET_MS = 10_000
 
 // Availability is distinct from policy/credit refusals or an invalid successful response.
 // Only this private error permits trying a different endpoint before any transaction exists.
-class AccountantUnavailableError extends Error {}
+class AccountantUnavailableError extends Error {
+  /** A 503 to an unpinned prepare carrying {@link PRE_WRITE_REASON}: refused before anything was recorded. */
+  readonly preWrite: boolean
+  constructor(message: string, options?: ErrorOptions & {preWrite?: boolean}) {
+    super(message, options)
+    this.preWrite = options?.preWrite === true
+  }
+}
+
+/**
+ * The accountant's fixed 503 label for a failed verifier-assignment check (every release; the
+ * detail follows a `:`). That check runs BEFORE the reservation archive record and the signer's
+ * digest approval - the only things a `prepare` writes - so a member answering it recorded and
+ * approved nothing. It is what an accountant deciding at a head older than the client's answers:
+ * 2026-11-12 cert run 16, the previous epoch's verifier anchor landed in the block after the beacon
+ * advanced and every rolled-back accountant decided one block before it, where it was still empty.
+ */
+const PRE_WRITE_REASON = 'reservation assignments unavailable'
+const preWriteReason = (text: string) => {
+  const t = text.trimStart()
+  return t.startsWith(PRE_WRITE_REASON) && (t.length === PRE_WRITE_REASON.length || t[PRE_WRITE_REASON.length] === ':')
+}
 
 /**
  * The prepare retry window: never more than {@link PREPARE_RETRY_BUDGET_MS} and never more than HALF
@@ -421,8 +442,10 @@ async function ask(endpoint: string, method: 'prepare' | 'authorize', payment: P
   }
   if (!response.ok) {
     // Only an unpinned prepare picks its quote block, so only it can find the signed epoch stale.
-    if (method === 'prepare' && block === null && response.status === 503 && (await boundedText(response, MAX_REASON)).includes(STALE_EPOCH_REASON)) {
-      throw new PaidReservationStaleEpochError(payment.verification_epoch)
+    if (method === 'prepare' && block === null && response.status === 503) {
+      const reason = await boundedText(response, MAX_REASON)
+      if (reason.includes(STALE_EPOCH_REASON)) throw new PaidReservationStaleEpochError(payment.verification_epoch)
+      throw new AccountantUnavailableError('accountant reservation request refused (503)', {preWrite: preWriteReason(reason)})
     }
     void response.body?.cancel().catch(() => {})
     if (response.status >= 500 && response.status < 600) throw new AccountantUnavailableError(`accountant reservation request refused (${response.status})`)
@@ -457,9 +480,17 @@ async function ask(endpoint: string, method: 'prepare' | 'authorize', payment: P
   return parseQuote(JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(body)), payment, method === 'authorize')
 }
 
-/** One intent and quote across available members; no transaction or journal mutation here. */
+/**
+ * One intent and quote across available members; no transaction or journal mutation here.
+ *
+ * When EVERY member refused the unpinned prepare with the pre-write 503 ({@link PRE_WRITE_REASON}),
+ * the seed round is repeated ONCE with the same signed intent, naming the client's fresh `latest`
+ * block, so each member judges it there instead of at its own possibly older head; the accountant
+ * still applies every freshness and canonical check to a named block. Any other mix (a transport
+ * error, whose effect is unknown, another status or reason) is never repeated.
+ */
 async function collectQuote(urls: string[], payment: PaymentIntentWire, requestTimeout: number,
-  signal: AbortSignal | undefined, clock: PaidPacingClock): Promise<{quote: PaidReservationQuote; authorized: PaidReservationQuote}> {
+  signal: AbortSignal | undefined, clock: PaidPacingClock, latest: () => Promise<Hex>): Promise<{quote: PaidReservationQuote; authorized: PaidReservationQuote}> {
   const budget = prepareRetryWindowMs(payment.expires, clock.now()), end = clock.now() + budget
   if (budget <= 0) throw new Error('payment expired before reservation collection')
   const limit = AbortSignal.timeout(budget), bounded = signal ? AbortSignal.any([signal, limit]) : limit
@@ -480,9 +511,24 @@ async function collectQuote(urls: string[], payment: PaymentIntentWire, requestT
     }
   }
   let seed: {quote: PaidReservationQuote; index: number} | undefined, lastUnavailable: AccountantUnavailableError | undefined
-  for (const [index, url] of urls.entries()) {
-    try { seed = {quote: await request(url, 'prepare', null), index}; break }
-    catch (error) { if (!(error instanceof AccountantUnavailableError)) throw error; lastUnavailable = error }
+  const seedRound = async (block: Hex | null) => {
+    let preWrite = 0
+    for (const [index, url] of urls.entries()) {
+      try {
+        const quote = await request(url, 'prepare', block)
+        if (block !== null && !same(quote.quote_block, block)) throw new Error('accountant prepared a different quote block than the one named')
+        seed = {quote, index}; return 0
+      } catch (error) {
+        if (!(error instanceof AccountantUnavailableError)) throw error
+        lastUnavailable = error; preWrite += error.preWrite ? 1 : 0
+      }
+    }
+    return preWrite
+  }
+  if (await seedRound(null) === urls.length && urls.length > 0) {
+    const head = await untilAborted(latest(), bounded)
+    remaining()
+    await seedRound(head)
   }
   if (!seed) throw lastUnavailable ?? new Error('no reachable accountant prepared the reservation')
   const {quote, index} = seed, prepared = [urls[index]!]
@@ -564,7 +610,12 @@ async function reserveOnce(
   if (readerChain.status === 'rejected') throw readerChain.reason
   if (readerChain.value !== d.chainId) throw new Error('reservation RPC/wallet chain mismatch')
   const clock = opts.clock ?? systemPacingClock
-  const {quote, authorized} = await collectQuote(urls, payment, requestTimeout, signal, clock)
+  const latestHash = async (): Promise<Hex> => {
+    const head = await client.getBlock({blockTag: 'latest'})
+    if (head.hash === null) throw new Error('latest block has no hash')
+    return head.hash
+  }
+  const {quote, authorized} = await collectQuote(urls, payment, requestTimeout, signal, clock, latestHash)
   const requestId = prepaidRequestId(payment)
   const args = [payment.slot, BigInt(quote.legacy_nonce), quote.quote_block, [requestId], [BigInt(quote.costs[0]!)], BigInt(quote.deadline)] as const
   const data = encodeFunctionData({abi: settlementAbi, functionName: 'reservePrepaidBls', args: [...args, authorized.signature!]})

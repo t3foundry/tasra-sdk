@@ -846,12 +846,75 @@ it('a stale-epoch prepare refusal is typed and final for this intent: no failove
   expect(error).toMatchObject({code: 'stale-verification-epoch', verificationEpoch: 7})
   expect(seen).toHaveLength(1) // every member judges the same epoch: asking another cannot help
   expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
-  // Any other 503 keeps its meaning: an unavailable member, skipped for the next one.
+  // Any other 503 keeps its meaning: an unavailable member, skipped for the next one. This one is
+  // the pre-write refusal from every member, so the seed round is repeated once at latest.
   const g = await fixture(), other = quorumHttp(g, () => new Response('reservation assignments unavailable: rpc timeout', {status: 503}))
   const unavailable: unknown = await g.run({accountantUrls: quorumUrls}).catch((e: unknown) => e)
   expect(unavailable).not.toBeInstanceOf(PaidReservationStaleEpochError)
   expect(unavailable).toBeInstanceOf(Error)
-  expect(other).toHaveLength(3)
+  expect(other).toHaveLength(6)
+})
+
+// 2026-11-12 cert run 16 (L4 versions rollback): the previous epoch's verifier anchor landed one
+// block after the beacon advanced; the client signed that epoch from the newer block while every
+// (rolled-back) accountant decided one block before it and answered 503 "reservation assignments
+// unavailable: reservation verifier seed or snapshot unavailable" - before recording anything.
+const PRE_WRITE = 'reservation assignments unavailable: reservation verifier seed or snapshot unavailable'
+const prepares = (seen: ReturnType<typeof quorumHttp>) => seen.filter(s => s.method === 'prepare')
+
+it('every member refusing before any write is asked once more, at the client latest block, with the same intent', async () => {
+  const change: Changes = {headNumber: 19}
+  const f = await fixture(change)
+  const seen = quorumHttp(f, (_url, method, init) => {
+    const body = JSON.parse(init.body as string) as {quote_block: Hex | null}
+    if (method === 'prepare' && body.quote_block === null) return new Response(PRE_WRITE, {status: 503})
+    change.headNumber = undefined // the broadcast and its receipt follow at block 20
+    return undefined
+  })
+  await f.run({accountantUrls: quorumUrls})
+  expect(f.transactions).toHaveLength(1)
+  expect(f.checkpoints.map(c => c.phase)).toEqual(['prepared', 'submitted', 'confirmed'])
+  const p = prepares(seen)
+  expect(p).toHaveLength(6) // three refused, then the one repeated round
+  expect(p.slice(0, 3).map(s => s.body.quote_block)).toEqual([null, null, null])
+  expect(p.slice(3).map(s => s.body.quote_block)).toEqual([h(19), h(19), h(19)])
+  expect(seen.filter(s => s.method === 'authorize')).toHaveLength(1)
+})
+
+it.each([
+  ['a member whose refusal is not the pre-write one', () => new Response('reservation archive unavailable: disk', {status: 503})],
+  ['the pre-write text under another status', () => new Response(PRE_WRITE, {status: 502})],
+  ['an unknown 503', () => new Response('offline', {status: 503})],
+  ['a near-miss label', () => new Response('reservation assignments unavailablex', {status: 503})],
+  // A transport failure: whether that member recorded anything is unknown.
+  ['an uncertain transport failure', () => { throw new TypeError('fetch failed') }],
+])('%s beside pre-write refusals is never repeated', async (_case, answer) => {
+  const f = await fixture()
+  const seen = quorumHttp(f, url => url.startsWith(quorumUrls[1]!) ? answer() : new Response(PRE_WRITE, {status: 503}))
+  await expect(f.run({accountantUrls: quorumUrls})).rejects.toBeInstanceOf(Error)
+  expect(prepares(seen)).toHaveLength(3)
+  expect(prepares(seen).every(s => s.body.quote_block === null)).toBe(true)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+it('a repeated round refused again is surfaced after exactly one repeat, with nothing journaled or sent', async () => {
+  const f = await fixture({headNumber: 19})
+  const seen = quorumHttp(f, () => new Response(PRE_WRITE, {status: 503}))
+  await expect(f.run({accountantUrls: quorumUrls})).rejects.toThrow(/refused \(503\)/)
+  expect(prepares(seen)).toHaveLength(6)
+  expect(seen.filter(s => s.method === 'authorize')).toHaveLength(0)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+it('a repeated round answered at another block than the one named is refused', async () => {
+  const f = await fixture({headNumber: 21})
+  const seen = quorumHttp(f, (_url, method, init) => {
+    const body = JSON.parse(init.body as string) as {quote_block: Hex | null}
+    return method === 'prepare' && body.quote_block === null ? new Response(PRE_WRITE, {status: 503}) : undefined
+  })
+  await expect(f.run({accountantUrls: quorumUrls})).rejects.toThrow(/different quote block/)
+  expect(prepares(seen)).toHaveLength(4)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
 })
 
 it('a caller abort during an unavailable response stops collection without failover', async () => {

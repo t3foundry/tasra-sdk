@@ -278,6 +278,15 @@ never does.
 
 ### Fixed
 
+- A paid reservation no longer fails when every accountant decides it one block behind the
+  client (2026-11-12, cert run 16: the previous epoch's verifier anchor landed in the block after
+  the beacon advanced, and every member, following the block before it, answered 503
+  `reservation assignments unavailable`). That 503 comes from the assignment check, before an
+  accountant records or approves anything; when EVERY member answers it to the unpinned prepare,
+  the prepare round is repeated once with the same signed intent, naming the client's fresh
+  `latest` block (the accountant still judges freshness and canonicity there). A transport
+  failure, another status or reason, a second refusal or a quote at another block is never
+  repeated; nothing is journaled or sent before the authorization, as before.
 - A session grant no longer dies quietly, nor spends its holder's session quota re-signing an old
   epoch (C20 fleet: 22/30 at 5 ms, 5/20 at 110 ms). A definite refresh refusal
   (`session_context_changed`, `session_continuation`, `session_unknown`, `session_wrong_key`,
