@@ -94,7 +94,7 @@ export function derivedNonce(reqHash: Uint8Array, random: Uint8Array, ctx: Nonce
 export const VP_SESSION_NONCE_DOMAIN = 'keykeeper/vp-session-nonce/v1'
 
 /**
- * The nonce of a presentation that also OPENS an ADR-0090 D7 session grant:
+ * The nonce of a presentation that also OPENS a session grant:
  * `base64url(keccak256("keykeeper/vp-session-nonce/v1" || request_hash || random || epoch u64 BE ||
  * snapshot_root || registry_size u32 BE || committee u32 BE || quorum u32 BE || operation_exp i64 BE
  * || session_key_thumbprint))`, unpadded. The holder key that signs the KB-JWT (or the DPoP proof)

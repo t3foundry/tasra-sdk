@@ -102,11 +102,11 @@ export interface PaidOperationConfig {
    */
   allowMissingStatusAttestations?: boolean
   /**
-   * ADR-0090 prepaid allowances, DEFAULT OFF. With `enabled: true` an operation whose slot has a
+   * Prepaid allowances, DEFAULT OFF. With `enabled: true` an operation whose slot has a
    * lane with room is paid by an accountant-quorum debit voucher against a reserved allowance
    * instead of its own on-chain reservation; otherwise (no usable lane, exhausted, expired or
    * refused) it falls back to the per-operation reservation. Enable only when every reader on the
-   * deployment is at the ADR-0090 version: the network advertises no capability for it.
+   * deployment supports prepaid allowances: the network advertises no capability for it.
    */
   allowances?: PaidAllowanceOptions
 }
@@ -132,7 +132,7 @@ export interface PaidOperationRequest {
   /** Inspect the verified request object before any credential is disclosed. */
   observeRequest?(request: VerifiedRequestObject): void | Promise<void>
   /**
-   * ADR-0090 D7: also open a session grant with this presentation (KEM `decrypt` only), for the
+   * Session grants: also open a session grant with this presentation (KEM `decrypt` only), for the
    * fresh session key in the fragment ({@link sessionGrantCreateFragment}). The fragment is public
    * and journaled; the presentation nonce binds its key. The verified grant comes back as
    * {@link PaidOperation.sessionGrant}; accept it with `acceptSessionGrant` and the same key.
@@ -152,7 +152,7 @@ export interface PaidOperation {
   /** Exact sealed presentation ciphertext persisted with the original grant. */
   readonly evidenceCt?: string
   /**
-   * ADR-0090 D7, when the request asked for a session grant: the verified opening grant
+   * Session grants, when the request asked for a session grant: the verified opening grant
    * (`{session_grant, refresh_seq: 0}`, the input of `acceptSessionGrant`), or why none came. The
    * compound token authorizes this one operation either way.
    */
@@ -357,18 +357,18 @@ interface OperationRecord {
   abandoned?: {reason: string; at: number; phase: Exclude<Phase, 'abandoned'>}
   /** Gas payer the reservation uses (absent from journals written before payers were recorded). */
   payer?: Address
-  /** ADR-0090: the allowance lane this payment is debited on (absent for a per-operation reservation). */
+  /** Prepaid allowances: the allowance lane this payment is debited on (absent for a per-operation reservation). */
   allowance?: {lane: number}
   /** A final dual-control Sign payment ({@link paidFinalSign}): no presentation, session or grant follows. */
   finalSign?: true
-  /** An ADR-0090 D7 session-grant decrypt payment ({@link paidSessionDecrypt}): the grant, not a presentation, authorizes it. */
+  /** A session-grant decrypt payment ({@link paidSessionDecrypt}): the grant, not a presentation, authorizes it. */
   sessionDecrypt?: true
   payment: PaymentIntentWire
   expected: ExpectedPaidOperation
   params: {operation: PresentationOperation; operationSig: Hex; messageHex: string; random: Hex; decryption?: DecryptionBindingWire
-    /** ADR-0073 OAuth+DPoP session (an OAuth holder); absent for a wallet session, as in every older journal. */
+    /** OAuth+DPoP session (an OAuth holder); absent for a wallet session, as in every older journal. */
     kind?: 'oauth'
-    /** ADR-0090 D7 session mode: the public create fragment, signed into the session initialization. */
+    /** Session mode: the public create fragment, signed into the session initialization. */
     sessionGrant?: SessionGrantRequestWire}
   members: PaidVerifierWitness[]
   rule: string
@@ -383,7 +383,7 @@ interface OperationRecord {
   pollSecret?: string
   /** `sessionId` is absent from journals written before status refresh existed (relay unavailable for them). */
   grant?: {compound_token: CompoundTokenWire; verifierProofs: VerifierProof[]; sessionId?: string; evidenceCt?: string
-    /** ADR-0090 D7: the verified opening grant or why none came (session mode only). */
+    /** Session mode: the verified opening grant or why none came (session mode only). */
     sessionGrant?: {grant?: {session_grant: SessionGrantWire; refresh_seq: 0}; error?: string}}
   /** Status refresh history (absent until the first refresh). */
   statusRefresh?: StatusRefreshJournal
@@ -692,7 +692,7 @@ export interface PreparedAllowances {
 }
 
 /**
- * ADR-0090: open (reserve) a slot's allowance lanes BEFORE its first paid operation, like loading
+ * Prepaid allowances: open (reserve) a slot's allowance lanes BEFORE its first paid operation, like loading
  * a card, so no user operation waits for an allowance reservation (approve + reserve transactions
  * and their receipts) inside it. Operations otherwise open a cold lane themselves: the first one on
  * each lane then falls back to a per-operation reservation or waits for the lane.
@@ -705,7 +705,7 @@ export interface PreparedAllowances {
  * are unaffected. Never throws for a lane's outcome; throws only for invalid input or
  * configuration, and when the signal was aborted before anything started.
  *
- * Draw lanes (session grants, ADR-0090 D7) are not opened here: their draw is known only once a
+ * Draw lanes (session grants) are not opened here: their draw is known only once a
  * grant exists.
  * @param config Approved deployment, creator, gas payer, store, accountants, limits and `allowances` (enabled).
  * @param request Slot, lanes, concurrency, readiness for the coming work and cancellation.
@@ -828,8 +828,14 @@ export async function paidOperation(config: PaidOperationConfig, request: PaidOp
  * `beaconEpoch` is this process's own chain read that refused it.
  */
 export class NewerVerifierEpoch extends Error {
+  /** Stable reason. */
   readonly code = 'newer-verifier-epoch' as const
-  constructor(readonly requestId: Hex, readonly beaconEpoch: bigint) {
+  constructor(
+    /** The refused reservation's payment request id. */
+    readonly requestId: Hex,
+    /** The beacon epoch this process read when it refused. */
+    readonly beaconEpoch: bigint,
+  ) {
     super('the verifier epoch moved on while this reservation waited for its payer; nothing was sent')
     this.name = 'NewerVerifierEpoch'
   }
@@ -1003,7 +1009,7 @@ async function reserve(config: PaidOperationConfig, record: OperationRecord, sig
 }
 
 /**
- * ADR-0090: obtain this payment's debit voucher on its lane instead of a reservation, and journal
+ * Prepaid allowances: obtain this payment's debit voucher on its lane instead of a reservation, and journal
  * the payment WITH the voucher (`reserved`). A definite refusal journals `failed` (no voucher can
  * exist: fewer than k members signed and the lane is retired); unreachable accountants leave the
  * debit pending for the same seq and request (`reservation-refused`, resumable).
@@ -1728,7 +1734,7 @@ export interface PaidFinalSign {
 /**
  * Pay a final dual-control Sign without any presentation: no verifier-agent session and no
  * credential grant follows, because a static-key dual-control quorum authorizes the work at the
- * keeper. With `config.allowances` it is debited from an allowance lane (ADR-0090) and falls back
+ * keeper. With `config.allowances` it is debited from an allowance lane and falls back
  * to a per-operation reservation exactly as {@link paidOperation} does; the journal, the execution
  * certificate and the keeper approvals are the ones paidOperation uses. Resume an interrupted one
  * with {@link resumePaidFinalSign}.
@@ -1767,13 +1773,13 @@ interface PresentationlessSpec {
   description: string
   build(d: PaidContextDeployment & {chainId: number; keyRegistry: Address}, nowSecs: number, ttlSecs: number): ReturnType<typeof presentationOperationTypedData>
   decryption?: DecryptionBindingWire
-  /** ADR-0090 D7: the session grant's draw the payment must name (the keeper refuses any other). */
+  /** Session grants: the session grant's draw the payment must name (the keeper refuses any other). */
   draw?: {epoch: bigint; seed: Hex}
   /** Sees the discovery the payment is built from (the beacon epoch it observed). */
   onContext?(context: PaidOperationContext): void
 }
 
-/** Pay one operation without any presentation (final dual Sign, ADR-0090 D7 session decrypt): journaled, reserved, never presented. */
+/** Pay one operation without any presentation (final dual Sign, session-grant decrypt): journaled, reserved, never presented. */
 async function presentationlessAttempt(config: PaidOperationConfig, request: {slot: Hex; ttlSecs?: number; coordinator?: Address; signal?: AbortSignal;
   onRequestId?(requestId: Hex): void | Promise<void>}, useAllowance: boolean, spec: PresentationlessSpec): Promise<Hex> {
   const d = {...config.deployment}, client = config.chain.client, signal = request.signal ?? new AbortController().signal
@@ -1862,7 +1868,7 @@ async function continueFinalSign(config: PaidOperationConfig, requestId: Hex): P
   return {requestId, payment: structuredClone(record.payment), coordinatorUrl: route(record.coordinator.url), approveExecution, dispose: () => signer.dispose()}
 }
 
-/** One ADR-0090 D7 session-grant KEM decrypt to pay: the slot and the exact recipient binding. */
+/** One session-grant KEM decrypt to pay: the slot and the exact recipient binding. */
 export interface PaidSessionDecryptRequest {
   /** KEM (BLS) slot named by the session grant. */
   slot: Hex
@@ -1917,7 +1923,7 @@ export interface PaidSessionDecrypt {
 }
 
 /**
- * Pay one KEM decrypt that a session grant (ADR-0090 D7) authorizes: no presentation and no
+ * Pay one KEM decrypt that a session grant authorizes: no presentation and no
  * verifier round, because the grant and the session-key proof authorize the keeper work. With
  * `config.allowances` it is debited from an allowance lane and falls back to a per-operation
  * reservation exactly as {@link paidOperation}; journal, certificate and keeper approvals are the
@@ -1997,6 +2003,11 @@ async function continueSessionDecrypt(config: PaidOperationConfig, requestId: He
   return {requestId, payment: structuredClone(record.payment), approveExecution, recoverPartial, dispose: () => signer.dispose()}
 }
 
+/**
+ * The journaled phase of a paid operation, or `undefined` when the store holds no record of it.
+ * @param store - Application store holding the operation journal.
+ * @param requestId - Payment request id of the operation.
+ */
 export async function paidOperationPhase(store: ApplicationStore, requestId: Hex): Promise<PaidOperationJournalPhase | undefined> {
   const record = await store.load<OperationRecord>(recordKey(requestId))
   return record?.phase

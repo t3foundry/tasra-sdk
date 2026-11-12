@@ -424,20 +424,20 @@ export interface PaidContextOptions extends PaidKeeperTransportOptions {
   /** Independently approved deployed verifier defaults; required only for a zero slot override. */
   defaultVerificationPolicy?: {committee: number; quorum: number}
   /**
-   * ADR-0090: the operation may be funded by an already reserved allowance, so an activated slot
+   * Prepaid allowances: the operation may be funded by an already reserved allowance, so an activated slot
    * whose whole balance is escrowed (`balanceOf` 0) is not refused here. Activation is still required;
    * a per-operation reservation from such a slot is refused by the accountants (402).
    */
   fundedByAllowance?: boolean
   /**
-   * ADR-0090 D7: draw on THIS verifier epoch (a session grant's), never a newer one. Every message
+   * Session grants: draw on THIS verifier epoch (a session grant's), never a newer one. Every message
    * of a session pays the grant's draw (the keeper refuses any other), and a grant is admitted only
    * while its epoch is the beacon's latest or the one before; past that a typed
    * {@link PaidDrawMovedError} is thrown before anything is signed (refresh the grant first).
    */
   verificationEpoch?: bigint
   /**
-   * ADR-0090: while a new epoch's anchors land (no admissible complete verifier draw at the
+   * Prepaid allowances: while a new epoch's anchors land (no admissible complete verifier draw at the
    * observed head, see {@link PaidAnchorWait}), return at once a context marked
    * {@link PaidOperationContext.undrawn} instead of waiting. Only for a caller that will fund the
    * operation from an EXISTING allowance, whose payment names the allowance's own draw (judged at
@@ -453,8 +453,14 @@ export interface PaidContextOptions extends PaidKeeperTransportOptions {
  * again) and discover anew.
  */
 export class PaidDrawMovedError extends Error {
+  /** Stable reason. */
   readonly code = 'draw-moved' as const
-  constructor(readonly pinnedEpoch: bigint, readonly beaconEpoch: bigint) {
+  constructor(
+    /** The pinned verifier epoch. */
+    readonly pinnedEpoch: bigint,
+    /** The beacon's latest epoch as read. */
+    readonly beaconEpoch: bigint,
+  ) {
     super(`payment discovery: verifier epoch ${pinnedEpoch} is no longer current or previous (beacon at ${beaconEpoch})`)
     this.name = 'PaidDrawMovedError'
   }
@@ -807,7 +813,7 @@ function requirePaidOperation(deployment: PrepaidDeployment, payment: PaymentInt
     || payment.payload_digest.toLowerCase() !== expected.payloadDigest.toLowerCase()) throw new Error('payment operation mismatch')
 }
 
-/** Backing reads at `at`: a reservation's five Settlement reads, or (ADR-0090) an allowance's record, the request's settlement state and the voucher check. */
+/** Backing reads at `at`: a reservation's five Settlement reads, or an allowance's record, the request's settlement state and the voucher check. */
 type ReceiptReads = {kind: 'reservation'; reads: unknown[]} | {kind: 'allowance'; reads: unknown[]}
 function receiptReads(client: PublicClient, deployment: PrepaidDeployment, at: PrepaidObservation, payment: PaymentIntentWire): Promise<ReceiptReads> {
   const requestId = prepaidRequestId(payment)
@@ -896,7 +902,7 @@ function checkReceiptReads(at: PrepaidObservation, payment: PaymentIntentWire, o
 }
 
 /**
- * ADR-0090 D3 from the client side: the allowance is mined and canonical at `at`, for this slot,
+ * Allowance backing, from the client side: the allowance is mined and canonical at `at`, for this slot,
  * open, unexpired and funding the action; the (already signature-verified) voucher debits THIS
  * request within the per-operation cap and the escrow; the request is not per-operation reserved
  * (`prepaidCost` is 0 until the allowance settle writes the voucher's cost). The voucher's cost and

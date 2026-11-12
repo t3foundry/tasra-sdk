@@ -335,7 +335,7 @@ export interface RulePolicyArgs {
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address
 
 /**
- * `slotCommits` as a path-recording registry returns it (ADR-0080): the four historical words plus
+ * `slotCommits` as a path-recording registry returns it: the four historical words plus
  * `frozenAt` and the reveal path. Kept beside the generated ABI rather than in it, because the
  * generated four-output form is what every other reader decodes - and decodes on BOTH registry
  * generations - while this six-output form fails to decode on an older one, which is exactly the

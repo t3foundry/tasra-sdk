@@ -27,7 +27,10 @@ import type {Hex, PublicClient} from 'viem'
 import type {PinnedBlock} from './pinnedReads.js'
 
 /** A followed header. */
-export interface FollowedHead extends PinnedBlock {parentHash: Hex}
+export interface FollowedHead extends PinnedBlock {
+  /** Hash of the parent block. */
+  parentHash: Hex
+}
 
 /** Head follower options. */
 export interface HeadFollowerOptions {
@@ -219,7 +222,10 @@ export function createHeadFollower(client: PublicClient, options: HeadFollowerOp
 
 const followers = new WeakMap<PublicClient, HeadFollower>()
 
-/** The follower attached to `client`, if any. */
+/**
+ * The follower attached to `client`, if any.
+ * @param client Client the follower was attached to.
+ */
 export function headFollowerOf(client: PublicClient): HeadFollower | undefined {
   return followers.get(client)
 }
@@ -239,7 +245,10 @@ export function followHeads(client: PublicClient, options: HeadFollowerOptions =
   return follower
 }
 
-/** Detach and stop the follower of `client`. */
+/**
+ * Detach and stop the follower of `client`.
+ * @param client Client whose follower to stop.
+ */
 export function unfollowHeads(client: PublicClient): void {
   followers.get(client)?.stop()
   followers.delete(client)

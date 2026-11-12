@@ -9,7 +9,7 @@ never does.
 
 ### Added
 
-- Paid OAuth+DPoP operations (ADR-0073) through the public paid-operation API: a
+- Paid OAuth+DPoP operations through the public paid-operation API: a
   `{kind: 'oauth', credential}` holder for `paidOperation`, `resumePaidOperation` and
   `drivePaidSession`. The OAuth mode is signed into the session and journaled with the operation
   (a resume with a holder of the other family is refused; a holder that does not match the slot
@@ -34,7 +34,7 @@ never does.
   epoch-window refusal counts as stale (`isStaleSessionRefusal`) only when the grant is behind
   the keeper's window or the keeper says `session-stale`; a keeper whose beacon lags the grant
   (C24 `forbidden`, same text) is not a reason to refresh or pay again.
-- Session grants follow the beacon across epoch boundaries (ADR-0090 D7–D9).
+- Session grants follow the beacon across epoch boundaries.
   `GrantedSession.observeBeacon`/`followBeacon` refresh a grant in the background once a CHAIN
   observation (payment discovery, the optional `start()` beacon poll, a fresh
   `readCurrentBeaconEpoch`) shows the beacon past the grant's epoch; a keeper's claimed epoch is
@@ -90,13 +90,13 @@ never does.
   `AllowanceCapacityError` (never a third allowance: at most 2 x lanes x amount locked). Unset,
   the behaviour is unchanged.
 - `prepareAllowances(config, {slot, lanes?, concurrency?, coordinator?, signal?})` (`tasra-sdk/app`):
-  open a slot's ADR-0090 allowance lanes before its first paid operation, so no user operation
+  open a slot's allowance lanes before its first paid operation, so no user operation
   pays a lane's opening (reservation transactions and receipts) inside itself. Each lane goes
   through the journaled lane reservation (fresh discovery per lane, dedicated payer, durable payer
   claim) and reports `reserved`, `not-needed` (nothing read or sent: idempotent), `pending`,
   `failed` or `cancelled`; one lane's failure never marks another. Additive; no existing
   signature changes.
-- ADR-0090 prepaid allowances behind `PaidOperationConfig.allowances` (default off): a pool
+- Prepaid allowances behind `PaidOperationConfig.allowances` (default off): a pool
   of allowance lanes reserved ahead (`reservePrepaidAllowance`), per-operation accountant
   debit vouchers (`collectDebitVoucher`, BN254 partials verified and combined client side,
   aggregate checked against `beacon.mpk()` at the quote block), a lane journal written before
@@ -108,7 +108,7 @@ never does.
   never failing the operation), so members also learn a lane's last seq; a retiring lane or
   an allowance near expiry re-pushes its last voucher once to members that did not
   acknowledge it.
-- ADR-0090 D7 draw lanes: a session grant's messages pay its exact verifier draw, which moves
+- Session-grant draw lanes: a session grant's messages pay its exact verifier draw, which moves
   every beacon epoch. Two sets of draw lanes per slot (one per epoch parity) hold allowances
   reserved on one draw each. A message on the previous epoch while the beacon is already at the
   next reserves the next draw's lanes in the background, through a pinned, verified discovery;
@@ -351,7 +351,7 @@ never does.
   standing, a pinned grant epoch one ahead) once more at a fresh RPC `latest` newer than the tip
   before refusing. A positive answer at the tip and every other refusal are unchanged; the happy
   path reads nothing more, and a refusal that `latest` confirms costs exactly one extra head read.
-- ADR-0090 allowance lanes: paid operations that selected a lane at the same time in one process
+- Allowance lanes: paid operations that selected a lane at the same time in one process
   all took the SAME lane of their slot (every selection read one cursor and the same idle lanes;
   a debit marks its lane pending only once its voucher round starts), so their voucher rounds,
   each a full accountant round trip under that lane's lock, ran one after another. A selection

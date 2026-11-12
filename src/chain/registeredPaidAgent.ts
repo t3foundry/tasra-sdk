@@ -58,15 +58,26 @@ export interface RetainedPaidApproval {
   expires: number
 }
 
-/** Outcome of one send of a retained approval. Any other answer throws {@link PaidAgentControlError}. */
 /**
  * Answer to one batch of retained approvals (`POST /v1/sessions/{id}/execution/approve`):
  * `busy` when the whole request was refused before processing (HTTP 429/503), otherwise the
  * per-delivery HTTP status the agent decided (204 accepted; 404, 409, 410 or 422 refused).
  */
 export type PaidApprovalBatchReply =
-  | {kind: 'busy'; httpStatus: 429 | 503; hintMs?: number}
-  | {kind: 'results'; results: ReadonlyMap<string, 204 | 404 | 409 | 410 | 422>}
+  | {
+    /** The whole batch was refused before processing. */
+    kind: 'busy'
+    /** Observed status. */
+    httpStatus: 429 | 503
+    /** Strict server hint, in ms. */
+    hintMs?: number
+  }
+  | {
+    /** The agent decided each delivery. */
+    kind: 'results'
+    /** HTTP status per delivery. */
+    results: ReadonlyMap<string, 204 | 404 | 409 | 410 | 422>
+  }
 
 /** Manifest capability of an agent that accepts a batch of approvals in one request. */
 export const BATCH_APPROVAL_CAPABILITY = 'execution-approve-batch'
@@ -75,6 +86,7 @@ export const PROPOSAL_WAIT_CAPABILITY = 'execution-wait'
 /** Longest proposal hold the client asks for (the agent's own cap). */
 export const MAX_PROPOSAL_WAIT_MS = 25_000
 
+/** Outcome of one send of a retained approval. Any other answer throws {@link PaidAgentControlError}. */
 export interface PaidApprovalDelivery {
   /** `accepted`: HTTP 204, the agent accepted the approval. `busy`: HTTP 429/503, definitely refused before processing. */
   status: 'accepted' | 'busy'
@@ -93,7 +105,7 @@ export interface PaidAgentSessionParams extends CreateSessionParams {
   /** Credential adapter; omitted means wallet. */
   kind?: 'wallet' | 'oauth'
   /**
-   * ADR-0090 D7 session mode (KEM `decrypt` only): also open a session grant for this FRESH public
+   * Session mode (KEM `decrypt` only): also open a session grant for this FRESH public
    * session key. The presentation nonce then binds the key's RFC 7638 thumbprint
    * (`vp-session-nonce/v1`), and every nonce this session checks is that one.
    */

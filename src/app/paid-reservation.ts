@@ -309,7 +309,7 @@ export async function selectApplicationGasPayer<W extends WalletClient<Transport
 }
 
 /**
- * Internal (ADR-0090 allowance reservations): run one gas-payer transaction under the same durable
+ * Internal (prepaid allowance reservations): run one gas-payer transaction under the same durable
  * payer claim as {@link reserveApplicationPayment}. `claim(nonce)` must be awaited from the
  * caller's `prepared` checkpoint, before broadcast: it refuses a nonce below the durable floor and
  * records the pending claim. On success the floor advances past the claimed nonce; on failure

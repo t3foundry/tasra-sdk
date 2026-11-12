@@ -58,11 +58,11 @@ import {HEX32, paidRecordKey} from './paid-keys.js'
 import {headFollowerOf} from '../chain/headFollower.js'
 import {saveAll, withCommit} from './store-commit.js'
 
-/** Explicit, default-off allowance funding for paid operations (ADR-0090). */
+/** Explicit, default-off allowance funding for paid operations. */
 export interface PaidAllowanceOptions {
   /**
    * Explicit opt-in. Set it only when every reader on the deployment (agent, verifiers, keepers,
-   * accountants) is at the ADR-0090 version: the network advertises no capability for it.
+   * accountants) supports prepaid allowances: the network advertises no capability for it.
    */
   enabled: boolean
   /** Escrow locked per allowance, TASRA base units. Allowances are fixed-amount; a top-up is a new one. */
@@ -82,7 +82,7 @@ export interface PaidAllowanceOptions {
   /** Per-accountant debit request timeout, ms (default 15000). */
   debitTimeoutMs?: number
   /**
-   * ADR-0090 D7: escrow locked per DRAW-lane allowance (default `amount`). A session grant's
+   * Session grants: escrow locked per DRAW-lane allowance (default `amount`). A session grant's
    * messages must pay its exact verifier draw, which moves every beacon epoch; draw lanes hold
    * allowances reserved on one draw each (see {@link selectAllowanceLane}). At least the
    * per-operation cap.
@@ -109,7 +109,7 @@ const QUOTE_REUSE_SECS = 20
 const MAX_LANES = 8
 const MAX_RETIRED = 16
 /**
- * Draw lanes (ADR-0090 D7): lane indices `DRAW_LANE_BASE + (epoch % 2) * MAX_LANES + j`, j < lanes.
+ * Draw lanes (session grants): lane indices `DRAW_LANE_BASE + (epoch % 2) * MAX_LANES + j`, j < lanes.
  * Keepers admit a session grant only at the beacon's latest or previous epoch, so at most two draws
  * are ever wanted at once: one lane set per epoch parity, re-reserved (the stale draw retired)
  * every second epoch.
@@ -132,7 +132,7 @@ export interface AllowanceEnv {
   limits: {maxCost: bigint; maxGas: bigint; maxGasPrice: bigint}
   options: PaidAllowanceOptions
   /**
-   * ADR-0090 D7 reserve-ahead: a fresh payment discovery pinned to `epoch`
+   * Session-grant reserve-ahead: a fresh payment discovery pinned to `epoch`
    * (`discoverPaidOperationContext({verificationEpoch})`, which verifies the draw at a canonical
    * head and refuses one that is not the beacon's latest or previous). Without it a new draw's
    * lane is reserved only once a message needs it.
@@ -315,7 +315,7 @@ function endingFor(c: LaneCurrent, context: PaidOperationContext, operation: {ex
 
 /**
  * The operation a lane must fund. `drawPinned`: only an allowance drawn on exactly the discovered
- * verifier draw, and no reserved-ahead promotion (ADR-0090 D7: a session grant's opening, which
+ * verifier draw, and no reserved-ahead promotion (a session grant's opening, which
  * verifiers judge at the LIVE beacon, and its messages, whose keeper refuses any draw but the grant's).
  */
 export interface AllowanceOperation {action: AllowanceAction; expires: number; drawPinned?: boolean}
@@ -447,7 +447,7 @@ function drawNeeds(s: LaneState, draw: DrawFields): boolean {
 }
 
 /**
- * ADR-0090 D7: a session operation's lane on its exact draw, among the draw lanes (the regular
+ * Session grants: a session operation's lane on its exact draw, among the draw lanes (the regular
  * lanes were tried first and are never retired for a session). A miss starts one draw-lane
  * reservation for this draw (the caller then waits for it, bounded); a lane whose current
  * allowance runs low reserves its replacement on the same draw in the background.
@@ -803,7 +803,13 @@ export interface LaneWork {
 export class AllowanceCapacityError extends TasraError {
   /** Stable reason. */
   readonly code = 'allowance-capacity' as const
-  constructor(readonly lane: number, readonly operations: number, ready: LaneReadiness) {
+  constructor(
+    /** The allowance lane that is full. */
+    readonly lane: number,
+    /** Operations the lane can still fund within the required lifetime. */
+    readonly operations: number,
+    ready: LaneReadiness,
+  ) {
     super(`Allowance lane ${lane} can fund ${operations} operation(s) outliving ${ready.minLifetimeSecs ?? 0} s, below the ${ready.minOperations ?? 0} required; `
       + 'it already holds its current and one reserved-ahead allowance (at most 2 x lanes x amount locked): raise amount or lanes, or prepare again once the current one is spent', {retryable: false})
   }
@@ -1327,7 +1333,7 @@ export async function inspectAllowanceLanes(store: ApplicationStore, deployment:
 }
 
 /**
- * Inspect the draw lanes (ADR-0090 D7) of a slot for one epoch's parity: as {@link inspectAllowanceLanes},
+ * Inspect the session-grant draw lanes of a slot for one epoch's parity: as {@link inspectAllowanceLanes},
  * with each allowance's verifier epoch and how many allowances the lane holds (escrow possibly still locked).
  * @param store - Application store.
  * @param deployment - Approved deployment.

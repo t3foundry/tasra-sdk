@@ -57,17 +57,17 @@ export interface PaymentIntentWire {
   /** Creator's 65-byte EIP-712 signature. */
   signature: Hex
   /**
-   * ADR-0090: the prepaid allowance this operation is debited from. When present the creator
+   * Prepaid allowances: the allowance this operation is debited from. When present the creator
    * signature is over `SlotAllowancePaymentIntent` (these fields plus `allowanceId`), never over
    * `SlotAssignedPaymentIntent`, so neither signature can stand in for the other. Absent on a
    * per-operation (reservation-backed) payment, whose JSON is then unchanged.
    */
   allowance_id?: Hex
-  /** ADR-0090: the accountant-quorum debit voucher for this operation; not part of the signed intent. */
+  /** Prepaid allowances: the accountant-quorum debit voucher for this operation; not part of the signed intent. */
   debit_voucher?: DebitVoucherWire
 }
 
-/** ADR-0090 accountant-quorum debit of one operation against an allowance (threshold BN254 over {@link debitVoucherDigest}). */
+/** Accountant-quorum debit of one operation against an allowance (threshold BN254 over {@link debitVoucherDigest}). */
 export interface DebitVoucherWire {
   /** Allowance the operation is debited from. */
   allowance_id: Hex
@@ -141,7 +141,7 @@ const BASE_FIELDS = [
   {name: 'keeperAssignment', type: 'bytes32'},
 ] as const
 const TYPES = {SlotAssignedPaymentIntent: BASE_FIELDS} as const
-/** ADR-0090: a distinct type (same domain), so a per-operation signature never debits an allowance or the other way round. */
+/** Prepaid allowances: a distinct type (same domain), so a per-operation signature never debits an allowance or the other way round. */
 const ALLOWANCE_PAYMENT_TYPES = {SlotAllowancePaymentIntent: [...BASE_FIELDS, {name: 'allowanceId', type: 'bytes32'}]} as const
 const ALLOWANCE_INTENT_TYPES = {SlotPrepaidAllowanceIntent: [
   {name: 'keyRegistry', type: 'address'}, {name: 'slotId', type: 'bytes32'}, {name: 'intentNonce', type: 'bytes32'},
@@ -182,7 +182,7 @@ function baseMessage(p: Omit<PaymentIntentWire, 'signature'>) {
 
 /**
  * Build creator EIP-712 data. Validate chain backing, price, expiry and creator independently before spending.
- * A payment naming an `allowance_id` (ADR-0090) is the distinct `SlotAllowancePaymentIntent`; the
+ * A payment naming an `allowance_id` (a prepaid allowance) is the distinct `SlotAllowancePaymentIntent`; the
  * `debit_voucher` is never part of the signed data.
  * @param p - Creator payment intent before attaching its signature.
  */
@@ -207,7 +207,7 @@ export function paymentIntentHash(p: Omit<PaymentIntentWire, 'signature'>): Hex 
 
 /**
  * Derive the Settlement reservation identity for this exact payment and operation. Unchanged by
- * ADR-0090: an allowance-backed payment's own signing hash is the authorization commitment, so
+ * Prepaid allowances: an allowance-backed payment's own signing hash is the authorization commitment, so
  * the ID binds the allowance too.
  * @param p - Fixed creator intent; neither hashing nor an ID proves a mined reservation.
  */
@@ -364,7 +364,7 @@ export function prepaidAllowanceIntentHash(p: Omit<PrepaidAllowanceIntentWire, '
 }
 
 const word = (name: string) => keccak256(toHex(name))
-/** Domain strings of the ADR-0090 Encodings table. A change is a NEW name, never a digit. */
+/** Domain strings of the prepaid-allowance encodings. A change is a NEW name, never a digit. */
 export const PREPAID_ALLOWANCE_DOMAINS = {
   allowanceId: 'keykeeper/prepaid-allowance-id/v1',
   reserve: 'keykeeper/prepaid-allowance-reserve/v1',

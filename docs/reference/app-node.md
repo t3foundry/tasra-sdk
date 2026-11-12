@@ -56,7 +56,7 @@ Operations you can import and call.
 
 The directory is private, trusted application state, not an untrusted shared folder.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L98)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L180)
 
 Import: `import {createFileStore} from 'tasra-sdk/app/node'`
 
@@ -87,7 +87,7 @@ Options, data structures and return types.
 
 Durable private state storage with exclusive locking for each named operation.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L13)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L14)
 
 ```ts
 export interface ApplicationStore {
@@ -111,7 +111,7 @@ Fields:
 
 Options for [createFileStore](#createfilestore).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L83)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L165)
 
 ```ts
 export interface FileStoreOptions {
@@ -122,3 +122,11 @@ export interface FileStoreOptions {
 Fields:
 
 - **` lockWaitMs `**: Longest wait, in ms, for a lock held by ANOTHER process before `withLock` refuses with StoreLockedError (default 10000; 0 refuses at once; at most 600000). A lock left by a crashed process is never removed or taken over: after the wait it still needs reconciliation. Calls in this process never refuse each other; they queue in call order.
+
+## Constants and ABI values
+
+Shared values and contract definitions.
+
+| Export | Description | Definition |
+|---|---|---|
+| `fileStoreSyncCounters` | Durable-write steps the store counts (for tests and measurement); never part of the stored state. `flushes`: device flushes of a state directory (each one F_FULLFSYNC on macOS), whatever they served; `shared`: those that served a data barrier and a directory sync at once; `fileSyncs`: per-file syncs (only without O_DSYNC). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L150) |

@@ -47,7 +47,14 @@ const CACHE_TTL_AFTER_BLOCK_MS = 32_000
 const MAX_SHARED_REGISTRY_READS = 1_024
 
 /** A canonical block every read of one observation is pinned to. */
-export interface PinnedBlock {blockNumber: bigint; blockHash: Hex; blockTimestamp: bigint}
+export interface PinnedBlock {
+  /** Block number. */
+  blockNumber: bigint
+  /** Block hash. */
+  blockHash: Hex
+  /** Block timestamp, Unix seconds. */
+  blockTimestamp: bigint
+}
 
 interface Pending {to: Address; data: Hex; resolve: (data: Hex | undefined) => void; reject: (error: unknown) => void}
 interface Queue {calls: Pending[]; bytes: number; timer?: ReturnType<typeof setTimeout>; sent: boolean}

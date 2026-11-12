@@ -45,7 +45,7 @@ export interface PaidSessionRequestLink {
 }
 
 /**
- * What an OAuth holder's token must bind (ADR-0073), derived locally from the original session:
+ * What an OAuth holder's token must bind, derived locally from the original session:
  * the access token's `aud` must include `platformAudience`, and the DPoP proof is minted over
  * `POST dpopHtu` with `nonce` by the key the token's `cnf.jkt` names. Public values only.
  */
@@ -90,7 +90,7 @@ export type PaidSessionHolder =
   }
   | {
     /**
-     * The client presents a DPoP-bound OAuth access token itself (ADR-0073): no wallet request
+     * The client presents a DPoP-bound OAuth access token itself: no wallet request
      * object, no JAR stages. The SDK builds the proof, verifies audience, nonce, session, htm,
      * htu, ath and key binding locally, journals the exact presentation privately BEFORE its one
      * submission, and approves the drawn verifiers' credential work on that retained presentation.

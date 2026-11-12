@@ -158,7 +158,10 @@ export class PaidReservationUncertainError extends Error {
 export class PaidReservationStaleEpochError extends Error {
   /** Stable machine-readable reason. */
   readonly code = 'stale-verification-epoch' as const
-  constructor(readonly verificationEpoch: number) {
+  constructor(
+    /** The intent's signed verifier epoch the accountant refused. */
+    readonly verificationEpoch: number,
+  ) {
     super(`accountant refused verifier epoch ${verificationEpoch} as no longer current or previous; nothing was sent`)
     this.name = 'PaidReservationStaleEpochError'
   }

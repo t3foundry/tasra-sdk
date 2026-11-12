@@ -150,7 +150,7 @@ Options, data structures and return types.
 
 Implementations must save atomically and exclusively lock across processes/tabs.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L39)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/ready-slot.ts#L40)
 
 ```ts
 export interface ApplicationStore {

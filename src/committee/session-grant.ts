@@ -45,6 +45,7 @@ export const MAX_ABSOLUTE_TTL_SECS = 12 * 3600
 export const SESSION_PROOF_FRESHNESS_SECS = 30
 /** Bounds of a proof's `jti` (URL-safe characters only). */
 export const MIN_JTI_LEN = 16
+/** Longest accepted proof `jti`, in characters. */
 export const MAX_JTI_LEN = 64
 /** Most signatures a grant may carry (one per possible committee member). */
 const MAX_GRANT_SIGNATURES = 4096
@@ -63,53 +64,96 @@ export interface GrantSlot {
 
 /** The bytes a verifier quorum signs. Build through {@link sessionGrantPayload}, which enforces every bound. */
 export interface SessionGrantPayload {
+  /** Chain id the grant is valid on (u64). */
   chainId: bigint
+  /** 32-byte session identifier. */
   sessionId: Uint8Array
+  /** keccak256 of the holder DID the verifiers authenticated (32 bytes). */
   holderHash: Uint8Array
+  /** RFC 7638 SHA-256 JWK thumbprint of the session key (32 bytes). */
   sessionKeyThumbprint: Uint8Array
   /** Binding strength byte (`BINDING_*` in token.ts). */
   binding: number
   /** Always `decrypt` (KEM only). */
   action: 'decrypt'
+  /** 32-byte beacon seed of `epoch`; every slot's committee is drawn on it. */
   seed: Uint8Array
+  /** Beacon epoch of the committee draw (u64). */
   epoch: bigint
   /** Strictly ascending by slot id. */
   slots: GrantSlot[]
+  /** Issued-at, Unix seconds. */
   iat: number
+  /** Expiry and status deadline, Unix seconds; `exp - iat` is at most {@link MAX_ACCESS_TTL_SECS}. */
   exp: number
+  /** Longest idle period between two refreshes, seconds. */
   idleTimeoutSecs: number
+  /** Latest expiry any refresh may reach, Unix seconds (at most `iat` + 12 h). */
   absoluteExp: number
 }
 
 /** A grant as received: payload plus `(verifierIndex, ed25519 signature)` pairs over its signing hash. */
 export interface SessionGrant {
+  /** The signed payload. */
   payload: SessionGrantPayload
+  /** Verifier registry index and 64-byte Ed25519 signature over {@link sessionGrantHash}. */
   signatures: {verifierIndex: number; signature: Uint8Array}[]
 }
 
 /** One granted slot on the wire. */
-export interface GrantSlotWire { slot_id: string; rule_hash: string }
+export interface GrantSlotWire {
+  /** 0x-prefixed 32-byte slot identifier. */
+  slot_id: string
+  /** 0x-prefixed keccak256 of the slot's raw rule. */
+  rule_hash: string
+}
 /** One verifier signature on the wire. */
-export interface GrantSignatureWire { verifier_index: number; signature: string }
+export interface GrantSignatureWire {
+  /** Signer's index in the verifier registry. */
+  verifier_index: number
+  /** 0x-prefixed 64-byte Ed25519 signature over the grant hash. */
+  signature: string
+}
 /** The session grant as the verifier-agent returns it and the client sends it to keepers. */
 export interface SessionGrantWire {
+  /** {@link SessionGrantPayload.chainId}. */
   chain_id: number
+  /** 0x-prefixed {@link SessionGrantPayload.sessionId}. */
   session_id: string
+  /** 0x-prefixed {@link SessionGrantPayload.holderHash}. */
   holder_hash: string
+  /** 0x-prefixed {@link SessionGrantPayload.sessionKeyThumbprint}. */
   session_key_thumbprint: string
+  /** Binding strength name: `unbound`, `holder_key` or `issuer_asserted`. */
   binding: string
+  /** Always `decrypt`. */
   action: string
+  /** 0x-prefixed {@link SessionGrantPayload.seed}. */
   seed: string
+  /** {@link SessionGrantPayload.epoch}. */
   epoch: number
+  /** Granted slots, strictly ascending by slot id. */
   slots: GrantSlotWire[]
+  /** Issued-at, Unix seconds. */
   iat: number
+  /** Expiry and status deadline, Unix seconds. */
   exp: number
+  /** {@link SessionGrantPayload.idleTimeoutSecs}. */
   idle_timeout_secs: number
+  /** {@link SessionGrantPayload.absoluteExp}. */
   absolute_exp: number
+  /** Verifier quorum signatures over the grant hash. */
   signatures: GrantSignatureWire[]
 }
 /** A session-key proof on the wire. */
-export interface SessionProofWire { iat: number; jti: string; signature: string }
+export interface SessionProofWire {
+  /** Proof issued-at, Unix seconds. */
+  iat: number
+  /** One-time proof identifier (16..64 URL-safe characters). */
+  jti: string
+  /** 0x-prefixed 64-byte session-key signature (Ed25519, or P-256 `r ‖ s`). */
+  signature: string
+}
 
 /**
  * `session_grant` on `POST /v1/sessions` (session mode), exactly the agent's
@@ -156,7 +200,10 @@ function hex32(s: unknown, field: string): Uint8Array {
   if (typeof s !== 'string' || !HEX32.test(s)) refuse('malformed', `malformed session grant field ${field}`)
   return hexToBytes(s as string)
 }
-/** Unpadded base64url (RFC 4648 §5), as JWK members and jtis use. */
+/**
+ * Unpadded base64url (RFC 4648 §5), as JWK members and jtis use.
+ * @param bytes - Bytes to encode.
+ */
 export function toBase64Url(bytes: Uint8Array): string {
   let s = ''
   for (const b of bytes) s += String.fromCharCode(b)
@@ -194,7 +241,10 @@ export function sessionGrantPayload(p: SessionGrantPayload): SessionGrantPayload
   return {...p, slots: p.slots.map(s => ({slotId: s.slotId.slice(), ruleHash: s.ruleHash.slice()}))}
 }
 
-/** The canonical grant bytes (reference module docs give the layout). */
+/**
+ * The canonical grant bytes (reference module docs give the layout).
+ * @param p - Grant payload.
+ */
 export function sessionGrantCanonicalBytes(p: SessionGrantPayload): Uint8Array {
   const action = utf8(p.action)
   return concatBytes(utf8(SESSION_GRANT_DOMAIN), u64be(p.chainId), p.sessionId, p.holderHash, p.sessionKeyThumbprint, Uint8Array.of(p.binding),
@@ -202,12 +252,18 @@ export function sessionGrantCanonicalBytes(p: SessionGrantPayload): Uint8Array {
     i64be(p.iat), i64be(p.exp), u32be(p.idleTimeoutSecs), i64be(p.absoluteExp))
 }
 
-/** keccak256 of the canonical bytes: what each verifier signs and every session proof binds to. */
+/**
+ * keccak256 of the canonical bytes: what each verifier signs and every session proof binds to.
+ * @param p - Grant payload.
+ */
 export function sessionGrantHash(p: SessionGrantPayload): Uint8Array {
   return keccak_256(sessionGrantCanonicalBytes(p))
 }
 
-/** Decode a wire grant through the payload bounds. Refuses unknown fields and malformed hex. */
+/**
+ * Decode a wire grant through the payload bounds. Refuses unknown fields and malformed hex.
+ * @param wire - Grant as received on the wire.
+ */
 export function decodeSessionGrant(wire: SessionGrantWire): SessionGrant {
   const w = wire as unknown as Record<string, unknown>
   if (!w || typeof w !== 'object' || Array.isArray(w)) refuse('malformed', 'session grant is not an object')
@@ -238,7 +294,10 @@ export function decodeSessionGrant(wire: SessionGrantWire): SessionGrant {
   return {payload, signatures}
 }
 
-/** Encode a grant to its wire form (the inverse of {@link decodeSessionGrant}). */
+/**
+ * Encode a grant to its wire form (the inverse of {@link decodeSessionGrant}).
+ * @param grant - Decoded grant.
+ */
 export function encodeSessionGrant(grant: SessionGrant): SessionGrantWire {
   const p = grant.payload
   return {
@@ -254,12 +313,19 @@ export function encodeSessionGrant(grant: SessionGrant): SessionGrantWire {
 export interface VerifiedSessionGrant {
   /** The grant's signing hash; every session proof binds to it. */
   grantHash: Uint8Array
+  /** The slot the grant was verified for. */
   slotId: Uint8Array
+  /** {@link SessionGrantPayload.chainId}. */
   chainId: bigint
+  /** {@link SessionGrantPayload.holderHash}. */
   holderHash: Uint8Array
+  /** {@link SessionGrantPayload.sessionKeyThumbprint}. */
   sessionKeyThumbprint: Uint8Array
+  /** Binding strength byte (`BINDING_*` in token.ts). */
   binding: number
+  /** Grant issued-at, Unix seconds. */
   iat: number
+  /** Grant expiry and status deadline, Unix seconds. */
   exp: number
   /** Distinct drawn verifiers of this slot whose signatures verified. */
   verifiedSigners: number[]
@@ -267,6 +333,7 @@ export interface VerifiedSessionGrant {
 
 /** The anchored set and the slot's own policy a grant is verified against. */
 export interface VerifySessionGrantOptions {
+  /** Decoded grant to verify. */
   grant: SessionGrant
   /** Active verifier set (registry size + index → Ed25519 key), established independently. */
   set: VerifierSet
@@ -274,6 +341,7 @@ export interface VerifySessionGrantOptions {
   slotId: Uint8Array
   /** The slot's committee size and quorum. */
   committee: number
+  /** Signatures from the slot's drawn committee required. */
   quorum: number
   /** keccak256 of the slot's raw rule, read independently. */
   slotRuleHash: Uint8Array
@@ -321,9 +389,28 @@ export function verifySessionGrant(o: VerifySessionGrantOptions): VerifiedSessio
 }
 
 /** A public session key JWK (RFC 7517) with exactly the RFC 7638 required members. */
-export type SessionKeyJwk = {kty: 'OKP'; crv: 'Ed25519'; x: string} | {kty: 'EC'; crv: 'P-256'; x: string; y: string}
+export type SessionKeyJwk = {
+  /** Key type. */
+  kty: 'OKP'
+  /** Curve. */
+  crv: 'Ed25519'
+  /** base64url public key (32 bytes). */
+  x: string
+} | {
+  /** Key type. */
+  kty: 'EC'
+  /** Curve. */
+  crv: 'P-256'
+  /** base64url x coordinate (32 bytes). */
+  x: string
+  /** base64url y coordinate (32 bytes). */
+  y: string
+}
 
-/** Parse a public session JWK; any private member or unsupported curve is refused. */
+/**
+ * Parse a public session JWK; any private member or unsupported curve is refused.
+ * @param jwk - Candidate JWK.
+ */
 export function parseSessionKeyJwk(jwk: unknown): SessionKeyJwk {
   const o = jwk as Record<string, unknown>
   if (!o || typeof o !== 'object' || Array.isArray(o)) refuse('bad-key', 'JWK is not an object')
@@ -343,7 +430,10 @@ export function parseSessionKeyJwk(jwk: unknown): SessionKeyJwk {
   return refuse('bad-key', 'unsupported kty/crv')
 }
 
-/** RFC 7638 thumbprint: SHA-256 of the required members in lexicographic order, no whitespace. */
+/**
+ * RFC 7638 thumbprint: SHA-256 of the required members in lexicographic order, no whitespace.
+ * @param jwk - Public session key.
+ */
 export function sessionKeyThumbprint(jwk: SessionKeyJwk): Uint8Array {
   const k = parseSessionKeyJwk(jwk)
   const canonical = k.kty === 'OKP' ? `{"crv":"Ed25519","kty":"OKP","x":"${k.x}"}` : `{"crv":"P-256","kty":"EC","x":"${k.x}","y":"${k.y}"}`
@@ -356,18 +446,33 @@ function lenPrefixedJti(jti: string): Uint8Array {
   return concatBytes(Uint8Array.of(b.length), b)
 }
 
-/** Refuse a jti outside 16..64 URL-safe characters. */
+/**
+ * Refuse a jti outside 16..64 URL-safe characters.
+ * @param jti - Proof identifier.
+ */
 export function checkJti(jti: string): void {
   if (typeof jti !== 'string' || jti.length < MIN_JTI_LEN || jti.length > MAX_JTI_LEN || !JTI.test(jti)) refuse('bad-jti', `proof jti invalid (need ${MIN_JTI_LEN}..=${MAX_JTI_LEN} URL-safe characters)`)
 }
 
-/** `keccak256(SESSION_PROOF_DOMAIN ‖ grant_hash ‖ request_hash ‖ iat i64 BE ‖ len(jti) u8 ‖ jti)`. */
+/**
+ * `keccak256(SESSION_PROOF_DOMAIN ‖ grant_hash ‖ request_hash ‖ iat i64 BE ‖ len(jti) u8 ‖ jti)`.
+ * @param grantHash - 32-byte grant hash.
+ * @param requestHash - 32-byte request hash of the operation.
+ * @param iat - Proof issued-at, Unix seconds.
+ * @param jti - Proof identifier.
+ */
 export function sessionProofHash(grantHash: Uint8Array, requestHash: Uint8Array, iat: number, jti: string): Uint8Array {
   if (grantHash.length !== 32 || requestHash.length !== 32) refuse('malformed', 'grant and request hashes must be 32 bytes')
   return keccak_256(concatBytes(utf8(SESSION_PROOF_DOMAIN), grantHash, requestHash, i64be(iat), lenPrefixedJti(jti)))
 }
 
-/** `keccak256(SESSION_BATCH_PROOF_DOMAIN ‖ grant_hash ‖ count u32 BE ‖ request_hash* ‖ iat ‖ len(jti) ‖ jti)`, items in order. */
+/**
+ * `keccak256(SESSION_BATCH_PROOF_DOMAIN ‖ grant_hash ‖ count u32 BE ‖ request_hash* ‖ iat ‖ len(jti) ‖ jti)`, items in order.
+ * @param grantHash - 32-byte grant hash.
+ * @param requestHashes - 1..64 32-byte request hashes, in batch order.
+ * @param iat - Proof issued-at, Unix seconds.
+ * @param jti - Proof identifier.
+ */
 export function sessionBatchProofHash(grantHash: Uint8Array, requestHashes: Uint8Array[], iat: number, jti: string): Uint8Array {
   if (requestHashes.length === 0 || requestHashes.length > MAX_BATCH_ITEMS) refuse('batch-size', `batch proof covers ${requestHashes.length} items (need 1..=${MAX_BATCH_ITEMS})`)
   if (grantHash.length !== 32 || requestHashes.some(h => h.length !== 32)) refuse('malformed', 'grant and request hashes must be 32 bytes')
@@ -378,6 +483,10 @@ export function sessionBatchProofHash(grantHash: Uint8Array, requestHashes: Uint
  * The 32-byte hash a session key signs to refresh (or revoke) a grant:
  * `keccak256(domain ‖ grant_hash ‖ seq u64 BE ‖ issued_at i64 BE)`.
  * ⚠ The plan names the inputs but not their integer widths; u64/i64 BE follow the grant module.
+ * @param kind - Which control domain to use.
+ * @param grantHash - 32-byte grant hash.
+ * @param seq - Request sequence number (u64).
+ * @param issuedAt - Request time, Unix seconds.
  */
 export function sessionControlHash(kind: 'refresh' | 'revoke', grantHash: Uint8Array, seq: number, issuedAt: number): Uint8Array {
   if (grantHash.length !== 32 || !Number.isSafeInteger(seq) || seq < 0 || !Number.isSafeInteger(issuedAt)) refuse('malformed', 'invalid session control inputs')
@@ -400,7 +509,13 @@ export function verifySessionSignature(jwk: SessionKeyJwk, hash: Uint8Array, sig
   } catch { return false }
 }
 
-/** A client-side check that a proof would pass a keeper's freshness and key checks. */
+/**
+ * A client-side check that a proof would pass a keeper's freshness and key checks.
+ * @param grant - Verified grant the proof binds to.
+ * @param jwk - Session key that signs the proof.
+ * @param proof - The proof's `iat` and `jti`.
+ * @param now - Current time, Unix seconds.
+ */
 export function checkProofWindow(grant: VerifiedSessionGrant, jwk: SessionKeyJwk, proof: {iat: number; jti: string}, now: number): void {
   if (!equal(sessionKeyThumbprint(jwk), grant.sessionKeyThumbprint)) refuse('wrong-key', 'session key thumbprint does not match the grant')
   checkJti(proof.jti)
@@ -408,7 +523,10 @@ export function checkProofWindow(grant: VerifiedSessionGrant, jwk: SessionKeyJwk
   if (!fresh) refuse('proof-stale', `proof iat ${proof.iat} is outside the accepted window`)
 }
 
-/** Encode a proof for the wire. */
+/**
+ * Encode a proof for the wire.
+ * @param proof - Proof with its 64-byte signature.
+ */
 export function encodeSessionProof(proof: {iat: number; jti: string; signature: Uint8Array}): SessionProofWire {
   checkJti(proof.jti)
   if (proof.signature.length !== 64) refuse('malformed', 'proof signature must be 64 bytes')

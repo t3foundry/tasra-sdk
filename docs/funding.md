@@ -74,7 +74,7 @@ the same link, so applications never rebuild the request URI), or
 application accepts the complete retained presentation, or `{kind: 'oauth', credential}` for an
 OAuth slot rule (`oauth+access-token+dpop` or a `kk_oauth` envelope).
 
-With `kind: 'oauth'` the client presents a DPoP-bound access token itself (ADR-0073): no request
+With `kind: 'oauth'` the client presents a DPoP-bound access token itself: no request
 object is fetched and no wallet is involved. `credential({sessionId, nonce, dpopHtu,
 platformAudience})` returns `{accessToken, signer}` (a `DpopSigner` over the key the token's
 `cnf.jkt` names); the token's `aud` must include `platformAudience`. The SDK builds the proof
@@ -267,7 +267,7 @@ expose `Retry-After` and `x-ratelimit-after`.
 ### Prepaid allowances (opt-in)
 
 By default every paid operation waits for its own reservation transaction. With
-`PaidOperationConfig.allowances` (ADR-0090, **off by default**) the SDK instead reserves an
+`PaidOperationConfig.allowances` (**off by default**) the SDK instead reserves an
 allowance ahead of use (one transaction escrowing `amount`) and debits each operation with an
 accountant-quorum voucher, so no block interval sits on the operation's path:
 
@@ -279,7 +279,7 @@ const config: PaidOperationConfig = {
 ```
 
 Enable it only when every reader on the deployment (agent, verifiers, keepers, accountants)
-supports ADR-0090: the network advertises no capability for it, so the option is the switch.
+supports prepaid allowances: the network advertises no capability for it, so the option is the switch.
 
 - **Lanes.** Each of `lanes` (default `min(streams, 8)`) holds one allowance and a strictly
   serial debit sequence; different lanes debit in parallel. An operation on a lane signs the

@@ -81,6 +81,7 @@ export interface SessionMessageRequest {
   latestBeaconEpoch?(): Promise<bigint>
   /** Payment lifetime, seconds. */
   ttlSecs?: number
+  /** Aborts the payment and the keeper requests. */
   signal?: AbortSignal
   /** Observers (timing, accounting); a throw from one is the caller's own. */
   hooks?: {
@@ -124,6 +125,7 @@ const successors = new WeakMap<GrantedSession, GrantedSession>()
 
 /** A decrypted message. */
 export interface SessionMessageResult {
+  /** The decrypted message bytes. */
   plaintext: Uint8Array
   /**
    * Every payment request id this message made, in order, a re-open's presentation included. At most
@@ -145,7 +147,12 @@ export interface SessionMessageResult {
 
 /** A message the keepers refused (after the one retry a stale grant earns). */
 export class SessionMessageError extends TasraError {
-  constructor(readonly result: Extract<SessionDecryptResult, {ok: false}>, readonly requestIds: Hex[]) {
+  constructor(
+    /** The keepers' refusal. */
+    readonly result: Extract<SessionDecryptResult, {ok: false}>,
+    /** Every payment request id this message made, in order. */
+    readonly requestIds: Hex[],
+  ) {
     super(`session item refused: ${result.error}`)
     this.name = 'SessionMessageError'
   }
@@ -231,6 +238,7 @@ async function settle(session: GrantedSession): Promise<void> {
  * Every other refusal throws {@link SessionMessageError}; a session that cannot continue throws
  * `SessionEndedError` (present again). A session that ended is re-opened through `reopen`
  * (module comment): its presentation serves this message, single-flight per ended session.
+ * @param request - Message, session, slot and payment configuration.
  */
 export async function decryptInSession(request: SessionMessageRequest): Promise<SessionMessageResult> {
   const {slot, hooks} = request

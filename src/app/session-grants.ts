@@ -81,6 +81,7 @@ export interface SessionGrantParams {
 
 /** The `session_grant` object added to `POST /v1/sessions` (session mode). */
 export interface SessionGrantCreateFragment {
+  /** Session key, slots and requested lifetimes. */
   session_grant: SessionGrantRequestWire
 }
 
@@ -116,6 +117,7 @@ export interface SlotTrust {
   set: VerifierSet
   /** The slot's committee size and quorum. */
   committee: number
+  /** Signatures from the slot's drawn committee required. */
   quorum: number
   /** keccak256 of the slot's raw rule. */
   ruleHash: Uint8Array
@@ -172,8 +174,11 @@ const now = () => Math.floor(Date.now() / 1000)
 
 /** Lifecycle options. */
 export interface GrantedSessionOptions {
+  /** Store that journals the session record (grant, reserved seq, end). */
   store: ApplicationStore
+  /** Transport for the agent's session refresh and revoke routes. */
   transport: SessionTransport
+  /** The session key the grant binds; it signs every refresh and revoke. */
   key: SessionKeyHandle
   /** Refresh this many seconds before `exp` (default: a third of the grant's lifetime, at least 5 s). */
   refreshLeadSecs?: number
@@ -339,7 +344,14 @@ export const SESSION_VERIFIER_BEHIND_RETRY_MS = 2_000
 export class SessionRefreshError extends TasraError {
   /** Always true: a later refresh may pass. */
   readonly retryable = true
-  constructor(readonly status: number, readonly code: string | undefined, readonly retryAfterMs: number | undefined) {
+  constructor(
+    /** HTTP status of the agent's reply. */
+    readonly status: number,
+    /** The agent's error code, when it sent one. */
+    readonly code: string | undefined,
+    /** Milliseconds to wait before retrying, when known. */
+    readonly retryAfterMs: number | undefined,
+  ) {
     super(`Session refresh failed (${status}${code ? ', ' + code : ''}); retry before the grant expires`)
     this.name = 'SessionRefreshError'
   }
@@ -353,6 +365,7 @@ function retryPause(base: number, attempt: number, error: unknown): number {
 
 /** An accepted, refreshable session grant. */
 export class GrantedSession {
+  /** Lowercase 0x-prefixed 32-byte session id. */
   readonly sessionId: string
   #opts: GrantedSessionOptions
   #record: SessionRecord
@@ -846,11 +859,16 @@ export class SessionRevokeIncompleteError extends TasraError {
 export class SessionRevokeUnconfirmedError extends TasraError {
   /** Retrying cannot help: the agent has no session to relay it for. */
   readonly retryable = false
+  /** Always `session_unknown`. */
   readonly code = 'session_unknown'
   constructor() { super('Session revoke not confirmed: the agent holds no session for this grant (ended locally; the grant expires at its exp)') }
 }
 
-/** Load a journaled session (same process, same key) after a restart of its owner, e.g. a tab reload with the key kept. */
+/**
+ * Load a journaled session (same process, same key) after a restart of its owner, e.g. a tab reload with the key kept.
+ * @param opts - Lifecycle options; `key` must be the key the grant binds.
+ * @param sessionId - 0x-prefixed 32-byte session id.
+ */
 export async function loadGrantedSession(opts: GrantedSessionOptions, sessionId: string): Promise<GrantedSession> {
   if (!HEX32.test(sessionId)) throw new TasraError('Invalid session id')
   const record = await opts.store.load<SessionRecord>(recordKey(sessionId))

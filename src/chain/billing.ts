@@ -72,8 +72,8 @@ const probeAbi = parseAbi([
   'function prepaidEnabled(bytes32 slot) view returns (bool)',
   'function prepaidFromGenesis() view returns (bool)',
 ])
-/** Settlement versions with prepaid billing. "3" adds only the payer timeout escape; "4" adds only the ADR-0090
- *  allowances beside the unchanged per-request path; "5" adds only ADR-0092 allowance range settlement (a
+/** Settlement versions with prepaid billing. "3" adds only the payer timeout escape; "4" adds only the prepaid
+ *  allowances beside the unchanged per-request path; "5" adds only allowance range settlement (a
  *  range-settled voucher is settled by the allowance's settled seq, read by the backing checks). Any other
  *  version is unknown. */
 const PREPAID_SETTLEMENT_VERSIONS: ReadonlySet<string> = new Set(['2', '3', '4', '5'])
