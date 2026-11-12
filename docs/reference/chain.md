@@ -637,7 +637,7 @@ declare class SlotCommitmentExpiredError {
 
 A hand-off refused before signing, or one that did not reach the state the caller asked for.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotHandoff.ts#L35)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotHandoff.ts#L40)
 
 Import: `import {SlotHandoffError} from 'tasra-sdk/chain'`
 
@@ -1625,7 +1625,7 @@ Performs no signing, reservation, service contact or gas/TASRA mutation.
 As above, with ` PaidContextOptions.undrawnDuringAnchorGap ` possibly set: the result may be an
 [UndrawnPaidOperationContext](#undrawnpaidoperationcontext) (narrow on `undrawn` before building any payment intent).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L1110)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L1112)
 
 Import: `import {discoverPaidOperationContext} from 'tasra-sdk/chain'`
 
@@ -2483,7 +2483,7 @@ The beacon's latest epoch and its draw epoch ([BeaconDrawState](#beacondrawstate
 (the followed tip when live, else `latest`), through the block-pinned reads discovery uses. The
 previous epoch's snapshot is read only while the latest one is not anchored. Performs no transaction.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L737)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L739)
 
 Import: `import {readBeaconDrawState} from 'tasra-sdk/chain'`
 
@@ -2557,7 +2557,7 @@ Returns: ` Promise<ClientExecutionObservation> `.
 The beacon's current epoch at a fresh observed head (the followed tip when live, else `latest`),
 through the same block-pinned read discovery uses. Performs no transaction.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L710)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L712)
 
 Import: `import {readCurrentBeaconEpoch} from 'tasra-sdk/chain'`
 
@@ -2616,7 +2616,7 @@ Require mined backing for an independently selected operation, without spending 
 A completed reservation remains inspectable. This result never authorizes another execution;
 the keeper must independently verify the holder, current assignment and durable operation journal.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L793)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L795)
 
 Import: `import {readPaidOperationReceipt} from 'tasra-sdk/chain'`
 
@@ -2736,7 +2736,7 @@ Returns: ` Promise<RuleAmendmentStatus> `.
 
 Read available, reserved and total slot TASRA at one fresh canonical block. Performs no transaction.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L757)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L759)
 
 Import: `import {readSlotFunding} from 'tasra-sdk/chain'`
 
@@ -2756,7 +2756,7 @@ Returns: ` Promise<SlotFunding> `.
 
 Read a slot's creator, rule admin, guardian and any pending hand-off of either role.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotHandoff.ts#L113)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotHandoff.ts#L129)
 
 Import: `import {readSlotHandoff} from 'tasra-sdk/chain'`
 
@@ -2968,7 +2968,7 @@ Does not create an intent, approve tokens, activate a slot, authorize credential
 work. Before broadcast, unavailable accountants can be skipped while collecting the same quote
 and quorum authorization. One broadcast attempt only; no replacement or implicit gas funding.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L523)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L569)
 
 Import: `import {reservePaidOperation} from 'tasra-sdk/chain'`
 
@@ -3087,7 +3087,7 @@ Returns: ` ResolvedNetworkProfile `.
 Resolve only the signed coordinator after checking mined backing, creator consent and current sharing.
 Does not contact any keeper, submit a transaction, mint a credential grant or execute work.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L947)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L949)
 
 Import: `import {resolvePaidKeeperTarget} from 'tasra-sdk/chain'`
 
@@ -3833,7 +3833,7 @@ Fields:
 
 The beacon's latest epoch and the newest epoch a session grant can be drawn on now.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L718)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L720)
 
 ```ts
 export interface BeaconDrawState {
@@ -4493,7 +4493,7 @@ Fields:
 
 A context on an admissible complete verifier draw: the only kind a payment intent is built from.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L501)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L503)
 
 ```ts
 export interface DrawnPaidOperationContext extends PaidOperationContextBase {
@@ -4513,6 +4513,7 @@ Fields:
 - **` contributors `**: All currently eligible assigned contributors in canonical public-key order.
 - **` available `**: Unreserved slot TASRA at this block; it is not a reservation or an operation quote.
 - **` ruleCommitment `**: The slot's salted rule commitment at this block, from the same canonical slot read.
+- **` ruleVersion `**: The slot's rule version at this block, from the same canonical slot read.
 - **` beaconEpoch `**: The beacon's latest epoch at this block (the draw is it or, while its anchors land, the one before).
 - **` blockNumber `**: Canonical block number.
 - **` blockHash `**: Exact canonical block used for EIP-1898 calls.
@@ -5328,7 +5329,7 @@ Fields:
 
 One canonical pre-signing observation; later reservation and execution must revalidate it. Narrow on `undrawn` before reading draw fields.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L522)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L524)
 
 ```ts
 export type PaidOperationContext = DrawnPaidOperationContext | UndrawnPaidOperationContext;
@@ -5345,6 +5346,7 @@ Fields:
 - **` contributors `**: All currently eligible assigned contributors in canonical public-key order.
 - **` available `**: Unreserved slot TASRA at this block; it is not a reservation or an operation quote.
 - **` ruleCommitment `**: The slot's salted rule commitment at this block, from the same canonical slot read.
+- **` ruleVersion `**: The slot's rule version at this block, from the same canonical slot read.
 - **` beaconEpoch `**: The beacon's latest epoch at this block (the draw is it or, while its anchors land, the one before).
 - **` blockNumber `**: Canonical block number.
 - **` blockHash `**: Exact canonical block used for EIP-1898 calls.
@@ -7317,17 +7319,32 @@ Fields:
 Stable refusal categories of the hand-off API; branch on `code`, never on the message.
 None is retryable: each needs a change of key, offer or slot first.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotHandoff.ts#L20)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotHandoff.ts#L21)
 
 ```ts
-export type SlotHandoffErrorCode = 'no-slot' | 'cancelled' | 'unsupported' | 'not-creator' | 'not-admin' | 'immutable' | 'same-holder' | 'already-offered' | 'guardian' | 'nothing-pending' | 'not-offered' | 'not-confirmed';
+export type SlotHandoffErrorCode =
+    | 'no-slot'
+    | 'cancelled'
+    | 'unsupported'
+    | 'not-creator'
+    | 'not-admin'
+    | 'immutable'
+    | 'same-holder'
+    | 'already-offered'
+    | 'guardian'
+    | 'nothing-pending'
+    | 'not-offered'
+    | 'not-confirmed'
+    | 'self-custody'
+    | 'contract-holder'
+;
 ```
 
 ### SlotHandoffStatus
 
 A slot's roles and pending hand-offs as the chain records them; `null` means none.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotHandoff.ts#L49)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotHandoff.ts#L54)
 
 ```ts
 export interface SlotHandoffStatus {
@@ -7336,6 +7353,7 @@ export interface SlotHandoffStatus {
     ruleAdmin: Address | null;
     guardian: Address | null;
     pendingRuleAdmin: Address | null;
+    slotAccount: Address | null;
 }
 ```
 
@@ -7346,6 +7364,7 @@ Fields:
 - **` ruleAdmin `**: Rule admin; `null` means the rule is immutable.
 - **` guardian `**: Rule guardian.
 - **` pendingRuleAdmin `**: Wallet offered the rule admin role, not yet accepted.
+- **` slotAccount `**: The slot's own Ethereum account (a ready secp256k1 threshold slot), or `null`.
 
 ### SlotMode
 
@@ -7576,7 +7595,7 @@ Fields:
 
 Account-bound operations for slot creation, lifecycle management, settlement funding and token transactions.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L1518)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L1530)
 
 <details>
 <summary>Full declaration</summary>
@@ -7679,9 +7698,9 @@ Fields:
 - **` endorseRuleUpdate `**: Waive the remaining delay of the pending amendment, signed by the slot's guardian. Refuses `not-guardian` and `no-pending` before signing.
 - **` vetoRuleUpdate `**: Discard the pending amendment, signed by the slot's guardian. Refuses `not-guardian` and `no-pending` before signing.
 - **` activateRuleUpdate `**: Activate the pending amendment; anyone may send it. Refuses `no-pending`, `timelock` (judged on the latest block timestamp, not the local clock) and `below-threshold` before signing.
-- **` proposeSlotTransfer `**: Offer the slot to `to` as its next creator, signed by the current creator. It moves only when `to` accepts with acceptSlotTransfer; a new offer replaces an earlier one. Only the creator moves: the rule admin and the guardian stay, and the result names them. When this account is also the rule admin, hand that role over separately with proposeRuleAdminTransfer. At acceptance every delegation and unused prepaid payment intent this account signed for the slot stops working; reservations already accepted still settle. The prepaid credit goes with the slot and nothing is refunded; the result carries the balance when a Settlement address is configured. Refused before signing, as a `SlotHandoffError`: `no-slot`, `cancelled`, `unsupported` (a KeyRegistry without the hand-off), `not-creator`, `same-holder` and `already-offered`.
+- **` proposeSlotTransfer `**: Offer the slot to `to` as its next creator, signed by the current creator. It moves only when `to` accepts with acceptSlotTransfer; a new offer replaces an earlier one. Only the creator moves: the rule admin and the guardian stay, and the result names them. When this account is also the rule admin, hand that role over separately with proposeRuleAdminTransfer. At acceptance every delegation and unused prepaid payment intent this account signed for the slot stops working; reservations already accepted still settle. The prepaid credit goes with the slot and nothing is refunded; the result carries the balance when a Settlement address is configured. Refused before signing, as a `SlotHandoffError`: `no-slot`, `cancelled`, `unsupported` (a KeyRegistry without the hand-off), `not-creator`, `same-holder`, `already-offered`, `self-custody` (the slot's own threshold account, which could never sign a paid operation of itself again) and `contract-holder` (keepers accept creator signatures from an externally owned account only).
 - **` withdrawSlotTransfer `**: Withdraw the pending creator offer, signed by the creator. Refuses `not-creator` and `nothing-pending` before signing.
-- **` acceptSlotTransfer `**: Become the slot's creator, signed by the offered wallet. Refuses `nothing-pending` and `not-offered` before signing. Afterwards sign fresh delegations for the apps that use the slot and update their configuration: the previous creator's delegations no longer verify.
+- **` acceptSlotTransfer `**: Become the slot's creator, signed by the offered wallet. Refuses `nothing-pending`, `not-offered` and `self-custody` before signing. Afterwards sign fresh delegations for the apps that use the slot and update their configuration: the previous creator's delegations no longer verify.
 - **` proposeRuleAdminTransfer `**: Offer the slot's rule admin role to `to`, signed by the rule admin. It moves only when `to` accepts. It can never go to the guardian, and the guardian is not asked. Refuses `immutable`, `not-admin`, `same-holder`, `guardian` and `already-offered` before signing.
 - **` withdrawRuleAdminTransfer `**: Withdraw the pending rule admin offer, signed by the rule admin. Refuses `not-admin` and `nothing-pending` before signing.
 - **` acceptRuleAdminTransfer `**: Become the slot's rule admin, signed by the offered wallet. Refuses `nothing-pending`, `not-offered` and `guardian` before signing.
@@ -7711,7 +7730,7 @@ complete verifier draw, so `intentFields` carries NO verification fields. Such a
 select an existing allowance (which carries its own draw); it never signs a per-operation payment
 and never reserves an allowance. Discover again (with the bounded anchor wait) for anything else.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L514)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L516)
 
 ```ts
 export interface UndrawnPaidOperationContext extends PaidOperationContextBase {
@@ -7731,6 +7750,7 @@ Fields:
 - **` contributors `**: All currently eligible assigned contributors in canonical public-key order.
 - **` available `**: Unreserved slot TASRA at this block; it is not a reservation or an operation quote.
 - **` ruleCommitment `**: The slot's salted rule commitment at this block, from the same canonical slot read.
+- **` ruleVersion `**: The slot's rule version at this block, from the same canonical slot read.
 - **` beaconEpoch `**: The beacon's latest epoch at this block (the draw is it or, while its anchors land, the one before).
 - **` blockNumber `**: Canonical block number.
 - **` blockHash `**: Exact canonical block used for EIP-1898 calls.

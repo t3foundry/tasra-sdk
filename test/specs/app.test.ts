@@ -5,7 +5,7 @@ import {bls12_381} from '@noble/curves/bls12-381'
 import {secp256k1} from '@noble/curves/secp256k1'
 import {sha256} from '@noble/hashes/sha256'
 import {keccak_256} from '@noble/hashes/sha3'
-import {toHex, hexToBytes, recoverMessageAddress, recoverTransactionAddress, serializeTransaction, keccak256, type Hex, type TransactionSerialized} from 'viem'
+import {recoverAddress, toHex, hexToBytes, recoverMessageAddress, recoverTransactionAddress, serializeTransaction, keccak256, type Hex, type TransactionSerialized} from 'viem'
 import {createTasra, defineDeployment, toViemAccount, type OperationAuthorizer, type TasraDeployment} from '../../src/app/index.js'
 import type {TasraChainClient} from '../../src/chain/client.js'
 import {payloadDigestFor, requestHash} from '../../src/oid4vp/binding.js'
@@ -16,7 +16,9 @@ import {keeperExecutionFixture} from '../support/keeperExecution.js'
 import type {ClientExecutionSigner, ExecutionAuthorization} from '../../src/committee/execution.js'
 import {createDecryptionRecipient, decryptionBinding} from '../../src/crypto/recipient.js'
 import {sealIbeFixture} from '../support/sealedIbe.js'
-import {approveDualOperation, assembleDualOperation, prepareDualOperation} from '../../src/committee/dual-operation.js'
+import {approveDualOperation, assembleDualOperation, dualOperationPayload, prepareDualOperation} from '../../src/committee/dual-operation.js'
+import {approveSigningIntent, signingIntentDigest} from '../../src/app/signing-intents.js'
+import {p256} from '@noble/curves/p256'
 
 const executionSigners: (ClientExecutionSigner & {dispose():void})[] = []
 afterEach(() => { executionSigners.splice(0).forEach(signer=>signer.dispose()); vi.restoreAllMocks(); vi.useRealTimers() })
@@ -31,9 +33,12 @@ const recipient = await createDecryptionRecipient()
 const binding = decryptionBinding(sha256(new TextEncoder().encode(vector.identity)), 1, recipient)
 const extractionOptions = {recipient, verifyingShares: new Map(vector.shares.map((s, i) => [s.identifier, new Uint8Array([...unhex(vector.verifying_shares[i]!.g2), ...unhex(vector.verifying_shares[i]!.g1)])]))}
 function fixture(mode = 2, options: Partial<Pick<TasraApplicationConfig, 'keeperUrl' | 'allowLocalPaidHttp'>> = {}) {
+  const policy = {quorum: 0, ruleHash: `0x${'00'.repeat(32)}` as Hex, approvers: [] as Hex[]}
   const publicKey = mode === 2 ? secp256k1.getPublicKey(seed) : mode === 1 ? unhex(vector.mpk) : keeperKey
   const metadata = {exists: true, cancelled: false, mode, epoch: 1, threshold: {k: 2, n: 3}, publicKey: toHex(publicKey)}
-  const chain = {addresses: {...deployment.addresses}, client: {getChainId: vi.fn(async () => 43112), getCode: vi.fn(async () => '0x01')},
+  const chain = {addresses: {...deployment.addresses}, client: {getChainId: vi.fn(async () => 43112), getCode: vi.fn(async () => '0x01'),
+    // KeyRegistry.dualControlPolicy and dualControlApprovers: no native approval policy unless a test installs one.
+    readContract: vi.fn(async ({functionName}: {functionName: string}) => functionName === 'dualControlApprovers' ? [...policy.approvers] : [policy.quorum, policy.ruleHash] as const)},
     readers: {keyRegistry: {getKeySlot: vi.fn(async () => metadata), assignedNodes: vi.fn(async () => mode === 1 ? vector.shares.map((_, i) => `0x${(i + 1).toString(16).padStart(40, '0')}` as Hex) : [operator])},
       nodeRegistry: {nodeOf: vi.fn(async (op: string) => ({url: mode === 1 ? `https://keeper-${parseInt(op.slice(-2), 16) - 1}.example` : 'https://keeper.example', pubkey: toHex(keeperKey)})), operatorIdOf: vi.fn(async (_op: string) => 1n)}}}
   const authorize = vi.fn<OperationAuthorizer>(async request => ({token: {token_type: 'JWT', slot_id: slotId, seed: '22'.repeat(32), epoch: 1,
@@ -56,7 +61,7 @@ function fixture(mode = 2, options: Partial<Pick<TasraApplicationConfig, 'keeper
     return Response.json({key_slot_id: slotId, group_public_key: toHex(publicKey), signature_r: toHex(signature.slice(0, 32)), signature_z: toHex(signature.slice(32)), message_sha256: toHex(sha256(message)), epoch: 1})
   })
   const app = createTasra({deployment, chain: chain as unknown as TasraChainClient, fetchImpl, ...options})
-  return {app, chain, metadata, authorize, fetchImpl}
+  return {app, chain, metadata, authorize, fetchImpl, policy}
 }
 
 async function paidFixture(mode = 2, options: Parameters<typeof fixture>[1] = {}) {
@@ -386,7 +391,7 @@ describe('native approvals on a paid threshold ECDSA signature', () => {
     return assembleDualOperation({prepared, approvals: records, quorum: 2, ...(change.nowSecs !== undefined ? {nowSecs: change.nowSecs} : {})})
   }
   it('carries the assembled bundle inside the client-approved keeper body, unchanged', async () => {
-    const f = await paidFixture(2), slot = await f.app.slots.ecdsa(slotId), proof = await bundle(f)
+    const f = await policyFixture(), slot = await f.app.slots.ecdsa(slotId), proof = await bundle(f)
     await slot.signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution, dualControl: proof})
     expect(f.fetchImpl).toHaveBeenCalledTimes(1)
     const body = JSON.parse(String(f.fetchImpl.mock.calls[0]![1]?.body)) as {dual_control: unknown; execution_authorizations: ExecutionAuthorization[]}
@@ -406,5 +411,99 @@ describe('native approvals on a paid threshold ECDSA signature', () => {
     expect(f.authorize).not.toHaveBeenCalled()
     expect(f.unpaidAuthorize).not.toHaveBeenCalled()
     expect(f.fetchImpl).not.toHaveBeenCalled()
+  })
+  /** The paid fixture with a static 2-of-3 policy installed on chain. */
+  async function policyFixture(mode = 2) {
+    const f = await paidFixture(mode)
+    Object.assign(f.policy, {quorum: 2, approvers: approverSeeds.map(s => toHex(ed25519.getPublicKey(s)))})
+    return f
+  }
+  const noKeeperWork = (f: Awaited<ReturnType<typeof paidFixture>>) => {
+    expect(f.authorize).not.toHaveBeenCalled()
+    expect(f.unpaidAuthorize).not.toHaveBeenCalled()
+    expect(f.fetchImpl).not.toHaveBeenCalled()
+  }
+  it('refuses, on a slot with an installed policy, a signature without a bundle, before credential consent', async () => {
+    const f = await policyFixture(), slot = await f.app.slots.ecdsa(slotId)
+    await expect(slot.signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution})).rejects.toMatchObject({code: 'INVALID_AUTHORIZATION'})
+    noKeeperWork(f)
+  })
+  it.each(['one approval', 'a duplicate approver', 'an approver outside the set', 'a forged approval'] as const)('refuses a bundle with %s against the on-chain quorum', async reason => {
+    const f = await policyFixture(), slot = await f.app.slots.ecdsa(slotId), proof = await bundle(f)
+    const outsider = approverFor(new Uint8Array(32).fill(44))
+    const statementBytes = dualOperationPayload(proof.statement)
+    const forgedOutsider = {approver_pubkey: toHex(outsider.publicKey).slice(2), signature: toHex(await outsider.sign(statementBytes)).slice(2), verifier_proofs: []}
+    const approvals = reason === 'one approval' ? [proof.approvals[0]!]
+      : reason === 'a duplicate approver' ? [proof.approvals[0]!, proof.approvals[1]!, proof.approvals[0]!]
+      : reason === 'an approver outside the set' ? [proof.approvals[0]!, forgedOutsider]
+      : [proof.approvals[0]!, {...proof.approvals[1]!, signature: '00'.repeat(64)}]
+    await expect(slot.signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution, dualControl: {...proof, approvals}}))
+      .rejects.toMatchObject({code: 'INVALID_AUTHORIZATION'})
+    noKeeperWork(f)
+  })
+  it('signs a structured transaction intent: the SDK derives the digest, and the payment must pay for exactly it', async () => {
+    const f = await paidFixture(2), slot = await f.app.slots.ecdsa(slotId)
+    const intent = {kind: 'transaction' as const, transaction: {chainId: 43114, type: 'eip1559' as const, to: `0x${'99'.repeat(20)}` as Hex, value: 1n, nonce: 0, gas: 21_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n}}
+    const digest = signingIntentDigest(intent)
+    expect(toHex(digest)).toBe(keccak256(serializeTransaction(intent.transaction)))
+    // The fixture's payment pays for its own message, not for this transaction.
+    await expect(slot.signIntent(intent, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution})).rejects.toThrow(/does not pay for this signing intent/)
+    noKeeperWork(f)
+    const unpaid = await slot.signIntent(intent, {authorize: f.unpaidAuthorize})
+    expect(unpaid.digest).toEqual(digest)
+    expect(await recoverAddress({hash: toHex(digest), signature: {r: toHex(unpaid.r), s: toHex(unpaid.s), yParity: unpaid.yParity}})).toBe(await slot.getAddress())
+  })
+  it('refuses an intent without a chain, an oversized one and the wrong curve', async () => {
+    const f = fixture(2), slot = await f.app.slots.ecdsa(slotId)
+    expect(() => signingIntentDigest({kind: 'transaction', transaction: {to: `0x${'99'.repeat(20)}`, value: 1n, nonce: 0, gas: 21_000n, gasPrice: 1n}})).toThrow(/chain/)
+    expect(() => signingIntentDigest({kind: 'message', message: new Uint8Array(65_537)})).toThrow(/exceeds/)
+    expect(() => signingIntentDigest({kind: 'typed-data', typedData: {domain: {name: 'x'}, types: {T: [{name: 'a', type: 'uint8'}]}, primaryType: 'T', message: {a: 1}}})).toThrow(/chain/)
+    await expect(slot.signIntent({kind: 'sha256', data: new Uint8Array(1)} as never, {authorize: f.authorize})).rejects.toMatchObject({code: 'WRONG_SLOT_MODE'})
+    expect(f.fetchImpl).not.toHaveBeenCalled()
+  })
+  it('an approver signs only the intent it reviewed, against the payment for exactly that intent', async () => {
+    const f = await paidFixture(2), intent = {kind: 'message' as const, message: 'pay 1 TSRA'}
+    const digest = signingIntentDigest(intent)
+    const payment = {...f.payment, payload_digest: toHex(sha256(digest))}
+    const prepared = prepareDualOperation({payment, operation: 'secp256k1-sign', epoch: 1})
+    const approver = approverFor(approverSeeds[0]!)
+    expect((await approveSigningIntent({prepared, payment, intent, approver})).approval.approver_pubkey).toBe(toHex(approver.publicKey).slice(2))
+    await expect(approveSigningIntent({prepared, payment, intent: {kind: 'message', message: 'pay 100 TSRA'}, approver})).rejects.toThrow(/does not pay/)
+    await expect(approveSigningIntent({prepared: prepareDualOperation({payment, operation: 'p256-sign', epoch: 1}), payment, intent, approver})).rejects.toThrow(/names p256-sign/)
+  })
+})
+
+describe('a threshold P-256 slot', () => {
+  const p256Seed = new Uint8Array(32).fill(12)
+  function p256Fixture() {
+    const f = fixture(4)
+    const publicKey = p256.getPublicKey(p256Seed, true)
+    f.metadata.publicKey = toHex(publicKey)
+    f.fetchImpl.mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as {digest: string}
+      const signature = p256.sign(hexToBytes(`0x${body.digest}`), p256Seed, {prehash: false, lowS: false})
+      return Response.json({mode: 'tecdsa-p256', group_public_key: toHex(publicKey), signature_r: toHex(signature.r, {size: 32}), signature_s: toHex(signature.s, {size: 32})})
+    })
+    return {...f, publicKey}
+  }
+  it('signs the SHA-256 of exact bytes and verifies under the anchored key', async () => {
+    const f = p256Fixture(), slot = await f.app.slots.p256(slotId), data = new TextEncoder().encode('webauthn client data')
+    expect(await slot.getPublicKey()).toEqual(f.publicKey)
+    const result = await slot.signIntent({kind: 'sha256', data}, {authorize: f.authorize})
+    expect(result.digest).toEqual(sha256(data))
+    expect(p256.verify(new Uint8Array([...result.r, ...result.s]), sha256(data), f.publicKey, {prehash: false, lowS: false})).toBe(true)
+    expect((JSON.parse(String(f.fetchImpl.mock.calls[0]![1]?.body)) as {digest: string}).digest).toBe(toHex(sha256(data)).slice(2))
+  })
+  it('refuses a signature without a bundle on a slot with an installed policy, and a key that differs from the anchored one', async () => {
+    const f = p256Fixture(), slot = await f.app.slots.p256(slotId)
+    f.policy.quorum = 2
+    await expect(slot.signDigest(new Uint8Array(32), {authorize: f.authorize})).rejects.toMatchObject({code: 'INVALID_AUTHORIZATION'})
+    expect(f.fetchImpl).not.toHaveBeenCalled()
+    f.policy.quorum = 0
+    f.metadata.publicKey = toHex(p256.getPublicKey(new Uint8Array(32).fill(13), true))
+    await expect(slot.signDigest(new Uint8Array(32), {authorize: f.authorize})).rejects.toThrow(/differs from the slot key/)
+  })
+  it('refuses a secp256k1 slot', async () => {
+    await expect(fixture(2).app.slots.p256(slotId)).rejects.toMatchObject({code: 'WRONG_SLOT_MODE'})
   })
 })

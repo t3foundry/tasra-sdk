@@ -16,15 +16,18 @@ import {
   type Hex,
 } from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
+import {hexToBytes, toHex} from 'viem'
+import {secp256k1} from '@noble/curves/secp256k1'
+import {addressFromEoaPubkey} from '../../src/signing/ecdsa.js'
 import {createTasraWriteClient} from '../../src/chain/write.js'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.js'
 import {SlotHandoffError, readSlotHandoff} from '../../src/chain/slotHandoff.js'
 import type {TasraChainClient} from '../../src/chain/client.js'
 
-const mocks = vi.hoisted(() => ({submit: vi.fn(), read: vi.fn(), receipt: vi.fn()}))
+const mocks = vi.hoisted(() => ({submit: vi.fn(), read: vi.fn(), receipt: vi.fn(), code: vi.fn()}))
 vi.mock('viem', async original => ({
   ...await original<typeof import('viem')>(),
-  createPublicClient: () => ({readContract: mocks.read, getTransactionReceipt: mocks.receipt}),
+  createPublicClient: () => ({readContract: mocks.read, getTransactionReceipt: mocks.receipt, getCode: mocks.code}),
 }))
 vi.mock('../../src/chain/registeredRelay.js', async original => ({
   ...await original<typeof import('../../src/chain/registeredRelay.js')>(),
@@ -56,13 +59,16 @@ interface ChainState {
   /** False models a write that mines without the effect. */
   applies: boolean
   reserved: boolean
+  /** Slot key mode and anchored public key (`0x` before the key exists). */
+  mode: number
+  publicKey: Hex
 }
 let state: ChainState
 
 function freshState(): ChainState {
   return {
     exists: true, cancelled: false, creator: ME, pendingCreator: ZERO, admin: OTHER, guardian: GUARDIAN,
-    pendingAdmin: ZERO, handoff: true, applies: true, reserved: true,
+    pendingAdmin: ZERO, handoff: true, applies: true, reserved: true, mode: 0, publicKey: '0x',
   }
 }
 
@@ -113,7 +119,7 @@ beforeEach(() => {
     switch (functionName) {
       case 'getKeySlot':
         return {
-          creator: state.creator, ruleCommitment: hash('aa'), threshold: {k: 2, n: 3}, mode: 0, publicKey: '0x',
+          creator: state.creator, ruleCommitment: hash('aa'), threshold: {k: 2, n: 3}, mode: state.mode, publicKey: state.publicKey,
           epoch: 1n, committeeVersion: 1n, exists: state.exists, cancelled: state.cancelled, expiry: 0n, ruleVersion: 1n, auth: 1,
         }
       case 'rulePolicy':
@@ -132,6 +138,7 @@ beforeEach(() => {
     }
   })
   mocks.receipt.mockResolvedValue({status: 'success', logs: []})
+  mocks.code.mockResolvedValue(undefined)
   mocks.submit.mockImplementation(async (_to: Address, data: Hex) => {
     apply(data)
     return {id: hash('08'), txHash: TX}
@@ -234,6 +241,37 @@ describe('proposeSlotTransfer', () => {
   })
 })
 
+describe('a slot never becomes its own creator or a contract', () => {
+  // The keepers recover creator signatures with ecrecover only, and a custody slot's own
+  // signature needs a paid operation of that slot: either hand-off would leave nothing able to sign.
+  // The slot key of the fixture's own wallet: its account is ME.
+  const OWN_KEY = toHex(secp256k1.getPublicKey(hexToBytes(hash('01')), true))
+  it('refuses the slot account as recipient, and its acceptance of an offer made by a raw call', async () => {
+    // A slot whose threshold key is some other key: its account is not the signing wallet.
+    const key = toHex(secp256k1.getPublicKey(hexToBytes(hash('02')), true)), account = addressFromEoaPubkey(hexToBytes(key)) as Address
+    Object.assign(state, {mode: 2, publicKey: key})
+    await refuses(() => fixture().proposeSlotTransfer(SLOT, account), 'self-custody')
+    // The slot's own account (ME here) holding an offer made by a raw proposeCreator call.
+    Object.assign(state, {publicKey: OWN_KEY, creator: OTHER, pendingCreator: ME})
+    await refuses(() => fixture().acceptSlotTransfer(SLOT), 'self-custody')
+    expect(await readSlotHandoff({client: {readContract: mocks.read}, addresses: {KeyRegistry: REGISTRY}} as unknown as TasraChainClient, SLOT)).toMatchObject({slotAccount: ME})
+  })
+
+  it('refuses a contract recipient, and accepts an EIP-7702 delegated account', async () => {
+    mocks.code.mockResolvedValueOnce('0x6080604052')
+    await refuses(() => fixture().proposeSlotTransfer(SLOT, BUYER), 'contract-holder')
+    mocks.code.mockResolvedValueOnce(`0xef0100${'77'.repeat(20)}`)
+    await fixture().proposeSlotTransfer(SLOT, BUYER)
+    expect(state.pendingCreator).toBe(BUYER)
+  })
+
+  it('a P-256 slot has no Ethereum account to refuse', async () => {
+    Object.assign(state, {mode: 4, publicKey: OWN_KEY})
+    await fixture().proposeSlotTransfer(SLOT, BUYER)
+    expect(mocks.submit).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('withdrawSlotTransfer and acceptSlotTransfer', () => {
   it('withdraw sends proposeCreator(slot, 0)', async () => {
     state.pendingCreator = BUYER
@@ -313,7 +351,7 @@ describe('readSlotHandoff', () => {
 
   it('reports zero addresses as null', async () => {
     Object.assign(state, {admin: ZERO, guardian: ZERO})
-    expect(await readSlotHandoff(reader, SLOT)).toEqual({creator: ME, pendingCreator: null, ruleAdmin: null, guardian: null, pendingRuleAdmin: null})
+    expect(await readSlotHandoff(reader, SLOT)).toEqual({creator: ME, pendingCreator: null, ruleAdmin: null, guardian: null, pendingRuleAdmin: null, slotAccount: null})
   })
 
   it('reports both pending offers', async () => {

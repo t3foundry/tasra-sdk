@@ -264,6 +264,54 @@ private IP literals unless approved. A browser cannot check where a name resolve
 on its private-network protections; services must allow the origin through CORS and
 expose `Retry-After` and `x-ratelimit-after`.
 
+### Holder applications without the rule salt
+
+A holder application can run paid operations on a slot whose rule salt only the creator keeps.
+The creator issues a signed slot policy bootstrap to the application's own key; the application
+passes it instead of `{rule, salt}` and never sees the salt.
+
+On the creator side:
+
+```ts
+import {issueSlotPolicyBootstrap, verifySlotPolicyRequest} from '@t3foundry/tasra-sdk/app'
+
+// The application asked with createSlotPolicyRequest(appKey, {chainId, keyRegistry, slot}).
+const asked = await verifySlotPolicyRequest(request, {chainId, keyRegistry})
+// Check here that asked.audience is an application enrolled for asked.slot and asked.nonce is new.
+const bootstrap = await issueSlotPolicyBootstrap(chain, {signer: creatorSigner, slot: asked.slot,
+  rule, salt, audience: asked.audience, actions: ['sign'], sequence: nextSequence, ttlSecs: 900})
+```
+
+It refuses unless the signer is the slot's creator and the rule and salt reproduce the slot's
+commitment. The statement binds the chain, KeyRegistry, slot, rule version, salted commitment,
+`keccak256` of the raw rule, the application key, the allowed actions, a lifetime of at most one
+day and a `sequence`; issue a higher sequence to supersede earlier statements.
+
+In the holder application:
+
+```ts
+import {paidPolicyOperation} from '@t3foundry/tasra-sdk/app'
+
+const op = await paidPolicyOperation({...config, creator: remoteCreatorSigner}, {slot,
+  operation: {action: 'sign', message}, policy: bootstrap, audience: appKey.address,
+  operationKey: 'invoice-2026-0042', holder})
+```
+
+Before anything is signed or spent it checks the bootstrap's shape, deployment, slot,
+application key, action, lifetime, that the rule is the one the statement hashes and that the
+configured creator signed it; then, at the block discovery reads, that the slot's creator,
+commitment and rule version are the statement's; then that the store never accepted a higher
+`sequence` for this slot and application. Refusals are `SlotPolicyError` with a stable `code`.
+The bootstrap and the raw rule are journaled with the operation; the salt never is.
+
+`operationKey` names one intended operation. It is bound in the store before anything is
+signed, and a later call with the same key, after a lost reply, an uncertain step or a restart,
+resumes the original operation instead of starting another: an expired or newer bootstrap is not
+needed and not used. A key bound to another operation, a closed original and an original that
+never reached its journal are refused as `PolicyOperationError`; restart the last only with
+`restartUnjournaled: true`, which still waits out a derived request's payment window. Keep a
+decryption's recipient with the key: the operation it binds includes it.
+
 ### Prepaid allowances (opt-in)
 
 By default every paid operation waits for its own reservation transaction. With

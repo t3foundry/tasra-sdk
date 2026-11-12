@@ -58,6 +58,9 @@ import {HEX32, RECORD_KEY, RECORD_PREFIX, paidRecordKey as recordKey} from './pa
 import {AllowanceRefusedError, allowanceLaneCount, journaledAllowanceVoucher, obtainAllowanceVoucher, prepareAllowanceLane, selectAllowanceLane, validateAllowanceOptions, validateLaneReadiness, validateReadinessHorizon,
   type AllowanceEnv, type LaneReadiness, type PaidAllowanceOptions} from './paid-allowance.js'
 import {storeIdentity, withCommit, type LockedCommit} from './store-commit.js'
+import {admitSlotPolicySequence, requireCurrentSlotPolicy, verifySlotPolicyBootstrap, type SlotPolicyBootstrap, type SlotPolicyStatement} from './policy-bootstrap.js'
+/** The journaled salt of an operation that never held one (a policy bootstrap, a presentationless payment). */
+const ZERO_SALT = `0x${'00'.repeat(32)}` as Hex
 
 /** Approved deployment, signers, services and spending limits shared by paid operations. */
 export interface PaidOperationConfig {
@@ -117,8 +120,17 @@ export interface PaidOperationRequest {
   slot: Hex
   /** Committee action and payload: `message` for sign, `identity` for ibe-extract, `payloadDigest` for decrypt/dual-approve. */
   operation: {action: CommitteeAction; message?: Uint8Array; identity?: string; payloadDigest?: Uint8Array; decryption?: DecryptionBindingWire; ttlSecs?: number; description?: string}
-  /** Exact provisioned DCQL rule bytes and salt. The chain commitment uses canonical JSON; the verifier token hash binds these original bytes unchanged. */
-  rule: {rule: string; salt: Hex}
+  /**
+   * The slot's rule, in one of two forms. `{rule, salt}`: the exact provisioned DCQL rule bytes and
+   * salt; the chain commitment uses canonical JSON, the verifier token hash binds these original
+   * bytes unchanged. `{policy, audience}`: a creator-signed slot policy bootstrap issued to this
+   * holder application (`audience`), for a holder that never holds the salt. Its signature, scope,
+   * lifetime and rule hash are checked offline, then its creator, commitment and rule version
+   * against the same canonical slot read discovery makes, and its sequence against the store's
+   * high-water mark; all before anything is signed or spent. The bootstrap is journaled with the
+   * operation; the salt never is.
+   */
+  rule: {rule: string; salt: Hex} | {policy: SlotPolicyBootstrap; audience: Address}
   /**
    * Holder strategy: the SDK wallet presents itself, an external wallet scans the request, or
    * (`kind: 'oauth'`) the client presents a DPoP-bound OAuth access token for an OAuth slot rule.
@@ -372,7 +384,10 @@ interface OperationRecord {
     sessionGrant?: SessionGrantRequestWire}
   members: PaidVerifierWitness[]
   rule: string
+  /** The rule salt, or zero for an operation started from a slot policy bootstrap (which never carries it). */
   ruleSalt: Hex
+  /** The creator-signed slot policy bootstrap the operation started from (its rule is `rule`). */
+  policy?: {statement: SlotPolicyStatement; signature: Hex}
   coordinator: PaidKeeperEndpoint
   /** Assigned contributors (absent from journals written before IBE recovery existed). */
   contributors?: PaidKeeperEndpoint[]
@@ -874,26 +889,36 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
   readiness, () => sleep(1_000, readiness))
   // The rule the holder will see must be the one the slot committed to on chain. Discovery read the
   // slot at its canonical, rechecked block hash; a context without that field is read again here.
-  const expectedCommitment = ruleCommitment(request.rule.salt, request.rule.rule).toLowerCase()
+  // A policy bootstrap is checked offline first (signature, deployment, slot, audience, scope,
+  // lifetime, rule hash); its on-chain half below. Without one, the rule and salt reproduce it.
+  const policy = 'policy' in request.rule
+    ? (await verifySlotPolicyBootstrap(request.rule.policy, {chainId: d.chainId, keyRegistry: d.keyRegistry, slot, audience: request.rule.audience,
+      action: request.operation.action, signer: config.creator.address})).bootstrap
+    : undefined
+  const rawRule = policy ? policy.rule : (request.rule as {rule: string; salt: Hex}).rule
+  const expectedCommitment = policy ? policy.statement.ruleCommitment : ruleCommitment((request.rule as {rule: string; salt: Hex}).salt, rawRule).toLowerCase()
   const checked = async (context: PaidOperationContext): Promise<PaidOperationContext> => {
     if (context.creator.toLowerCase() !== config.creator.address.toLowerCase()) throw new TasraError('Paid operations are signed by the slot creator; this signer is not it')
-    if (context.ruleCommitment !== undefined) {
-      if (context.ruleCommitment.toLowerCase() !== expectedCommitment) throw new TasraError('Supplied rule or salt differs from the slot commitment')
-    } else {
+    let observed: {ruleCommitment: string; ruleVersion?: number} = {ruleCommitment: context.ruleCommitment ?? '', ruleVersion: context.ruleVersion}
+    if (context.ruleCommitment === undefined || (policy && context.ruleVersion === undefined)) {
       const original = await client.readContract({address: d.keyRegistry, abi: keyRegistryAbi, functionName: 'getKeySlot', args: [slot], blockNumber: context.blockNumber})
-      if (original.ruleCommitment.toLowerCase() !== expectedCommitment) throw new TasraError('Supplied rule or salt differs from the slot commitment')
       if ((await client.getBlock({blockNumber: context.blockNumber})).hash !== context.blockHash) throw new TasraError('Rule observation reorganized')
+      observed = {ruleCommitment: original.ruleCommitment, ruleVersion: Number(original.ruleVersion)}
     }
+    if (policy) requireCurrentSlotPolicy(policy.statement, config.creator.address, {creator: context.creator, ruleCommitment: observed.ruleCommitment as Hex, ruleVersion: observed.ruleVersion ?? -1})
+    else if (observed.ruleCommitment.toLowerCase() !== expectedCommitment) throw new TasraError('Supplied rule or salt differs from the slot commitment')
     return context
   }
   let context = await checked(await discover(undrawnOk))
+  // A bootstrap older than one this store already accepted for the slot and application is a replay.
+  if (policy) await admitSlotPolicySequence(config.store, policy.statement)
   // Validate the DCQL JSON, but retain the provisioned bytes. The chain's salted
   // commitment canonicalizes JSON; verifier tokens bind keccak256(raw rule).
   // Rewriting whitespace/key order here changes the expected token hash.
-  canonicalize(request.rule.rule)
+  canonicalize(rawRule)
   // The holder's presentation family must be the rule's: refused before anything is signed or spent.
   const oauthHolder = request.holder?.kind === 'oauth'
-  if (oauthRule(request.rule.rule) !== oauthHolder) throw new TasraError(oauthHolder ? 'An OAuth holder needs an OAuth (oauth+access-token+dpop or kk_oauth) slot rule' : 'An OAuth slot rule needs an OAuth holder')
+  if (oauthRule(rawRule) !== oauthHolder) throw new TasraError(oauthHolder ? 'An OAuth holder needs an OAuth (oauth+access-token+dpop or kk_oauth) slot rule' : 'An OAuth slot rule needs an OAuth holder')
   // A session grant opens only from a KEM decrypt presentation (checked again, with the slots, before signing).
   if (request.sessionGrant && request.operation.action !== 'decrypt') throw new TasraError('A session grant opens only from a KEM decrypt presentation')
   const ttlSecs = request.operation.ttlSecs ?? 600
@@ -937,7 +962,8 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
   const {witnesses} = await fetchDrawnVerifierWitnesses(config.accountantUrls, payment, d.verifierSet,
     {signal: AbortSignal.any([signal, AbortSignal.timeout(Math.min(150_000, ttlSecs * 1000))]), fetch: config.fetch,
       waitForPublicationMs: Math.min(config.snapshotWaitMs ?? 180_000, 150_000, ttlSecs * 1000)})
-  const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: request.rule.rule, ruleSalt: request.rule.salt,
+  const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: rawRule,
+    ruleSalt: policy ? ZERO_SALT : (request.rule as {rule: string; salt: Hex}).salt, ...(policy ? {policy: {statement: structuredClone(policy.statement), signature: policy.signature}} : {}),
     params: {operation: built.operation, operationSig, messageHex: built.messageHex, random, ...(oauthHolder ? {kind: 'oauth' as const} : {}), ...(request.operation.decryption ? {decryption: structuredClone(request.operation.decryption)} : {}),
       ...(request.sessionGrant ? {sessionGrant: structuredClone(request.sessionGrant.session_grant)} : {})}, coordinator: context.coordinator, contributors: context.contributors,
     action: request.operation.action, payloadDigest: toHex(built.payloadDigest), payer: config.gasPayer.account.address, ...ticket ? {allowance: {lane: ticket.lane}} : {}}

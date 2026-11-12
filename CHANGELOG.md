@@ -9,6 +9,25 @@ never does.
 
 ### Added
 
+- Customer authorization bootstrap: a holder application runs paid operations on a slot whose
+  rule salt only the creator keeps. `issueSlotPolicyBootstrap` (creator side) signs an EIP-712
+  slot policy statement binding the chain, KeyRegistry, slot, rule version, salted commitment,
+  `keccak256` of the raw rule, the holder application key, allowed actions, lifetime and a
+  monotonic sequence, after checking the rule and salt against the slot; the salt is never in
+  it. `PaidOperationRequest.rule` also takes `{policy, audience}`: checked offline
+  (`verifySlotPolicyBootstrap`), then against the slot's creator, commitment and rule version at
+  the canonical discovery block, then against the store's sequence high-water mark, before
+  anything is signed or spent; the bootstrap is journaled, the salt is not. `paidPolicyOperation`
+  binds an application `operationKey` to the exact operation before anything is signed and
+  resumes the original journal entry on any later call with that key (`readPolicyOperation`
+  reads the binding). `createSlotPolicyRequest` / `verifySlotPolicyRequest` authenticate a
+  holder application's retrieval with its own key. New errors `SlotPolicyError`,
+  `PolicyOperationError` with stable codes.
+- `slots.p256(slotId)`: a threshold P-256 slot adapter (`getPublicKey`, `signDigest`,
+  `signIntent`) with native approval bundles. `slots.ecdsa(slotId).signIntent` and
+  `signingIntentDigest` derive the digest from a transaction, EIP-712 typed data, a personal
+  message or (P-256) exact bytes; `requireIntentPayment` and `approveSigningIntent` bind the
+  payment and each approver to that intent.
 - Paid OAuth+DPoP operations through the public paid-operation API: a
   `{kind: 'oauth', credential}` holder for `paidOperation`, `resumePaidOperation` and
   `drivePaidSession`. The OAuth mode is signed into the session and journaled with the operation
@@ -133,6 +152,15 @@ never does.
 
 ### Changed
 
+- `slots.ecdsa().signDigest` (and the new P-256 adapter) refuse, before credential consent or
+  keeper work, a signature without a bundle on a slot with an installed approval policy, and a
+  bundle with fewer distinct verified approvals than the on-chain quorum, a duplicate approver or
+  a key outside a static approver set.
+- `proposeSlotTransfer` refuses `self-custody` (a secp256k1 slot offered to its own threshold
+  account) and `contract-holder` (a contract recipient; an EIP-7702 delegated account is
+  accepted), and `acceptSlotTransfer` refuses `self-custody`. Keepers recover creator signatures
+  with `ecrecover` only, so either creator could never sign a paid operation of the slot.
+  `SlotHandoffStatus` gains `slotAccount`.
 - `setApprovalPolicy` judges the set-once policy before sending: an identical installed policy
   resolves `{phase: 'already-installed', slotId}` without a transaction, a different one is refused
   before sending (it used to revert on chain). Its return type is now

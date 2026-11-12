@@ -169,3 +169,19 @@ missing approvals, a duplicate approver, a key outside the set, a stale statemen
 of another payment are refused before anything is sent, and the keeper and every ECDSA member
 re-check all of it. Approver keys are Ed25519 only (the network has no other approver type), and
 a credential-gated policy needs each approver's own holder-bound `dual-approve` grant.
+
+### Sign a structured intent
+
+Approvers should review what is signed, not a digest. `slots.ecdsa(slot).signIntent(intent,
+options)` takes a transaction (it must name its `chainId`), EIP-712 typed data (with a domain
+`chainId`) or a personal message, derives the digest itself and, with a payment, refuses unless
+the payment pays for exactly that intent. An approver calls `approveSigningIntent({prepared,
+payment, intent, approver})`: it recomputes the digest from the intent it reviewed and refuses
+before signing when the payment or the statement names anything else. Intents are at most 64 KiB.
+
+`slots.p256(slot)` is the same adapter for a threshold P-256 slot (not an Ethereum account):
+`signDigest`, or `signIntent({kind: 'sha256', data})` for the SHA-256 of exact bytes, each
+verified under the anchored key. On either curve a slot with an installed policy refuses a
+signature without its bundle, and a bundle with fewer distinct verified approvals than the
+on-chain quorum, a duplicate approver or a key outside a static set, before any credential
+consent or keeper work.

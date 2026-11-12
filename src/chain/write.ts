@@ -1303,11 +1303,13 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     functionName: 'proposeCreator' | 'acceptCreator' | 'proposeRuleAdmin' | 'acceptRuleAdmin',
     args: readonly unknown[],
     verdict: (s: SlotHandoffStatus) => void,
+    alsoRequire?: () => Promise<void>,
   ): Promise<{txHash: Hex; before: SlotHandoffStatus; after: SlotHandoffStatus}> {
     requireBytes32(slotId, 'slotId', what)
     const keyRegistry = requireAddress(addr, 'KeyRegistry')
     const before = await readHandoffOnChain(pub.readContract, keyRegistry, slotId)
     verdict(before)
+    await alsoRequire?.()
     const txHash = await sendCall(keyRegistry, keyRegistryAbi, functionName, args, what)
     await confirmed(pub, txHash, what)
     return {txHash, before, after: await readHandoffOnChain(pub.readContract, keyRegistry, slotId)}
@@ -1319,13 +1321,23 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
       throw new TasraError(`${what}: to must be a non-zero address; withdraw with ${withdraw}`)
     }
   }
+  // Keepers recover every creator signature (operation, payment intent, execution certificate) with
+  // ecrecover; there is no contract-signature path, so a contract creator could never sign a paid
+  // operation of the slot. An EIP-7702 delegated account still signs with its own key.
+  const requireAccountRecipient = async (slotId: Hex, to: Address, what: string) => {
+    const code = await pub.getCode({address: to})
+    if (code && code !== '0x' && !/^0xef0100[0-9a-f]{40}$/i.test(code)) {
+      throw new SlotHandoffError('contract-holder', slotId, `${what}: ${to} is a contract; keepers accept creator signatures from an externally owned account only, ` +
+        'so a contract creator could not sign any paid operation of this slot')
+    }
+  }
 
   /** Offer the slot to `to` as its creator; see {@link TasraWriteClient.proposeSlotTransfer}. */
   async function proposeSlotTransfer(slotId: Hex, to: Address): Promise<SlotTransferProposal> {
     const what = 'proposeSlotTransfer'
     requireRecipient(to, what, 'withdrawSlotTransfer')
     const {txHash, before, after} = await handoffStep(slotId, what, 'proposeCreator', [slotId, to], s =>
-      creatorOfferVerdict(s, slotId, account.address, to),
+      creatorOfferVerdict(s, slotId, account.address, to), () => requireAccountRecipient(slotId, to, what),
     )
     if (!after.pendingCreator || !sameAddress(after.pendingCreator, to)) {
       throw notConfirmed(slotId, what, txHash, `pending creator ${after.pendingCreator ?? 'none'}`)
@@ -1597,7 +1609,7 @@ export interface TasraWriteClient {
    * Offer the slot to `to` as its next creator, signed by the current creator. It moves only when `to` accepts with acceptSlotTransfer; a new offer replaces an earlier one.
    * Only the creator moves: the rule admin and the guardian stay, and the result names them. When this account is also the rule admin, hand that role over separately with proposeRuleAdminTransfer.
    * At acceptance every delegation and unused prepaid payment intent this account signed for the slot stops working; reservations already accepted still settle. The prepaid credit goes with the slot and nothing is refunded; the result carries the balance when a Settlement address is configured.
-   * Refused before signing, as a `SlotHandoffError`: `no-slot`, `cancelled`, `unsupported` (a KeyRegistry without the hand-off), `not-creator`, `same-holder` and `already-offered`.
+   * Refused before signing, as a `SlotHandoffError`: `no-slot`, `cancelled`, `unsupported` (a KeyRegistry without the hand-off), `not-creator`, `same-holder`, `already-offered`, `self-custody` (the slot's own threshold account, which could never sign a paid operation of itself again) and `contract-holder` (keepers accept creator signatures from an externally owned account only).
    */
   proposeSlotTransfer(slotId: Hex, to: Address): Promise<SlotTransferProposal>
   /**
@@ -1605,7 +1617,7 @@ export interface TasraWriteClient {
    */
   withdrawSlotTransfer(slotId: Hex): Promise<Hex>
   /**
-   * Become the slot's creator, signed by the offered wallet. Refuses `nothing-pending` and `not-offered` before signing.
+   * Become the slot's creator, signed by the offered wallet. Refuses `nothing-pending`, `not-offered` and `self-custody` before signing.
    * Afterwards sign fresh delegations for the apps that use the slot and update their configuration: the previous creator's delegations no longer verify.
    */
   acceptSlotTransfer(slotId: Hex): Promise<Hex>

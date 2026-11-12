@@ -1,7 +1,7 @@
 /** Application API. safe to import in browsers. */
 export {createTasra, TasraApplicationError} from './client.js'
 export type {TasraApplication, TasraApplicationConfig, ApplicationErrorCode, SlotMetadata, OperationGrant,
-  AuthorizationRequest, OperationAuthorizer, AuthorizedOperationOptions, EcdsaSignOptions, IdentityExtractionOptions, EcdsaSlot, FrostSlot, BlsSlot} from './client.js'
+  AuthorizationRequest, OperationAuthorizer, AuthorizedOperationOptions, EcdsaSignOptions, IdentityExtractionOptions, EcdsaSlot, P256Slot, FrostSlot, BlsSlot} from './client.js'
 export {defineDeployment} from './deployment.js'
 export type {TasraDeployment} from './deployment.js'
 export {toViemAccount} from './viem.js'
@@ -39,6 +39,11 @@ export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PrepareAl
   PaidOperationNextStep, ResumePaidOperationOptions, PaidOperationErrorCode, PaidOperationSummary, ListPaidOperationsOptions,
   RecoverIbePartialsOptions, RecoveredIbePartial, RecoveredIbePartials, PaidOperationRecovery, AbandonPaidOperationOptions, AbandonedPaidOperation,
   RefreshPaidStatusOptions, PaidStatusRefresh} from './paid-operation.js'
+export {SLOT_POLICY_DOMAIN_NAME, SLOT_POLICY_REQUEST_DOMAIN_NAME, SLOT_POLICY_MAX_LIFETIME_SECS, SLOT_POLICY_REQUEST_MAX_AGE_SECS, SlotPolicyError, PolicyOperationError,
+  slotPolicyTypedData, slotPolicyHash, verifySlotPolicyBootstrap, issueSlotPolicyBootstrap, slotPolicyRequestTypedData, createSlotPolicyRequest, verifySlotPolicyRequest} from './policy-bootstrap.js'
+export type {SlotPolicyStatement, SlotPolicyBootstrap, SlotPolicyRequest, SlotPolicyExpectation, SlotPolicyErrorCode, PolicyOperationErrorCode, IssueSlotPolicyInput} from './policy-bootstrap.js'
+export {paidPolicyOperation, readPolicyOperation} from './policy-operation.js'
+export type {PaidPolicyOperationRequest} from './policy-operation.js'
 export {drivePaidSession, waitForPaidSnapshot, PaidSessionRecoveryError} from './paid-session.js'
 export type {PaidSessionDriverOptions, PaidSessionHolder, PaidWalletPresentation, PaidSessionRequestLink, PaidOAuthContext, PaidOAuthCredential} from './paid-session.js'
 export {createMemoryStore} from './memory-store.js'
@@ -46,3 +51,5 @@ export {createSessionKey, sessionGrantCreateFragment, acceptSessionGrant, loadGr
 export {decryptInSession, SessionMessageError, MAX_MESSAGE_DEBITS} from './session-decrypt.js'
 export type {SessionMessageRequest, SessionMessageResult, SessionReopened} from './session-decrypt.js'
 export type {SessionKeyHandle, SessionGrantParams, SessionGrantCreateFragment, SlotTrust, SessionTransport, GrantedSessionOptions} from './session-grants.js'
+export {signingIntentDigest, signingIntentCurve, requireIntentPayment, approveSigningIntent, SIGNING_INTENT_MAX_BYTES} from './signing-intents.js'
+export type {SigningIntent, EthereumSigningIntent, TransactionSigningIntent, TypedDataSigningIntent, MessageSigningIntent, P256SigningIntent} from './signing-intents.js'
