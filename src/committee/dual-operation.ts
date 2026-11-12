@@ -29,14 +29,23 @@ const ACTION: Record<DualOperationKind, PaymentIntentWire['action']> = {
 
 /** The Rust `Statement`, field for field, in its serialization order. Byte arrays are JSON number arrays. */
 export interface DualOperationStatement {
+  /** Chain the final payment names. */
   chain_id: number
+  /** 32-byte slot ID as a JSON number array. */
   slot: number[]
+  /** The approved operation. */
   operation: DualOperationKind
+  /** The slot's key epoch the final payment's keeper assignment names. */
   epoch: number
+  /** 32-byte payload digest of the final operation (SHA-256 of an ECDSA digest), as numbers. */
   payload_digest: number[]
+  /** The final payment's request ID, 64 lowercase hex characters. */
   request_id: string
+  /** EIP-712 hash of the final payment intent, as numbers. */
   payment_hash: number[]
+  /** Unix seconds the statement becomes current. */
   issued_at: number
+  /** Unix seconds it stops being current (at most 300 s after issue). */
   expires_at: number
   /** IBE approvals cover a reusable identity capability, not a single ciphertext; null otherwise. */
   identity: string | null
@@ -44,38 +53,51 @@ export interface DualOperationStatement {
 
 /** One approver's signature over the statement (Rust `Approval`). */
 export interface DualOperationApproval {
+  /** Approver's Ed25519 public key, hex. */
   approver_pubkey: string
+  /** Ed25519 signature over the statement's exact payload, hex. */
   signature: string
+  /** Membership proofs of a credentialed approver's grant (empty for a static approver). */
   verifier_proofs: {verifier_index: number; operator: string; pubkey: string; proof: string[]}[]
+  /** A credentialed approver's holder-bound dual-approve grant. */
   committee_token?: CompoundTokenWire
+  /** Sealed evidence ciphertext of that grant. */
   evidence_ct?: string
 }
 
 /** The `dual_control` field of an operation request (Rust `Proof`). */
 export interface DualOperationProof {
+  /** The one statement every approval signs. */
   statement: DualOperationStatement
+  /** Distinct approvals of it. */
   approvals: DualOperationApproval[]
 }
 
 /** A prepared statement and its exact signed bytes. */
 export interface PreparedDualOperation {
+  /** The statement approvers sign. */
   statement: DualOperationStatement
   /** Hex of the signed preimage (domain + canonical JSON). */
   message_hex: string
   /** Hex SHA-256 of the preimage: the digest a credentialed approver's dual-approve grant binds. */
   payload_digest: string
+  /** The presentation action a credentialed approver's grant uses. */
   action: 'dual-approve'
 }
 
 /** One approval with the statement it signs, as an approver hands it back. */
 export interface DualOperationApprovalRecord {
+  /** The statement the approver signed. */
   statement: DualOperationStatement
+  /** Its signature (and grant). */
   approval: DualOperationApproval
 }
 
 /** An Ed25519 approver: its public key and a callback that signs the exact supplied bytes. */
 export interface DualOperationApprover {
+  /** 32-byte Ed25519 public key. */
   publicKey: Uint8Array
+  /** Sign the exact supplied bytes; the SDK verifies the result. */
   sign(payload: Uint8Array): Promise<Uint8Array>
 }
 

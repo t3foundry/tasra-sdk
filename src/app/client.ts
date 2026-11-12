@@ -14,6 +14,7 @@ import {decryptIdentityStrict, extractIdentityStrict, type StrictExtractionOptio
 import {TasraError} from '../errors.js'
 import {committeeSign, type VerifierProof} from '../committee/client.js'
 import {committeeSignEoaDigest} from '../committee/ecdsa.js'
+import {requireDualOperationProof, type DualOperationProof} from '../committee/dual-operation.js'
 import {createDualSignClient} from '../committee/dual-sign.js'
 import {auditOperationId, protocolHex, verifyOperationReceipt} from '../committee/receipts.js'
 import {compoundTokenHash, decodeCompoundToken, type CompoundTokenWire} from '../committee/token.js'
@@ -97,6 +98,18 @@ export interface AuthorizedOperationOptions {
    * Optional holder signature forwarded to the keeper operation.
    */
   userSignature?: Uint8Array
+}
+
+/** {@link AuthorizedOperationOptions} for a threshold ECDSA digest signature. */
+export interface EcdsaSignOptions extends AuthorizedOperationOptions {
+  /**
+   * The assembled native approval bundle for THIS digest and THIS final payment
+   * (`prepareOperationApproval` → `approveDualOperation` → `assembleOperationApproval`). Required
+   * by a slot with an approval policy; needs `payment` (it binds the payment's request ID and
+   * hash). Checked locally against the slot, SHA-256 of the digest and the grant's payment before
+   * the keeper body is approved, and carried inside it unchanged.
+   */
+  dualControl?: DualOperationProof
 }
 
 /** Authorization, receipt requirements and fan-out deadline for a BLS identity operation. */
@@ -305,13 +318,18 @@ export function createTasra(config: TasraApplicationConfig) {
            * @param input Exactly 32 digest bytes.
            * @param options Fresh operation authorization and cancellation controls.
            */
-          async signDigest(input: Uint8Array, options: AuthorizedOperationOptions): Promise<EoaSignature> {
+          async signDigest(input: Uint8Array, options: EcdsaSignOptions): Promise<EoaSignature> {
             if (input.length !== 32) throw new TasraError('Ethereum digest must be exactly 32 bytes')
+            const dualControl = options.dualControl && structuredClone(options.dualControl)
+            if (dualControl && !options.payment) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Native approvals bind a final payment; supply it')
             const digest = input.slice(), s = await ready(slotId, 2)
+            // Judged before any credential work: the bundle names this slot, digest and payment.
+            if (dualControl) requireDualOperationProof(dualControl, {operation: 'secp256k1-sign', slot: protocolHex(slotId, 32, 'slot'), payloadDigest: sha256(digest), payment: options.payment!})
             const grant = await authorize(s, 'sign', {message: digest}, options), node = grant.paidTarget ? paidNode(grant.paidTarget) : (await keepers(slotId, options.signal))[0]!
             options.signal?.throwIfAborted()
             const result = await committeeSignEoaDigest({nodeUrl: node.nodeUrl, committeeToken: grant.token, evidenceCt: grant.evidenceCt, verifierProofs: grant.verifierProofs,
-              digest, userSignature: options.userSignature, targetKeykeeper: node.operator, signal: options.signal, fetchImpl,approveExecution:grant.approveExecution})
+              digest, userSignature: options.userSignature, targetKeykeeper: node.operator, signal: options.signal, fetchImpl,approveExecution:grant.approveExecution,
+              ...(dualControl ? {dualControl} : {})})
             const publicKey = protocolHex(s.publicKey, 33, 'secp256k1 public key')
             const recovered = await recoverAddress({hash: toHex(digest), signature: {r: toHex(result.r), s: toHex(result.s), yParity: result.yParity}})
             if (!equalBytes(result.groupPublicKey, publicKey) || recovered.toLowerCase() !== addressFromEoaPubkey(publicKey).toLowerCase()) throw new TasraApplicationError('INVALID_RESULT', 'Signature does not match the anchored Ethereum account')

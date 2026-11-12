@@ -38,6 +38,7 @@ vi.mock('../../src/chain/keeperRecovery.js', async original => ({...await origin
 import {paidOperation, paidFinalSign, resumePaidFinalSign, paidSessionDecrypt, resumePaidSessionDecrypt, paidOperationPhase, resumePaidOperation, reconcilePaidOperation, listPaidOperations, abandonPaidOperation, recoverPaidOperation,
   PaidOperationRecoveryError, PaidOperationAbandonRefusedError, NewerVerifierEpoch, type PaidOperationConfig} from '../../src/app/paid-operation.js'
 import {createMemoryStore} from '../../src/app/memory-store.js'
+import {paidRecordKey} from '../../src/app/paid-keys.js'
 import {createFileStore} from '../../src/app/node.js'
 import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
@@ -1980,5 +1981,48 @@ describe('paidOperation: session-grant presentation (ADR-0090 D7)', () => {
     vi.mocked(reserveApplicationPayment).mockClear()
     await expect(paidOperation(f.config, {...f.request, sessionGrant: fragment})).rejects.toThrow(/KEM decrypt/)
     expect(reserveApplicationPayment).not.toHaveBeenCalled()
+  })
+})
+
+describe('paid OAuth holder through paidOperation', () => {
+  const oauthRule = JSON.stringify({credentials: [{id: 'kc', format: 'oauth+access-token+dpop', claims: [{path: ['iss'], values: ['https://idp.example']}]}]})
+  const oauthHolder = {kind: 'oauth' as const, credential: vi.fn()}
+
+  it('propagates OAuth mode to the session it prepares and journals it with the operation', async () => {
+    const f = setup({ruleCommitment: ruleCommitment(salt, oauthRule)})
+    const ids: Hex[] = []
+    await paidOperation(f.config, {...f.request, rule: {rule: oauthRule, salt}, holder: oauthHolder, onRequestId: id => { ids.push(id) }})
+    expect(vi.mocked(prepareRegisteredPaidSession).mock.calls[0]![2]).toMatchObject({kind: 'oauth'})
+    expect(vi.mocked(drivePaidSession).mock.calls[0]![0].holder).toBe(oauthHolder)
+    expect((await f.store.load<{params: {kind?: string}}>(paidRecordKey(ids[0]!)))?.params.kind).toBe('oauth')
+  })
+
+  it('a resume must use the journaled holder family; a wallet holder cannot resume an OAuth session (and vice versa)', async () => {
+    for (const [journaled, resumedWith] of [['oauth', 'local'], ['local', 'oauth']] as const) {
+      const f = setup(journaled === 'oauth' ? {ruleCommitment: ruleCommitment(salt, oauthRule)} : {})
+      const ids: Hex[] = []
+      vi.mocked(drivePaidSession).mockRejectedValueOnce(new PaidSessionRecoveryError('k', 'unknown outcome'))
+      await expect(paidOperation(f.config, {...f.request, ...(journaled === 'oauth' ? {rule: {rule: oauthRule, salt}, holder: oauthHolder} : {}),
+        onRequestId: id => { ids.push(id) }})).rejects.toBeInstanceOf(PaidOperationRecoveryError)
+      vi.mocked(prepareRegisteredPaidSession).mockClear()
+      await expect(resumePaidOperation(f.config, ids[0]!, {holder: resumedWith === 'oauth' ? oauthHolder : f.holder}))
+        .rejects.toThrow(journaled === 'oauth' ? 'journaled with an OAuth holder' : 'journaled with a wallet holder')
+      expect(prepareRegisteredPaidSession).not.toHaveBeenCalled()
+      // The matching holder resumes the original session (same params, same kind).
+      await resumePaidOperation(f.config, ids[0]!, {holder: journaled === 'oauth' ? oauthHolder : f.holder})
+      const params = vi.mocked(prepareRegisteredPaidSession).mock.calls[0]![2]
+      expect(params.kind).toBe(journaled === 'oauth' ? 'oauth' : undefined)
+    }
+  })
+
+  it.each(['OAuth holder on a wallet rule', 'wallet holder on an OAuth rule'] as const)('refuses an %s before anything is signed or reserved', async name => {
+    const oauthOnWallet = name === 'OAuth holder on a wallet rule'
+    const f = setup(oauthOnWallet ? {} : {ruleCommitment: ruleCommitment(salt, oauthRule)})
+    const sign = vi.spyOn(f.config.creator, 'signTypedData')
+    await expect(paidOperation(f.config, {...f.request, ...(oauthOnWallet ? {holder: oauthHolder} : {rule: {rule: oauthRule, salt}})}))
+      .rejects.toThrow(oauthOnWallet ? 'An OAuth holder needs an OAuth' : 'An OAuth slot rule needs an OAuth holder')
+    expect(sign).not.toHaveBeenCalled()
+    expect(reserveApplicationPayment).not.toHaveBeenCalled()
+    sign.mockRestore()
   })
 })

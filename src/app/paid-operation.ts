@@ -45,7 +45,8 @@ import {compoundTokenHash, decodeCompoundToken, requireStatusAttestations, signe
   type CompoundTokenWire, type StatusAttestationWire} from '../committee/token.js'
 import {acceptStatusRefreshRelay, createStatusRefreshProof, refreshStatusDirect, statusRefreshRelayBody, type StatusRefreshHolderSigner,
   type StatusRefreshPrincipal, type StatusRefreshResult} from '../committee/status-refresh.js'
-import {canonicalize} from '../auth/oid4vp.js'
+import {canonicalize, isOauthFormat} from '../auth/oid4vp.js'
+import {isOauthEnvelope} from '../auth/rego.js'
 import {presentationOperationTypedData, verifierAgentResult, type PresentationOperation} from '../oid4vp/verifier-agent.js'
 import {requestHash, type CommitteeAction} from '../oid4vp/binding.js'
 import type {VerifiedRequestObject} from '../oid4vp/request-object.js'
@@ -118,7 +119,11 @@ export interface PaidOperationRequest {
   operation: {action: CommitteeAction; message?: Uint8Array; identity?: string; payloadDigest?: Uint8Array; decryption?: DecryptionBindingWire; ttlSecs?: number; description?: string}
   /** Exact provisioned DCQL rule bytes and salt. The chain commitment uses canonical JSON; the verifier token hash binds these original bytes unchanged. */
   rule: {rule: string; salt: Hex}
-  /** Holder strategy: the SDK wallet presents itself, or an external wallet scans the request. */
+  /**
+   * Holder strategy: the SDK wallet presents itself, an external wallet scans the request, or
+   * (`kind: 'oauth'`) the client presents a DPoP-bound OAuth access token for an OAuth slot rule.
+   * The choice is journaled with the operation: a resume must use the same kind.
+   */
   holder: PaidSessionHolder
   /** Pin the coordinator keeper (operator address); otherwise the first eligible keeper. */
   coordinator?: Address
@@ -361,6 +366,8 @@ interface OperationRecord {
   payment: PaymentIntentWire
   expected: ExpectedPaidOperation
   params: {operation: PresentationOperation; operationSig: Hex; messageHex: string; random: Hex; decryption?: DecryptionBindingWire
+    /** ADR-0073 OAuth+DPoP session (an OAuth holder); absent for a wallet session, as in every older journal. */
+    kind?: 'oauth'
     /** ADR-0090 D7 session mode: the public create fragment, signed into the session initialization. */
     sessionGrant?: SessionGrantRequestWire}
   members: PaidVerifierWitness[]
@@ -878,6 +885,9 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
   // commitment canonicalizes JSON; verifier tokens bind keccak256(raw rule).
   // Rewriting whitespace/key order here changes the expected token hash.
   canonicalize(request.rule.rule)
+  // The holder's presentation family must be the rule's: refused before anything is signed or spent.
+  const oauthHolder = request.holder?.kind === 'oauth'
+  if (oauthRule(request.rule.rule) !== oauthHolder) throw new TasraError(oauthHolder ? 'An OAuth holder needs an OAuth (oauth+access-token+dpop or kk_oauth) slot rule' : 'An OAuth slot rule needs an OAuth holder')
   // A session grant opens only from a KEM decrypt presentation (checked again, with the slots, before signing).
   if (request.sessionGrant && request.operation.action !== 'decrypt') throw new TasraError('A session grant opens only from a KEM decrypt presentation')
   const ttlSecs = request.operation.ttlSecs ?? 600
@@ -922,7 +932,7 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
     {signal: AbortSignal.any([signal, AbortSignal.timeout(Math.min(150_000, ttlSecs * 1000))]), fetch: config.fetch,
       waitForPublicationMs: Math.min(config.snapshotWaitMs ?? 180_000, 150_000, ttlSecs * 1000)})
   const record: OperationRecord = {schema: 1, phase: 'reserving', payment, expected, members: witnesses, rule: request.rule.rule, ruleSalt: request.rule.salt,
-    params: {operation: built.operation, operationSig, messageHex: built.messageHex, random, ...(request.operation.decryption ? {decryption: structuredClone(request.operation.decryption)} : {}),
+    params: {operation: built.operation, operationSig, messageHex: built.messageHex, random, ...(oauthHolder ? {kind: 'oauth' as const} : {}), ...(request.operation.decryption ? {decryption: structuredClone(request.operation.decryption)} : {}),
       ...(request.sessionGrant ? {sessionGrant: structuredClone(request.sessionGrant.session_grant)} : {})}, coordinator: context.coordinator, contributors: context.contributors,
     action: request.operation.action, payloadDigest: toHex(built.payloadDigest), payer: config.gasPayer.account.address, ...ticket ? {allowance: {lane: ticket.lane}} : {}}
   await journalNewOperation(config.store, requestId, record)
@@ -935,6 +945,18 @@ async function paidOperationAttempt(config: PaidOperationConfig, request: PaidOp
 }
 
 class NoLongerReserving extends Error {}
+
+/** Whether a provisioned rule authorizes OAuth access tokens (a kk_oauth envelope or an OAuth-format DCQL query). */
+function oauthRule(rule: string): boolean {
+  if (isOauthEnvelope(rule)) return true
+  let parsed: unknown
+  try { parsed = JSON.parse(rule) } catch { return false }
+  const credentials = (parsed as {credentials?: unknown})?.credentials
+  if (!Array.isArray(credentials) || credentials.length === 0) return false
+  const formats = credentials.map(c => typeof (c as {format?: unknown})?.format === 'string' && isOauthFormat((c as {format: string}).format))
+  if (formats.some(f => f) && !formats.every(f => f)) throw new TasraError('Slot rule mixes OAuth and wallet credential formats')
+  return formats[0] === true
+}
 
 async function reserve(config: PaidOperationConfig, record: OperationRecord, signal: AbortSignal): Promise<void> {
   const d = {...config.deployment}, requestId = prepaidRequestId(record.payment), key = recordKey(requestId)
@@ -1094,8 +1116,11 @@ async function continueOperation(config: PaidOperationConfig, requestId: Hex, ho
   try {
     if (record.phase === 'certified') {
       if (!holder) throw new TasraError('Resuming a paid session requires its holder strategy')
+      // The session's identity binds its kind: a resume with another holder family is refused, sending nothing.
+      if ((holder.kind === 'oauth') !== (record.params.kind === 'oauth')) throw new TasraError(record.params.kind === 'oauth'
+        ? 'This paid operation was journaled with an OAuth holder; resume it with one' : 'This paid operation was journaled with a wallet holder; resume it with one')
       const params: PaidAgentSessionParams = {operation: record.params.operation, operationSig: record.params.operationSig,
-        messageHex: record.params.messageHex, payment: record.payment, random: record.params.random, ...(record.params.decryption ? {decryption: record.params.decryption} : {}),
+        messageHex: record.params.messageHex, payment: record.payment, random: record.params.random, ...(record.params.kind === 'oauth' ? {kind: 'oauth' as const} : {}), ...(record.params.decryption ? {decryption: record.params.decryption} : {}),
         ...(record.params.sessionGrant ? {sessionGrant: record.params.sessionGrant} : {})}
       let session
       try {

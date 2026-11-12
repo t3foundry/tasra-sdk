@@ -823,8 +823,14 @@ export async function prepareRegisteredPaidSession(chain: TasraChainClient, conf
         // Recheck after asynchronous proof validation to fence concurrent submissions.
         if(oauthSubmitted)throw new Error('OAuth presentation already sent; reconcile the original retained callback')
         oauthSubmitted=true
-        const response=await control('/v1/sessions/'+sessionId+'/oauth-response','POST',undefined,active,false,
-          {accessToken:approved.oauth!.access_token,proof:approved.oauth!.dpop_proof})
+        // A definite 429 (the agent's limiter answers before the handler claims anything) is the
+        // one refusal repeated, with the SAME token and proof, and only while both the session and
+        // the proof's own freshness window (iat + 60 s) leave room for a full attempt. Anything
+        // else, including a PaidBackoffError, means nothing more was sent.
+        const proofIat=Number(decodeJson<Record<string,unknown>>(approved.oauth!.dpop_proof.split('.')[1]!).iat)
+        const deadline=Math.min(sessionDeadline()??0,(proofIat+60)*1000)
+        const response=await paced('POST /v1/sessions/{id}/oauth-response',()=>control('/v1/sessions/'+sessionId+'/oauth-response','POST',undefined,active,false,
+          {accessToken:approved.oauth!.access_token,proof:approved.oauth!.dpop_proof}),LIMITED,deadline>clock.now()?deadline:undefined,active)
         ok(response,[200,202])
         const status=decode(response.body).status
         if(status!==(response.status===202?'awaiting_client_approval':'accepted'))throw new Error('Invalid OAuth presentation submission result')

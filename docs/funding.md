@@ -71,7 +71,26 @@ execution key, drives the registered session (`drivePaidSession`) and verifies t
 (`makePresentation(request, {requestUri, qrPayload})`, plus an optional `present` hook with
 the same link, so applications never rebuild the request URI), or
 `{kind: 'external', present, accept}` when a phone wallet scans `qrPayload` and the
-application accepts the complete retained presentation.
+application accepts the complete retained presentation, or `{kind: 'oauth', credential}` for an
+OAuth slot rule (`oauth+access-token+dpop` or a `kk_oauth` envelope).
+
+With `kind: 'oauth'` the client presents a DPoP-bound access token itself (ADR-0073): no request
+object is fetched and no wallet is involved. `credential({sessionId, nonce, dpopHtu,
+platformAudience})` returns `{accessToken, signer}` (a `DpopSigner` over the key the token's
+`cnf.jkt` names); the token's `aud` must include `platformAudience`. The SDK builds the proof
+and verifies audience, lifetime, `cnf.jkt`, nonce, `htm`, `htu`, `ath` and the proof signature
+locally, journals the exact presentation in the store BEFORE its one submission, then approves
+the drawn verifiers' credential work on that retained presentation. `credential` runs at most
+once per session: a resume reuses the journaled presentation and never asks for a refreshed
+token (an expired one ends the operation; reconcile or abandon it). A submission whose reply was
+lost is confirmed only by a read showing the agent holding exactly that presentation; otherwise
+the resume refuses. Only a definite HTTP 429 is repeated, with the identical token and proof,
+inside the proof's 60-second window; one that ran out is journaled `unsent` and a resume resends
+those same bytes. The holder kind is journaled with the operation: `resumePaidOperation` refuses
+a holder of the other family. A holder that does not match the slot rule's family is refused
+before anything is signed or reserved. Tokens and proofs never appear in errors or
+`listPaidOperations` summaries; they are kept in the private store, which must be protected
+accordingly.
 
 When every approved accountant returns 404 for the anchored verifier snapshot,
 `paidOperation` waits for that exact original artifact before reserving. The wait

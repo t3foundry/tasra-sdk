@@ -1,4 +1,7 @@
-import {afterEach, beforeEach, expect, it, vi} from 'vitest'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {drivePaidSession} from '../../src/app/paid-session.js'
+import {createMemoryStore} from '../../src/app/memory-store.js'
+import type {DpopSigner} from '../../src/auth/dpop.js'
 import {ed25519} from '@noble/curves/ed25519'
 import {p256} from '@noble/curves/p256'
 import {sha256} from '@noble/hashes/sha256'
@@ -1009,4 +1012,79 @@ it('with a head follower: a provider mismatch at a newer head drops the reused a
     // Every provider read was pinned to a followed head; none read latest by RPC.
     expect(vi.mocked(f.chain.readers.serviceRegistry.getService)).not.toHaveBeenCalled()
   }finally{unfollowHeads(client)}
+})
+
+// ---- The OAuth holder strategy over a real prepared session (drivePaidSession, kind 'oauth') ----
+describe('paid OAuth holder over the real session', () => {
+  const stepClock:PaidPacingOptions={clock:{now:()=>Date.now(),sleep:async()=>{},jitter:()=>0},attemptBudgetMs:1_000}
+  const issueToken=async(f:Awaited<ReturnType<typeof fixture>>,claims:Record<string,unknown>={})=>{
+    const key=await createDpopKey()
+    const token=signCompactJws({typ:'at+jwt'},{iss:'https://idp.example',sub:'holder',iat:1000,exp:1060,
+      aud:f.profile.endpoint+'/authz/43112',cnf:{jkt:await key.thumbprint()},...claims},{alg:'ES256',privateKey:new Uint8Array(32).fill(5)})
+    return {key,token}
+  }
+  const oauthSends=(f:Awaited<ReturnType<typeof fixture>>)=>vi.mocked(f.transport.paidAgentRequest).mock.calls.filter(([url])=>url.endsWith('/oauth-response'))
+  const drive=(f:Awaited<ReturnType<typeof fixture>>,store:ReturnType<typeof createMemoryStore>,credential:()=>Promise<{accessToken:string;signer:DpopSigner}>)=>
+    drivePaidSession({session:f.session,members:f.members,store,signal:new AbortController().signal,wait:async()=>{},holder:{kind:'oauth',credential}})
+
+  it('submits the locally verified presentation once, with the journaled token and proof as its exact headers',async()=>{
+    const f=await fixture('oauth',undefined,stepClock),store=createMemoryStore(),{key,token}=await issueToken(f)
+    const send=vi.mocked(f.transport.paidAgentRequest),original=send.getMockImplementation()!
+    send.mockImplementation(async(url,opts)=>{
+      if(url.endsWith('/oauth-response'))return {status:202,body:bytes({status:'awaiting_client_approval'})}
+      if(url.endsWith('/presentations'))return {status:500,body:bytes({error:'stop here'})}
+      return original(url,opts)
+    })
+    await expect(drive(f,store,async()=>({accessToken:token,signer:key.signer}))).rejects.toBeInstanceOf(PaidAgentControlError)
+    const sends=oauthSends(f)
+    expect(sends).toHaveLength(1)
+    const kept=await store.load<{phase:string;original:{oauth:ClientApprovedPresentation}}>('wallet-'+f.session.sessionId+'-presentation')
+    expect(kept?.phase).toBe('confirmed')
+    expect(sends[0]![1].oauth).toEqual({accessToken:kept!.original.oauth.oauth!.access_token,proof:kept!.original.oauth.oauth!.dpop_proof})
+    expect(kept!.original.oauth.oauth!.access_token).toBe(token)
+  })
+
+  it.each([
+    ['another audience',{aud:'https://other.example/authz/43112'},/does not bind this original audience, time or DPoP key/],
+    ['an expired token',{exp:999},/does not bind this original audience, time or DPoP key/],
+    ['a bearer token (no DPoP binding)',{cnf:undefined},/bearer token/],
+  ] as const)('refuses %s before anything is journaled or sent, without the token in the error',async(_name,claims,refusal)=>{
+    const f=await fixture('oauth',undefined,stepClock),store=createMemoryStore(),{key,token}=await issueToken(f,claims as Record<string,unknown>)
+    const credential=vi.fn(async()=>({accessToken:token,signer:key.signer}))
+    const error=await drive(f,store,credential).catch((e:unknown)=>e)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toMatch(refusal)
+    expect(credential).toHaveBeenCalledTimes(1)
+    expect((error as Error).message).not.toContain(token)
+    expect(oauthSends(f)).toHaveLength(0)
+    expect(await store.load('wallet-'+f.session.sessionId+'-presentation')).toBeUndefined()
+  })
+
+  it.each(['another DPoP key','another session target'] as const)('refuses a proof from %s before anything is journaled or sent',async variant=>{
+    const f=await fixture('oauth',undefined,stepClock),store=createMemoryStore(),{key,token}=await issueToken(f),other=await createDpopKey()
+    const signer:DpopSigner=variant==='another DPoP key'?other.signer:{proof:args=>key.signer.proof({...args,htu:'https://agent.example/v1/sessions/'+'99'.repeat(32)+'/oauth-response'})}
+    await expect(drive(f,store,async()=>({accessToken:token,signer}))).rejects.toThrow(/DPoP proof differs|Invalid original DPoP/)
+    expect(oauthSends(f)).toHaveLength(0)
+    expect(await store.load('wallet-'+f.session.sessionId+'-presentation')).toBeUndefined()
+  })
+
+  it('repeats a definite 429 with the identical token and proof inside the proof window, and only then',async()=>{
+    const f=await fixture('oauth',undefined,stepClock);await f.session.create()
+    const {key,token}=await issueToken(f),approved=await f.session.prepareOAuthPresentation(token,key.signer)
+    const send=vi.mocked(f.transport.paidAgentRequest)
+    send.mockClear()
+    send.mockResolvedValueOnce({status:429,body:bytes({error:'slow down'})}).mockResolvedValueOnce({status:202,body:bytes({status:'awaiting_client_approval'})})
+    await f.session.submitOAuthPresentation(approved)
+    const sends=oauthSends(f)
+    expect(sends).toHaveLength(2)
+    expect(sends[1]![1].oauth).toEqual(sends[0]![1].oauth)
+    expect(sends[0]![1].oauth).toEqual({accessToken:token,proof:approved.oauth!.dpop_proof})
+    // Any other refusal is never repeated.
+    const g=await fixture('oauth',undefined,stepClock);await g.session.create()
+    const second=await issueToken(g),again=await g.session.prepareOAuthPresentation(second.token,second.key.signer)
+    vi.mocked(g.transport.paidAgentRequest).mockClear()
+    vi.mocked(g.transport.paidAgentRequest).mockResolvedValueOnce({status:503,body:bytes({error:'unavailable'})})
+    await expect(g.session.submitOAuthPresentation(again)).rejects.toMatchObject({httpStatus:503})
+    expect(oauthSends(g)).toHaveLength(1)
+  })
 })

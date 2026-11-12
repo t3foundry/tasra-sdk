@@ -9,6 +9,24 @@ never does.
 
 ### Added
 
+- Paid OAuth+DPoP operations (ADR-0073) through the public paid-operation API: a
+  `{kind: 'oauth', credential}` holder for `paidOperation`, `resumePaidOperation` and
+  `drivePaidSession`. The OAuth mode is signed into the session and journaled with the operation
+  (a resume with a holder of the other family is refused; a holder that does not match the slot
+  rule's family is refused before anything is signed or reserved). The SDK verifies audience,
+  lifetime, `cnf.jkt`, nonce, `htm`, `htu`, `ath` and the proof signature locally, journals the
+  exact presentation before its one submission, never asks for a refreshed token on resume,
+  confirms a lost submission only by a read showing the agent holding exactly that presentation,
+  and repeats only a definite 429 with the identical bytes inside the proof's window (one that ran
+  out is journaled `unsent` and resent byte-identically on resume). New types `PaidOAuthContext`,
+  `PaidOAuthCredential`.
+- Native two-person approvals on threshold ECDSA (secp256k1, P-256) and BLS slots, matching the
+  network's `dual_control` bundle: `setApprovalPolicy` installs on any ready FROST, BLS or tECDSA
+  slot; `readApprovalPolicy`; `prepareOperationApproval` (the statement for one final paid
+  operation, from the slot's own mode and epoch) and `assembleOperationApproval` (judged against
+  the on-chain quorum and approver set); `slots.ecdsa().signDigest` takes `dualControl`
+  (`EcdsaSignOptions`). `approveDualOperation`, `requireDualOperationProof` and the bundle types
+  are re-exported from `/app`.
 - C24 session refusal codes. `SESSION_RETRYABLE_CODES` names the session-route refusals the same
   request may pass later; the new `session_verifier_behind` (503: a verifier's chain view trails
   the grant) is retried with the held grant, never ended on, pausing for its `Retry-After` or
@@ -115,6 +133,10 @@ never does.
 
 ### Changed
 
+- `setApprovalPolicy` judges the set-once policy before sending: an identical installed policy
+  resolves `{phase: 'already-installed', slotId}` without a transaction, a different one is refused
+  before sending (it used to revert on chain). Its return type is now
+  `WalletTransactionJournal | ApprovalPolicyAlreadyInstalled`.
 - `createSlotCommitReveal` creates slots ONLY through the accountant-seeded path and never waits
   for a beacon epoch (one to two hours at the production cadence). Accountants are asked
   concurrently (`slotSeedHedgeMs`, default 750 ms stagger; the first valid seed wins and cancels

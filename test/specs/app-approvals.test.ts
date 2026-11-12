@@ -12,9 +12,15 @@ import {dualSignApprovalPayload, paidDualSignApprovalPayload} from '../../src/co
 import {paymentIntentHash, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {keyRegistryAbi} from '../../src/chain/abis/index.js'
 const slot = `0x${'11'.repeat(32)}` as const, registry = `0x${'22'.repeat(20)}` as const, zero = `0x${'00'.repeat(32)}` as const
-function setup() {
-  const frost = vi.fn(async () => ({})), readContract = vi.fn(async ({functionName}: {functionName: string}): Promise<readonly [number, Hex] | readonly Hex[]> => functionName === 'dualControlApprovers' ? approvers.map(key => toHex(key)) : [2, zero]), transfer = vi.fn(async () => ({hash: slot, phase: 'confirmed'}))
-  const app = {deployment: {chainId: 43112, addresses: {KeyRegistry: registry}}, slots: {frost}, chain: {client: {readContract}}} as unknown as TasraApplication
+function setup(mode = 0) {
+  // The registry holds no policy until the policy transaction lands (set-once is judged first).
+  let installed = false
+  const frost = vi.fn(async () => ({slotId: slot, mode, epoch: 1, threshold: {k: 2, n: 3}, publicKey: '0x01', ready: true}))
+  const readContract = vi.fn(async ({functionName}: {functionName: string}): Promise<readonly [number, Hex] | readonly Hex[]> => !installed
+    ? (functionName === 'dualControlApprovers' ? [] : [0, zero])
+    : functionName === 'dualControlApprovers' ? approvers.map(key => toHex(key)) : [2, zero])
+  const transfer = vi.fn(async () => { installed = true; return {hash: slot, phase: 'confirmed'} })
+  const app = {deployment: {chainId: 43112, addresses: {KeyRegistry: registry}}, slots: {frost, get: frost}, chain: {client: {readContract}}} as unknown as TasraApplication
   const wallet = {wallet: {chain: {id: 43112}}, transfer} as unknown as TasraWallet
   const store = {} as ApplicationStore
   const identities = [createIdentity(), createIdentity()]
@@ -78,16 +84,22 @@ describe('application approval helpers', () => {
   })
   it('hashes the explicit credential rule and refuses mismatched policy readback', async () => {
     const s = setup(), policy = credentialPolicy({issuer: s.identities[0]!, type: 'member'})
-    s.readContract.mockImplementation(async ({functionName}) => functionName === 'dualControlApprovers' ? [] : [2, keccak256(toHex(policy))])
+    let installed = false
+    s.transfer.mockImplementation(async () => { installed = true; return {hash: slot, phase: 'confirmed'} })
+    s.readContract.mockImplementation(async ({functionName}) => functionName === 'dualControlApprovers' ? [] : installed ? [2, keccak256(toHex(policy))] : [0, zero])
     await setApprovalPolicy(s.app, slot, {quorum: 2, credentialPolicy: policy}, s)
     const transaction = (s.transfer.mock.calls[0] as unknown as [string, {data: `0x${string}`}])[1]
     expect(decodeFunctionData({abi: keyRegistryAbi, data: transaction.data}).args).toEqual([slot, 2, keccak256(toHex(policy)), []])
-    s.readContract.mockImplementation(async ({functionName}) => functionName === 'dualControlApprovers' ? [] : [1, zero])
+    installed = false
+    s.readContract.mockImplementation(async ({functionName}) => functionName === 'dualControlApprovers' ? [] : installed ? [1, zero] : [0, zero])
     await expect(setApprovalPolicy(s.app, slot, {quorum: 2, credentialPolicy: policy}, s)).rejects.toThrow('differs')
   })
   it('refuses changed static membership even when quorum and rule hash match', async () => {
     const s = setup()
-    s.readContract.mockImplementation(async ({functionName}) => functionName === 'dualControlApprovers' ? [toHex(s.approvers[0]!), zero] : [2, zero])
+    let installed = false
+    s.transfer.mockImplementation(async () => { installed = true; return {hash: slot, phase: 'confirmed'} })
+    s.readContract.mockImplementation(async ({functionName}) => !installed ? (functionName === 'dualControlApprovers' ? [] : [0, zero])
+      : functionName === 'dualControlApprovers' ? [toHex(s.approvers[0]!), zero] : [2, zero])
     await expect(setApprovalPolicy(s.app, slot, {quorum: 2, approvers: s.approvers}, s)).rejects.toThrow('approval keys differ')
   })
   it('rejects ambiguous, duplicate and impossible policies before spending', async () => {

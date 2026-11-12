@@ -21,6 +21,8 @@ import {MAX_PROPOSAL_WAIT_MS, PaidAgentControlError, type ClientApprovedPresenta
   type PaidRetainedPresentation, type RegisteredPaidAgentSession, type RetainedPaidApproval} from '../chain/registeredPaidAgent.js'
 import {reconcileRetainedApproval, retainAndDeliverApproval, retainAndDeliverApprovals, supportsDurableApproval, type ApprovalJournalRecord} from './paid-approval.js'
 import type {PaidVerifierWitness} from '../chain/prepaid.js'
+import type {DpopSigner} from '../auth/dpop.js'
+import {isPaidBackoffError} from '../errors.js'
 import type {VerifiedRequestObject} from '../oid4vp/request-object.js'
 import {VerifierAgentSessionError, type SessionStatusResult} from '../verifier-agent/index.js'
 import type {ApplicationStore} from './ready-slot.js'
@@ -42,6 +44,30 @@ export interface PaidSessionRequestLink {
   qrPayload: string
 }
 
+/**
+ * What an OAuth holder's token must bind (ADR-0073), derived locally from the original session:
+ * the access token's `aud` must include `platformAudience`, and the DPoP proof is minted over
+ * `POST dpopHtu` with `nonce` by the key the token's `cnf.jkt` names. Public values only.
+ */
+export interface PaidOAuthContext {
+  /** Original locally derived session identity. */
+  sessionId: string
+  /** Derived presentation nonce the DPoP proof must carry. */
+  nonce: string
+  /** The session's OAuth response URL, the proof's `htu`. */
+  dpopHtu: string
+  /** The audience the access token must name. */
+  platformAudience: string
+}
+
+/** A DPoP-bound access token and the signer holding the key it is bound to. */
+export interface PaidOAuthCredential {
+  /** Compact JWS access token with `cnf.jkt`; a bearer token is refused. Never logged by the SDK. */
+  accessToken: string
+  /** Signs the session's DPoP proof with the token's bound key. */
+  signer: DpopSigner
+}
+
 /** How the holder answers the session's request object. */
 export type PaidSessionHolder =
   | {
@@ -61,6 +87,21 @@ export type PaidSessionHolder =
     present(request: {request: VerifiedRequestObject; requestUri: string; qrPayload: string}): void | Promise<void>
     /** Accept or refuse the complete presentation the agent retained from the wallet callback. */
     accept(candidate: PaidRetainedPresentation, request: VerifiedRequestObject): boolean | Promise<boolean>
+  }
+  | {
+    /**
+     * The client presents a DPoP-bound OAuth access token itself (ADR-0073): no wallet request
+     * object, no JAR stages. The SDK builds the proof, verifies audience, nonce, session, htm,
+     * htu, ath and key binding locally, journals the exact presentation privately BEFORE its one
+     * submission, and approves the drawn verifiers' credential work on that retained presentation.
+     */
+    kind: 'oauth'
+    /**
+     * Supply the token for this session. Called at most once per session, before anything is
+     * disclosed; never again once the presentation is journaled (a resumed drive reuses the
+     * retained original and never asks for a refreshed token, even when it has expired).
+     */
+    credential(context: PaidOAuthContext): PaidOAuthCredential | Promise<PaidOAuthCredential>
   }
 
 /** Inputs to {@link drivePaidSession}. */
@@ -195,7 +236,9 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
    * Creation (the only write with a read-only `recover`) journals the caller's first-commit
    * entries with its `prepared`, and its confirmation is re-derivable.
    */
-  const attempt = async (name: string, original: unknown, work: () => Promise<void>, recover?: () => Promise<void>): Promise<boolean> => {
+  const attempt = async (name: string, original: unknown, work: () => Promise<void>, recover?: () => Promise<void>,
+    /** Only for writes the agent provably did not process (a paced 429 run out): journal `unsent`, resendable byte-identically on resume. */
+    unsent?: (error: unknown) => boolean): Promise<boolean> => {
     signal.throwIfAborted()
     const key = prefix + '-' + name
     const recoverable = recover !== undefined, journal = recoverable && first && !first.published ? first : undefined
@@ -211,6 +254,9 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
         const retained = (pending ? structuredClone(pending[1]) : await store.load(key)) as {original: unknown; phase: string} | undefined
         if (retained !== undefined) {
           if (resume && retained?.phase === 'confirmed' && same(retained.original, original)) return false
+          // Provably never processed: the same original bytes may go out once more (the record
+          // turns `prepared` in this commit first, so a concurrent drive refuses it).
+          const resendable = resume && unsent !== undefined && retained?.phase === 'unsent' && same(retained.original, original)
           if (resume && retained?.phase === 'prepared' && same(retained.original, original) && recover) {
             // Only creation supplies this read-only recovery. It checks the original
             // provider, bearer and full context; no POST is repeated or replaced.
@@ -219,7 +265,7 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
             commit.stage(key, {original: retained.original, phase: 'confirmed'})
             return false
           }
-          throw new PaidSessionRecoveryError(key, retained?.phase === 'confirmed' && !resume
+          if (!resendable) throw new PaidSessionRecoveryError(key, retained?.phase === 'confirmed' && !resume
             ? 'Original paid write already attempted; reconcile it without redelivery'
             : 'Original paid write already attempted with an unknown or different outcome; reconcile it without redelivery')
         }
@@ -236,7 +282,17 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
     if (!send) return skipped
     signal.throwIfAborted()
     // A crash or uncertain response retains prepared. No catch/retry deletes it.
-    await work()
+    try { await work() }
+    catch (error) {
+      if (unsent?.(error)) {
+        // Established non-processing only: the record keeps the exact original, now `unsent`.
+        await withCommit(store, [key], async commit => {
+          const current = await store.load<{original: unknown; phase: string}>(key)
+          if (current?.phase === 'prepared' && same(current.original, original)) commit.stage(key, {original, phase: 'unsent'})
+        }).catch(() => {})
+      }
+      throw error
+    }
     later.put(key, {original, phase: 'confirmed'}, {owed: !recoverable})
     return true
   }
@@ -396,6 +452,60 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
       })
     // A resumed drive recovers the original public context by an authenticated read instead.
     if (!created && !creationRecovered) await session.reconcile(signal)
+    // An OAuth session has no request object and no JAR stages: the client presents its token.
+    const oauth = holder.kind === 'oauth' ? await presentOAuth(holder) : undefined
+    const wallet = oauth ? undefined : await presentWallet()
+    const accepted: ClientApprovedPresentation | undefined = oauth ?? wallet!.accepted
+    const request = wallet?.request
+    return observeCallbacks(accepted, request)
+  }
+
+  /**
+   * The OAuth presentation, exactly once: a resumed drive continues with the retained original
+   * (confirmed, or reconciled by a read showing the agent retained it); a `prepared` one that no
+   * read accounts for refuses, and only a provably unprocessed (`unsent`) one is resent, with the
+   * same bytes. The holder's credential callback runs only when no presentation is journaled.
+   */
+  async function presentOAuth(oauthHolder: Extract<PaidSessionHolder, {kind: 'oauth'}>): Promise<ClientApprovedPresentation> {
+    const key = prefix + '-presentation'
+    type Retained = {original?: {oauth?: ClientApprovedPresentation}; phase: string}
+    const retained = await journaled<Retained>(key)
+    const submit = (approved: ClientApprovedPresentation) => attempt('presentation', {oauth: approved}, async () => {
+      try { await session.submitOAuthPresentation(approved, signal) }
+      catch (error) {
+        // A definite refusal of this session: its authenticated state says whether it failed.
+        if (error instanceof PaidAgentControlError && error.sessionId === session.sessionId && [400, 403, 409, 410].includes(error.httpStatus)) await checkedPoll()
+        throw error
+      }
+    }, undefined, isPaidBackoffError)
+    if (retained !== undefined) {
+      const original = retained.original?.oauth
+      if (!resume || !original || original.oauth === null || original.oauth?.session_id !== session.sessionId) {
+        throw new PaidSessionRecoveryError(key, 'Original OAuth presentation already attempted; reconcile it without redelivery')
+      }
+      if (retained.phase === 'confirmed') return structuredClone(original)
+      if (retained.phase === 'unsent') { await submit(structuredClone(original)); return structuredClone(original) }
+      // `prepared`: its reply was lost. Only a read that shows the agent holding exactly this
+      // presentation (or a session already past it) confirms it; nothing is ever sent again.
+      const [status, candidates] = await Promise.all([checkedPoll(), session.presentations(signal)])
+      if (status.status === 'done' || candidates.some(c => same(c.presentation, original))) {
+        later.put(key, {original: retained.original, phase: 'confirmed'}, {owed: true})
+        return structuredClone(original)
+      }
+      throw new PaidSessionRecoveryError(key, 'Original OAuth presentation outcome is unknown; reconcile it without redelivery')
+    }
+    const context = session.oauthContext
+    const credential = await oauthHolder.credential({sessionId: session.sessionId, nonce: context.nonce, dpopHtu: context.dpopHtu, platformAudience: context.platformAudience})
+    signal.throwIfAborted()
+    // Verified locally (audience, time, cnf.jkt, nonce, htm, htu, ath, signature) before it is kept or sent.
+    const approved = structuredClone(await session.prepareOAuthPresentation(credential.accessToken, credential.signer, signal))
+    if (approved.oauth === null || approved.oauth.session_id !== session.sessionId || approved.credentials.length !== 0) throw new Error('Invalid original OAuth presentation')
+    await submit(approved)
+    return approved
+  }
+
+  /** The wallet paths: request-object approvals, then the local or external presentation. */
+  async function presentWallet(): Promise<{accepted: ClientApprovedPresentation | undefined; request: VerifiedRequestObject}> {
     let opened: Awaited<ReturnType<RegisteredPaidAgentSession['requestObject']>>
     for (;;) {
       signal.throwIfAborted()
@@ -457,7 +567,11 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
         accepted = retained.original.presentation
       }
     }
+    return {accepted, request}
+  }
 
+  /** Accept the retained callback, continue it and approve the drawn verifiers' credential work until done. */
+  async function observeCallbacks(accepted: ClientApprovedPresentation | undefined, request: VerifiedRequestObject | undefined): Promise<SessionStatusResult> {
     let callback: string | undefined
     let approvedCredentialCount = 0
     // The session status and the retained presentations are independent reads: each round reads them
@@ -481,7 +595,8 @@ export async function drivePaidSession(options: PaidSessionDriverOptions): Promi
       for (const candidate of retainedCandidates) {
         if (!accepted) {
           // External wallet: the client decides on the complete retained body, once.
-          if (!await (holder as Extract<PaidSessionHolder, {kind: 'external'}>).accept(structuredClone(candidate), structuredClone(request))) {
+          if (holder.kind !== 'external' || !request) throw new Error('Agent retained a presentation this client did not make')
+          if (!await holder.accept(structuredClone(candidate), structuredClone(request))) {
             throw new VerifierAgentSessionError('refused', session.sessionId, 'Client refused the retained wallet presentation')
           }
           const chosen = structuredClone(candidate.presentation)
