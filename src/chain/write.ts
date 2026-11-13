@@ -63,6 +63,8 @@ import {
   type SlotHandoffStatus,
 } from './slotHandoff.js'
 import {nodeRegistryAbi} from './abis/nodeRegistry.js'
+import {RotationLockError, assertRotationAllowed, readRotationLockOnChain} from './rotationLock.js'
+import {checkReshareOnChain} from './reshareRoster.js'
 
 /**
  * Return whether active operators include both tagged keepers and other roles, making an unfiltered draw include non-keepers.
@@ -395,6 +397,34 @@ export type ProposeRuleArgs = ({rule: string} | {oauthPolicy: OauthPolicyInput})
   /** The slot's rule salt (from creation). Amendments reuse it; it is never minted here. */
   ruleSalt: Hex
 }
+
+/**
+ * Outcome of {@link TasraWriteClient.lockKeyRotation}: the lock was sent and confirmed, or the
+ * slot was already locked and nothing was sent.
+ */
+export type RotationLockResult =
+  | {
+    /** The lock transaction mined and the chain now shows the creator's lock. */
+    phase: 'locked'
+    /** Slot that was locked. */
+    slotId: Hex
+    /** Transaction that carried the lock. */
+    txHash: Hex
+    /** Relay receipt when the call was relayed. */
+    relay?: RelayReceipt
+  }
+  | {
+    /** Nothing was sent: no rotation could change this slot's key already. */
+    phase: 'already-locked'
+    /** Slot that was found locked. */
+    slotId: Hex
+    /** The creator locked it earlier. */
+    lockedByCreator: boolean
+    /** It is a threshold-ECDSA slot, locked by its mode. */
+    lockedByMode: boolean
+    /** No transaction. */
+    txHash?: undefined
+  }
 
 /** Outcome of {@link TasraWriteClient.proposeSlotTransfer}. */
 export interface SlotTransferProposal {
@@ -1127,14 +1157,18 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     return h
   }
   //  slot lifecycle (KeyRegistry; gated to the slot's creator/owner)
-  /** Rotate a slot's key - re-DKG under a new epoch. */
+  /** Rotate a slot's key - re-DKG under a new epoch. A locked slot is refused before signing. */
   async function rotateKey(slotId: Hex, reason = ''): Promise<Hex> {
+    requireBytes32(slotId, 'slotId', 'rotateKey')
+    await assertRotationAllowed(pub.readContract, requireAddress(addr, 'KeyRegistry'), slotId, 'rotateKey')
     const h = await wallet.writeContract({address: requireAddress(addr, 'KeyRegistry'), abi: keyRegistryAbi, functionName: 'rotateKey', args: [slotId, reason]})
     await confirmed(pub, h, 'rotateKey')
     return h
   }
-  /** Reshare a slot to a new operator set / threshold. */
+  /** Reshare a slot to a new operator set / threshold; a tECDSA roster is checked before signing. */
   async function reshareKey(slotId: Hex, newOperators: Address[], k: number, n: number, reason = ''): Promise<Hex> {
+    requireBytes32(slotId, 'slotId', 'reshareKey')
+    await checkReshareOnChain(pub.readContract, requireAddress(addr, 'KeyRegistry'), slotId, newOperators, k, n)
     const h = await wallet.writeContract({address: requireAddress(addr, 'KeyRegistry'), abi: keyRegistryAbi, functionName: 'reshareKey', args: [slotId, newOperators, k, n, reason]})
     await confirmed(pub, h, 'reshareKey')
     return h
@@ -1399,6 +1433,27 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     return txHash
   }
 
+  //  rotation lock (KeyRegistry.lockKeyRotation, ADR-0099)
+  /** Lock the slot's key against every rotation; creator only, set-once. */
+  async function lockKeyRotation(slotId: Hex): Promise<RotationLockResult> {
+    const what = 'lockKeyRotation'
+    requireBytes32(slotId, 'slotId', what)
+    const keyRegistry = requireAddress(addr, 'KeyRegistry')
+    const before = await readRotationLockOnChain(pub.readContract, keyRegistry, slotId)
+    if (before.cancelled) throw new RotationLockError('cancelled', slotId, `${what}: slot ${slotId} is cancelled; a cancelled slot cannot be locked`)
+    if (before.locked) return {phase: 'already-locked', slotId, lockedByCreator: before.lockedByCreator, lockedByMode: before.lockedByMode}
+    if (!sameAddress(before.creator, account.address)) {
+      throw new RotationLockError('not-creator', slotId, `${what}: slot ${slotId} has creator ${before.creator}, but this client signs as ${account.address}`)
+    }
+    const txHash = await sendCall(keyRegistry, keyRegistryAbi, what, [slotId], what)
+    await confirmed(pub, txHash, what)
+    const after = await readRotationLockOnChain(pub.readContract, keyRegistry, slotId)
+    if (!after.lockedByCreator) {
+      throw new RotationLockError('not-confirmed', slotId, `${what}: tx ${txHash} confirmed but slot ${slotId} shows lastRotatedAt ${after.lastRotatedAt}, not the lock`)
+    }
+    return {phase: 'locked', slotId, txHash, relay: lastRelay?.txHash === txHash ? lastRelay : undefined}
+  }
+
   //  TASRA tokenomics (BondingCurve / TasraToken)
   /** Buy TSRA from the bonding curve. Approve `eurcAmount` of EURC to the
    *  BondingCurve first; read balances for the fill. */
@@ -1480,6 +1535,8 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     proposeRuleAdminTransfer,
     withdrawRuleAdminTransfer,
     acceptRuleAdminTransfer,
+    // rotation lock
+    lockKeyRotation,
     // tokenomics
     buyTsra,
     approveEurcForCurve,
@@ -1551,10 +1608,12 @@ export interface TasraWriteClient {
   transferTsra(to: Address, amount: bigint): Promise<Hex>
   /**
    * Request a new distributed key generation epoch for the slot.
+   * A slot whose rotation is locked (by its creator, or a threshold-ECDSA slot by its mode) is refused before signing as a `RotationLockError` with code `locked`; the chain would revert `RotationLocked()`, which is final.
    */
   rotateKey(slotId: Hex, reason?: string): Promise<Hex>
   /**
    * Redistribute the slot key among the supplied operators using the new threshold.
+   * On a threshold-ECDSA slot the roster must keep at least the current `k` members (only staying members re-deal the key) and `k` must be at least 2; otherwise it is refused before signing as a `ReshareRosterError`.
    */
   reshareKey(slotId: Hex, newOperators: Address[], k: number, n: number, reason?: string): Promise<Hex>
   /**
@@ -1622,6 +1681,14 @@ export interface TasraWriteClient {
    * Become the slot's rule admin, signed by the offered wallet. Refuses `nothing-pending`, `not-offered` and `guardian` before signing.
    */
   acceptRuleAdminTransfer(slotId: Hex): Promise<Hex>
+
+  /**
+   * Lock the slot's key against every rotation, for good, signed by its creator (`KeyRegistry.lockKeyRotation`, relayed when a relay is configured).
+   * After it, every rotation path reverts `RotationLocked()` for everyone, the creator included; resharing still works, because it moves the shares and keeps the key.
+   * Set-once: a slot that is already locked resolves `already-locked` without sending. That includes every threshold-ECDSA slot (`tecdsa`, `tecdsa-p256`), which the network locks by its mode, so such a slot never emits `KeyRotationLocked`; read the state with `isRotationLocked`.
+   * Refused before signing, as a `RotationLockError`: `no-slot`, `cancelled`, `unsupported` (a KeyRegistry without the lock) and `not-creator`; `not-confirmed` when the transaction mined but the chain does not show the lock.
+   */
+  lockKeyRotation(slotId: Hex): Promise<RotationLockResult>
 
   /**
    * Buy TSRA with approved EURC while enforcing the minimum output amount.

@@ -671,7 +671,7 @@ declare class TasraApplicationError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 55 functions</summary>
+<summary>Browse 56 functions</summary>
 
 - [abandonPaidOperation](#abandonpaidoperation)
 - [acceptSessionGrant](#acceptsessiongrant)
@@ -702,6 +702,7 @@ Operations you can import and call.
 - [loadApplicationManifest](#loadapplicationmanifest)
 - [loadGrantedSession](#loadgrantedsession)
 - [loadPaidReservationJournal](#loadpaidreservationjournal)
+- [lockKeyRotation](#lockkeyrotation)
 - [paidFinalSign](#paidfinalsign)
 - [paidOperation](#paidoperation)
 - [paidOperationPhase](#paidoperationphase)
@@ -1573,6 +1574,40 @@ declare function loadPaidReservationJournal(store: ApplicationStore, requestId: 
 
 Returns: ` Promise<ApplicationReservationJournal | undefined> `.
 
+### lockKeyRotation
+
+Lock a slot's key against every rotation, for good, with a durable named transaction from the
+slot creator's wallet (`KeyRegistry.lockKeyRotation`). Afterwards no creator, operator vote or
+revocation notice can rotate the key; resharing still works, because it keeps the key. Use it
+when the key is an identity that must never change, such as a custody address.
+
+The lock is SET-ONCE: a slot already locked resolves `already-locked` without sending. Every
+threshold-ECDSA slot is locked by its mode already, so it resolves that way too and never emits
+`KeyRotationLocked`. Refused before sending, as a `RotationLockError`: `no-slot`, `cancelled`,
+`unsupported` (a KeyRegistry without the lock) and `not-creator`; `not-confirmed` when the
+transaction confirmed but the chain does not show the lock. A transaction whose outcome was
+unknown is reconciled by calling this again with the same name (the wallet's journal).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/rotation-lock.ts#L39)
+
+Import: `import {lockKeyRotation} from 'tasra-sdk/app'`
+
+```ts
+declare function lockKeyRotation(app: Pick<TasraApplication, 'deployment' | 'chain'>, slotId: Hex, options: {
+    wallet: TasraWallet;
+    store: ApplicationStore;
+    name?: string;
+}): Promise<WalletTransactionJournal | RotationAlreadyLocked>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` app ` | ` Pick<TasraApplication, 'deployment' \| 'chain'> ` | Application client for the slot deployment. |
+| ` slotId ` | ` Hex ` | Slot whose rotation is being locked. |
+| ` options ` | ` { wallet: TasraWallet; store: ApplicationStore; name?: string; } ` | Creator wallet and durable store for the named lock transaction. |
+
+Returns: ` Promise<WalletTransactionJournal | RotationAlreadyLocked> `.
+
 ### paidFinalSign
 
 Pay a final dual-control Sign without any presentation: no verifier-agent session and no
@@ -2276,7 +2311,7 @@ Returns: ` Promise<T> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 96 types</summary>
+<summary>Browse 97 types</summary>
 
 - [AbandonedPaidOperation](#abandonedpaidoperation)
 - [AbandonPaidOperationOptions](#abandonpaidoperationoptions)
@@ -2353,6 +2388,7 @@ Options, data structures and return types.
 - [ResolveApplicationManifestOptions](#resolveapplicationmanifestoptions)
 - [ResolvedApplicationManifest](#resolvedapplicationmanifest)
 - [ResumePaidOperationOptions](#resumepaidoperationoptions)
+- [RotationAlreadyLocked](#rotationalreadylocked)
 - [SelectApplicationGasPayerOptions](#selectapplicationgaspayeroptions)
 - [SessionGrantCreateFragment](#sessiongrantcreatefragment-1)
 - [SessionGrantParams](#sessiongrantparams)
@@ -4161,6 +4197,30 @@ Fields:
 - **` observeRequest `**: Inspect the verified request object before any credential is disclosed.
 - **` confirmations `**: Chain observation depth for reservation reconciliation, 1..64 (default 1).
 - **` reconcileOnly `**: Only reconcile: never reserve, never drive the session, never execute. Returns the [PaidOperationStatus](#paidoperationstatus) instead of a handle. Same as [reconcilePaidOperation](#reconcilepaidoperation).
+
+### RotationAlreadyLocked
+
+The slot was already locked against rotation: nothing was sent (the lock is set-once).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/rotation-lock.ts#L10)
+
+```ts
+export interface RotationAlreadyLocked {
+    phase: 'already-locked';
+    slotId: Hex;
+    lockedByCreator: boolean;
+    lockedByMode: boolean;
+    hash?: undefined;
+}
+```
+
+Fields:
+
+- **` phase `**: Nothing was sent: no rotation could change this slot's key already.
+- **` slotId `**: The slot found locked.
+- **` lockedByCreator `**: The creator locked it earlier.
+- **` lockedByMode `**: It is a threshold-ECDSA slot, which the network locks by its mode.
+- **` hash `**: No transaction: kept so code reading `.hash` of a journal still compiles.
 
 ### SelectApplicationGasPayerOptions
 

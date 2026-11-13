@@ -22,6 +22,8 @@ export type {TasraIdentity, IssueCredentialOptions, VerifyCredentialOptions, Cre
 export type {ApplicationDeployment, ResolvedApplicationManifest} from './manifest.js'
 export {setApprovalPolicy, readApprovalPolicy, prepareOperationApproval, assembleOperationApproval, identityApprover, approveWithCredential} from './approvals.js'
 export type {ApprovalPolicy, InstalledApprovalPolicy, ApprovalPolicyAlreadyInstalled} from './approvals.js'
+export {lockKeyRotation} from './rotation-lock.js'
+export type {RotationAlreadyLocked} from './rotation-lock.js'
 // Operation approval builders (the statement each approver signs and the bundle), re-exported beside the app helpers.
 export {approveDualOperation, requireDualOperationProof} from '../committee/dual-operation.js'
 export type {DualOperationApprovalRecord, DualOperationApprover, DualOperationProof, PreparedDualOperation, DualOperationKind} from '../committee/dual-operation.js'

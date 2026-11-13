@@ -9,10 +9,11 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 22 classes</summary>
+<summary>Browse 25 classes</summary>
 
 - [AgentSessionCreationUnknownError](#agentsessioncreationunknownerror)
 - [BillingModeError](#billingmodeerror)
+- [CustodyHealthError](#custodyhealtherror)
 - [DebitVoucherError](#debitvouchererror)
 - [KeeperRecoveryError](#keeperrecoveryerror)
 - [PaidAgentControlError](#paidagentcontrolerror)
@@ -26,6 +27,8 @@ Clients, adapters and error classes.
 - [PrepaidEscapeError](#prepaidescapeerror)
 - [PrepaidEscapeUncertainError](#prepaidescapeuncertainerror)
 - [RelayOutcomeUnknownError](#relayoutcomeunknownerror)
+- [ReshareRosterError](#resharerostererror)
+- [RotationLockError](#rotationlockerror)
 - [RuleAmendmentError](#ruleamendmenterror)
 - [SlotCommitmentExpiredError](#slotcommitmentexpirederror)
 - [SlotHandoffError](#slothandofferror)
@@ -83,6 +86,37 @@ declare class BillingModeError {
 - ` readonly mode: Exclude<BillingMode, 'prepaid'>; ` — Detected mode: `legacy` (use the unpaid flow) or `unknown` (resolve the chain read first).
 
 - ` readonly settlementVersion?: string; ` — Settlement implementation version, when read.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### CustodyHealthError
+
+A custody-health reply that was not counted, or a slot that could not be read.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L98)
+
+Import: `import {CustodyHealthError} from 'tasra-sdk/chain'`
+
+```ts
+declare class CustodyHealthError {
+    constructor(code: CustodyHealthErrorCode, message: string, opts?: {
+        operator?: Address;
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: CustodyHealthErrorCode; ` — Refusal category; never infer it from the message.
+
+- ` readonly operator?: Address; ` — Operator whose reply was refused, when the refusal is about one keeper.
 
 - ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
@@ -552,6 +586,69 @@ declare class RelayOutcomeUnknownError {
 
 - ` cause?: unknown; `
 
+### ReshareRosterError
+
+A reshare roster refused before any vote was signed.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reshareRoster.ts#L25)
+
+Import: `import {ReshareRosterError} from 'tasra-sdk/chain'`
+
+```ts
+declare class ReshareRosterError {
+    constructor(code: ReshareRosterErrorCode, message: string, opts?: {
+        staying?: number;
+        k?: number;
+    });
+}
+```
+
+- ` readonly code: ReshareRosterErrorCode; ` — Refusal category; never infer it from the message.
+
+- ` readonly staying?: number; ` — Current members the roster keeps; set for `keeps-too-few`.
+
+- ` readonly k?: number; ` — Current threshold the roster must keep; set for `keeps-too-few`.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### RotationLockError
+
+A lock or rotation refused before signing, or a lock the chain did not show after it mined.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/rotationLock.ts#L52)
+
+Import: `import {RotationLockError} from 'tasra-sdk/chain'`
+
+```ts
+declare class RotationLockError {
+    constructor(code: RotationLockErrorCode, slotId: Hex, message: string, opts?: {
+        cause?: unknown;
+    });
+}
+```
+
+- ` readonly code: RotationLockErrorCode; ` — Refusal category; never infer it from the message.
+
+- ` readonly slotId: Hex; ` — Slot the refused call targeted.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
 ### RuleAmendmentError
 
 A rule-amendment call refused before signing, or an amendment that did not reach the state the
@@ -828,7 +925,7 @@ declare class UnderfundedSlotError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 103 functions</summary>
+<summary>Browse 115 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -841,9 +938,11 @@ Operations you can import and call.
 - [assertRegisteredWalletRequest](#assertregisteredwalletrequest)
 - [assertRelayVoucher](#assertrelayvoucher)
 - [assertRelayVoucherIntent](#assertrelayvoucherintent)
+- [assessCustodyHealth](#assesscustodyhealth)
 - [authenticateApprovedService](#authenticateapprovedservice)
 - [awaitRegisteredVerifierAgentResult](#awaitregisteredverifieragentresult)
 - [categoryFor](#categoryfor)
+- [checkTecdsaReshareRoster](#checktecdsareshareroster)
 - [collectDebitVoucher](#collectdebitvoucher)
 - [contestPrepaidFault](#contestprepaidfault)
 - [createBillingModeDetector](#createbillingmodedetector)
@@ -856,9 +955,13 @@ Operations you can import and call.
 - [createTasraChainClient](#createtasrachainclient)
 - [createTasraSlotClient](#createtasraslotclient)
 - [createTasraWriteClient](#createtasrawriteclient)
+- [custodyStatementHash](#custodystatementhash)
+- [custodyStatementIsCurrent](#custodystatementiscurrent)
 - [decodeContractLogs](#decodecontractlogs)
+- [decodeKeyRotationLockedLogs](#decodekeyrotationlockedlogs)
 - [decodePrepaidEscapeLogs](#decodeprepaidescapelogs)
 - [decodePrepaidEscapeRevert](#decodeprepaidescaperevert)
+- [decodeRotationLockRevert](#decoderotationlockrevert)
 - [deriveServiceId](#deriveserviceid)
 - [discoverPaidOperationContext](#discoverpaidoperationcontext)
 - [drawnVerifierWitnesses](#drawnverifierwitnesses)
@@ -876,12 +979,14 @@ Operations you can import and call.
 - [headFollowerOf](#headfollowerof)
 - [isPrepaidEscapeError](#isprepaidescapeerror)
 - [isRelayBusyReason](#isrelaybusyreason)
+- [isRotationLocked](#isrotationlocked)
 - [jsonSafe](#jsonsafe)
 - [networkNameForChain](#networknameforchain)
 - [observeNetworkManifest](#observenetworkmanifest)
 - [openRegisteredVerifierAgentSession](#openregisteredverifieragentsession)
 - [paidServerWaitMs](#paidserverwaitms)
 - [parseApplicationServiceProfiles](#parseapplicationserviceprofiles)
+- [parseCustodyStatement](#parsecustodystatement)
 - [parseNetworkManifest](#parsenetworkmanifest)
 - [parsePinnedNetworkManifest](#parsepinnednetworkmanifest)
 - [parsePrometheus](#parseprometheus)
@@ -897,11 +1002,13 @@ Operations you can import and call.
 - [readBillingMode](#readbillingmode)
 - [readClientExecutionPolicy](#readclientexecutionpolicy)
 - [readCurrentBeaconEpoch](#readcurrentbeaconepoch)
+- [readCustodyHealth](#readcustodyhealth)
 - [readKeeperExecutionRecoveryPolicy](#readkeeperexecutionrecoverypolicy)
 - [readPaidOperationReceipt](#readpaidoperationreceipt)
 - [readPrepaidAllowance](#readprepaidallowance)
 - [readPrepaidFaultResolution](#readprepaidfaultresolution)
 - [readPrepaidFaultStatus](#readprepaidfaultstatus)
+- [readRotationLock](#readrotationlock)
 - [readRuleAmendment](#readruleamendment)
 - [readSlotFunding](#readslotfunding)
 - [readSlotHandoff](#readslothandoff)
@@ -929,6 +1036,8 @@ Operations you can import and call.
 - [validateServiceChallenge](#validateservicechallenge)
 - [validateServiceEndpoint](#validateserviceendpoint)
 - [vaultKey](#vaultkey)
+- [verifyCustodyHealthReply](#verifycustodyhealthreply)
+- [verifyCustodyStatement](#verifycustodystatement)
 - [verifyDebitVoucher](#verifydebitvoucher)
 - [verifyRuleCommitment](#verifyrulecommitment)
 - [verifyServiceIdentity](#verifyserviceidentity)
@@ -1161,6 +1270,27 @@ declare function assertRelayVoucherIntent(raw: unknown, attempt: RelayAttempt, s
 
 Returns: ` asserts raw is RelayVoucherIntent `.
 
+### assessCustodyHealth
+
+Classify a committee by its live members: `frozen` below `k`, `ok` when all are live or more
+than one above `k`, `at_risk` otherwise. The keepers' reshare monitor rule with a margin of one.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L329)
+
+Import: `import {assessCustodyHealth} from 'tasra-sdk/chain'`
+
+```ts
+declare function assessCustodyHealth(live: number, k: number, n: number): CustodyHealthLevel;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` live ` | ` number ` | Live committee members. |
+| ` k ` | ` number ` | Signing threshold. |
+| ` n ` | ` number ` | Committee size. |
+
+Returns: ` CustodyHealthLevel `.
+
 ### authenticateApprovedService
 
 Uncached, bounded discovery only. A result is a short-lived observation, not verifier-agent or gas authorization.
@@ -1221,6 +1351,27 @@ declare function categoryFor(contract: ContractName, eventName: string): EventCa
 | ` eventName ` | ` string ` | Decoded event name used for category overrides. |
 
 Returns: ` EventCategory `.
+
+### checkTecdsaReshareRoster
+
+Check a threshold-ECDSA reshare proposal against the network's overlap rule before anything is signed: a
+well-formed roster (`n` distinct addresses, `2 <= k <= n <= 50`, since threshold ECDSA needs at
+least two signers) that keeps at least the current `k` members. Refuses `invalid-roster` and
+`keeps-too-few` as a `ReshareRosterError`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reshareRoster.ts#L79)
+
+Import: `import {checkTecdsaReshareRoster} from 'tasra-sdk/chain'`
+
+```ts
+declare function checkTecdsaReshareRoster(input: TecdsaReshareRosterInput): TecdsaReshareRosterPlan;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` input ` | ` TecdsaReshareRosterInput ` | Current committee and threshold, and the proposed roster and threshold. |
+
+Returns: ` TecdsaReshareRosterPlan `.
 
 ### collectDebitVoucher
 
@@ -1521,7 +1672,7 @@ Return details: Client that opens and tracks managed slot sessions.
 
 Create an account-bound client for slot lifecycle, settlement and token transactions. Use deployed addresses and the chain ID from a tasra-releases network manifest.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L619)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L649)
 
 Import: `import {createTasraWriteClient} from 'tasra-sdk/chain'`
 
@@ -1534,6 +1685,49 @@ declare function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClien
 | ` cfg ` | ` WriteClientConfig ` | RPC, manifest contract addresses, chain ID and an explicit signing account. |
 
 Returns: ` TasraWriteClient `.
+
+### custodyStatementHash
+
+`keccak256(domain || fields)`, every field fixed-width or length-prefixed and every optional
+field tagged: the 32 bytes a keeper signs. Identical to the network's `custody_statement_hash`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L128)
+
+Import: `import {custodyStatementHash} from 'tasra-sdk/chain'`
+
+```ts
+declare function custodyStatementHash(s: CustodyStatement): Uint8Array;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` s ` | ` CustodyStatement ` | Statement to hash; integers must be non-negative safe integers. |
+
+Returns: ` Uint8Array `.
+
+### custodyStatementIsCurrent
+
+Whether a verified statement proves the keeper holds a share of the chain's current generation:
+`current`, a share of the chain's key, at the chain's committee version. The rule the keepers
+apply before retiring old shares.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L314)
+
+Import: `import {custodyStatementIsCurrent} from 'tasra-sdk/chain'`
+
+```ts
+declare function custodyStatementIsCurrent(s: CustodyStatement, chain: {
+    committeeVersion: number;
+    publicKey: Hex;
+}): boolean;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` s ` | ` CustodyStatement ` | A verified statement. |
+| ` chain ` | ` { committeeVersion: number; publicKey: Hex; } ` | The chain's committee version and public key. |
+
+Returns: ` boolean `.
 
 ### decodeContractLogs
 
@@ -1556,6 +1750,26 @@ declare function decodeContractLogs(contract: ContractName, address: Address, lo
 | ` logs ` | ` Log[] ` | Raw logs carrying topics, data and optional block metadata. |
 
 Returns: ` DecodedEvent[] `.
+
+### decodeKeyRotationLockedLogs
+
+Decode every `KeyRotationLocked(bytes32 indexed slotId)` among `logs`. Other events are skipped.
+A tECDSA slot is locked by its mode and may never emit one; use `isRotationLocked` for the state.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/rotationLock.ts#L225)
+
+Import: `import {decodeKeyRotationLockedLogs} from 'tasra-sdk/chain'`
+
+```ts
+declare function decodeKeyRotationLockedLogs(logs: readonly Log[], keyRegistry?: Address): KeyRotationLockedEvent[];
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` logs ` | ` readonly Log[] ` | Raw logs, from a receipt or `getLogs`. |
+| ` keyRegistry? ` | ` Address ` | When given, logs from any other contract are skipped. |
+
+Returns: ` KeyRotationLockedEvent[] `.
 
 ### decodePrepaidEscapeLogs
 
@@ -1595,6 +1809,25 @@ declare function decodePrepaidEscapeRevert(error: unknown): PrepaidEscapeError |
 | ` error ` | ` unknown ` | RPC or viem error from a simulation, gas estimate or relayed call. |
 
 Returns: ` PrepaidEscapeError | undefined `.
+
+### decodeRotationLockRevert
+
+Decode `RotationLocked()` or `TecdsaReshareKeepsTooFew(staying, k)` from an error or raw revert
+data; `undefined` for anything else. Both are final: the identical call reverts again.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/rotationLock.ts#L194)
+
+Import: `import {decodeRotationLockRevert} from 'tasra-sdk/chain'`
+
+```ts
+declare function decodeRotationLockRevert(error: unknown): RotationLockRevert | undefined;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` error ` | ` unknown ` | A viem or RPC error carrying revert data, or the revert data itself. |
+
+Returns: ` RotationLockRevert | undefined `.
 
 ### deriveServiceId
 
@@ -1879,7 +2112,7 @@ Returns: ` string `.
 
 Fresh 0x-prefixed 32-byte private key for a new sovereign client account.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L586)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L616)
 
 Import: `import {generateClientKey} from 'tasra-sdk/chain'`
 
@@ -1963,6 +2196,26 @@ declare function isRelayBusyReason(reason: unknown): boolean;
 | ` reason ` | ` unknown ` | The `reason` text of a relayer `rejected` status. |
 
 Returns: ` boolean `.
+
+### isRotationLocked
+
+Whether no rotation can change the slot's key: the creator locked it, or it is a threshold
+ECDSA slot (locked by its mode). Refuses `no-slot` and `unsupported` as a `RotationLockError`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/rotationLock.ts#L134)
+
+Import: `import {isRotationLocked} from 'tasra-sdk/chain'`
+
+```ts
+declare function isRotationLocked(chain: TasraChainClient, slotId: Hex): Promise<boolean>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` chain ` | ` TasraChainClient ` | Reader for the deployment that owns the slot. |
+| ` slotId ` | ` Hex ` | Slot to read. |
+
+Returns: ` Promise<boolean> `.
 
 ### jsonSafe
 
@@ -2118,6 +2371,25 @@ declare function parseApplicationServiceProfiles(value: unknown): ApplicationSer
 | ` value ` | ` unknown ` | Parsed approval object or its JSON text. |
 
 Returns: ` ApplicationServiceProfiles `.
+
+### parseCustodyStatement
+
+Parse a statement as the network serializes it (snake case). Refuses unknown fields: they would
+not be covered by the signature. Throws `CustodyHealthError` with code `malformed`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L192)
+
+Import: `import {parseCustodyStatement} from 'tasra-sdk/chain'`
+
+```ts
+declare function parseCustodyStatement(raw: unknown): CustodyStatement;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` raw ` | ` unknown ` | The `attestation.statement` value of a reply. |
+
+Returns: ` CustodyStatement `.
 
 ### parseNetworkManifest
 
@@ -2575,6 +2847,29 @@ declare function readCurrentBeaconEpoch(client: PublicClient, deployment: PaidCo
 
 Returns: ` Promise<bigint> `.
 
+### readCustodyHealth
+
+Poll every assigned keeper of a slot for its custody health and verify each reply against the
+operator's registered identity key. The committee's liveness, margin, health and rotation lock
+come from the SDK's own chain reads; the keepers contribute only their signed statements.
+A keeper whose reply is refused is listed in `refused` and never counted. Refuses `no-slot`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L446)
+
+Import: `import {readCustodyHealth} from 'tasra-sdk/chain'`
+
+```ts
+declare function readCustodyHealth(chain: TasraChainClient, slotId: Hex, options?: ReadCustodyHealthOptions): Promise<CustodyHealthReport>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` chain ` | ` TasraChainClient ` | Reader for the deployment that owns the slot. |
+| ` slotId ` | ` Hex ` | Slot to poll. |
+| ` options? ` | ` ReadCustodyHealthOptions ` | Expected chain, transport, cancellation and freshness policy. |
+
+Returns: ` Promise<CustodyHealthReport> `.
+
 ### readKeeperExecutionRecoveryPolicy
 
 Authenticate completed keeper evidence using canonical original creator, fee and roster reads.
@@ -2711,6 +3006,26 @@ declare function readPrepaidFaultStatus(base: string, options?: PrepaidFaultHttp
 | ` options? ` | ` PrepaidFaultHttpOptions ` | Fetch, cancellation, deadline and local HTTP allowance. |
 
 Returns: ` Promise<Record<string, unknown>> `.
+
+### readRotationLock
+
+Read a slot's rotation lock: whether the creator locked it, whether its mode locks it, and the
+effective lock. Refuses `no-slot` and `unsupported` as a `RotationLockError`.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/rotationLock.ts#L124)
+
+Import: `import {readRotationLock} from 'tasra-sdk/chain'`
+
+```ts
+declare function readRotationLock(chain: TasraChainClient, slotId: Hex): Promise<RotationLockStatus>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` chain ` | ` TasraChainClient ` | Reader for the deployment that owns the slot. |
+| ` slotId ` | ` Hex ` | Slot to read. |
+
+Returns: ` Promise<RotationLockStatus> `.
 
 ### readRuleAmendment
 
@@ -3171,7 +3486,7 @@ Return details: Verifier endpoints, public keys and snapshot indices.
 
 Compute the salted rule commitment. OID4VP queries and `kk_oauth` policy envelopes use canonical JSON; other rule formats retain their exact bytes.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L560)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L590)
 
 Import: `import {ruleCommitment} from 'tasra-sdk/chain'`
 
@@ -3378,6 +3693,49 @@ declare function vaultKey(tranche: VaultTranche): string;
 
 Returns: ` string `.
 
+### verifyCustodyHealthReply
+
+Verify one keeper's custody-health reply and return its signed statement. Refused, as a
+`CustodyHealthError`: `unsigned` (no attestation), `malformed`, `mismatch` (another chain, slot
+or operator, a key other than the registered one, or an unsigned field that contradicts the
+signed statement), `bad-signature`, and `stale` (older or newer than the allowed age).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L269)
+
+Import: `import {verifyCustodyHealthReply} from 'tasra-sdk/chain'`
+
+```ts
+declare function verifyCustodyHealthReply(reply: unknown, expected: ExpectedCustodyReply): VerifiedCustodyReport;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` reply ` | ` unknown ` | The parsed JSON reply. |
+| ` expected ` | ` ExpectedCustodyReply ` | What the reply must be about and the operator's registered key. |
+
+Returns: ` VerifiedCustodyReport `.
+
+### verifyCustodyStatement
+
+Whether `signature` is the operator's ed25519 signature over the statement. Take `publicKey`
+from NodeRegistry for `statement.operator`, never from the reply.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L149)
+
+Import: `import {verifyCustodyStatement} from 'tasra-sdk/chain'`
+
+```ts
+declare function verifyCustodyStatement(statement: CustodyStatement, publicKey: Uint8Array, signature: Uint8Array): boolean;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` statement ` | ` CustodyStatement ` | Statement as parsed from the reply. |
+| ` publicKey ` | ` Uint8Array ` | The operator's registered 32-byte identity key. |
+| ` signature ` | ` Uint8Array ` | 64-byte signature from the reply. |
+
+Returns: ` boolean `.
+
 ### verifyDebitVoucher
 
 Verify a debit voucher's shape and its threshold signature against `beacon.mpk()` at its quote block.
@@ -3404,7 +3762,7 @@ Returns: ` Promise<void> `.
 
 Return whether the disclosed rule and salt reproduce the on-chain commitment. Invalid inputs and mismatches return false.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L573)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L603)
 
 Import: `import {verifyRuleCommitment} from 'tasra-sdk/chain'`
 
@@ -3466,7 +3824,7 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 164 types</summary>
+<summary>Browse 181 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
@@ -3498,6 +3856,12 @@ Options, data structures and return types.
 - [ContractRecord](#contractrecord)
 - [CreateSlotArgs](#createslotargs)
 - [CreateSlotFromPolicyArgs](#createslotfrompolicyargs)
+- [CustodyFailure](#custodyfailure)
+- [CustodyHealthErrorCode](#custodyhealtherrorcode)
+- [CustodyHealthLevel](#custodyhealthlevel)
+- [CustodyHealthReport](#custodyhealthreport)
+- [CustodyReshareState](#custodyresharestate)
+- [CustodyStatement](#custodystatement)
 - [DebitMemberOutcome](#debitmemberoutcome)
 - [DebitPartialWire](#debitpartialwire)
 - [DebitRequest](#debitrequest)
@@ -3506,6 +3870,7 @@ Options, data structures and return types.
 - [DrawnPaidOperationContext](#drawnpaidoperationcontext)
 - [EscapePrepaidArgs](#escapeprepaidargs)
 - [EventCategory](#eventcategory)
+- [ExpectedCustodyReply](#expectedcustodyreply)
 - [ExpectedPaidOperation](#expectedpaidoperation)
 - [FetchOpts](#fetchopts)
 - [FollowedHead](#followedhead)
@@ -3519,6 +3884,7 @@ Options, data structures and return types.
 - [KeeperRecoveryHttpResponse](#keeperrecoveryhttpresponse)
 - [KeeperRecoveryTransport](#keeperrecoverytransport)
 - [KeyListReply](#keylistreply)
+- [KeyRotationLockedEvent](#keyrotationlockedevent)
 - [KeySlotSummary](#keyslotsummary)
 - [MeteringReply](#meteringreply)
 - [NetworkManifest](#networkmanifest)
@@ -3573,6 +3939,7 @@ Options, data structures and return types.
 - [ProposeRuleResult](#proposeruleresult)
 - [ProvisionRuleArgs](#provisionruleargs)
 - [ProvisionRuleResult](#provisionruleresult)
+- [ReadCustodyHealthOptions](#readcustodyhealthoptions)
 - [ReconcileEscapeArgs](#reconcileescapeargs)
 - [RecoveredKeeperExecution](#recoveredkeeperexecution)
 - [RecoverKeeperExecutionOptions](#recoverkeeperexecutionoptions)
@@ -3592,9 +3959,14 @@ Options, data structures and return types.
 - [RelayVoucherIntent](#relayvoucherintent)
 - [ReservePaidOperationOptions](#reservepaidoperationoptions)
 - [ReservePrepaidAllowanceOptions](#reserveprepaidallowanceoptions)
+- [ReshareRosterErrorCode](#resharerostererrorcode)
 - [ResolvedEndpoints](#resolvedendpoints)
 - [ResolvedNetworkProfile](#resolvednetworkprofile)
 - [RetainedPaidApproval](#retainedpaidapproval)
+- [RotationLockErrorCode](#rotationlockerrorcode)
+- [RotationLockResult](#rotationlockresult)
+- [RotationLockRevert](#rotationlockrevert)
+- [RotationLockStatus](#rotationlockstatus)
 - [RpcBatchOptions](#rpcbatchoptions)
 - [RuleAmendmentErrorCode](#ruleamendmenterrorcode)
 - [RuleAmendmentStatus](#ruleamendmentstatus)
@@ -3624,10 +3996,13 @@ Options, data structures and return types.
 - [TasraSlotClient](#tasraslotclient)
 - [TasraSlotClientConfig](#tasraslotclientconfig)
 - [TasraWriteClient](#tasrawriteclient)
+- [TecdsaReshareRosterInput](#tecdsaresharerosterinput)
+- [TecdsaReshareRosterPlan](#tecdsaresharerosterplan)
 - [UndrawnPaidOperationContext](#undrawnpaidoperationcontext)
 - [UndrawnPaymentFields](#undrawnpaymentfields)
 - [UnpaidAgentSessionRecovery](#unpaidagentsessionrecovery)
 - [VaultTranche](#vaulttranche)
+- [VerifiedCustodyReport](#verifiedcustodyreport)
 - [VerifierInfo](#verifierinfo)
 - [WriteClientConfig](#writeclientconfig)
 - [WriteClientKeyConfig](#writeclientkeyconfig)
@@ -4052,7 +4427,7 @@ Fields:
 
 Recovery and timing controls for commit-reveal creation. Creation uses only the accountant-seeded path: the seed is asked for concurrently, retried within a bounded window, and its absence is a typed error ([SlotSeedUnavailableError](#slotseedunavailableerror)); there is no beacon-epoch wait.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L200)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L202)
 
 ```ts
 export interface CommitRevealOptions {
@@ -4265,7 +4640,7 @@ Fields:
 
 Slot key mode, keeper threshold, private authorization rule and creation policies.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L236)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L238)
 
 ```ts
 export interface CreateSlotArgs extends RuleInput {
@@ -4303,7 +4678,7 @@ Slot creation from an authored Rego policy instead of a rule string. The SDK pac
 it when a keeper would not store it, and commits the envelope. Requires `authType: 'oauth'`.
 The packed envelope is returned as `rule`: provision exactly that string.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L288)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L290)
 
 ```ts
 export type CreateSlotFromPolicyArgs = Omit<CreateSlotArgs, 'rule'> & {
@@ -4326,6 +4701,146 @@ Fields:
 - **` exportable `**: Allow raw share export, permitting a holder with enough shares to retain the reconstructed key permanently. Revocation cannot remove an exported key. Disabled by default and incompatible with rulePolicy.
 - **` rule `**: Must be omitted: the rule is the packed envelope.
 - **` oauthPolicy `**: Rego policy source, token specifications and optional entrypoint.
+
+### CustodyFailure
+
+The last threshold-ECDSA reshare the keeper failed for the slot, as it signed it.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L46)
+
+```ts
+export interface CustodyFailure {
+    committeeVersion: number;
+    blamedOperatorId: number | null;
+    reason: string;
+}
+```
+
+Fields:
+
+- **` committeeVersion `**: Committee version the failed reshare targeted.
+- **` blamedOperatorId `**: On-chain operator id of the party the refusal named, or `null` when it named none.
+- **` reason `**: The keeper's reason text; diagnostic, never parse it.
+
+### CustodyHealthErrorCode
+
+Stable refusal categories of a custody-health reply; branch on `code`, never on the message.
+`unreachable` and `stale` may pass on a later poll; the others need a different keeper or reply.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L87)
+
+```ts
+export type CustodyHealthErrorCode = 'unsigned' | 'malformed' | 'bad-signature' | 'stale' | 'mismatch' | 'not-registered' | 'unreachable' | 'no-slot';
+```
+
+### CustodyHealthLevel
+
+How a committee fares against its threshold: the keepers' own classification.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L320)
+
+```ts
+export type CustodyHealthLevel = 'ok' | 'at_risk' | 'frozen';
+```
+
+### CustodyHealthReport
+
+A slot's custody health: chain state read by the SDK, and the keepers' verified statements.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L354)
+
+```ts
+export interface CustodyHealthReport {
+    slotId: Hex;
+    chainId: number;
+    chain: {
+        mode: number;
+        publicKey: Hex;
+        epoch: number;
+        committeeVersion: number;
+        k: number;
+        n: number;
+        cancelled: boolean;
+        rotationLocked: boolean | null;
+    };
+    committee: {
+        members: number;
+        liveMembers: number;
+        margin: number;
+        notLive: Address[];
+    };
+    health: CustodyHealthLevel;
+    current: Address[];
+    proven: boolean;
+    pending: Address[];
+    reports: VerifiedCustodyReport[];
+    refused: {
+        operator: Address;
+        error: CustodyHealthError;
+    }[];
+}
+```
+
+Fields:
+
+- **` slotId `**: Slot that was polled.
+- **` chainId `**: Chain the statements were checked against.
+- **` chain `**: The slot as the chain records it.
+- **` committee `**: The committee's liveness, from NodeRegistry: a live member is an active, keeper-tagged operator.
+- **` health `**: Classification from `liveMembers`, `k` and `n`.
+- **` current `**: Members whose verified statement proves a share of the chain's current generation.
+- **` proven `**: Whether at least `k` members proved it, so the current generation can sign without any older one.
+- **` pending `**: Members whose verified statement reports a reshare they have not finished.
+- **` reports `**: Every verified statement, one per member that answered.
+- **` refused `**: Members whose reply was refused or not received; none of these is counted.
+
+### CustodyReshareState
+
+The reshare states a keeper reports for its own share.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L42)
+
+```ts
+export type CustodyReshareState = 'current' | 'pending' | 'not_member' | 'no_key' | 'unknown';
+```
+
+### CustodyStatement
+
+What one keeper signed about one slot. Hex fields are lowercase.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L56)
+
+```ts
+export interface CustodyStatement {
+    chainId: number;
+    slot: Hex;
+    operator: Address;
+    epoch: number;
+    committeeVersion: number;
+    publicKey: Hex;
+    reshare: CustodyReshareState;
+    shareCommitteeVersion: number | null;
+    shareMatchesChainKey: boolean | null;
+    retainedGenerations: number | null;
+    lastFailure: CustodyFailure | null;
+    observedAt: number;
+}
+```
+
+Fields:
+
+- **` chainId `**: Chain the keeper read.
+- **` slot `**: Slot the statement is about.
+- **` operator `**: Operator address of the signing keeper.
+- **` epoch `**: The chain's key epoch as the keeper read it.
+- **` committeeVersion `**: The chain's committee version as the keeper read it.
+- **` publicKey `**: The chain's anchored public key as the keeper read it; `0x` before a key exists.
+- **` reshare `**: Whether the keeper's share is at the chain's generation; `pending` means a reshare it has not finished.
+- **` shareCommitteeVersion `**: Committee version of the share the keeper holds, or `null` when it holds none or cannot tell.
+- **` shareMatchesChainKey `**: Whether the keeper's share belongs to the chain's key, or `null` when it cannot tell.
+- **` retainedGenerations `**: Older share generations the keeper still holds, or `null` when it cannot tell.
+- **` lastFailure `**: The keeper's last failed reshare of this slot, or `null`.
+- **` observedAt `**: Unix seconds at which the keeper made the statement.
 
 ### DebitMemberOutcome
 
@@ -4559,6 +5074,32 @@ Display category assigned to decoded contract events.
 ```ts
 export type EventCategory = 'node' | 'slot' | 'slashing' | 'tasra' | 'settlement' | 'beacon' | 'governance';
 ```
+
+### ExpectedCustodyReply
+
+What a reply must be about, and the key it must be signed with.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L214)
+
+```ts
+export interface ExpectedCustodyReply {
+    chainId: number;
+    slotId: Hex;
+    operator: Address;
+    registeredPublicKey: Uint8Array | Hex;
+    nowSecs?: number;
+    maxAgeSecs?: number;
+}
+```
+
+Fields:
+
+- **` chainId `**: Chain the statement must name.
+- **` slotId `**: Slot that was polled.
+- **` operator `**: Operator whose keeper was polled.
+- **` registeredPublicKey `**: The operator's identity key as NodeRegistry holds it (32 bytes, or its hex).
+- **` nowSecs `**: Current Unix seconds; defaults to the local clock.
+- **` maxAgeSecs `**: Maximum statement age in either direction, in seconds; defaults to ` CUSTODY_STATEMENT_MAX_AGE_SECS `.
 
 ### ExpectedPaidOperation
 
@@ -4860,6 +5401,28 @@ export interface KeyListReply {
 Fields:
 
 - **` slots `**: Slot summaries included in the keeper response.
+
+### KeyRotationLockedEvent
+
+One `KeyRotationLocked` event.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/rotationLock.ts#L208)
+
+```ts
+export interface KeyRotationLockedEvent {
+    slotId: Hex;
+    address: Address;
+    blockNumber: bigint | null;
+    transactionHash: Hex | null;
+}
+```
+
+Fields:
+
+- **` slotId `**: Slot whose rotation was locked.
+- **` address `**: Contract that emitted the event; compare it with the deployment's KeyRegistry.
+- **` blockNumber `**: Block of the event, when the log carries it.
+- **` transactionHash `**: Transaction of the event, when the log carries it.
 
 ### KeySlotSummary
 
@@ -6166,7 +6729,7 @@ Fields:
 A rule amendment: the new rule (a clear rule string, or an authored Rego policy the SDK packs
 into a `kk_oauth` envelope) for an existing slot, committed with the slot's saved rule salt.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L392)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L394)
 
 ```ts
 export type ProposeRuleArgs = ({
@@ -6188,7 +6751,7 @@ Fields:
 
 A confirmed `proposeRuleUpdate`, decoded from its `RuleUpdateProposed` event.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L422)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L452)
 
 ```ts
 export interface ProposeRuleResult {
@@ -6272,6 +6835,34 @@ Fields:
 - **` slotId `**: Slot whose authorization rule was delivered.
 - **` ruleCommitment `**: Salted commitment computed from the submitted rule and saved salt.
 - **` results `**: Delivery result for each selected keeper.
+
+### ReadCustodyHealthOptions
+
+Transport and policy for [readCustodyHealth](#readcustodyhealth).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L336)
+
+```ts
+export interface ReadCustodyHealthOptions {
+    chainId?: number;
+    fetchImpl?: typeof fetch;
+    route?: (url: string) => string;
+    allowLocalHttp?: boolean;
+    signal?: AbortSignal;
+    nowSecs?: number;
+    maxAgeSecs?: number;
+}
+```
+
+Fields:
+
+- **` chainId `**: Expected chain; defaults to the chain the client's RPC answers.
+- **` fetchImpl `**: Fetch used for the keeper requests; defaults to the global fetch.
+- **` route `**: Map a registered keeper URL to the address to request, for an application with mapped keeper routes.
+- **` allowLocalHttp `**: Allow loopback HTTP on the disposable local chain 43112 only. Default false.
+- **` signal `**: Cancel the poll. The complete poll is bounded to 15 seconds.
+- **` nowSecs `**: Current Unix seconds for the freshness check; defaults to the local clock.
+- **` maxAgeSecs `**: Maximum statement age in seconds; defaults to ` CUSTODY_STATEMENT_MAX_AGE_SECS `.
 
 ### ReconcileEscapeArgs
 
@@ -6568,7 +7159,7 @@ Fields:
 
 Approved relay configuration for gas-sponsored sender-bound contract calls. The creator signs the forward request; the relayer pays gas. ERC-20 approvals still require direct transactions.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L159)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L161)
 
 ```ts
 export type RelayConfig = RegisteredRelayConfig;
@@ -6845,6 +7436,17 @@ Fields:
 - **` quoteBlock `**: Canonical block the intent's verifier epoch was observed at. The first prepare is pinned to it, so a member whose own head is a block older (before the epoch's anchors landed) judges the same anchors; if no member accepts it (stale), the members choose as before.
 - **` persist `**: Await durable storage. `prepared` must create a unique record keyed by allowance id and survive process loss.
 
+### ReshareRosterErrorCode
+
+Stable refusal categories of the reshare roster check; branch on `code`, never on the message.
+None is retryable: each needs a different roster or threshold.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reshareRoster.ts#L22)
+
+```ts
+export type ReshareRosterErrorCode = 'keeps-too-few' | 'invalid-roster' | 'no-slot';
+```
+
 ### ResolvedEndpoints
 
 How the session's endpoints were resolved from chain - surfaced so callers can see
@@ -6912,6 +7514,95 @@ Fields:
 - **` proposalId `**: Agent delivery (proposal) identity.
 - **` body `**: Exact JSON request body `{"authorization":…}`; never re-serialized or re-signed.
 - **` expires `**: Unix seconds after which the approval may not be sent (proposal and session expiry).
+
+### RotationLockErrorCode
+
+Stable refusal categories of the rotation lock API; branch on `code`, never on the message.
+None is retryable: each needs a different slot, key or registry first.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/rotationLock.ts#L49)
+
+```ts
+export type RotationLockErrorCode = 'no-slot' | 'cancelled' | 'unsupported' | 'not-creator' | 'locked' | 'not-confirmed';
+```
+
+### RotationLockResult
+
+Outcome of ` TasraWriteClient.lockKeyRotation `: the lock was sent and confirmed, or the
+slot was already locked and nothing was sent.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L405)
+
+```ts
+export type RotationLockResult = {
+    phase: 'locked';
+    slotId: Hex;
+    txHash: Hex;
+    relay?: RelayReceipt;
+} | {
+    phase: 'already-locked';
+    slotId: Hex;
+    lockedByCreator: boolean;
+    lockedByMode: boolean;
+    txHash?: undefined;
+};
+```
+
+Fields:
+
+- **` phase `**: The lock transaction mined and the chain now shows the creator's lock. Nothing was sent: no rotation could change this slot's key already.
+- **` slotId `**: Slot that was locked. Slot that was found locked.
+- **` txHash `**: Transaction that carried the lock. No transaction.
+
+### RotationLockRevert
+
+A decoded rotation-lock revert: the rotation lock, or a tECDSA reshare roster that keeps too few members.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/rotationLock.ts#L173)
+
+```ts
+export type RotationLockRevert = {
+    name: 'RotationLocked';
+} | {
+    name: 'TecdsaReshareKeepsTooFew';
+    staying: number;
+    k: number;
+};
+```
+
+Fields:
+
+- **` name `**: `RotationLocked()`: no rotation can change this slot's key. `TecdsaReshareKeepsTooFew(staying, k)`: the threshold-ECDSA reshare roster keeps too few current members.
+
+### RotationLockStatus
+
+A slot's rotation lock as the chain records it.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/rotationLock.ts#L66)
+
+```ts
+export interface RotationLockStatus {
+    slotId: Hex;
+    creator: Address;
+    mode: number;
+    cancelled: boolean;
+    lastRotatedAt: bigint;
+    lockedByCreator: boolean;
+    lockedByMode: boolean;
+    locked: boolean;
+}
+```
+
+Fields:
+
+- **` slotId `**: Slot that was read.
+- **` creator `**: Slot creator, the only account that may call `lockKeyRotation`.
+- **` mode `**: `KeyRegistry.Mode` ordinal: 0 FROST, 1 BLS, 2 secp256k1 tECDSA, 3 BLS-BN254, 4 P-256 tECDSA.
+- **` cancelled `**: Whether the slot is cancelled; a cancelled slot cannot be locked.
+- **` lastRotatedAt `**: Raw `lastRotatedAt`: 0 never rotated, a block timestamp, or the lock sentinel.
+- **` lockedByCreator `**: The creator called `lockKeyRotation` (the sentinel is set).
+- **` lockedByMode `**: The slot's mode is threshold ECDSA, which no rotation ever changes.
+- **` locked `**: Effective lock: no rotation path can change this slot's key.
 
 ### RpcBatchOptions
 
@@ -7198,7 +7889,7 @@ Fields:
 
 Authorization family recorded at creation. The default unspecified value declares no family. This label is not included in the committee-selection commitment.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L127)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L129)
 
 ```ts
 export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth' | 'governance';
@@ -7355,7 +8046,7 @@ The slot's key type, mirroring `KeyRegistry.Mode` on-chain:
 `bls-bn254`, and `tecdsa-p256` (ES256). A deployment need not run keepers for
 every mode; creating a slot the network cannot key leaves it without a group key.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L114)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L116)
 
 ```ts
 export type SlotMode = 'frost' | 'bls' | 'tecdsa' | 'bls-bn254' | 'tecdsa-p256';
@@ -7452,7 +8143,7 @@ Fields:
 
 Outcome of ` TasraWriteClient.proposeSlotTransfer `.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L400)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L430)
 
 ```ts
 export interface SlotTransferProposal {
@@ -7576,7 +8267,7 @@ Fields:
 
 Account-bound operations for slot creation, lifecycle management, settlement funding and token transactions.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L1518)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L1575)
 
 <details>
 <summary>Full declaration</summary>
@@ -7629,6 +8320,7 @@ export interface TasraWriteClient {
     proposeRuleAdminTransfer(slotId: Hex, to: Address): Promise<Hex>;
     withdrawRuleAdminTransfer(slotId: Hex): Promise<Hex>;
     acceptRuleAdminTransfer(slotId: Hex): Promise<Hex>;
+    lockKeyRotation(slotId: Hex): Promise<RotationLockResult>;
     buyTsra(eurcAmount: bigint, minTsraOut: bigint): Promise<Hex>;
     approveEurcForCurve(amount: bigint): Promise<Hex>;
     mintMockEurc(to: Address, amount: bigint): Promise<Hex>;
@@ -7669,8 +8361,8 @@ Fields:
 - **` fundSlot `**: Approve TSRA and fund the slot settlement balance in token base units.
 - **` sendEth `**: Send native currency in base units and wait for a successful receipt.
 - **` transferTsra `**: Transfer TSRA in token base units and wait for confirmation.
-- **` rotateKey `**: Request a new distributed key generation epoch for the slot.
-- **` reshareKey `**: Redistribute the slot key among the supplied operators using the new threshold.
+- **` rotateKey `**: Request a new distributed key generation epoch for the slot. A slot whose rotation is locked (by its creator, or a threshold-ECDSA slot by its mode) is refused before signing as a `RotationLockError` with code `locked`; the chain would revert `RotationLocked()`, which is final.
+- **` reshareKey `**: Redistribute the slot key among the supplied operators using the new threshold. On a threshold-ECDSA slot the roster must keep at least the current `k` members (only staying members re-deal the key) and `k` must be at least 2; otherwise it is refused before signing as a `ReshareRosterError`.
 - **` cancelSlot `**: Cancel the slot using the configured account authority.
 - **` renewSlot `**: Renew the slot lease; the configured account must be its creator.
 - **` setVerifierPolicy `**: Set the verifier committee size and quorum, optionally persisting transaction progress.
@@ -7685,6 +8377,7 @@ Fields:
 - **` proposeRuleAdminTransfer `**: Offer the slot's rule admin role to `to`, signed by the rule admin. It moves only when `to` accepts. It can never go to the guardian, and the guardian is not asked. Refuses `immutable`, `not-admin`, `same-holder`, `guardian` and `already-offered` before signing.
 - **` withdrawRuleAdminTransfer `**: Withdraw the pending rule admin offer, signed by the rule admin. Refuses `not-admin` and `nothing-pending` before signing.
 - **` acceptRuleAdminTransfer `**: Become the slot's rule admin, signed by the offered wallet. Refuses `nothing-pending`, `not-offered` and `guardian` before signing.
+- **` lockKeyRotation `**: Lock the slot's key against every rotation, for good, signed by its creator (`KeyRegistry.lockKeyRotation`, relayed when a relay is configured). After it, every rotation path reverts `RotationLocked()` for everyone, the creator included; resharing still works, because it moves the shares and keeps the key. Set-once: a slot that is already locked resolves `already-locked` without sending. That includes every threshold-ECDSA slot (`tecdsa`, `tecdsa-p256`), which the network locks by its mode, so such a slot never emits `KeyRotationLocked`; read the state with `isRotationLocked`. Refused before signing, as a `RotationLockError`: `no-slot`, `cancelled`, `unsupported` (a KeyRegistry without the lock) and `not-creator`; `not-confirmed` when the transaction mined but the chain does not show the lock.
 - **` buyTsra `**: Buy TSRA with approved EURC while enforcing the minimum output amount.
 - **` approveEurcForCurve `**: Approve the bonding curve to spend the specified EURC base units.
 - **` mintMockEurc `**: Mint test EURC only after verifying the network and mock-token faucet policy.
@@ -7703,6 +8396,50 @@ Fields:
 - **` lastRelay `**: Return the last verified relay receipt, if any.
 - **` pendingRelayAttempt `**: Return the signed relay attempt awaiting reconciliation, if any.
 - **` reconcileRelay `**: Inspect the pending attempt against the chain without signing a replacement.
+
+### TecdsaReshareRosterInput
+
+A threshold-ECDSA reshare proposal: the slot's current committee and the roster to vote for.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reshareRoster.ts#L42)
+
+```ts
+export interface TecdsaReshareRosterInput {
+    current: readonly Address[];
+    currentK: number;
+    next: readonly Address[];
+    k: number;
+    n: number;
+}
+```
+
+Fields:
+
+- **` current `**: The slot's current roster (`KeyRegistry.assignedNodes`).
+- **` currentK `**: The slot's current threshold `k`.
+- **` next `**: The proposed roster, in the order the vote will carry it.
+- **` k `**: The proposed threshold.
+- **` n `**: The proposed committee size; must equal the roster length.
+
+### TecdsaReshareRosterPlan
+
+How a valid proposal moves the committee. Addresses are checksummed.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reshareRoster.ts#L56)
+
+```ts
+export interface TecdsaReshareRosterPlan {
+    staying: Address[];
+    joining: Address[];
+    leaving: Address[];
+}
+```
+
+Fields:
+
+- **` staying `**: Current members that stay; these are the dealers, at least the current `k` of them.
+- **` joining `**: New members that receive a share without dealing.
+- **` leaving `**: Current members that leave the committee.
 
 ### UndrawnPaidOperationContext
 
@@ -7800,6 +8537,24 @@ Named vesting allocation used to resolve its deployed vault.
 export type VaultTranche = (typeof VAULT_TRANCHES)[number];
 ```
 
+### VerifiedCustodyReport
+
+A keeper's custody statement whose signature verified under the operator's registered key.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L230)
+
+```ts
+export interface VerifiedCustodyReport {
+    operator: Address;
+    statement: CustodyStatement;
+}
+```
+
+Fields:
+
+- **` operator `**: Operator that signed it (checksummed).
+- **` statement `**: The signed statement; nothing outside it is returned.
+
 ### VerifierInfo
 
 Verifier-reported runtime settings and token lifetime.
@@ -7827,7 +8582,7 @@ Fields:
 
 Either a private-key signer or an account-bound wallet with network write configuration.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L195)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L197)
 
 ```ts
 export type WriteClientConfig = WriteClientKeyConfig | WriteClientWalletConfig;
@@ -7846,7 +8601,7 @@ Fields:
 
 Sovereign-key variant: the SDK owns the account and signs with `privateKey`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L175)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L177)
 
 ```ts
 export interface WriteClientKeyConfig extends WriteClientConfigBase {
@@ -7868,7 +8623,7 @@ Fields:
 
 Account-bound and chain-bound viem wallet used for signing without exposing its private key. Reads and receipt polling use the separately configured RPC.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L185)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L187)
 
 ```ts
 export interface WriteClientWalletConfig extends WriteClientConfigBase {
@@ -7901,6 +8656,8 @@ Shared values and contract definitions.
 | `bondingCurveAbi` | BondingCurve contract interface for TSRA purchases, redemptions and pricing. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/bondingCurve.ts#L5) |
 | `CONTRACT_ABIS` | Contract name to ABI. Keys match Foundry artifact names. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/index.ts#L48) |
 | `CONTRACT_CATEGORY` | Default category per contract (the global event feed groups by this). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L23) |
+| `CUSTODY_HEALTH_DOMAIN` | Domain tag of [custodyStatementHash](#custodystatementhash); a changed preimage gets a new name on the network. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L30) |
+| `CUSTODY_STATEMENT_MAX_AGE_SECS` | Default maximum age of a statement, in seconds; the keepers count a peer's statement for 900 s. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L33) |
 | `DEFAULT_CHAIN_ID` | Fallback chain ID retained for explicitly configured loopback connections. Set the chain ID from the downloaded tasra-releases network manifest for deployment access. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L64) |
 | `DEFAULT_SLOT_SEED_HEDGE_MS` | Default stagger between launching the asks of one round. The asks run CONCURRENTLY and the first valid seed wins; the stagger only keeps a healthy set from leading n threshold rounds for one commitment (each accountant leads at most one round at a time and sheds the rest with a 503). An ask that fails launches the next one at once, without waiting for the stagger. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotSeed.ts#L97) |
 | `DEFAULT_SLOT_SEED_RETRY_MS` | Default time the creation path keeps re-asking while the set answers "not yet". | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotSeed.ts#L90) |
@@ -7914,6 +8671,7 @@ Shared values and contract definitions.
 | `MAX_ESCAPE_REQUESTS` | Most requests one client call accepts; they are sent as sequential transactions of at most 64. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L29) |
 | `MAX_PREPAID_FAULT_BUNDLE_BYTES` | Accountant claim intake byte limit (the witness's own bundle maximum). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L43) |
 | `MAX_PROPOSAL_WAIT_MS` | Longest proposal hold the client asks for (the agent's own cap). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L87) |
+| `MAX_RESHARE_PARTIES` | Largest committee the network deals a key to (`KeyRegistry.MAX_N`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reshareRoster.ts#L16) |
 | `mockEurcAbi` | MockEurc contract interface for test-token balances, transfers, approvals and minting. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/mockEurc.ts#L5) |
 | `NETWORKS` | Built-in network defaults; use a tasra-releases manifest for deployed contract addresses. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L39) |
 | `nodeApi` | Direct keeper HTTP reads for status, keys, public keys, heartbeats and metering. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L145) |
@@ -7924,6 +8682,8 @@ Shared values and contract definitions.
 | `prevrandaoSaltBeaconAbi` | PrevrandaoSaltBeacon contract interface for chain-randomness-derived committee seeds. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/prevrandaoSaltBeacon.ts#L5) |
 | `PROPOSAL_WAIT_CAPABILITY` | Manifest capability of an agent that holds a proposal listing until one is pending (`?wait_ms=`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L85) |
 | `PROVISION_RULE_ACTION` | Action identifier accepted by the creator-authorized rule provisioning endpoint. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/provisionRule.ts#L36) |
+| `ROTATION_LOCK_SELECTORS` | Selectors and the event topic of the rotation-lock additions to `KeyRegistry`, each the keccak256 of the Solidity signature in its comment. A stale signature is a different selector, so a test pins each value against its signature and against the vendored ABI. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/rotationLock.ts#L29) |
+| `ROTATION_LOCK_SENTINEL` | `lastRotatedAt` value the contract writes to lock a slot: 2^64 - 1, never a real timestamp. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/rotationLock.ts#L22) |
 | `SERVICE_CHALLENGE_LIFETIME_SECONDS` | Challenge lifetime in seconds, leaving room for clock differences. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L29) |
 | `SERVICE_CHALLENGE_SECONDS` | Maximum accepted identity challenge validity window in seconds. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L24) |
 | `SERVICE_IDENTITY_MAX_BYTES` | Maximum accepted identity challenge response size in bytes. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/serviceIdentity.ts#L20) |

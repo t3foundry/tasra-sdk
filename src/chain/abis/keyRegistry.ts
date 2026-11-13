@@ -3367,5 +3367,82 @@ export const keyRegistryAbi = [
     "type": "error",
     "name": "NotPendingHolder",
     "inputs": []
+  },
+  {
+    "type": "function",
+    "name": "lastRotatedAt",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lockKeyRotation",
+    "inputs": [
+      {
+        "name": "slotId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "KeyRotationLocked",
+    "inputs": [
+      {
+        "name": "slotId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "RotationLocked",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RotationTooSoon",
+    "inputs": [
+      {
+        "name": "earliest",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TecdsaReshareKeepsTooFew",
+    "inputs": [
+      {
+        "name": "staying",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "k",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ]
   }
 ] as const
