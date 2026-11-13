@@ -2968,7 +2968,7 @@ Does not create an intent, approve tokens, activate a slot, authorize credential
 work. Before broadcast, unavailable accountants can be skipped while collecting the same quote
 and quorum authorization. One broadcast attempt only; no replacement or implicit gas funding.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L523)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L569)
 
 Import: `import {reservePaidOperation} from 'tasra-sdk/chain'`
 
