@@ -146,3 +146,12 @@ The journal stores the bootstrap and the raw rule; its salt field is zero.
 - **Salt wrapping at rest (Q26)** is unaffected: the bootstrap needs only the creator side to
   hold rule and salt, however it stores them.
 - **tECDSA reshare and custody address continuity (Q25)** are unaffected.
+
+## Decision record
+
+- 2026-11-13, product owner: **holder applications may receive the slot's rule in clear.**
+  The salt never leaves the creator side (the Console's custody signer) and the operator set.
+  Rationale: a holder that opens a session already sees the rule as the DCQL query inside the
+  verifier's request object. The salt exists so that outsiders reading the chain cannot test
+  guessed rules against the on-chain commitment. Whether holders may see the rule was never the
+  salt's job. The composition in "Decision" stands as written.
