@@ -99,6 +99,9 @@ const chainReads: CommitteeChainReads = {
   seed: () => Promise.resolve(seed),
   epoch: () => Promise.resolve(epoch),
   verifierPolicy: () => Promise.resolve([committee, quorum] as const),
+  // The draw modulus comes from the anchored snapshot (P6); the directory carries no keys, so
+  // the root only has to be present.
+  snapshot: () => Promise.resolve({root: `0x${'11'.repeat(32)}` as const, size: registrySize}),
 }
 
 // ─── a 2-of-3 BLS slot, for the IBE path ──────────────────────────────────────

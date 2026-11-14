@@ -120,6 +120,7 @@ export {
 export type {
   CommitteeVerifier,
   CommitteeChainReads,
+  CommitteeDraw,
   HolderProofPerVerifier,
   RequestCommitteeTokenOpts,
   CommitteeTokenResult,

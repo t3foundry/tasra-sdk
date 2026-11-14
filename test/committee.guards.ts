@@ -315,10 +315,13 @@ const bareHex = (b: Uint8Array): string => Array.from(b).map(x => x.toString(16)
     pinnedDraw({seed: () => Promise.resolve(seed)}, 9, 1),
   )
 
+  // The draw modulus is the anchored snapshot's size, never the directory length (P6).
+  const anchoredRoot = `0x${'11'.repeat(32)}` as const
   const chain: CommitteeChainReads = {
     seed: () => Promise.resolve(seed),
     epoch: () => Promise.resolve(9),
     verifierPolicy: () => Promise.resolve([3, 2] as const),
+    snapshot: () => Promise.resolve({root: anchoredRoot, size: 5}),
   }
   const base = {
     chain, verifiers: Array.from({length: 5}, (_, i) => ({index: i, url: `http://verifier-${i}`})),
@@ -340,7 +343,7 @@ const bareHex = (b: Uint8Array): string => Array.from(b).map(x => x.toString(16)
   // ⚠ A registry smaller than the committee cannot seat one. Caught here rather than as an
   // exhausted draw, and it names both numbers.
   await rejectsWith('a registry smaller than the committee is refused, naming both', /active verifier set \(2\) is smaller than the committee size \(3\)/, () =>
-    requestCommitteeToken({...base, holderProof: 'p', verifiers: base.verifiers.slice(0, 2)}),
+    requestCommitteeToken({...base, holderProof: 'p', chain: {...chain, snapshot: () => Promise.resolve({root: anchoredRoot, size: 2})}}),
   )
 }
 
