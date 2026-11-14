@@ -115,7 +115,18 @@ export interface ReservePaidOperationOptions {
    * remaining lifetime)); wall-clock ms. Default: the system clock. Inject one in tests.
    */
   clock?: PaidPacingClock
+  /**
+   * The block the payment context was discovered at (`discoverPaidOperationContext`'s
+   * `blockHash`/`blockTimestamp`). The FIRST prepare names it, so every accountant judges the signed
+   * intent where it was built instead of at its own, often older, head. Older than 20 seconds (or
+   * absent), the client's own fresh `latest` block is named instead: no prepare is ever sent
+   * without a block.
+   */
+  quoteBlock?: {blockHash: Hex; blockTimestamp: bigint}
 }
+
+/** How old a discovery block may be to be named by the first prepare (the accountants accept a quote block up to 30 s old, and authorize re-judges it). */
+const PIN_MAX_AGE_SECS = 20n
 
 /** The caller aborted before anything was prepared or broadcast; nothing was sent or journaled. Reserving again is safe. */
 export class PaidReservationAbortedError extends Error {
@@ -375,11 +386,32 @@ const PREPARE_ATTEMPT_BUDGET_MS = 10_000
 // Availability is distinct from policy/credit refusals or an invalid successful response.
 // Only this private error permits trying a different endpoint before any transaction exists.
 class AccountantUnavailableError extends Error {
-  /** A 503 to an unpinned prepare carrying {@link PRE_WRITE_REASON}: refused before anything was recorded. */
+  /** A 503 to a prepare carrying {@link PRE_WRITE_REASON} or {@link STALE_BLOCK_REASON}: refused before anything was recorded. */
   readonly preWrite: boolean
-  constructor(message: string, options?: ErrorOptions & {preWrite?: boolean}) {
+  /** A 503 to a prepare carrying {@link NOT_YET_VISIBLE_REASON}: the member's RPC has not served the named block yet. */
+  readonly notYetVisible: boolean
+  constructor(message: string, options?: ErrorOptions & {preWrite?: boolean; notYetVisible?: boolean}) {
     super(message, options)
     this.preWrite = options?.preWrite === true
+    this.notYetVisible = options?.notYetVisible === true
+  }
+}
+
+/**
+ * A definite 403/409 to a `prepare` (creator, consent, assignment or cutover at the quote block):
+ * judged BEFORE the accountant records anything, so it is that member's answer - another member may
+ * seed, and this one is asked again at the seed's block (robustness audit 2026-11-13, P3). A 402 is
+ * the same kind of answer, carried as {@link UnderfundedSlotError}.
+ */
+class AccountantRefusedError extends Error {}
+
+/** A prepared member's `authorize` lead was refused by members that never approved the digest: no other prepared leader can gather k either. */
+export class PaidReservationQuorumNotPreparedError extends Error {
+  /** Stable machine-readable reason. */
+  readonly code = 'quorum-not-prepared' as const
+  constructor() {
+    super('accountant reservation quorum not prepared: members that never approved this reservation refused to sign it; nothing was sent')
+    this.name = 'PaidReservationQuorumNotPreparedError'
   }
 }
 
@@ -392,9 +424,15 @@ class AccountantUnavailableError extends Error {
  * advanced and every rolled-back accountant decided one block before it, where it was still empty.
  */
 const PRE_WRITE_REASON = 'reservation assignments unavailable'
-const preWriteReason = (text: string) => {
+/** The named block is outside the accountant's freshness bound: judged right after the read, before anything is recorded. */
+const STALE_BLOCK_REASON = 'quote block is stale, future or mismatched'
+/** A newer accountant's RPC has not served the named block yet, after its own bounded wait: nothing was read or recorded. */
+const NOT_YET_VISIBLE_REASON = 'quote block not yet visible'
+/** A newer accountant's lead was refused by members that never approved the digest. */
+const QUORUM_NOT_PREPARED_REASON = 'reservation quorum not prepared'
+const labelled = (text: string, label: string) => {
   const t = text.trimStart()
-  return t.startsWith(PRE_WRITE_REASON) && (t.length === PRE_WRITE_REASON.length || t[PRE_WRITE_REASON.length] === ':')
+  return t.startsWith(label) && (t.length === label.length || t[label.length] === ':')
 }
 
 /**
@@ -441,16 +479,23 @@ async function ask(endpoint: string, method: 'prepare' | 'authorize', payment: P
     try { await backoff.wait(429, hint, signal) } catch (cause) { throw quota(cause) }
   }
   if (!response.ok) {
-    // Only an unpinned prepare picks its quote block, so only it can find the signed epoch stale.
-    if (method === 'prepare' && block === null && response.status === 503) {
+    if (response.status === 503) {
       const reason = await boundedText(response, MAX_REASON)
-      if (reason.includes(STALE_EPOCH_REASON)) throw new PaidReservationStaleEpochError(payment.verification_epoch)
-      throw new AccountantUnavailableError('accountant reservation request refused (503)', {preWrite: preWriteReason(reason)})
+      if (method === 'prepare') {
+        // Every member judges the named block alike: an epoch stale there is stale everywhere.
+        if (reason.includes(STALE_EPOCH_REASON)) throw new PaidReservationStaleEpochError(payment.verification_epoch)
+        throw new AccountantUnavailableError('accountant reservation request refused (503)', {
+          preWrite: labelled(reason, PRE_WRITE_REASON) || labelled(reason, STALE_BLOCK_REASON),
+          notYetVisible: labelled(reason, NOT_YET_VISIBLE_REASON)})
+      }
+      if (labelled(reason, QUORUM_NOT_PREPARED_REASON)) throw new PaidReservationQuorumNotPreparedError()
+      throw new AccountantUnavailableError('accountant reservation request refused (503)')
     }
     void response.body?.cancel().catch(() => {})
     if (response.status >= 500 && response.status < 600) throw new AccountantUnavailableError(`accountant reservation request refused (${response.status})`)
     if (response.status === 402) throw new UnderfundedSlotError({slotId: payment.slot, status: 402,
       url, message: 'accountant reservation request refused (402): insufficient available TASRA'})
+    if (method === 'prepare' && (response.status === 403 || response.status === 409)) throw new AccountantRefusedError(`accountant reservation request refused (${response.status})`)
     throw new Error(`accountant reservation request refused (${response.status})`)
   }
   if (!response.body) throw new Error(`accountant reservation request refused (${response.status})`)
@@ -483,14 +528,18 @@ async function ask(endpoint: string, method: 'prepare' | 'authorize', payment: P
 /**
  * One intent and quote across available members; no transaction or journal mutation here.
  *
- * When EVERY member refused the unpinned prepare with the pre-write 503 ({@link PRE_WRITE_REASON}),
- * the seed round is repeated ONCE with the same signed intent, naming the client's fresh `latest`
- * block, so each member judges it there instead of at its own possibly older head; the accountant
- * still applies every freshness and canonical check to a named block. Any other mix (a transport
- * error, whose effect is unknown, another status or reason) is never repeated.
+ * Robustness audit 2026-11-13 (P1-P3, P7): every round NAMES one block - the first one `first()`,
+ * the discovery block or the client's fresh head - so every member judges the signed intent at the
+ * same chain state. A member's answer that recorded nothing (the pre-write 503, a stale named block,
+ * a definite 402/403/409, or "block not yet visible") is that member's answer, not the
+ * collection's: another member may seed, and every such member is asked once more at the seed's
+ * block with the same intent. When EVERY member answers so in the first round, the round is
+ * repeated ONCE at the client's fresh `latest` block. A transport error (whose effect is unknown)
+ * is never repeated to that member, and a prepared member's "quorum not prepared" ends the
+ * collection (every other prepared leader asks the same members).
  */
 async function collectQuote(urls: string[], payment: PaymentIntentWire, requestTimeout: number,
-  signal: AbortSignal | undefined, clock: PaidPacingClock, latest: () => Promise<Hex>): Promise<{quote: PaidReservationQuote; authorized: PaidReservationQuote}> {
+  signal: AbortSignal | undefined, clock: PaidPacingClock, first: () => Promise<Hex>, latest: () => Promise<Hex>): Promise<{quote: PaidReservationQuote; authorized: PaidReservationQuote}> {
   const budget = prepareRetryWindowMs(payment.expires, clock.now()), end = clock.now() + budget
   if (budget <= 0) throw new Error('payment expired before reservation collection')
   const limit = AbortSignal.timeout(budget), bounded = signal ? AbortSignal.any([signal, limit]) : limit
@@ -500,7 +549,7 @@ async function collectQuote(urls: string[], payment: PaymentIntentWire, requestT
     if (left <= 0) throw new Error('reservation collection exhausted its shared time budget')
     return Math.min(requestTimeout, left)
   }
-  const request = async (url: string, method: 'prepare' | 'authorize', block: Hex | null) => {
+  const request = async (url: string, method: 'prepare' | 'authorize', block: Hex) => {
     try {
       const result = await ask(url, method, payment, block, remaining(), bounded, clock)
       remaining()
@@ -510,34 +559,48 @@ async function collectQuote(urls: string[], payment: PaymentIntentWire, requestT
       throw error
     }
   }
-  let seed: {quote: PaidReservationQuote; index: number} | undefined, lastUnavailable: AccountantUnavailableError | undefined
-  const seedRound = async (block: Hex | null) => {
-    let preWrite = 0
+  type Answer = 'pre-write' | 'not-visible' | 'unavailable'
+  // The member's answer when it recorded nothing; `undefined` for an error that ends the collection.
+  const classify = (error: unknown): Answer | undefined => {
+    if (error instanceof UnderfundedSlotError || error instanceof AccountantRefusedError) return 'pre-write'
+    if (!(error instanceof AccountantUnavailableError)) return undefined
+    return error.notYetVisible ? 'not-visible' : error.preWrite ? 'pre-write' : 'unavailable'
+  }
+  let seed: {quote: PaidReservationQuote; index: number} | undefined, lastFailure: Error | undefined
+  const failed = (error: unknown) => { lastFailure = error instanceof Error ? error : new Error(String(error)) }
+  let answers: (Answer | undefined)[] = []
+  const seedRound = async (block: Hex) => {
+    answers = urls.map(() => undefined)
     for (const [index, url] of urls.entries()) {
       try {
         const quote = await request(url, 'prepare', block)
-        if (block !== null && !same(quote.quote_block, block)) throw new Error('accountant prepared a different quote block than the one named')
-        seed = {quote, index}; return 0
+        if (!same(quote.quote_block, block)) throw new Error('accountant prepared a different quote block than the one named')
+        seed = {quote, index}; return
       } catch (error) {
-        if (!(error instanceof AccountantUnavailableError)) throw error
-        lastUnavailable = error; preWrite += error.preWrite ? 1 : 0
+        const answer = classify(error)
+        if (answer === undefined) throw error
+        answers[index] = answer; failed(error)
       }
     }
-    return preWrite
   }
-  if (await seedRound(null) === urls.length && urls.length > 0) {
+  const named = await untilAborted(first(), bounded)
+  remaining()
+  await seedRound(named)
+  if (!seed && urls.length > 0 && answers.every(answer => answer === 'pre-write')) {
     const head = await untilAborted(latest(), bounded)
     remaining()
-    await seedRound(head)
+    if (!same(head, named)) await seedRound(head)
   }
-  if (!seed) throw lastUnavailable ?? new Error('no reachable accountant prepared the reservation')
+  if (!seed) throw lastFailure ?? new Error('no reachable accountant prepared the reservation')
   const {quote, index} = seed, prepared = [urls[index]!]
-  // Earlier endpoints already failed. Never ask them to prepare again under a new block.
-  const candidates = urls.slice(index + 1)
+  // Every OTHER member once at the seed's exact block: every later one, and every earlier one whose
+  // answer recorded nothing. A dissenting quote or a malformed success stops the collection.
+  const candidates = urls.filter((_, i) => i > index || answers[i] === 'pre-write' || answers[i] === 'not-visible')
   const preparations = await Promise.allSettled(candidates.map(url => request(url, 'prepare', quote.quote_block)))
   for (const [i, result] of preparations.entries()) {
     if (result.status === 'rejected') {
-      if (!(result.reason instanceof AccountantUnavailableError)) throw result.reason
+      // That member's answer; k independent preparations are the accountants' own threshold check.
+      if (classify(result.reason) === undefined) throw result.reason
       continue
     }
     if (unsigned(result.value) !== unsigned(quote)) throw new Error('accountants disagree on reservation')
@@ -549,9 +612,9 @@ async function collectQuote(urls: string[], payment: PaymentIntentWire, requestT
       const authorized = await request(url, 'authorize', quote.quote_block)
       if (unsigned(authorized) !== unsigned(quote)) throw new Error('authorization changed the prepared reservation')
       return {quote, authorized}
-    } catch (error) { if (!(error instanceof AccountantUnavailableError)) throw error; lastUnavailable = error }
+    } catch (error) { if (!(error instanceof AccountantUnavailableError)) throw error; failed(error) }
   }
-  throw lastUnavailable ?? new Error('no prepared accountant returned a quorum authorization')
+  throw lastFailure ?? new Error('no prepared accountant returned a quorum authorization')
 }
 
 /**
@@ -585,7 +648,7 @@ async function reserveOnce(
 ): Promise<{transactionHash: Hex; receipt: PaidOperationReceipt}> {
   // Snapshot caller-owned inputs before the first await; storage receives its own copy too.
   const payment = structuredClone(original), d = {...deployment}, operation = {...expected}
-  const opts = {...options, accountantUrls: [...options.accountantUrls]}, signal = opts.signal
+  const opts = {...options, accountantUrls: [...options.accountantUrls], ...(options.quoteBlock ? {quoteBlock: {...options.quoteBlock}} : {})}, signal = opts.signal
   const payer = {...wallet.account}, payerChain = {...wallet.chain}
   assertPaymentIntentWire(payment)
   if (!Number.isSafeInteger(d.chainId) || d.chainId <= 0 || payment.chain_id !== d.chainId
@@ -615,7 +678,12 @@ async function reserveOnce(
     if (head.hash === null) throw new Error('latest block has no hash')
     return head.hash
   }
-  const {quote, authorized} = await collectQuote(urls, payment, requestTimeout, signal, clock, latestHash)
+  // P1: the first prepare names the discovery block while it is fresh enough for the whole
+  // collection, else the client's own fresh head - never no block.
+  const pinned = opts.quoteBlock
+  const firstBlock = async (): Promise<Hex> => pinned && HEX32.test(pinned.blockHash) && typeof pinned.blockTimestamp === 'bigint'
+    && BigInt(now()) - pinned.blockTimestamp <= PIN_MAX_AGE_SECS && pinned.blockTimestamp - BigInt(now()) <= 2n ? pinned.blockHash : latestHash()
+  const {quote, authorized} = await collectQuote(urls, payment, requestTimeout, signal, clock, firstBlock, latestHash)
   const requestId = prepaidRequestId(payment)
   const args = [payment.slot, BigInt(quote.legacy_nonce), quote.quote_block, [requestId], [BigInt(quote.costs[0]!)], BigInt(quote.deadline)] as const
   const data = encodeFunctionData({abi: settlementAbi, functionName: 'reservePrepaidBls', args: [...args, authorized.signature!]})

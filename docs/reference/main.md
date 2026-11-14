@@ -2038,7 +2038,7 @@ Returns: ` Promise<Uint8Array> `.
 One-call identity-scoped decrypt (the read path): token to extraction fan-out
 to verify each partial to combine to decrypt. The intermediate `sk_ID` never surfaces.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L493)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L521)
 
 Import: `import {ibeDecryptRequest} from '@t3foundry/tasra-sdk'`
 
@@ -2106,7 +2106,7 @@ compressed G1).
 ciphertext to this identity. Prefer [ibeDecryptRequest](#ibedecryptrequest), which combines,
 decrypts and drops it. Zeroize the returned bytes when done.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L475)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L503)
 
 Import: `import {ibeExtractRequest} from '@t3foundry/tasra-sdk'`
 
@@ -4366,7 +4366,7 @@ Fields:
 
 Operation-specific fields for [ibeDecryptRequest](#ibedecryptrequest) / [ibeExtractRequest](#ibeextractrequest).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L437)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L465)
 
 ```ts
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
