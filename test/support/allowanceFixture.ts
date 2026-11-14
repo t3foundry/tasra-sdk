@@ -133,7 +133,8 @@ export function allowanceWorld(change: ChainChanges = {}): AllowanceWorld {
   const respond = async ({method, params}: {method: string; params?: unknown}): Promise<unknown> => {
     trace.push(method)
     if (method === 'eth_chainId') return toHex(43112)
-    if (method === 'eth_getBlockByHash') return {number: '0x13', hash: (params as Hex[])[0], timestamp: toHex(NOW), transactions: []}
+    // `h(n)` is block n: a hash names its own number, so a block pinned at latest (20) rechecks as 20.
+    if (method === 'eth_getBlockByHash') return {number: toHex(Number.parseInt((params as Hex[])[0]!.slice(2, 4), 16)), hash: (params as Hex[])[0], timestamp: toHex(NOW), transactions: []}
     if (method === 'eth_getBlockByNumber') {
       const at = (params as unknown[])[0]
       const n = at === 'latest' ? 20 : Number(BigInt(at as Hex))
