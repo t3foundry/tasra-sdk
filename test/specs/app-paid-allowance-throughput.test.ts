@@ -79,8 +79,9 @@ function chain(): PublicClient {
 
 /** The three fake accountants (real BN254 partials) in a worker thread, so their signing is not on the measured event loop. */
 async function accountants(): Promise<string[]> {
-  const worker = new Worker(new URL('../support/allowanceAccountantsWorker.ts', import.meta.url), {execArgv: ['--import', 'tsx'],
-    workerData: {settlement: deployment.settlement, latencyMs: LATENCY_MS}})
+  // Through the plain-JS tsWorker.mjs entry: `execArgv: ['--import', 'tsx']` does not load a .ts worker entry on Node 22.12.
+  const worker = new Worker(new URL('../support/tsWorker.mjs', import.meta.url),
+    {workerData: {entry: new URL('../support/allowanceAccountantsWorker.ts', import.meta.url).href, settlement: deployment.settlement, latencyMs: LATENCY_MS}})
   workers.push(worker)
   const {ports} = await new Promise<{ports: number[]}>((resolve, reject) => { worker.once('message', resolve); worker.once('error', reject) })
   return ports.map(port => `http://127.0.0.1:${port}`)

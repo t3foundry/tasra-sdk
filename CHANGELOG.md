@@ -9,6 +9,51 @@ never does.
 
 ### Added
 
+- The rotation lock. `TasraWriteClient.lockKeyRotation` (relayed when a relay is configured) and
+  `lockKeyRotation(app, slotId, {wallet, store})` (`/app`, a durable named creator transaction)
+  lock a slot's key against every rotation, irreversibly; resharing still works. Set-once: an
+  already-locked slot resolves `already-locked` without sending, and so does every
+  threshold-ECDSA slot (`tecdsa`, `tecdsa-p256`), which the network locks by its mode. Refusals
+  before signing are a `RotationLockError` (`no-slot`, `cancelled`, `unsupported`,
+  `not-creator`; `not-confirmed` after a transaction that did not take). Readers
+  `readRotationLock` and `isRotationLocked`; decoders `decodeRotationLockRevert`
+  (`RotationLocked()`, `TecdsaReshareKeepsTooFew(staying, k)`) and
+  `decodeKeyRotationLockedLogs`; `ROTATION_LOCK_SELECTORS` and `ROTATION_LOCK_SENTINEL`. The
+  KeyRegistry ABI gains `lockKeyRotation`, `lastRotatedAt`, `KeyRotationLocked`,
+  `RotationLocked`, `RotationTooSoon` and `TecdsaReshareKeepsTooFew`, so `describeRevert`
+  names them.
+- `checkTecdsaReshareRoster` and `ReshareRosterError`: a threshold-ECDSA reshare roster must keep
+  at least the current `k` members (only staying members re-deal the key), list `n` distinct
+  operators and keep `2 <= k <= n <= 50`. Checked before any vote is signed, on every registry.
+- Custody health. `readCustodyHealth` polls every assigned keeper's custody-health reply and
+  counts a statement only when its signature verifies under the operator's key in NodeRegistry,
+  it names this chain, slot and operator, it is at most 900 s old, and the reply's unsigned
+  fields agree with it; anything else is listed in `refused` with a `CustodyHealthError`
+  (`unsigned`, `malformed`, `bad-signature`, `stale`, `mismatch`, `not-registered`,
+  `unreachable`). The committee's liveness, margin, health and rotation lock come from the SDK's
+  own chain reads. The signed `lastFailure` (the keeper's last failed reshare and the operator
+  it blamed) is decoded. Building blocks: `verifyCustodyHealthReply`, `parseCustodyStatement`,
+  `custodyStatementHash`, `verifyCustodyStatement`, `custodyStatementIsCurrent`,
+  `assessCustodyHealth`.
+- Customer authorization bootstrap: a holder application runs paid operations on a slot whose
+  rule salt only the creator keeps. `issueSlotPolicyBootstrap` (creator side) signs an EIP-712
+  slot policy statement binding the chain, KeyRegistry, slot, rule version, salted commitment,
+  `keccak256` of the raw rule, the holder application key, allowed actions, lifetime and a
+  monotonic sequence, after checking the rule and salt against the slot; the salt is never in
+  it. `PaidOperationRequest.rule` also takes `{policy, audience}`: checked offline
+  (`verifySlotPolicyBootstrap`), then against the slot's creator, commitment and rule version at
+  the canonical discovery block, then against the store's sequence high-water mark, before
+  anything is signed or spent; the bootstrap is journaled, the salt is not. `paidPolicyOperation`
+  binds an application `operationKey` to the exact operation before anything is signed and
+  resumes the original journal entry on any later call with that key (`readPolicyOperation`
+  reads the binding). `createSlotPolicyRequest` / `verifySlotPolicyRequest` authenticate a
+  holder application's retrieval with its own key. New errors `SlotPolicyError`,
+  `PolicyOperationError` with stable codes.
+- `slots.p256(slotId)`: a threshold P-256 slot adapter (`getPublicKey`, `signDigest`,
+  `signIntent`) with native approval bundles. `slots.ecdsa(slotId).signIntent` and
+  `signingIntentDigest` derive the digest from a transaction, EIP-712 typed data, a personal
+  message or (P-256) exact bytes; `requireIntentPayment` and `approveSigningIntent` bind the
+  payment and each approver to that intent.
 - Paid OAuth+DPoP operations through the public paid-operation API: a
   `{kind: 'oauth', credential}` holder for `paidOperation`, `resumePaidOperation` and
   `drivePaidSession`. The OAuth mode is signed into the session and journaled with the operation
@@ -133,6 +178,20 @@ never does.
 
 ### Changed
 
+- `TasraWriteClient.rotateKey` refuses a slot whose rotation is locked before signing
+  (`RotationLockError`, code `locked`): a slot its creator locked, and every threshold-ECDSA
+  slot, also on a KeyRegistry without the lock, where such a rotation would remove the key.
+  `reshareKey` refuses a threshold-ECDSA roster that keeps fewer than the current `k` members
+  (`ReshareRosterError`). Both read the slot first.
+- `slots.ecdsa().signDigest` (and the new P-256 adapter) refuse, before credential consent or
+  keeper work, a signature without a bundle on a slot with an installed approval policy, and a
+  bundle with fewer distinct verified approvals than the on-chain quorum, a duplicate approver or
+  a key outside a static approver set.
+- `proposeSlotTransfer` refuses `self-custody` (a secp256k1 slot offered to its own threshold
+  account) and `contract-holder` (a contract recipient; an EIP-7702 delegated account is
+  accepted), and `acceptSlotTransfer` refuses `self-custody`. Keepers recover creator signatures
+  with `ecrecover` only, so either creator could never sign a paid operation of the slot.
+  `SlotHandoffStatus` gains `slotAccount`.
 - `setApprovalPolicy` judges the set-once policy before sending: an identical installed policy
   resolves `{phase: 'already-installed', slotId}` without a transaction, a different one is refused
   before sending (it used to revert on chain). Its return type is now

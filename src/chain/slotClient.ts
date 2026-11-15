@@ -79,9 +79,16 @@ export function createTasraSlotClient(cfg: TasraSlotClientConfig): TasraSlotClie
   const rewrite = cfg.rewriteUrl ?? ((u: string) => u)
   const open = new Set<Session>()
 
-  // The verifier set is network-wide (not per-slot), so discover it once and cache.
+  // The verifier set is network-wide (not per-slot), so discover it once and cache - never a
+  // FAILED lookup: one RPC error used to poison the client for good (robustness audit P13).
   let verifiersPromise: Promise<CommitteeVerifier[]> | undefined
-  const verifierDirectory = () => (verifiersPromise ??= resolveVerifierDirectory(cfg.chain))
+  const verifierDirectory = () => {
+    if (verifiersPromise) return verifiersPromise
+    const lookup = resolveVerifierDirectory(cfg.chain)
+    verifiersPromise = lookup
+    lookup.catch(() => { if (verifiersPromise === lookup) verifiersPromise = undefined })
+    return lookup
+  }
 
   async function resolveEndpoints(slotId: string): Promise<ResolvedEndpoints> {
     const [nodesRaw, dir] = await Promise.all([

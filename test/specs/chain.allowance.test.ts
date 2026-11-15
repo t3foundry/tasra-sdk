@@ -6,7 +6,7 @@ import {decodeFunctionData, parseTransaction, type Hex} from 'viem'
 import {allowanceWorld, assignment, deployment, h, NOW, signedAllowanceIntent, slot, creator, partialOf, groupKey, sequentialRounds, verifyingShare} from '../support/allowanceFixture.js'
 import {collectDebitVoucher, DebitVoucherError, prepaidAllowanceId, pushDebitVoucher, readAccountantGroupKey, readPrepaidAllowance, reconcilePrepaidAllowance, reservePrepaidAllowance, verifyDebitVoucher,
   type PrepaidAllowanceCheckpoint} from '../../src/chain/allowance.js'
-import {PaidReservationUncertainError} from '../../src/chain/reservation.js'
+import {PaidReservationQuorumNotPreparedError, PaidReservationUncertainError} from '../../src/chain/reservation.js'
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
 import {debitVoucherWireDigest, paymentIntentTypedData, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {readClientExecutionPolicy, readPaidOperationReceipt, resolvePaidKeeperTarget} from '../../src/chain/prepaid.js'
@@ -28,10 +28,10 @@ const options = (world: ReturnType<typeof allowanceWorld>, checkpoints: PrepaidA
 describe('reservePrepaidAllowance', () => {
   it('prepares at every member at one block, authorizes once, journals before the single broadcast and confirms the mined record', async () => {
     const world = allowanceWorld(), intent = await signedAllowanceIntent(), checkpoints: PrepaidAllowanceCheckpoint[] = []
-    const result = await reservePrepaidAllowance(world.client, world.wallet, deployment, intent, options(world, checkpoints))
+    const result = await reservePrepaidAllowance(world.client, world.wallet, deployment, intent, {...options(world, checkpoints), quoteBlock: h(19)})
     const calls = world.fetcher.mock.calls.map(([url, init]) => [String(url), (JSON.parse(init!.body as string) as {quote_block: Hex | null}).quote_block])
     expect(calls).toEqual([
-      ['https://acct0.example/v1/prepaid/allowances/prepare', null],
+      ['https://acct0.example/v1/prepaid/allowances/prepare', h(19)],
       ['https://acct1.example/v1/prepaid/allowances/prepare', h(19)],
       ['https://acct2.example/v1/prepaid/allowances/prepare', h(19)],
       ['https://acct0.example/v1/prepaid/allowances/authorize', h(19)],
@@ -64,6 +64,75 @@ describe('reservePrepaidAllowance', () => {
     expect(error).toBeInstanceOf(PaidReservationUncertainError)
     expect((error as PaidReservationUncertainError).requestId).toBe(prepaidAllowanceId(intent))
     expect(world.transactions).toHaveLength(1)
+  })
+})
+
+// Robustness audit 2026-11-13 (P1-P3), allowance arm: every prepare names a block, a member's
+// pre-write or definite 402/403/409 answer is that member's, and it is asked again at the seed block.
+describe('reservePrepaidAllowance collection', () => {
+  const PRE_WRITE = 'reservation assignments unavailable: reservation verifier seed or snapshot unavailable'
+  const prepares = (world: ReturnType<typeof allowanceWorld>) => world.fetcher.mock.calls
+    .filter(([url]) => String(url).endsWith('/allowances/prepare'))
+    .map(([url, init]) => [String(url).slice(8, 13), (JSON.parse(init!.body as string) as {quote_block: Hex | null}).quote_block])
+  /** Wrap the fixture: `answer(member, method, block, nth)` may replace a member's reply. */
+  function intercept(world: ReturnType<typeof allowanceWorld>, answer: (member: number, method: string, block: Hex | null, nth: number) => Response | undefined) {
+    type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+    const fetcher = world.fetcher as unknown as {getMockImplementation(): Fetch; mockImplementation(f: Fetch): void}
+    const real = fetcher.getMockImplementation(), seen = new Map<string, number>()
+    fetcher.mockImplementation(async (input, init) => {
+      const url = String(input), m = /acct(\d)\.example\/v1\/prepaid\/allowances\/(prepare|authorize)$/.exec(url)
+      if (m) {
+        const key = `${m[1]}/${m[2]}`, nth = seen.get(key) ?? 0
+        seen.set(key, nth + 1)
+        const replaced = answer(Number(m[1]), m[2]!, (JSON.parse(init!.body as string) as {quote_block: Hex | null}).quote_block, nth)
+        if (replaced) return replaced
+      }
+      return real(input, init)
+    })
+  }
+
+  it('names a block in every prepare: the given quote block, else the client latest', async () => {
+    for (const quoteBlock of [h(19), undefined]) {
+      const world = allowanceWorld(), checkpoints: PrepaidAllowanceCheckpoint[] = []
+      await reservePrepaidAllowance(world.client, world.wallet, deployment, await signedAllowanceIntent(), {...options(world, checkpoints), ...(quoteBlock ? {quoteBlock} : {})})
+      const named = prepares(world).map(([, block]) => block)
+      expect(named.every(block => block === (quoteBlock ?? h(20)))).toBe(true)
+      expect(world.transactions).toHaveLength(1)
+    }
+  })
+
+  it('an earlier member refusing before writing (pre-write 503, 402, 403, 409, not yet visible) is asked again at the seed block', async () => {
+    for (const refusal of [new Response(PRE_WRITE, {status: 503}), new Response('insufficient', {status: 402}), new Response('creator', {status: 403}),
+      new Response('cutover', {status: 409}), new Response('quote block not yet visible: block 0x13 is not served by this member\'s RPC yet', {status: 503})]) {
+      const world = allowanceWorld(), checkpoints: PrepaidAllowanceCheckpoint[] = []
+      intercept(world, (member, method, _block, nth) => member === 0 && method === 'prepare' && nth === 0 ? refusal.clone() : undefined)
+      await reservePrepaidAllowance(world.client, world.wallet, deployment, await signedAllowanceIntent(), {...options(world, checkpoints), quoteBlock: h(19)})
+      const p = prepares(world)
+      expect(p.filter(([member]) => member === 'acct0'), String(refusal.status)).toEqual([['acct0', h(19)], ['acct0', h(19)]])
+      expect(world.transactions).toHaveLength(1)
+    }
+  })
+
+  it('every member refusing before writing is asked once more at the client latest block - never unpinned', async () => {
+    const world = allowanceWorld(), checkpoints: PrepaidAllowanceCheckpoint[] = []
+    intercept(world, (_member, method, block) => method === 'prepare' && block === h(18) ? new Response(PRE_WRITE, {status: 503}) : undefined)
+    await reservePrepaidAllowance(world.client, world.wallet, deployment, await signedAllowanceIntent(), {...options(world, checkpoints), quoteBlock: h(18)})
+    const blocks = prepares(world).map(([, block]) => block)
+    expect(blocks.slice(0, 3)).toEqual([h(18), h(18), h(18)])
+    expect(blocks.slice(3).every(block => block === h(20))).toBe(true)
+    expect(blocks).not.toContain(null)
+  })
+
+  it('a quorum-not-prepared authorize ends the collection; a 422 from a member stays fatal', async () => {
+    const world = allowanceWorld(), checkpoints: PrepaidAllowanceCheckpoint[] = []
+    intercept(world, (member, method) => member === 0 && method === 'authorize' ? new Response('reservation quorum not prepared: refused', {status: 503}) : undefined)
+    await expect(reservePrepaidAllowance(world.client, world.wallet, deployment, await signedAllowanceIntent(), {...options(world, checkpoints), quoteBlock: h(19)}))
+      .rejects.toBeInstanceOf(PaidReservationQuorumNotPreparedError)
+    expect(world.fetcher.mock.calls.filter(([url]) => String(url).endsWith('/authorize'))).toHaveLength(1)
+    const bad = allowanceWorld()
+    intercept(bad, (member, method) => member === 1 && method === 'prepare' ? new Response('bad intent', {status: 422}) : undefined)
+    await expect(reservePrepaidAllowance(bad.client, bad.wallet, deployment, await signedAllowanceIntent(), {...options(bad, []), quoteBlock: h(19)})).rejects.toThrow(/422/)
+    expect(bad.transactions).toHaveLength(0)
   })
 })
 
@@ -284,7 +353,7 @@ describe('the allowance quote block recheck', () => {
       attachHeadFollower(world.client, vouching(vouched))
       try {
         await reservePrepaidAllowance(world.client, world.wallet, deployment, await signedAllowanceIntent(),
-          {...options(world, checkpoints), persist: async c => { if (c.phase === 'prepared') before = world.trace.length; checkpoints.push(structuredClone(c)) }})
+          {...options(world, checkpoints), quoteBlock: h(19), persist: async c => { if (c.phase === 'prepared') before = world.trace.length; checkpoints.push(structuredClone(c)) }})
       } finally { unfollowHeads(world.client) }
       expect(world.trace.slice(0, before).filter(m => m === 'eth_getBlockByNumber'), `follower vouching ${vouched}`).toHaveLength(expected)
     }

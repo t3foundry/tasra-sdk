@@ -493,6 +493,8 @@ interface PaidOperationContextBase extends PrepaidObservation {
   available: bigint
   /** The slot's salted rule commitment at this block, from the same canonical slot read. */
   ruleCommitment?: Hex
+  /** The slot's rule version at this block, from the same canonical slot read. */
+  ruleVersion?: number
   /** The beacon's latest epoch at this block (the draw is it or, while its anchors land, the one before). */
   beaconEpoch?: bigint
 }
@@ -1245,7 +1247,7 @@ export async function discoverPaidOperationContext(
   const sharing: UndrawnPaymentFields = {chain_id: deployment.chainId, settlement: deployment.settlement, key_registry: deployment.keyRegistry, slot: slotId, keeper_assignment: assignment}
   await finishObservation(client, at)
   const base: PaidOperationContextBase = {...at, creator: directory.slot.creator, mode: directory.slot.mode, groupPublicKey: directory.slot.publicKey, coordinator, contributors: endpoints, available,
-    ruleCommitment: directory.slot.ruleCommitment, beaconEpoch: latest}
+    ruleCommitment: directory.slot.ruleCommitment, ruleVersion: Number(directory.slot.ruleVersion), beaconEpoch: latest}
   // Undrawn: no verification fields at all (not zeroed ones), so no intent can be built from it.
   if (undrawn) return {...base, intentFields: sharing, undrawn}
   const intentFields: DiscoveredPaymentFields = {...sharing,

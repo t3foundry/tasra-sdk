@@ -138,6 +138,12 @@ const callResults: Record<string, unknown> = {
   'BondingCurve.spotPrice': 42n,
   'BondingCurve.priceAt': 43n,
   'Settlement.balanceOf': 7n,
+  // rotateKey and reshareKey read the slot (and its rotation lock) before signing: an unlocked FROST slot.
+  'KeyRegistry.getKeySlot': {
+    creator: account.address, ruleCommitment: `0x${'ab'.repeat(32)}`, threshold: {k: 2, n: 3}, mode: 0, publicKey: '0x01',
+    epoch: 1n, committeeVersion: 1n, exists: true, cancelled: false, expiry: 0n, ruleVersion: 1n, auth: 1,
+  },
+  'KeyRegistry.lastRotatedAt': 0n,
 }
 const chainIdAnswer = 1337
 
