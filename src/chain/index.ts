@@ -105,6 +105,16 @@ export type {RuleAmendmentStatus, RuleAmendmentErrorCode, AmendSlotRuleArgs, Ame
 // Slot hand-offs: the read and the typed refusal (the six writes live on the write client).
 export {readSlotHandoff, SlotHandoffError} from './slotHandoff.js'
 export type {SlotHandoffStatus, SlotHandoffErrorCode} from './slotHandoff.js'
+// ADR-0099: the rotation lock, the tECDSA reshare roster rule and the keepers' signed custody health.
+export {readRotationLock, isRotationLocked, decodeRotationLockRevert, decodeKeyRotationLockedLogs, RotationLockError,
+  ROTATION_LOCK_SENTINEL, ROTATION_LOCK_SELECTORS} from './rotationLock.js'
+export type {RotationLockStatus, RotationLockErrorCode, RotationLockRevert, KeyRotationLockedEvent} from './rotationLock.js'
+export {checkTecdsaReshareRoster, ReshareRosterError, MAX_RESHARE_PARTIES} from './reshareRoster.js'
+export type {TecdsaReshareRosterInput, TecdsaReshareRosterPlan, ReshareRosterErrorCode} from './reshareRoster.js'
+export {readCustodyHealth, verifyCustodyHealthReply, parseCustodyStatement, custodyStatementHash, verifyCustodyStatement,
+  custodyStatementIsCurrent, assessCustodyHealth, CustodyHealthError, CUSTODY_HEALTH_DOMAIN, CUSTODY_STATEMENT_MAX_AGE_SECS} from './custodyHealth.js'
+export type {CustodyStatement, CustodyFailure, CustodyReshareState, CustodyHealthErrorCode, ExpectedCustodyReply, VerifiedCustodyReport,
+  CustodyHealthLevel, ReadCustodyHealthOptions, CustodyHealthReport} from './custodyHealth.js'
 export type {
   CreateSlotArgs,
   CreateSlotFromPolicyArgs,
@@ -112,6 +122,7 @@ export type {
   ProposeRuleArgs,
   ProposeRuleResult,
   SlotTransferProposal,
+  RotationLockResult,
   RelayConfig,
   RelayReceipt,
   TasraWriteClient,

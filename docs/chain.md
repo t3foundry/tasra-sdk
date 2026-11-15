@@ -216,6 +216,64 @@ lower-level flow therefore accepts a proof **per verifier**: pass
 `@t3foundry/tasra-sdk/committee`) as `holderProof` to `requestCommitteeToken` / `ibeDecryptRequest`
 and each drawn verifier is asked for its own nonce.
 
+## Keep a slot's key: rotation lock and custody health
+
+Some keys are identities that must never change, such as a threshold-ECDSA slot whose
+address holds an organization's rights. Rotation replaces a slot's key; resharing moves
+the shares to other keepers and keeps the key.
+
+**Threshold-ECDSA slots (`tecdsa`, `tecdsa-p256`) never rotate.** The network locks them
+by their mode, existing slots included, because a rotation would remove the key, and with
+it the address, for good. To change such a key, cancel the slot and create a new one; to
+change its keepers, reshare. Any other slot can be locked by its creator, irreversibly:
+
+```ts
+import {createTasraWriteClient, isRotationLocked, readRotationLock} from '@t3foundry/tasra-sdk/chain'
+
+const creator = createTasraWriteClient({...deployment, wallet})
+const result = await creator.lockKeyRotation(slotId)
+// {phase: 'locked', txHash} or, with nothing sent, {phase: 'already-locked', lockedByCreator, lockedByMode}
+console.log(await isRotationLocked(chain, slotId))     // true
+console.log(await readRotationLock(chain, slotId))     // creator lock, mode lock and the raw lastRotatedAt
+```
+
+The lock is set once. A slot that is already locked, including every threshold-ECDSA slot,
+resolves `already-locked` without a transaction, so a threshold-ECDSA slot never emits
+`KeyRotationLocked`; read the state with `isRotationLocked`, not from events. From an
+application, `lockKeyRotation(app, slotId, {wallet, store})` (`/app`) sends the same call as a
+durable named wallet transaction. `rotateKey` refuses a locked slot before signing
+(`RotationLockError`, code `locked`). On chain the refusal is the final revert
+`RotationLocked()`; `decodeRotationLockRevert` names it, and `decodeKeyRotationLockedLogs`
+reads the event.
+
+**Reshare a threshold-ECDSA slot by keeping at least `k` current members.** Only members
+that stay re-deal the key, so a roster that keeps fewer than the current `k` is refused by
+every keeper. `reshareKey` checks this before signing (`ReshareRosterError`, code
+`keeps-too-few`), and `checkTecdsaReshareRoster` gives the same answer for a proposal you
+build yourself. Replacing the whole committee takes two reshares. Newer registries also
+revert `TecdsaReshareKeepsTooFew(staying, k)`.
+
+**Watch custody health.** Each keeper answers for its own share with a statement signed by
+its operator identity key. `readCustodyHealth` polls every assigned keeper and counts a
+statement only when it verifies under the key `NodeRegistry` holds for that operator,
+names this chain, slot and operator, and is at most 15 minutes old:
+
+```ts
+import {readCustodyHealth} from '@t3foundry/tasra-sdk/chain'
+
+const health = await readCustodyHealth(chain, slotId)
+health.committee.margin  // live keepers above k, from NodeRegistry; 0 or less needs a reshare
+health.current           // operators whose signed statement shows a share of the current key
+health.proven            // at least k of them
+health.pending           // operators that have not finished a reshare
+health.refused           // unsigned, stale, mismatched or unreachable replies; never counted
+```
+
+Liveness, margin and the rotation lock come from the SDK's own chain reads. A keeper's
+unsigned reply fields are never used, and a reply whose unsigned fields contradict its
+signed statement is refused. `statement.lastFailure` reports the keeper's last failed
+reshare of the slot and, when known, the operator id it blamed.
+
 ## Keeper administrative capability
 
 `nodeApi.info(keeperUrl)` reports the keeper's optional `admin_auth` field:
