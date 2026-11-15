@@ -112,6 +112,26 @@ export interface CommitteeChainReads {
   /** Optional anchored verifier-set snapshot `{root, size}` at an epoch - enables trustless
    *  proofs. Return `null` when none is anchored. */
   snapshot?(epoch: bigint): Promise<{root: `0x${string}` | Uint8Array; size: number} | null>
+  /**
+   * The whole draw - beacon epoch, its seed and its anchored verifier snapshot - read at ONE block
+   * (`oneBlockDraw` in the chain layer). Preferred whenever present: separate reads can pair epoch N
+   * with seed N+1 across a beacon push (robustness audit 2026-11-13, P6).
+   */
+  drawAt?(epochLag?: number): Promise<CommitteeDraw>
+}
+
+/** A committee draw read at one block: the epoch, its seed and its anchored verifier snapshot. */
+export interface CommitteeDraw {
+  /** Beacon epoch the draw is pinned to. */
+  epoch: number
+  /** That epoch's anchored seed. */
+  seed: `0x${string}`
+  /** The epoch's anchored verifier-set snapshot root. */
+  root: `0x${string}`
+  /** The snapshot's registry size: the draw modulus. */
+  size: number
+  /** The block all three were read at. */
+  blockHash: `0x${string}`
 }
 
 /**
@@ -255,7 +275,9 @@ export function buildVerifierProofs(
 export async function pinnedDraw(chain: Pick<CommitteeChainReads, 'seed' | 'seedAt'>, latest: number, epochLag = 0): Promise<{epoch: number; seed: Uint8Array}> {
   const lag = Math.max(0, Math.min(1, Math.floor(epochLag)))
   const epoch = Math.max(0, latest - lag)
-  if (epoch === latest) return {epoch, seed: toBytes32(await chain.seed())}
+  // The seed OF that epoch when the reads can say so: `seed()` is the current seed, which a beacon
+  // push between the epoch read and this one makes N+1's (P6).
+  if (epoch === latest) return {epoch, seed: toBytes32(await (chain.seedAt ? chain.seedAt(BigInt(epoch)) : chain.seed()))}
   if (!chain.seedAt) throw new Error('epochLag needs chain.seedAt (ThresholdRandomBeacon.seedAt); adapt the chain reads with committeeChainReadsFromClient')
   return {epoch, seed: toBytes32(await chain.seedAt(BigInt(epoch)))}
 }
@@ -274,25 +296,31 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
         'pass `allowNoHolderProof: true` to say so deliberately.',
     )
   }
-  const [epochRaw, policy] = await Promise.all([opts.chain.epoch(), opts.chain.verifierPolicy(slotId)])
-  const {epoch, seed} = await pinnedDraw(opts.chain, Number(epochRaw), opts.epochLag)
+  // P6 (robustness audit 2026-11-13): the draw - epoch, its seed and its anchored snapshot - comes
+  // from ONE block when the reads can do that; otherwise the seed is that epoch's own. The registry
+  // size (the draw modulus) is ALWAYS the anchored snapshot's - the value every verifier and keeper
+  // derives - never the directory length, and a failed snapshot read is an error, never a fallback.
+  const [policy, drawn] = await Promise.all([opts.chain.verifierPolicy(slotId), (async () => {
+    if (opts.chain.drawAt) {
+      const d = await opts.chain.drawAt(opts.epochLag)
+      return {epoch: d.epoch, seed: toBytes32(d.seed), snap: {root: d.root, size: d.size}}
+    }
+    const {epoch, seed} = await pinnedDraw(opts.chain, Number(await opts.chain.epoch()), opts.epochLag)
+    if (!opts.chain.snapshot) throw new Error('requestCommitteeToken: the chain reads need snapshot (VerifierSetRegistry.snapshotAt) - the draw runs over the anchored verifier snapshot, never the directory size')
+    const snap = await opts.chain.snapshot(BigInt(epoch)).catch((cause: unknown) => {
+      throw new Error(`no anchored verifier snapshot readable at epoch ${epoch}: ${cause instanceof Error ? cause.message : String(cause)}`, {cause})
+    })
+    return {epoch, seed, snap}
+  })()])
+  const {epoch, seed, snap} = drawn
   const committee = Number(policy[0])
   const quorum = Number(policy[1])
   if (committee === 0) {
     throw new Error(`slot ${slotId.slice(0, 10)}… has no verifierPolicy (committee path not wired); use the JWT path`)
   }
-
-  // Registry size (the committee-draw modulus): the anchored snapshot's size when available -
-  // it's the value the verifier/keeper agree on - else the directory length.
-  let registrySize = opts.verifiers.length
-  let snapshotRoot: Uint8Array | undefined
-  if (opts.chain.snapshot) {
-    const snap = await opts.chain.snapshot(BigInt(epoch)).catch(() => null)
-    if (snap && snap.size > 0) {
-      registrySize = snap.size
-      snapshotRoot = toBytes32(snap.root)
-    }
-  }
+  if (!snap || !(snap.size > 0)) throw new Error(`no anchored verifier snapshot at epoch ${epoch}: the committee draw needs it`)
+  const registrySize = snap.size
+  const snapshotRoot: Uint8Array | undefined = toBytes32(snap.root)
   if (registrySize < committee) {
     throw new Error(`active verifier set (${registrySize}) is smaller than the committee size (${committee})`)
   }

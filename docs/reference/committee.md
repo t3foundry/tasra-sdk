@@ -614,7 +614,7 @@ directory. Returns `undefined` (never a wrong proof) when the directory is incom
 missing, or the reconstructed root disagrees with the anchored `snapshotRoot` - so a mismatch
 degrades to the keeper's configured-set path rather than shipping a proof the keeper rejects.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L215)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L235)
 
 Import: `import {buildVerifierProofs} from 'tasra-sdk/committee'`
 
@@ -762,7 +762,7 @@ Returns: ` Promise<CommitteeAuthorizeReply> `.
 
 Adapt the SDK chain client's `readers` into [CommitteeChainReads](#committeechainreads).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L122)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L142)
 
 Import: `import {committeeChainReadsFromClient} from 'tasra-sdk/committee'`
 
@@ -836,7 +836,7 @@ Returns: ` Promise<Uint8Array> `.
 
 One-call committee-authorized threshold decrypt.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L426)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L454)
 
 Import: `import {committeeDecryptRequest} from 'tasra-sdk/committee'`
 
@@ -927,7 +927,7 @@ Throws: On malformed input/response, a signature that does not verify, network f
 
 One-call committee-authorized threshold sign: resolve token (+proofs) then POST to the keeper.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L371)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L399)
 
 Import: `import {committeeSignRequest} from 'tasra-sdk/committee'`
 
@@ -2127,7 +2127,7 @@ Returns: ` HolderProofPerVerifier `.
 One-call identity-scoped decrypt (the read path): token to extraction fan-out
 to verify each partial to combine to decrypt. The intermediate `sk_ID` never surfaces.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L493)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L521)
 
 Import: `import {ibeDecryptRequest} from 'tasra-sdk/committee'`
 
@@ -2153,7 +2153,7 @@ compressed G1).
 ciphertext to this identity. Prefer [ibeDecryptRequest](#ibedecryptrequest), which combines,
 decrypts and drops it. Zeroize the returned bytes when done.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L475)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L503)
 
 Import: `import {ibeExtractRequest} from 'tasra-sdk/committee'`
 
@@ -2868,7 +2868,7 @@ Throws: StatusRefreshError on a typed refusal, an unsigned or forged reply, or n
 
 Read the verifier committee draw, request authorization and assemble the quorum token with available membership proofs.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L268)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L290)
 
 Import: `import {requestCommitteeToken} from 'tasra-sdk/committee'`
 
@@ -3680,7 +3680,7 @@ Returns: ` boolean `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 112 types</summary>
+<summary>Browse 113 types</summary>
 
 - [AllowanceAction](#allowanceaction)
 - [AllowanceReserveArgs](#allowancereserveargs)
@@ -3695,6 +3695,7 @@ Options, data structures and return types.
 - [CommitteeChainReads](#committeechainreads)
 - [CommitteeDecryptOpts](#committeedecryptopts)
 - [CommitteeDecryptRequestOpts](#committeedecryptrequestopts)
+- [CommitteeDraw](#committeedraw)
 - [CommitteeEoaSignOpts](#committeeeoasignopts)
 - [CommitteeP256SignOpts](#committeep256signopts)
 - [CommitteeSignature](#committeesignature)
@@ -4094,6 +4095,7 @@ export interface CommitteeChainReads {
         root: `0x${string}` | Uint8Array;
         size: number;
     } | null>;
+    drawAt?(epochLag?: number): Promise<CommitteeDraw>;
 }
 ```
 
@@ -4104,6 +4106,7 @@ Fields:
 - **` seedAt `**: Seed of a past epoch (`ThresholdRandomBeacon.seedAt`) - needed for `epochLag > 0`.
 - **` verifierPolicy `**: The slot's `[committee, quorum]` verifier policy (both `uint16`).
 - **` snapshot `**: Optional anchored verifier-set snapshot `{root, size}` at an epoch - enables trustless proofs. Return `null` when none is anchored.
+- **` drawAt `**: The whole draw - beacon epoch, its seed and its anchored verifier snapshot - read at ONE block (`oneBlockDraw` in the chain layer). Preferred whenever present: separate reads can pair epoch N with seed N+1 across a beacon push (robustness audit 2026-11-13, P6).
 
 ### CommitteeDecryptOpts
 
@@ -4151,7 +4154,7 @@ Fields:
 
 Operation-specific fields for [committeeDecryptRequest](#committeedecryptrequest).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L388)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L416)
 
 ```ts
 export interface CommitteeDecryptRequestOpts extends RequestCommitteeTokenOpts {
@@ -4204,6 +4207,30 @@ Fields:
 - **` ttlSecs `**: Token TTL in seconds - default 300.
 - **` nowSecs `**: Override "now" (unix seconds), mainly for tests.
 - **` scopedIdentity `**: Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field.
+
+### CommitteeDraw
+
+A committee draw read at one block: the epoch, its seed and its anchored verifier snapshot.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L124)
+
+```ts
+export interface CommitteeDraw {
+    epoch: number;
+    seed: `0x${string}`;
+    root: `0x${string}`;
+    size: number;
+    blockHash: `0x${string}`;
+}
+```
+
+Fields:
+
+- **` epoch `**: Beacon epoch the draw is pinned to.
+- **` seed `**: That epoch's anchored seed.
+- **` root `**: The epoch's anchored verifier-set snapshot root.
+- **` size `**: The snapshot's registry size: the draw modulus.
+- **` blockHash `**: The block all three were read at.
 
 ### CommitteeEoaSignOpts
 
@@ -4348,7 +4375,7 @@ Fields:
 Operation-specific fields for [committeeSignRequest](#committeesignrequest) (everything `committeeSign` needs
 except the token, which this resolves).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L351)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L379)
 
 ```ts
 export interface CommitteeSignRequestOpts extends RequestCommitteeTokenOpts {
@@ -4388,7 +4415,7 @@ Fields:
 
 Assembled compound token, committee draw and optional proofs and client signature.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L182)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L202)
 
 ```ts
 export interface CommitteeTokenResult {
@@ -5390,7 +5417,7 @@ Fields:
 
 Operation-specific fields for [ibeDecryptRequest](#ibedecryptrequest) / [ibeExtractRequest](#ibeextractrequest).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L437)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L465)
 
 ```ts
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
@@ -5865,7 +5892,7 @@ Fields:
 
 Chain reads, verifier directory, credential presentation and optional request-signing context.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L149)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L169)
 
 ```ts
 export interface RequestCommitteeTokenOpts {

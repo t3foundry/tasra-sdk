@@ -150,13 +150,18 @@ describe('allowance lanes under concurrency in one process (file store)', () => 
     const tickets = await Promise.all([0, 1].map(() => selectAllowanceLane(env, contextFor(slot!), {action: 'decrypt', expires: seconds() + 600})))
     expect(tickets.map(t => t?.lane)).toEqual([0, 0])
     const [a, b] = await Promise.all([payment(slot!, allowance), payment(slot!, allowance)])
-    const [va, vb] = await Promise.all([obtainAllowanceVoucher(env, {lane: 0}, a), obtainAllowanceVoucher(env, {lane: 0}, b)])
+    const results = await Promise.all([obtainAllowanceVoucher(env, {lane: 0}, a), obtainAllowanceVoucher(env, {lane: 0}, b)])
+    // Which of two concurrent calls takes the lane first is not part of the contract (each reads the
+    // store before queueing; under load the second call won, v6 cert 2026-11-14). The contract is one
+    // round at a time, seq n then n + 1, the second chained on the first's voucher.
+    const [va, vb] = [...results].sort((x, y) => x.seq - y.seq)
+    expect(results.map(v => v.request_id)).toEqual([a, b].map(p => prepaidRequestId(p)))
     expect(most).toBe(1)
     expect(seen.map(r => r.seq)).toEqual([1, 2])
     expect(seen[0]!.previous).toBeUndefined()
     expect(seen[1]!.previous).toEqual(va)
-    expect([va.seq, vb.seq]).toEqual([1, 2])
-    expect(BigInt(vb.cumulative)).toBeGreaterThan(BigInt(va.cumulative))
+    expect([va!.seq, vb!.seq]).toEqual([1, 2])
+    expect(BigInt(vb!.cumulative)).toBeGreaterThan(BigInt(va!.cumulative))
     const [after] = await inspectAllowanceLanes(store, deployment, slot!, 1)
     expect(after).toMatchObject({seq: 2})
   }, 60_000)

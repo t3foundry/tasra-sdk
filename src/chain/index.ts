@@ -19,7 +19,7 @@ export type {BillingMode, BillingModeObservation, BillingDeployment, BillingMode
 export type {PrepaidDeployment, PrepaidObservation, SlotFunding, PaidOperationReceipt, ExpectedPaidOperation, PaidKeeperEndpoint, PaidKeeperTarget, PaidKeeperTransportOptions,
   PaidContextDeployment, PaidContextOptions, DiscoveredPaymentFields, PaidOperationContext, DrawnPaidOperationContext, UndrawnPaidOperationContext,
   UndrawnPaymentFields, PaymentDrawFieldName} from './prepaid.js'
-export {reservePaidOperation, reconcilePaidReservation, PaidReservationUncertainError, PaidReservationAbortedError, PaidReservationStaleEpochError} from './reservation.js'
+export {reservePaidOperation, reconcilePaidReservation, PaidReservationUncertainError, PaidReservationAbortedError, PaidReservationStaleEpochError, PaidReservationQuorumNotPreparedError} from './reservation.js'
 export {followHeads, unfollowHeads, headFollowerOf, createHeadFollower, type HeadFollower, type HeadFollowerOptions, type FollowedHead} from './headFollower.js'
 export type {PaidReservationQuote, PaidReservationRecord, PaidReservationCheckpoint, ReservePaidOperationOptions, PaidReservationResolution} from './reservation.js'
 // ADR-0090 prepaid allowances: reserve once, debit per operation by accountant-quorum voucher.

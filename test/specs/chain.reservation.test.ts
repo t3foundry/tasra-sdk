@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {createPublicClient, createWalletClient, custom, decodeFunctionData, defineChain, encodeAbiParameters, encodeFunctionData, encodeFunctionResult, keccak256, parseTransaction, toHex, type Abi, type Hex, type TransactionSerialized} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {PaidReservationAbortedError, PaidReservationStaleEpochError, PaidReservationUncertainError, reservePaidOperation, reconcilePaidReservation, type PaidReservationRecord, type PaidReservationCheckpoint, type PaidReservationQuote, type ReservePaidOperationOptions} from '../../src/chain/reservation.js'
+import {PaidReservationAbortedError, PaidReservationQuorumNotPreparedError, PaidReservationStaleEpochError, PaidReservationUncertainError, reservePaidOperation, reconcilePaidReservation, type PaidReservationRecord, type PaidReservationCheckpoint, type PaidReservationQuote, type ReservePaidOperationOptions} from '../../src/chain/reservation.js'
 import {paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {createFileStore} from '../../src/app/node.js'
 import {createPaidReservationJournal} from '../../src/app/paid-journal.js'
@@ -58,7 +58,8 @@ async function fixture(change: Changes = {}) {
     expect(init?.redirect).toBe('error')
     const body = JSON.parse(init?.body as string) as {intents: PaymentIntentWire[]; quote_block: string | null}
     expect(body.intents).toEqual([payment])
-    expect(body.quote_block).toBe(fetches % 3 === 0 ? null : h(19))
+    // P1 (robustness audit 2026-11-13): every prepare names a block, the first one included.
+    expect(body.quote_block).toMatch(/^0x[0-9a-f]{64}$/)
     const result = {...quote, signature: method === 'authorize' ? h(7, 64) : null}
     change.quote?.(result, method, fetches)
     fetches++
@@ -136,7 +137,9 @@ async function fixture(change: Changes = {}) {
   const transport = custom({request: answer}, {retryCount: 0})
   const client = createPublicClient({chain, transport})
   const wallet = createWalletClient({chain, account: change.localSigner ? creator : creator.address, transport})
+  // The discovery block (19) is named by the first prepare; latest is block 20.
   const options: ReservePaidOperationOptions = {accountantUrls: ['https://acct0.example', 'https://acct1.example'], maxGas: 200000n, maxGasPrice: 50n,
+    quoteBlock: {blockHash: h(19), blockTimestamp: 1000n},
     persist: async checkpoint => {
       trace.push(checkpoint.phase)
       if (change.failPersist === checkpoint.phase) throw new Error('journal failed')
@@ -199,11 +202,13 @@ it('returns a typed underfunded slot error before journaling or broadcasting a r
   expect(error).toBeInstanceOf(UnderfundedSlotError)
   if (!(error instanceof UnderfundedSlotError)) throw new Error('Expected the typed funding refusal')
   expect(error).toMatchObject({slotId: f.payment.slot, status: 402, retryable: false,
-    url: 'https://acct0.example/v1/prepaid/reservations/prepare'})
+    url: 'https://acct1.example/v1/prepaid/reservations/prepare'})
   expect(error.availableTasraUnits).toBeUndefined()
   expect(f.transactions).toHaveLength(0)
   expect(f.checkpoints).toHaveLength(0)
-  expect(f.fetcher).toHaveBeenCalledTimes(1)
+  // P3: each member's 402 is that member's answer; every member refusing so is asked once more
+  // at the client's fresh head (a top-up may have landed), then the typed refusal stands.
+  expect(f.fetcher).toHaveBeenCalledTimes(4)
 })
 
 it('recovers a hashless submission after restart without another quote, signature or broadcast', async () => {
@@ -772,11 +777,8 @@ it.each([0, 1, 2])('reserves once when accountant %i of three is unavailable', a
   expect(f.checkpoints.map(c => c.phase)).toEqual(['prepared', 'submitted', 'confirmed'])
   expect(seen.filter(s => s.method === 'authorize')).toHaveLength(1)
   expect(seen.filter(s => s.url.startsWith(quorumUrls[offline]!))).toHaveLength(1)
-  const seed = offline === 0 ? 1 : 0
-  for (const entry of seen) {
-    const member = quorumUrls.findIndex(url => entry.url.startsWith(url))
-    expect(entry.body.quote_block).toBe(entry.method === 'authorize' || member > seed ? f.quote.quote_block : null)
-  }
+  // P1: every request names the discovery block, the first prepare included.
+  for (const entry of seen) expect(entry.body.quote_block).toBe(f.quote.quote_block)
 })
 
 it.each(['connection', 'response body'])('skips an unavailable %s without repeating that member request', async fault => {
@@ -804,13 +806,28 @@ it('another prepared coordinator authorizes exactly the same quote before one br
   expect(f.checkpoints.filter(c => c.phase === 'prepared')).toHaveLength(1)
 })
 
-it.each([402, 403, 409, 422])('a responsive member refusal %i cannot be bypassed through another coordinator', async status => {
+it('a malformed-request refusal (422) from a responsive member stops the collection', async () => {
   const f = await fixture()
-  const seen = quorumHttp(f, url => url.startsWith(quorumUrls[1]!) ? new Response('policy refusal', {status}) : undefined)
-  const error: unknown = await f.run().catch((e: unknown) => e)
-  expect(error).toBeInstanceOf(status === 402 ? UnderfundedSlotError : Error)
+  const seen = quorumHttp(f, url => url.startsWith(quorumUrls[1]!) ? new Response('bad intent', {status: 422}) : undefined)
+  await expect(f.run()).rejects.toThrow(/422/)
   expect(seen.every(s => s.method === 'prepare')).toBe(true)
   expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+// P3 (robustness audit 2026-11-13): a definite pre-write refusal (402 funds, 403 creator, 409 cutover)
+// from ONE member - e.g. it judged a block before a top-up or an ADR-0088 hand-off - is that member's
+// answer: another member seeds, the refusing one is asked again at the seed's block, and the
+// accountants' own threshold signature still needs k independent preparations. It used to end the
+// whole collection at once.
+it.each([402, 403, 409])('one member refusing %i before writing is that member\'s answer, not the collection\'s', async status => {
+  const f = await fixture()
+  let refusals = 0
+  const seen = quorumHttp(f, url => url.startsWith(quorumUrls[0]!) && refusals++ === 0 ? new Response('refused here', {status}) : undefined)
+  await f.run({accountantUrls: quorumUrls})
+  expect(f.transactions).toHaveLength(1)
+  const first = seen.filter(s => s.url.startsWith(quorumUrls[0]!) && s.method === 'prepare')
+  expect(first).toHaveLength(2) // refused, then asked again at the seed's block
+  expect(first.every(s => s.body.quote_block === f.quote.quote_block)).toBe(true)
 })
 
 it('malformed or inconsistent success never counts as an unavailable member', async () => {
@@ -862,21 +879,21 @@ it('a stale-epoch prepare refusal is typed and final for this intent: no failove
 const PRE_WRITE = 'reservation assignments unavailable: reservation verifier seed or snapshot unavailable'
 const prepares = (seen: ReturnType<typeof quorumHttp>) => seen.filter(s => s.method === 'prepare')
 
-it('every member refusing before any write is asked once more, at the client latest block, with the same intent', async () => {
+it('every member refusing before any write at the named block is asked once more, at the client latest block, with the same intent', async () => {
   const change: Changes = {headNumber: 19}
   const f = await fixture(change)
   const seen = quorumHttp(f, (_url, method, init) => {
     const body = JSON.parse(init.body as string) as {quote_block: Hex | null}
-    if (method === 'prepare' && body.quote_block === null) return new Response(PRE_WRITE, {status: 503})
+    if (method === 'prepare' && body.quote_block === h(18)) return new Response(PRE_WRITE, {status: 503})
     change.headNumber = undefined // the broadcast and its receipt follow at block 20
     return undefined
   })
-  await f.run({accountantUrls: quorumUrls})
+  await f.run({accountantUrls: quorumUrls, quoteBlock: {blockHash: h(18), blockTimestamp: 1000n}})
   expect(f.transactions).toHaveLength(1)
   expect(f.checkpoints.map(c => c.phase)).toEqual(['prepared', 'submitted', 'confirmed'])
   const p = prepares(seen)
   expect(p).toHaveLength(6) // three refused, then the one repeated round
-  expect(p.slice(0, 3).map(s => s.body.quote_block)).toEqual([null, null, null])
+  expect(p.slice(0, 3).map(s => s.body.quote_block)).toEqual([h(18), h(18), h(18)])
   expect(p.slice(3).map(s => s.body.quote_block)).toEqual([h(19), h(19), h(19)])
   expect(seen.filter(s => s.method === 'authorize')).toHaveLength(1)
 })
@@ -893,14 +910,14 @@ it.each([
   const seen = quorumHttp(f, url => url.startsWith(quorumUrls[1]!) ? answer() : new Response(PRE_WRITE, {status: 503}))
   await expect(f.run({accountantUrls: quorumUrls})).rejects.toBeInstanceOf(Error)
   expect(prepares(seen)).toHaveLength(3)
-  expect(prepares(seen).every(s => s.body.quote_block === null)).toBe(true)
+  expect(prepares(seen).every(s => s.body.quote_block === h(19))).toBe(true)
   expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
 })
 
 it('a repeated round refused again is surfaced after exactly one repeat, with nothing journaled or sent', async () => {
   const f = await fixture({headNumber: 19})
   const seen = quorumHttp(f, () => new Response(PRE_WRITE, {status: 503}))
-  await expect(f.run({accountantUrls: quorumUrls})).rejects.toThrow(/refused \(503\)/)
+  await expect(f.run({accountantUrls: quorumUrls, quoteBlock: {blockHash: h(18), blockTimestamp: 1000n}})).rejects.toThrow(/refused \(503\)/)
   expect(prepares(seen)).toHaveLength(6)
   expect(seen.filter(s => s.method === 'authorize')).toHaveLength(0)
   expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
@@ -910,9 +927,9 @@ it('a repeated round answered at another block than the one named is refused', a
   const f = await fixture({headNumber: 21})
   const seen = quorumHttp(f, (_url, method, init) => {
     const body = JSON.parse(init.body as string) as {quote_block: Hex | null}
-    return method === 'prepare' && body.quote_block === null ? new Response(PRE_WRITE, {status: 503}) : undefined
+    return method === 'prepare' && body.quote_block === h(18) ? new Response(PRE_WRITE, {status: 503}) : undefined
   })
-  await expect(f.run({accountantUrls: quorumUrls})).rejects.toThrow(/different quote block/)
+  await expect(f.run({accountantUrls: quorumUrls, quoteBlock: {blockHash: h(18), blockTimestamp: 1000n}})).rejects.toThrow(/different quote block/)
   expect(prepares(seen)).toHaveLength(4)
   expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
 })
@@ -999,4 +1016,55 @@ it('asks the wallet and the reader for their chain IDs together, and still refus
   const wrong = await fixture({localSigner: true, chain: 43113})
   await expect(wrong.run()).rejects.toThrow(/chain mismatch/)
   expect(wrong.fetcher).not.toHaveBeenCalled()
+})
+
+// ---- Robustness audit 2026-11-13: P1 pinned first prepare, P2 re-ask, P7 not-yet-visible ----
+
+it('the first prepare names the discovery block, and a stale or absent one the client latest block - never no block', async () => {
+  const f = await fixture()
+  const seen = quorumHttp(f)
+  await f.run()
+  expect(prepares(seen)[0]!.body.quote_block).toBe(h(19))
+  for (const quoteBlock of [undefined, {blockHash: h(19), blockTimestamp: 979n}]) {
+    const change: Changes = {headNumber: 19} // latest is block 19 when the first prepare is named
+    const g = await fixture(change)
+    const other = quorumHttp(g, () => { change.headNumber = undefined; return undefined })
+    await g.run({quoteBlock})
+    expect(prepares(other)[0]!.body.quote_block).toBe(h(19))
+    expect(g.trace.slice(0, g.trace.indexOf('prepare'))).toContain('eth_getBlockByNumber')
+  }
+})
+
+it('an earlier member that refused before writing, or had not seen the block, is asked again at the seed block', async () => {
+  for (const refusal of [PRE_WRITE, 'quote block not yet visible: block 0x13 is not served by this member\'s RPC yet']) {
+    const f = await fixture()
+    let first = true
+    const seen = quorumHttp(f, (url, method) => {
+      if (url.startsWith(quorumUrls[0]!) && method === 'prepare' && first) { first = false; return new Response(refusal, {status: 503}) }
+      return undefined
+    })
+    await f.run({accountantUrls: quorumUrls})
+    expect(f.transactions).toHaveLength(1)
+    const member0 = seen.filter(s => s.url.startsWith(quorumUrls[0]!) && s.method === 'prepare')
+    expect(member0).toHaveLength(2)
+    expect(member0[1]!.body).toEqual(member0[0]!.body) // the same signed intent at the same block
+  }
+})
+
+it('a prepared member answering quorum-not-prepared ends the collection: no other leader is asked', async () => {
+  const f = await fixture()
+  const seen = quorumHttp(f, (url, method) => url.startsWith(quorumUrls[0]!) && method === 'authorize'
+    ? new Response('reservation quorum not prepared: threshold sign refused', {status: 503}) : undefined)
+  const error: unknown = await f.run({accountantUrls: quorumUrls}).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(PaidReservationQuorumNotPreparedError)
+  expect(seen.filter(s => s.method === 'authorize')).toHaveLength(1)
+  expect(f.transactions).toHaveLength(0); expect(f.checkpoints).toHaveLength(0)
+})
+
+it('an older accountant without the new labels is skipped like any unavailable member (mixed set)', async () => {
+  const f = await fixture()
+  const seen = quorumHttp(f, url => url.startsWith(quorumUrls[0]!) ? new Response('quote unavailable: quote block not found', {status: 503}) : undefined)
+  await f.run({accountantUrls: quorumUrls})
+  expect(f.transactions).toHaveLength(1)
+  expect(seen.filter(s => s.url.startsWith(quorumUrls[0]!))).toHaveLength(1)
 })

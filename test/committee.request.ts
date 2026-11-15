@@ -161,11 +161,11 @@ try {
     ok('the bundle carries no client-binding halves', !('clientSignature' in res) && !('clientPubkey' in res))
   }
 
-  // ── requestCommitteeToken: no operator/pubkey → proofs omitted (config fallback) ─
+  // ── requestCommitteeToken: no operator/pubkey → proofs omitted, the draw still anchored ─
   {
     installFleet()
     const res = await requestCommitteeToken({
-      chain: chainReads(false), // no snapshot → registrySize = directory length
+      chain: chainReads(true),
       verifiers: dir.map(v => ({index: v.index, url: v.url})), // index+url only
       slotId: '0x' + bareHex(slotId),
       holder: 'did:example:alice',
@@ -175,7 +175,50 @@ try {
       ttlSecs: TTL,
     })
     ok('token still assembles without proofs', res.token.signatures.length >= quorum)
-    ok('verifierProofs undefined when keys/snapshot absent', res.verifierProofs === undefined)
+    ok('verifierProofs undefined when keys are absent', res.verifierProofs === undefined)
+  }
+
+  // ── P6 (robustness audit 2026-11-13): the draw modulus is NEVER the directory size ──
+  // No snapshot reader, a failed snapshot read, or no anchor: refused, where the SDK used to draw
+  // over `verifiers.length` - a draw no verifier derives (`committeeClient` then threw anyway).
+  for (const [label, reads] of [
+    ['no snapshot reader', chainReads(false)],
+    ['a failing snapshot read', {...chainReads(true), snapshot: async () => { throw new Error('rpc down') }}],
+    ['an unanchored epoch', {...chainReads(true), snapshot: async () => null}],
+  ] as const) {
+    installFleet()
+    let message = ''
+    try {
+      await requestCommitteeToken({chain: reads, verifiers: dir, slotId: '0x' + bareHex(slotId), holder: 'did:example:alice',
+        credentials: ['vc-jwt'], holderProof: 'holder-proof-jws', nowSecs: NOW, ttlSecs: TTL})
+    } catch (e) { message = e instanceof Error ? e.message : String(e) }
+    ok(`${label}: refused, never drawn over the directory size`, /snapshot/.test(message))
+  }
+
+  // ── P6: the seed is THAT epoch's (seedAt), not the current one a push may have advanced ──
+  {
+    installFleet()
+    const res = await requestCommitteeToken({
+      chain: {...chainReads(true), seed: async () => ('0x' + 'ee'.repeat(32)) as `0x${string}`, seedAt: async () => ('0x' + bareHex(seed)) as `0x${string}`},
+      verifiers: dir, slotId: '0x' + bareHex(slotId), holder: 'did:example:alice', credentials: ['vc-jwt'], holderProof: 'holder-proof-jws', nowSecs: NOW, ttlSecs: TTL,
+    })
+    ok('the draw pairs the epoch with its own seed', bareHex(res.seed) === bareHex(seed))
+  }
+
+  // ── P6: a one-block draw (drawAt) is preferred: no separate epoch/seed/snapshot reads ──
+  {
+    installFleet()
+    let separate = 0
+    const reads: CommitteeChainReads = {
+      ...chainReads(true),
+      epoch: async () => { separate++; return BigInt(epoch) },
+      seed: async () => { separate++; return ('0x' + bareHex(seed)) as `0x${string}` },
+      snapshot: async () => { separate++; return null },
+      drawAt: async () => ({epoch, seed: ('0x' + bareHex(seed)) as `0x${string}`, root: ('0x' + bareHex(root)) as `0x${string}`, size: registrySize, blockHash: ('0x' + '13'.repeat(32)) as `0x${string}`}),
+    }
+    const res = await requestCommitteeToken({chain: reads, verifiers: dir, slotId: '0x' + bareHex(slotId), holder: 'did:example:alice',
+      credentials: ['vc-jwt'], holderProof: 'holder-proof-jws', nowSecs: NOW, ttlSecs: TTL})
+    ok('drawAt answers the whole draw', separate === 0 && res.registrySize === registrySize && !!res.verifierProofs)
   }
 
   // ── requestCommitteeToken: a slot with no verifierPolicy throws ──────────────

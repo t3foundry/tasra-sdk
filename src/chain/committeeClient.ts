@@ -29,6 +29,7 @@ import type {BlsPeer} from '../decryption/client.js'
 import type {RequestBindingPreimage} from '../committee/client.js'
 import type {PaymentIntentWire} from '../committee/payment.js'
 import {decryptWithCommitteePartials, type SealedRequestOpts} from '../decryption/sealed.js'
+import {oneBlockDraw} from './committeeDraw.js'
 import {kemContentDigest, recipientPayloadDigest} from '../crypto/recipient.js'
 
 /**
@@ -146,7 +147,11 @@ export interface CommitteeSlotClient {
  * @returns Committee client whose operations each take a slot ID.
  */
 export function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): CommitteeSlotClient {
-  const reads: CommitteeChainReads = committeeChainReadsFromClient(cfg.chain.readers)
+  // P6: the draw (epoch, its seed, its anchored snapshot) is read at ONE block when the address
+  // book names both contracts; the per-call reads remain for the rest.
+  const {ThresholdRandomBeacon: beacon, VerifierSetRegistry: verifierSet} = cfg.chain.addresses ?? {}
+  const reads: CommitteeChainReads = {...committeeChainReadsFromClient(cfg.chain.readers),
+    ...(cfg.chain.client && beacon && verifierSet ? {drawAt: oneBlockDraw(cfg.chain.client, beacon, verifierSet)} : {})}
 
   // The credential fields are validated HERE rather than in the constructor: only
   // sign/decrypt present credentials to the committee, while encrypt is a local
@@ -180,10 +185,17 @@ export function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): Commi
     }
   }
 
-  // The verifier set is network-wide (not per-slot), so discover it once and cache.
+  // The verifier set is network-wide (not per-slot), so it is discovered once and shared - but
+  // never a FAILED lookup (one RPC error used to poison the client for good), and it is dropped
+  // when it no longer reproduces the draw epoch's anchored snapshot (a register, deregister or
+  // renumber since it was read), so the next request re-resolves (robustness audit P13).
   let verifiersPromise: Promise<CommitteeVerifier[]> | undefined
   function verifierDirectory(): Promise<CommitteeVerifier[]> {
-    return (verifiersPromise ??= resolveVerifierDirectory(cfg.chain))
+    if (verifiersPromise) return verifiersPromise
+    const lookup = resolveVerifierDirectory(cfg.chain)
+    verifiersPromise = lookup
+    lookup.catch(() => { if (verifiersPromise === lookup) verifiersPromise = undefined })
+    return lookup
   }
 
   async function keeperUrl(slotId: `0x${string}`): Promise<string> {
@@ -230,6 +242,8 @@ export function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): Commi
       )
     }
     if (!res.verifierProofs || res.verifierProofs.length !== res.token.signatures.length) {
+      // The cached directory no longer reproduces the anchored roster: re-resolve next time.
+      verifiersPromise = undefined
       throw new Error(
         `trustless verifier-set inclusion proofs are not derivable for every signer ` +
           `(built ${res.verifierProofs?.length ?? 0}/${res.token.signatures.length}); refusing to fall back ` +

@@ -2517,6 +2517,7 @@ Fields:
 - **` confirmations `**: Required confirmations, 1..64 (default 1).
 - **` signal `**: Optional cancellation. Before the durable `prepared` checkpoint (nothing sent) an abort refuses with ` PaidReservationAbortedError `. From that checkpoint the one broadcast proceeds and every journal write completes; an abort then only ends the receipt wait, as ` PaidReservationUncertainError `: a broadcast transaction cannot be cancelled.
 - **` clock `**: Time source for bounded quote collection and the reservation-quota wait (a `prepare` answered 429 with a valid `Retry-After` / `x-ratelimit-after` is repeated identically within min(150 s, half the payment's remaining lifetime)); wall-clock ms. Default: the system clock. Inject one in tests.
+- **` quoteBlock `**: The block the payment context was discovered at (`discoverPaidOperationContext`'s `blockHash`/`blockTimestamp`). The FIRST prepare names it, so every accountant judges the signed intent where it was built instead of at its own, often older, head. Older than 20 seconds (or absent), the client's own fresh `latest` block is named instead: no prepare is ever sent without a block.
 
 ### ApplicationReservationState
 

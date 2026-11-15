@@ -9,7 +9,7 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 22 classes</summary>
+<summary>Browse 23 classes</summary>
 
 - [AgentSessionCreationUnknownError](#agentsessioncreationunknownerror)
 - [BillingModeError](#billingmodeerror)
@@ -20,6 +20,7 @@ Clients, adapters and error classes.
 - [PaidBackoffError](#paidbackofferror)
 - [PaidDrawMovedError](#paiddrawmovederror)
 - [PaidReservationAbortedError](#paidreservationabortederror)
+- [PaidReservationQuorumNotPreparedError](#paidreservationquorumnotpreparederror)
 - [PaidReservationQuotaError](#paidreservationquotaerror)
 - [PaidReservationStaleEpochError](#paidreservationstaleepocherror)
 - [PaidReservationUncertainError](#paidreservationuncertainerror)
@@ -98,7 +99,7 @@ declare class BillingModeError {
 
 A voucher round ended without `k` verified partials.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L609)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L665)
 
 Import: `import {DebitVoucherError} from 'tasra-sdk/chain'`
 
@@ -315,7 +316,7 @@ declare class PaidDrawMovedError {
 
 The caller aborted before anything was prepared or broadcast; nothing was sent or journaled. Reserving again is safe.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L121)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L132)
 
 Import: `import {PaidReservationAbortedError} from 'tasra-sdk/chain'`
 
@@ -328,6 +329,30 @@ declare class PaidReservationAbortedError {
 - ` readonly code: "aborted"; ` — Stable machine-readable reason.
 
 - ` readonly requestId: Hex; ` — Request ID that was not reserved.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### PaidReservationQuorumNotPreparedError
+
+A prepared member's `authorize` lead was refused by members that never approved the digest: no other prepared leader can gather k either.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L409)
+
+Import: `import {PaidReservationQuorumNotPreparedError} from 'tasra-sdk/chain'`
+
+```ts
+declare class PaidReservationQuorumNotPreparedError {
+    constructor();
+}
+```
+
+- ` readonly code: "quorum-not-prepared"; ` — Stable machine-readable reason.
 
 - ` name: string; `
 
@@ -389,7 +414,7 @@ accountant judges the epoch at a client-pinned quote block up to MAX_QUOTE_AGE (
 its payment expires. Keep its journal and reconcile it; never replace it with a re-signed intent
 while it can still land.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L158)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L169)
 
 Import: `import {PaidReservationStaleEpochError} from 'tasra-sdk/chain'`
 
@@ -415,7 +440,7 @@ declare class PaidReservationStaleEpochError {
 
 Reservation submission may have happened; inspect the saved identity before further spending.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L134)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L145)
 
 Import: `import {PaidReservationUncertainError} from 'tasra-sdk/chain'`
 
@@ -1236,7 +1261,7 @@ one, which names the member whose partial does not verify and drops it from the 
 Without `k` the round waits for every member, checks every partial and throws
 [DebitVoucherError](#debitvouchererror) with each member's outcome.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L687)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L743)
 
 Import: `import {collectDebitVoucher} from 'tasra-sdk/chain'`
 
@@ -1323,7 +1348,7 @@ Returns: ` BillingModeDetector `.
 
 Create registry-discovered threshold signing, encryption and decryption operations. Signing and decryption require holder credentials and proofs against an anchored verifier snapshot. Encryption needs only the public group key read from the chain. The master key is not reconstructed by these threshold operations.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L148)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L149)
 
 Import: `import {createCommitteeSlotClient} from 'tasra-sdk/chain'`
 
@@ -2196,7 +2221,7 @@ Returns: ` ServiceChallenge `.
 
 The allowance id every reader derives from a creator intent.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L232)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L244)
 
 Import: `import {prepaidAllowanceId} from 'tasra-sdk/chain'`
 
@@ -2428,7 +2453,7 @@ Return details: Typed data ready for the creator wallet to sign.
 
 `beacon.mpk()` at a canonical block, via `Settlement.beacon()` read at the same block.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L473)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L529)
 
 Import: `import {readAccountantGroupKey} from 'tasra-sdk/chain'`
 
@@ -2640,7 +2665,7 @@ Returns: ` Promise<PaidOperationReceipt> `.
 
 Read `Settlement.prepaidAllowance(id)` at a canonical block (`blockHash`), or at a fresh head.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L309)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L359)
 
 Import: `import {readPrepaidAllowance} from 'tasra-sdk/chain'`
 
@@ -2778,7 +2803,7 @@ Expired intents remain recoverable. Missing transactions, unavailable historical
 and insufficient confirmations fail closed; none prove that the operation was never submitted.
 A reverted result proves only this transaction's failure, not absence of another reservation.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L254)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L265)
 
 Import: `import {reconcilePaidReservation} from 'tasra-sdk/chain'`
 
@@ -2810,7 +2835,7 @@ Whether a prepared allowance reservation is mined as signed, read at a fresh hea
 proves it; `not-reserved` is final only once a canonical block is past the quote deadline
 (the contract refuses the signed quote from then on); otherwise `uncertain`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L448)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L504)
 
 Import: `import {reconcilePrepaidAllowance} from 'tasra-sdk/chain'`
 
@@ -2968,7 +2993,7 @@ Does not create an intent, approve tokens, activate a slot, authorize credential
 work. Before broadcast, unavailable accountants can be skipped while collecting the same quote
 and quorum authorization. One broadcast attempt only; no replacement or implicit gas funding.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L569)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L632)
 
 Import: `import {reservePaidOperation} from 'tasra-sdk/chain'`
 
@@ -3011,7 +3036,7 @@ the durable checkpoints, the receipt and the mined record. Never resubmits or re
 outcome unknown after `prepared` is [PaidReservationUncertainError](#paidreservationuncertainerror) (its `requestId` is the
 allowance id).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L339)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L389)
 
 Import: `import {reservePrepaidAllowance} from 'tasra-sdk/chain'`
 
@@ -3382,7 +3407,7 @@ Returns: ` string `.
 
 Verify a debit voucher's shape and its threshold signature against `beacon.mpk()` at its quote block.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L514)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L570)
 
 Import: `import {verifyDebitVoucher} from 'tasra-sdk/chain'`
 
@@ -4028,7 +4053,7 @@ Fields:
 
 Options for [collectDebitVoucher](#collectdebitvoucher).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L653)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L709)
 
 ```ts
 export interface CollectDebitVoucherOptions {
@@ -4092,7 +4117,7 @@ Fields:
 
 Decryption options for a registry-discovered committee slot.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L116)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L117)
 
 ```ts
 export type CommitteeDecryptOptions = SlotCommitteeDecryptOptions;
@@ -4121,7 +4146,7 @@ Fields:
 
 Signing options for a registry-discovered committee slot.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L112)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L113)
 
 ```ts
 export type CommitteeSignOptions = SlotCommitteeSignOptions;
@@ -4137,7 +4162,7 @@ Fields:
 
 Slot-based committee operations that discover keepers and verifiers from the chain.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L121)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L122)
 
 ```ts
 export interface CommitteeSlotClient {
@@ -4162,7 +4187,7 @@ Fields:
 
 Chain discovery and holder-proof configuration for threshold signing and identity decryption.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L37)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L38)
 
 ```ts
 export interface CommitteeSlotClientConfig {
@@ -4331,7 +4356,7 @@ Fields:
 
 How one member answered a debit round.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L580)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L636)
 
 ```ts
 export type DebitMemberOutcome = {
@@ -4359,7 +4384,7 @@ Fields:
 
 One member's answer to `POST /v1/prepaid/allowances/{id}/debits` (`DebitPartialResponse`).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L536)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L592)
 
 ```ts
 export interface DebitPartialWire {
@@ -4399,7 +4424,7 @@ Fields:
 
 One debit request: the same body is sent to every member.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L566)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L622)
 
 ```ts
 export interface DebitRequest {
@@ -5517,7 +5542,7 @@ Fields:
 
 Canonical transaction outcome retained for recovery; this never authorizes another operation.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L208)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L219)
 
 ```ts
 export type PaidReservationResolution = {
@@ -6795,6 +6820,10 @@ export interface ReservePaidOperationOptions {
     signal?: AbortSignal;
     persist: (checkpoint: PaidReservationCheckpoint) => Promise<void>;
     clock?: PaidPacingClock;
+    quoteBlock?: {
+        blockHash: Hex;
+        blockTimestamp: bigint;
+    };
 }
 ```
 
@@ -6810,6 +6839,7 @@ Fields:
 - **` signal `**: Optional cancellation. Before the durable `prepared` checkpoint (nothing sent) an abort refuses with [PaidReservationAbortedError](#paidreservationabortederror). From that checkpoint the one broadcast proceeds and every journal write completes; an abort then only ends the receipt wait, as [PaidReservationUncertainError](#paidreservationuncertainerror): a broadcast transaction cannot be cancelled.
 - **` persist `**: Await durable storage before resolving. The prepared checkpoint MUST atomically create a unique requestId record, refuse every existing record, and survive process loss. Retain it on every later failure. Subsequent checkpoints update that record without deleting it. A callback failure before preparation completes prevents broadcast. The SDK cannot prove an application's persistence guarantees; an in-memory callback is not safe for production.
 - **` clock `**: Time source for bounded quote collection and the reservation-quota wait (a `prepare` answered 429 with a valid `Retry-After` / `x-ratelimit-after` is repeated identically within min(150 s, half the payment's remaining lifetime)); wall-clock ms. Default: the system clock. Inject one in tests.
+- **` quoteBlock `**: The block the payment context was discovered at (`discoverPaidOperationContext`'s `blockHash`/`blockTimestamp`). The FIRST prepare names it, so every accountant judges the signed intent where it was built instead of at its own, often older, head. Older than 20 seconds (or absent), the client's own fresh `latest` block is named instead: no prepare is ever sent without a block.
 
 ### ReservePrepaidAllowanceOptions
 
@@ -6842,7 +6872,7 @@ Fields:
 - **` receiptTimeoutMs `**: Receipt timeout, 1..120000 ms (default 60000).
 - **` confirmations `**: Confirmations, 1..64 (default 1).
 - **` signal `**: Cancellation: honoured until the `prepared` checkpoint; afterwards it only ends the receipt wait (uncertain).
-- **` quoteBlock `**: Canonical block the intent's verifier epoch was observed at. The first prepare is pinned to it, so a member whose own head is a block older (before the epoch's anchors landed) judges the same anchors; if no member accepts it (stale), the members choose as before.
+- **` quoteBlock `**: Canonical block the intent's verifier epoch was observed at. The first prepare names it (else the client's fresh latest block), so every member judges the same chain state; when every member refuses before writing there, the round is repeated once at the client's latest block. No prepare is ever sent without a block.
 - **` persist `**: Await durable storage. `prepared` must create a unique record keyed by allowance id and survive process loss.
 
 ### ResolvedEndpoints
@@ -7208,7 +7238,7 @@ export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth' | 'governance';
 
 Everything a committee-authorized threshold decrypt needs beyond the slot id.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L80)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L81)
 
 ```ts
 export interface SlotCommitteeDecryptOptions extends Pick<SealedRequestOpts, 'recipient' | 'verifyingShares' | 'threshold' | 'approveExecution' | 'signal' | 'fetchImpl' | 'requestId'> {
@@ -7247,7 +7277,7 @@ Fields:
 
 Per-call overrides for a committee-authorized FROST signature.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L69)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L70)
 
 ```ts
 export interface SlotCommitteeSignOptions {
@@ -7895,8 +7925,8 @@ Shared values and contract definitions.
 | `ACCOUNTANT_TAG` | The on-chain role tag accountant operators register under: `keccak256("accountant")`. The same tag the accountants themselves resolve their set with. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L140) |
 | `accountantSetRegistryAbi` | AccountantSetRegistry contract interface for accountant-set snapshots and membership evidence. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/accountantSetRegistry.ts#L5) |
 | `accountantSlashingAbi` | AccountantSlashing contract interface for accountant penalties and related evidence. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/accountantSlashing.ts#L5) |
-| `ALLOWANCE_MAX_LIFETIME_SECS` | `PAYMENT_INTENT_MAX_LIFETIME_SECS`: an allowance lives at most one hour. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L173) |
-| `ALLOWANCE_QUOTE_MAX_AGE_SECS` | Quote freshness the accountants enforce (`MAX_QUOTE_AGE`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L171) |
+| `ALLOWANCE_MAX_LIFETIME_SECS` | `PAYMENT_INTENT_MAX_LIFETIME_SECS`: an allowance lives at most one hour. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L174) |
+| `ALLOWANCE_QUOTE_MAX_AGE_SECS` | Quote freshness the accountants enforce (`MAX_QUOTE_AGE`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L172) |
 | `BATCH_APPROVAL_CAPABILITY` | Manifest capability of an agent that accepts a batch of approvals in one request. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L83) |
 | `bondingCurveAbi` | BondingCurve contract interface for TSRA purchases, redemptions and pricing. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/bondingCurve.ts#L5) |
 | `CONTRACT_ABIS` | Contract name to ABI. Keys match Foundry artifact names. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/index.ts#L48) |

@@ -23,7 +23,7 @@ import {keyRegistryAbi} from './abis/keyRegistry.js'
 import {thresholdRandomBeaconAbi} from './abis/thresholdRandomBeacon.js'
 import {allowanceId, allowanceReserveDigest, assertDebitVoucherWire, assertPaymentIntentWire, debitVoucherDigest, prepaidAllowanceIntentHash,
   prepaidAllowanceIntentTypedData, prepaidRequestId, type DebitVoucherWire, type PaymentIntentWire, type PrepaidAllowanceIntentWire} from '../committee/payment.js'
-import {accountantEndpoints, PaidReservationUncertainError, untilAborted} from './reservation.js'
+import {accountantEndpoints, PaidReservationQuorumNotPreparedError, PaidReservationUncertainError, untilAborted} from './reservation.js'
 import {headFollowerOf} from './headFollower.js'
 import {pollTransactionReceipt} from './receipt.js'
 import {pinnedCall} from './pinnedReads.js'
@@ -155,9 +155,10 @@ export interface ReservePrepaidAllowanceOptions {
   /** Cancellation: honoured until the `prepared` checkpoint; afterwards it only ends the receipt wait (uncertain). */
   signal?: AbortSignal
   /**
-   * Canonical block the intent's verifier epoch was observed at. The first prepare is pinned to
-   * it, so a member whose own head is a block older (before the epoch's anchors landed) judges
-   * the same anchors; if no member accepts it (stale), the members choose as before.
+   * Canonical block the intent's verifier epoch was observed at. The first prepare names it (else
+   * the client's fresh latest block), so every member judges the same chain state; when every
+   * member refuses before writing there, the round is repeated once at the client's latest block.
+   * No prepare is ever sent without a block.
    */
   quoteBlock?: Hex
   /** Await durable storage. `prepared` must create a unique record keyed by allowance id and survive process loss. */
@@ -175,7 +176,18 @@ const now = () => Math.floor(Date.now() / 1000)
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
 /** An accountant was unreachable or answered 5xx/408/429: another member may still answer. */
-class Unavailable extends Error {}
+class Unavailable extends Error {
+  /** The answer recorded nothing (the pre-write 503 or a stale named block): asked again at the seed block. */
+  preWrite = false
+  /** The member's RPC has not served the named block yet: asked again at the seed block. */
+  notYetVisible = false
+}
+/** A definite 403/409 to a `prepare`, judged before the accountant records anything: that member's answer (402 is {@link UnderfundedSlotError}). */
+class AllowanceRefusedError extends Error {}
+const labelled = (text: string, label: string) => {
+  const t = text.trimStart()
+  return t.startsWith(label) && (t.length === label.length || t[label.length] === ':')
+}
 
 /** A bounded JSON POST to one accountant; non-2xx answers carry their status and a bounded reason. */
 async function post(url: string, body: unknown, timeoutMs: number, signal?: AbortSignal): Promise<{status: number; json?: unknown; text: string}> {
@@ -254,31 +266,69 @@ function parseQuote(value: unknown, intent: PrepaidAllowanceIntentWire, d: Prepa
 }
 const unsignedQuote = (q: PrepaidAllowanceQuote) => JSON.stringify([q.slot.toLowerCase(), q.allowance_id.toLowerCase(), q.quote_block.toLowerCase(), q.legacy_nonce, q.deadline, q.digest.toLowerCase()])
 
-async function askAllowance(url: string, method: 'prepare' | 'authorize', intent: PrepaidAllowanceIntentWire, block: Hex | null, d: PrepaidDeployment,
+async function askAllowance(url: string, method: 'prepare' | 'authorize', intent: PrepaidAllowanceIntentWire, block: Hex, d: PrepaidDeployment,
   timeout: number, signal?: AbortSignal): Promise<PrepaidAllowanceQuote> {
   const answer = await post(`${url}/v1/prepaid/allowances/${method}`, {intent, quote_block: block}, timeout, signal)
   if (answer.status === 402) throw new UnderfundedSlotError({slotId: intent.slot, status: 402, url, message: 'accountant allowance request refused (402): insufficient available TASRA'})
-  if (transient(answer.status)) throw new Unavailable(`accountant allowance request refused (${answer.status}): ${answer.text}`)
+  if (method === 'authorize' && answer.status === 503 && labelled(answer.text, 'reservation quorum not prepared')) throw new PaidReservationQuorumNotPreparedError()
+  if (method === 'prepare' && (answer.status === 403 || answer.status === 409)) throw new AllowanceRefusedError(`accountant allowance request refused (${answer.status}): ${answer.text}`)
+  if (transient(answer.status)) {
+    const unavailable = new Unavailable(`accountant allowance request refused (${answer.status}): ${answer.text}`)
+    if (method === 'prepare' && answer.status === 503) {
+      unavailable.preWrite = labelled(answer.text, 'reservation assignments unavailable') || labelled(answer.text, 'quote block is stale, future or mismatched')
+      unavailable.notYetVisible = labelled(answer.text, 'quote block not yet visible')
+    }
+    throw unavailable
+  }
   if (answer.json === undefined) throw new Error(`accountant allowance request refused (${answer.status}): ${answer.text}`)
   return parseQuote(answer.json, intent, d, method === 'authorize')
 }
 
-/** Prepare at every responsive member at one quote block, then a quorum signature from a prepared one. */
-async function collectAllowanceQuote(urls: string[], intent: PrepaidAllowanceIntentWire, d: PrepaidDeployment, timeout: number, signal?: AbortSignal, pin?: Hex) {
+/**
+ * Prepare at every responsive member at one NAMED quote block, then a quorum signature from a
+ * prepared one (robustness audit 2026-11-13, P1-P3, as `collectQuote` in reservation.ts). The first
+ * round names `first()` (the observed block, else the client's latest); a member's answer that
+ * recorded nothing - the pre-write 503, a stale named block, a definite 402/403/409, "not yet
+ * visible" - is that member's, and every such earlier member is asked again at the seed's block.
+ * When every member answers so, the round is repeated once at the client's fresh latest block. No
+ * prepare is ever sent without a block; a transport failure is never repeated to that member.
+ */
+async function collectAllowanceQuote(urls: string[], intent: PrepaidAllowanceIntentWire, d: PrepaidDeployment, timeout: number,
+  signal: AbortSignal | undefined, first: () => Promise<Hex>, latest: () => Promise<Hex>) {
   let seed: {quote: PrepaidAllowanceQuote; index: number} | undefined, last: Error | undefined
-  // Pinned first (the observed block), then unpinned: every member still verifies the block itself.
-  for (const block of pin ? [pin, null] : [null]) {
+  type Answer = 'pre-write' | 'not-visible' | 'unavailable'
+  const classify = (error: unknown): Answer | undefined => {
+    if (error instanceof UnderfundedSlotError || error instanceof AllowanceRefusedError) return 'pre-write'
+    if (!(error instanceof Unavailable)) return undefined
+    return error.notYetVisible ? 'not-visible' : error.preWrite ? 'pre-write' : 'unavailable'
+  }
+  let answers: (Answer | undefined)[] = []
+  const seedRound = async (block: Hex) => {
+    answers = urls.map(() => undefined)
     for (const [index, url] of urls.entries()) {
-      try { seed = {quote: await askAllowance(url, 'prepare', intent, block, d, timeout, signal), index}; break }
-      catch (error) { if (!(error instanceof Unavailable)) throw error; last = error }
+      try {
+        const quote = await askAllowance(url, 'prepare', intent, block, d, timeout, signal)
+        if (!same(quote.quote_block, block)) throw new Error('accountant prepared the allowance at a different quote block than the one named')
+        seed = {quote, index}; return
+      } catch (error) {
+        const answer = classify(error)
+        if (answer === undefined) throw error
+        answers[index] = answer; last = error as Error
+      }
     }
-    if (seed) break
+  }
+  const named = await untilAborted(first(), signal)
+  await seedRound(named)
+  if (!seed && urls.length > 0 && answers.every(a => a === 'pre-write' || a === 'not-visible')) {
+    const head = await untilAborted(latest(), signal)
+    if (!same(head, named) || answers.includes('not-visible')) await seedRound(head)
   }
   if (!seed) throw last ?? new Error('no reachable accountant prepared the allowance')
-  const {quote, index} = seed, prepared = [urls[index]!], rest = urls.slice(index + 1)
+  const {quote, index} = seed, prepared = [urls[index]!]
+  const rest = urls.filter((_, i) => i > index || answers[i] === 'pre-write' || answers[i] === 'not-visible')
   const results = await Promise.allSettled(rest.map(url => askAllowance(url, 'prepare', intent, quote.quote_block, d, timeout, signal)))
   for (const [i, result] of results.entries()) {
-    if (result.status === 'rejected') { if (!(result.reason instanceof Unavailable)) throw result.reason; continue }
+    if (result.status === 'rejected') { if (classify(result.reason) === undefined) throw result.reason; continue }
     if (unsignedQuote(result.value) !== unsignedQuote(quote)) throw new Error('accountants disagree on the allowance')
     prepared.push(rest[i]!)
   }
@@ -360,7 +410,13 @@ export async function reservePrepaidAllowance(client: PublicClient, wallet: Wall
   if (walletChain.value !== d.chainId) throw new Error('allowance RPC/wallet chain mismatch')
   if (readerChain.status === 'rejected') throw readerChain.reason
   if (readerChain.value !== d.chainId) throw new Error('allowance RPC/wallet chain mismatch')
-  const {quote, authorized} = await collectAllowanceQuote(urls, intent, d, requestTimeout, signal, opts.quoteBlock)
+  const latestHash = async (): Promise<Hex> => {
+    const head = await client.getBlock({blockTag: 'latest'})
+    if (head.hash === null) throw new Error('latest block has no hash')
+    return head.hash
+  }
+  const pinned = opts.quoteBlock
+  const {quote, authorized} = await collectAllowanceQuote(urls, intent, d, requestTimeout, signal, async () => pinned ?? latestHash(), latestHash)
   const args = reservationArgs(quote, intent)
   const data = encodeFunctionData({abi: settlementAbi, functionName: 'reservePrepaidAllowanceBls', args: [args, authorized.signature!]})
   const block = await client.getBlock({blockHash: quote.quote_block})
