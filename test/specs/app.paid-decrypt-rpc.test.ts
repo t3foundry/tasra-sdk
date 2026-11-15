@@ -20,7 +20,13 @@ async function measured(options: RpcFixtureOptions, operations = 1) {
   try { return {...await f.run(operations), log: [...f.log], overlaps: new Set(f.overlaps), fetches: f.fetchImpl.mock.calls.length} } finally { f.signer.dispose() }
 }
 
-describe('paid decryption RPC cost', () => {
+// Every operation runs the REAL wallet step (EIP-712 payment and execution approvals, secp256k1
+// recovery, keccak over typed data) and real BLS12-381 identity hashing; the assertions are COUNTS,
+// never wall time. One operation is ~0.15-0.3 s on an M4 Max and 4-13x that on a GitHub runner beside
+// the parallel suite (10 at once: 0.34 s local, 4.5 s CI, past the 5 s default). A test that times out
+// keeps running and, in `http` mode, sends its leftover requests through the NEXT test's stubbed
+// `fetch` (node 22.12, 2026-11-15: "expected 19 to be 18"), so the budget is sized for the slow runner.
+describe('paid decryption RPC cost', {timeout: 30_000}, () => {
   it(`resolves the paid keeper target once per wallet step, not once per keeper (n = ${n})`, async () => {
     const f = await measured({newBlockPerHead: true})
     expect(f.fetches).toBe(n)
@@ -69,7 +75,8 @@ describe('paid decryption RPC cost', () => {
     expect(count(f.log, 'sub:prepaidCost')).toBe(200)
     // At most 64 calls per aggregate.
     expect(count(f.log, 'call:aggregate3')).toBeGreaterThanOrEqual(Math.ceil(200 * 5 / 64))
-  }, 30_000)
+    // 100 operations: ~2 s on an M4 Max, ~10.6 s at background QoS, past 30 s on GitHub runners.
+  }, 120_000)
 
   it('groups requests into bounded JSON-RPC batches when Multicall3 is unavailable', async () => {
     const f = await measured({transport: 'http', newBlockPerHead: true})

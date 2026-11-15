@@ -43,7 +43,11 @@ describe('KEM batch share verification (ADR-0090 D9)', () => {
       const single = mixed.map(s => verifyDecryptShareAt(s, U))
       expect(batch).toEqual(single)
     }), {numRuns: 25})
-  })
+    // 25 runs of up to 4 honest shares (3 scalar multiplications each), one multi-pairing and up to 4
+    // single pairing checks: CPU-bound BLS12-381 work, ~1.7 s on an M4 Max, ~10.6 s at background QoS
+    // and past the 5 s default on 4-vCPU GitHub runners beside the parallel suite. The verdicts are
+    // the assertion, not the wall time, so the budget is sized for the slow runner.
+  }, 60_000)
 
   it('accepts an all-honest batch with one multi-pairing and rejects everything for a malformed U', () => {
     const {shares, U} = honest(4, scalar(5), 50)

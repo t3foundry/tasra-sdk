@@ -655,19 +655,25 @@ describe('background refresh does not defeat the idle timeout (review F5)', () =
     } finally { vi.useRealTimers() }
   })
 
+  // 1600 s of fake time with a 30 s grant is ~80 real refreshes (ES256 signature, grant verification
+  // per slot, a journal commit each): ~1.1 s on an M4 Max, 4.2-5.0 s at background QoS, past the 5 s
+  // default on GitHub runners. A timed-out body keeps running and its `finally` then switched the NEXT
+  // tests' fake timers off ("timers APIs are not mocked" in the Retry-After test), so the budget is
+  // sized for the slow runner and the session is stopped whatever happens.
   it('a used session keeps refreshing past the idle timeout', async () => {
     vi.useFakeTimers()
+    let stop: (() => void) | undefined
     try {
       const {o, calls, ended} = await running()
+      stop = () => o.session.stop()
       for (let i = 0; i < 4; i++) {
         await vi.advanceTimersByTimeAsync(400_000)
         o.session.current()
       }
       expect(ended).toEqual([])
       expect(Math.max(...calls)).toBeGreaterThan(T0 + 1500)
-      o.session.stop()
-    } finally { vi.useRealTimers() }
-  })
+    } finally { stop?.(); vi.useRealTimers() }
+  }, 30_000)
 })
 
 describe('session recovery: definite refusals end, the follow refreshes once per epoch at the anchor (C20)', () => {

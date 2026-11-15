@@ -79,10 +79,25 @@ export async function paidDecryptFixture(options: RpcFixtureOptions = {}) {
   }
   // The slot creator is the payment signer, known once the consent fixture exists.
   let creator: Hex = hex(0x77, 20)
+  // viem's decodeFunctionData re-hashes every ABI signature to find the selector, which made the mock
+  // RPC a large share of a 100-operation run's CPU. The same calldata always decodes the same way, so
+  // decode each distinct (contract, calldata) once per fixture; what is answered and logged is unchanged.
+  type Decoded = {functionName: string; args?: readonly unknown[]}
+  const decoded = new Map<string, Decoded>()
+  const decode = (to: Hex, data: Hex): Decoded => {
+    const target = to.toLowerCase(), key = `${target}:${data}`
+    let call = decoded.get(key)
+    if (!call) {
+      const abi: Abi = target === nodes ? nodeRegistryAbi : target === deployment.addresses.KeyRegistry!.toLowerCase() ? keyRegistryAbi : settlementAbi
+      call = decodeFunctionData({abi, data})
+      decoded.set(key, call)
+    }
+    return call
+  }
   const evaluate = (to: Hex, data: Hex): Hex => {
     const target = to.toLowerCase()
     const abi: Abi = target === nodes ? nodeRegistryAbi : target === deployment.addresses.KeyRegistry!.toLowerCase() ? keyRegistryAbi : settlementAbi
-    const {functionName: name, args} = decodeFunctionData({abi, data})
+    const {functionName: name, args} = decode(to, data)
     const index = operators.findIndex(operator => operator.toLowerCase() === String(args?.[0]).toLowerCase())
     if (options.revert === name && (options.revertIndex === undefined || options.revertIndex === index)) throw new MockRevert(revertData())
     const values: Record<string, unknown> = {prepaidEnabled: true, prepaidCost: 9n, prepaidSettled: false, prepaidRefunded: 0n, prepaidAssignmentBlock: hex(19),
@@ -93,11 +108,7 @@ export async function paidDecryptFixture(options: RpcFixtureOptions = {}) {
         stake: 100n, rewardBalance: 0n, unbondingAt: 0n, active: true}}
     return encodeFunctionResult({abi, functionName: name, result: values[name]})
   }
-  const nameOf = (to: Hex, data: Hex) => {
-    const target = to.toLowerCase()
-    const abi: Abi = target === nodes ? nodeRegistryAbi : target === deployment.addresses.KeyRegistry!.toLowerCase() ? keyRegistryAbi : settlementAbi
-    return decodeFunctionData({abi, data}).functionName
-  }
+  const nameOf = (to: Hex, data: Hex) => decode(to, data).functionName
   const currentHash = () => options.newBlockPerHead ? hex(0x20 + heads) : blockHash
   const answer = async (method: string, params: unknown): Promise<unknown> => {
     counts.rpc++
