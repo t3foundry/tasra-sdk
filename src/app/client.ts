@@ -13,8 +13,12 @@ import {ibeEncrypt, type IbeCiphertext} from '../crypto/ibe.js'
 import {decryptIdentityStrict, extractIdentityStrict, type StrictExtractionOptions} from '../committee/extraction.js'
 import {TasraError} from '../errors.js'
 import {committeeSign, type VerifierProof} from '../committee/client.js'
-import {committeeSignEoaDigest} from '../committee/ecdsa.js'
-import {requireDualOperationProof, type DualOperationProof} from '../committee/dual-operation.js'
+import {committeeSignEoaDigest, committeeSignP256Digest, type P256DigestSignature} from '../committee/ecdsa.js'
+import {keyRegistryAbi} from '../chain/abis/keyRegistry.js'
+import {viemErrorChainHas} from '../internal/viemErrors.js'
+import {requireIntentPayment, signingIntentCurve, signingIntentDigest, type EthereumSigningIntent, type P256SigningIntent} from './signing-intents.js'
+import {dualOperationPayload, requireDualOperationProof, type DualOperationProof} from '../committee/dual-operation.js'
+import {ed25519} from '@noble/curves/ed25519'
 import {createDualSignClient} from '../committee/dual-sign.js'
 import {auditOperationId, protocolHex, verifyOperationReceipt} from '../committee/receipts.js'
 import {compoundTokenHash, decodeCompoundToken, type CompoundTokenWire} from '../committee/token.js'
@@ -232,6 +236,41 @@ export function createTasra(config: TasraApplicationConfig) {
       && !(allowLocalPaidHttp && deployment.chainId === 43112 && url.protocol === 'http:'))) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Mapped paid keeper endpoint violates transport policy')
     return {operator: member.operator, nodeUrl: url.toString().replace(/\/$/, ''), publicKey: protocolHex(member.publicKey, 32, 'paid keeper identity')}
   }
+  // A slot under a native approval policy refuses every signature without its bundle: refuse
+  // before any credential or keeper work. A KeyRegistry without the policy has none.
+  async function requireNoApprovalPolicy(slotId: Hex) {
+    let quorum: number
+    try {
+      quorum = Number((await chain.client.readContract({address: deployment.addresses.KeyRegistry!, abi: keyRegistryAbi, functionName: 'dualControlPolicy', args: [slotId]}))[0])
+    } catch (error) {
+      if (viemErrorChainHas(error, ['ContractFunctionRevertedError', 'ContractFunctionZeroDataError'])) return
+      throw error
+    }
+    if (quorum > 0) throw new TasraApplicationError('INVALID_AUTHORIZATION', `Slot requires ${quorum} native approvals for every signature; supply the assembled dualControl bundle`)
+  }
+  // The keeper's quorum rule, judged against the ON-CHAIN policy before any credential or keeper
+  // work: distinct approvers whose signatures verify over the statement, at least the quorum of
+  // them, and for a static policy every one in the approver set.
+  async function requireBundleMeetsPolicy(slotId: Hex, proof: DualOperationProof) {
+    const registry = deployment.addresses.KeyRegistry!
+    const [policy, approvers] = await Promise.all([
+      chain.client.readContract({address: registry, abi: keyRegistryAbi, functionName: 'dualControlPolicy', args: [slotId]}),
+      chain.client.readContract({address: registry, abi: keyRegistryAbi, functionName: 'dualControlApprovers', args: [slotId]}),
+    ])
+    const quorum = Number(policy[0]), staticSet = /^0x0{64}$/i.test(policy[1]) ? new Set(approvers.map(key => key.slice(2).toLowerCase())) : undefined
+    if (quorum === 0) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Slot has no native approval policy for a bundle to satisfy')
+    const payload = dualOperationPayload(proof.statement), seen = new Set<string>()
+    for (const approval of proof.approvals) {
+      const key = String(approval?.approver_pubkey ?? '').replace(/^0x/, '').toLowerCase(), signature = String(approval?.signature ?? '').replace(/^0x/, '')
+      if (!/^[0-9a-f]{64}$/.test(key) || !/^[0-9a-fA-F]{128}$/.test(signature) || !ed25519.verify(signature, payload, key, {zip215: false})) {
+        throw new TasraApplicationError('INVALID_AUTHORIZATION', 'An approval does not verify over the statement')
+      }
+      if (seen.has(key)) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'The bundle names one approver twice')
+      if (staticSet && !staticSet.has(key)) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'An approver is not in the slot\'s approver set')
+      seen.add(key)
+    }
+    if (seen.size < quorum) throw new TasraApplicationError('INVALID_AUTHORIZATION', `Slot requires ${quorum} distinct approvals; the bundle has ${seen.size}`)
+  }
   async function authorize(s: SlotMetadata, action: OperationInput['action'], payload: Pick<OperationInput, 'message' | 'identity' | 'payloadDigest' | 'decryption'>, options: AuthorizedOperationOptions) {
     options.signal?.throwIfAborted()
     const payment = options.payment && structuredClone(options.payment), random = options.random
@@ -308,7 +347,7 @@ export function createTasra(config: TasraApplicationConfig) {
       async ecdsa(slotId: Hex) {
         await ready(slotId, 2)
         const getAddress = async () => addressFromEoaPubkey(protocolHex((await ready(slotId, 2)).publicKey, 33, 'secp256k1 public key')) as Hex
-        return {
+        const adapter = {
           /** Identifier of the threshold ECDSA slot. */
           slotId,
           /** Recheck slot readiness and derive its Ethereum address from the current public key. */
@@ -324,7 +363,11 @@ export function createTasra(config: TasraApplicationConfig) {
             if (dualControl && !options.payment) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Native approvals bind a final payment; supply it')
             const digest = input.slice(), s = await ready(slotId, 2)
             // Judged before any credential work: the bundle names this slot, digest and payment.
-            if (dualControl) requireDualOperationProof(dualControl, {operation: 'secp256k1-sign', slot: protocolHex(slotId, 32, 'slot'), payloadDigest: sha256(digest), payment: options.payment!})
+            if (dualControl) {
+              requireDualOperationProof(dualControl, {operation: 'secp256k1-sign', slot: protocolHex(slotId, 32, 'slot'), payloadDigest: sha256(digest), payment: options.payment!})
+              await requireBundleMeetsPolicy(slotId, dualControl)
+            }
+            else await requireNoApprovalPolicy(slotId)
             const grant = await authorize(s, 'sign', {message: digest}, options), node = grant.paidTarget ? paidNode(grant.paidTarget) : (await keepers(slotId, options.signal))[0]!
             options.signal?.throwIfAborted()
             const result = await committeeSignEoaDigest({nodeUrl: node.nodeUrl, committeeToken: grant.token, evidenceCt: grant.evidenceCt, verifierProofs: grant.verifierProofs,
@@ -334,6 +377,67 @@ export function createTasra(config: TasraApplicationConfig) {
             const recovered = await recoverAddress({hash: toHex(digest), signature: {r: toHex(result.r), s: toHex(result.s), yParity: result.yParity}})
             if (!equalBytes(result.groupPublicKey, publicKey) || recovered.toLowerCase() !== addressFromEoaPubkey(publicKey).toLowerCase()) throw new TasraApplicationError('INVALID_RESULT', 'Signature does not match the anchored Ethereum account')
             return result
+          },
+          /**
+           * Sign a structured intent (a transaction, EIP-712 typed data or a personal message): the
+           * SDK derives the digest itself, then signs it like `signDigest`. With a payment, the
+           * payment must pay for exactly this intent.
+           * @param intent Structured intent; a transaction and typed data must name their chain.
+           * @param options Fresh operation authorization, the final payment for this intent and its approvals.
+           */
+          async signIntent(intent: EthereumSigningIntent, options: EcdsaSignOptions): Promise<EoaSignature & {digest: Uint8Array}> {
+            if (signingIntentCurve(intent) !== 'secp256k1') throw new TasraApplicationError('WRONG_SLOT_MODE', 'A secp256k1 slot signs Ethereum intents only')
+            const digest = options.payment ? requireIntentPayment(options.payment, intent) : signingIntentDigest(intent)
+            return {...await adapter.signDigest(digest, options), digest}
+          },
+        }
+        return adapter
+      },
+      /**
+       * Open a ready threshold P-256 slot for verified P-256 signatures (not an Ethereum account).
+       * @param slotId Identifier of the P-256 slot.
+       */
+      async p256(slotId: Hex) {
+        await ready(slotId, 4)
+        const getPublicKey = async () => protocolHex((await ready(slotId, 4)).publicKey, 33, 'P-256 public key')
+        const signDigest = async (input: Uint8Array, options: EcdsaSignOptions): Promise<P256DigestSignature> => {
+          if (input.length !== 32) throw new TasraError('P-256 digest must be exactly 32 bytes')
+          const dualControl = options.dualControl && structuredClone(options.dualControl)
+          if (dualControl && !options.payment) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Native approvals bind a final payment; supply it')
+          const digest = input.slice(), s = await ready(slotId, 4)
+          if (dualControl) {
+            requireDualOperationProof(dualControl, {operation: 'p256-sign', slot: protocolHex(slotId, 32, 'slot'), payloadDigest: sha256(digest), payment: options.payment!})
+            await requireBundleMeetsPolicy(slotId, dualControl)
+          }
+          else await requireNoApprovalPolicy(slotId)
+          const grant = await authorize(s, 'sign', {message: digest}, options), node = grant.paidTarget ? paidNode(grant.paidTarget) : (await keepers(slotId, options.signal))[0]!
+          options.signal?.throwIfAborted()
+          // Verifies the signature under the anchored key and refuses any other key.
+          return committeeSignP256Digest({nodeUrl: node.nodeUrl, committeeToken: grant.token, evidenceCt: grant.evidenceCt, verifierProofs: grant.verifierProofs,
+            digest, groupPublicKey: protocolHex(s.publicKey, 33, 'P-256 public key'), userSignature: options.userSignature, targetKeykeeper: node.operator,
+            signal: options.signal, fetchImpl, approveExecution: grant.approveExecution, ...(dualControl ? {dualControl} : {})})
+        }
+        return {
+          /** Identifier of the threshold P-256 slot. */
+          slotId,
+          /** Recheck slot readiness and return its compressed P-256 group public key. */
+          getPublicKey,
+          /**
+           * Authorize and sign an exact 32-byte digest, verified under the anchored P-256 key.
+           * @param input Exactly 32 digest bytes.
+           * @param options Fresh operation authorization, the final payment and its approvals.
+           */
+          signDigest,
+          /**
+           * Sign the SHA-256 of exactly `intent.data`: the SDK derives the digest itself. With a
+           * payment, the payment must pay for exactly this intent.
+           * @param intent The bytes to sign.
+           * @param options Fresh operation authorization, the final payment for this intent and its approvals.
+           */
+          async signIntent(intent: P256SigningIntent, options: EcdsaSignOptions): Promise<P256DigestSignature & {digest: Uint8Array}> {
+            if (signingIntentCurve(intent) !== 'p256') throw new TasraApplicationError('WRONG_SLOT_MODE', 'A P-256 slot signs sha256 intents only')
+            const digest = options.payment ? requireIntentPayment(options.payment, intent) : signingIntentDigest(intent)
+            return {...await signDigest(digest, options), digest}
           },
         }
       },
@@ -486,6 +590,8 @@ export type TasraApplication = ReturnType<typeof createTasra>
  * Threshold Ethereum account handle that verifies each signature against the anchored public key.
  */
 export type EcdsaSlot = Awaited<ReturnType<TasraApplication['slots']['ecdsa']>>
+/** A ready threshold P-256 slot adapter returned by `app.slots.p256(slotId)`. */
+export type P256Slot = Awaited<ReturnType<TasraApplication['slots']['p256']>>
 /**
  * Threshold Ed25519 signing handle with optional receipt checks and native approval sessions.
  */

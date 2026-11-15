@@ -6,7 +6,8 @@
 // raised BEFORE anything is signed, in the contract's order. A KeyRegistry from before the
 // hand-off is refused as `unsupported`, never as a bare revert.
 
-import {type Address, type Hex, type PublicClient} from 'viem'
+import {hexToBytes, type Address, type Hex, type PublicClient} from 'viem'
+import {addressFromEoaPubkey} from '../signing/ecdsa.js'
 import {TasraError} from '../errors.js'
 import {viemErrorChainHas} from '../internal/viemErrors.js'
 import {keyRegistryAbi} from './abis/keyRegistry.js'
@@ -30,6 +31,10 @@ export type SlotHandoffErrorCode =
   | 'nothing-pending'
   | 'not-offered'
   | 'not-confirmed'
+  /** The slot would become its own creator: every later paid operation needs a creator signature only the slot itself could make. */
+  | 'self-custody'
+  /** The recipient is a contract: keepers accept creator signatures from an externally owned account only. */
+  | 'contract-holder'
 
 /** A hand-off refused before signing, or one that did not reach the state the caller asked for. */
 export class SlotHandoffError extends TasraError {
@@ -57,9 +62,17 @@ export interface SlotHandoffStatus {
   guardian: Address | null
   /** Wallet offered the rule admin role, not yet accepted. */
   pendingRuleAdmin: Address | null
+  /** The slot's own Ethereum account (a ready secp256k1 threshold slot), or `null`. */
+  slotAccount: Address | null
 }
 
 const ZERO = '0x0000000000000000000000000000000000000000' as Address
+
+/** Refusal for a slot that would become its own creator. */
+function selfCustody(slotId: Hex): SlotHandoffError {
+  return new SlotHandoffError('self-custody', slotId, `slot  cannot become its own creator: its paid operations need a creator signature, ` +
+    'which only a paid operation of the same slot could produce, so no operation, renewal or further hand-off could ever be signed again')
+}
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 const orNull = (a: Address): Address | null => (same(a, ZERO) ? null : a)
@@ -96,12 +109,15 @@ export async function readHandoffOnChain(read: PublicClient['readContract'], key
     throw new SlotHandoffError('unsupported', slotId, `the KeyRegistry ${keyRegistry} has no slot hand-off; it predates the upgrade that adds it`, {cause: e})
   }
   const [admin, guardian] = policy
+  let slotAccount: Address | null = null
+  if (slot.mode === 2 && /^0x0[23][0-9a-fA-F]{64}$/.test(slot.publicKey)) slotAccount = addressFromEoaPubkey(hexToBytes(slot.publicKey))
   return {
     creator: slot.creator,
     pendingCreator: orNull(pending[0]),
     ruleAdmin: orNull(admin),
     guardian: orNull(guardian),
     pendingRuleAdmin: orNull(pending[1]),
+    slotAccount,
   }
 }
 
@@ -124,6 +140,7 @@ export function readSlotHandoff(chain: TasraChainClient, slotId: Hex): Promise<S
 export function creatorOfferVerdict(s: SlotHandoffStatus, slotId: Hex, sender: Address, to: Address): void {
   if (!same(sender, s.creator)) throw new SlotHandoffError('not-creator', slotId, `slot ${slotId} has creator ${s.creator}, but this client signs as ${sender}`)
   if (same(to, s.creator)) throw new SlotHandoffError('same-holder', slotId, `${to} already is the creator of slot ${slotId}`)
+  if (s.slotAccount && same(to, s.slotAccount)) throw selfCustody(slotId)
   if (same(to, ZERO)) {
     if (!s.pendingCreator) throw new SlotHandoffError('nothing-pending', slotId, `slot ${slotId} has no creator transfer pending`)
   } else if (s.pendingCreator && same(to, s.pendingCreator)) {
@@ -142,6 +159,7 @@ export function creatorAcceptVerdict(s: SlotHandoffStatus, slotId: Hex, sender: 
   if (!same(sender, s.pendingCreator)) {
     throw new SlotHandoffError('not-offered', slotId, `slot ${slotId} is offered to ${s.pendingCreator}, but this client signs as ${sender}`)
   }
+  if (s.slotAccount && same(sender, s.slotAccount)) throw selfCustody(slotId)
 }
 
 /**
