@@ -1,4 +1,19 @@
 {
   "schemaVersion": 1,
-  "exceptions": []
+  "exceptions": [
+    {
+      "advisory": "GHSA-fc5q-39xc-vjpf",
+      "package": "picomatch",
+      "scope": "root",
+      "reason": "No patched picomatch exists (every version <= 4.0.7, the latest, is affected). It reaches this repository only through build and test tooling (vite, vitest, tinyglobby, fdir) and is absent from the published package (npm ls picomatch --omit=dev: none). The ReDoS needs an attacker-chosen glob; every glob these tools evaluate is written in this repository's own config.",
+      "expires": "2027-02-15"
+    },
+    {
+      "advisory": "GHSA-fc5q-39xc-vjpf",
+      "package": "picomatch",
+      "scope": "site",
+      "reason": "No patched picomatch exists (every version <= 4.0.7, the latest, is affected). In the docs site it reaches only the Astro/Starlight build (astro, @astrojs/internal-helpers, tinyglobby), which runs at build time on this repository's own content; nothing ships it to readers. The ReDoS needs an attacker-chosen glob; the globs come from this repository's own config.",
+      "expires": "2027-02-15"
+    }
+  ]
 }
