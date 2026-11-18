@@ -41,6 +41,40 @@ jobs:
         id: release_tag
         run: node scripts/release-tag.mjs
 
+      # npm ONLY FOR A CERTIFIED COMMIT (keykeeper-network release model, 2026-11-18): a release
+      # candidate is a keykeeper-network commit plus a tasra-sdk commit, certified together, and
+      # nothing reaches npm before that pair's keykeeper-network release is published. That release
+      # (t3foundry/tasra-releases vX.Y.Z) names this SDK in release-manifest.json and ships its
+      # tarball. This tag publishes only if such a published, certified, non-prerelease release names
+      # exactly this commit, package, version and npm integrity (scripts/certified-release.mjs), AND
+      # that release's SHA256SUMS - which covers the manifest - carries a cosign signature made by
+      # keykeeper-network's release workflow on a version tag. Early, before the long verification.
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - name: Certified with a keykeeper-network release?
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/certified"; mkdir -p "$work/pack" "$work/r"
+          integrity="$(npm pack --json --ignore-scripts --pack-destination "$work/pack" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s)[0].integrity))")"
+          : > "$work/releases.ndjson"
+          while IFS=$'\t' read -r tag pre; do
+            d="$work/r/$tag"; mkdir -p "$d"
+            gh release download "$tag" -R t3foundry/tasra-releases -D "$d" \
+              -p release-manifest.json -p SHA256SUMS -p SHA256SUMS.sigstore.json 2>/dev/null || continue
+            jq -c --arg t "$tag" --argjson p "$pre" '{tag: $t, isPrerelease: $p, manifest: .}' \
+              "$d/release-manifest.json" >> "$work/releases.ndjson"
+          done < <(gh release list -R t3foundry/tasra-releases --exclude-drafts --limit 100 \
+                     --json tagName,isPrerelease --jq '.[] | [.tagName, .isPrerelease] | @tsv')
+          tag="$(node scripts/certified-release.mjs "$work/releases.ndjson" "$GITHUB_SHA" "$integrity")"
+          d="$work/r/$tag"
+          cosign verify-blob --bundle "$d/SHA256SUMS.sigstore.json" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp '^https://github\.com/managination/keykeeper-network/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+            "$d/SHA256SUMS"
+          ( cd "$d" && grep -E '  release-manifest\.json$' SHA256SUMS | sha256sum -c - )
+          echo "::notice::certified with keykeeper-network $tag (signature and manifest checksum verified)"
+
       # Repository gate; live deployment acceptance is recorded separately.
       - run: npm run verify
 

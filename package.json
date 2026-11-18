@@ -231,7 +231,7 @@
     "docs:build": "npm run build --prefix site",
     "verify:document-app": "node test/document-app-check.mjs",
     "verify": "node scripts/verify.mjs",
-    "verify:infrastructure": "node --test scripts/verify-infrastructure.test.mjs scripts/git-hooks.test.mjs scripts/api-surface.test.mjs scripts/api-changes.test.mjs scripts/quality.test.mjs scripts/performance.test.mjs scripts/publication.test.mjs scripts/release-tag.test.mjs scripts/audit.test.mjs scripts/rego-pins.test.mjs",
+    "verify:infrastructure": "node --test scripts/verify-infrastructure.test.mjs scripts/git-hooks.test.mjs scripts/api-surface.test.mjs scripts/api-changes.test.mjs scripts/quality.test.mjs scripts/performance.test.mjs scripts/publication.test.mjs scripts/release-tag.test.mjs scripts/certified-release.test.mjs scripts/audit.test.mjs scripts/rego-pins.test.mjs",
     "verify:repository": "node scripts/verify-repository.mjs && node scripts/check-rego-pins.mjs && npm run api:changes",
     "verify:security": "node scripts/audit.mjs && npm audit signatures",
     "verify:site": "npm ci --prefix site && npm run docs:build",
