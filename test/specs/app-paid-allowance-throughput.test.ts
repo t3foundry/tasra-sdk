@@ -165,8 +165,12 @@ describe('allowance debits with the real voucher round in one process (file stor
     // points). Decoding the key per voucher made it three per voucher.
     expect(many.g2Decodes).toBeLessThanOrEqual(2 * 64)
     // Rounds overlap: 64 rounds serialized on one lane, or CPU-bound one after another at the old
-    // per-voucher cost, take several seconds; overlapped they take about one second.
-    expect(many.wall).toBeLessThan(5_000)
+    // per-voucher cost, take about 64 single rounds; overlapped they take a fraction of that. Bounded
+    // RELATIVE to this machine's own single round, not in absolute milliseconds: on GitHub-hosted
+    // runners one round takes 136-245 ms and 64 overlapped ones 2.2-5.1 s (0.24-0.40 of serial), so
+    // the old fixed 5 s bound failed on slow runners while overlap was intact (CI, 2026-11-17/18:
+    // 5031, 5036, 5095, 5121 ms). At least 2x overlap: serialized execution (~1.0) still fails.
+    expect(many.wall).toBeLessThan(32 * one.wall)
     // Each debit is three durable commits (journal, debit + journal, lane advance), each needing a
     // data barrier and a directory sync. Concurrent debits share them, and since data barriers and
     // directory syncs are one flush step, a commit's directory sync is the next one's barrier: about
