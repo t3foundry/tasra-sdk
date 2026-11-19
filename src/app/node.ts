@@ -69,7 +69,8 @@ function decode(value: Encoded): unknown {
   }
 }
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
-/** How often one load re-opens a value replaced (renamed over) between its open and its fstat. */
+/** How often one load re-opens a value replaced (renamed over) between its open and its fstat
+ * before it reads the superseded value it opened (see `load`). */
 const LOAD_REPLACED_RETRIES = 64
 
 // In-process lock queue. Every file store in this process (one directory may have several store
@@ -362,8 +363,17 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
       // Every save publishes by renaming a new file OVER the old one, so a load that opened the old
       // value an instant before holds an inode no name refers to any more: fstat reports nlink 0.
       // That inode is a superseded value, not the file at `target`; read the one that replaced it
-      // (whose every property is checked again). Exactly nlink 0 is retried, never accepted, and
-      // only a bounded number of times; any other link count, mode or owner is refused as before.
+      // (whose every property is checked again), a bounded number of times.
+      //
+      // If every attempt lost that race, read the superseded inode itself: it WAS the value at
+      // `target` when it was opened (O_NOFOLLOW, by name), so returning it is an ordinary read
+      // ordered just before the commit that replaced it. It still must be a private regular file
+      // of ours; only the link count differs, and nlink 0 cannot be a planted hard link (that has
+      // a second name, so nlink >= 2, which stays refused). Refusing it instead turned writer
+      // contention into a load FAILURE (tasra-sdk 4e67a60, release cert 44454169835 on EC2):
+      // open and fstat both queue in libuv's 4-thread pool behind the committers' O_DSYNC writes
+      // and directory syncs, so on a slow-fsync host a rename lands in that window attempt after
+      // attempt and all 64 retries lose.
       for (let attempt = 0; ; attempt++) {
         let file
         try { file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW) }
@@ -371,7 +381,8 @@ export function createFileStore(directory: string, options: FileStoreOptions = {
         try {
           const stat = await file.stat()
           if (stat.nlink === 0 && stat.isFile() && attempt < LOAD_REPLACED_RETRIES) continue
-          if (!stat.isFile() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0 || stat.uid !== process.getuid?.()) throw new TasraError('State file must be a private regular file')
+          const superseded = stat.nlink === 0
+          if (!stat.isFile() || (stat.nlink !== 1 && !superseded) || (stat.mode & 0o077) !== 0 || stat.uid !== process.getuid?.()) throw new TasraError('State file must be a private regular file')
           const envelope = JSON.parse(await file.readFile('utf8')) as {schemaVersion: number; value: Encoded}
           if (envelope.schemaVersion !== 1) throw new TasraError('Unsupported state schema')
           return decode(envelope.value) as T
