@@ -56,7 +56,7 @@ Operations you can import and call.
 
 The directory is private, trusted application state, not an untrusted shared folder.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L180)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L181)
 
 Import: `import {createFileStore} from 'tasra-sdk/app/node'`
 
@@ -111,7 +111,7 @@ Fields:
 
 Options for [createFileStore](#createfilestore).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L165)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L166)
 
 ```ts
 export interface FileStoreOptions {
@@ -129,4 +129,4 @@ Shared values and contract definitions.
 
 | Export | Description | Definition |
 |---|---|---|
-| `fileStoreSyncCounters` | Durable-write steps the store counts (for tests and measurement); never part of the stored state. `flushes`: device flushes of a state directory (each one F_FULLFSYNC on macOS), whatever they served; `shared`: those that served a data barrier and a directory sync at once; `fileSyncs`: per-file syncs (only without O_DSYNC). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L150) |
+| `fileStoreSyncCounters` | Durable-write steps the store counts (for tests and measurement); never part of the stored state. `flushes`: device flushes of a state directory (each one F_FULLFSYNC on macOS), whatever they served; `shared`: those that served a data barrier and a directory sync at once; `fileSyncs`: per-file syncs (only without O_DSYNC). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/app/node.ts#L151) |
