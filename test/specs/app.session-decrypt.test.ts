@@ -151,7 +151,9 @@ describe('one message across a beacon-epoch boundary (C19)', () => {
     expect(state.epoch).toBe(20)
     // The follow was (re)started in the background, never awaited.
     expect(follows).toBeGreaterThan(0)
-  }, 2_000)
+    // No speed bound: a decrypt that awaited the never-completing follow would never return, so the
+    // suite's hang guard (vitest.config.ts) decides, not how fast this host signs.
+  })
 
   it('a draw that moved before anything was signed (PaidDrawMovedError) refreshes and pays once on the new draw', async () => {
     const {session} = fakeSession(30)

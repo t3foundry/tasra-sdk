@@ -13,6 +13,7 @@ import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.js'
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
 import {thresholdRandomBeaconAbi} from '../../src/chain/abis/thresholdRandomBeacon.js'
 import {verifierSetRegistryAbi} from '../../src/chain/abis/verifierSetRegistry.js'
+import {onPausedClock, settledValue} from '../support/pausedClock.js'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
@@ -92,7 +93,7 @@ describe('the allowance backing on a Settlement without range settlement ("4")',
       follow(world.client, () => tip)
       world.calls.length = 0
       followPaidRequest(world.client, deployment, payment)
-      await vi.waitFor(() => expect(world.calls).toContain('version'))
+      await vi.waitFor(() => expect(world.calls).toContain('version'), {timeout: 30_000})
       await new Promise(done => setTimeout(done, 20))
       expect(world.calls).not.toContain('prepaidAllowanceSettledSeq')
     } finally { unfollowHeads(world.client) }
@@ -162,11 +163,13 @@ describe('the quote block epoch read of the client execution policy', () => {
     let tip: FollowedHead = {blockNumber: 355n, blockHash: HEAD1, blockTimestamp: T, parentHash: h(1)}
     follow(f.client, () => tip)
     try {
-      await readClientExecutionPolicy(f.client, d, paid, intended)
+      // Rounds are read off a PAUSED clock (every RPC holds 10 fake ms): reads overlap or chain by what
+      // the code awaited, never by whether a loaded host issued one of them late.
+      settledValue((await onPausedClock(() => readClientExecutionPolicy(f.client, d, paid, intended))).result)
       // A new head: none of its reads is cached. Before, the recheck waited for them: 2 rounds.
       tip = {blockNumber: 356n, blockHash: HEAD2, blockTimestamp: T, parentHash: HEAD1}
       f.spans.length = 0; f.recheck.length = 0
-      await readClientExecutionPolicy(f.client, d, paid, intended)
+      settledValue((await onPausedClock(() => readClientExecutionPolicy(f.client, d, paid, intended))).result)
       expect(f.recheck).toHaveLength(1)
       expect(sequentialRounds(f.spans)).toBe(1)
     } finally { unfollowHeads(f.client) }
@@ -180,9 +183,9 @@ describe('the in-flight request pre-read', () => {
     follow(f.client, () => tip)
     try {
       followPaidRequest(f.client, d, paid)
-      await vi.waitFor(() => expect(f.names).toContain('snapshotAt(64)'))
-      await new Promise(done => setTimeout(done, 20))
-      expect(f.names).toContain('seedAt(64)')
+      await vi.waitFor(() => expect(f.names).toContain('snapshotAt(64)'), {timeout: 30_000})
+      // The pre-read's second anchor lands when it lands: waited for (hang guard), never given 20 ms.
+      await vi.waitFor(() => expect(f.names).toContain('seedAt(64)'), {timeout: 30_000})
       f.names.length = 0
       await readClientExecutionPolicy(f.client, d, paid, intended)
       // Before: both were read in the decision, a round of their own when every other read was cached.

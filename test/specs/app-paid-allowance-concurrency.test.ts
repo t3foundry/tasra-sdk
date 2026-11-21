@@ -93,13 +93,15 @@ describe('allowance lanes under concurrency in one process (file store)', () => 
     const {env} = await world(ids, lanes)
     // Each round holds until every operation's round is in flight (bounded): overlapping rounds pass
     // at once; rounds serialized behind one lane lock would wait out the bound one after another.
+    // The bound is a HANG GUARD only (30 s): a loaded host that is slow to start the last round must
+    // never release the first ones early and read as "did not overlap".
     let inFlight = 0, most = 0
     let release!: () => void
     const all = new Promise<void>(resolve => { release = resolve })
     vi.mocked(collectDebitVoucher).mockImplementation(async (_client, _d, request) => {
       most = Math.max(most, ++inFlight)
       if (inFlight === n) release()
-      await Promise.race([all, new Promise(resolve => setTimeout(resolve, 3_000))])
+      await Promise.race([all, new Promise(resolve => setTimeout(resolve, 30_000))])
       inFlight--
       return {voucher: voucherOf(request), partials: [], outcomes: []}
     })
@@ -109,27 +111,28 @@ describe('allowance lanes under concurrency in one process (file store)', () => 
     expect(done.every(d => d.voucher.seq === 1 && d.voucher.cumulative === '40')).toBe(true)
   }, 60_000)
 
-  it('takes about one accountant round of wall time for N concurrent debits on N lanes, not N rounds', async () => {
-    const ids = slots(2), lanes = 8, n = ids.length * lanes, delay = 200
+  it('takes ONE accountant round for N concurrent debits on N lanes, not N rounds', async () => {
+    const ids = slots(2), lanes = 8, n = ids.length * lanes
     const {env} = await world(ids, lanes)
-    let wait = 0
+    // Rounds by ORDER, not wall time (this test used to bound the wall clock against an instant-round
+    // baseline): a round that starts after another one ENDED is a second round. Every round is held
+    // until all n are in flight (30 s hang guard), so overlapped rounds all start before any ends on
+    // any host; before the fix a slot's 8 operations queued on ONE lane, 8 rounds back to back, and
+    // the ones behind the first started only after it ended.
+    let inFlight = 0, ended = 0
+    const endedBeforeStart: number[] = []
+    let release!: () => void
+    const all = new Promise<void>(resolve => { release = resolve })
     vi.mocked(collectDebitVoucher).mockImplementation(async (_client, _d, request) => {
-      await new Promise(resolve => setTimeout(resolve, wait))
+      endedBeforeStart.push(ended)
+      if (++inFlight === n) release()
+      await Promise.race([all, new Promise(resolve => setTimeout(resolve, 30_000))])
+      inFlight--; ended++
       return {voucher: voucherOf(request), partials: [], outcomes: []}
     })
-    const wave = async () => {
-      const started = performance.now()
-      const done = await Promise.all(Array.from({length: n}, (_, i) => operate(env, ids[i % ids.length]!)))
-      expect(new Set(done.map(d => `${d.slot}:${d.lane}`)).size).toBe(n)
-      return performance.now() - started
-    }
-    // The same wave with an instant round measures the store's own cost on this machine right now.
-    const store = await wave()
-    wait = delay
-    const wall = await wave()
-    // About one round on top of the store's journal writes. Before the fix every slot's 8 operations
-    // took ONE lane and ran their 8 rounds back to back: at least 8 x delay more than the store.
-    expect(wall - store).toBeLessThan(4 * delay)
+    const done = await Promise.all(Array.from({length: n}, (_, i) => operate(env, ids[i % ids.length]!)))
+    expect(new Set(done.map(d => `${d.slot}:${d.lane}`)).size).toBe(n)
+    expect(endedBeforeStart).toEqual(Array<number>(n).fill(0))
   }, 60_000)
 
   it('two concurrent debits on the SAME lane are strictly ordered: seq n then n + 1, each round chained on the previous voucher', async () => {

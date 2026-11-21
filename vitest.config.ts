@@ -15,6 +15,11 @@ export default defineConfig({
     include: ['test/specs/**/*.test.ts'],
     allowOnly: false, // A focused test must never make the merge gate green.
     passWithNoTests: false,
+    // Hang guards, not speed bounds (vitest's 5 s default made a slow host fail work that was only
+    // slow: the network certification runs this suite beside builds). No assertion here may depend on
+    // how fast the host runs; a test that needs time reads a paused clock (test/support/pausedClock.ts).
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
     // One worker per spec file, so each suite gets its own module registry —
     // several patch globalThis.fetch or depend on module-level state.
     isolate: true,
