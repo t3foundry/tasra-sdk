@@ -506,12 +506,12 @@ describe('a failed follow is retried by a later observation at the same epoch (r
     ctx.key = o.key
     o.session.observeBeacon(43n)
     // The background run gives up after its bounded attempts.
-    await vi.waitFor(() => expect(ctx.seqs).toHaveLength(20))
+    await vi.waitFor(() => expect(ctx.seqs).toHaveLength(20), {timeout: 30_000})
     await new Promise(resolve => setTimeout(resolve, 0))
     ctx.drawable = 43n
     // Only the observation (no explicit followBeacon) may restart it.
     o.session.observeBeacon(43n)
-    await vi.waitFor(() => expect(o.session.current().epoch).toBe(43))
+    await vi.waitFor(() => expect(o.session.current().epoch).toBe(43), {timeout: 30_000})
     expect(ctx.seqs).toHaveLength(21)
   })
 
@@ -573,7 +573,7 @@ describe('every follow waiter settles (C19 hang: exit 13, unsettled top-level aw
       ctx.key = o.key
       // Background only (an observation): its pause is unreferenced.
       o.session.observeBeacon(43n)
-      await vi.waitFor(() => expect(p.created).toHaveLength(1))
+      await vi.waitFor(() => expect(p.created).toHaveLength(1), {timeout: 30_000})
       expect(p.created[0]!.hasRef()).toBe(false)
       // A caller joins and waits: the running pause now holds the process, and so does every later one.
       // (Before the fix every pause stayed unreferenced, so a top-level `await` on a message whose
@@ -593,14 +593,15 @@ describe('every follow waiter settles (C19 hang: exit 13, unsettled top-level aw
     ctx.key = o.key
     o.session.observeBeacon(43n)
     const waiting = o.session.followBeacon()
-    await vi.waitFor(() => expect(ctx.seqs).toHaveLength(1))
+    await vi.waitFor(() => expect(ctx.seqs).toHaveLength(1), {timeout: 30_000})
     await new Promise(resolve => setImmediate(resolve))
     o.session.stop()
     await expect(waiting).rejects.toThrow(/follow stopped/)
     // The held grant is unchanged and still serves; a later observation follows again.
     expect(o.session.current().epoch).toBe(42)
     expect(ctx.seqs).toHaveLength(1)
-  }, 2_000)
+    // A hang guard at half the 60 s follow pause the waiter must not sit out - never a speed bound.
+  }, 30_000)
 
   it('a revoke while a follow pauses rejects its waiter at once; the ended session serves nothing', async () => {
     const ctx: {key?: SessionKeyHandle; now: number; drawable: bigint; seqs: number[]} = {now: T0 + 5, drawable: 42n, seqs: []}
@@ -612,13 +613,14 @@ describe('every follow waiter settles (C19 hang: exit 13, unsettled top-level aw
     o.session.observeBeacon(43n)
     const waiting = o.session.followBeacon()
     const settled = waiting.then(() => 'resolved', (e: unknown) => e)
-    await vi.waitFor(() => expect(ctx.seqs).toHaveLength(1))
+    await vi.waitFor(() => expect(ctx.seqs).toHaveLength(1), {timeout: 30_000})
     await new Promise(resolve => setImmediate(resolve))
     await o.session.revoke()
     const outcome = await settled
     expect(outcome).toBeInstanceOf(Error)
     expect(() => o.session.current()).toThrow(SessionEndedError)
-  }, 2_000)
+    // A hang guard at half the 60 s follow pause the waiter must not sit out - never a speed bound.
+  }, 30_000)
 })
 
 describe('background refresh does not defeat the idle timeout (review F5)', () => {

@@ -85,26 +85,32 @@ for (const mode of ['timeout', 'cancel']) void test(`${mode} finishes process-gr
   if (process.platform === 'win32') { t.skip('POSIX process-group guarantee; CI runs Linux/macOS'); return }
   const {directory} = fixture(t)
   const pidFile = join(directory, 'descendant.pid'), beatFile = join(directory, 'heartbeat')
-  const descendant = `process.on('SIGTERM',()=>{}); require('fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid)); setInterval(()=>require('fs').appendFileSync(${JSON.stringify(beatFile)},'x'),20)`
-  const parent = `require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'ignore'});process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},100)`
+  // The PARENT records the descendant's pid the moment it is spawned (the descendant need not have
+  // booted), and the runner cancels only once that record exists: the kill always lands on a live
+  // tree, however slow the host is to start processes. The timeout mode's 5 s is a bound on one Node
+  // start-up (the parent's), generous on any host, not a speed claim.
+  const descendant = `process.on('SIGTERM',()=>{}); setInterval(()=>require('fs').appendFileSync(${JSON.stringify(beatFile)},'x'),20)`
+  const parent = `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'ignore'});require('fs').writeFileSync(${JSON.stringify(pidFile)},String(c.pid));process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},100)`
   const runner = join(directory, 'runner.mjs')
   const library = new URL('./verify-lib.mjs', import.meta.url).href
-  writeFileSync(runner, `import {execute} from ${JSON.stringify(library)};
+  writeFileSync(runner, `import {existsSync} from 'node:fs';import {execute} from ${JSON.stringify(library)};
     const controller=new AbortController();
-    ${mode === 'cancel' ? 'setTimeout(()=>controller.abort(),500);' : ''}
-    const result=await execute([{id:'tree',command:process.execPath,args:['-e',${JSON.stringify(parent)}],timeoutMs:${mode === 'timeout' ? 500 : 5000}}],{cwd:${JSON.stringify(directory)},directory:${JSON.stringify(directory)},output:null,signal:controller.signal});
+    ${mode === 'cancel' ? `const started=setInterval(()=>{if(existsSync(${JSON.stringify(pidFile)})){clearInterval(started);controller.abort()}},10);` : ''}
+    const result=await execute([{id:'tree',command:process.execPath,args:['-e',${JSON.stringify(parent)}],timeoutMs:${mode === 'timeout' ? 5000 : 120_000}}],{cwd:${JSON.stringify(directory)},directory:${JSON.stringify(directory)},output:null,signal:controller.signal});
     if(result.status!=='failed')process.exitCode=1;
   `)
   t.after(() => {
     if (existsSync(pidFile)) { try { process.kill(Number(readFileSync(pidFile, 'utf8')), 'SIGKILL') } catch (error) { if (error.code !== 'ESRCH') throw error } }
   })
-  const result = spawnSync(process.execPath, [runner], {encoding: 'utf8', timeout: 8000})
+  const result = spawnSync(process.execPath, [runner], {encoding: 'utf8', timeout: 180_000})
   assert.equal(result.status, 0, result.stderr)
-  assert.ok(existsSync(pidFile), 'descendant actually started')
+  assert.ok(existsSync(pidFile), 'descendant actually spawned')
+  // A descendant killed before it booted never wrote a heartbeat: that is cleanup too.
+  const beats = () => existsSync(beatFile) ? readFileSync(beatFile, 'utf8') : ''
   await new Promise(resolve => setTimeout(resolve, 100))
-  const before = readFileSync(beatFile, 'utf8')
+  const before = beats()
   await new Promise(resolve => setTimeout(resolve, 150))
-  assert.equal(readFileSync(beatFile, 'utf8'), before, 'descendant must not continue writing after verifier exit')
+  assert.equal(beats(), before, 'descendant must not continue writing after verifier exit')
 })
 
 void test('CI cannot upload unrestricted private verification evidence', async () => {

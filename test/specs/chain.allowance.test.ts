@@ -10,6 +10,7 @@ import {PaidReservationQuorumNotPreparedError, PaidReservationUncertainError} fr
 import {settlementAbi} from '../../src/chain/abis/settlement.js'
 import {debitVoucherWireDigest, paymentIntentTypedData, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
 import {readClientExecutionPolicy, readPaidOperationReceipt, resolvePaidKeeperTarget} from '../../src/chain/prepaid.js'
+import {onPausedClock, settledValue} from '../support/pausedClock.js'
 import {combineBn254} from '../../src/crypto/bn254.js'
 import {hexToBytes} from '../../src/crypto/hex.js'
 
@@ -198,14 +199,16 @@ describe('collectDebitVoucher', () => {
 
   it('returns the voucher at k answers: a member that never answers delays nothing (its request runs on)', async () => {
     const world = allowanceWorld({members: [{}, {}, {hang: true}]}), {payment, quoteBlock} = await request(world)
-    const started = performance.now()
     const {voucher, outcomes} = await collectDebitVoucher(world.client, deployment, {payment, seq: 1, quoteBlock, maxOpCost: 100n},
-      {accountantUrls: world.accountantUrls, requestTimeoutMs: 20_000})
-    expect(performance.now() - started).toBeLessThan(5_000)
+      {accountantUrls: world.accountantUrls, requestTimeoutMs: 60_000})
+    // An order, not a stopwatch: the voucher is back while the silent member's request is still
+    // open - not aborted by its timeout (waited out) nor cancelled (it runs on).
+    const silent = world.fetcher.mock.calls.find(([url]) => String(url).includes('acct2') && String(url).endsWith('/debits'))
+    expect((silent?.[1] as RequestInit | undefined)?.signal?.aborted).toBe(false)
     expect(world.debits).toHaveLength(3)
     expect(outcomes.map(o => o.url)).toEqual(['https://acct0.example', 'https://acct1.example'])
     await verifyDebitVoucher(world.client, deployment, voucher)
-  }, 10_000)
+  }, 60_000)
 
   it('a forged partial outside the first k is not needed; one inside it is named and replaced by the next member', async () => {
     const late = allowanceWorld({members: [{}, {}, {forge: true}]}), {payment, quoteBlock} = await request(late)
@@ -221,10 +224,12 @@ describe('collectDebitVoucher', () => {
 
   it('reads the group key in one RPC round with the approved beacon, and while the members answer', async () => {
     const world = allowanceWorld({rpcDelayMs: 40}), {payment, quoteBlock} = await request(world)
-    await readAccountantGroupKey(world.client, deployment, h(0x66))
+    // Rounds are read off a PAUSED clock: every RPC holds 40 fake ms, so two reads overlap or chain by
+    // what the code awaited, never by whether a loaded host issued the second one late.
+    settledValue((await onPausedClock(() => readAccountantGroupKey(world.client, deployment, h(0x66)))).result)
     expect(sequentialRounds(world.rpcSpans)).toBe(1)
     world.rpcSpans.length = 0
-    await collectDebitVoucher(world.client, deployment, {payment, seq: 1, quoteBlock, maxOpCost: 100n}, {accountantUrls: world.accountantUrls})
+    settledValue((await onPausedClock(() => collectDebitVoucher(world.client, deployment, {payment, seq: 1, quoteBlock, maxOpCost: 100n}, {accountantUrls: world.accountantUrls}))).result)
     expect(sequentialRounds(world.rpcSpans)).toBe(1)
   }, 30_000)
 

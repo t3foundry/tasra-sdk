@@ -58,6 +58,8 @@ const seen: Seen[] = []
 let status = 200
 /** Delay the reply by this many ms, to let a timeout fire. */
 let delayMs = 0
+/** Delayed replies that were actually delivered (their delay ran out before any abort). */
+let delivered = 0
 /** Reply as text rather than JSON (the /metrics shape). */
 const TEXT_BODY = '# HELP up 1\n# TYPE up gauge\nup 1\n'
 
@@ -68,7 +70,7 @@ globalThis.fetch = (async (url: string, init?: RequestInit) => {
   if (delayMs > 0) {
     // Honour the abort signal the helper passed, the way a real fetch does.
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, delayMs)
+      const timer = setTimeout(() => { delivered++; resolve() }, delayMs)
       init?.signal?.addEventListener('abort', () => {
         clearTimeout(timer)
         const err = new Error('The operation was aborted')
@@ -162,11 +164,12 @@ try {
     // unreachable node must cost its timeout and not the cycle. Asserted by delaying the
     // reply past a short timeout and requiring the call to reject.
     delayMs = 5_000
-    const started = Date.now()
+    const before = delivered
     await rejectsWith('a slow JSON read is aborted by the timeout', /abort/i, () =>
       nodeApi.info(NODE, {timeoutMs: 30}),
     )
-    ok('…and it gave up quickly rather than waiting out the reply', Date.now() - started < 2_000)
+    // An order, not a stopwatch: the 30 ms timeout fired before the 5 s reply, however loaded the host.
+    ok('…and it gave up at its timeout rather than waiting out the reply', delivered === before && seen.at(-1)?.signal?.aborted === true)
     await rejectsWith('a slow TEXT read is aborted too', /abort/i, () => nodeApi.metrics(NODE, {timeoutMs: 30}))
     delayMs = 0
 

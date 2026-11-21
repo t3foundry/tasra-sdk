@@ -1,6 +1,6 @@
 // The paid pacer: strict hint parsing, the hint as a floor, the deadline never extended, and the
 // transports that surface a limiter's text/plain 429 with its wait headers. Deterministic clock.
-import {expect, it} from 'vitest'
+import {expect, it, vi} from 'vitest'
 import {PaidBackoff, paidResponseWaitMs, paidServerWaitMs, systemPacingClock, PAID_MAX_ATTEMPTS, PAID_MAX_WAIT_MS} from '../../src/chain/paidPacing.js'
 import {acceptsServiceResponse, serviceRequestShape} from '../../src/chain/serviceRequestPolicy.js'
 import {createBrowserPaidAgentTransport} from '../../src/app/browser.js'
@@ -84,7 +84,9 @@ it('bounds attempts even with an unreachable deadline', async () => {
 })
 
 it('the system clock sleeps, aborts and jitters within a quarter of the base', async () => {
-  expect(Math.abs(systemPacingClock.now() - Date.now())).toBeLessThan(1000)
+  // The system clock IS Date.now: equal on a frozen clock, not "within 1 s" of a moving one.
+  vi.useFakeTimers({toFake: ['Date'], now: 1_700_000_000_123})
+  try { expect(systemPacingClock.now()).toBe(1_700_000_000_123) } finally { vi.useRealTimers() }
   await systemPacingClock.sleep(1)
   const controller = new AbortController()
   const sleeping = systemPacingClock.sleep(60_000, controller.signal)

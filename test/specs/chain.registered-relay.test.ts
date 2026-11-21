@@ -8,6 +8,7 @@ import type {ServiceApproval} from '../../src/chain/services.js'
 import {assertRelayVoucherIntent, assertRelayVoucher, type RelayVoucher, type RelayVoucherIntent} from '../../src/chain/relayVoucher.js'
 import {requestHash} from '../../src/oid4vp/binding.js'
 import {hexToBytes, bytesToHex} from '../../src/crypto/hex.js'
+import {onPausedClock, settledError} from '../support/pausedClock.js'
 
 vi.mock('../../src/chain/serviceIdentity.js', async original => ({...await original<typeof import('../../src/chain/serviceIdentity.js')>(), authenticateApprovedService: vi.fn()}))
 
@@ -275,9 +276,11 @@ describe('approved registered relayer writes', () => {
     })
     vi.mocked(h.transport.relayRequest).mockImplementation(async () => { statuses++; throw new Error('unknown request id') })
     const relay = h.submitter({approvals: [approval('01')], attemptMs: 20, pollMs: 10, timeoutMs: 5_000})
-    const started = Date.now()
-    const error = await relay.submit(target, '0x12345678').catch((e: unknown) => e)
-    expect(Date.now() - started).toBeLessThan(1_000)
+    // On a paused clock: watching the provider would show here as the whole 5 s budget, exactly,
+    // whatever the host's load; stopping at the refusal waits nothing.
+    const {result, elapsedMs} = await onPausedClock(() => relay.submit(target, '0x12345678'))
+    const error = settledError(result)
+    expect(elapsedMs).toBeLessThan(1_000)
     expect(error).toBeInstanceOf(RelayOutcomeUnknownError)
     expect((error as Error).message).toContain("relayer refused: identity budget: this holder's daily sponsorship budget is used up")
     expect(statuses).toBe(0)

@@ -87,6 +87,22 @@ async function accountants(): Promise<string[]> {
   return ports.map(port => `http://127.0.0.1:${port}`)
 }
 
+/** Tell the fake accountants to hold debits until `n` are in flight at each member (see the worker). */
+async function hold(n: number) {
+  const [worker] = workers
+  const held = new Promise(resolve => { worker!.once('message', resolve) })
+  worker!.postMessage({hold: n})
+  expect(await held).toEqual({held: n})
+}
+
+/** The peak number of debits each fake accountant held at once since the last {@link hold}. */
+async function peaksAtMembers(): Promise<{peaks: number[]}> {
+  const [worker] = workers
+  const answer = new Promise<{peaks: number[]}>(resolve => { worker!.once('message', resolve) })
+  worker!.postMessage({peaks: true})
+  return answer
+}
+
 async function world(slotIds: readonly Hex[], lanes: number) {
   const accountantUrls = await accountants()
   const directory = await mkdtemp(join(tmpdir(), 'tasra-allowance-throughput-')); directories.push(directory)
@@ -155,22 +171,26 @@ describe('allowance debits with the real voucher round in one process (file stor
     const {env} = await world(ids, lanes)
     const one = await wave(env, ids, 1)
     expect(one.vouchers[0]!.seq).toBe(1)
+    // Every member holds its debits until 32 of the 64 are in flight at once (worker hang guard 30 s).
+    await hold(32)
     const many = await profiled('debits-64', () => wave(env, ids, 64))
+    const {peaks} = await peaksAtMembers()
     expect(new Set(many.vouchers.map(v => v.allowance_id)).size).toBe(64)
     process.stderr.write(`[throughput] 1 op: ${one.wall.toFixed(0)} ms wall, ${one.busyPerOp.toFixed(1)} ms busy; 64 ops: ${many.wall.toFixed(0)} ms wall, `
-      + `${many.busyPerOp.toFixed(1)} ms event-loop busy/op, ${many.g2Decodes} G2 subgroup checks; syncs/op ${JSON.stringify(many.syncsPerOp)}\n`)
+      + `${many.busyPerOp.toFixed(1)} ms event-loop busy/op, ${many.g2Decodes} G2 subgroup checks; syncs/op ${JSON.stringify(many.syncsPerOp)}; peak debits in flight per member ${peaks.join('/')}\n`)
     // Each voucher costs one pairing check against the group key. The key itself (subgroup-checked
     // decode + pairing line precomputation, about a third of that check) is paid once per key: the
     // only G2 subgroup checks left per voucher are the pairing's own two (memoized on the cached
     // points). Decoding the key per voucher made it three per voucher.
     expect(many.g2Decodes).toBeLessThanOrEqual(2 * 64)
-    // Rounds overlap: 64 rounds serialized on one lane, or CPU-bound one after another at the old
-    // per-voucher cost, take about 64 single rounds; overlapped they take a fraction of that. Bounded
-    // RELATIVE to this machine's own single round, not in absolute milliseconds: on GitHub-hosted
-    // runners one round takes 136-245 ms and 64 overlapped ones 2.2-5.1 s (0.24-0.40 of serial), so
-    // the old fixed 5 s bound failed on slow runners while overlap was intact (CI, 2026-11-17/18:
-    // 5031, 5036, 5095, 5121 ms). At least 2x overlap: serialized execution (~1.0) still fails.
-    expect(many.wall).toBeLessThan(32 * one.wall)
+    // Rounds overlap: at least 32 of the 64 debit rounds are in flight at every member at once (2x
+    // overlap at the least). COUNTED, not timed - a 5 s bound and then one relative to this machine's
+    // own single round both failed on loaded runners while overlap was intact (CI 2026-11-17/18;
+    // the network certification beside a build). Rounds serialized on one lane, or run one after
+    // another, never hold more than one round's debits at a member, so they still fail. The wall
+    // times are logged above, not asserted.
+    expect(peaks).toHaveLength(3)
+    for (const peak of peaks) expect(peak).toBeGreaterThanOrEqual(32)
     // Each debit is three durable commits (journal, debit + journal, lane advance), each needing a
     // data barrier and a directory sync. Concurrent debits share them, and since data barriers and
     // directory syncs are one flush step, a commit's directory sync is the next one's barrier: about

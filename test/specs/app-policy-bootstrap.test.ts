@@ -323,7 +323,7 @@ describe('paidPolicyOperation: one operation per key', () => {
     let release!: () => void
     vi.mocked(drivePaidSession).mockImplementationOnce(() => new Promise(resolve => { release = () => resolve({status: 'done', phase: 'done'}) }))
     const first = paidPolicyOperation(f.config, request(f, b))
-    await vi.waitFor(() => expect(drivePaidSession).toHaveBeenCalled())
+    await vi.waitFor(() => expect(drivePaidSession).toHaveBeenCalled(), {timeout: 30_000})
     await expect(paidPolicyOperation(f.config, request(f, b))).rejects.toBeInstanceOf(PolicyOperationError)
     release()
     ;(await first).dispose()

@@ -180,7 +180,9 @@ describe('strict identity extraction', () => {
     expect(stalledSignal?.aborted).toBe(true)
     result.key.fill(0)
     } finally { vi.useRealTimers() }
-  }, 2_000)
+    // Timers are frozen, so waiting on the stalled keeper would never end: the suite's hang guard
+    // decides (vitest.config.ts), not a 2 s bound on how fast this host verifies the quorum.
+  })
 
   it.each(['slot', 'receipt', 'pairing'])('skips an invalid %s reply without consuming quorum capacity', async field => {
     const opts = extraction({}, (row, index) => {

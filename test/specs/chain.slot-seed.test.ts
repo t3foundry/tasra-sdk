@@ -12,6 +12,8 @@ import {requestSlotSeed} from '../../src/chain/slotSeed.js'
 import {SlotRevealNotYetError, SlotSeedUnavailableError} from '../../src/chain/commitmentRecovery.js'
 import {resolveAccountantUrls, ACCOUNTANT_TAG} from '../../src/chain/discovery.js'
 import type {TasraChainClient} from '../../src/chain/client.js'
+import {DEFAULT_SLOT_SEED_RETRY_MS} from '../../src/chain/slotSeed.js'
+import {onPausedClock, settledError, settledValue} from '../support/pausedClock.js'
 
 const mocks = vi.hoisted(() => ({submit: vi.fn(), read: vi.fn(), receipt: vi.fn()}))
 vi.mock('viem', async original => ({...await original<typeof import('viem')>(), createPublicClient: () => ({readContract: mocks.read, getTransactionReceipt: mocks.receipt})}))
@@ -155,9 +157,10 @@ it('pins the rule policy in the seeded reveal, in the same transaction', async (
 it('fails fast with a typed error when no accountant serves a seed, without polling the beacon', async () => {
   vi.stubGlobal('fetch', fleet({'http://a': 'throw'}))
   const h = writer(false)
-  const started = Date.now()
-  const error = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a']}).catch((e: unknown) => e)
-  expect(Date.now() - started).toBeLessThan(2_000)
+  // On a paused clock: the time the creation chose to wait, never how fast this host ran it.
+  const {result, elapsedMs} = await onPausedClock(() => h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a']}))
+  const error = settledError(result)
+  expect(elapsedMs).toBeLessThan(2_000)
   expect(error).toBeInstanceOf(SlotSeedUnavailableError)
   expect(error).toMatchObject({detail: {committed: true, commitment: COMMITMENT, expiryEpoch: 20}})
   expect((error as Error).message).toContain('unreachable')
@@ -346,9 +349,10 @@ it('an existing epoch-path commitment before its target says "not yet" at once i
   vi.stubGlobal('fetch', f)
   const h = writer(false)
   const reg = pathRegistry(h, {[COMMITMENT]: {path: 1, target: 9n}})
-  const started = Date.now()
-  const error = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a'], recovery: {commitTx: hash('09'), onTransaction: vi.fn(async () => {})}}).catch((e: unknown) => e)
-  expect(Date.now() - started).toBeLessThan(1_000)
+  const {result, elapsedMs} = await onPausedClock(() => h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://a'], recovery: {commitTx: hash('09'), onTransaction: vi.fn(async () => {})}}))
+  const error = settledError(result)
+  // Paused clock: no wait at all, however slow the host.
+  expect(elapsedMs).toBe(0)
   expect(error).toBeInstanceOf(SlotRevealNotYetError)
   expect(error).toMatchObject({targetEpoch: 9, currentEpoch: 2, expiryEpoch: 20, retryable: true})
   expect((error as Error).message).toContain('not revealable until beacon epoch 9')
@@ -406,13 +410,13 @@ it('asks concurrently: a slow first accountant does not hold up a fast second, a
     return {ok: true, status: 200, headers: new Headers(), json: async () => ({commitment: ordered, digest: DIGEST, signature: SIG}), text: async () => ''} as unknown as Response
   })
   vi.stubGlobal('fetch', f)
-  const started = Date.now()
   await expect(requestSlotSeed(seedChain(), address, ordered, {urls: ['http://a', 'http://b'], timeoutMs: 60_000, hedgeMs: 20}))
     .resolves.toMatchObject({signature: SIG})
-  // Sequential asking would sit out the first accountant's 60 s timeout.
-  expect(Date.now() - started).toBeLessThan(2_000)
   expect(f).toHaveBeenCalledTimes(2)
+  // Sequential asking would sit out the first accountant's 60 s timeout: its ask would then end by
+  // that TIMEOUT. Asked concurrently, the second answer CANCELS it - an order, not a stopwatch.
   expect(slowSignal?.aborted).toBe(true)
+  expect((slowSignal?.reason as Error | undefined)?.name).not.toBe('TimeoutError')
 })
 
 it('hedgeMs 0 launches every ask of a round at once', async () => {
@@ -463,18 +467,19 @@ it('honours Retry-After before asking again', async () => {
 it('a Retry-After past the window ends the ask at once instead of waiting it out', async () => {
   const f = fleet({'http://a': {status: 429, headers: {'retry-after': '600'}}})
   vi.stubGlobal('fetch', f)
-  const started = Date.now()
-  await expect(requestSlotSeed(seedChain(), address, ordered, {urls: ['http://a'], retryForMs: 30_000})).resolves.toBeNull()
-  expect(Date.now() - started).toBeLessThan(1_000)
+  const {result, elapsedMs} = await onPausedClock(() => requestSlotSeed(seedChain(), address, ordered, {urls: ['http://a'], retryForMs: 30_000}))
+  expect(settledValue(result)).toBeNull()
+  expect(elapsedMs).toBe(0)
   expect(f).toHaveBeenCalledTimes(1)
 })
 
 it('an unreachable set fails at once rather than paying the retry window', async () => {
   const f = fleet({'http://a': 'throw', 'http://b': 'throw'})
   vi.stubGlobal('fetch', f)
-  const started = Date.now()
-  await expect(requestSlotSeed(seedChain(), address, ordered, {urls: ['http://a', 'http://b'], retryForMs: 60_000})).resolves.toBeNull()
-  expect(Date.now() - started).toBeLessThan(1_000)
+  const {result, elapsedMs} = await onPausedClock(() => requestSlotSeed(seedChain(), address, ordered, {urls: ['http://a', 'http://b'], retryForMs: 60_000}))
+  expect(settledValue(result)).toBeNull()
+  // Paused clock: the hedge between the two asks at most, never a backoff round.
+  expect(elapsedMs).toBeLessThan(1_000)
   expect(f).toHaveBeenCalledTimes(2)
 })
 
@@ -491,11 +496,16 @@ it('stops waiting between rounds when the caller aborts', async () => {
 it('with every accountant URL refusing connections, creation fails fast and typed after its one commit', async () => {
   const h = writer(false)
   const reg = pathRegistry(h)
+  const real = globalThis.fetch, asked = vi.fn((...args: Parameters<typeof fetch>) => real(...args))
+  vi.stubGlobal('fetch', asked)
   const started = Date.now()
   const error = await h.w.createSlotCommitReveal({...h.args, accountantUrls: ['http://127.0.0.1:9', 'http://127.0.0.1:1/']}).catch((e: unknown) => e)
-  expect(Date.now() - started).toBeLessThan(3_000)
+  // "Fast" is ONE round - each URL asked once, never retried - not a stopwatch. Real sockets cannot
+  // run on a paused clock, so the clock is only a hang guard: half the retry window it must not pay.
+  expect(asked).toHaveBeenCalledTimes(2)
+  expect(Date.now() - started).toBeLessThan(DEFAULT_SLOT_SEED_RETRY_MS / 2)
   expect(error).toBeInstanceOf(SlotSeedUnavailableError)
   expect(error).toMatchObject({detail: {committed: true, failure: {rounds: 1}}})
   expect((error as SlotSeedUnavailableError).detail.failure.answers.map(a => a.reason)).toEqual([expect.stringContaining('unreachable'), expect.stringContaining('unreachable')])
   expect(reg.writes.map(w => w.functionName)).toEqual(['commitKeySlotSeeded'])
-})
+}, 60_000)

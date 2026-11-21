@@ -829,7 +829,7 @@ it('reads the client execution policy beside the provider authentication and sti
   vi.mocked(authenticateApprovedService).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve}))
   vi.mocked(readClientExecutionPolicy).mockClear()
   const pending=f.prepare()
-  await vi.waitFor(()=>expect(readClientExecutionPolicy).toHaveBeenCalledTimes(1))
+  await vi.waitFor(()=>expect(readClientExecutionPolicy).toHaveBeenCalledTimes(1), {timeout: 30_000})
   finish({record:{...f.record},manifest:{capabilities:['oid4vp']}} as Awaited<ReturnType<typeof authenticateApprovedService>>)
   await expect(pending).resolves.toMatchObject({sessionId:f.session.sessionId})
   // Both fail: the authentication refusal is the one reported, as when they ran one after the other.

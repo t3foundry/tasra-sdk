@@ -320,10 +320,10 @@ describe('allowance lanes', () => {
     })
     const a = await payment(l0, 0x41), b = await payment(l1, 0x42), c = await payment(l0, 0x43)
     const runs = [obtainAllowanceVoucher(world.env, {lane: 0}, a), obtainAllowanceVoucher(world.env, {lane: 1}, b), obtainAllowanceVoucher(world.env, {lane: 0}, c)]
-    await vi.waitFor(() => expect(release).toHaveLength(2))
+    await vi.waitFor(() => expect(release).toHaveLength(2), {timeout: 30_000})
     expect(most).toBe(2) // lanes 0 and 1 in flight; c waits behind a on lane 0
     release.splice(0).forEach(r => r())
-    await vi.waitFor(() => expect(release).toHaveLength(1))
+    await vi.waitFor(() => expect(release).toHaveLength(1), {timeout: 30_000})
     release.splice(0).forEach(r => r())
     const [va, vb, vc] = await Promise.all(runs)
     expect([va!.seq, vb!.seq, vc!.seq]).toEqual([1, 1, 2])
