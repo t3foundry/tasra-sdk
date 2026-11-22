@@ -90,8 +90,24 @@ export async function bringUp(): Promise<StepResult[]> {
   const results: StepResult[] = []
   const phase = 'bringup'
 
-  // 1. host tasra-cli (release) — prereq for the signed-VC + on-chain stress paths
-  if (await have('cargo')) {
+  // 1. host tasra-cli (release) — prereq for the signed-VC + on-chain stress paths.
+  // On a certification LANE the CI-built release CLI named by KK_CLI is USED, not rebuilt (2026-11-22):
+  // the lane VM has no compiler (its `cargo` is a refusing stub, exit 97) and stages the indexed CLI
+  // at KK_CLI. A lane is the one place KK_VERIFY_RUST=0 is set (keykeeper-certify `lane run`: the Rust
+  // track is a CI receipt there). Everywhere else KK_CLI is ALSO set, but the CLI is rebuilt as before,
+  // so a stale target/release binary is never used. Running `--version` proves the staged one runs.
+  // A lane is recognised two ways: KK_VERIFY_RUST=0 (set by `lane run`) or the refusing no-compiler
+  // toolchain the lane VM installs (RUSTUP_TOOLCHAIN=kk-cert-no-compiler). On a lane cargo is NEVER
+  // tried: a missing KK_CLI fails with what was seen, instead of the opaque 'no compiler' (exit 97)
+  // of the second candidate run (keykeeper-network cert run 44976144672).
+  const lane = process.env.KK_VERIFY_RUST === '0' || process.env.RUSTUP_TOOLCHAIN === 'kk-cert-no-compiler'
+  const prebuilt = process.env.KK_CLI
+  log(`[bringup] lane=${lane} KK_VERIFY_RUST=${process.env.KK_VERIFY_RUST ?? '-'} RUSTUP_TOOLCHAIN=${process.env.RUSTUP_TOOLCHAIN ?? '-'} KK_CLI=${prebuilt ?? '-'} exists=${!!prebuilt && existsSync(prebuilt)}`)
+  if (lane && prebuilt && existsSync(prebuilt)) {
+    results.push(await runStep(phase, {name: 'build tasra-cli (release)', cmd: prebuilt, args: ['--version'], cwd: networkDir, timeoutMs: 60_000}))
+  } else if (lane) {
+    results.push({phase, name: 'build tasra-cli (release)', status: 'fail', ms: 0, metrics: [], detail: `certification lane without the CI-built CLI: KK_CLI=${prebuilt ?? 'unset'} does not exist (no compiler here)`})
+  } else if (await have('cargo')) {
     results.push(await runStep(phase, {name: 'build tasra-cli (release)', cmd: 'cargo', args: ['build', '--locked', '--release', '-p', 'tasra-cli'], cwd: networkDir, timeoutMs: 1_800_000}))
   } else {
     log('[skip] cargo not found — signed-VC operate step will be skipped')

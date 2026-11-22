@@ -105,7 +105,14 @@ if (DO_BRINGUP) {
 async function fleetIndependentTrack(): Promise<void> {
   if (DO_CORRECTNESS) {
     if (!DO_RUST) {
-      pushSkip('correctness-rust', 'rust anvil protocol tests', 'skipped via KK_VERIFY_RUST=0')
+      // KK_VERIFY_RUST_RECEIPT names the CI receipt that covers this track (a keykeeper-network
+      // certification lane: no compiler on that VM, and its aggregate REQUIRES the receipt), so the
+      // skip is optional there. Without it a KK_VERIFY_RUST=0 skip stays REQUIRED: the suite fails
+      // rather than drop the Rust track silently. Candidate 6 (keykeeper-network cert run 44983690037)
+      // ran 16/16 on a lane and still failed on this skip.
+      const receipt = process.env.KK_VERIFY_RUST_RECEIPT
+      if (receipt !== undefined && !/^[a-z0-9-]+$/.test(receipt)) throw new Error(`KK_VERIFY_RUST_RECEIPT is not a receipt id: ${JSON.stringify(receipt)}`)
+      pushSkip('correctness-rust', 'rust anvil protocol tests', receipt ? `covered by CI receipt ${receipt}` : 'skipped via KK_VERIFY_RUST=0', !!receipt)
     } else if (haveCargo && haveForge) {
       // Each test spawns its own ephemeral-port anvil, so they're mutually
       // independent — run them in a capped worker pool. cargo's build lock
