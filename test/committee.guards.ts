@@ -44,6 +44,7 @@ import {
   selectVerifierCommittee,
   verifierLeaf,
   verifyCompoundToken,
+  TOKEN_CLOCK_SKEW_SECS,
   type CompoundTokenPayload,
   type VerifierSet,
 } from '../src/committee/token.ts'
@@ -219,6 +220,11 @@ const bareHex = (b: Uint8Array): string => Array.from(b).map(x => x.toString(16)
   throwsWith('a token not yet valid is refused', /token not yet valid/, () => verifyCompoundToken({token, ...verifyOpts, now: 500}))
   ok('a token inside the leeway at the upper edge verifies', !!verifyCompoundToken({token, ...verifyOpts, now: exp + 30}))
   ok('a token inside the leeway at the lower edge verifies', !!verifyCompoundToken({token, ...verifyOpts, now: iat - 30}))
+  // Without a leeway the network's protocol skew applies: exactly TOKEN_CLOCK_SKEW_SECS past exp verifies, one more is expired.
+  const {leeway: _unused, ...protocolOpts} = verifyOpts
+  ok('the default leeway is the protocol skew shared with keepers and accountants', TOKEN_CLOCK_SKEW_SECS === 60)
+  ok('a token at exp + the protocol skew verifies by default', !!verifyCompoundToken({token, ...protocolOpts, now: exp + TOKEN_CLOCK_SKEW_SECS}))
+  throwsWith('a token one second past the protocol skew is refused by default', /token expired/, () => verifyCompoundToken({token, ...protocolOpts, now: exp + TOKEN_CLOCK_SKEW_SECS + 1}))
 
   // A signer outside the active set cannot be checked at all, so it cannot count.
   const strangerHash = compoundTokenHash(payload)

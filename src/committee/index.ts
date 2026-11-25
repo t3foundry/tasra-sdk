@@ -25,6 +25,7 @@ export {
   merkleRoot,
   merkleProof,
   verifyCompoundToken,
+  TOKEN_CLOCK_SKEW_SECS,
   assembleCompoundToken,
   decodeCompoundToken,
   statusAttestationHash,

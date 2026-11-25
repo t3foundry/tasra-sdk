@@ -362,11 +362,22 @@ export interface VerifyCompoundTokenOptions {
   quorum: number
   /** Current time, UNIX **seconds**. */
   now: number
-  /** Clock-skew tolerance, **seconds**, applied to both `iat` and `exp`. */
-  leeway: number
+  /**
+   * Clock-skew tolerance, **seconds**, applied to both `iat` and `exp`. Defaults to
+   * {@link TOKEN_CLOCK_SKEW_SECS}, the value keepers and accountants use; a different value judges
+   * a token differently from the network.
+   */
+  leeway?: number
   /** Expected Keccak-256 hash of the raw rule bytes, without salt. Do not supply the on-chain salted ruleCommitment. */
   slotRuleHash: Uint8Array
 }
+
+/**
+ * Protocol clock-skew tolerance for committee tokens, seconds: a keeper admits a token up to this
+ * long past `exp` (and before `iat`), and an accountant auditing the keeper judges it the same way.
+ * Mirrors `keykeeper_committee::TOKEN_CLOCK_SKEW_SECS`; both sides must use the same value.
+ */
+export const TOKEN_CLOCK_SKEW_SECS = 60
 
 /**
  * Verify rule binding, committee selection, token lifetime, Ed25519 signatures and quorum against the supplied verifier set.
@@ -376,7 +387,7 @@ export interface VerifyCompoundTokenOptions {
  * @throws If any binding, freshness, signer or quorum check fails.
  */
 export function verifyCompoundToken(opts: VerifyCompoundTokenOptions): VerifiedToken {
-  const {token, set, committee, quorum, now, leeway, slotRuleHash} = opts
+  const {token, set, committee, quorum, now, leeway = TOKEN_CLOCK_SKEW_SECS, slotRuleHash} = opts
   if (!bytesEqual(token.ruleHash, slotRuleHash)) throw new Error('token rule_hash does not match the slot rule hash')
 
   const expected = selectVerifierCommittee(token.slotId, token.epoch, token.seed, set.registrySize, committee)

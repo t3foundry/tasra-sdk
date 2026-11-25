@@ -65,6 +65,8 @@ lists what changed after 0.4.0; the withdrawn entry below is kept as history.
 
 ### Changed
 
+- `accountantSlashingAbi` is refreshed for AccountantSlashing version 2: downtime slashes commit their failed liveness challenges (`slashMissedHeartbeatBatchChallenged`, `SlashChallengesCommitted`) and a wrongful slash is appealed for a refund only (`contestFalseSlashChallenged`, `FalseSlashRefunded`); `slashMissedHeartbeat`, `slashMissedHeartbeatBatch`, `contestFalseSlash` and `FalseSlashReversed` are gone.
+
 - **A session decrypt asks only `threshold` keepers.** `decryptWithSessionGrant` (and so `session.decrypt` /
   `session.decryptMany`) used to send every request to every keeper of the slot and wait for all of
   them. It now orders the keepers per request (`sessionKeeperOrder`, by a hash of the request, so
@@ -163,6 +165,8 @@ lists what changed after 0.4.0; the withdrawn entry below is kept as history.
 
 
 ### Added
+
+- `/committee`: `TOKEN_CLOCK_SKEW_SECS` (60), the protocol clock-skew tolerance for committee tokens that keepers and accountants share; `verifyCompoundToken`'s `leeway` now defaults to it.
 
 - `/chain`: `settlement.operationsSettled(slot)`, the operations settled for a slot as signed by the
   accountant set. `settlementAbi` is refreshed for Settlement version 7 (a signed operation count on
