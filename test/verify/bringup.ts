@@ -22,7 +22,7 @@ import {fileURLToPath} from 'node:url'
 import {createPublicClient, http, type Hex} from 'viem'
 import {keyRegistryAbi} from '../../src/chain/abis/keyRegistry.ts'
 import {explorerRpcUrl, fleetChain} from './_explorerRpc.ts'
-import {configurePaidWalletFleet} from './_paid-wallet-config.ts'
+import {configureWalletFleet} from './_wallet-config.ts'
 import {banner, chainEnvPath, explorerDir, explorerMode, fleetConfig, have, log, networkDir, sdkRoot, runStep, type StepResult} from './_run.ts'
 
 const FLEET_NETWORK = process.env.KK_FLEET_NETWORK ?? 'keykeeper-swarm_default'
@@ -123,14 +123,11 @@ export async function bringUp(): Promise<StepResult[]> {
   // KK_DEMO_FAULTS=1 through so the fleet actually comes up with those faults —
   // otherwise scenarios 12/13/14/15 would run against an honest fleet and fail.
   const freshFleet = process.env.KK_VERIFY_WIPE === '1' || process.env.KK_VERIFY_WIPE === 'true'
-  // Paid operations need the accountant coordination endpoints and the automatic
-  // payout worker. Only a freshly wiped fleet can declare an empty manual-root
-  // history; resumed deployments retain their operator-supplied inventory policy.
+  // Metered billing: the threshold accountant set settles what the keepers meter.
   // KK_BYO_IDP=1: the fleet's OAuth identity provider (Keycloak). `test:prod` runs the Rego
   // kk_oauth slot suite (test/e2e/rego-slot.ts), which needs it; without it that suite fails
   // red under TASRA_FLEET_REQUIRED rather than certifying nothing.
-  const fleetEnv = {KK_THRESHOLD_SET:'1', KK_PREPAID_PAYOUTS:'1', KK_AGG_SETTLE:'true', KK_BYO_IDP:'1',
-    ...(freshFleet ? {KK_PAYOUT_DECLARE_NO_MANUAL_ROOTS:'1'} : {})}
+  const fleetEnv = {KK_THRESHOLD_SET:'1', KK_AGG_SETTLE:'true', KK_BYO_IDP:'1'}
   // KK_VERIFY_WIPE=1 → clean slate: delete volumes + Besu chain first, so the
   // fleet-up below is a fresh provision (new chain, redeployed contracts, fresh
   // genesis DKG + slot) rather than a resume of preserved state. This is the
@@ -149,13 +146,13 @@ export async function bringUp(): Promise<StepResult[]> {
 
   const configuredAt = Date.now()
   try {
-    const env = await configurePaidWalletFleet(fleetConfig(), networkDir, sdkRoot)
+    const env = await configureWalletFleet(fleetConfig(), networkDir, sdkRoot)
     Object.assign(process.env, env)
-    results.push({phase, name: 'retain original paid wallet deployment configuration', status: 'pass', ms: Date.now() - configuredAt,
-      metrics: [], detail: `Original private deployment evidence: ${env.KK_PREPAID_EVIDENCE_DIR}`})
+    results.push({phase, name: 'retain original wallet deployment configuration', status: 'pass', ms: Date.now() - configuredAt,
+      metrics: [], detail: `Original private deployment evidence: ${env.KK_WALLET_EVIDENCE_DIR}`})
   } catch (error) {
-    results.push({phase, name: 'retain original paid wallet deployment configuration', status: 'fail', ms: Date.now() - configuredAt,
-      metrics: [], detail: error instanceof Error ? error.message : 'Paid wallet configuration failed'})
+    results.push({phase, name: 'retain original wallet deployment configuration', status: 'fail', ms: Date.now() - configuredAt,
+      metrics: [], detail: error instanceof Error ? error.message : 'Wallet configuration failed'})
     return results
   }
 

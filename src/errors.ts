@@ -45,54 +45,6 @@ export class TasraError extends Error {
 }
 
 /**
- * A new payment cannot be prepared with the slot's available TASRA. Reserved
- * credit belongs to earlier jobs and is not available for a new reservation.
- * Top up and read fresh funding before starting another payment; this error
- * never authorizes resubmission of an uncertain transaction.
- */
-export class UnderfundedSlotError extends TasraError {
-  /** Slot whose new payment was refused. */
-  readonly slotId: string
-  /** Unreserved TASRA base units, when observed during on-chain discovery. */
-  readonly availableTasraUnits?: bigint
-  /** Accountant HTTP status, absent for a local funding observation. */
-  readonly status?: 402
-  /** Accountant endpoint, when a reservation request returned HTTP 402. */
-  readonly url?: string
-
-  constructor(args: {slotId: string; availableTasraUnits?: bigint; status?: 402; url?: string; message?: string}) {
-    super(args.message ?? `Slot ${args.slotId} has insufficient available TASRA`, {retryable: false})
-    this.slotId = args.slotId
-    this.availableTasraUnits = args.availableTasraUnits
-    this.status = args.status
-    this.url = args.url
-  }
-}
-
-/**
- * The transaction payer lacks native currency for the quoted reservation gas.
- * Slot TASRA credit is a separate balance. Nothing was prepared or broadcast;
- * this error never authorizes resubmission of an uncertain transaction.
- */
-export class UnderfundedGasPayerError extends TasraError {
-  /** Stable code distinguishing native gas from slot TASRA credit. */
-  readonly code = 'underfunded-gas-payer' as const
-  /** Address that would pay the reservation transaction's gas. */
-  readonly payer: string
-  /** Pending native balance, in the chain's smallest native unit. */
-  readonly availableNativeUnits: bigint
-  /** Estimated gas multiplied by the actual transaction gas price. */
-  readonly requiredNativeUnits: bigint
-
-  constructor(args: {payer: string; availableNativeUnits: bigint; requiredNativeUnits: bigint}) {
-    super(`Gas payer ${args.payer} has insufficient native currency for reservation gas`, {retryable: false})
-    this.payer = args.payer
-    this.availableNativeUnits = args.availableNativeUnits
-    this.requiredNativeUnits = args.requiredNativeUnits
-  }
-}
-
-/**
  * A node or verifier answered with a non-2xx status. `body` is the response body,
  * truncated to 200 characters - enough to carry the service's own error text
  * without dumping a page of HTML into a log line.
@@ -135,6 +87,30 @@ export class AuthDeniedError extends TasraHttpError {
 }
 
 /**
+ * A keeper refused an operation with HTTP 402: the slot's Settlement balance does not cover its
+ * unsettled metered work. Nothing ran and the grant was not judged; the caller pays nothing and
+ * holds nothing owner-held. Not retryable as is: the slot's OWNER funds the slot (`fundSlot`),
+ * after which the same operation is authorized and sent again.
+ */
+export class SlotBalanceError extends TasraHttpError {
+  /** Stable code of this refusal. */
+  readonly code = 'slot-balance' as const
+  constructor(args: {status: number; url: string; body?: string; message?: string; retryAfterMs?: number}) {
+    super({...args, retryable: false})
+  }
+}
+
+/**
+ * True when a keeper refused an operation because the slot's balance does not cover its metered
+ * work (HTTP 402): ask the slot's owner to fund it.
+ *
+ * @param e - Caught value to classify.
+ */
+export function isSlotBalanceRefusal(e: unknown): e is SlotBalanceError {
+  return e instanceof SlotBalanceError
+}
+
+/**
  * A keeper refused a committee grant because its verifiers' revocation-status attestations
  * (`keykeeper/committee-status-attestation/v1`) are missing (`revocation_status_missing`) or no
  * longer fresh for a quorum (`revocation_status_stale`). The credential was NOT judged revoked:
@@ -143,9 +119,8 @@ export class AuthDeniedError extends TasraHttpError {
  *
  * NOT retryable, and NOT proof that no keeper worked: another keeper of the committee may already
  * have started the operation before this one re-checked the grant, and a gateway can blur the
- * outcome. Never resend this grant, and never treat this error alone as authority to retry, refund
- * or clear a paid operation (its journal keeps the execution as uncertain until original-stage
- * evidence settles it). For an UNPAID operation the remedy is a new presentation and a new grant.
+ * outcome. Never resend this grant, and never treat this error alone as proof that nothing ran.
+ * The remedy is a new presentation and a new grant.
  * Not an {@link AuthDeniedError}, and {@link isAuthDenied} returns false for it.
  */
 export class RevocationStatusError extends TasraHttpError {
@@ -170,15 +145,13 @@ export type RevocationStatusPreflightCode = 'revocation_status_missing' | 'revoc
  * (`keykeeper/committee-status-attestation/v1`) are missing (`revocation_status_missing`: absent,
  * `null` or empty), fewer than a quorum are valid and fresh (`revocation_status_stale`), or the
  * list is malformed, duplicated or carries a bad signature from a counted verifier
- * (`revocation_status_invalid`), or - for a journaled paid operation - an explicit status refresh
+ * (`revocation_status_invalid`), or an explicit status refresh
  * answered `status_refresh_refused` (`revocation_status_refused`: a verifier attests the holder's
  * credential status is refused NOW; the grant is refused however fresh its attestations still are,
  * until a later refresh succeeds).
  *
- * Unlike {@link RevocationStatusError} (a keeper's reply after a send), nothing was sent: a paid
- * operation refused here stays in its pre-execution journal phase. Not retryable with this grant
- * and never a reason to start a new session or payment automatically: present again for a fresh
- * grant. `allowMissingStatusAttestations` (migration window only) waives `revocation_status_missing`
+ * Unlike {@link RevocationStatusError} (a keeper's reply after a send), nothing was sent. Not
+ * retryable with this grant: present again for a fresh grant. `allowMissingStatusAttestations` (migration window only) waives `revocation_status_missing`
  * and nothing else.
  */
 export class RevocationStatusPreflightError extends TasraError {
@@ -188,13 +161,9 @@ export class RevocationStatusPreflightError extends TasraError {
   readonly sent = false as const
   /** Always true: a fresh grant needs a new presentation. */
   readonly presentAgain = true as const
-  /** Paid operation identity, when the refusal stopped a journaled paid operation. */
-  readonly requestId?: string
-
-  constructor(args: {code: RevocationStatusPreflightCode; message: string; requestId?: string; cause?: unknown}) {
+  constructor(args: {code: RevocationStatusPreflightCode; message: string; cause?: unknown}) {
     super(args.message, {retryable: false, cause: args.cause})
     this.code = args.code
-    if (args.requestId !== undefined) this.requestId = args.requestId
   }
 }
 
@@ -287,9 +256,7 @@ export interface StatusRefreshFailure {
 /**
  * A status refresh for an already-issued committee grant produced no fresh quorum.
  *
- * It changes nothing at any keeper and is NEVER evidence about keeper work: for a paid operation
- * the journal phase is unchanged (an `authorized` grant was not sent; an `executing` one stays
- * uncertain). `retryable` is a coarse hint for 429/503/transport failures only; the SDK never
+ * It changes nothing at any keeper and is NEVER evidence about keeper work. `retryable` is a coarse hint for 429/503/transport failures only; the SDK never
  * retries a refresh automatically, and a new attempt always uses a new, journaled `seq`.
  * `status_refresh_refused` means a credential status reference is revoked or no longer
  * acceptable: present again (a new grant), never refresh this one.
@@ -303,19 +270,16 @@ export class StatusRefreshError extends TasraError {
   readonly retryAfterMs?: number
   /** Per-verifier (or relay) failures. */
   readonly reasons: readonly StatusRefreshFailure[]
-  /** Paid operation identity, when the refresh belonged to a journaled paid operation. */
-  readonly requestId?: string
   /** The journaled sequence number the failed proof used (never reused). */
   readonly seq?: number
 
   constructor(args: {code: StatusRefreshCode; message: string; httpStatus?: number; retryAfterMs?: number; reasons?: readonly StatusRefreshFailure[];
-    requestId?: string; seq?: number; retryable?: boolean; cause?: unknown}) {
+    seq?: number; retryable?: boolean; cause?: unknown}) {
     super(args.message, {retryable: args.retryable ?? statusRefreshRetryable(args.code, args.httpStatus), cause: args.cause})
     this.code = args.code
     this.reasons = Object.freeze([...(args.reasons ?? [])])
     if (args.httpStatus !== undefined) this.httpStatus = args.httpStatus
     if (args.retryAfterMs !== undefined && Number.isSafeInteger(args.retryAfterMs) && args.retryAfterMs >= 0) this.retryAfterMs = args.retryAfterMs
-    if (args.requestId !== undefined) this.requestId = args.requestId
     if (args.seq !== undefined) this.seq = args.seq
   }
 }
@@ -334,247 +298,6 @@ function statusRefreshRetryable(code: StatusRefreshCode, httpStatus?: number): b
  */
 export function isStatusRefreshError(e: unknown): e is StatusRefreshError {
   return e instanceof StatusRefreshError
-}
-
-/**
- * Stable code of a paid backoff refusal (see {@link PaidBackoffError}).
- * - `deadline_exceeded`: waiting the server's hint (or the client's own backoff) and then allowing
- *   one attempt would reach the operation deadline; nothing was slept or sent.
- * - `server_wait_too_long`: the server asked for longer than the client ever waits (120 s); the
- *   hint is never shortened, so nothing was slept or sent.
- * - `no_time_to_send`: re-read immediately before a send (for example after an overrunning sleep),
- *   too little time was left before the deadline; that send did not happen.
- * - `attempts_exhausted`: the attempt ceiling was reached inside the deadline.
- */
-export type PaidBackoffCode = 'deadline_exceeded' | 'server_wait_too_long' | 'no_time_to_send' | 'attempts_exhausted'
-
-/**
- * A paid request that the service definitely refused before acting on it (HTTP 429 or 503) could
- * not be repeated inside its existing deadline. Only requests that are safe to repeat are paced: the
- * paid verifier-agent reads, the byte-identical retained approval, the presentation continuation (429
- * only) and the accountant reservation `prepare`. The deadline is never extended and a valid
- * `Retry-After` / `x-ratelimit-after` hint is never shortened.
- *
- * Nothing was sent after the refusal this error reports. A retained approval keeps its durable
- * permit, so a later resume may resend the identical body; never start the paid operation again.
- */
-export class PaidBackoffError extends TasraError {
-  /** Stable reason. */
-  readonly code: PaidBackoffCode
-  /** Route that was refused, without identifiers (for example `GET /v1/sessions/{id}`). */
-  readonly route: string
-  /** Last refusal status, when one was answered (absent for `no_time_to_send`). */
-  readonly httpStatus?: number
-  /** Server-requested wait (strict integer seconds), in ms, when it sent a valid one. */
-  readonly retryAfterMs?: number
-  /** Time left before the deadline when the decision was made, in ms. */
-  readonly remainingMs?: number
-  /** Time one attempt needs (or wait + attempt), in ms. */
-  readonly neededMs?: number
-  /** Refusals waited out before this decision. */
-  readonly attempts: number
-
-  constructor(args: {code: PaidBackoffCode; route: string; httpStatus?: number; retryAfterMs?: number; remainingMs?: number; neededMs?: number; attempts: number}) {
-    super(paidBackoffMessage(args), {retryable: true})
-    this.code = args.code
-    this.route = args.route
-    this.attempts = args.attempts
-    if (args.httpStatus !== undefined) this.httpStatus = args.httpStatus
-    if (args.retryAfterMs !== undefined) this.retryAfterMs = args.retryAfterMs
-    if (args.remainingMs !== undefined) this.remainingMs = args.remainingMs
-    if (args.neededMs !== undefined) this.neededMs = args.neededMs
-  }
-}
-
-function paidBackoffMessage(a: {code: PaidBackoffCode; route: string; httpStatus?: number; retryAfterMs?: number; remainingMs?: number; neededMs?: number; attempts: number}): string {
-  const status = a.httpStatus !== undefined ? ` (HTTP ${a.httpStatus})` : ''
-  switch (a.code) {
-    case 'deadline_exceeded': return `${a.route} refused${status}; waiting and one more attempt (${a.neededMs} ms) would reach the operation deadline (${a.remainingMs} ms left); retain records and reconcile by reading`
-    case 'server_wait_too_long': return `${a.route} refused${status} and asked for ${a.retryAfterMs} ms, longer than this client ever waits; retain records and reconcile by reading`
-    case 'no_time_to_send': return `${a.route} not sent: ${a.remainingMs} ms left before the operation deadline, ${a.neededMs} ms needed for an attempt; retain records and reconcile by reading`
-    default: return `${a.route} refused${status} after ${a.attempts} attempts; retain records and reconcile by reading`
-  }
-}
-
-/**
- * True for a {@link PaidBackoffError}.
- *
- * @param e - Caught value to classify.
- */
-export function isPaidBackoffError(e: unknown): e is PaidBackoffError {
-  return e instanceof PaidBackoffError
-}
-
-/**
- * Why a retained paid approval was not (re)sent (see {@link PaidApprovalUnresolvedError}).
- * - `claim_lost`: another caller already claimed this send generation.
- * - `generation_moved`: the durable permit is no longer for this generation.
- * - `outcome_unknown`: a send had no definite answer (transport error, timeout, abort) or a
- *   generation is recorded in flight; it is never resent.
- * - `no_permit`: there is no durable permit (crash before it was written) or the agent no longer
- *   shows the delivery pending.
- * - `legacy_state`: the record or permit was written in an older or unknown format.
- * - `conflict`: the agent answered 409 after a busy refusal and its delivery state is not accepted.
- */
-export type PaidApprovalUnresolvedReason = 'claim_lost' | 'generation_moved' | 'outcome_unknown' | 'no_permit' | 'legacy_state' | 'conflict'
-
-/**
- * A retained paid approval's outcome is unresolved, so the SDK will not send it (again).
- *
- * Code `approval_outcome_unresolved`. An approval is resent only as the byte-identical retained body
- * and only under a durable, generation-bound, one-use permit that an exclusive claim consumes before
- * every send. Anything else (a lost claim, a moved generation, an unknown outcome, a legacy record)
- * lands here. Not retryable: reconcile the delivery by reading it, never by resending or re-signing.
- */
-export class PaidApprovalUnresolvedError extends TasraError {
-  /** Stable code. */
-  readonly code = 'approval_outcome_unresolved' as const
-  /** Why nothing was sent. */
-  readonly reason: PaidApprovalUnresolvedReason
-  /** Agent delivery (proposal) identity, when known. */
-  readonly proposalId?: string
-  /** Send generation concerned, when known. */
-  readonly generation?: number
-  /** Application-store journal entry of the approval, when known. */
-  readonly key?: string
-
-  constructor(args: {reason: PaidApprovalUnresolvedReason; proposalId?: string; generation?: number; key?: string; message?: string; cause?: unknown}) {
-    super(args.message ?? `Paid approval outcome unresolved (${args.reason}${args.generation !== undefined ? `, generation ${args.generation}` : ''}); retain records and reconcile before further work`,
-      {retryable: false, cause: args.cause})
-    this.reason = args.reason
-    if (args.proposalId !== undefined) this.proposalId = args.proposalId
-    if (args.generation !== undefined) this.generation = args.generation
-    if (args.key !== undefined) this.key = args.key
-  }
-}
-
-/**
- * True for a {@link PaidApprovalUnresolvedError}.
- *
- * @param e - Caught value to classify.
- */
-export function isPaidApprovalUnresolved(e: unknown): e is PaidApprovalUnresolvedError {
-  return e instanceof PaidApprovalUnresolvedError
-}
-
-/**
- * The accountant refused a reservation `prepare` with its per-creator reservation quota (HTTP 429
- * with a valid `Retry-After` / `x-ratelimit-after`), and the identical prepare could not be repeated
- * inside its window (at most 150 s and half of the payment's remaining signed lifetime).
- *
- * Code `reservation_quota`. Nothing was prepared, signed or put on chain: no reservation transaction
- * exists for this attempt. `reason` says why waiting stopped; `retryAfterMs` is the last hint.
- */
-export class PaidReservationQuotaError extends TasraError {
-  /** Stable code. */
-  readonly code = 'reservation_quota' as const
-  /** Why the prepare was not repeated. */
-  readonly reason: PaidBackoffCode
-  /** Accountant endpoint that refused. */
-  readonly url: string
-  /** The accountant's last requested wait, in ms. */
-  readonly retryAfterMs: number
-
-  constructor(args: {reason: PaidBackoffCode; url: string; retryAfterMs: number; cause?: unknown}) {
-    super(`accountant reservation quota refused prepare (429, wait ${args.retryAfterMs} ms): ${args.reason}; nothing was reserved`, {retryable: true, cause: args.cause})
-    this.reason = args.reason
-    this.url = args.url
-    this.retryAfterMs = args.retryAfterMs
-  }
-}
-
-/**
- * Stable code of a prepaid timeout-escape refusal (see {@link PrepaidEscapeError}).
- * - `escape_disabled`: the Settlement escape delay is zero (an upgraded deployment before governance
- *   enabled it); contract error `EscapeDisabled()`.
- * - `escape_not_open`: a request's escape opens later, at `opensAt`; contract error
- *   `EscapeNotOpen(requestId, opensAt)`.
- * - `reservation_unavailable`: a request was never reserved, or is already complete (reconciled,
- *   settled or escaped); contract error `ReservationUnavailable(requestId)`.
- * - `invalid_escape_delay`: contract error `InvalidEscapeDelay(delay)` (governance setter only).
- * - `too_many_requests`: more than 64 requests in one call; contract error `TooManyCovered`.
- * - `empty_request`: no request IDs; contract error `EmptyBundle()`.
- * - `escape_unsupported`: the Settlement has no escape getters (a version before "3").
- */
-export type PrepaidEscapeCode = 'escape_disabled' | 'escape_not_open' | 'reservation_unavailable' | 'invalid_escape_delay'
-  | 'too_many_requests' | 'empty_request' | 'escape_unsupported'
-
-/**
- * A prepaid timeout escape was refused before anything was sent for the refused call: by the local
- * preflight (`local: true`, read at one canonical block) or by the contract's own simulation
- * (`local: false`). Nothing about the refused call is journaled. In a multi-call escape, calls that
- * already confirmed are in their journal (`confirmed` checkpoints) and stay final.
- *
- * Only `escape_not_open` is retryable: the same call succeeds once chain time reaches `opensAt`.
- */
-export class PrepaidEscapeError extends TasraError {
-  /** Stable code. */
-  readonly code: PrepaidEscapeCode
-  /** Always false: no transaction was sent for the refused call. */
-  readonly sent = false as const
-  /** True for a local preflight refusal, false for a decoded contract revert. */
-  readonly local: boolean
-  /** Request the refusal names, when it names one. */
-  readonly requestId?: string
-  /** When the named request's escape opens (`escape_not_open`). */
-  readonly opensAt?: Date
-  /** Refused delay in seconds (`invalid_escape_delay`). */
-  readonly delaySeconds?: bigint
-
-  constructor(args: {code: PrepaidEscapeCode; local: boolean; requestId?: string; opensAt?: Date; delaySeconds?: bigint; message?: string; cause?: unknown}) {
-    super(args.message ?? prepaidEscapeMessage(args), {retryable: args.code === 'escape_not_open', cause: args.cause})
-    this.code = args.code
-    this.local = args.local
-    if (args.requestId !== undefined) this.requestId = args.requestId
-    if (args.opensAt !== undefined) this.opensAt = args.opensAt
-    if (args.delaySeconds !== undefined) this.delaySeconds = args.delaySeconds
-  }
-}
-
-function prepaidEscapeMessage(a: {code: PrepaidEscapeCode; requestId?: string; opensAt?: Date; delaySeconds?: bigint}): string {
-  const request = a.requestId !== undefined ? ` for request ${a.requestId}` : ''
-  switch (a.code) {
-    case 'escape_disabled': return 'prepaid timeout escape is disabled on this Settlement; nothing was sent'
-    case 'escape_not_open': return `prepaid timeout escape${request} opens at ${a.opensAt?.toISOString() ?? '?'}; nothing was sent`
-    case 'reservation_unavailable': return `prepaid request${request} is not reserved or is already complete; nothing was sent`
-    case 'invalid_escape_delay': return `invalid prepaid escape delay ${a.delaySeconds ?? '?'} s; nothing was sent`
-    case 'too_many_requests': return 'too many requests in one prepaid escape call; nothing was sent'
-    case 'empty_request': return 'a prepaid escape needs at least one request; nothing was sent'
-    default: return 'this Settlement has no prepaid timeout escape; nothing was sent'
-  }
-}
-
-/**
- * True for a {@link PrepaidEscapeError}.
- *
- * @param e - Caught value to classify.
- */
-export function isPrepaidEscapeError(e: unknown): e is PrepaidEscapeError {
-  return e instanceof PrepaidEscapeError
-}
-
-/**
- * A prepaid escape transaction may have been broadcast and its outcome is not proven. Code
- * `escape_uncertain`. Retain the prepared record and reconcile it by reading chain state
- * (`reconcileEscape`); never send it again blindly. An escape cannot refund twice (a second one
- * reverts `ReservationUnavailable`), but a blind resend still spends gas and can collide on the nonce.
- */
-export class PrepaidEscapeUncertainError extends TasraError {
-  /** Stable code. */
-  readonly code = 'escape_uncertain' as const
-  /** Local journal key of the escape call. */
-  readonly escapeId: string
-  /** Requests the call named. */
-  readonly requestIds: readonly string[]
-  /** Transaction hash when known; absence does not prove that nothing was sent. */
-  readonly transactionHash?: string
-
-  constructor(args: {escapeId: string; requestIds: readonly string[]; transactionHash?: string; cause?: unknown}) {
-    super('prepaid escape outcome needs reconciliation; retain the prepared record and do not resend', {retryable: false, cause: args.cause})
-    this.escapeId = args.escapeId
-    this.requestIds = Object.freeze([...args.requestIds])
-    if (args.transactionHash !== undefined) this.transactionHash = args.transactionHash
-  }
 }
 
 /**
@@ -649,7 +372,7 @@ export class SlotRotatedError extends TasraError {
 
 /**
  * Build the right error for a non-2xx `Response`: {@link AuthDeniedError} for
- * 401/403, otherwise {@link TasraHttpError}. Reads and truncates the body.
+ * 401/403, {@link SlotBalanceError} for 402, otherwise {@link TasraHttpError}. Reads and truncates the body.
  *
  * `label` prefixes the message so it names the operation rather than just the
  * URL (`'committee/sign'` to `committee/sign to HTTP 403: ...`).
@@ -667,6 +390,7 @@ export async function httpError(
   // Classified on the complete body: the code must not be lost to the 200-character truncation.
   const code = revocationStatusCode(res.status, full.slice(0, 64 * 1024))
   if (code !== undefined) return new RevocationStatusError({...args, code})
+  if (res.status === 402) return new SlotBalanceError(args)
   return res.status === 401 || res.status === 403
     ? new AuthDeniedError(args)
     : new TasraHttpError(args)

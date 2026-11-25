@@ -1,5 +1,4 @@
 import {evidenceBody} from '../committee/evidence.js'
-import {withKeeperExecutionApprovals, type KeeperExecutionApprover} from '../committee/keeperExecution.js'
 import {readIbeReply} from '../committee/client.js'
 import {decodeOperationReceipt, type OperationReceipt} from '../committee/receipts.js'
 import {withNetworkDeadline} from '../internal/network.js'
@@ -12,11 +11,10 @@ import {checkedDecryptionRequestHash, kemContentDigest, recipientPayloadDigest, 
 import type {CompoundTokenWire} from '../committee/token.js'
 import type {VerifierProof} from '../committee/client.js'
 import {httpError} from '../errors.js'
+import type {DualOperationProof} from '../committee/dual-operation.js'
 
 /** Recipient-bound authorization and independently authenticated keeper quorum for local decryption. */
 export interface SealedRequestOpts {
-  /** Client-owned exact-body approval capability, required for paid contributions. */
-  approveExecution?: KeeperExecutionApprover
   /** Cancel the complete fan-out, including approvals and response bodies. */
   signal?: AbortSignal
   /** Guarded HTTP transport; defaults to global fetch. */
@@ -38,6 +36,11 @@ export interface SealedRequestOpts {
   threshold: number
   /** Registry membership proofs for the token's anchored verifier snapshot. */
   verifierProofs?: VerifierProof[]
+  /**
+   * Native approvals for this exact operation (`assembleDualOperation`), required by a slot with
+   * an approval policy. Carried in every keeper request body unchanged; each keeper re-verifies it.
+   */
+  dualControl?: DualOperationProof
   /** Optional assigned operator address pinned by the operation policy. */
   targetKeykeeper?: string
   /** Slot-owner signature over the canonical KEM request when required by slot policy. */
@@ -90,18 +93,18 @@ async function collectWithinDeadline(opts: SealedRequestOpts, action: 'decrypt' 
   const controller = new AbortController()
   const requests = opts.nodeUrls.map(async nodeUrl => {
     const url = `${nodeUrl.replace(/\/$/, '')}${action === 'decrypt' ? '/v1/committee/decrypt/partial' : '/v1/shards/ibe/extract'}`
-    let body: Record<string, unknown> = {
+    const body: Record<string, unknown> = {
       committee_token: opts.committeeToken, identity: textIdentity,
       recipient: opts.recipient.recipient, ciphertext_epoch: opts.ciphertextEpoch,
       ...(ciphertext ? {ciphertext: {u: base64Encode(ciphertext.u), nonce: base64Encode(ciphertext.nonce), aead_ct: base64Encode(ciphertext.aeadCt)}} : {}),
       ...evidenceBody(opts.committeeToken, opts.evidenceCt),
+      ...(opts.dualControl ? {dual_control: structuredClone(opts.dualControl)} : {}),
       ...(opts.targetKeykeeper?{target_keykeeper:opts.targetKeykeeper.replace(/^0x/,'')}:{}),
       ...(opts.userSignature ? {user_signature: bytesToHex(opts.userSignature).replace(/^0x/,'')} : {}),
       ...(opts.verifierProofs ? {verifier_proofs: opts.verifierProofs.map(p => ({verifier_index: p.verifierIndex, operator: p.operator.replace(/^0x/,''), pubkey: p.pubkey.replace(/^0x/,''), proof: p.proof.map(h=>h.replace(/^0x/,''))}))} : {}),
     }
-    body=await withKeeperExecutionApprovals({body,kind:action==='decrypt'?'sealed-decrypt':'ibe-extract',nodeUrl,payment:opts.committeeToken.payment,approveExecution:opts.approveExecution,signal:opts.signal})
     opts.signal?.throwIfAborted()
-    const res = await (opts.fetchImpl??fetch)(url, {method: 'POST', headers: {'Content-Type': 'application/json', ...(opts.requestId ? {'x-request-id': opts.requestId} : {})}, body: JSON.stringify(body), signal: AbortSignal.any([controller.signal,opts.signal!]),...(opts.committeeToken.payment?{redirect:'error' as const,credentials:'omit' as const}:{})})
+    const res = await (opts.fetchImpl??fetch)(url, {method: 'POST', headers: {'Content-Type': 'application/json', ...(opts.requestId ? {'x-request-id': opts.requestId} : {})}, body: JSON.stringify(body), signal: AbortSignal.any([controller.signal,opts.signal!])})
     const text=await readIbeReply(res,opts.signal)
     opts.signal?.throwIfAborted()
     if (!res.ok) throw await httpError(new Response(text,{status:res.status}), url, 'sealed partial')

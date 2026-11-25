@@ -81,9 +81,9 @@ it('a committee wait keeps polling while no keeper serves a key and refuses at i
 })
 
 // Every fixture script that takes a keeper's `/v1/keys/:id/public` answer and then operates the
-// slot through the paid path must also wait for the anchored key (or get its slot from
+// slot through the wallet path must also wait for the anchored key (or get its slot from
 // createWalletSlot, which does). Run 13 found two such fixtures, run 17 the third.
-it('no fleet script operates a paid slot on a keeper-served key alone', () => {
+it('no fleet script operates a slot on a keeper-served key alone', () => {
   const root = fileURLToPath(new URL('..', import.meta.url))
   const offenders: string[] = []
   let scanned = 0
@@ -92,7 +92,7 @@ it('no fleet script operates a paid slot on a keeper-served key alone', () => {
       if (!name.endsWith('.ts')) continue
       const source = readFileSync(join(root, dir, name), 'utf8')
       if (!/\/v1\/keys\/\$\{[^}]+\}\/public/.test(source)) continue
-      if (!/\b(paidWalletBlsSharing|authorizeWallet|authorizePaidWallet|discoverPaidOperationContext|fundFreshWalletSlot)\(/.test(source)) continue
+      if (!/\b(walletBlsSharing|authorizeWallet|readSlotSharing|fundWalletSlot)\(/.test(source)) continue
       scanned++
       if (!/\b(createWalletSlot|waitForSlotKeyOnChain|waitForCommitteeKey)\(/.test(source)) offenders.push(`${dir}/${name}`)
     }

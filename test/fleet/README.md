@@ -35,37 +35,40 @@ the variable.
 `_fleet.ts` holds the configuration loader and the reachability gate, `_assert.ts` the
 suite/report helpers, `_crypto.ts` and `_wallet.ts` the shared credential machinery.
 
-### Fresh prepaid certification slots
+### Fresh metered certification slots
 
-The wallet slot fixture requires a loopback RPC actually answering chain **43112**
-and a Settlement deployed with `prepaidFromGenesis`. Configure
-`KK_PREPAID_EVIDENCE_DIR` as a private directory owned by the current user. The
-fixture retains the original creator, rule, salt, creation transactions, funding
-amount and payer nonce before approving or depositing TASRA. An existing or
-uncertain funding record refuses a second attempt and must be reconciled.
+The network bills metered only. The wallet slot fixture requires a loopback RPC actually
+answering chain **43112** and the metered-only Settlement (`version()` = "6"). Configure
+`KK_WALLET_EVIDENCE_DIR` as a private directory owned by the current user. The fixture
+journals each slot's deposit (`funding-43112-<slot>`) before approving or depositing
+TASRA. An existing or uncertain funding record refuses a second attempt and must be inspected.
 
-`KK_PREPAID_SLOT_TASRA_UNITS` selects the finite deposit in token base units:
-the default is 1 TASRA and the certification ceiling is 10 TASRA. The configured
-deployer must already hold that TASRA. Native AVAX transfers only fund transaction
-gas. The helper checks the configured token and the canonical available, reserved
-and total balances after funding; successful genesis funding enables prepaid mode.
-It refuses Fuji, mainnet and legacy governance cutovers before spending.
+`KK_SLOT_TASRA_UNITS` selects the finite deposit in token base units: the default is
+1 TASRA and the certification ceiling is 10 TASRA. The configured deployer must already
+hold that TASRA. Native AVAX transfers only fund transaction gas. The helper checks the
+configured token and the slot's Settlement balance after funding. It refuses Fuji and
+mainnet before spending.
 
-The shared wallet now uses the SDK's registered paid-session driver and original
-complete-body client approvals. Sign, decrypt, credential, quorum, audit, bootstrap
-and key-operation stress callers carry the paid coordinator and approvals. The full
-component gate passed with 819 tests, type checks, lint, package, documentation and
-site checks. These results do not establish live settlement or platform acceptance.
+The slot OWNER funds; a holder needs only a credential. `authorizeWallet` opens a session
+at the independently approved registered verifier-agent (signed by any key: the creator's
+where a suite is about the creator, an unrelated one elsewhere), verifies the Request Object
+against the opened operation, presents the credential and returns the holder-bound committee
+token with its anchored verifier proofs. Nothing is reserved or paid per operation; the
+keepers meter the work and `test/verify/settlement.ts` later requires the accountants'
+metered settlement of the funded slots (deposits conserved, cursors in order, recipients
+named, at least `KK_VERIFY_MIN_SETTLED_SLOTS` slots charged within
+`KK_VERIFY_SETTLEMENT_TIMEOUT_SECS`).
 
 After a successful fresh bring-up, `test/verify/bringup.ts` reads the deployed
 local committee settings and operator registry. It requires exact running Docker
 identities with the expected checkout, project and service labels before mapping
 published ports. It retains the registered provider profile, routes and canonical
 deployment observation in a fresh private evidence directory. A failed prerequisite
-or paid configuration stops the run before live tests. TLS setup must supply
+or wallet configuration stops the run before live tests. TLS setup must supply
 `KK_STATUS_LIST_DIR`, `KK_STATUS_LIST_URL` and `KK_WALLET_CA_FILE`; a reused fleet
-also needs its explicitly retained prepaid profile, routes, evidence directory,
-accountant URLs, committee/quorum and finite TASRA/gas limits.
+also needs its explicitly retained wallet configuration (`KK_WALLET_AGENT_PROFILE`,
+`KK_WALLET_KEEPER_ROUTE_MAP`, `KK_WALLET_EVIDENCE_DIR`, `KK_WALLET_ACCOUNTANT_URLS`,
+`KK_WALLET_VERIFIER_COUNT`, `KK_WALLET_VERIFIER_QUORUM`) and its finite slot deposit.
 
 The latest deployment adapter, issuer file-permission fix and bring-up controls
 passed 30 focused checks and the full SDK gate passed with 839 tests and unchanged
@@ -120,11 +123,11 @@ package — it belongs with whatever operates the deployment.
 
 Certification fixtures may select `CERTIFY_TIMING_PROFILE=hourly-v1` on local chain 43112,
 with `KK_NETWORK_DIR` naming the physically claimed checkout and a matching
-`KK_FLEET_INSTANCE`. The paid-wallet test helper then defaults new original payments to
-60 seconds (`KK_PREPAID_EXPIRES_IN_SECS`, bounded to 60..240). Explicit lifetimes selected
+`KK_FLEET_INSTANCE`. The wallet test helper then defaults new operation requests to
+60 seconds (`KK_WALLET_EXPIRES_IN_SECS`, bounded to 60..240). Explicit lifetimes selected
 by a test remain unchanged, and reference fixtures retain their 600-second default.
 This affects test fixtures only. It neither changes the published SDK/client defaults
-nor shortens an already signed payment. Full native timing qualification is required.
+nor shortens an already signed operation. Full native timing qualification is required.
 
 The Rego end-to-end and Hovi live fixtures select this guarded default before
 creating their original payment intents. They retain all authorization, signature,

@@ -8,7 +8,6 @@ import {hashMessage, hashTypedData, hexToBytes, keccak256, serializeTransaction,
 import {approveDualOperation, type DualOperationApprovalRecord, type DualOperationApprover, type PreparedDualOperation} from '../committee/dual-operation.js'
 import type {CompoundTokenWire} from '../committee/token.js'
 import type {VerifierProof} from '../committee/client.js'
-import {assertPaymentIntentWire, type PaymentIntentWire} from '../committee/payment.js'
 import {TasraError} from '../errors.js'
 
 /** Largest serialized transaction, typed-data document or message an intent may carry, in bytes. */
@@ -106,32 +105,16 @@ export function signingIntentCurve(intent: SigningIntent): 'secp256k1' | 'p256' 
 }
 
 /**
- * Check that a final `eoa-sign` payment pays for exactly this intent (its payload digest is the
- * SHA-256 of the intent's digest). Returns the digest.
- * @param payment The final payment intent.
- * @param intent Structured intent.
- */
-export function requireIntentPayment(payment: PaymentIntentWire, intent: SigningIntent): Uint8Array {
-  assertPaymentIntentWire(payment)
-  // The intent's own chain is where the account acts; the payment's is where the slot lives.
-  const digest = signingIntentDigest(intent)
-  if (payment.action !== 'eoa-sign' || payment.payload_digest.toLowerCase() !== toHex(sha256(digest)).toLowerCase()) {
-    throw new TasraError('Payment does not pay for this signing intent')
-  }
-  return digest
-}
-
-/**
  * An approver's side of a native approval for a structured intent: recompute the digest from the
- * intent it reviewed, check the final payment pays for exactly it and the statement names it,
- * then sign the statement. Refuses before signing on any difference.
- * @param input Prepared statement, final payment, the reviewed intent, the approver and its optional holder-bound grant.
+ * intent it reviewed, check the statement names exactly that digest on the expected slot, then
+ * sign the statement. Refuses before signing on any difference.
+ * @param input Prepared statement, the slot the approver expects, the reviewed intent, the approver and its optional holder-bound grant.
  */
-export async function approveSigningIntent(input: {prepared: PreparedDualOperation; payment: PaymentIntentWire; intent: SigningIntent; approver: DualOperationApprover;
+export async function approveSigningIntent(input: {prepared: PreparedDualOperation; slotId: string; intent: SigningIntent; approver: DualOperationApprover;
   authorization?: {compound_token: CompoundTokenWire; verifier_proofs: VerifierProof[]; evidence_ct?: string}; nowSecs?: number}): Promise<DualOperationApprovalRecord> {
-  const digest = requireIntentPayment(input.payment, input.intent)
+  const digest = signingIntentDigest(input.intent)
   const operation = signingIntentCurve(input.intent) === 'p256' ? 'p256-sign' : 'secp256k1-sign'
   if (input.prepared?.statement?.operation !== operation) throw new TasraError(`Approval statement names ${String(input.prepared?.statement?.operation)}, not ${operation}`)
-  return approveDualOperation({prepared: input.prepared, payment: input.payment, expectSlot: input.payment.slot, expectPayloadDigest: toHex(sha256(digest)),
+  return approveDualOperation({prepared: input.prepared, expectSlot: input.slotId, expectPayloadDigest: toHex(sha256(digest)),
     approver: input.approver, ...(input.authorization ? {authorization: input.authorization} : {}), ...(input.nowSecs !== undefined ? {nowSecs: input.nowSecs} : {})})
 }

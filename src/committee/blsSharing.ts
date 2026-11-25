@@ -24,7 +24,7 @@ export interface BlsSharingOptions {
   chainId: number | bigint
   /** Original 32-byte slot identifier. */
   slotId: string
-  /** Key epoch read independently from the canonical slot or reserved payment. */
+  /** Key epoch read independently from the canonical slot. */
   epoch: number
   /** Sharing version read independently; reshares can change it without changing the epoch. */
   committeeVersion: number
@@ -63,7 +63,7 @@ function uint(value: number | bigint, bytes: number): Uint8Array {
  * Authenticate each keeper's public BLS share using the existing operator share-report signature.
  * A report authenticates that operator's claim; it is not a chain commitment to a full polynomial.
  * Callers must retain pairing checks and final verification against the anchored group key.
- * No secret share is fetched and no payment or decryption work is started.
+ * No secret share is fetched and no decryption work is started.
  *
  * @param input - Canonical epoch/version, threshold and independently authenticated assigned keepers.
  */

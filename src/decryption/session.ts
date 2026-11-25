@@ -1,13 +1,14 @@
-// ADR-0090 D7/D8 per-message KEM decrypts under a session grant. Each item carries its own payment
-// (normally an allowance debit voucher) and its own sealed reply; one session-key proof covers the
-// request: a single proof for one item, an ordered batch proof for `/v1/committee/decrypt/partials`.
+// ADR-0090 D7 per-message KEM decrypts under a session grant. Each item carries its own sealed
+// reply; one session-key proof covers the request: a single proof for one item, an ordered batch
+// proof for `/v1/committee/decrypt/partials`. Nothing is paid: the keepers meter the work.
 //
 // The wire is the keeper's (keykeeper-node `api/sealed_session.rs`):
-// - an ITEM is today's sealed `/decrypt/partial` body without `committee_token` (and the evidence
-//   fields), plus the operation's own (REQUIRED) `payment` and its `key_slot_id`, plus its one
-//   contributor approval (kind `session-decrypt`, over the item body alone);
+// - an ITEM is `{key_slot_id, identity, recipient, ciphertext_epoch, ciphertext{u,nonce,aead_ct},
+//   dual_control?, user_signature?}`;
 // - the batch body is `{session_grant, session_key, proof, items, verifier_proofs?}`; the single body
 //   is the item's fields beside `session_grant`, `session_key` and `proof`;
+// - the proof signs `request_hash(chain, slot, decrypt, payload_digest(content, ciphertext_epoch,
+//   recipient))` per item; the item body itself is not hashed or signed;
 // - the batch reply is one `{status: 200, partial}` or `{status, code, error}` per item, in order;
 //   the single reply is the partial, or `{code, error}` with a non-2xx status (an older keeper
 //   sends `{error}` alone).
@@ -16,14 +17,14 @@
 // checks, same HPKE open bound to the request hash; shares are then verified IN BATCHES per item
 // (kem.verifyDecryptSharesBatch, exactly the per-share verdicts) before the combine.
 
-import {randomBytes} from '@noble/hashes/utils'
+import {keccak_256} from '@noble/hashes/sha3'
+import {concatBytes, randomBytes} from '@noble/hashes/utils'
 import {base64Decode, base64Encode} from '../crypto/envelope.js'
 import {bytesToHex, hexToBytes} from '../crypto/hex.js'
 import {combineDecryptShares, decodeKemU, verifyDecryptSharesBatch, type Ciphertext, type DecryptShare} from '../crypto/kem.js'
 import {kemContentDigest, recipientPayloadDigest, type ClientRecipient, type SealedShareWire} from '../crypto/recipient.js'
 import {requestHash} from '../oid4vp/binding.js'
-import {withKeeperExecutionApprovals, type KeeperExecutionApprover} from '../committee/keeperExecution.js'
-import type {PaymentIntentWire} from '../committee/payment.js'
+import type {DualOperationProof} from '../committee/dual-operation.js'
 import {MAX_BATCH_ITEMS, checkProofWindow, encodeSessionProof, sessionBatchProofHash, sessionKeyThumbprint, toBase64Url, sessionProofHash,
   type SessionGrantWire, type SessionProofWire, type VerifiedSessionGrant} from '../committee/session-grant.js'
 import type {SessionKeyHandle} from '../app/session-grants.js'
@@ -40,16 +41,10 @@ export interface SessionDecryptItem {
   recipient: ClientRecipient
   /** Canonical key epoch of the ciphertext. */
   ciphertextEpoch: number
-  /** This item's own payment ({@link paidSessionDecrypt}); every keeper requires one per item. */
-  payment: PaymentIntentWire
-  /** Approves each keeper's contribution for exactly this item's payment. */
-  approveExecution: KeeperExecutionApprover
-  /**
-   * Read a keeper's RETAINED partial for this item, after it answered that the item already ran
-   * (`409 recoverable`: executed, audit row missing; `409 already claimed`: the payment was used).
-   * Never re-sends work or pays again (`PaidSessionDecrypt.recoverPartial`). Returns the partial JSON.
-   */
-  recover?(nodeUrl: string, signal?: AbortSignal): Promise<unknown>
+  /** Native approvals for this item (`assembleDualOperation`), on a slot with an approval policy. */
+  dualControl?: DualOperationProof
+  /** 64-byte owner signature, on a slot with a registered owner key. */
+  userSignature?: Uint8Array
 }
 
 /** A verifier witness on the wire, as for a compound-token request (`verifier_proofs`). */
@@ -77,8 +72,8 @@ export interface SessionDecryptOptions {
   threshold: number
   /**
    * Anchored membership witnesses of the grant's draw at the grant's epoch. A keeper with a
-   * verifier-set registry (every production keeper) REQUIRES them; with them the request always
-   * uses the batch route (the single route's approved item body cannot carry them).
+   * verifier-set registry (every production keeper) REQUIRES them; with them the request uses
+   * the batch route.
    */
   verifierProofs?: SessionVerifierProofWire[]
   fetchImpl?: typeof fetch
@@ -86,6 +81,13 @@ export interface SessionDecryptOptions {
   /** Clock override, Unix seconds (tests). */
   clock?: () => number
   combine?: SessionCombiner
+  /**
+   * How long a keeper may take, in milliseconds, before the next keeper is asked as well. Default:
+   * 1500 plus 50 per item. A keeper that answers late still counts.
+   */
+  hedgeAfterMs?: number
+  /** Randomness for retry jitter, in [0, 1) (tests). Default `Math.random`. */
+  random?: () => number
 }
 
 /** One keeper's refusal of one item. */
@@ -104,11 +106,10 @@ export interface SessionItemRefusal {
  * One item's outcome: the plaintext, or why it failed (an item's refusal never fails the batch).
  * `stale` (see {@link isStaleSessionRefusal}) is true only when the grant was refused as no longer
  * current (its epoch left the beacon's window, or it passed its `exp`) and NO keeper ran this item:
- * every keeper answered, none contributed, none said it already ran it, and every refusal is one
- * that precedes execution. Only then may the caller refresh the grant and pay the message again,
- * and only after confirming the staleness itself (a keeper's word is not proof): {@link decryptInSession}
- * does, once, when a fresh chain read shows the grant two epochs behind. The unused debit stays in
- * the cumulative voucher and is refunded (paid = 0) when it settles after the payment's expiry.
+ * every keeper answered, none contributed, and every refusal is one that precedes execution. Only
+ * then should the caller refresh the grant and send the message again, after confirming the
+ * staleness itself (a keeper's word is not proof): {@link decryptInSession} does, once, when a
+ * fresh chain read shows the grant two epochs behind.
  */
 export type SessionDecryptResult = {ok: true; plaintext: Uint8Array}
   | {ok: false; error: string; codes: string[]; refusals: SessionItemRefusal[]; stale: boolean}
@@ -130,8 +131,20 @@ export function isStaleSessionRefusal(r: Pick<SessionItemRefusal, 'status' | 'co
   return window !== null && BigInt(window[1]!) + 1n < BigInt(window[2]!)
 }
 
-/** Statuses that a keeper answers only before an item runs (409 can mean "already ran"; 5xx is unknown). */
+/**
+ * Statuses that a keeper answers only before an item runs (a 409 or a 5xx leaves that open). 402
+ * is the metered admission bound: the slot's balance does not cover its unsettled metered work.
+ */
 const PRE_EXECUTION = new Set([400, 401, 402, 403, 404, 410, 413, 429])
+
+/**
+ * Whether a keeper refused an item because the slot's Settlement balance does not cover its
+ * unsettled metered work (HTTP 402). Nothing ran; the slot's owner funds the slot.
+ * @param r - One keeper refusal.
+ */
+export function isSlotBalanceSessionRefusal(r: Pick<SessionItemRefusal, 'status'>): boolean {
+  return r.status === 402
+}
 const MAX_MESSAGE_CHARS = 240
 
 function freshJti(): string {
@@ -144,15 +157,14 @@ function prepare(o: SessionDecryptOptions, item: SessionDecryptItem): Prepared {
   const content = kemContentDigest(item.ciphertext, item.identity)
   const digest = recipientPayloadDigest(content, item.ciphertextEpoch, item.recipient.recipient)
   const hash = requestHash(o.chainId, hexToBytes(o.slotId), 'decrypt', digest)
-  if (!item.payment) throw new TasraError('Every session item carries its own payment')
-  if (item.payment.action !== 'decrypt' || item.payment.slot.toLowerCase() !== o.slotId.toLowerCase()
-    || item.payment.payload_digest.toLowerCase() !== bytesToHex(digest).toLowerCase()) throw new TasraError('Session item payment is not bound to this ciphertext and recipient')
+  if (item.userSignature !== undefined && item.userSignature.length !== 64) throw new TasraError('Session item user signature must be 64 bytes')
   const body: Record<string, unknown> = {
     key_slot_id: o.slotId.slice(2).toLowerCase(),
     identity: new TextDecoder('utf-8', {fatal: true}).decode(item.identity),
     recipient: item.recipient.recipient, ciphertext_epoch: item.ciphertextEpoch,
     ciphertext: {u: base64Encode(item.ciphertext.u), nonce: base64Encode(item.ciphertext.nonce), aead_ct: base64Encode(item.ciphertext.aeadCt)},
-    payment: structuredClone(item.payment),
+    ...(item.dualControl ? {dual_control: structuredClone(item.dualControl)} : {}),
+    ...(item.userSignature ? {user_signature: bytesToHex(item.userSignature).slice(2)} : {}),
   }
   return {item, requestHash: hash, body, U: decodeKemU(item.ciphertext.u)}
 }
@@ -173,28 +185,12 @@ type ItemReply = {status: 200; partial: unknown} | {status: number; code: string
 
 const messageOf = (error: unknown): string | undefined => typeof error === 'string' && error ? error.slice(0, MAX_MESSAGE_CHARS) : undefined
 
-/** Codes of an item whose work already RAN at that keeper: re-serve it by recovery, never by paying again. */
-const RAN = new Set(['recoverable', 'already-claimed'])
-
 /**
- * The item code a keeper refusal names. A batch item and (since the second security review) the
- * single route both carry the keeper's stable `code` (`recoverable`, `conflict`, ...), which
- * decides; only an older keeper's single route, answering `{error}` alone, is told apart by its
- * fixed messages.
+ * The item code a keeper refusal names: the keeper's stable `code` (`forbidden`, `conflict`,
+ * `session-stale`, ...), or `status N` from a keeper that sent none.
  */
-function itemCode(status: number, code: unknown, error: unknown): string {
-  const text = typeof error === 'string' ? error : ''
-  const coded = typeof code === 'string' && /^[a-z0-9_-]{1,48}$/.test(code) ? code : undefined
-  if (coded !== undefined) {
-    // `conflict` is the family of every 409 but `recoverable`; a claimed payment is the one the
-    // fan-out must not resend, named by the conflict's message.
-    if (status === 409 && coded === 'conflict' && text.includes('already claimed')) return 'already-claimed'
-    return coded
-  }
-  // Fallback for an older keeper without codes on the single route.
-  if (status === 409 && text.includes('recover its result through the paid-execution recovery route')) return 'recoverable'
-  if (status === 409 && text.includes('already claimed')) return 'already-claimed'
-  return `status ${status}`
+function itemCode(status: number, code: unknown): string {
+  return typeof code === 'string' && /^[a-z0-9_-]{1,48}$/.test(code) ? code : `status ${status}`
 }
 
 /** Largest keeper reply a session request reads, in bytes (64 sealed partials fit well below). */
@@ -236,16 +232,15 @@ async function readCappedText(res: Response, cap: number, signal?: AbortSignal):
 }
 
 /**
- * Decrypt 1..64 ciphertexts under a session grant: one request per keeper (the single route for
- * one item without verifier proofs, the batch route otherwise), one fresh session-key proof per
- * request, then per item the first `threshold` distinct contributions that open and batch-verify
- * are combined locally. A keeper's `413 batch-too-large` splits the batch into requests of its
- * `max_items` (nothing ran), a `429` is retried once after its `Retry-After` inside the deadline,
- * and an item a keeper already ran (`409 recoverable` / `already claimed`) is re-served through
- * `item.recover` when the threshold is still short; nothing is ever paid twice.
+ * Decrypt 1..64 ciphertexts under a session grant. Only `threshold` keepers are asked, in the
+ * request's own order ({@link sessionKeeperOrder}); another keeper is asked only for items a keeper
+ * failed, refused or answered late. One request per keeper (the single route for one item without
+ * verifier proofs, the batch route otherwise), one fresh session-key proof per request, then per
+ * item `threshold` distinct contributions that open and batch-verify are combined locally. A keeper's `413 batch-too-large` splits the batch into requests of its
+ * `max_items` (nothing ran) and a `429` is sent again after its `Retry-After`, up to five times and ten seconds, inside the deadline.
  * Every opened contribution is cleared before returning.
  * @param o - Grant, key, keepers, shares and threshold.
- * @param items - Ciphertexts, each with its own recipient and payment.
+ * @param items - Ciphertexts, each with its own recipient.
  */
 export async function decryptWithSessionGrant(o: SessionDecryptOptions, items: SessionDecryptItem[]): Promise<SessionDecryptResult[]> {
   if (items.length === 0 || items.length > MAX_BATCH_ITEMS) throw new TasraError(`A session request carries 1..${MAX_BATCH_ITEMS} items`)
@@ -256,59 +251,175 @@ export async function decryptWithSessionGrant(o: SessionDecryptOptions, items: S
   if (bytesToHex(sessionKeyThumbprint(o.key.jwk)) !== bytesToHex(o.verified.sessionKeyThumbprint)) throw new TasraError('Session key thumbprint does not match the grant')
   if (o.verifierProofs !== undefined && (!Array.isArray(o.verifierProofs) || o.verifierProofs.length === 0)) throw new TasraError('Session verifier proofs, when given, are nonempty')
   const prepared = items.map(item => prepare(o, item))
-  const state: FanOutState = {candidates: prepared.map(() => new Map<number, Candidate>()), codes: prepared.map(() => [] as string[]),
-    ran: prepared.map(() => [] as string[]), refusals: prepared.map(() => [] as SessionItemRefusal[]), answered: prepared.map(() => 0), errors: [] as string[]}
+  const state: FanOutState = {candidates: prepared.map(() => new Map<number, Candidate>()), valid: prepared.map(() => [] as Candidate[]),
+    codes: prepared.map(() => [] as string[]), refusals: prepared.map(() => [] as SessionItemRefusal[]), answered: prepared.map(() => 0),
+    errors: [] as string[], closed: false}
   try {
     await withNetworkDeadline(signal => fanOut({...o, signal}, prepared, state), o.signal)
-    await recoverShort(o, prepared, state)
     return await combineAll(o, prepared, state)
   } finally {
+    state.closed = true
     for (const c of state.candidates) for (const v of c.values()) v.value.fill(0)
+    for (const list of state.valid) for (const v of list) v.value.fill(0)
   }
 }
 
 interface FanOutState {
-  candidates: Map<number, Candidate>[]; codes: string[][]; ran: string[][]
+  /** Per item: opened contributions not yet verified, one per keeper identifier. */
+  candidates: Map<number, Candidate>[]
+  /** Per item: contributions that verified, one per keeper identifier. */
+  valid: Candidate[][]
+  codes: string[][]
   /** Per item: every keeper refusal, in arrival order. */
   refusals: SessionItemRefusal[][]
   /** Per item: how many keepers answered it at all (a transport failure is no answer). */
   answered: number[]
   errors: string[]
+  /** Set when the request is over: a late keeper reply is discarded, never kept. */
+  closed: boolean
 }
 
+/**
+ * The order in which a request asks its keepers: by `keccak256(seed ‖ endpoint)`. The seed is the
+ * first item's request hash, which covers a fresh reply key, so the order is uniform per request and
+ * every keeper is asked (and paid) for the same part of the work over time. The first `threshold`
+ * keepers are asked; the rest only when one of those fails.
+ * @param nodeUrls - The slot's keeper endpoints.
+ * @param seed - The request's first request hash.
+ */
+export function sessionKeeperOrder(nodeUrls: readonly string[], seed: Uint8Array): string[] {
+  return nodeUrls
+    .map(url => ({url, rank: bytesToHex(keccak_256(concatBytes(seed, new TextEncoder().encode(url.replace(/\/$/, '')))))}))
+    .sort((a, b) => (a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : 0))
+    .map(entry => entry.url)
+}
+
+/** How long a keeper may take before the next one is asked as well: this base plus {@link HEDGE_PER_ITEM_MS} per item. */
+const HEDGE_BASE_MS = 1_500
+const HEDGE_PER_ITEM_MS = 50
+
+/** Verify item `i`'s opened contributions once they could complete it; a share that fails is dropped. */
+function verifyPending(o: SessionDecryptOptions, p: Prepared, state: FanOutState, i: number, force = false): void {
+  const pending = [...state.candidates[i]!.values()]
+  if (pending.length === 0 || (!force && state.valid[i]!.length + pending.length < o.threshold)) return
+  state.candidates[i]!.clear()
+  let verdict: boolean[]
+  try {
+    verdict = verifyDecryptSharesBatch(pending.map(c => ({id: c.identifier, decryptionShare: c.value, verifyingShare: c.verifyingShare})), p.U)
+  } catch (error) {
+    for (const c of pending) c.value.fill(0)
+    state.codes[i]!.push('invalid-share')
+    state.errors.push(String(error))
+    return
+  }
+  pending.forEach((c, j) => {
+    if (verdict[j]) state.valid[i]!.push(c)
+    else { c.value.fill(0); state.codes[i]!.push('invalid-share') }
+  })
+}
+
+/**
+ * Ask the fewest keepers that can answer: the first `threshold` of {@link sessionKeeperOrder}, each
+ * with every item. Another keeper is asked only for the items still short of `threshold` verified
+ * contributions, when a keeper refused or failed them, returned a share that does not verify, or
+ * has not answered within the hedge delay. Stops as soon as every item is complete.
+ */
 async function fanOut(o: SessionDecryptOptions, prepared: Prepared[], state: FanOutState): Promise<void> {
-  const settled = await Promise.allSettled(o.nodeUrls.map(async nodeUrl => {
+  const order = sessionKeeperOrder(o.nodeUrls, prepared[0]!.requestHash)
+  const hedgeMs = o.hedgeAfterMs ?? HEDGE_BASE_MS + HEDGE_PER_ITEM_MS * prepared.length
+  // Keepers asked for an item whose answer is awaited and not overdue.
+  const awaited = prepared.map(() => 0)
+  const running = new Set<Promise<void>>()
+  const local = new AbortController()
+  const onAbort = () => local.abort(o.signal?.reason)
+  if (o.signal?.aborted) onAbort()
+  else o.signal?.addEventListener('abort', onAbort, {once: true})
+  const scoped = {...o, signal: local.signal}
+  let next = 0
+  let wake = () => {}
+  const short = (i: number) => o.threshold - state.valid[i]!.length - state.candidates[i]!.size - awaited[i]!
+
+  const ask = (indices: number[]): void => {
+    const nodeUrl = order[next++]!
     const base = nodeUrl.replace(/\/$/, '')
-    const approved = await Promise.all(prepared.map(p => withKeeperExecutionApprovals({body: p.body, kind: 'session-decrypt', nodeUrl,
-      payment: p.item.payment, approveExecution: p.item.approveExecution, signal: o.signal})))
-    const replies = await send(o, base, prepared.map((p, i) => ({index: i, hash: p.requestHash, body: approved[i]!})))
-    await Promise.all(replies.map(async (reply, i) => {
-      state.answered[i]!++
-      if (reply.status !== 200) {
-        const r = reply as {status: number; code: string; message?: string; scope: 'request' | 'item'}
-        state.codes[i]!.push(r.code)
-        state.refusals[i]!.push({nodeUrl, status: r.status, code: r.code, ...r.message ? {message: r.message} : {}, scope: r.scope})
-        if (RAN.has(r.code)) state.ran[i]!.push(nodeUrl)
-        return
+    let counted = true
+    const release = () => { if (counted) { counted = false; for (const i of indices) awaited[i]!-- } }
+    for (const i of indices) awaited[i]!++
+    const timer = setTimeout(() => { release(); wake() }, hedgeMs)
+    const run = async (): Promise<void> => {
+      try {
+        const replies = await send(scoped, base, indices.map(i => ({index: i, hash: prepared[i]!.requestHash, body: prepared[i]!.body})))
+        if (state.closed) return
+        await Promise.all(replies.map(async (reply, j) => {
+          const i = indices[j]!
+          state.answered[i]!++
+          if (reply.status !== 200) {
+            const r = reply as {status: number; code: string; message?: string; scope: 'request' | 'item'}
+            state.codes[i]!.push(r.code)
+            state.refusals[i]!.push({nodeUrl, status: r.status, code: r.code, ...r.message ? {message: r.message} : {}, scope: r.scope})
+            return
+          }
+          await accept(scoped, prepared[i]!, state, i, (reply as {partial: unknown}).partial)
+        }))
+        if (!state.closed) for (const i of indices) verifyPending(o, prepared[i]!, state, i)
+      } catch (error) {
+        if (!state.closed) state.errors.push(String(error))
+      } finally {
+        clearTimeout(timer)
+        release()
       }
-      await accept(o, prepared[i]!, state.candidates[i]!, state.codes[i]!, (reply as {partial: unknown}).partial)
-    }))
-  }))
-  for (const s of settled) if (s.status === 'rejected') state.errors.push(String(s.reason))
+    }
+    const task: Promise<void> = run().finally(() => { running.delete(task); wake() })
+    running.add(task)
+  }
+
+  try {
+    for (;;) {
+      local.signal.throwIfAborted()
+      if (prepared.every((_, i) => state.valid[i]!.length >= o.threshold)) return
+      let asked = false
+      while (next < order.length) {
+        const lacking = prepared.map((_, i) => i).filter(i => short(i) > 0)
+        if (lacking.length === 0) break
+        ask(lacking)
+        asked = true
+      }
+      if (asked) continue
+      if (running.size === 0) return
+      await new Promise<void>(resolve => { wake = resolve })
+    }
+  } finally {
+    state.closed = true
+    o.signal?.removeEventListener('abort', onAbort)
+    // A keeper that is still working is no longer needed: stop reading it.
+    local.abort(new TasraError('Session request finished'))
+    await Promise.allSettled([...running])
+  }
 }
 
-/** Open one partial and keep it as a candidate (one per keeper identifier). */
-async function accept(o: SessionDecryptOptions, p: Prepared, candidates: Map<number, Candidate>, codes: string[], partial: unknown): Promise<void> {
+/** Open one partial and keep it for verification (one per keeper identifier). */
+async function accept(o: SessionDecryptOptions, p: Prepared, state: FanOutState, i: number, partial: unknown): Promise<void> {
   const opened = await openPartial(o, p, partial)
-  if (!opened) { codes.push('invalid-partial'); return }
-  if (candidates.has(opened.identifier)) opened.value.fill(0)
-  else candidates.set(opened.identifier, opened)
+  if (!opened) { state.codes[i]!.push('invalid-partial'); return }
+  if (state.closed || state.candidates[i]!.has(opened.identifier) || state.valid[i]!.some(c => c.identifier === opened.identifier)) opened.value.fill(0)
+  else state.candidates[i]!.set(opened.identifier, opened)
 }
 
 interface Outgoing { index: number; hash: Uint8Array; body: Record<string, unknown> }
 
 /** Send `items` to one keeper and answer one reply per item, in order (splitting on 413, retrying a 429 once). */
-async function send(o: SessionDecryptOptions, base: string, items: Outgoing[], split = false, retried = false): Promise<ItemReply[]> {
+/**
+ * A keeper's 429 means its per-address bucket is short right now and nothing ran, so sending again
+ * is safe. Several readers behind one address (an office, a NAT) drain one bucket together, so one
+ * retry is not enough: a request is sent again up to this many times, waiting the keeper's
+ * `Retry-After` plus a little jitter each time, within this total wait and the request deadline.
+ */
+const RATE_LIMIT_RETRIES = 5
+const RATE_LIMIT_MAX_WAIT_MS = 5_000
+const RATE_LIMIT_TOTAL_WAIT_MS = 10_000
+const RATE_LIMIT_JITTER_MS = 250
+
+async function send(o: SessionDecryptOptions, base: string, items: Outgoing[], split = false, retries = 0, waited = 0): Promise<ItemReply[]> {
   const batch = items.length > 1 || o.verifierProofs !== undefined || split
   const proof = await proofFor(o, items.map(i => i.hash), batch)
   const session = {session_grant: o.grant, session_key: o.key.jwk, proof}
@@ -327,24 +438,25 @@ async function send(o: SessionDecryptOptions, base: string, items: Outgoing[], s
     for (let i = 0; i < items.length; i += max) out.push(...await send(o, base, items.slice(i, i + max), true))
     return out
   }
-  // 429: the keeper's per-IP item bucket (or the grant's jti budget) is short now; nothing ran. One retry with a fresh proof.
-  if (res.status === 429 && !retried) {
-    const wait = parseRetryAfter(res.headers.get('retry-after')) ?? 1_000
-    if (wait <= 5_000) {
+  // 429: the keeper's per-IP item bucket (or the grant's jti budget) is short now; nothing ran. Send again with a fresh proof.
+  if (res.status === 429 && retries < RATE_LIMIT_RETRIES) {
+    const asked = parseRetryAfter(res.headers.get('retry-after')) ?? 1_000
+    const wait = asked + Math.floor((o.random ?? Math.random)() * RATE_LIMIT_JITTER_MS)
+    if (asked <= RATE_LIMIT_MAX_WAIT_MS && waited + wait <= RATE_LIMIT_TOTAL_WAIT_MS) {
       await new Promise<void>((resolve, reject) => {
         const t = setTimeout(resolve, wait)
         o.signal?.addEventListener('abort', () => { clearTimeout(t); reject(o.signal!.reason) }, {once: true})
       })
-      return send(o, base, items, split, true)
+      return send(o, base, items, split, retries + 1, waited + wait)
     }
   }
   if (!batch) {
     if (res.ok) return [{status: 200, partial: json}]
-    return [{status: res.status, code: itemCode(res.status, json?.code, json?.error), ...messageOf(json?.error) ? {message: messageOf(json?.error)} : {}, scope: 'item'}]
+    return [{status: res.status, code: itemCode(res.status, json?.code), ...messageOf(json?.error) ? {message: messageOf(json?.error)} : {}, scope: 'item'}]
   }
   if (!res.ok) {
     // A whole-request refusal answers every item the same way (none of them ran).
-    const code = itemCode(res.status, json?.code, json?.error), message = messageOf(json?.error)
+    const code = itemCode(res.status, json?.code), message = messageOf(json?.error)
     return items.map(() => ({status: res.status, code, ...message ? {message} : {}, scope: 'request' as const}))
   }
   const replies = json?.items
@@ -354,36 +466,18 @@ async function send(o: SessionDecryptOptions, base: string, items: Outgoing[], s
     if (r?.status === 200) return {status: 200, partial: r.partial}
     const status = typeof r?.status === 'number' ? r.status : 0
     const message = messageOf(r?.error)
-    return {status, code: itemCode(status, r?.code, r?.error), ...message ? {message} : {}, scope: 'item'}
+    return {status, code: itemCode(status, r?.code), ...message ? {message} : {}, scope: 'item'}
   })
-}
-
-/** For each item still short of its threshold: read the retained partial of every keeper that said it already ran it. */
-async function recoverShort(o: SessionDecryptOptions, prepared: Prepared[], state: FanOutState): Promise<void> {
-  await Promise.all(prepared.map(async (p, i) => {
-    if (!p.item.recover) return
-    for (const nodeUrl of state.ran[i]!) {
-      if (state.candidates[i]!.size >= o.threshold) return
-      o.signal?.throwIfAborted()
-      try { await accept(o, p, state.candidates[i]!, state.codes[i]!, await p.item.recover(nodeUrl, o.signal)) }
-      catch (error) {
-        o.signal?.throwIfAborted()
-        state.codes[i]!.push('recovery-failed')
-        state.errors.push(`recovery from ${nodeUrl}: ${error instanceof Error ? error.message : String(error)}`)
-      }
-    }
-  }))
 }
 
 async function combineAll(o: SessionDecryptOptions, prepared: Prepared[], state: FanOutState): Promise<SessionDecryptResult[]> {
   const combine = o.combine ?? ((shares, ct, identity) => combineDecryptShares(shares, ct, identity, {verify: false}))
   const results: SessionDecryptResult[] = []
   for (const [i, p] of prepared.entries()) {
-    const list = [...state.candidates[i]!.values()]
     try {
-      const shares: DecryptShare[] = list.map(c => ({id: c.identifier, decryptionShare: c.value, verifyingShare: c.verifyingShare}))
-      const verdict = verifyDecryptSharesBatch(shares, p.U)
-      const valid = shares.filter((_, j) => verdict[j]).slice(0, o.threshold)
+      // Contributions were verified as they completed the item; verify what is left for the count.
+      verifyPending(o, p, state, i, true)
+      const valid: DecryptShare[] = state.valid[i]!.slice(0, o.threshold).map(c => ({id: c.identifier, decryptionShare: c.value, verifyingShare: c.verifyingShare}))
       if (valid.length < o.threshold) {
         const refusals = state.refusals[i]!
         const said = [...new Set(refusals.map(r => `${r.code}${r.message ? ' (' + r.message + ')' : ''}`))]
@@ -402,13 +496,12 @@ async function combineAll(o: SessionDecryptOptions, prepared: Prepared[], state:
 
 /**
  * True when item `i` is a staleness refusal that ran NOWHERE: every keeper answered it, none
- * contributed or said it already ran it (nor did a recovery read), every refusal precedes execution,
- * and at least one names a stale grant. A transport failure leaves "did it run?" open: never stale.
+ * contributed, every refusal precedes execution, and at least one names a stale grant. A transport failure leaves "did it run?" open: never stale.
  */
 function staleUnrun(o: SessionDecryptOptions, state: FanOutState, i: number): boolean {
   const refusals = state.refusals[i]!
-  return state.answered[i] === o.nodeUrls.length && state.candidates[i]!.size === 0 && state.ran[i]!.length === 0
-    && refusals.length === o.nodeUrls.length && refusals.every(r => PRE_EXECUTION.has(r.status) && !RAN.has(r.code))
+  return state.answered[i] === o.nodeUrls.length && state.candidates[i]!.size === 0 && state.valid[i]!.length === 0
+    && refusals.length === o.nodeUrls.length && refusals.every(r => PRE_EXECUTION.has(r.status))
     && refusals.some(isStaleSessionRefusal)
 }
 

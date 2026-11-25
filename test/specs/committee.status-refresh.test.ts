@@ -28,7 +28,6 @@ import {
   withdrawsOriginal,
   type StatusRefreshProofWire,
 } from '../../src/committee/status-refresh.js'
-import {createLocalExecutionSigner} from '../../src/committee/execution.js'
 import {ed25519HolderKey, p256HolderKey, verifyCompactJws, decodeJson, type Jwk} from '../../src/oid4vp/jose.js'
 import {StatusRefreshError, isRetryable, isStatusRefreshError, type StatusRefreshCode} from '../../src/errors.js'
 
@@ -42,7 +41,7 @@ const now = () => Math.floor(Date.now() / 1000)
 function grant(opts: {signers?: number[]; drawn?: number[]; exp?: number; attest?: {index: number; until: number}[]} = {}) {
   const t = now()
   const payload: CompoundTokenPayload = {tokenType: 'JWT', seed: bytes(32, 1), epoch: 9, slotId: bytes(32, 2), vpHash: bytes(32, 3), holderHash: bytes(32, 4),
-    ruleHash: bytes(32, 5), paymentHash: bytes(32, 7), binding: 1, verifierIndexes: opts.drawn ?? [0, 1, 2], iat: t, exp: opts.exp ?? t + 600}
+    ruleHash: bytes(32, 5), binding: 1, verifierIndexes: opts.drawn ?? [0, 1, 2], iat: t, exp: opts.exp ?? t + 600}
   const hash = compoundTokenHash(payload)
   const signatures = (opts.signers ?? [0, 1, 2]).map(i => ({verifierIndex: i, signature: ed25519.sign(hash, secret(i))}))
   const attestations = (opts.attest ?? []).map(a => ({verifierIndex: a.index, statusUntil: a.until, signature: ed25519.sign(statusAttestationHash(hash, a.index, a.until), secret(a.index))}))
@@ -55,35 +54,34 @@ const reply = (hash: Uint8Array, index: number, until: number, key = index) =>
   ({token_hash: hex(hash), verifier_index: index, status_until: until, status_signature: hex(ed25519.sign(statusAttestationHash(hash, index, until), secret(key)))})
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   new Response(typeof body === 'string' ? body : JSON.stringify(body), {status, headers: {'Content-Type': 'application/json', ...headers}})
-const proof: StatusRefreshProofWire = {kind: 'client_execution', seq: 1, issued_at: 1_760_000_000, signature: '0x' + 'aa'.repeat(64)}
+const proof: StatusRefreshProofWire = {kind: 'holder_key', seq: 1, issued_at: 1_760_000_000, signature: 'aGVhZGVy.cGF5bG9hZA.c2lnbmF0dXJl'}
 const verifiers = [0, 1, 2, 3].map(index => ({index, url: `https://v${index}.example`}))
 const thrown = (f: () => unknown): unknown => { try { f() } catch (e) { return e } throw new Error('did not throw') }
 const indexOf = (url: string) => Number(/https:\/\/v(\d)\.example/.exec(url)![1])
 
 describe('status refresh hash', () => {
   it('pins the byte layout to independently computed vectors', () => {
-    // Expected values computed outside the SDK with Foundry `cast keccak` over the hex preimage
-    // (domain || chain_id u64BE || token_hash || payment_hash|zero32 || kind u8 || seq u64BE || issued_at i64BE).
-    // The same method reproduces the status-attestation vector c0a7febf...e0f91ab3.
-    // ⚠ Not yet cross-checked against a Rust `refresh_hash` (none exists in keykeeper-committee at 7f82e52c).
-    expect(hex(statusRefreshHash({chainId: 43112, tokenHash: bytes(32, 0x42), paymentHash: bytes(32, 0x07), principal: 'client_execution', seq: 1, issuedAt: 1_760_000_000})))
-      .toBe('0x0032b0d45ad23fb4e4221e2f8f4b446900c8ab0684f09fcfffff4005145ef5a0')
+    // Expected value computed outside the SDK with Foundry `cast keccak` over the hex preimage
+    // (domain || chain_id u64BE || token_hash || zero32 || kind u8 || seq u64BE || issued_at i64BE).
+    // The 32 zero bytes stand where a retired field was: the holder_key digest is unchanged.
     expect(hex(statusRefreshHash({chainId: 43112, tokenHash: bytes(32, 0x42), principal: 'holder_key', seq: 3, issuedAt: 1_760_000_000})))
       .toBe('0x36a88fe2b859185d9061d99577adf182f50e5119d928c582ef6a7e05eddc7cb6')
     // Independent preimage in the test, too.
-    const pre = new Uint8Array([...new TextEncoder().encode(STATUS_REFRESH_DOMAIN), 0, 0, 0, 0, 0, 0, 0xa8, 0x68, ...bytes(32, 0x42), ...bytes(32, 0x07), 2,
-      0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0x68, 0xe7, 0x78, 0x00])
-    expect(hex(keccak_256(pre))).toBe('0x0032b0d45ad23fb4e4221e2f8f4b446900c8ab0684f09fcfffff4005145ef5a0')
+    const pre = new Uint8Array([...new TextEncoder().encode(STATUS_REFRESH_DOMAIN), 0, 0, 0, 0, 0, 0, 0xa8, 0x68, ...bytes(32, 0x42), ...bytes(32, 0), 1,
+      0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0x68, 0xe7, 0x78, 0x00])
+    expect(hex(keccak_256(pre))).toBe('0x36a88fe2b859185d9061d99577adf182f50e5119d928c582ef6a7e05eddc7cb6')
     expect(STATUS_REFRESH_DOMAIN).toBe('keykeeper/committee-status-refresh/v1')
   })
 
-  it('moves with every input and treats an absent payment hash as all-zero', () => {
-    const base = {chainId: 43112, tokenHash: bytes(32, 0x42), paymentHash: bytes(32, 0x07), principal: 'client_execution' as const, seq: 1, issuedAt: 1_760_000_000}
+  it('moves with every input and has no payment input', () => {
+    const base = {chainId: 43112, tokenHash: bytes(32, 0x42), principal: 'holder_key' as const, seq: 1, issuedAt: 1_760_000_000}
     const h0 = hex(statusRefreshHash(base))
-    for (const change of [{chainId: 43113}, {tokenHash: bytes(32, 0x43)}, {paymentHash: bytes(32, 0x08)}, {principal: 'holder_key' as const}, {seq: 2}, {issuedAt: 1_760_000_001}]) {
+    for (const change of [{chainId: 43113}, {tokenHash: bytes(32, 0x43)}, {seq: 2}, {issuedAt: 1_760_000_001}]) {
       expect(hex(statusRefreshHash({...base, ...change}))).not.toBe(h0)
     }
-    expect(hex(statusRefreshHash({...base, paymentHash: undefined}))).toBe(hex(statusRefreshHash({...base, paymentHash: bytes(32, 0)})))
+    // A stray payment hash (a caller written against the retired API) changes nothing.
+    expect(hex(statusRefreshHash({...base, paymentHash: bytes(32, 0x08)} as typeof base))).toBe(h0)
+    expect(() => statusRefreshHash({...base, principal: 'client_execution' as 'holder_key'})).toThrow(/principal/)
     expect(() => statusRefreshHash({...base, seq: 0})).toThrow(/seq/)
     expect(() => statusRefreshHash({...base, tokenHash: bytes(31, 1)})).toThrow(/32 bytes/)
     expect(() => statusRefreshHash({...base, issuedAt: 1.5})).toThrow(/issued_at/)
@@ -93,20 +91,7 @@ describe('status refresh hash', () => {
 })
 
 describe('refresh proofs', () => {
-  const input = {chainId: 43112, tokenHash: bytes(32, 0x42), paymentHash: bytes(32, 0x07), seq: 5, issuedAt: 1_760_000_000}
-
-  it('signs client_execution with the original execution key', async () => {
-    const signer = createLocalExecutionSigner(bytes(32, 9))
-    const p = await createStatusRefreshProof({...input, prover: {kind: 'client_execution', signer}})
-    expect(p).toMatchObject({kind: 'client_execution', seq: 5, issued_at: 1_760_000_000})
-    expect(p.signature).toMatch(/^0x[0-9a-f]{128}$/)
-    const digest = statusRefreshHash({...input, principal: 'client_execution'})
-    expect(ed25519.verify(p.signature.slice(2), digest, signer.publicKey)).toBe(true)
-    // A signer that does not hold the key it claims is caught before anything is sent.
-    await expect(createStatusRefreshProof({...input, prover: {kind: 'client_execution', signer: {publicKey: pub(1), sign: async m => ed25519.sign(m, secret(2))}}}))
-      .rejects.toThrow(/invalid status refresh signature/)
-    signer.dispose()
-  })
+  const input = {chainId: 43112, tokenHash: bytes(32, 0x42), seq: 5, issuedAt: 1_760_000_000}
 
   it.each([['ES256', p256HolderKey(bytes(32, 0x11))], ['EdDSA', ed25519HolderKey(bytes(32, 0x12))]] as const)('signs a %s holder_key JWS with typ, jwk and the hash', async (alg, holder) => {
     const p = await createStatusRefreshProof({...input, prover: {kind: 'holder_key', signer: statusRefreshHolderSigner(holder)}})
@@ -563,24 +548,23 @@ describe('relay refresh through the verifier-agent', () => {
 })
 
 describe('status refresh boundary refusals (nothing is signed or sent past a malformed input)', () => {
-  const base = {chainId: 43112, tokenHash: bytes(32, 9), principal: 'client_execution' as const, seq: 1, issuedAt: 1_760_000_000}
+  const base = {chainId: 43112, tokenHash: bytes(32, 9), principal: 'holder_key' as const, seq: 1, issuedAt: 1_760_000_000}
   it('the proof hash refuses an unknown principal, non-integer or out-of-range widths and hashes that are not 32 bytes', () => {
-    expect(() => statusRefreshHash({...base, principal: 'bearer' as 'holder_key'})).toThrow('status refresh principal must be holder_key or client_execution')
+    expect(() => statusRefreshHash({...base, principal: 'bearer' as 'holder_key'})).toThrow('status refresh principal must be holder_key')
     expect(() => statusRefreshHash({...base, seq: 1.5})).toThrow('status refresh seq must be an integer')
     expect(() => statusRefreshHash({...base, seq: '1' as unknown as number})).toThrow('status refresh seq must be an integer')
     expect(() => statusRefreshHash({...base, seq: 0})).toThrow('status refresh seq is out of range')
     expect(() => statusRefreshHash({...base, chainId: 1n << 64n})).toThrow('status refresh chain_id is out of range')
     expect(() => statusRefreshHash({...base, issuedAt: 1.5})).toThrow('status refresh issued_at must be a safe integer')
     expect(() => statusRefreshHash({...base, tokenHash: bytes(31, 9)})).toThrow('status refresh token hash must be 32 bytes')
-    expect(() => statusRefreshHash({...base, paymentHash: bytes(33, 9)})).toThrow('status refresh payment hash must be 32 bytes')
     // A bigint seq hashes exactly like the same number.
     expect(hex(statusRefreshHash({...base, seq: 5n}))).toBe(hex(statusRefreshHash({...base, seq: 5})))
   })
   it('a proof is never produced for a zero seq, an unknown prover, a mismatched holder algorithm or a malformed holder signature', async () => {
-    const signer = createLocalExecutionSigner(bytes(32, 3))
+    const signer = statusRefreshHolderSigner(ed25519HolderKey(bytes(32, 3)))
     const common = {chainId: 43112, tokenHash: bytes(32, 9), issuedAt: 1_760_000_000}
-    await expect(createStatusRefreshProof({...common, seq: 0, prover: {kind: 'client_execution', signer}})).rejects.toThrow('status refresh seq must be a positive safe integer')
-    await expect(createStatusRefreshProof({...common, seq: 1, prover: {kind: 'bearer', signer} as never})).rejects.toThrow('status refresh principal must be holder_key or client_execution')
+    await expect(createStatusRefreshProof({...common, seq: 0, prover: {kind: 'holder_key', signer}})).rejects.toThrow('status refresh seq must be a positive safe integer')
+    await expect(createStatusRefreshProof({...common, seq: 1, prover: {kind: 'client_execution', signer} as never})).rejects.toThrow('status refresh principal must be holder_key')
     const ed = statusRefreshHolderSigner(ed25519HolderKey(bytes(32, 4)))
     const sign = vi.fn(ed.sign)
     await expect(createStatusRefreshProof({...common, seq: 1, prover: {kind: 'holder_key', signer: {...ed, alg: 'ES256', sign}}})).rejects
@@ -589,9 +573,9 @@ describe('status refresh boundary refusals (nothing is signed or sent past a mal
       .toThrow('holder signer produced an invalid JWS signature')
     expect(sign).not.toHaveBeenCalled()
   })
-  it('the request body refuses a negative chain id and a client_execution proof whose signature is not 64 bytes of hex', () => {
+  it('the request body refuses a negative chain id, the retired client_execution principal and a zero seq', () => {
     expect(() => statusRefreshRequestBody(-1, bytes(32, 9), proof)).toThrow('status refresh chain_id must be a safe non-negative integer')
-    expect(() => statusRefreshRequestBody(43112, bytes(32, 9), {...proof, signature: '0x' + 'aa'.repeat(63)})).toThrow('Invalid client_execution refresh signature')
+    expect(() => statusRefreshRequestBody(43112, bytes(32, 9), {...proof, kind: 'client_execution' as 'holder_key', signature: '0x' + 'aa'.repeat(64)})).toThrow('Invalid status refresh proof')
     expect(() => statusRefreshRequestBody(43112, bytes(32, 9), {...proof, seq: 0})).toThrow('Invalid status refresh proof')
   })
   it('the direct path refuses a zero quorum, a non-integer cap, a bad timeout, a duplicated or non-https endpoint before any request', async () => {

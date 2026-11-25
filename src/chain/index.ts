@@ -6,34 +6,16 @@
 
 // Contract ABIs (generated from the Foundry artifacts) + nametoabi map.
 export * from './abis/index.js'
-export {UnderfundedSlotError, UnderfundedGasPayerError, PaidBackoffError, PaidApprovalUnresolvedError, PaidReservationQuotaError} from '../errors.js'
-export {readSlotFunding, readPaidOperationReceipt, resolvePaidKeeperTarget, discoverPaidOperationContext, readCurrentBeaconEpoch, readBeaconDrawState, PaidDrawMovedError} from './prepaid.js'
-export type {BeaconDrawState} from './prepaid.js'
-export {readBillingMode, createBillingModeDetector, requirePrepaidSlot, BillingModeError} from './billing.js'
+// Chain reads a session grant is judged by: beacon epochs and a slot's anchored verifier draw.
+export {readCurrentBeaconEpoch, readBeaconDrawState, readSlotVerifierDraw, createSlotDrawReader} from './sessionDraw.js'
+export type {BeaconDrawState, BeaconDeployment, SessionDrawDeployment, SlotVerifierDrawOptions, SlotDrawReaderConfig, SlotDrawTrust, VerifierProofWire} from './sessionDraw.js'
 export {drawnVerifierWitnesses, fetchDrawnVerifierWitnesses} from './verifierSnapshot.js'
-export {encodePrepaidFaultContest, contestPrepaidFault, readPrepaidFaultResolution, submitPrepaidFaultClaim, readPrepaidFaultStatus,
-  PREPAID_FAULT_KINDS, MAX_PREPAID_FAULT_BUNDLE_BYTES} from './prepaidFault.js'
-export type {PrepaidFaultKind, PrepaidFaultVerdict, PrepaidFaultHttpOptions} from './prepaidFault.js'
-export type {OriginalVerifierPolicy} from './verifierSnapshot.js'
-export type {BillingMode, BillingModeObservation, BillingDeployment, BillingModeDetector} from './billing.js'
-export type {PrepaidDeployment, PrepaidObservation, SlotFunding, PaidOperationReceipt, ExpectedPaidOperation, PaidKeeperEndpoint, PaidKeeperTarget, PaidKeeperTransportOptions,
-  PaidContextDeployment, PaidContextOptions, DiscoveredPaymentFields, PaidOperationContext, DrawnPaidOperationContext, UndrawnPaidOperationContext,
-  UndrawnPaymentFields, PaymentDrawFieldName} from './prepaid.js'
-export {reservePaidOperation, reconcilePaidReservation, PaidReservationUncertainError, PaidReservationAbortedError, PaidReservationStaleEpochError, PaidReservationQuorumNotPreparedError} from './reservation.js'
+export type {AnchoredVerifierDraw, VerifierWitness} from './verifierSnapshot.js'
+// A BLS slot's keepers and authenticated public sharing, from the slot id alone.
+export {readSlotSharing} from './slotSharing.js'
+export type {SlotSharing, SlotSharingOptions} from './slotSharing.js'
 export {followHeads, unfollowHeads, headFollowerOf, createHeadFollower, type HeadFollower, type HeadFollowerOptions, type FollowedHead} from './headFollower.js'
-export type {PaidReservationQuote, PaidReservationRecord, PaidReservationCheckpoint, ReservePaidOperationOptions, PaidReservationResolution} from './reservation.js'
-// ADR-0090 prepaid allowances: reserve once, debit per operation by accountant-quorum voucher.
-export {reservePrepaidAllowance, reconcilePrepaidAllowance, readPrepaidAllowance, prepaidAllowanceId, collectDebitVoucher, verifyDebitVoucher, readAccountantGroupKey,
-  DebitVoucherError, ALLOWANCE_MAX_LIFETIME_SECS, ALLOWANCE_QUOTE_MAX_AGE_SECS} from './allowance.js'
-export type {PrepaidAllowanceState, PrepaidAllowanceQuote, PrepaidAllowanceReservationRecord, PrepaidAllowanceCheckpoint, ReservePrepaidAllowanceOptions,
-  DebitPartialWire, DebitRequest, DebitMemberOutcome, CollectDebitVoucherOptions} from './allowance.js'
 export {SlotCommitmentExpiredError, SlotRevealNotYetError, SlotSeedUnavailableError, assertExpiredSlotCommitment} from './commitmentRecovery.js'
-// Payer-side prepaid timeout escape: refund reservations nobody reconciled within the governed delay.
-export {createPrepaidEscapeClient, decodePrepaidEscapeRevert, decodePrepaidEscapeLogs, prepaidEscapeId, MAX_ESCAPE_PER_CALL, MAX_ESCAPE_REQUESTS} from './prepaidEscape.js'
-export type {PrepaidEscapeClient, PrepaidEscapeDeployment, PrepaidEscapeRequestState, PrepaidEscapeStatus, PrepaidEscapeObservation, PrepaidEscapeRecord,
-  PrepaidEscapeCheckpoint, EscapePrepaidArgs, PrepaidEscapeCallResult, PrepaidEscapeResult, ReconcileEscapeArgs, PrepaidEscapeResolution, PrepaidEscapeEvents} from './prepaidEscape.js'
-export {PrepaidEscapeError, PrepaidEscapeUncertainError, isPrepaidEscapeError} from '../errors.js'
-export type {PrepaidEscapeCode} from '../errors.js'
 
 // Deployment address discovery.
 export {
@@ -187,25 +169,12 @@ export type {RelayVoucher, RelayVoucherIntent, RelaySponsorshipConfig} from './r
 export {assertRelayVoucher, assertRelayVoucherIntent} from './relayVoucher.js'
 
 export {createRegisteredAgentClient, AgentSessionCreationUnknownError} from './registeredAgent.js'
-export type {AgentTransport, ApprovedAgentProfile, RegisteredAgentSession, UnpaidAgentSessionRecovery} from './registeredAgent.js'
-export type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
-export {prepareRegisteredPaidSession, PaidAgentControlError, BATCH_APPROVAL_CAPABILITY, PROPOSAL_WAIT_CAPABILITY, MAX_PROPOSAL_WAIT_MS} from './registeredPaidAgent.js'
-export type {RegisteredPaidAgentSession, PaidAgentSessionParams, ClientApprovedPresentation, PaidRetainedPresentation, PaidAgentProposal,
-  PaidPacingOptions, RetainedPaidApproval, PaidApprovalDelivery, PaidApprovalBatchReply} from './registeredPaidAgent.js'
-export {paidServerWaitMs, systemPacingClock} from './paidPacing.js'
-export type {PaidPacingClock} from './paidPacing.js'
-export {readClientExecutionPolicy} from './prepaid.js'
-export type {ClientExecutionDeployment, ClientExecutionObservation, PaidVerifierWitness} from './prepaid.js'
-export {readKeeperExecutionRecoveryPolicy} from './prepaid.js'
-export type {KeeperExecutionRecoveryObservation} from './prepaid.js'
-export {recoverKeeperExecution, KeeperRecoveryError} from './keeperRecovery.js'
-export type {KeeperRecoveryHttpResponse, KeeperRecoveryTransport, RecoveredKeeperExecution, RecoverKeeperExecutionOptions} from './keeperRecovery.js'
-export {createKeeperExecutionApprover} from './keeperExecution.js'
-export type {KeeperExecutionClientConsent,KeeperExecutionApproverOptions} from './keeperExecution.js'
+export type {AgentTransport, AgentHttpResponse, ApprovedAgentProfile, RegisteredAgentSession, AgentSessionRecovery} from './registeredAgent.js'
+export type {SessionControlHttpResponse, SessionControlTransport, SessionAgentTransport} from './sessionControlTransport.js'
 
 export {parseApplicationServiceProfiles, applicationServiceProfilesDocument} from './serviceProfiles.js'
 export type {ApplicationServiceProfiles, ApprovedServiceProfile} from './serviceProfiles.js'
-export {openRegisteredVerifierAgentSession, awaitRegisteredVerifierAgentResult, assertRegisteredWalletRequest} from './registeredOperation.js'
+export {openRegisteredVerifierAgentSession, awaitRegisteredVerifierAgentResult, assertRegisteredWalletRequest, assertAnchoredWalletRequest} from './registeredOperation.js'
 export type {RegisteredVerifierAgentSession} from './registeredOperation.js'
 
 // Versioned, digest-pinned public deployment records.

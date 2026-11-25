@@ -584,6 +584,7 @@ try {
       ['keyRegistry.verifierPolicy', 'KeyRegistry', 'verifierPolicy', () => r.keyRegistry.verifierPolicy(id32)],
       ['settlement.balanceOf', 'Settlement', 'balanceOf', () => r.settlement.balanceOf(id32)],
       ['settlement.lastNonce', 'Settlement', 'lastNonce', () => r.settlement.lastNonce(id32)],
+      ['settlement.operationsSettled', 'Settlement', 'operationsSettled', () => r.settlement.operationsSettled(id32)],
       ['settlement.revenueSplit', 'Settlement', 'revenueSplit', () => r.settlement.revenueSplit()],
       ['settlement.totalHeld', 'Settlement', 'totalHeld', () => r.settlement.totalHeld()],
       ['token.totalSupply', 'TasraToken', 'totalSupply', () => r.token.totalSupply()],

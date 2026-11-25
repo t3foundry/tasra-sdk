@@ -1,21 +1,20 @@
-// A Rego `kk_oauth` slot end to end, through the SDK only, as PAID operations: pack the policy,
-// create the slot (authType 'oauth'), fund it with a finite TASRA credit, provision the envelope
-// with the creator's signature, obtain DPoP-bound access tokens from the deployment's OAuth
-// identity provider, and run each presentation as one paid job on the registered verifier
-// agent: reserve TASRA, open a registered OAuth session, approve the drawn verifiers' work,
-// verify the committee token and its sealed evidence, then sign at the assigned keeper. A holder
-// WITH the role signs; one WITHOUT it is refused by the verifiers with the generic policy
-// refusal. For both, the SDK's local engine (`evaluateEnvelope` over the token's actual claims)
-// must reach the same verdict the deployment reached.
+// A Rego `kk_oauth` slot end to end, through the SDK only, as METERED operations: pack the policy,
+// create the slot (authType 'oauth'), fund its Settlement balance with a finite TASRA deposit,
+// provision the envelope with the creator's signature, obtain DPoP-bound access tokens from the
+// deployment's OAuth identity provider, open an OAuth session on the approved verifier agent,
+// present the token, verify the committee token's sealed evidence under the drawn verifiers' keys
+// as anchored on chain, then sign at an assigned keeper. A holder WITH the role signs; one WITHOUT
+// it is refused by the verifiers with the generic policy refusal. For both, the SDK's local engine
+// (`evaluateEnvelope` over the token's actual claims) must reach the same verdict the deployment
+// reached. Nothing is paid or reserved: the keepers meter the work.
 //
-// Every job keeps its own journal folder (under KK_PREPAID_EVIDENCE_DIR/rego-slot-jobs), written
-// once per record and kept whatever the result. A job whose outcome is unknown stops the suite;
-// nothing is sent again, and a later run refuses to start while such a job is open.
+// The session is opened by a key that is NOT the slot's creator (any key may open a session; the
+// slot's rule decides), so the suite also proves that an operation needs nothing owner-held.
 //
-// Needs a paid deployment (the KK_PREPAID_* configuration test/verify/bringup.ts writes) with an
-// OAuth identity provider (KK_BYO_IDP=1) whose realm has a DPoP client and two password-grant
-// users: one holding the role the policy names, one not. Configuration (all environment; the
-// defaults match a local deployment brought up with an identity provider):
+// Needs the wallet configuration test/verify/bringup.ts writes (KK_WALLET_*) and an OAuth identity
+// provider (KK_BYO_IDP=1) whose realm has a DPoP client and two password-grant users: one holding
+// the role the policy names, one not. Configuration (all environment; the defaults match a local
+// deployment brought up with an identity provider):
 //   TASRA_IDP_URL            identity provider base URL   (http://127.0.0.1:18080)
 //   TASRA_IDP_REALM          realm                         (kk)
 //   TASRA_IDP_CLIENT         DPoP public client            (kk-demo)
@@ -24,40 +23,26 @@
 //   TASRA_PLATFORM_AUDIENCE  optional cross-check: must equal the audience derived from the
 //                            approved verifier agent (chain.env KK_PLATFORM_AUDIENCE)
 // Skips (exit 0) when the identity provider is unreachable, unless TASRA_FLEET_REQUIRED=1.
-import {existsSync, mkdirSync, readdirSync, writeFileSync} from 'node:fs'
-import {randomBytes} from 'node:crypto'
-import {join} from 'node:path'
 import {ed25519} from '@noble/curves/ed25519'
-import {createWalletClient, http, keccak256, parseEther, toHex, type Hex} from 'viem'
-import {privateKeyToAccount} from 'viem/accounts'
+import {parseEther, type Hex} from 'viem'
+import {generatePrivateKey, privateKeyToAccount} from 'viem/accounts'
 import {Suite} from '../fleet/_assert.ts'
 import {discoverCommittee, gate, loadFleetConfig} from '../fleet/_fleet.ts'
-import {paidWalletSettings} from '../fleet/_paid-wallet.ts'
-import {fixturePaymentTtlSeconds} from '../fleet/_certification-timing.ts'
-import {waitForPaidSnapshot} from '../fleet/_paid-wallet-session.ts'
-import {fundFreshWalletSlot} from '../fleet/_prepaid-funding.ts'
+import {fundWalletSlot, walletKeepers, walletSettings} from '../fleet/_wallet-settings.ts'
+import {installAgentFetch} from '../fleet/_agent-fetch.ts'
+import {fixtureOperationTtlSeconds} from '../fleet/_certification-timing.ts'
 import {waitForSlotKeyOnChain} from '../fleet/_anchored-key.ts'
-import {withDedicatedPayer} from '../fleet/_payer-queue.ts'
 import {createTasraWriteClient, generateClientKey} from '../../src/chain/write.ts'
 import {createTasraChainClient} from '../../src/chain/client.ts'
 import {provisionRule} from '../../src/chain/provisionRule.ts'
-import {createNodePaidAgentTransport} from '../../src/chain/node.ts'
-import {discoverPaidOperationContext, readClientExecutionPolicy, type PaidVerifierWitness} from '../../src/chain/prepaid.ts'
-import {fetchDrawnVerifierWitnesses} from '../../src/chain/verifierSnapshot.ts'
-import {reservePaidOperation} from '../../src/chain/reservation.ts'
-import {createFileStore} from '../../src/app/node.ts'
-import {createPaidReservationJournal} from '../../src/app/paid-journal.ts'
-import {prepareRegisteredPaidSession, PaidAgentControlError, type ClientApprovedPresentation,
-  type RegisteredPaidAgentSession} from '../../src/chain/registeredPaidAgent.ts'
-import {createKeeperExecutionApprover} from '../../src/chain/keeperExecution.ts'
+import {createSlotDrawReader} from '../../src/chain/sessionDraw.ts'
 import {evaluateEnvelope, isOauthEnvelope, lintEnvelope, packEnvelope, REGO_POLICY_REFUSED, type EnvelopeVerdict} from '../../src/auth/rego.ts'
 import {createDpopKey, type DpopKey} from '../../src/auth/dpop.ts'
 import {decodeJwtClaims} from '../../src/auth/verifier.ts'
 import {platformAudience} from '../../src/committee/oauth.ts'
-import {paymentIntentHash, paymentIntentTypedData, paymentSessionCommitment, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.ts'
-import {createExecutionCertificate, createLocalExecutionSigner, executionBodyHash} from '../../src/committee/execution.ts'
 import {verifyEvidenceBinding} from '../../src/committee/evidence.ts'
 import {compoundTokenHash, decodeCompoundToken} from '../../src/committee/token.ts'
+import {createOauthSession, submitOauthResponse, waitForSession, VerifierAgentSessionError} from '../../src/verifier-agent/index.ts'
 import {presentationOperationTypedData, verifierAgentResult} from '../../src/oid4vp/verifier-agent.ts'
 import {requestHash} from '../../src/oid4vp/binding.ts'
 import {committeeSign} from '../../src/committee/client.ts'
@@ -66,18 +51,13 @@ import {hexToBytes} from '../../src/crypto/hex.ts'
 /** The role-only policy: authorize iff the realm role is present. */
 const POLICY = 'package tasra.slot\n\ndefault allow := false\n\nallow if "treasury-signer" in input.tokens.kc.claims.realm_access.roles\n'
 const ROLE_CLAIM_LEAKS = /realm_access|treasury-signer|tokens\.kc/
-
-// What the suite may spend. TASRA amounts are base units (18 decimals).
-const SLOT_TASRA_UNITS = 1_000_000_000_000_000_000n   // the new slot's whole credit: 1 TASRA, funded once
-const MAX_TASRA_UNITS = 1_000_000_000_000_000n        // one operation costs at most 0.001 TASRA of it
-const MAX_GAS = 2_000_000n                            // gas limit of each reservation
-const MAX_FEE_PER_GAS = 100_000_000_000n              // at most 100 gwei per unit of gas
+const SLOT_TASRA_UNITS = 1_000_000_000_000_000_000n   // the new slot's whole metered deposit: 1 TASRA, funded once
 const POLL_TIMEOUT_MS = 120_000                       // longest wait for the verifiers' answer
 
 const cfg = loadFleetConfig()
 // Select the fixture lifetime before signing; reference remains 600s.
-const OPERATION_SECS = fixturePaymentTtlSeconds(cfg)
-const s = new Suite('e2e: Rego kk_oauth slot (OAuth + DPoP → policy → paid committee token → FROST sign)')
+const OPERATION_SECS = fixtureOperationTtlSeconds(cfg)
+const s = new Suite('e2e: Rego kk_oauth slot (OAuth + DPoP → policy → committee token → FROST sign)')
 if (!(await gate(s, cfg))) { s.done(); process.exit(process.env.TASRA_FLEET_REQUIRED ? 1 : 0) }
 
 const env = (k: string, d: string) => process.env[k] ?? d
@@ -102,18 +82,21 @@ try {
 }
 s.ok(`identity provider up, iss=${issuer}`, issuer.startsWith('https://'))
 
-// The paid configuration: the independently approved verifier agent, accountant hosts, keeper
-// routes and durable evidence directory. Production keepers serve nothing unpaid.
-let settings: ReturnType<typeof paidWalletSettings>
-try { settings = paidWalletSettings(cfg) } catch (e) {
-  s.ok('paid deployment configured (KK_PREPAID_*)', false, (e as Error).message); s.done(); process.exit(1)
+// The wallet configuration: the independently approved verifier agent, snapshot hosts, keeper
+// routes and durable evidence directory.
+let settings: ReturnType<typeof walletSettings>
+try { settings = walletSettings(cfg) } catch (e) {
+  s.ok('wallet deployment configured (KK_WALLET_*)', false, (e as Error).message); s.done(); process.exit(1)
 }
 const book = cfg.book
-if (!book.KeyRegistry || !book.Settlement || !book.VerifierSetRegistry || !book.AccountantSetRegistry || !book.ThresholdRandomBeacon || !cfg.deployPk) {
-  s.ok('KeyRegistry, Settlement, verifier/accountant set registries, beacon and DEPLOY_PK configured', false); s.done(); process.exit(1)
+if (!book.KeyRegistry || !book.Settlement || !book.VerifierSetRegistry || !book.ThresholdRandomBeacon || !cfg.deployPk) {
+  s.ok('KeyRegistry, Settlement, verifier set registry, beacon and DEPLOY_PK configured', false); s.done(); process.exit(1)
 }
-// The audience every paid OAuth session checks is derived from the approved agent, never configured.
-const audience = platformAudience(settings.profile.endpoint, cfg.chainId)
+const agentUrl = settings.profile.endpoint
+// The SDK's OAuth session calls use the global fetch: trust the fleet CA for the approved agent only.
+installAgentFetch(agentUrl, settings.transportPolicy.ca)
+// The audience every OAuth session checks is derived from the approved agent, never configured.
+const audience = platformAudience(agentUrl, cfg.chainId)
 s.ok(`platform audience derived from the approved verifier agent (${audience})`,
   configuredAudience === undefined || configuredAudience === audience, `configured ${configuredAudience}`)
 
@@ -133,12 +116,10 @@ const created = await writer.createSlotCommitReveal({
 const slotId = created.slotId
 s.ok(`slot created from oauthPolicy (${slotId.slice(0, 18)}…, ${created.seeded ? 'seeded' : 'epoch'} reveal)`, created.rule === envelope)
 
-// The funding helper journals the original rule, salt and deposit before it spends; the deposit
-// is pinned to exactly 1 TASRA whatever the fleet's default.
-const funded = await fundFreshWalletSlot({...cfg, raw: {...cfg.raw, KK_PREPAID_SLOT_TASRA_UNITS: SLOT_TASRA_UNITS.toString()}},
-  writer, creatorKey, created, created.rule)
-s.ok('slot holds exactly its finite 1 TASRA credit, enabled for paid operations',
-  funded.enabled && funded.available === SLOT_TASRA_UNITS && funded.total === SLOT_TASRA_UNITS)
+// The owner funds the slot's metered balance once (journaled); the deposit is pinned to exactly
+// 1 TASRA whatever the fleet's default. The holders below fund nothing.
+const funded = await fundWalletSlot({...cfg, raw: {...cfg.raw, KK_SLOT_TASRA_UNITS: SLOT_TASRA_UNITS.toString()}}, writer, created, created.rule)
+s.ok('slot holds exactly its finite 1 TASRA metered deposit', funded.balance === SLOT_TASRA_UNITS)
 
 let committee: string[]
 let groupKey = ''
@@ -146,7 +127,7 @@ for (const deadline = Date.now() + 240_000; ;) {
   committee = await discoverCommittee(cfg, slotId)
   if (committee.length === 3) {
     const pub = (await (await fetch(`${committee[0]}/v1/keys/${slotId}/public`)).json()) as {group_public_key?: string}
-    // A keeper answers once ITS DKG finished; the paid operations below need the key on chain.
+    // A keeper answers once ITS DKG finished; the operations below need the key on chain.
     if (pub.group_public_key) { await waitForSlotKeyOnChain(writer.pub, book.KeyRegistry, slotId, pub.group_public_key, deadline); groupKey = pub.group_public_key; break }
   }
   if (Date.now() > deadline) break
@@ -183,230 +164,63 @@ async function localVerdict(accessToken: string): Promise<EnvelopeVerdict> {
     credentials: [{format: 'oauth+access-token+dpop', issuer: String(claims.iss), claims}]})
 }
 
-// ── 3. one paid job per presentation ─────────────────────────────────────────
-const JOBS_DIR = join(settings.directory, 'rego-slot-jobs')
-type Job = {dir: string; write(file: string, value: unknown): void; mark(file: string): void}
-/** A new journal folder for one operation. An earlier job without an outcome blocks it. */
-function newJob(name: string): Job {
-  mkdirSync(JOBS_DIR, {recursive: true, mode: 0o700})
-  for (const entry of readdirSync(JOBS_DIR)) {
-    const dir = join(JOBS_DIR, entry)
-    if (!existsSync(join(dir, 'outcome'))) throw new Error(`job ${dir} has no outcome: reconcile it before spending again`)
-  }
-  const dir = join(JOBS_DIR, `${new Date().toISOString().replace(/[-:]|\.\d+/g, '')}-${name}-${randomBytes(4).toString('hex')}`)
-  mkdirSync(dir, {mode: 0o700})
-  // 'wx': each record is written once and never replaced.
-  const write = (file: string, value: unknown) => writeFileSync(join(dir, file),
-    typeof value === 'string' ? value : JSON.stringify(value, (_, v: unknown) => typeof v === 'bigint' ? v.toString() : v, 2),
-    {flag: 'wx', mode: 0o600})
-  return {dir, write, mark: file => write(file, new Date().toISOString() + '\n')}
-}
-/** A definite refusal: nothing more was sent, and the job records it. */
-class Refused extends Error {
-  constructor(readonly by: 'sdk' | 'verifiers', message: string) { super(message) }
-}
-/** The outcome is unknown: the job stays open and nothing is sent again. */
-class Unknown extends Error {}
-const unknown = (job: Job, what: string) => new Unknown(`job ${job.dir}: ${what}; its outcome is unknown and nothing is sent again`)
-/** Stop the suite on an unknown or failed job. Never retried: the journal is the reconciliation record. */
-function stop(label: string, e: unknown): never {
-  s.ok(`${label}: job reached a known outcome`, false, (e as Error).message ?? String(e))
-  s.done()
-  process.exit(1)
-}
-
-const deployment = {chainId: cfg.chainId, settlement: book.Settlement, keyRegistry: book.KeyRegistry,
-  verifierSet: book.VerifierSetRegistry, accountantSet: book.AccountantSetRegistry, beacon: book.ThresholdRandomBeacon,
-  defaultVerificationPolicy: settings.defaultVerificationPolicy}
-const transport = createNodePaidAgentTransport(settings.transportPolicy)
-// The creator is the slot's dedicated reservation gas payer, on a wallet that never retries a
-// send: an uncertain reservation is reconciled from its journal, never replaced.
-const gasWallet = createWalletClient({account: creator, chain: writer.wallet.chain,
-  transport: http(cfg.rpcUrl, {retryCount: 0, timeout: 15_000, fetchOptions: {redirect: 'error'}})})
-
-/** Reserve TASRA for one signature of `message` and present `token`; returns the verified grant. */
-async function authorize(name: string, message: Uint8Array, token: {key: DpopKey; accessToken: string}) {
-  const job = newJob(name)
-  job.write('agent-profile.json', settings.profile)
-  // Before the reservation nothing is spent: a failure here closes the job as not reserved.
-  const prepare = async () => {
-    const context = await waitForPaidSnapshot(() => discoverPaidOperationContext(chain.client, deployment, slotId,
-      {allowLocalHttp: true, defaultVerificationPolicy: deployment.defaultVerificationPolicy}),
-    AbortSignal.timeout(180_000), () => sleep(1000))
-    if (context.creator.toLowerCase() !== creator.address.toLowerCase()) throw new Error('slot creator differs from this suite\'s creator')
-    // The creator signs the operation and a payment intent capped at MAX_TASRA_UNITS.
-    const built = presentationOperationTypedData({chainId: cfg.chainId, keyRegistry: deployment.keyRegistry, slotId,
-      action: 'sign', message, description: `Rego slot e2e ${name}`, ttlSecs: OPERATION_SECS})
-    const operationSig = await creator.signTypedData(built.typedData)
-    const random = toHex(randomBytes(32))
-    const unsigned = {...context.intentFields, action: 'sign' as const, payload_digest: toHex(built.payloadDigest),
-      session_commitment: paymentSessionCommitment(random, settings.profile.clientId, built.operation.exp),
-      nonce: toHex(randomBytes(32)), max_cost: MAX_TASRA_UNITS.toString(), expires: built.operation.exp}
-    const payment: PaymentIntentWire = {...unsigned, signature: await creator.signTypedData(paymentIntentTypedData(unsigned))}
-    job.write('operation.json', {operation: built.operation, operationSig, messageHex: built.messageHex, random, payment, coordinator: context.coordinator})
-    const {witnesses} = await fetchDrawnVerifierWitnesses(settings.accountantUrls, payment, deployment.verifierSet, {waitForPublicationMs: 150_000})
-    return {context, built, operationSig, random, payment, witnesses}
-  }
-  const {context, built, operationSig, random, payment, witnesses} = await prepare().catch((e: Error) => {
-    job.write('outcome', `nothing reserved: ${e.message}\n`)
-    throw e
-  })
-  const expected = {slot: slotId, action: payment.action, payloadDigest: payment.payload_digest}
-  // Retain the same immutable reservation in the application's standard store.
-  // The full verifier's settlement gate inventories this store before allowing
-  // destructive scenarios; exclusive per-job diagnostics alone are insufficient.
-  const standardJournal = createPaidReservationJournal(createFileStore(settings.directory), payment,
-    {random, audience: settings.profile.clientId})
-  // The reservation: one transaction with the caps above. Each checkpoint is journaled before
-  // the step it guards; the prepared record exists before anything is sent.
-  try {
-    await withDedicatedPayer(`${cfg.chainId}-${creator.address.toLowerCase()}`, () => reservePaidOperation(chain.client, gasWallet, deployment, payment, expected, {
-      accountantUrls: settings.accountantUrls, allowLocalHttp: true, maxGas: MAX_GAS, maxGasPrice: MAX_FEE_PER_GAS,
-      persist: async checkpoint => {
-        job.write(`reservation-${checkpoint.phase}.json`, checkpoint)
-        await standardJournal.persist(checkpoint)
-      }}))
-  } catch (e) {
-    if (!existsSync(join(job.dir, 'reservation-prepared.json'))) {
-      job.write('outcome', `nothing reserved: ${(e as Error).message}\n`)
-      throw e
-    }
-    throw unknown(job, `the reservation was sent (${(e as Error).message})`)
-  }
-  const originalJournal = await standardJournal.load()
-  if (!originalJournal || originalJournal.phase !== 'confirmed') throw unknown(job, 'standard settlement journal is not confirmed')
-  s.eq(`${name}: standard settlement inventory retains the original request`, originalJournal.record.requestId,
-    prepaidRequestId(payment))
-  try {
-    // The execution client: a key the creator certifies for this one operation.
-    const seed = randomBytes(32), signer = createLocalExecutionSigner(seed)
-    const {policy} = await readClientExecutionPolicy(chain.client, deployment, payment, expected)
-    const certificate = await createExecutionCertificate({payment, policy, publicKey: signer.publicKey, expires: payment.expires, creator})
-    const pollSecret = toHex(randomBytes(32)).slice(2)
-    job.write('execution-client.json', {certificate, seed: toHex(seed), pollSecret})
-    seed.fill(0)
-    // The slot's rule is the kk_oauth envelope: its token hash binds the raw provisioned bytes.
-    const session = await prepareRegisteredPaidSession(chain, {profile: settings.profile, deployment, transport, members: witnesses,
-      ruleHash: keccak256(toHex(created.rule)), dcqlQuery: JSON.parse(created.rule) as Record<string, unknown>},
-    {operation: built.operation, operationSig, messageHex: built.messageHex, payment, random, kind: 'oauth'},
-    {certificate, signer, pollSecret})
-    job.write('session.json', {sessionId: session.sessionId, paymentHash: session.paymentHash})
-    // The registered session: created once.
-    job.mark('create.attempted')
-    await session.create()
-    let approved: ClientApprovedPresentation
-    try {
-      approved = await session.prepareOAuthPresentation(token.accessToken, token.key.signer)
-    } catch (e) {
-      // The SDK refused the token before sending it: no presentation left this machine.
-      job.write('refusal', (e as Error).message)
-      throw new Refused('sdk', (e as Error).message)
-    }
-    // The token and its proof are kept before they are sent, once.
-    job.write('presentation.json', approved)
-    await session.submitOAuthPresentation(approved)
-    const status = await awaitVerifiers(job, session, witnesses, approved)
-    const grant = verifierAgentResult({sessionId: session.sessionId, paymentHash: paymentIntentHash(payment),
-      requestHash: requestHash(cfg.chainId, hexToBytes(slotId), 'sign', built.payloadDigest)}, status)
-    // The sealed evidence ciphertext stays in the job, next to the grant that binds it.
-    job.write('grant.json', {compound_token: grant.token, verifier_proofs: status.verifierProofs, evidence_ct: grant.evidenceCt})
-    return {job, grant, payment, expected, certificate, signer, witnesses, coordinator: context.coordinator}
-  } catch (e) {
-    if (e instanceof Refused) {
-      job.write('outcome', 'refused\n')
-      throw e
-    }
-    throw unknown(job, `the session did not finish (${(e as Error).message})`)
-  }
-}
-
-/** Approve each drawn verifier's work on the kept presentation until the session ends. */
-async function awaitVerifiers(job: Job, session: RegisteredPaidAgentSession, members: PaidVerifierWitness[],
-  approved: ClientApprovedPresentation) {
-  const deadline = Date.now() + POLL_TIMEOUT_MS, approvedStages = new Set<number>()
-  const same = (a: unknown) => executionBodyHash(a as Record<string, unknown>) === executionBodyHash(approved as unknown as Record<string, unknown>)
-  let callback: string | undefined, resumes = 0
-  const check = async () => {
-    const status = await session.poll()
-    if (status.status === 'failed') {
-      job.write('refusal', status.error ?? 'the verifiers refused')
-      throw new Refused('verifiers', status.error ?? 'the verifiers refused')
-    }
-    return status
-  }
-  const resume = async () => {
-    job.mark(`resume-${++resumes}.attempted`)
-    try { await session.resumePresentation(callback!, approved) } catch (e) {
-      // HTTP 425: the agent waits for this client to approve each verifier's work.
-      if (e instanceof PaidAgentControlError && e.httpStatus === 425) return
-      // A refused continuation: the session's own state says whether the verifiers refused.
-      if (e instanceof PaidAgentControlError && (e.httpStatus === 400 || e.httpStatus === 409)) await check()
-      throw e
-    }
-  }
-  for (;;) {
-    const status = await check()
-    if (status.status === 'done') return status
-    if (!callback) {
-      callback = (await session.presentations()).find(p => same(p.presentation))?.id
-      if (callback) await resume()
-    }
-    if (callback) {
-      let approvals = 0
-      for (const proposal of await session.proposals()) {
-        const member = members.find(m => m.publicKey.toLowerCase() === proposal.operator_key.toLowerCase())
-        if (proposal.stage !== 'credential' || !member) throw new Error('the agent proposed work outside the anchored draw')
-        if (approvedStages.has(member.index)) continue
-        approvedStages.add(member.index)
-        job.write(`approval-${member.index}.json`, {proposal: proposal.id, operator: member.operator})
-        await session.approveCredentials(proposal, member, approved)
-        approvals++
-      }
-      if (approvals) await resume()
-    }
-    if (Date.now() >= deadline) throw new Error(`no answer from the verifiers after ${POLL_TIMEOUT_MS / 1000}s`)
-    await sleep(1000)
-  }
-}
-
+// ── 3. one metered presentation per holder ───────────────────────────────────
 const message = new TextEncoder().encode(`rego-slot e2e ${Date.now()}`)
+// The requester: a fresh key with no role on the slot. The creator signs nothing below.
+const requester = privateKeyToAccount(generatePrivateKey())
+async function present(name: string, token: {key: DpopKey; accessToken: string}) {
+  const op = presentationOperationTypedData({chainId: cfg.chainId, keyRegistry: book.KeyRegistry!, slotId, action: 'sign', message,
+    description: `Rego slot e2e ${name}`, ttlSecs: OPERATION_SECS})
+  const operationSig = await requester.signTypedData(op.typedData)
+  let session
+  for (const deadline = Date.now() + 180_000; ;) {
+    try {
+      session = await createOauthSession(agentUrl, {operation: op.operation, operationSig, messageHex: op.messageHex})
+      break
+    } catch (e) {
+      // A fresh slot can precede the current anchored verifier snapshot by a moment; every other
+      // refusal is final.
+      if (!String(e).includes('verifier snapshot not yet anchored') || Date.now() > deadline) throw e
+      await sleep(2000)
+    }
+  }
+  await submitOauthResponse(agentUrl, {sessionId: session.sessionId, pollSecret: session.pollSecret, accessToken: token.accessToken,
+    nonce: session.nonce, dpopHtu: session.dpopHtu, signer: token.key.signer})
+  const status = await waitForSession(agentUrl, session.sessionId, session.pollSecret, 1000, POLL_TIMEOUT_MS)
+  return verifierAgentResult({sessionId: session.sessionId, requestHash: requestHash(cfg.chainId, hexToBytes(slotId), 'sign', op.payloadDigest)}, status)
+}
 
 // alice: holds the role.
 const alice = await dpopToken(allowed)
 const aliceLocal = await localVerdict(alice.accessToken)
 s.ok(`local engine allows ${allowed.name} (her token's claims)`, aliceLocal.allow, JSON.stringify(aliceLocal))
-const authorized = await authorize('allowed', message, alice).catch((e: unknown) => stop(`${allowed.name}: paid authorization`, e))
-const {job, grant, payment} = authorized
-s.ok(`${allowed.name}: paid job reserved within 0.001 TASRA, 2M gas and 100 gwei (job ${job.dir})`,
-  BigInt(payment.max_cost) === MAX_TASRA_UNITS && existsSync(join(job.dir, 'reservation-confirmed.json')))
+const grant = await present('allowed', alice).catch((e: unknown) => {
+  s.ok(`${allowed.name}: authorized by the deployment`, false, (e as Error).message ?? String(e)); s.done(); process.exit(1)
+})
 s.eq(`${allowed.name}: committee declares holder_key binding for the DPoP-verified token`, (grant.token as unknown as {binding?: string}).binding, 'holder_key')
+s.ok(`${allowed.name}: the grant carries anchored verifier membership proofs`, (grant.verifierProofs?.length ?? 0) > 0)
 // The keeper refuses an evidenced token without its ciphertext: the sealed evidence must be
-// present and verify under the anchored drawn verifier keys BEFORE anything reaches a keeper.
+// present and verify under the drawn verifier keys AS ANCHORED ON CHAIN (read here, not taken
+// from the agent) BEFORE anything reaches a keeper.
 const evidencePresent = typeof grant.evidenceCt === 'string' && grant.evidenceCt.length > 0 && typeof grant.token.evidence_hash === 'string'
 let evidenceDetail = 'no sealed evidence beside the token'
 let evidenceVerified = false
 if (evidencePresent) {
   try {
-    verifyEvidenceBinding(grant.token, grant.evidenceCt, compoundTokenHash(decodeCompoundToken(grant.token)),
-      new Map(authorized.witnesses.map(w => [w.index, hexToBytes(w.publicKey)])), payment.verification_quorum)
+    const draws = createSlotDrawReader({client: chain.client, snapshotHosts: settings.accountantUrls, defaultVerificationPolicy: settings.defaultVerificationPolicy,
+      deployment: {chainId: cfg.chainId, keyRegistry: book.KeyRegistry, beacon: book.ThresholdRandomBeacon, verifierSet: book.VerifierSetRegistry}})
+    const draw = await draws(slotId, BigInt(grant.token.epoch))
+    verifyEvidenceBinding(grant.token, grant.evidenceCt, compoundTokenHash(decodeCompoundToken(grant.token)), draw.set.pubkeys, draw.quorum)
     evidenceVerified = true
   } catch (e) { evidenceDetail = (e as Error).message }
 }
 s.ok(`${allowed.name}: sealed evidence present beside the token`, evidencePresent, evidenceDetail)
-if (!s.ok(`${allowed.name}: sealed evidence verifies under the anchored drawn verifier quorum`, evidenceVerified, evidenceDetail)) {
-  job.write('outcome', `not sent to a keeper: ${evidenceDetail}\n`)
-  s.done(); process.exit(1)
-}
-const approveExecution = createKeeperExecutionApprover({client: chain.client, deployment, payment, expected: authorized.expected,
-  certificate: authorized.certificate, signer: authorized.signer, keeperUrl: settings.keeperUrl, transportPolicy: {allowLocalHttp: true}})
-// One request to the coordinator keeper the payment names; never repeated.
-job.mark('sign.attempted')
-const signed = await committeeSign({nodeUrl: settings.keeperUrl(authorized.coordinator.url), committeeToken: grant.token, message,
-  verifierProofs: grant.verifierProofs, evidenceCt: grant.evidenceCt, approveExecution})
-  .catch((e: unknown) => stop(`${allowed.name}: keeper sign`, unknown(job, `the signing request was sent (${(e as Error).message})`)))
+if (!s.ok(`${allowed.name}: sealed evidence verifies under the anchored drawn verifier quorum`, evidenceVerified, evidenceDetail)) { s.done(); process.exit(1) }
+// One request to an assigned keeper; never repeated.
+const keeper = (await walletKeepers(cfg, slotId))[0]!
+const signed = await committeeSign({nodeUrl: keeper.url, committeeToken: grant.token, message, verifierProofs: grant.verifierProofs,
+  evidenceCt: grant.evidenceCt, targetKeykeeper: keeper.operator})
 const signature = new Uint8Array([...signed.signature.r, ...signed.signature.z])
-job.write('signature.json', {r: toHex(signed.signature.r), z: toHex(signed.signature.z)})
-job.write('outcome', 'signed\n')
 s.ok(`${allowed.name}: keeper produced a FROST signature that verifies under the slot's group key`,
   ed25519.verify(signature, message, hexToBytes(groupKey)))
 s.ok(`${allowed.name}: local verdict agrees with the fleet (allow / allow)`, aliceLocal.allow)
@@ -415,19 +229,11 @@ s.ok(`${allowed.name}: local verdict agrees with the fleet (allow / allow)`, ali
 const bob = await dpopToken(refused)
 const bobLocal = await localVerdict(bob.accessToken)
 s.ok(`local engine refuses ${refused.name} with the generic policy refusal`, !bobLocal.allow && bobLocal.kind === 'reject' && bobLocal.message === REGO_POLICY_REFUSED, JSON.stringify(bobLocal))
-const fleet = await authorize('refused', message, bob).then(r => r, (e: unknown) => {
-  if (e instanceof Refused) return e
-  return stop(`${refused.name}: paid authorization`, e)
-})
-if (!(fleet instanceof Refused)) {
-  fleet.job.write('outcome', 'authorized, not refused\n')
-  s.ok(`${refused.name}: refused by the deployment`, false, `job ${fleet.job.dir} was granted`)
-  s.done(); process.exit(1)
-}
-const refusal = fleet.message
+const fleet = await present('refused', bob).then(() => 'granted', (e: unknown) => e)
+const refusal = fleet instanceof VerifierAgentSessionError ? fleet.message : String(fleet)
 s.info(`deployment answered: ${refusal}`)
-s.ok(`${refused.name}: refused by the drawn verifiers as a session refusal`, fleet.by === 'verifiers', refusal)
+s.ok(`${refused.name}: refused by the drawn verifiers as a session refusal`, fleet instanceof VerifierAgentSessionError && fleet.kind === 'refused', refusal)
 s.ok(`${refused.name}: the refusal is the policy's ('${REGO_POLICY_REFUSED}')`, refusal.includes(REGO_POLICY_REFUSED), refusal)
 s.ok(`${refused.name}: the refusal names nothing from the rule`, !ROLE_CLAIM_LEAKS.test(refusal), refusal)
-s.ok(`${refused.name}: local verdict agrees with the fleet (reject / reject)`, !bobLocal.allow)
+s.ok(`${refused.name}: local verdict agrees with the fleet (reject / reject)`, !bobLocal.allow && fleet !== 'granted')
 s.done()

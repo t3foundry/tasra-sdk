@@ -136,8 +136,8 @@ const here = dirname(fileURLToPath(import.meta.url))
   // Aliases added for the slot-driven committee flow (trustless snapshot).
   ok('env: VERIFIER_SET_REGISTRY → VerifierSetRegistry', book.VerifierSetRegistry === '0xbf921f94fd9ef1738be25d8cecfdfe2c822c81b0')
   ok('env: KEEPER_SHARE_REGISTRY → KeeperShareRegistry', book.KeeperShareRegistry === '0x9a9f2ccfde556a7e9ff0848998aa4a0cfd8863ae')
-  // A separate immutable slasher; it must never collapse into the AccountantSlashing hub.
-  ok('env: PREPAID_FAULT_ORACLE → PrepaidFaultOracle', book.PrepaidFaultOracle === '0x00000000000000000000000000000000000000ab' && book.AccountantSlashing === undefined)
+  // The retired prepaid slasher and swap router are no contracts of the network: no binding is made for them.
+  ok('env: PREPAID_FAULT_ORACLE names no contract', (book as Record<string, unknown>).PrepaidFaultOracle === undefined && book.AccountantSlashing === undefined)
   ok('env: raw key kept too', book.NODE_REGISTRY === book.NodeRegistry)
   ok('env: non-address skipped', book.GARBAGE === undefined)
 }

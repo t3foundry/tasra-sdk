@@ -10,18 +10,13 @@ import {createTasra, defineDeployment, toViemAccount, type OperationAuthorizer, 
 import type {TasraChainClient} from '../../src/chain/client.js'
 import {payloadDigestFor, requestHash} from '../../src/oid4vp/binding.js'
 import type {TasraApplicationConfig} from '../../src/app/client.js'
-import * as prepaid from '../../src/chain/prepaid.js'
-import {paymentIntentHash, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
-import {keeperExecutionFixture} from '../support/keeperExecution.js'
-import type {ClientExecutionSigner, ExecutionAuthorization} from '../../src/committee/execution.js'
 import {createDecryptionRecipient, decryptionBinding} from '../../src/crypto/recipient.js'
 import {sealIbeFixture} from '../support/sealedIbe.js'
-import {approveDualOperation, assembleDualOperation, dualOperationPayload, prepareDualOperation} from '../../src/committee/dual-operation.js'
+import {approveDualOperation, assembleDualOperation, dualOperationPayload, prepareDualOperation, type DualOperationKind} from '../../src/committee/dual-operation.js'
 import {approveSigningIntent, signingIntentDigest} from '../../src/app/signing-intents.js'
 import {p256} from '@noble/curves/p256'
 
-const executionSigners: (ClientExecutionSigner & {dispose():void})[] = []
-afterEach(() => { executionSigners.splice(0).forEach(signer=>signer.dispose()); vi.restoreAllMocks(); vi.useRealTimers() })
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
 const slotId: Hex = `0x${'11'.repeat(32)}`, operator: Hex = `0x${'22'.repeat(20)}`
 const seed = new Uint8Array(32).fill(9), keeperKey = ed25519.getPublicKey(seed)
@@ -32,7 +27,7 @@ const unhex = (v: string) => new Uint8Array(Buffer.from(v.replace(/^0x/, ''), 'h
 const recipient = await createDecryptionRecipient()
 const binding = decryptionBinding(sha256(new TextEncoder().encode(vector.identity)), 1, recipient)
 const extractionOptions = {recipient, verifyingShares: new Map(vector.shares.map((s, i) => [s.identifier, new Uint8Array([...unhex(vector.verifying_shares[i]!.g2), ...unhex(vector.verifying_shares[i]!.g1)])]))}
-function fixture(mode = 2, options: Partial<Pick<TasraApplicationConfig, 'keeperUrl' | 'allowLocalPaidHttp'>> = {}) {
+function fixture(mode = 2, options: Partial<Pick<TasraApplicationConfig, 'keeperUrl'>> = {}) {
   const policy = {quorum: 0, ruleHash: `0x${'00'.repeat(32)}` as Hex, approvers: [] as Hex[]}
   const publicKey = mode === 2 ? secp256k1.getPublicKey(seed) : mode === 1 ? unhex(vector.mpk) : keeperKey
   const metadata = {exists: true, cancelled: false, mode, epoch: 1, threshold: {k: 2, n: 3}, publicKey: toHex(publicKey)}
@@ -64,109 +59,34 @@ function fixture(mode = 2, options: Partial<Pick<TasraApplicationConfig, 'keeper
   return {app, chain, metadata, authorize, fetchImpl, policy}
 }
 
-async function paidFixture(mode = 2, options: Parameters<typeof fixture>[1] = {}) {
-  const f = fixture(mode, options), random: Hex = `0x${'66'.repeat(32)}`, message = new Uint8Array(32).fill(1)
-  const action = mode === 1 ? 'ibe-extract' : 'sign'
-  const digest = mode === 1 ? binding.payloadDigest : payloadDigestFor(action, {message})
-  const otherKey = ed25519.getPublicKey(new Uint8Array(32).fill(10))
-  const consent = await keeperExecutionFixture(mode===2?'eoa-sign':action,toHex(digest),{
-    chain_id:deployment.chainId,settlement:deployment.addresses.Settlement!,key_registry:deployment.addresses.KeyRegistry!,slot:slotId,
-    session_commitment:random,nonce:random,verification_epoch:1,verification_seed:random,verification_root:random,
-    verification_registry_size:3,keeper_assignment:{key_epoch:1,committee_version:1,threshold:2,
-      coordinator:[...keeperKey],contributors:[toHex(keeperKey),toHex(otherKey)].sort().map(key=>[...hexToBytes(key)])}})
-  executionSigners.push(consent.signer)
-  const {payment,execution}=consent
-  const endpoint = {operator, publicKey: toHex(keeperKey), url: 'https://paid.example'}
-  const contributors=[keeperKey,otherKey].map((key,i)=>({...endpoint,publicKey:toHex(key),
-    operator:`0x${(i+1).toString(16).padStart(40,'0')}` as Hex,url:mode===1?`https://keeper-${i}.example`:i===0?endpoint.url:'https://other-keeper.example'}))
-  const target: prepaid.PaidKeeperTarget = {...endpoint,contributors,receipt:{blockTimestamp:BigInt(Math.floor(Date.now()/1000)),
-    blockNumber:20n,blockHash:random,assignmentBlock:random,requestId:prepaidRequestId(payment),cost:9n,refunded:0n,settled:false},groupPublicKey:f.metadata.publicKey,mode}
-  // Canonical RPC/creator/roster checks have separate chain.paid-route regressions.
-  // Here the boundary is controlled to exercise the app's consent and actual crypto results.
-  const resolve = vi.spyOn(prepaid, 'resolvePaidKeeperTarget').mockResolvedValue(target)
-  const authorize = vi.fn<OperationAuthorizer>(async request => {
-    const grant = await f.authorize(request)
-    return {...grant, token: {...grant.token, payment: structuredClone(payment), payment_hash: paymentIntentHash(payment), exp: payment.expires}}
-  })
-  return {...f, authorize, unpaidAuthorize: f.authorize, payment, random, message, target, resolve,execution}
-}
-
-describe('paid application execution', () => {
-  it.each([0, 2])('routes mode %i to the paid coordinator with fixed consent and verifies its signature', async mode => {
-    const f = await paidFixture(mode)
-    const options = {authorize: f.authorize, payment: f.payment, random: f.random,execution:f.execution}
-    if (mode === 2) await (await f.app.slots.ecdsa(slotId)).signDigest(f.message, options)
-    else await (await f.app.slots.frost(slotId)).sign(f.message, options)
+describe('metered application execution', () => {
+  it.each([0, 2])('routes mode %i to the registry coordinator with no payment or approval fields in the keeper body', async mode => {
+    const f = fixture(mode), message = new Uint8Array(32).fill(1)
+    if (mode === 2) await (await f.app.slots.ecdsa(slotId)).signDigest(message, {authorize: f.authorize})
+    else await (await f.app.slots.frost(slotId)).sign(message, {authorize: f.authorize})
     expect(f.fetchImpl).toHaveBeenCalledTimes(1)
-    expect(String(f.fetchImpl.mock.calls[0]![0])).toMatch(/^https:\/\/paid\.example\//)
-    expect(f.chain.readers.keyRegistry.assignedNodes).not.toHaveBeenCalled()
-    // Before and after the wallet step; the keeper approval reuses the second read.
-    expect(f.resolve).toHaveBeenCalledTimes(2)
-    const sent=JSON.parse(String(f.fetchImpl.mock.calls[0]![1]?.body)) as {execution_authorizations:ExecutionAuthorization[]}
-    expect(sent.execution_authorizations.map(proof=>proof.stage).sort()).toEqual(['contributor','contributor','coordinator'])
-    expect(f.resolve.mock.calls[0]![3].action).toBe(mode === 2 ? 'eoa-sign' : 'sign')
-    const request = f.authorize.mock.calls[0]![0]
-    expect(request.payment).toEqual(f.payment)
-    expect(request.random).toBe(f.random)
-    expect(request.nowSecs! + request.ttlSecs!).toBe(f.payment.expires)
+    expect(String(f.fetchImpl.mock.calls[0]![0])).toMatch(/^https:\/\/keeper\.example\//)
+    const sent = JSON.parse(String(f.fetchImpl.mock.calls[0]![1]?.body)) as Record<string, unknown>
+    // A keeper refuses unknown fields: nothing of the retired payment flow may be sent.
+    expect(Object.keys(sent).filter(k => ['payment', 'execution_authorizations'].includes(k))).toEqual([])
+    expect(sent.committee_token).not.toHaveProperty('payment')
+    expect(f.authorize.mock.calls[0]![0]).not.toHaveProperty('payment')
   })
-  it('extracts real IBE shares only from signed contributors', async () => {
-    const f = await paidFixture(1), slot = await f.app.slots.bls(slotId)
-    const plaintext = new TextEncoder().encode('paid note')
-    const ciphertext = await slot.encryptForIdentity(vector.identity, plaintext)
-    const result = await slot.decryptForIdentity(vector.identity, ciphertext, {...extractionOptions, authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution})
-    expect(result.plaintext).toEqual(plaintext)
-    expect(f.fetchImpl.mock.calls.map(([url]) => new URL(String(url)).hostname).sort()).toEqual(['keeper-0.example', 'keeper-1.example'])
-    expect(f.chain.readers.keyRegistry.assignedNodes).not.toHaveBeenCalled()
-  })
-  it.each(['unfunded', 'expired', 'mapped-http', 'missing-random'])('refuses %s before credential consent or keeper work', async reason => {
-    const f = await paidFixture(2, reason === 'mapped-http' ? {keeperUrl: () => 'http://paid.example'} : {})
-    if (reason === 'unfunded') f.resolve.mockRejectedValue(new Error('reservation not funded'))
-    if (reason === 'expired') f.payment.expires = 1
-    const slot = await f.app.slots.ecdsa(slotId)
-    await expect(slot.signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: reason === 'missing-random' ? undefined : f.random, execution: f.execution})).rejects.toThrow()
-    expect(f.authorize).not.toHaveBeenCalled()
-    expect(f.fetchImpl).not.toHaveBeenCalled()
-  })
-  it.each(['downgrade', 'substitution', 'settlement', 'rotation'])('refuses %s during wallet authorization before keeper work', async reason => {
-    const f = await paidFixture(), slot = await f.app.slots.ecdsa(slotId)
+  it.each(['payment', 'payment_hash'])('refuses a grant that introduces a %s before keeper work', async field => {
+    const f = fixture(), slot = await f.app.slots.ecdsa(slotId)
     const authorize: OperationAuthorizer = async request => {
       const grant = await f.authorize(request)
-      if (reason === 'downgrade') {delete grant.token.payment; delete grant.token.payment_hash}
-      if (reason === 'substitution') {
-        grant.token.payment!.max_cost = '11'
-        grant.token.payment_hash = paymentIntentHash(grant.token.payment!)
-      }
-      if (reason === 'settlement') f.resolve.mockRejectedValue(new Error('already settled'))
-      if (reason === 'rotation') f.metadata.epoch++
+      ;(grant.token as unknown as Record<string, unknown>)[field] = field === 'payment' ? {max_cost: '1'} : `0x${'77'.repeat(32)}`
       return grant
     }
-    await expect(slot.signDigest(f.message, {authorize, payment: f.payment, random: f.random, execution: f.execution})).rejects.toThrow()
+    await expect(slot.signDigest(new Uint8Array(32).fill(1), {authorize})).rejects.toMatchObject({code: 'INVALID_AUTHORIZATION'})
     expect(f.fetchImpl).not.toHaveBeenCalled()
   })
-  it('keeps the original payment if a consent callback mutates its copy', async () => {
-    const f = await paidFixture(), slot = await f.app.slots.ecdsa(slotId), original = structuredClone(f.payment)
-    await slot.signDigest(f.message, {payment: f.payment, random: f.random, execution: f.execution, authorize: async request => {
-      const grant = await f.authorize(request)
-      request.payment!.max_cost = '99'
-      f.payment.max_cost = '88'
-      return grant
-    }})
-    expect(f.resolve.mock.calls[1]![2]).toEqual(original)
-    const body = JSON.parse(String(f.fetchImpl.mock.calls[0]![1]?.body)) as {committee_token: {payment: PaymentIntentWire}}
-    expect(body.committee_token.payment).toEqual(original)
-  })
-  it('never fails over to an unpaid coordinator after a paid attempt fails', async () => {
-    const f = await paidFixture(), slot = await f.app.slots.ecdsa(slotId)
-    f.fetchImpl.mockRejectedValue(new Error('connection lost'))
-    await expect(slot.signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution})).rejects.toThrow()
-    expect(f.fetchImpl).toHaveBeenCalledTimes(1)
-    expect(f.chain.readers.keyRegistry.assignedNodes).not.toHaveBeenCalled()
-  })
-  it('allows mapped local HTTP only with the explicit local transport option', async () => {
-    const f = await paidFixture(2, {keeperUrl: url => url==='https://paid.example'?'http://127.0.0.1:18080':'http://127.0.0.1:18081', allowLocalPaidHttp: true})
-    await (await f.app.slots.ecdsa(slotId)).signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution})
-    expect(String(f.fetchImpl.mock.calls[0]![0])).toMatch(/^http:\/\/127\.0\.0\.1:18080\//)
+  it('sends a rotation seen during wallet authorization to no keeper', async () => {
+    const f = fixture(), slot = await f.app.slots.ecdsa(slotId)
+    const authorize: OperationAuthorizer = async request => { const grant = await f.authorize(request); f.metadata.epoch++; return grant }
+    await expect(slot.signDigest(new Uint8Array(32).fill(1), {authorize})).rejects.toMatchObject({code: 'SLOT_CHANGED'})
+    expect(f.fetchImpl).not.toHaveBeenCalled()
   })
 })
 
@@ -380,56 +300,64 @@ describe('application API', () => {
   })
 })
 
-describe('native approvals on a paid threshold ECDSA signature', () => {
+describe('native approvals on a threshold ECDSA signature', () => {
   const approverSeeds = [31, 32, 33].map(n => new Uint8Array(32).fill(n))
   const approverFor = (seedBytes: Uint8Array) => ({publicKey: ed25519.getPublicKey(seedBytes), sign: async (payload: Uint8Array) => ed25519.sign(payload, seedBytes)})
-  async function bundle(f: Awaited<ReturnType<typeof paidFixture>>, change: {digest?: Uint8Array; payment?: PaymentIntentWire; nowSecs?: number} = {}) {
-    const payment = change.payment ?? f.payment
-    const prepared = prepareDualOperation({payment, operation: 'secp256k1-sign', epoch: 1, ...(change.nowSecs !== undefined ? {nowSecs: change.nowSecs} : {})})
-    const records = await Promise.all(approverSeeds.slice(0, 2).map(s => approveDualOperation({prepared, payment, expectSlot: slotId,
-      expectPayloadDigest: payment.payload_digest, approver: approverFor(s), ...(change.nowSecs !== undefined ? {nowSecs: change.nowSecs} : {})})))
-    return assembleDualOperation({prepared, approvals: records, quorum: 2, ...(change.nowSecs !== undefined ? {nowSecs: change.nowSecs} : {})})
+  const message = new Uint8Array(32).fill(1)
+  /** A 2-approval bundle for signing `digest` on the fixture slot (payload digest = SHA-256 of the digest). */
+  async function bundle(change: {digest?: Uint8Array; chainId?: number; epoch?: number; nowSecs?: number; operation?: DualOperationKind} = {}) {
+    const payloadDigest = toHex(sha256(change.digest ?? message)), time = change.nowSecs !== undefined ? {nowSecs: change.nowSecs} : {}
+    const prepared = prepareDualOperation({chainId: change.chainId ?? 43112, slot: slotId, payloadDigest, operation: change.operation ?? 'secp256k1-sign', epoch: change.epoch ?? 1, ...time})
+    const records = await Promise.all(approverSeeds.slice(0, 2).map(s => approveDualOperation({prepared, expectSlot: slotId, expectPayloadDigest: payloadDigest, approver: approverFor(s), ...time})))
+    return assembleDualOperation({prepared, approvals: records, quorum: 2, ...time})
   }
-  it('carries the assembled bundle inside the client-approved keeper body, unchanged', async () => {
-    const f = await policyFixture(), slot = await f.app.slots.ecdsa(slotId), proof = await bundle(f)
-    await slot.signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution, dualControl: proof})
-    expect(f.fetchImpl).toHaveBeenCalledTimes(1)
-    const body = JSON.parse(String(f.fetchImpl.mock.calls[0]![1]?.body)) as {dual_control: unknown; execution_authorizations: ExecutionAuthorization[]}
-    expect(body.dual_control).toEqual(proof)
-    // The keeper approvals sign the complete body: the bundle is inside what the client consented to.
-    expect(body.execution_authorizations).toHaveLength(3)
-  })
-  it.each(['another digest', 'another payment', 'stale', 'no payment'] as const)('refuses a bundle for %s before credential consent or keeper work', async reason => {
-    const f = await paidFixture(2), slot = await f.app.slots.ecdsa(slotId)
-    const other = {...f.payment, nonce: `0x${'77'.repeat(32)}` as Hex}
-    const proof = reason === 'another payment' ? await bundle(f, {payment: other})
-      : reason === 'stale' ? await bundle(f, {nowSecs: Math.floor(Date.now() / 1000) - 600}) : await bundle(f)
-    const digest = reason === 'another digest' ? new Uint8Array(32).fill(2) : f.message
-    const options = reason === 'no payment' ? {authorize: f.unpaidAuthorize, dualControl: proof}
-      : {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution, dualControl: proof}
-    await expect(slot.signDigest(digest, options)).rejects.toThrow()
-    expect(f.authorize).not.toHaveBeenCalled()
-    expect(f.unpaidAuthorize).not.toHaveBeenCalled()
-    expect(f.fetchImpl).not.toHaveBeenCalled()
-  })
-  /** The paid fixture with a static 2-of-3 policy installed on chain. */
-  async function policyFixture(mode = 2) {
-    const f = await paidFixture(mode)
+  /** The fixture with a static 2-of-3 policy installed on chain. */
+  function policyFixture(mode = 2) {
+    const f = fixture(mode)
     Object.assign(f.policy, {quorum: 2, approvers: approverSeeds.map(s => toHex(ed25519.getPublicKey(s)))})
     return f
   }
-  const noKeeperWork = (f: Awaited<ReturnType<typeof paidFixture>>) => {
+  const noKeeperWork = (f: ReturnType<typeof fixture>) => {
     expect(f.authorize).not.toHaveBeenCalled()
-    expect(f.unpaidAuthorize).not.toHaveBeenCalled()
     expect(f.fetchImpl).not.toHaveBeenCalled()
   }
+  it('carries the assembled bundle in the keeper body, unchanged, with no payment', async () => {
+    const f = policyFixture(), slot = await f.app.slots.ecdsa(slotId), proof = await bundle()
+    await slot.signDigest(message, {authorize: f.authorize, dualControl: proof})
+    expect(f.fetchImpl).toHaveBeenCalledTimes(1)
+    const body = JSON.parse(String(f.fetchImpl.mock.calls[0]![1]?.body)) as Record<string, unknown>
+    expect(body.dual_control).toEqual(proof)
+    expect(proof.statement).not.toHaveProperty('payment_hash')
+    expect(proof.statement.request_id).toBe(toHex(requestHash(43112, hexToBytes(slotId), 'sign', sha256(message))).slice(2))
+    expect(body).not.toHaveProperty('execution_authorizations')
+  })
+  it.each(['another digest', 'another chain', 'another key epoch', 'another operation', 'stale'] as const)('refuses a bundle for %s before credential consent or keeper work', async reason => {
+    const f = policyFixture(), slot = await f.app.slots.ecdsa(slotId)
+    const proof = reason === 'another chain' ? await bundle({chainId: 43113}) : reason === 'another key epoch' ? await bundle({epoch: 2})
+      : reason === 'another operation' ? await bundle({operation: 'p256-sign'})
+      : reason === 'stale' ? await bundle({nowSecs: Math.floor(Date.now() / 1000) - 600}) : await bundle()
+    const digest = reason === 'another digest' ? new Uint8Array(32).fill(2) : message
+    await expect(slot.signDigest(digest, {authorize: f.authorize, dualControl: proof})).rejects.toThrow()
+    noKeeperWork(f)
+  })
+  it('refuses a bundle whose request id is not the operation\'s request hash', async () => {
+    const f = policyFixture(), slot = await f.app.slots.ecdsa(slotId), proof = await bundle()
+    const forged = {...proof, statement: {...proof.statement, request_id: 'ab'.repeat(32)}}
+    await expect(slot.signDigest(message, {authorize: f.authorize, dualControl: forged})).rejects.toThrow(/request id/)
+    noKeeperWork(f)
+  })
   it('refuses, on a slot with an installed policy, a signature without a bundle, before credential consent', async () => {
-    const f = await policyFixture(), slot = await f.app.slots.ecdsa(slotId)
-    await expect(slot.signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution})).rejects.toMatchObject({code: 'INVALID_AUTHORIZATION'})
+    const f = policyFixture(), slot = await f.app.slots.ecdsa(slotId)
+    await expect(slot.signDigest(message, {authorize: f.authorize})).rejects.toMatchObject({code: 'INVALID_AUTHORIZATION'})
+    noKeeperWork(f)
+  })
+  it('refuses a bundle on a slot without a policy', async () => {
+    const f = fixture(), slot = await f.app.slots.ecdsa(slotId)
+    await expect(slot.signDigest(message, {authorize: f.authorize, dualControl: await bundle()})).rejects.toMatchObject({code: 'INVALID_AUTHORIZATION'})
     noKeeperWork(f)
   })
   it.each(['one approval', 'a duplicate approver', 'an approver outside the set', 'a forged approval'] as const)('refuses a bundle with %s against the on-chain quorum', async reason => {
-    const f = await policyFixture(), slot = await f.app.slots.ecdsa(slotId), proof = await bundle(f)
+    const f = policyFixture(), slot = await f.app.slots.ecdsa(slotId), proof = await bundle()
     const outsider = approverFor(new Uint8Array(32).fill(44))
     const statementBytes = dualOperationPayload(proof.statement)
     const forgedOutsider = {approver_pubkey: toHex(outsider.publicKey).slice(2), signature: toHex(await outsider.sign(statementBytes)).slice(2), verifier_proofs: []}
@@ -437,21 +365,24 @@ describe('native approvals on a paid threshold ECDSA signature', () => {
       : reason === 'a duplicate approver' ? [proof.approvals[0]!, proof.approvals[1]!, proof.approvals[0]!]
       : reason === 'an approver outside the set' ? [proof.approvals[0]!, forgedOutsider]
       : [proof.approvals[0]!, {...proof.approvals[1]!, signature: '00'.repeat(64)}]
-    await expect(slot.signDigest(f.message, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution, dualControl: {...proof, approvals}}))
+    await expect(slot.signDigest(message, {authorize: f.authorize, dualControl: {...proof, approvals}}))
       .rejects.toMatchObject({code: 'INVALID_AUTHORIZATION'})
     noKeeperWork(f)
   })
-  it('signs a structured transaction intent: the SDK derives the digest, and the payment must pay for exactly it', async () => {
-    const f = await paidFixture(2), slot = await f.app.slots.ecdsa(slotId)
+  it('signs a structured transaction intent: the SDK derives the digest', async () => {
+    const f = fixture(2), slot = await f.app.slots.ecdsa(slotId)
     const intent = {kind: 'transaction' as const, transaction: {chainId: 43114, type: 'eip1559' as const, to: `0x${'99'.repeat(20)}` as Hex, value: 1n, nonce: 0, gas: 21_000n, maxFeePerGas: 1n, maxPriorityFeePerGas: 1n}}
     const digest = signingIntentDigest(intent)
     expect(toHex(digest)).toBe(keccak256(serializeTransaction(intent.transaction)))
-    // The fixture's payment pays for its own message, not for this transaction.
-    await expect(slot.signIntent(intent, {authorize: f.authorize, payment: f.payment, random: f.random, execution: f.execution})).rejects.toThrow(/does not pay for this signing intent/)
-    noKeeperWork(f)
-    const unpaid = await slot.signIntent(intent, {authorize: f.unpaidAuthorize})
-    expect(unpaid.digest).toEqual(digest)
-    expect(await recoverAddress({hash: toHex(digest), signature: {r: toHex(unpaid.r), s: toHex(unpaid.s), yParity: unpaid.yParity}})).toBe(await slot.getAddress())
+    const signed = await slot.signIntent(intent, {authorize: f.authorize})
+    expect(signed.digest).toEqual(digest)
+    expect(await recoverAddress({hash: toHex(digest), signature: {r: toHex(signed.r), s: toHex(signed.s), yParity: signed.yParity}})).toBe(await slot.getAddress())
+  })
+  it('signs an approved intent on a slot with a policy: the bundle names the intent\'s digest', async () => {
+    const f = policyFixture(), slot = await f.app.slots.ecdsa(slotId), intent = {kind: 'message' as const, message: 'pay 1 TSRA'}
+    const signed = await slot.signIntent(intent, {authorize: f.authorize, dualControl: await bundle({digest: signingIntentDigest(intent)})})
+    expect(signed.digest).toEqual(signingIntentDigest(intent))
+    await expect(slot.signIntent({kind: 'message', message: 'pay 100 TSRA'}, {authorize: f.authorize, dualControl: await bundle({digest: signingIntentDigest(intent)})})).rejects.toThrow(/another operation, slot or digest/)
   })
   it('refuses an intent without a chain, an oversized one and the wrong curve', async () => {
     const f = fixture(2), slot = await f.app.slots.ecdsa(slotId)
@@ -461,15 +392,15 @@ describe('native approvals on a paid threshold ECDSA signature', () => {
     await expect(slot.signIntent({kind: 'sha256', data: new Uint8Array(1)} as never, {authorize: f.authorize})).rejects.toMatchObject({code: 'WRONG_SLOT_MODE'})
     expect(f.fetchImpl).not.toHaveBeenCalled()
   })
-  it('an approver signs only the intent it reviewed, against the payment for exactly that intent', async () => {
-    const f = await paidFixture(2), intent = {kind: 'message' as const, message: 'pay 1 TSRA'}
-    const digest = signingIntentDigest(intent)
-    const payment = {...f.payment, payload_digest: toHex(sha256(digest))}
-    const prepared = prepareDualOperation({payment, operation: 'secp256k1-sign', epoch: 1})
+  it('an approver signs only the intent it reviewed, on the slot it expects', async () => {
+    const intent = {kind: 'message' as const, message: 'pay 1 TSRA'}
+    const payloadDigest = toHex(sha256(signingIntentDigest(intent)))
+    const prepared = prepareDualOperation({chainId: 43112, slot: slotId, payloadDigest, operation: 'secp256k1-sign', epoch: 1})
     const approver = approverFor(approverSeeds[0]!)
-    expect((await approveSigningIntent({prepared, payment, intent, approver})).approval.approver_pubkey).toBe(toHex(approver.publicKey).slice(2))
-    await expect(approveSigningIntent({prepared, payment, intent: {kind: 'message', message: 'pay 100 TSRA'}, approver})).rejects.toThrow(/does not pay/)
-    await expect(approveSigningIntent({prepared: prepareDualOperation({payment, operation: 'p256-sign', epoch: 1}), payment, intent, approver})).rejects.toThrow(/names p256-sign/)
+    expect((await approveSigningIntent({prepared, slotId, intent, approver})).approval.approver_pubkey).toBe(toHex(approver.publicKey).slice(2))
+    await expect(approveSigningIntent({prepared, slotId, intent: {kind: 'message', message: 'pay 100 TSRA'}, approver})).rejects.toThrow(/unexpected operation digest/)
+    await expect(approveSigningIntent({prepared, slotId: `0x${'12'.repeat(32)}`, intent, approver})).rejects.toThrow(/unexpected slot/)
+    await expect(approveSigningIntent({prepared: prepareDualOperation({chainId: 43112, slot: slotId, payloadDigest, operation: 'p256-sign', epoch: 1}), slotId, intent, approver})).rejects.toThrow(/names p256-sign/)
   })
 })
 

@@ -7,7 +7,178 @@ never does.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-24
+
+**Prepaid billing is removed.** Every operation is metered: the slot owner funds the slot
+(`fundSlot`), an operation is authorized with a credential at the verifier-agent and sent to
+the keepers, and the network settles recorded usage later. The SDK has no payment code or API.
+0.4.0, which carried the prepaid protocol, was withdrawn; its number is not reused. This entry
+lists what changed after 0.4.0; the withdrawn entry below is kept as history.
+
+### Migrating from the prepaid API
+
+- `paidOperation`, `paidFinalSign`, `paidPolicyOperation`, `drivePaidSession`: authorize with
+  `registeredWalletAuthorization` (an approved registered agent) or `credentialAuthorization`,
+  and call the slot method: `slots.frost(id).sign`, `slots.ecdsa(id).signDigest` /
+  `signIntent`, `slots.p256(id)`, `slots.bls(id).decrypt` / `decryptForIdentity` /
+  `extractIdentityKey`. Drop `payment`, `random`, `execution` and `approveExecution` from every
+  call. There is no journal to resume, reconcile, recover or abandon.
+- `paidSessionDecrypt`, `prepareAllowances` and the allowance lanes: `openDecryptSession` once,
+  then `session.decrypt` / `session.decryptMany`.
+- Any key may sign the operation request (the slot creator, a creator-signed delegate, or an
+  unrelated key); the slot's rule decides. A holder application needs no rule, no rule salt and
+  no TSRA.
+- Native approvals: `prepareOperationApproval(app, {slotId, intent | digest | payloadDigest})`
+  replaces `{payment}`; `approveDualOperation` and `approveSigningIntent` no longer take
+  `payment` (`approveSigningIntent` takes `slotId`).
+
+### Removed
+
+- `@t3foundry/tasra-sdk`: `UnderfundedSlotError`, `UnderfundedGasPayerError`, `PaidBackoffError`,
+  `isPaidBackoffError`, `PaidApprovalUnresolvedError`, `isPaidApprovalUnresolved`,
+  `PaidReservationQuotaError`, `PrepaidEscapeError`, `PrepaidEscapeUncertainError`,
+  `isPrepaidEscapeError` and their code types; `requestId` on `StatusRefreshError` and
+  `RevocationStatusPreflightError`.
+- `/app`: the paid journal, reservation, allowance, operation, session and policy-operation
+  exports (`paidOperation`, `prepareAllowances`, `paidFinalSign`, `paidSessionDecrypt`, their
+  resume / reconcile / recover / abandon / list functions and types, `paidPolicyOperation`,
+  `readPolicyOperation`, `PolicyOperationError`, `drivePaidSession`, `waitForPaidSnapshot`,
+  `reserveApplicationPayment`, `reconcileApplicationPayment`, `selectApplicationGasPayer`, the
+  allowance errors), `requireIntentPayment`, `MAX_MESSAGE_DEBITS`, `SessionReopened`,
+  `allowLocalPaidHttp`, and `payment` / `random` / `execution` on every operation option.
+- `/app/browser`: `createBrowserPaidAgentTransport`, `createBrowserKeeperRecoveryTransport`.
+- `/chain/node`: `createNodePaidAgentTransport`, `createNodeKeeperRecoveryTransport`.
+- `/chain`: every prepaid, billing-mode, reservation, allowance, escape, fault, pacing,
+  registered-paid-agent, keeper-recovery and keeper-execution export;
+  `discoverPaidOperationContext`, `readSlotFunding`, `PaidDrawMovedError`;
+  `prepaidFaultOracleAbi` and `tasraSwapRouterAbi`; the address-book keys `SWAP_ROUTER`,
+  `TASRA_SWAP_ROUTER` and `PREPAID_FAULT_ORACLE`.
+- `/committee`: the payment-intent, allowance, debit-voucher, execution-certificate and
+  execution-recovery exports; `paidDualSignApprovalPayload`; `requireDualOperationPayment`;
+  `paymentHash` / `payment` on compound tokens and authorize replies (a token carrying one is
+  refused); the paid-token signing domain; the `client_execution` status-refresh principal
+  (`holder_key` is the principal; the refresh digest keeps 32 zero bytes where the payment hash
+  was, so it is unchanged); `approveExecution` on every keeper call.
+- `/oid4vp`, `/verifier-agent`: `payment` and `random` on session creation;
+  `REQUEST_OBJECT_IN_PROGRESS`, `REQUEST_OBJECT_AT_CAPACITY`, `RequestObjectRetryPolicy` and
+  `inProgressRetry` (`fetchRequestObject` sends one GET).
+
+### Changed
+
+- **A session decrypt asks only `threshold` keepers.** `decryptWithSessionGrant` (and so `session.decrypt` /
+  `session.decryptMany`) used to send every request to every keeper of the slot and wait for all of
+  them. It now orders the keepers per request (`sessionKeeperOrder`, by a hash of the request, so
+  each keeper gets the same part of the work over time) and asks the first `threshold`. Another
+  keeper is asked only for items a keeper failed, refused, answered with an invalid share, or has
+  not answered within `hedgeAfterMs` (default 1500 ms plus 50 ms per item). The call returns as
+  soon as every item is complete.
+- **A keeper's rate-limit refusal is retried longer.** A session decrypt sends a request again after
+  a keeper's `429` up to five times (was once), waiting its `Retry-After` plus a little jitter,
+  for at most ten seconds in total. Nothing has run when a keeper answers `429`, and several readers
+  behind one address share the keeper's per-address bucket.
+
+- The approval statement of an operation (`keykeeper:dual-operation:v1`) no longer has
+  `payment_hash`, and its `request_id` is the operation's request hash
+  (`dualOperationRequestId`; `requireDualOperationRequest` checks a statement against an
+  operation). Threshold ECDSA and P-256 approvals work without a payment;
+  `committeeSignEoaDigest` with `dualControl` needs `chainId`.
+- Renamed: `restoreUnpaidSession` to `restoreSession`, `unpaidRecovery` to `recovery`,
+  `UnpaidAgentSessionRecovery` to `AgentSessionRecovery`; `PaidAgentTransport` to
+  `SessionControlTransport` (`createNodeAgentTransport` now returns `SessionAgentTransport`,
+  which also carries session-grant refresh and revoke); request-policy mode `'paid-agent'` to
+  `'session-control'`; `OriginalVerifierPolicy` to `AnchoredVerifierDraw`;
+  `PaidVerifierWitness` to `VerifierWitness`; `SlotTransferProposal.prepaidBalance` /
+  `reservedBalance` to `settlementBalance`. `AgentSessionCreationUnknownError` lost its
+  `paymentHash` argument. `readCurrentBeaconEpoch` and `readBeaconDrawState` take a
+  `BeaconDeployment`.
+- Registered verifier-agent sessions send the `decryption` binding and an optional
+  `sessionGrant`; `assertRegisteredWalletRequest` checks the session-key-bound nonce.
+- The Settlement ABI is regenerated from the metered-only contract (`Settlement.version()` is
+  `"6"`): every prepaid, allowance and escape entry and `reservedBalanceOf` are gone, and the
+  consolidated-sweep entries the contract already had are present.
+- `TasraWriteClient.rotateKey` refuses a slot whose rotation is locked before signing
+  (`RotationLockError`, code `locked`): a slot its creator locked, and every threshold-ECDSA
+  slot, also on a KeyRegistry without the lock, where such a rotation would remove the key.
+  `reshareKey` refuses a threshold-ECDSA roster that keeps fewer than the current `k` members
+  (`ReshareRosterError`). Both read the slot first.
+- `slots.ecdsa().signDigest` (and the new P-256 adapter) refuse, before credential consent or
+  keeper work, a signature without a bundle on a slot with an installed approval policy, and a
+  bundle with fewer distinct verified approvals than the on-chain quorum, a duplicate approver or
+  a key outside a static approver set.
+- `proposeSlotTransfer` refuses `self-custody` (a secp256k1 slot offered to its own threshold
+  account) and `contract-holder` (a contract recipient; an EIP-7702 delegated account is
+  accepted), and `acceptSlotTransfer` refuses `self-custody`. Keepers recover creator signatures
+  with `ecrecover` only, so either creator could never sign for the slot.
+  `SlotHandoffStatus` gains `slotAccount`.
+- `setApprovalPolicy` judges the set-once policy before sending: an identical installed policy
+  resolves `{phase: 'already-installed', slotId}` without a transaction, a different one is refused
+  before sending (it used to revert on chain). Its return type is now
+  `WalletTransactionJournal | ApprovalPolicyAlreadyInstalled`.
+- `createSlotCommitReveal` creates slots ONLY through the accountant-seeded path and never waits
+  for a beacon epoch (one to two hours at the production cadence). Accountants are asked
+  concurrently (`slotSeedHedgeMs`, default 750 ms stagger; the first valid seed wins and cancels
+  the rest), "not yet" answers are retried with jittered backoff that honours `Retry-After` for at
+  most `slotSeedRetryMs` (default now 90 s), and a missing seed throws `SlotSeedUnavailableError`
+  (`detail.committed`: whether the commitment stands and must be resumed). No epoch-path
+  commitment is ever sent, no beacon is polled and no chain-time nudge is sent; a transient
+  failure of the reveal-path probe now fails the call instead of committing on the epoch path.
+  Resuming an older SDK's epoch-path commitment (`recovery.commitTx`) checks once and throws
+  `SlotRevealNotYetError` until its target epoch. **Breaking**: `maxWaitMs` and `onEpoch` are
+  removed, `slotSeed: false` is refused, `onSeed` is no longer called with `null`.
+  `requestSlotSeed` gains `hedgeMs` and `signal`, asks concurrently, and retries 429 and timeouts.
+
+- `createFileStore` queues `withLock` callers within one process in call order instead of
+  refusing all but the first, so concurrent operations in one process no longer fail
+  with `StoreLockedError`. A lock held by another process (or left by a crashed one) is
+  waited for up to the new `lockWaitMs` option (default 10 s, 0 refuses at once) and then
+  still refused with `StoreLockedError`; it is never removed or taken over. A nested lock on
+  a key the same call chain already holds is still refused at once.
+- Registered verifier-agent sessions check the provider's registration
+  before every request with one `getService` call at the latest block, instead of a head
+  number read followed by a call at that number.
+- `waitForSession` (and `awaitVerifierAgentResult`) see the wallet's result sooner. Each
+  request asks for a long poll (`?wait=1`). A reply whose phase moved forward is followed
+  by the next request at once, and so is an unchanged reply that took 15 s or more (the
+  server's hold ended). Any other unchanged reply waits for the usual backoff, so a
+  verifier-agent without long-poll support is polled on the same schedule as before. Any
+  phase change resets the backoff to `intervalMs`. An abort now also cancels a request
+  in flight, and no request runs past the overall deadline. Each request's timer and abort
+  listener are released when it settles. Re-polls after a server hold are spread by up to
+  10 % of `intervalMs`, so waits that started together do not stay in lock-step.
+- KEM decryption through `decryptWithCommitteePartials`, and strict IBE extraction
+  through `extractIdentityStrict`/`decryptIdentityStrict`, pairing-check each share once,
+  at collection, where a bad share is refused and named. The combine no longer repeats
+  that check, which halves the per-share pairings. The final AEAD check (KEM) and the check
+  of the combined key against the anchored group key (IBE) stay. `combineDecryptShares`
+  and `ibeCombineExtract` still verify any shares they are given. These paths also hash
+  the identity to G1 once per operation (it was hashed for every share and the group check),
+  and decode the ciphertext's U once rather than once per share. Decoded verifying shares
+  and group keys are kept in a bounded cache of 256 public points per curve group, so
+  repeated operations on a slot skip their subgroup-checked decoding.
+- `createTasraChainClient` groups small concurrent requests (calls, chain ID, blocks, code,
+  nonces, receipts) into JSON-RPC batches of at most 32 by default, configurable with
+  `rpcBatch: {batchSize, wait}` or turned off with `rpcBatch: false`. Log queries and
+  transactions are never batched. If an RPC refuses a batch, that batch's requests are sent
+  one by one and every later request goes alone.
+
+
 ### Added
+
+- `/chain`: `settlement.operationsSettled(slot)`, the operations settled for a slot as signed by the
+  accountant set. `settlementAbi` is refreshed for Settlement version 7 (a signed operation count on
+  every settle call together with the root of the keeper statements it was derived from, the `OperationsSettled` event). `settlement.lastNonce(slot)` is the settled
+  position and no longer an operation count: when accountants settle from window statements it is
+  the end of the last settled window in unix seconds.
+
+- `SlotBalanceError` and `isSlotBalanceRefusal` (main entry): a keeper refused an operation with
+  HTTP 402 because the slot's Settlement balance does not cover its unsettled metered work.
+  Nothing ran; the slot's owner funds the slot. Session decrypts report it on the message
+  (`SessionMessageError.slotBalance`, `isSlotBalanceSessionRefusal`).
+- `assertAnchoredWalletRequest` (`/chain`): the signed Request Object of a registered session is
+  checked against the verifier draw read from the chain (epoch current or previous, seed, anchored
+  snapshot, slot policy, recomputed committee, authenticated member keys, locally derived nonce)
+  and must be signed by the member drawn to sign it. `openDecryptSession` runs it before the
+  wallet step.
 
 - The rotation lock. `TasraWriteClient.lockKeyRotation` (relayed when a relay is configured) and
   `lockKeyRotation(app, slotId, {wallet, store})` (`/app`, a durable named creator transaction)
@@ -35,42 +206,26 @@ never does.
   it blamed) is decoded. Building blocks: `verifyCustodyHealthReply`, `parseCustodyStatement`,
   `custodyStatementHash`, `verifyCustodyStatement`, `custodyStatementIsCurrent`,
   `assessCustodyHealth`.
-- Customer authorization bootstrap: a holder application runs paid operations on a slot whose
-  rule salt only the creator keeps. `issueSlotPolicyBootstrap` (creator side) signs an EIP-712
-  slot policy statement binding the chain, KeyRegistry, slot, rule version, salted commitment,
-  `keccak256` of the raw rule, the holder application key, allowed actions, lifetime and a
-  monotonic sequence, after checking the rule and salt against the slot; the salt is never in
-  it. `PaidOperationRequest.rule` also takes `{policy, audience}`: checked offline
-  (`verifySlotPolicyBootstrap`), then against the slot's creator, commitment and rule version at
-  the canonical discovery block, then against the store's sequence high-water mark, before
-  anything is signed or spent; the bootstrap is journaled, the salt is not. `paidPolicyOperation`
-  binds an application `operationKey` to the exact operation before anything is signed and
-  resumes the original journal entry on any later call with that key (`readPolicyOperation`
-  reads the binding). `createSlotPolicyRequest` / `verifySlotPolicyRequest` authenticate a
-  holder application's retrieval with its own key. New errors `SlotPolicyError`,
-  `PolicyOperationError` with stable codes.
+- Slot policy statements. `issueSlotPolicyBootstrap` (creator side) signs an EIP-712 statement
+  binding the chain, KeyRegistry, slot, rule version, salted commitment, `keccak256` of the raw
+  rule, the holder application key, allowed actions, lifetime and a monotonic sequence, after
+  checking the rule and salt against the slot; the salt is never in it. A holder application
+  checks it offline (`verifySlotPolicyBootstrap`), against its own slot read
+  (`requireCurrentSlotPolicy`) and against its store's sequence high-water mark
+  (`admitSlotPolicySequence`). No operation requires a statement; it tells a holder which rule
+  it is judged by (for example to pin `ruleHash` for a session grant).
+  `createSlotPolicyRequest` / `verifySlotPolicyRequest` authenticate a holder application's
+  retrieval with its own key. Error `SlotPolicyError` with stable codes.
 - `slots.p256(slotId)`: a threshold P-256 slot adapter (`getPublicKey`, `signDigest`,
   `signIntent`) with native approval bundles. `slots.ecdsa(slotId).signIntent` and
   `signingIntentDigest` derive the digest from a transaction, EIP-712 typed data, a personal
-  message or (P-256) exact bytes; `requireIntentPayment` and `approveSigningIntent` bind the
-  payment and each approver to that intent.
-- Paid OAuth+DPoP operations through the public paid-operation API: a
-  `{kind: 'oauth', credential}` holder for `paidOperation`, `resumePaidOperation` and
-  `drivePaidSession`. The OAuth mode is signed into the session and journaled with the operation
-  (a resume with a holder of the other family is refused; a holder that does not match the slot
-  rule's family is refused before anything is signed or reserved). The SDK verifies audience,
-  lifetime, `cnf.jkt`, nonce, `htm`, `htu`, `ath` and the proof signature locally, journals the
-  exact presentation before its one submission, never asks for a refreshed token on resume,
-  confirms a lost submission only by a read showing the agent holding exactly that presentation,
-  and repeats only a definite 429 with the identical bytes inside the proof's window (one that ran
-  out is journaled `unsent` and resent byte-identically on resume). New types `PaidOAuthContext`,
-  `PaidOAuthCredential`.
+  message or (P-256) exact bytes; `approveSigningIntent` binds each approver to that intent.
 - Native two-person approvals on threshold ECDSA (secp256k1, P-256) and BLS slots, matching the
   network's `dual_control` bundle: `setApprovalPolicy` installs on any ready FROST, BLS or tECDSA
-  slot; `readApprovalPolicy`; `prepareOperationApproval` (the statement for one final paid
+  slot; `readApprovalPolicy`; `prepareOperationApproval` (the statement for one exact
   operation, from the slot's own mode and epoch) and `assembleOperationApproval` (judged against
-  the on-chain quorum and approver set); `slots.ecdsa().signDigest` takes `dualControl`
-  (`EcdsaSignOptions`). `approveDualOperation`, `requireDualOperationProof` and the bundle types
+  the on-chain quorum and approver set); `slots.ecdsa().signDigest`, `slots.p256().signDigest` and the BLS
+  `decrypt` / `decryptForIdentity` / `extractIdentityKey` take `dualControl`. `approveDualOperation`, `requireDualOperationProof` and the bundle types
   are re-exported from `/app`.
 - C24 session refusal codes. `SESSION_RETRYABLE_CODES` names the session-route refusals the same
   request may pass later; the new `session_verifier_behind` (503: a verifier's chain view trails
@@ -78,96 +233,37 @@ never does.
   `SESSION_VERIFIER_BEHIND_RETRY_MS` (2 s) when an older agent relays it without one. A keeper's
   epoch-window refusal counts as stale (`isStaleSessionRefusal`) only when the grant is behind
   the keeper's window or the keeper says `session-stale`; a keeper whose beacon lags the grant
-  (C24 `forbidden`, same text) is not a reason to refresh or pay again.
-- Session grants follow the beacon across epoch boundaries.
-  `GrantedSession.observeBeacon`/`followBeacon` refresh a grant in the background once a CHAIN
-  observation (payment discovery, the optional `start()` beacon poll, a fresh
-  `readCurrentBeaconEpoch`) shows the beacon past the grant's epoch; a keeper's claimed epoch is
-  never an observation. `decryptInSession` pays a message on its grant's draw and, when every
-  keeper refuses it as stale before executing it, re-pays and re-sends it ONCE, and only when a
-  fresh chain read confirms the grant is two epochs behind (`latestBeaconEpoch`, default
-  `readCurrentBeaconEpoch`); while the chain says the grant is admissible the refusal is thrown
-  (`SessionMessageError`) and nothing is paid again. The first payment's debit stays in the
-  cumulative allowance voucher (it uses allowance headroom) and is refunded (paid = 0,
-  `prepaidRefunded` = cost) when the settlement worker settles it after the payment's expiry; that
-  close is blocked while an operator named on that debit is unreachable. Residual bound: a keeper
-  that computed its partial yet answered "stale" can earn from the first debit while the payer
-  pays the second, only when every other keeper also refused before execution and the chain shows
-  the retry was due: at most two debits per message. A message whose grant is one epoch behind
-  is sent at once (the follow stays in the background); only a grant two epochs behind waits for
-  the follow. While a caller waits in `followBeacon` its pauses keep the process alive (a
-  background follow never does), and `stop()` (also every session end) rejects a waiting follow
-  at once, so no waiter is left on an unreferenced or cleared timer.
-
-- An allowance-funded operation no longer waits for a new verifier epoch's anchors when a
-  current allowance serves it. Its payment names the allowance's own draw, so while neither the
-  beacon's latest nor previous epoch has both snapshots anchored, discovery (new
-  `PaidContextOptions.undrawnDuringAnchorGap`, with `fundedByAllowance`) returns at once a context
-  marked `undrawn` (no verification fields at all, live keeper sharing); lane selection serves from it
-  without starting or waiting for a reservation, and only when no lane serves the operation is the
-  slot discovered again with the bounded anchor wait. Such a context never signs a per-operation
-  payment or reserves an allowance, and the type says so: `PaidOperationContext` is the union of
-  `DrawnPaidOperationContext` and `UndrawnPaidOperationContext` (whose `intentFields` is
-  `UndrawnPaymentFields`, which cannot complete a payment intent), and
-  `discoverPaidOperationContext` returns the drawn type unless `undrawnDuringAnchorGap` is set.
-  Session openings (a pinned draw) wait as before. At 110 ms
-  chain RPC the fleet's verifier-set anchor lands ~11 s after the seed (epochs 10 s apart), and
-  allowance-funded operations sat 1..6 s in these waits (C14 flow bench).
-
-- `prepareAllowances` readiness judged by lane selection's own predicate: optional `actions`
-  (as `PaidOperationRequest.operation.action`; `sign` is paid as `eoa-sign` on a threshold-ECDSA
-  slot) and `operationTtlSecs` (default 600). Given, one fresh discovery judges every lane, and an
-  allowance counts only when selection would accept it for each action at any moment of
-  `minLifetimeSecs`: the action funded, the discovered keeper sharing, and an expiry beyond the
-  operation's payment lifetime plus the 30 s margin. A failing lane gets a fitting next reserved
-  ahead; a current one that cannot fund the next operation gives way to it, and a reserved-ahead
-  one that never can (a stale sharing) is replaced. `minLifetimeSecs + operationTtlSecs` must fit
-  the allowance lifetime minus 120 s. Without `actions` a lane whose allowance had 631..654 s of
-  life left reported `not-needed` for `minLifetimeSecs: 600` and then funded no 600 s payment.
-
-- `prepareAllowances` readiness for sustained work: optional `minOperations` (each lane must fund
-  at least this many more operations at the per-operation cap from its current and reserved-ahead
-  allowance; only one outliving the horizon counts) and `minLifetimeSecs` (the current allowance
-  must outlive it). A lane that is confirmed but close to exhaustion or expiry for the work now has
-  its NEXT allowance reserved ahead (`reserved`) through the same journaled lane reservation,
-  instead of reporting `not-needed` and reserving inside an operation; a spent current one takes
-  its confirmed next over first. A lane still short while holding both reports `failed` with
-  `AllowanceCapacityError` (never a third allowance: at most 2 x lanes x amount locked). Unset,
-  the behaviour is unchanged.
-- `prepareAllowances(config, {slot, lanes?, concurrency?, coordinator?, signal?})` (`tasra-sdk/app`):
-  open a slot's allowance lanes before its first paid operation, so no user operation
-  pays a lane's opening (reservation transactions and receipts) inside itself. Each lane goes
-  through the journaled lane reservation (fresh discovery per lane, dedicated payer, durable payer
-  claim) and reports `reserved`, `not-needed` (nothing read or sent: idempotent), `pending`,
-  `failed` or `cancelled`; one lane's failure never marks another. Additive; no existing
-  signature changes.
-- Prepaid allowances behind `PaidOperationConfig.allowances` (default off): a pool
-  of allowance lanes reserved ahead (`reservePrepaidAllowance`), per-operation accountant
-  debit vouchers (`collectDebitVoucher`, BN254 partials verified and combined client side,
-  aggregate checked against `beacon.mpk()` at the quote block), a lane journal written before
-  every voucher request, background replacement below 25 % or 10 minutes, and fallback to the
-  per-operation reservation. `PaymentIntentWire` gains optional `allowance_id` /
-  `debit_voucher`; an allowance payment is the distinct `SlotAllowancePaymentIntent`. The
-  allowance digests are pinned against the shared conformance vectors. Every aggregated
-  voucher is pushed in the background to every accountant (`POST .../vouchers`, bounded,
-  never failing the operation), so members also learn a lane's last seq; a retiring lane or
-  an allowance near expiry re-pushes its last voucher once to members that did not
-  acknowledge it.
-- Session-grant draw lanes: a session grant's messages pay its exact verifier draw, which moves
-  every beacon epoch. Two sets of draw lanes per slot (one per epoch parity) hold allowances
-  reserved on one draw each. A message on the previous epoch while the beacon is already at the
-  next reserves the next draw's lanes in the background, through a pinned, verified discovery;
-  a message whose draw has no lane yet waits (bounded) for its reservation instead of reserving
-  per operation. `PaidAllowanceOptions.drawAmount` and `maxDrawAllowances` (default
-  `4 x lanes`) bound the escrow draw lanes may hold; at the bound a message pays per operation.
+  (C24 `forbidden`, same text) is not a reason to refresh or send again.
+- Session grants: one presentation, many KEM decryptions, with no payment.
+  `openDecryptSession(config, request)` (`/app`) opens a session for 1..16 slots and returns
+  `decrypt`, `decryptMany`, `revoke` and `stop`. Lower level: `createSessionKey`,
+  `sessionGrantCreateFragment`, `acceptSessionGrant`, `loadGrantedSession`, `GrantedSession`,
+  `decryptInSession`, `decryptBatchInSession` and `decryptWithSessionGrant`. A grant is verified
+  against the request, the session key and each slot's verifier draw as anchored on chain
+  (`createSlotDrawReader`, `readSlotVerifierDraw`) before use. `GrantedSession.observeBeacon` /
+  `followBeacon` refresh a grant in the background once a CHAIN observation (the optional
+  `start()` beacon poll, a fresh `readCurrentBeaconEpoch`) shows the beacon past the grant's
+  epoch; a keeper's claimed epoch is never an observation. A message every keeper refuses as stale
+  before executing it is sent again ONCE, and only when a fresh chain read confirms the grant is
+  two epochs behind. A definite refresh refusal (`SESSION_REFUSAL_CODES`) ends the session
+  (`SessionEndedError`); a transient one is a typed `SessionRefreshError`; `readBeaconDrawState`
+  lets the session refresh once per epoch, at the anchor. `decryptInSession` takes `reopen`: an
+  ended session is replaced through it once (single-flight across concurrent messages) and the
+  message continues on the new session.
+- `readSlotSharing(chain, slotId)` (`/chain`): a BLS slot's epoch, sharing version, threshold,
+  keepers and authenticated verifying shares from the slot ID alone.
+- `createBrowserAgentTransport` (`/app/browser`): verifier-agent discovery, session creation and
+  polling, and session-grant refresh and revoke from a browser.
+- `dualControl` on `decryptWithCommitteePartials` / `collectSealedPartials` and on IBE
+  extraction options: the approval bundle travels in the keeper request.
 - Two-step slot hand-offs on the write client: `proposeSlotTransfer`,
   `acceptSlotTransfer` and `withdrawSlotTransfer` move the creator;
   `proposeRuleAdminTransfer`, `acceptRuleAdminTransfer` and
   `withdrawRuleAdminTransfer` move the rule admin. The roles move separately, the
   guardian never moves, and the rule admin never goes to the guardian.
   `proposeSlotTransfer` returns the roles that stay, whether the caller also holds
-  the rule admin, and the slot's prepaid credit when a Settlement is configured.
-  The previous creator's delegations and unused payment intents stop at acceptance.
+  the rule admin, and the slot's Settlement balance (`settlementBalance`) when a Settlement is configured.
+  The previous creator's delegations stop at acceptance.
   `readSlotHandoff` reads the roles and pending offers. Refusals are a typed
   `SlotHandoffError` raised before signing; a KeyRegistry without the hand-off
   refuses `unsupported` (`tasra.fuji.v1` until its upgrade).
@@ -176,261 +272,18 @@ never does.
   cancels the request, and every request now has a timeout (default 30 s, covering the
   server's 20 s hold) that ends in `unavailable`.
 
-### Changed
-
-- `TasraWriteClient.rotateKey` refuses a slot whose rotation is locked before signing
-  (`RotationLockError`, code `locked`): a slot its creator locked, and every threshold-ECDSA
-  slot, also on a KeyRegistry without the lock, where such a rotation would remove the key.
-  `reshareKey` refuses a threshold-ECDSA roster that keeps fewer than the current `k` members
-  (`ReshareRosterError`). Both read the slot first.
-- `slots.ecdsa().signDigest` (and the new P-256 adapter) refuse, before credential consent or
-  keeper work, a signature without a bundle on a slot with an installed approval policy, and a
-  bundle with fewer distinct verified approvals than the on-chain quorum, a duplicate approver or
-  a key outside a static approver set.
-- `proposeSlotTransfer` refuses `self-custody` (a secp256k1 slot offered to its own threshold
-  account) and `contract-holder` (a contract recipient; an EIP-7702 delegated account is
-  accepted), and `acceptSlotTransfer` refuses `self-custody`. Keepers recover creator signatures
-  with `ecrecover` only, so either creator could never sign a paid operation of the slot.
-  `SlotHandoffStatus` gains `slotAccount`.
-- `setApprovalPolicy` judges the set-once policy before sending: an identical installed policy
-  resolves `{phase: 'already-installed', slotId}` without a transaction, a different one is refused
-  before sending (it used to revert on chain). Its return type is now
-  `WalletTransactionJournal | ApprovalPolicyAlreadyInstalled`.
-- `createSlotCommitReveal` creates slots ONLY through the accountant-seeded path and never waits
-  for a beacon epoch (one to two hours at the production cadence). Accountants are asked
-  concurrently (`slotSeedHedgeMs`, default 750 ms stagger; the first valid seed wins and cancels
-  the rest), "not yet" answers are retried with jittered backoff that honours `Retry-After` for at
-  most `slotSeedRetryMs` (default now 90 s), and a missing seed throws `SlotSeedUnavailableError`
-  (`detail.committed`: whether the commitment stands and must be resumed). No epoch-path
-  commitment is ever sent, no beacon is polled and no chain-time nudge is sent; a transient
-  failure of the reveal-path probe now fails the call instead of committing on the epoch path.
-  Resuming an older SDK's epoch-path commitment (`recovery.commitTx`) checks once and throws
-  `SlotRevealNotYetError` until its target epoch. **Breaking**: `maxWaitMs` and `onEpoch` are
-  removed, `slotSeed: false` is refused, `onSeed` is no longer called with `null`.
-  `requestSlotSeed` gains `hedgeMs` and `signal`, asks concurrently, and retries 429 and timeouts.
-
-- One allowance-backed paid operation journals with 32 durable device flushes instead of 116
-  on `createFileStore` (macOS F_FULLFSYNC is device-wide and serialised across processes, so this
-  bounded a host's paid operations per second). Every crash ordering is kept: what guards a send
-  is durable before it, and every state a crash can leave resumes as before.
-  - A transition's writes are published together with its unlock: one data barrier, the renames,
-    one directory sync. A lock that guards a send becomes durable with the first write before it.
-    `withLock` no longer flushes the lock file's diagnostic content separately from its entry.
-  - Concurrent new operations of one process share one journal commit (record and index entry)
-    instead of queueing one by one on the per-process index lock.
-  - An allowance debit commits the voucher with the operation's `reserved` phase, then the lane
-    advance with the voucher's push journal; the journal lock is taken with the lane's. A lane
-    completes an interrupted advance from either copy of the voucher.
-  - The execution consent is committed with the session's creation. A first operator approval
-    commits its record, body and `in_flight(1)` in one step before the send (the first send needs
-    no claim; every resend still claims its generation). Approval and creation confirmations,
-    which a resume re-derives from the agent, ride on the session's next write.
-  - No stored format changed; stores other than the file store get the same calls as before.
-- `createFileStore` queues `withLock` callers within one process in call order instead of
-  refusing all but the first, so concurrent paid operations in one process no longer fail
-  with `StoreLockedError`. A lock held by another process (or left by a crashed one) is
-  waited for up to the new `lockWaitMs` option (default 10 s, 0 refuses at once) and then
-  still refused with `StoreLockedError`; it is never removed or taken over. A nested lock on
-  a key the same call chain already holds is still refused at once.
-- The paid operation index no longer rewrites one ever-growing list for every operation.
-  New operations go to bounded segments (`paid-op-index-0`, `-1`, …, 256 ids each); the
-  original `paid-op-index` list is still read first and is never dropped or rewritten
-  (except by the one-time `backfill`). `listPaidOperations` lists an id once. An older SDK
-  reading a store written by this one lists only the operations indexed before the upgrade;
-  their journals, and `paidOperationPhase`, are unaffected.
-- `drivePaidSession` (and so `paidOperation`) no longer sleeps between approval rounds when
-  something else signals progress. After it approves the proposals a 425 asked for, it fetches
-  the request object again at once (that fetch dispatches them); after it sends a
-  continuation, it reads the session back at once. While committee work is in flight
-  (phase `verifying`) it holds one status poll (`?wait=1`) and continues on the agent's
-  answer; an agent that answers at once unchanged (no long-poll support) is paced as before,
-  and a held request that fails in transport is replaced by one plain poll. The
-  `pollIntervalMs` / `wait` pacing still applies while the drive waits for a wallet callback
-  or for proposals not yet listed. `RegisteredPaidAgentSession.poll` takes
-  `{wait: true}`; a session whose attempt budget is under 25 s never asks for a hold. The
-  paid transports accept `?wait=1` on the owner session status read only.
-- `readClientExecutionPolicy` (run before the execution certificate, the session and every
-  verifier approval) makes ONE fresh canonical observation per decision instead of two: the
-  reservation, the policy reads and the drawn verifier's standing are read together at that
-  block, with one canonicality and freshness recheck after all of them (freshness is judged
-  again at the decision). The verifier's standing is read beside the rest at the
-  NodeRegistry the client last saw; the KeyRegistry pointer read at the observed block still
-  decides, and a moved pointer is read again at the registry it names. Nothing about the
-  answer is cached: the head, the reservation, the policy and every recheck are read for
-  each decision. Paid IBE and KEM approvals: about 9 sequential requests per decision become
-  3 or 4.
-- `readAssignmentEpoch` keeps the quote block's header and its beacon epoch per client
-  (bounded, 256): values at a block hash never change. Its by-number canonical recheck is
-  still read every time, and a failed or refused read keeps nothing.
-- `discoverPaidOperationContext` reads the latest epoch's anchors beside the keeper
-  directory instead of after it, and returns the slot's `ruleCommitment` from the same
-  canonical slot read; `paidOperation` checks the rule against it instead of reading the
-  slot again by number (a context without it is still read again, as before).
-- A reservation sends its pre-broadcast observations together (quote digest, prior cost,
-  slot, simulation and the four fee reads, formerly four sequential steps) and, after the
-  receipt, reads the mined transaction, the reservation and the mined block together.
-  Each answer is judged in the original order, so the same answer refuses with the same
-  error; the quote-block recheck before signing and the single broadcast are unchanged.
-- Paid reservations and prepaid escapes see their transaction mined sooner, with fewer
-  requests: the receipt itself is asked for at once and then after 250 ms, growing by half
-  up to 1 s, instead of a head read every second followed by a transaction and receipt
-  read. The deadline, single broadcast and every check of the mined transaction are
-  unchanged. The write client's and the application wallet's receipt waits poll every
-  second instead of viem's 4 s default (the head-number cache keeps its 4 s).
-- The chain ID of an HTTP or WebSocket client is asked once per client on the paid path
-  (paid reads, reservations, billing detection, service authentication, the app client's
-  chain check) instead of before every read; an injected wallet transport, which can switch
-  chains, is still asked every time, and a failed read is never kept. Every comparison with
-  the expected chain still runs on every use.
-- Registered verifier-agent sessions (paid and unpaid) check the provider's registration
-  before every request with one `getService` call at the latest block, instead of a head
-  number read followed by a call at that number.
-- `waitForSession` (and `awaitVerifierAgentResult`) see the wallet's result sooner. Each
-  request asks for a long poll (`?wait=1`). A reply whose phase moved forward is followed
-  by the next request at once, and so is an unchanged reply that took 15 s or more (the
-  server's hold ended). Any other unchanged reply waits for the usual backoff, so a
-  verifier-agent without long-poll support is polled on the same schedule as before. Any
-  phase change resets the backoff to `intervalMs`. An abort now also cancels a request
-  in flight, and no request runs past the overall deadline. Each request's timer and abort
-  listener are released when it settles. Re-polls after a server hold are spread by up to
-  10 % of `intervalMs`, so waits that started together do not stay in lock-step.
-- Paid keeper operations make fewer chain reads, and more of them run at the same time.
-  `resolvePaidKeeperTarget` reads the reservation and the keeper directory together at
-  one block and rechecks that block once, after all reads, instead of twice. The keeper
-  approvals of one operation share one canonical read while it is under 15 s old, instead
-  of one read per keeper. The app client's paid flow passes the read it makes after the
-  wallet step to those approvals. The app client also reads the chain ID and the slot
-  together, and rechecks the slot while it re-reads the paid target. A paid IBE decryption
-  with three keepers drops from 103 reads to 43. The checks and refusals are the same, and
-  each approval still requires a read from the last 30 s. Concurrent operations on one
-  chain client share identical in-flight registry reads pinned to the same block hash,
-  such as the keeper directory. Only pending reads are shared, never a settled or failed
-  one, a `latest` read or a reservation read, and at most 1024 per client. An approver
-  also recovers the payment's creator and hashes the payment once, not once per keeper.
-- KEM decryption through `decryptWithCommitteePartials`, and strict IBE extraction
-  through `extractIdentityStrict`/`decryptIdentityStrict`, pairing-check each share once,
-  at collection, where a bad share is refused and named. The combine no longer repeats
-  that check, which halves the per-share pairings. The final AEAD check (KEM) and the check
-  of the combined key against the anchored group key (IBE) stay. `combineDecryptShares`
-  and `ibeCombineExtract` still verify any shares they are given. These paths also hash
-  the identity to G1 once per operation (it was hashed for every share and the group check),
-  and decode the ciphertext's U once rather than once per share. Decoded verifying shares
-  and group keys are kept in a bounded cache of 256 public points per curve group, so
-  repeated operations on a slot skip their subgroup-checked decoding.
-- Paid decryption sends far fewer RPC requests. Block-pinned reads issued together at one
-  block go out as one Multicall3 `aggregate3` call, still pinned to that block hash with
-  `requireCanonical`. Multicall3 is used only where the code at its address matches the
-  canonical deployment's code hash (checked once per client, again a minute after a miss);
-  `multicall3: false` turns it off. A read that fails inside a batch is read again on its
-  own, so it fails with the same error as before. Concurrent operations on one client share
-  an in-flight `latest` head and slot read; an answered read is never reused. Registry
-  reads at a block the client has seen finalized (`eth_getBlockByNumber('finalized')`, read
-  at most once a second) are cached for up to 32 s, at most 4,096 per client. Errors,
-  `latest` reads, reservation reads and rechecks are never cached. With the mock RPC, one
-  paid IBE or KEM decryption with three keepers drops from 43 HTTP requests (43 calls) to
-  11 (15 calls), and 100 concurrent decryptions on one client from 1,429 to 10 (28 calls).
-- `createTasraChainClient` groups small concurrent requests (calls, chain ID, blocks, code,
-  nonces, receipts) into JSON-RPC batches of at most 32 by default, configurable with
-  `rpcBatch: {batchSize, wait}` or turned off with `rpcBatch: false`. Log queries and
-  transactions are never batched. If an RPC refuses a batch, that batch's requests are sent
-  one by one and every later request goes alone.
 
 ### Fixed
 
-- A paid reservation no longer fails when every accountant decides it one block behind the
-  client (2026-11-12, cert run 16: the previous epoch's verifier anchor landed in the block after
-  the beacon advanced, and every member, following the block before it, answered 503
-  `reservation assignments unavailable`). That 503 comes from the assignment check, before an
-  accountant records or approves anything; when EVERY member answers it to the unpinned prepare,
-  the prepare round is repeated once with the same signed intent, naming the client's fresh
-  `latest` block (the accountant still judges freshness and canonicity there). A transport
-  failure, another status or reason, a second refusal or a quote at another block is never
-  repeated; nothing is journaled or sent before the authorization, as before.
-- A session grant no longer dies quietly, nor spends its holder's session quota re-signing an old
-  epoch (C20 fleet: 22/30 at 5 ms, 5/20 at 110 ms). A definite refresh refusal
-  (`session_context_changed`, `session_continuation`, `session_unknown`, `session_wrong_key`,
-  `session_key_not_bound`, `session_mismatch`, `session_invalid_request`, `session_lifetime`, new
-  `SESSION_REFUSAL_CODES`) ends the session like `session_expired`; before, it was retried as
-  transient and every later message failed until the grant's `exp`. A grant two epochs behind the
-  observed beacon ends at once (`local-stale`) with no refresh: the agent continues a session one
-  epoch at a time and the verifiers judge the continuation at their live beacon, so none could
-  pass. A transient refusal is a typed `SessionRefreshError` (status, code, `retryAfterMs`); the
-  beacon follow and the expiry refresh back off exponentially and never retry before a
-  `Retry-After`. New `readBeaconDrawState` reads the beacon's latest epoch and the epoch the agent
-  draws on (its verifier snapshot anchored) at one head; given as `beacon.drawState`, the session's
-  poll refreshes ONCE per epoch, at the anchor, instead of re-signing the grant on its old epoch
-  every second until the anchor lands (each such refresh spent the per-holder quota of 32 per
-  minute at every verifier: the 5 ms `session_rate_limited` storm). `decryptInSession` takes
-  `reopen`: a session that ended before the message was served is replaced through it once, and
-  the message is paid afresh on the new grant (no paid write is resent; still at most two debits
-  per message); `SessionMessageResult.session` is the session that served it.
+- Registered verifier-agent sessions for `decrypt` and `ibe-extract` now send the recipient
+  binding the agent requires.
 
-- Under a fleet-wide 110 ms RPC delay the accountants anchor an epoch's verifier snapshot 4-10 s
-  after its beacon push, often after the next one: a grant then lives about one epoch, less than a
-  re-open (presentation) plus a message. `reopen` may return `{plaintext, session?}`: its opening
-  presentation (a paid KEM decrypt) decrypted the message in flight, which is then served whatever
-  happens to the new grant (`SessionMessageResult.presented`; `session` absent when no grant came
-  with it). A reservation the accountant refused as a stale draw (`PaidReservationStaleEpochError`,
-  nothing sent; the journaled intent is never re-sent and, unexecutable, is refunded if it lands) is
-  paid once more only when a fresh chain read confirms the grant left the window: the same
-  two-debit bound. That confirmation (and the stale-refusal one) now reads an RPC `latest` head
-  of its own (`readCurrentBeaconEpoch(..., {fresh: true})`): a followed tip lagging the keepers'
-  head by one beacon push let six messages fail at 5 ms.
+## [0.4.0] — 2026-11-04 (withdrawn)
 
-- Session re-open review (C21): `decryptInSession`'s `reopen` now returns `{shares, requestIds,
-  session?}` (`SessionReopened`), never a bare session or a plaintext. Its presentation IS a paid
-  KEM decrypt, so it must decrypt the message in flight: the helper verifies the returned decrypt
-  shares against THIS message's ciphertext and the keepers' authenticated verifying shares and
-  combines them itself (the AEAD open under this message's identity), so another message's
-  plaintext can never be returned; the shares are zeroed after use. The presentation's request ids
-  join `SessionMessageResult.requestIds` and count as debits: `reopen` gets a `{debits}` budget
-  (1 when the message already paid once), a reply naming none or more is refused, and no payment
-  or re-open starts once a message holds `MAX_MESSAGE_DEBITS` (2; an allowance debit refused
-  before the per-operation fallback names an id but is no debit). Concurrent messages of one ended
-  session share ONE re-open: the others continue on its new session, each paying its own
-  decrypt (and re-open in turn only when it opened no grant). A refresh refused
-  `session_context_changed` while the client's own chain read (`beacon.latestEpoch`) shows the
-  grant still admissible (a verifier's beacon or anchor behind) is retried as transient for up to
-  `contextRetryMs` (default 15 s), and ends at once when the read confirms it two epochs behind.
-  A failing `beacon.drawState` no longer stops the follow: the poll falls back to `latestEpoch`
-  with one `console.warn` until it answers. The `reservation-stale` retry also requires
-  `code === 'reservation-refused'`.
+> Withdrawn. 0.4.0 carried the prepaid billing protocol, which the network removed; use 0.5.0.
+> The entry is kept as history: every payment, reservation, allowance and execution-consent item
+> below no longer exists.
 
-- `decryptInSession`: a per-operation reservation that waited for its gas payer until the grant's
-  epoch was two behind the beacon is refused before anything is sent (no reservation prepared,
-  persisted or broadcast; its journal `failed`). `paidSessionDecrypt` throws it as the now
-  exported `NewerVerifierEpoch` (`code: 'newer-verifier-epoch'`, `beaconEpoch`: the client's own
-  chain read), and the message is paid ONCE more on the refreshed grant (`onRetry` reason
-  `newer-verifier-epoch`) instead of failing (1/20 messages at 110 ms RPC delay). It debits
-  nothing, so it does not count toward `MAX_MESSAGE_DEBITS`; it is retried at most once per
-  message, never once the message holds two debits, and a second one is thrown.
-
-- A lane selection now also reserves ahead the replacement of a confirmed allowance that is within
-  600 s of funding no operation like its own (its expiry minus 30 s minus the payment's), or on a
-  keeper sharing the slot no longer has, not only of a `low()` one. Between 630 and 600 s of life
-  (600 s payments) an allowance funded nothing and started no replacement: every operation on the
-  lane paid by a per-operation reservation.
-- Head follower: a paid-operation read answered at the followed tip could refuse a state the
-  caller had already observed one block later (a key published, a reservation or allowance mined,
-  a reshare or hand-off). `discoverPaidOperationContext`, `readClientExecutionPolicy`,
-  `readPaidOperationReceipt` and `resolvePaidKeeperTarget` now decide such a refusal (slot
-  inactive or keyless, slot not activated or unfunded, missing reservation or allowance debit,
-  changed sharing, ineligible assigned keeper, changed creator, changed verifier context or
-  standing, a pinned grant epoch one ahead) once more at a fresh RPC `latest` newer than the tip
-  before refusing. A positive answer at the tip and every other refusal are unchanged; the happy
-  path reads nothing more, and a refusal that `latest` confirms costs exactly one extra head read.
-- Allowance lanes: paid operations that selected a lane at the same time in one process
-  all took the SAME lane of their slot (every selection read one cursor and the same idle lanes;
-  a debit marks its lane pending only once its voucher round starts), so their voucher rounds,
-  each a full accountant round trip under that lane's lock, ran one after another. A selection
-  now claims its lane in-process at the moment it chooses it, and a lane that fits but already
-  carries claims or rounds is taken only when no idle lane fits (the least loaded first). The
-  claim is advisory, like the busy marker: nothing is refused on it, the lane lock and journal
-  are unchanged, and debits of one allowance stay strictly ordered (the protocol chains seq n + 1
-  on voucher n). Measured on the file store, 16 concurrent operations on 2 slots x 8 lanes with
-  a 100 ms round: 1269 ms -> 309 ms.
-
-## [0.4.0] — 2026-11-04
 
 Everything since 0.3.0. `0.3.1` on npm (2026-10-28, `54e3b1b3`, `next` tag) was an untagged
 snapshot inside this range; 0.4.0 is a minor bump because the API changed (below).

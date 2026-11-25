@@ -16,9 +16,9 @@ import {DEFAULT_ACCESS_TTL_SECS, MAX_ABSOLUTE_TTL_SECS, MAX_ACCESS_TTL_SECS, MAX
 import type {ApplicationStore} from './ready-slot.js'
 import {withCommit} from './store-commit.js'
 import type {ApprovedAgentProfile} from '../chain/registeredAgent.js'
-import type {PaidAgentTransport} from '../chain/paidAgentTransport.js'
+import type {SessionControlTransport} from '../chain/sessionControlTransport.js'
 import {validateServiceEndpoint} from '../chain/serviceIdentity.js'
-import type {BeaconDrawState} from '../chain/prepaid.js'
+import type {BeaconDrawState} from '../chain/sessionDraw.js'
 
 const HEX32 = /^0x[0-9a-fA-F]{64}$/
 
@@ -119,24 +119,29 @@ export interface SlotTrust {
   committee: number
   /** Signatures from the slot's drawn committee required. */
   quorum: number
-  /** keccak256 of the slot's raw rule. */
-  ruleHash: Uint8Array
+  /**
+   * keccak256 of the slot's raw rule, when the application holds the rule (its owner, or anyone
+   * the rule was shared with). With it, a grant naming another rule for the slot is refused here.
+   * Without it the grant's rule hash is taken as the drawn quorum signed it; the keepers still
+   * check it against the rule they hold.
+   */
+  ruleHash?: Uint8Array
   /** The beacon seed of the grant's epoch, `beacon.seedAt(epoch)`, read from the chain: a grant on any other seed is refused. */
   seed: Uint8Array
 }
 
 /**
  * Where a session's refresh and revoke go, and how its slots are trusted. Refresh and revoke travel
- * through the SAME guarded registered-agent transport and request policy as every other paid agent
+ * through the SAME guarded registered-agent transport and request policy as every other agent
  * call (verified TLS, connection-time destination checks, no redirects, bounded replies); the routes
  * carry no bearer, because the session-key signature is their authorization.
  */
 export interface SessionTransport {
   /** The configured deployment chain: a grant naming any other chain is refused on accept, refresh and resume. */
   chainId: number
-  /** The approved verifier-agent and its guarded transport (`createNodePaidAgentTransport` / `createBrowserPaidAgentTransport`). */
-  agent: {profile: ApprovedAgentProfile; transport: PaidAgentTransport}
-  /** Verification material per granted slot, read from the chain by the caller. */
+  /** The approved verifier-agent and its guarded transport (`createNodeAgentTransport` / `createBrowserAgentTransport`). */
+  agent: {profile: ApprovedAgentProfile; transport: SessionControlTransport}
+  /** Verification material per granted slot, read from the chain by the caller (`createSlotDrawReader`). */
   trust(slot: `0x${string}`, epoch: bigint): Promise<SlotTrust>
 }
 
@@ -231,7 +236,7 @@ const MAX_FOLLOW_BACKOFF_MS = 30_000
  * values may be lower than requested, never higher; the key thumbprint must be this key's.
  * @param opts - Store, transport, session key and clock.
  * @param fragment - The fragment sent at create.
- * @param response - The agent's create/complete response carrying `session_grant` and `refresh_seq`.
+ * @param response - The completed poll's grant (`SessionStatusResult.sessionGrant.grant`): `session_grant` and `refresh_seq` 0.
  */
 export async function acceptSessionGrant(opts: GrantedSessionOptions, fragment: SessionGrantCreateFragment, response: unknown): Promise<GrantedSession> {
   const clock = opts.clock ?? now
@@ -286,7 +291,7 @@ async function checkGrant(opts: GrantedSessionOptions, grant: SessionGrant, requ
   for (const slot of p.slots) {
     const hex = bytesToHex(slot.slotId) as `0x${string}`
     const trust = await opts.transport.trust(hex, p.epoch)
-    verified.push(verifySessionGrant({grant, set: trust.set, slotId: slot.slotId, committee: trust.committee, quorum: trust.quorum, slotRuleHash: trust.ruleHash, seed: trust.seed, now: at}))
+    verified.push(verifySessionGrant({grant, set: trust.set, slotId: slot.slotId, committee: trust.committee, quorum: trust.quorum, slotRuleHash: trust.ruleHash ?? slot.ruleHash, seed: trust.seed, now: at}))
   }
   return verified
 }
@@ -379,7 +384,7 @@ export class GrantedSession {
   #pause: {timer: ReturnType<typeof setTimeout>; wake(): void} | undefined
   /** Bumped by every {@link stop}: a follow started before it gives up at its next step. */
   #stops = 0
-  /** The newest beacon epoch observed on the chain (a payment's discovery, the beacon poll, a fresh read). */
+  /** The newest beacon epoch observed on the chain (the beacon poll, a fresh read). */
   #beacon: bigint | undefined
   /** The newest draw epoch observed on the chain ({@link observeDraw}); only with `beacon.drawState`. */
   #draw: bigint | undefined
@@ -428,7 +433,7 @@ export class GrantedSession {
     const target = grant.payload.slots.find(s => bytesToHex(s.slotId).toLowerCase() === slot.toLowerCase())
     if (!target) throw new SessionGrantError('slot-not-granted', `slot ${slot} is not named by the session grant`)
     const trust = await this.#opts.transport.trust(slot, grant.payload.epoch)
-    return verifySessionGrant({grant, set: trust.set, slotId: target.slotId, committee: trust.committee, quorum: trust.quorum, slotRuleHash: trust.ruleHash, seed: trust.seed, now: this.#clock()})
+    return verifySessionGrant({grant, set: trust.set, slotId: target.slotId, committee: trust.committee, quorum: trust.quorum, slotRuleHash: trust.ruleHash ?? target.ruleHash, seed: trust.seed, now: this.#clock()})
   }
 
   /** The session key bound by this grant. */
@@ -481,7 +486,7 @@ export class GrantedSession {
   async #post(path: '/v1/sessions/refresh' | '/v1/sessions/revoke', body: unknown): Promise<{status: number; json: unknown; retryAfterMs?: number}> {
     const {profile, transport} = this.#opts.transport.agent
     validateServiceEndpoint(profile.endpoint)
-    const res = await transport.paidAgentRequest(profile.endpoint + path, {method: 'POST', body: new TextEncoder().encode(JSON.stringify(body)),
+    const res = await transport.sessionControlRequest(profile.endpoint + path, {body: new TextEncoder().encode(JSON.stringify(body)),
       maxBytes: MAX_CONTROL_REPLY_BYTES, signal: AbortSignal.timeout(30_000)})
     if (res.body.length > MAX_CONTROL_REPLY_BYTES) throw new TasraError('Session reply exceeds its byte limit')
     let json: unknown
@@ -559,8 +564,8 @@ export class GrantedSession {
   get beaconEpoch(): bigint | undefined { return this.#beacon }
 
   /**
-   * Report the beacon's latest epoch AS READ FROM THE CHAIN (a payment discovery's `beaconEpoch`,
-   * the beacon poll, a fresh `readCurrentBeaconEpoch`). Never pass an epoch a keeper or any other
+   * Report the beacon's latest epoch AS READ FROM THE CHAIN (the beacon poll, a fresh
+   * `readCurrentBeaconEpoch`). Never pass an epoch a keeper or any other
    * service claims: observations never move backwards, so one inflated value would stall the
    * session until it is presented again. Once it is past the grant's epoch the grant is refreshed in the BACKGROUND
    * ({@link followBeacon}): keepers still admit the current grant for the whole next epoch, so the
@@ -697,8 +702,8 @@ export class GrantedSession {
   }
 
   /**
-   * Refresh now if the beacon has moved past the grant's epoch (`beaconEpoch`, e.g.
-   * `PaidSessionDecrypt.beaconEpoch`). Keepers admit a grant only while its epoch is the beacon's
+   * Refresh now if the beacon has moved past the grant's epoch (`beaconEpoch`, as read from the
+   * chain). Keepers admit a grant only while its epoch is the beacon's
    * latest or previous, and the agent continues a session ONE epoch at a time, so a grant must
    * follow the beacon every epoch, not only before its `exp`: wait for a second move and the
    * session needs a new presentation. Resolves `true` when it refreshed, `false` when the grant is

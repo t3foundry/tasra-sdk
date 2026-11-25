@@ -9,12 +9,11 @@ import {jwkFromDid, verifyCompactJws} from '../../src/oid4vp/jose.ts'
 import type {FleetConfig} from '../fleet/_fleet.ts'
 import {hoviIssuerStatus} from '../fleet/_issuer-status.ts'
 import {assertHoviScopeQuery, issueHoviWallet} from '../fleet/_hovi-wallet.ts'
-import {waitForPaidSnapshot} from '../fleet/_paid-wallet-session.ts'
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), 'sdk-hovi-status-control-')), key = new Uint8Array(32).fill(19)
   const cfg: FleetConfig = {chainId: 43112, rpcUrl: 'http://127.0.0.1:43112', book: {},
-    raw: {KK_PREPAID_EVIDENCE_DIR: directory, KK_STATUS_LIST_DIR: directory,
+    raw: {KK_WALLET_EVIDENCE_DIR: directory, KK_STATUS_LIST_DIR: directory,
       KK_HOVI_STATUS_LIST_URL: 'https://localhost:19444/cert-status/hovi-profile.jwt'},
     issuerKey: '', issuerDid: '', nodeUrls: [], verifierUrls: [], explorerApi: '', slotId: '0x',
     governanceSlotId: '0x', ruleSalt: '', governanceRule: '', governanceRuleSalt: '', adminSecret: '',
@@ -96,27 +95,4 @@ it('refuses stripped, changed and duplicate original consent query entries', () 
 it('checks every identity-scoped query entry for ordinary claim disclosure', () => {
   const bad = query(); bad.credentials.push({...structuredClone(bad.credentials[0]!), id: 'second', claims: [{path: ['iss']}]})
   expect(() => assertHoviScopeQuery(bad)).toThrow(/would not disclose/)
-})
-it('waits for explicit absent anchors through read-only discovery without repeating paid delivery', async () => {
-  let reads = 0, waits = 0
-  expect(await waitForPaidSnapshot(async () => {
-    reads++
-    if (reads <= 2) throw Error(reads === 1 ? 'no anchored verifier and accountant snapshots' : 'no current or previous anchored verifier and accountant snapshots')
-    return 'original context'
-  }, new AbortController().signal, async () => {waits++})).toBe('original context')
-  expect(reads).toBe(3); expect(waits).toBe(2)
-})
-it('does not retry malformed policies, insufficient funds, unknown transports or refusals', async () => {
-  for (const message of ['slot underfunded', 'payment discovery beacon pointers differ', '503 transport failure', 'Original paid credential verification refused']) {
-    let reads = 0, waits = 0
-    await expect(waitForPaidSnapshot(async () => {reads++; throw Error(message)}, new AbortController().signal,
-      async () => {waits++})).rejects.toThrow(message)
-    expect(reads).toBe(1); expect(waits).toBe(0)
-  }
-})
-it('stops an expired snapshot readiness wait before another discovery or paid write', async () => {
-  const controller = new AbortController(); let reads = 0
-  await expect(waitForPaidSnapshot(async () => {reads++; throw Error('no anchored verifier and accountant snapshots')}, controller.signal,
-    async () => {controller.abort(Error('bounded snapshot wait expired'))})).rejects.toThrow(/bounded snapshot/)
-  expect(reads).toBe(1)
 })

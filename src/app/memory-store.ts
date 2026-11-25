@@ -1,7 +1,7 @@
 // In-memory ApplicationStore: for tests, examples and short-lived processes only.
 //
-// ⚠ Nothing here survives the process. A paid reservation journaled only in memory cannot be
-// reconciled after a crash, so production applications use createFileStore
+// ⚠ Nothing here survives the process. A slot creation or a session grant journaled only in
+// memory cannot be resumed after a crash, so production applications use createFileStore
 // (tasra-sdk/app/node) or createIndexedDbStore (tasra-sdk/app/browser).
 
 import {TasraError} from '../errors.js'

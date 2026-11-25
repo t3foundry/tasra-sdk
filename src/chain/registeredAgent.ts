@@ -1,9 +1,8 @@
 import {authenticateApprovedService, validateServiceEndpoint, type ServiceDiscoveryTransport} from './serviceIdentity.js'
 import type {TasraChainClient} from './client.js'
 import type {ServiceApproval, ServiceRecord} from './services.js'
-import {parseVerifierAgentSessionStatus, type CreateSessionParams, type CreateSessionResult, type SessionStatusResult} from '../verifier-agent/index.js'
-import {sessionPaymentFields} from '../verifier-agent/payment.js'
-import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
+import {checkSessionGrantParams, parseVerifierAgentSessionStatus, sessionGrantRequest, type CreateSessionParams, type CreateSessionResult, type SessionStatusResult} from '../verifier-agent/index.js'
+import type {SessionGrantRequestWire} from '../committee/session-grant.js'
 import {chainIdOf} from './chainId.js'
 
 /**
@@ -30,9 +29,9 @@ export interface AgentHttpResponse {
 }
 
 /**
- * The verifier-agent's fixed reason for an unpaid creation refused because the current and
+ * The verifier-agent's fixed reason for a creation refused because the current and
  * previous epoch have no anchored verifier snapshot yet. It is answered before anything is stored
- * or charged, with Retry-After; it is the only creation refusal that is retried.
+ * with Retry-After; it is the only creation refusal that is retried.
  */
 export const SNAPSHOT_PENDING_REASON = 'verifier snapshot not yet anchored for the current or previous epoch; nothing was created - retry this request'
 const SNAPSHOT_RETRY_ATTEMPTS = 5, SNAPSHOT_RETRY_MAX_WAIT_MS = 10_000
@@ -57,24 +56,20 @@ export interface ApprovedAgentProfile {
  * Session pinned to its authenticated provider, with a closure for polling that provider.
  */
 export interface RegisteredAgentSession extends Readonly<CreateSessionResult> {
-  /** Expected paid-token commitment, fixed before the session POST. */
-  readonly paymentHash?: string
-  /** Defensive copy of the fixed spending intent, when this session is prepaid. */
-  readonly payment?: PaymentIntentWire
-  /** Presentation random bound by the spending intent to the approved audience. */
-  readonly random?: string
+  /** Session mode: the canonical session-grant request this session was opened with (its key thumbprint is in the wallet nonce). */
+  readonly sessionGrantRequest?: SessionGrantRequestWire
   /**
    * Provider identity and endpoint pinned when the session was opened.
    */
   readonly profile: Readonly<ApprovedAgentProfile>
-  /** Private JSON checkpoint for unpaid sessions. Save before wallet delivery; paid sessions use payment recovery. */
-  readonly unpaidRecovery?: UnpaidAgentSessionRecovery
+  /** Private JSON checkpoint of this session. Save it before wallet delivery to restore the session after a restart. */
+  readonly recovery: AgentSessionRecovery
   /** Poll only the original endpoint/profile. A provider change requires a fresh wallet session. */
   poll(signal?: AbortSignal): Promise<SessionStatusResult>
 }
 
-/** Private application state for restoring the original unpaid session, never a provider approval. */
-export interface UnpaidAgentSessionRecovery extends CreateSessionResult {
+/** Private application state for restoring the original session, never a provider approval. */
+export interface AgentSessionRecovery extends Pick<CreateSessionResult, 'sessionId' | 'pollSecret' | 'qrPayload' | 'requestUri'> {
   /** Checkpoint format. */
   version: 1
   /** Creation identity, compared with independent approvals and the live registry. */
@@ -93,12 +88,9 @@ export interface UnpaidAgentSessionRecovery extends CreateSessionResult {
 export class AgentSessionCreationUnknownError extends Error {
   constructor(
     /** Approved verifier-agent profile whose session creation outcome is unknown. */ readonly profile: Readonly<ApprovedAgentProfile>,
-    /** Retained payment commitment; reconcile it before another paid session attempt. */ readonly paymentHash?: string,
     /** The transport failure behind the uncertainty, kept so the reason can be diagnosed. */ cause?: unknown,
   ) {
-    super((paymentHash
-      ? 'Paid agent session creation has an uncertain result; retain the original payment and reconcile it before another session attempt.'
-      : 'Agent session creation has an uncertain result; explicitly open a fresh wallet session to retry. No session secret or presentation is transferred.')
+    super('Agent session creation has an uncertain result; explicitly open a fresh wallet session to retry. No session secret or presentation is transferred.'
       + (cause instanceof Error ? ` Transport: ${cause.message}` : ''), {cause})
     this.name = 'AgentSessionCreationUnknownError'
   }
@@ -137,28 +129,28 @@ function equalPin(actual: unknown, expected: ReturnType<typeof pin>): boolean {
   return Object.entries(expected).every(([key, value]) => (actual as Record<string, unknown>)[key] === value)
 }
 
-function metadata(data: Record<string, unknown>, profile: ApprovedAgentProfile, expected: ReturnType<typeof pin>): CreateSessionResult {
+function metadata(data: Record<string, unknown>, profile: ApprovedAgentProfile, expected: ReturnType<typeof pin>, grantRequest?: SessionGrantRequestWire): CreateSessionResult {
   if (!equalPin(data.service_profile, expected) || typeof data.session_id !== 'string' || !/^[0-9a-f]{64}$/.test(data.session_id)
     || typeof data.poll_secret !== 'string' || !/^[0-9a-f]{64}$/.test(data.poll_secret)) throw new Error('Agent session profile or identifiers mismatch')
   const requestUri = `${profile.endpoint}/v1/request/${data.session_id}`
   if (data.request_uri !== requestUri || typeof data.qr_payload !== 'string' || !data.qr_payload.startsWith('openid4vp://?')) throw new Error('Agent wallet request destination mismatch')
   const qr = new URL(data.qr_payload)
   if (qr.searchParams.get('client_id') !== profile.clientId || qr.searchParams.get('request_uri') !== requestUri || [...qr.searchParams.keys()].length !== 2) throw new Error('Agent wallet audience or request URI mismatch')
-  return {sessionId: data.session_id, pollSecret: data.poll_secret, requestUri, qrPayload: data.qr_payload}
+  const sessionGrantParams = checkSessionGrantParams(data.session_grant_params, grantRequest)
+  return {sessionId: data.session_id, pollSecret: data.poll_secret, requestUri, qrPayload: data.qr_payload, ...(sessionGrantParams ? {sessionGrantParams} : {})}
 }
 
 function retainedSession(chain: TasraChainClient, transport: AgentTransport, profile: ApprovedAgentProfile,
-  expected: ReturnType<typeof pin>, pendingOwner: string, input: CreateSessionResult, paid: ReturnType<typeof sessionPaymentFields>): RegisteredAgentSession {
-  const {sessionId, pollSecret, requestUri, qrPayload} = input
+  expected: ReturnType<typeof pin>, pendingOwner: string, input: CreateSessionResult, grantRequest?: SessionGrantRequestWire): RegisteredAgentSession {
+  const {sessionId, pollSecret, requestUri, qrPayload, sessionGrantParams} = input
   expected = Object.freeze({...expected})
   pendingOwner = pendingOwner.toLowerCase()
-  const paymentHash = paid.payment && paymentIntentHash(paid.payment)
-  const checkpoint: UnpaidAgentSessionRecovery = {version: 1, sessionId, pollSecret, requestUri, qrPayload, serviceProfile: expected, pendingOwner}
+  const checkpoint: AgentSessionRecovery = {version: 1, sessionId, pollSecret, requestUri, qrPayload, serviceProfile: expected, pendingOwner}
   // Routing, identity and bearer live in this closure; callers receive defensive checkpoints.
   return Object.freeze({sessionId, pollSecret, requestUri, qrPayload, profile,
-    ...(paid.payment ? {paymentHash, random: paid.random} : {}),
-    get payment() { return paid.payment && structuredClone(paid.payment) },
-    get unpaidRecovery() { return paid.payment ? undefined : structuredClone(checkpoint) },
+    ...(sessionGrantParams ? {sessionGrantParams: structuredClone(sessionGrantParams)} : {}),
+    ...(grantRequest ? {sessionGrantRequest: structuredClone(grantRequest)} : {}),
+    get recovery() { return structuredClone(checkpoint) },
     poll: (pollSignal?: AbortSignal) => bounded(pollSignal, async activeSignal => {
       const a = profile.approval
       if (chain.addresses.ServiceRegistry?.toLowerCase() !== a.registry.toLowerCase() || await chainIdOf(chain.client) !== a.chainId) throw new Error('Agent session chain/registry changed')
@@ -173,7 +165,8 @@ function retainedSession(chain: TasraChainClient, transport: AgentTransport, pro
       const reply = decode(await transport.agentRequest(`${profile.endpoint}/v1/sessions/${sessionId}`, {bearer: pollSecret, maxBytes: 1_048_576, signal: activeSignal}), 1_048_576)
       const binding = reply.binding_preimage as Record<string, unknown> | null | undefined
       const token = reply.compound_token as Record<string, unknown> | null | undefined
-      if (!paid.payment && [reply.payment, reply.payment_hash, binding?.payment, binding?.payment_hash, token?.payment, token?.payment_hash].some(value => value != null)) throw new Error('Paid agent state cannot use unpaid session recovery')
+      // The network bills metered only: a reply naming a payment is not this session's.
+      if ([reply.payment, reply.payment_hash, binding?.payment, binding?.payment_hash, token?.payment, token?.payment_hash].some(value => value != null)) throw new Error('Agent reply carries an unexpected payment')
       if (!(reply.status === 'failed' && reply.binding_preimage == null && reply.compound_token == null) && !equalPin((reply.binding_preimage as Record<string, unknown> | null)?.service_profile, expected)) throw new Error('Agent result belongs to another session profile')
       return parseVerifierAgentSessionStatus(reply, sessionId)
     }),
@@ -195,19 +188,19 @@ export function createRegisteredAgentClient(chain: TasraChainClient, config: {pr
   const transport = config.transport
   return {
     /**
-     * Restore private unpaid-session state without creating another session. Independent
+     * Restore private session state without creating another session. Independent
      * approvals and live registry identity are checked before sending its bearer. Save the
      * original operation separately and verify its wallet binding before presenting.
      */
-    async restoreUnpaidSession(input: UnpaidAgentSessionRecovery, options: {signal?: AbortSignal} = {}): Promise<RegisteredAgentSession> {
+    async restoreSession(input: AgentSessionRecovery, options: {signal?: AbortSignal} = {}): Promise<RegisteredAgentSession> {
       options.signal?.throwIfAborted()
       const saved = decode(new TextEncoder().encode(JSON.stringify(input)), 32_768)
       const keys = ['version', 'sessionId', 'pollSecret', 'requestUri', 'qrPayload', 'serviceProfile', 'pendingOwner']
       if (saved.version !== 1 || Object.keys(saved).length !== keys.length || keys.some(key => !(key in saved))
         || typeof saved.pendingOwner !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(saved.pendingOwner)
-        || !saved.serviceProfile || typeof saved.serviceProfile !== 'object' || Array.isArray(saved.serviceProfile)) throw new Error('Invalid unpaid agent recovery checkpoint')
+        || !saved.serviceProfile || typeof saved.serviceProfile !== 'object' || Array.isArray(saved.serviceProfile)) throw new Error('Invalid agent recovery checkpoint')
       const service = saved.serviceProfile as Record<string, unknown>
-      if (typeof service.authKey !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(service.authKey)) throw new Error('Invalid unpaid agent recovery identity')
+      if (typeof service.authKey !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(service.authKey)) throw new Error('Invalid agent recovery identity')
       const profile = profiles.find(p => {
         const expected = pin(p, {authKey: service.authKey as ServiceRecord['authKey']})
         return Object.keys(service).length === Object.keys(expected).length && equalPin(service, expected)
@@ -215,23 +208,20 @@ export function createRegisteredAgentClient(chain: TasraChainClient, config: {pr
       if (!profile) throw new Error('Original agent recovery profile is not independently approved')
       const expected = pin(profile, {authKey: service.authKey as ServiceRecord['authKey']})
       const info = metadata({session_id: saved.sessionId, poll_secret: saved.pollSecret, request_uri: saved.requestUri, qr_payload: saved.qrPayload, service_profile: service}, profile, expected)
-      const session = retainedSession(chain, transport, profile, expected, saved.pendingOwner, info, {})
+      const session = retainedSession(chain, transport, profile, expected, saved.pendingOwner, info)
       // Poll applies the same live checks as a surviving session closure, including draining.
       await session.poll(options.signal)
       return session
     },
-    /** At most three unpaid discovery candidates. A paid session uses only its selected profile. */
+    /** At most three discovery candidates, starting at `profileIndex`. Once POSTed, the session stays with its provider. */
     async createSession(params: CreateSessionParams, options: {profileIndex?: number; signal?: AbortSignal} = {}): Promise<RegisteredAgentSession> {
       params = structuredClone(params)
-      const paid = sessionPaymentFields(params)
-      const paymentHash = paid.payment && paymentIntentHash(paid.payment)
+      // Session mode: validated and canonicalized before any discovery or POST.
+      const grantRequest = sessionGrantRequest(params)
       const start = options.profileIndex ?? 0
       if (!Number.isInteger(start) || start < 0 || start >= profiles.length) throw new Error('Invalid agent profile index')
       return bounded(options.signal, async signal => {
-        for (const profile of profiles.slice(start, start + (paid.payment ? 1 : 3))) {
-          // Do this before discovery or POST: a paid session cannot be redrawn at another
-          // audience, and the caller cannot change the committed random or expiry.
-          sessionPaymentFields(params, profile.clientId)
+        for (const profile of profiles.slice(start, start + 3)) {
           let record: ServiceRecord
           try {
             const result = await authenticateApprovedService(chain, profile.approval, {
@@ -242,14 +232,15 @@ export function createRegisteredAgentClient(chain: TasraChainClient, config: {pr
             record = result.record
           } catch { signal.throwIfAborted(); continue }
           if (params.operation.chain_id !== profile.approval.chainId) throw new Error('Agent operation chain mismatch')
-          const body = new TextEncoder().encode(JSON.stringify({operation: params.operation, operation_sig: params.operationSig, delegation: params.delegation, message_hex: params.messageHex, ...paid}))
+          const body = new TextEncoder().encode(JSON.stringify({operation: params.operation, operation_sig: params.operationSig, delegation: params.delegation, message_hex: params.messageHex,
+            ...(params.decryption ? {decryption: params.decryption} : {}), ...(grantRequest ? {session_grant: grantRequest} : {})}))
           if (body.length > 65_536) throw new Error('Agent session request too large')
           signal.throwIfAborted()
           let data: Record<string, unknown>
-          try { data = decode(await createPost(transport, profile.endpoint + '/v1/sessions', body, Boolean(paymentHash), signal), 32_768) }
-          catch (error) { throw new AgentSessionCreationUnknownError(profile, paymentHash, error) }
+          try { data = decode(await createPost(transport, profile.endpoint + '/v1/sessions', body, signal), 32_768) }
+          catch (error) { throw new AgentSessionCreationUnknownError(profile, error) }
           const expected = pin(profile, record)
-          return retainedSession(chain, transport, profile, expected, record.pendingOwner, metadata(data, profile, expected), paid)
+          return retainedSession(chain, transport, profile, expected, record.pendingOwner, metadata(data, profile, expected, grantRequest), grantRequest)
         }
         throw new Error('No approved verifier-agent authenticated')
       })
@@ -264,16 +255,16 @@ function snapshotPending(reply: AgentHttpResponse): boolean {
 }
 
 /**
- * POST one session creation. Only an UNPAID creation answered with the snapshot-pending refusal is
+ * POST one session creation. Only a creation answered with the snapshot-pending refusal is
  * re-sent (identical bytes, after the agent's hint, at most five times): that refusal is by contract
- * given before anything is stored or charged. Any other reply or failure is left to the caller.
+ * given before anything is stored. Any other reply or failure is left to the caller.
  */
-async function createPost(transport: AgentTransport, url: string, body: Uint8Array, paid: boolean, signal: AbortSignal): Promise<Uint8Array> {
+async function createPost(transport: AgentTransport, url: string, body: Uint8Array, signal: AbortSignal): Promise<Uint8Array> {
   if (!transport.agentExchange) return transport.agentRequest(url, {body, maxBytes: 32_768, signal})
   for (let attempt = 1; ; attempt++) {
     const reply = await transport.agentExchange(url, {body, maxBytes: 32_768, signal})
     if (reply.status === 201) return reply.body
-    if (paid || attempt >= SNAPSHOT_RETRY_ATTEMPTS || !snapshotPending(reply))
+    if (attempt >= SNAPSHOT_RETRY_ATTEMPTS || !snapshotPending(reply))
       throw new Error(`Agent session creation refused (HTTP ${reply.status})`)
     const wait = Math.min(reply.retryAfterMs!, SNAPSHOT_RETRY_MAX_WAIT_MS)
     await new Promise<void>((resolve, reject) => {

@@ -13,10 +13,10 @@ vi.mock('../verify/_run.ts', () => ({
     return {phase, name: spec.name, status: spec.name === control.failName ? 'fail' : 'pass', ms: 0, metrics: []}
   },
 }))
-vi.mock('../verify/_paid-wallet-config.ts', () => ({configurePaidWalletFleet: async () => {
+vi.mock('../verify/_wallet-config.ts', () => ({configureWalletFleet: async () => {
   control.configurationCalls++
   if (control.configure) return {}
-  throw new Error('Original paid fleet configuration refused')
+  throw new Error('Original wallet fleet configuration refused')
 }}))
 vi.mock('node:fs', () => ({existsSync: () => true}))
 vi.mock('../verify/_explorerRpc.ts', () => ({fleetChain: () => ({rpc: 'http://local', chainId: 43112}), explorerRpcUrl: () => 'http://local'}))
@@ -33,13 +33,13 @@ it.each(stages)('stops immediately after the prerequisite fails: %s', async fail
   expect(control.configurationCalls).toBe(0)
   expect(results.some(r => r.name.startsWith('stack healthy'))).toBe(false)
 })
-it('retains the paid configuration failure and stops before explorer mutation or a misleading health pass', async () => {
+it('retains the wallet configuration failure and stops before explorer mutation or a misleading health pass', async () => {
   vi.stubEnv('KK_VERIFY_WIPE', '1'); vi.stubEnv('KK_CHAIN_ID', '43112')
   const results = await bringUp()
   expect(control.calls).toEqual(stages)
   expect(control.configurationCalls).toBe(1)
-  expect(results.at(-1)).toMatchObject({phase: 'bringup', status: 'fail', name: 'retain original paid wallet deployment configuration',
-    detail: 'Original paid fleet configuration refused'})
+  expect(results.at(-1)).toMatchObject({phase: 'bringup', status: 'fail', name: 'retain original wallet deployment configuration',
+    detail: 'Original wallet fleet configuration refused'})
   expect(results.some(r => r.name.startsWith('stack healthy'))).toBe(false)
 })
 
@@ -68,19 +68,19 @@ it('does not tear down the fleet when Explorer ownership or stop fails', async (
   expect(results[0]?.status).toBe('fail')
   expect(control.specs[0]).toMatchObject({cmd: 'bash', args: ['/owned/network/lab/e2e/repoint-explorer.sh', '/owned/explorer', 'down']})
 })
-it.each(['1', 'true'])('enables automatic payouts with empty-history declaration after an explicit fresh wipe: %s', async value => {
+it.each(['1', 'true'])('brings a freshly wiped fleet up for metered aggregate settlement, with no prepaid switches: %s', async value => {
   vi.stubEnv('KK_VERIFY_WIPE', value)
   await bringUp()
   expect(control.calls.indexOf('make fleet-wipe (clean slate — fresh chain)')).toBeLessThan(control.calls.indexOf('make fleet-up (production threshold fleet)'))
-  expect(control.specs.find(s => s.name === 'make fleet-up (production threshold fleet)')?.env).toMatchObject({
-    KK_PREPAID_PAYOUTS: '1', KK_AGG_SETTLE: 'true', KK_PAYOUT_DECLARE_NO_MANUAL_ROOTS: '1',
-  })
+  const env = control.specs.find(s => s.name === 'make fleet-up (production threshold fleet)')?.env
+  expect(env).toMatchObject({KK_THRESHOLD_SET: '1', KK_AGG_SETTLE: 'true'})
+  expect(Object.keys(env ?? {}).filter(k => /PREPAID|PAYOUT/.test(k))).toEqual([])
 })
-it.each(['', '0', 'false'])('resumed fleet enables payout processing without inventing an empty manual-root history: %s', async value => {
+it.each(['', '0', 'false'])('resumed fleet keeps the same metered settlement environment: %s', async value => {
   vi.stubEnv('KK_VERIFY_WIPE', value)
   await bringUp()
   expect(control.calls).not.toContain('make fleet-wipe (clean slate — fresh chain)')
   const env = control.specs.find(s => s.name === 'make fleet-up (production threshold fleet)')?.env
-  expect(env).toMatchObject({KK_PREPAID_PAYOUTS: '1', KK_AGG_SETTLE: 'true'})
-  expect(env).not.toHaveProperty('KK_PAYOUT_DECLARE_NO_MANUAL_ROOTS')
+  expect(env).toMatchObject({KK_THRESHOLD_SET: '1', KK_AGG_SETTLE: 'true'})
+  expect(Object.keys(env ?? {}).filter(k => /PREPAID|PAYOUT/.test(k))).toEqual([])
 })

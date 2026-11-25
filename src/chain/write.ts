@@ -440,10 +440,8 @@ export interface SlotTransferProposal {
   guardian: Address | null
   /** True when this account is also the rule admin and so needs the second hand-off. */
   callerIsRuleAdmin: boolean
-  /** Prepaid TSRA base units the slot holds, which go with it; set when a Settlement address is configured. */
-  prepaidBalance?: bigint
-  /** Of that, base units reserved by accepted requests, which still settle; set where the Settlement has reservations. */
-  reservedBalance?: bigint
+  /** TSRA base units the slot holds at the Settlement (its metered funding), which go with it; set when a Settlement address is configured. */
+  settlementBalance?: bigint
   /** Relay receipt, when the offer was gas-sponsored. */
   relay?: RelayReceipt
 }
@@ -1355,14 +1353,14 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
       throw new TasraError(`${what}: to must be a non-zero address; withdraw with ${withdraw}`)
     }
   }
-  // Keepers recover every creator signature (operation, payment intent, execution certificate) with
-  // ecrecover; there is no contract-signature path, so a contract creator could never sign a paid
-  // operation of the slot. An EIP-7702 delegated account still signs with its own key.
+  // Keepers and verifiers recover every creator signature (an operation, a delegation, a rule
+  // provisioning) with ecrecover; there is no contract-signature path, so a contract creator could
+  // never sign for the slot. An EIP-7702 delegated account still signs with its own key.
   const requireAccountRecipient = async (slotId: Hex, to: Address, what: string) => {
     const code = await pub.getCode({address: to})
     if (code && code !== '0x' && !/^0xef0100[0-9a-f]{40}$/i.test(code)) {
       throw new SlotHandoffError('contract-holder', slotId, `${what}: ${to} is a contract; keepers accept creator signatures from an externally owned account only, ` +
-        'so a contract creator could not sign any paid operation of this slot')
+        'so a contract creator could not sign any creator authorization of this slot')
     }
   }
 
@@ -1376,15 +1374,9 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
     if (!after.pendingCreator || !sameAddress(after.pendingCreator, to)) {
       throw notConfirmed(slotId, what, txHash, `pending creator ${after.pendingCreator ?? 'none'}`)
     }
-    let prepaidBalance: bigint | undefined
-    let reservedBalance: bigint | undefined
+    let settlementBalance: bigint | undefined
     if (addr.Settlement) {
-      const settlement = addr.Settlement
-      prepaidBalance = await pub.readContract({address: settlement, abi: settlementAbi, functionName: 'balanceOf', args: [slotId]})
-      // Absent on a Settlement without prepaid reservations.
-      reservedBalance = await pub
-        .readContract({address: settlement, abi: settlementAbi, functionName: 'reservedBalanceOf', args: [slotId]})
-        .catch(() => undefined)
+      settlementBalance = await pub.readContract({address: addr.Settlement, abi: settlementAbi, functionName: 'balanceOf', args: [slotId]})
     }
     return {
       slotId,
@@ -1393,8 +1385,7 @@ export function createTasraWriteClient(cfg: WriteClientConfig): TasraWriteClient
       ruleAdmin: before.ruleAdmin,
       guardian: before.guardian,
       callerIsRuleAdmin: !!before.ruleAdmin && sameAddress(before.ruleAdmin, account.address),
-      ...(prepaidBalance !== undefined ? {prepaidBalance} : {}),
-      ...(reservedBalance !== undefined ? {reservedBalance} : {}),
+      ...(settlementBalance !== undefined ? {settlementBalance} : {}),
       relay: lastRelay?.txHash === txHash ? lastRelay : undefined,
     }
   }
@@ -1667,8 +1658,8 @@ export interface TasraWriteClient {
   /**
    * Offer the slot to `to` as its next creator, signed by the current creator. It moves only when `to` accepts with acceptSlotTransfer; a new offer replaces an earlier one.
    * Only the creator moves: the rule admin and the guardian stay, and the result names them. When this account is also the rule admin, hand that role over separately with proposeRuleAdminTransfer.
-   * At acceptance every delegation and unused prepaid payment intent this account signed for the slot stops working; reservations already accepted still settle. The prepaid credit goes with the slot and nothing is refunded; the result carries the balance when a Settlement address is configured.
-   * Refused before signing, as a `SlotHandoffError`: `no-slot`, `cancelled`, `unsupported` (a KeyRegistry without the hand-off), `not-creator`, `same-holder`, `already-offered`, `self-custody` (the slot's own threshold account, which could never sign a paid operation of itself again) and `contract-holder` (keepers accept creator signatures from an externally owned account only).
+   * At acceptance every delegation this account signed for the slot stops working. The slot's Settlement balance goes with the slot and nothing is refunded; the result carries the balance when a Settlement address is configured.
+   * Refused before signing, as a `SlotHandoffError`: `no-slot`, `cancelled`, `unsupported` (a KeyRegistry without the hand-off), `not-creator`, `same-holder`, `already-offered`, `self-custody` (the slot's own threshold account, which could never authorize an operation of itself again) and `contract-holder` (keepers accept creator signatures from an externally owned account only).
    */
   proposeSlotTransfer(slotId: Hex, to: Address): Promise<SlotTransferProposal>
   /**
@@ -1757,7 +1748,7 @@ export interface TasraWriteClient {
    */
   ethBalance(of?: Address): Promise<bigint>
   /**
-   * Read the prepaid TSRA settlement balance of a slot.
+   * Read the TSRA balance a slot holds at the Settlement (its metered funding).
    */
   settlementBalance(slotId: Hex): Promise<bigint>
 

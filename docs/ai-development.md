@@ -246,7 +246,7 @@ See [OAuth flow boundaries](flows.md#integrate-oauth-authorization).
 
 ```text
 Improve this app so restarting it continues the same slot creation or recorded
-payment instead of creating another one. Use the SDK's durable operations and
+wallet transaction instead of creating another one. Use the SDK's durable operations and
 keep the original private state. Test supported interruption points and confirm
 that a completed operation is not submitted again. If a transaction outcome is
 unknown, preserve it for reconciliation. Do not delete journals, steal abandoned

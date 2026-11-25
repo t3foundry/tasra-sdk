@@ -33,11 +33,8 @@ import {
   type StatusAttestation,
 } from '../../src/committee/token.js'
 import {committeeSign, gatherCommitteeToken, requestIbeExtractionPartials} from '../../src/committee/client.js'
-import {executionBodyHash, type ExecutionAuthorization} from '../../src/committee/execution.js'
-import {paymentIntentHash} from '../../src/committee/payment.js'
 import {assertCompoundTokenWire, VerifierAgentSessionError} from '../../src/verifier-agent/index.js'
 import {AuthDeniedError, RevocationStatusError, ThresholdNotMetError, httpError, isAuthDenied, isRetryable, isRevocationStatusRefusal} from '../../src/errors.js'
-import {keeperExecutionFixture} from '../support/keeperExecution.js'
 
 const bytes = (n: number, v: number) => new Uint8Array(n).fill(v)
 const hex = (b: Uint8Array) => '0x' + Array.from(b).map(x => x.toString(16).padStart(2, '0')).join('')
@@ -180,27 +177,6 @@ describe('wire validation and pass-through', () => {
     expect(sent.committee_token).toEqual(token)
   })
 
-  it('binds paid client approvals to the complete body including the attestations', async () => {
-    const message = Uint8Array.of(1, 2, 3)
-    const f = await keeperExecutionFixture('sign', toHex(sha256(message)))
-    const token = {slot_id: f.payment.slot, payment: f.payment, payment_hash: paymentIntentHash(f.payment),
-      status_attestations: structuredClone(good)} as unknown as CompoundTokenWire
-    const fetchImpl = vi.fn<typeof fetch>(async () => new Response('fixture', {status: 503}))
-    try {
-      await expect(committeeSign({nodeUrl: 'https://keeper.example', committeeToken: token, message, fetchImpl, approveExecution: f.approveExecution})).rejects.toThrow()
-      const sent = JSON.parse(String(fetchImpl.mock.calls[0]![1]?.body)) as Record<string, unknown> & {execution_authorizations: ExecutionAuthorization[]; committee_token: CompoundTokenWire}
-      const {execution_authorizations: proofs, ...body} = sent
-      expect(sent.committee_token.status_attestations).toEqual(good)
-      for (const p of proofs) expect(p.body_hash).toBe(executionBodyHash(body))
-      // The approval would not cover a body with the attestations removed or altered.
-      const stripped = structuredClone(body)
-      delete (stripped.committee_token as Partial<CompoundTokenWire>).status_attestations
-      expect(executionBodyHash(stripped)).not.toBe(executionBodyHash(body))
-      const moved = structuredClone(body)
-      moved.committee_token.status_attestations![0]!.status_until += 1
-      expect(executionBodyHash(moved)).not.toBe(executionBodyHash(body))
-    } finally { f.signer.dispose() }
-  })
 })
 
 describe('client-as-coordinator fan-out (gatherCommitteeToken)', () => {

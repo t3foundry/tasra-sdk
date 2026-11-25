@@ -5,14 +5,14 @@ export type {BlsSharing, BlsSharingOptions, BlsSharingKeeper} from './blsSharing
 export type {OperationReceipt, ReceiptExpectation} from './receipts.js'
 export {extractIdentityStrict, decryptIdentityStrict} from './extraction.js'
 export type {StrictExtractionOptions, StrictExtractionResult, ExtractionKeeper, ExtractionEvidence} from './extraction.js'
-export {createDualSignClient, dualSignApprovalPayload, paidDualSignApprovalPayload, OperationOutcomeUnknownError} from './dual-sign.js'
+export {createDualSignClient, dualSignApprovalPayload, OperationOutcomeUnknownError} from './dual-sign.js'
 export type {DualSignConfig, DualSignApprover, DualSignRequest, DualSignStatus} from './dual-sign.js'
 export {committeeSignEoaDigest, committeeSignP256Digest} from './ecdsa.js'
 export type {CommitteeP256SignOpts, P256DigestSignature} from './ecdsa.js'
 export type {CommitteeEoaSignOpts} from './ecdsa.js'
 export {DUAL_OPERATION_DOMAIN, DUAL_OPERATION_MAX_LIFETIME_SECS, approveDualOperation, assembleDualOperation, dualOperationFromPayload, dualOperationPayload,
-  prepareDualOperation, requireCurrentDualOperation, requireDualOperationPayment, requireDualOperationProof, validateDualOperationStatement} from './dual-operation.js'
-export type {DualOperationApproval, DualOperationApprovalRecord, DualOperationApprover, DualOperationKind, DualOperationProof, DualOperationStatement,
+  dualOperationRequestId, prepareDualOperation, requireCurrentDualOperation, requireDualOperationRequest, requireDualOperationProof, validateDualOperationStatement} from './dual-operation.js'
+export type {DualOperationApproval, DualOperationApprovalRecord, DualOperationApprover, DualOperationExpectation, DualOperationKind, DualOperationProof, DualOperationStatement,
   PreparedDualOperation} from './dual-operation.js'
 export {
   selectVerifierCommittee,
@@ -148,22 +148,6 @@ export {
   MAX_SESSION_ID_LEN,
 } from './oauth.js'
 
-export {keeperAssignmentCommitment, paymentIntentTypedData, paymentIntentHash, prepaidRequestId, paymentSessionCommitment, assertPaymentIntentWire} from './payment.js'
-export type {PaidKeeperAssignment, PaymentIntentWire} from './payment.js'
-// ADR-0090 prepaid allowances and debit vouchers (the shared Encodings table).
-export {ALLOWANCE_ACTIONS, PREPAID_ALLOWANCE_DOMAINS, allowanceActionBits, allowanceFunds, prepaidAllowanceIntentTypedData, prepaidAllowanceIntentHash, allowanceId,
-  allowanceReserveDigest, debitVoucherDigest, debitVoucherWireDigest, allowanceSettleDigest, allowanceCloseDigest, assertDebitVoucherWire} from './payment.js'
-export type {AllowanceAction, PrepaidAllowanceIntentWire, DebitVoucherWire, DebitVoucherFields, AllowanceReserveArgs, AllowanceSettleArgs} from './payment.js'
-export {EXECUTION_CERTIFICATE_DOMAIN, EXECUTION_APPROVAL_DOMAIN, EXECUTION_INITIALIZATION_DOMAIN, MAX_EXECUTION_BODY_BYTES,
-  executionCertificateTypedData, executionApprovalTypedData, executionInitializationTypedData, initializeExecutionSession, verifySessionInitialization, executionBodyHash,
-  createExecutionCertificate, approveExecutionRequest, verifyExecutionAuthorization, executionConsentBinding, verifyExecutionConsent, createLocalExecutionSigner} from './execution.js'
-export type {ExecutionStage, ExecutionCertificate, ExecutionAuthorization, ExecutionConsent, ExecutionConsentPolicy,
-  ExpectedExecution, ExecutionProposal, SessionInitialization, ExpectedInitialization, ClientExecutionSigner, LocalExecutionSigner, ExecutionCreatorSigner} from './execution.js'
-export {paidExecutionRequest, paidExecutionReportSigningHash, verifyPaidExecutionEvidence, executionRecoverySigningHash,
-  createExecutionRecoveryAuthorization, verifyRecoveredExecutionResult} from './recovery.js'
-export type {PaidExecutionRequest, CompletedPaidExecutionReport, SignedPaidExecutionReport, ExecutionRecoveryAuthorization,
-  ExecutionRecoveryTarget, RecoveredExecutionReply} from './recovery.js'
-export type {KeeperExecutionKind,KeeperExecutionApprovalRequest,KeeperExecutionApprovals,KeeperExecutionApprover} from './keeperExecution.js'
 export type {EvidenceBindingWire} from './evidence.js'
 
 export {createDecryptionRecipient, decryptionBinding, kemContentDigest, recipientPayloadDigest} from '../crypto/recipient.js'

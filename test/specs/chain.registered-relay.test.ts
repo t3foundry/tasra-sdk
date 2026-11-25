@@ -225,8 +225,8 @@ describe('user-class sponsored relay writes', () => {
     const a = h.persisted[0]!
     const foreign = voucher(a); foreign.compound_token.request_hash = hash('ff')
     expect(() => assertRelayVoucher(foreign, a, sponsorSlot)).toThrow('does not bind')
-    const paid = voucher(a); paid.compound_token.payment_hash = hash('ff')
-    expect(() => assertRelayVoucher(paid, a, sponsorSlot)).toThrow('does not bind')
+    const paid = voucher(a); (paid.compound_token as unknown as {payment_hash: string}).payment_hash = hash('ff')
+    expect(() => assertRelayVoucher(paid, a, sponsorSlot)).toThrow('unexpected payment')
     const noProof = voucher(a); noProof.verifier_proofs = []
     expect(() => assertRelayVoucher(noProof, a, sponsorSlot)).toThrow('does not bind')
     expect(() => assertRelayVoucherIntent(sponsorIntent(a), a, hash('88'))).toThrow('does not bind')

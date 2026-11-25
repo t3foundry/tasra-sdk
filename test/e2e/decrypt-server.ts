@@ -5,14 +5,14 @@
 // asserts the original plaintext. The historical script name is retained;
 // the coordinator never receives an opening key or combines contributions.
 //
-// Authorization: paid original wallet session and explicit keeper-stage consent.
+// Authorization: a wallet session at the registered verifier-agent (metered; nothing is paid).
 // Run: tsx test/e2e/decrypt-server.ts
 
 import {Suite, bytesEq} from '../fleet/_assert.ts'
 import {discoverCommittee, gate, loadFleetConfig, mintAdminJwt, provisionRule} from '../fleet/_fleet.ts'
 import {authorizeWallet,createWalletSlot, WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
 import {createDecryptionRecipient, decryptionBinding, kemContentDigest} from '../../src/crypto/recipient.ts'
-import {paidWalletBlsSharing} from '../fleet/_paid-wallet.ts'
+import {walletBlsSharing} from '../fleet/_wallet-settings.ts'
 import {encryptEnvelope} from '../../src/crypto/envelope.ts'
 import {decryptWithCommitteePartials} from '../../src/decryption/sealed.ts'
 import {hexToBytes} from '../../src/crypto/hex.ts'
@@ -67,21 +67,18 @@ s.ok('resolved committee BlsId→PeerId map', peers.length >= K, `peers=${peers.
 
 const identity = new TextEncoder().encode('decrypt-e2e')
 const plaintext = new TextEncoder().encode('threshold-decrypt round-trip 🔐')
-const sharing = await paidWalletBlsSharing(cfg, slotId)
+const sharing = await walletBlsSharing(cfg, slotId)
 s.ok('signed public sharing matches the independently read group key', bytesEq(sharing.groupPublicKey, hexToBytes(mpkHex)))
 const env = encryptEnvelope(hexToBytes(slotId), sharing.groupPublicKey, identity, plaintext, BigInt(sharing.epoch))
 const recipient = await createDecryptionRecipient()
 const binding = decryptionBinding(kemContentDigest(env.ciphertext, identity), sharing.epoch, recipient)
 const grant = await authorizeWallet(cfg, slotId, creatorKey, {action: 'decrypt', ...binding})
-try {
-  s.ok('original payment retains the discovered epoch and sharing version',
-    grant.payment.keeper_assignment.key_epoch === sharing.epoch
-      && grant.payment.keeper_assignment.committee_version === sharing.assignment.committee_version)
+{
   const recovered = await decryptWithCommitteePartials({nodeUrls: sharing.nodeUrls, chainId: 43112,
     recipient, verifyingShares: sharing.verifyingShares, threshold: sharing.threshold,
     committeeToken: grant.compound_token, verifierProofs: grant.verifierProofs, evidenceCt: grant.evidenceCt,
-    approveExecution: grant.approveExecution, ciphertext: env.ciphertext, identity, ciphertextEpoch: sharing.epoch})
+    ciphertext: env.ciphertext, identity, ciphertextEpoch: sharing.epoch})
   try {s.ok('client-reconstructed plaintext matches the original', bytesEq(recovered, plaintext))}
   finally {recovered.fill(0)}
-} finally {grant.dispose()}
+}
 s.done()

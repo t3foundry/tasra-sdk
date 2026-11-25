@@ -4,7 +4,7 @@
 //   const kk = createCommitteeSlotClient({chain, holder, credentials, holderProof})
 //   const sig = await kk.sign(slotId, message) // committee-authorized FROST
 //   const env = await kk.encrypt(slotId, plaintext) // local (key read from chain)
-//   const text = await kk.decrypt(slotId, {ciphertext, identity, recipient, ciphertextEpoch, verifyingShares, threshold, binding, approveExecution, payment})
+//   const text = await kk.decrypt(slotId, {ciphertext, identity, recipient, ciphertextEpoch, verifyingShares, threshold, binding})
 
 import type {TasraChainClient} from './client.js'
 import {
@@ -27,7 +27,6 @@ import type {FrostSignResult} from '../signing/frost.js'
 import type {Ciphertext} from '../crypto/kem.js'
 import type {BlsPeer} from '../decryption/client.js'
 import type {RequestBindingPreimage} from '../committee/client.js'
-import type {PaymentIntentWire} from '../committee/payment.js'
 import {decryptWithCommitteePartials, type SealedRequestOpts} from '../decryption/sealed.js'
 import {oneBlockDraw} from './committeeDraw.js'
 import {kemContentDigest, recipientPayloadDigest} from '../crypto/recipient.js'
@@ -79,11 +78,9 @@ export interface SlotCommitteeSignOptions {
 
 /** Everything a committee-authorized threshold decrypt needs beyond the slot id. */
 export interface SlotCommitteeDecryptOptions extends Pick<SealedRequestOpts,
-  'recipient' | 'verifyingShares' | 'threshold' | 'approveExecution' | 'signal' | 'fetchImpl' | 'requestId'> {
+  'recipient' | 'verifyingShares' | 'threshold' | 'signal' | 'fetchImpl' | 'requestId'> {
   /** Original authorization preimage binding the complete ciphertext, identity, recipient and epoch. */
   binding: RequestBindingPreimage
-  /** Original creator-signed payment intent; required by paid deployments. */
-  payment?: PaymentIntentWire
   /** Group ciphertext to decrypt through committee authorization. */
   ciphertext: Ciphertext
   /** Original associated data used when encrypting the group ciphertext. */
@@ -211,7 +208,7 @@ export function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): Commi
   async function tokenFor(
     slotId: `0x${string}`,
     op: string,
-    authorization?: {binding: RequestBindingPreimage; payment?: PaymentIntentWire},
+    authorization?: {binding: RequestBindingPreimage},
   ): Promise<{res: CommitteeTokenResult; nodeUrl: string}> {
     const creds = requireCredentials(op)
     const [verifiers, nodeUrl] = await Promise.all([verifierDirectory(), keeperUrl(slotId)])
@@ -289,8 +286,7 @@ export function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): Commi
       }
       opts = {...opts, binding: {...opts.binding, payloadDigest: opts.binding.payloadDigest.slice(), random: opts.binding.random.slice()},
         ciphertext: {u: opts.ciphertext.u.slice(), nonce: opts.ciphertext.nonce.slice(), aeadCt: opts.ciphertext.aeadCt.slice()},
-        identity: opts.identity.slice(), verifyingShares: new Map([...opts.verifyingShares].map(([id, share]) => [id, share.slice()])),
-        payment: opts.payment ? structuredClone(opts.payment) : undefined}
+        identity: opts.identity.slice(), verifyingShares: new Map([...opts.verifyingShares].map(([id, share]) => [id, share.slice()]))}
       const digest = recipientPayloadDigest(kemContentDigest(opts.ciphertext, opts.identity), opts.ciphertextEpoch, opts.recipient.recipient)
       if (opts.binding.action !== 'decrypt' || opts.binding.payloadDigest.length !== digest.length
         || !digest.every((byte, index) => byte === opts.binding.payloadDigest[index])) {
@@ -307,7 +303,7 @@ export function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): Commi
         || nodeUrls.length < opts.threshold || new Set(nodeUrls).size !== nodeUrls.length) {
         throw new Error('Decryption sharing, epoch or assigned keeper quorum differs from the canonical slot')
       }
-      const {res} = await tokenFor(id, 'decrypt()', {binding: opts.binding, payment: opts.payment})
+      const {res} = await tokenFor(id, 'decrypt()', {binding: opts.binding})
       opts.signal?.throwIfAborted()
       return decryptWithCommitteePartials({
         nodeUrls, chainId,
@@ -320,7 +316,6 @@ export function createCommitteeSlotClient(cfg: CommitteeSlotClientConfig): Commi
         ciphertextEpoch: opts.ciphertextEpoch,
         verifyingShares: opts.verifyingShares,
         threshold: opts.threshold,
-        approveExecution: opts.approveExecution,
         signal: opts.signal,
         fetchImpl: opts.fetchImpl,
         requestId: opts.requestId,

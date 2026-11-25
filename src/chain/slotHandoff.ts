@@ -31,7 +31,7 @@ export type SlotHandoffErrorCode =
   | 'nothing-pending'
   | 'not-offered'
   | 'not-confirmed'
-  /** The slot would become its own creator: every later paid operation needs a creator signature only the slot itself could make. */
+  /** The slot would become its own creator: every later creator authorization needs a signature only the slot itself could make. */
   | 'self-custody'
   /** The recipient is a contract: keepers accept creator signatures from an externally owned account only. */
   | 'contract-holder'
@@ -70,8 +70,8 @@ const ZERO = '0x0000000000000000000000000000000000000000' as Address
 
 /** Refusal for a slot that would become its own creator. */
 function selfCustody(slotId: Hex): SlotHandoffError {
-  return new SlotHandoffError('self-custody', slotId, `slot  cannot become its own creator: its paid operations need a creator signature, ` +
-    'which only a paid operation of the same slot could produce, so no operation, renewal or further hand-off could ever be signed again')
+  return new SlotHandoffError('self-custody', slotId, `slot  cannot become its own creator: its creator authorizations need a signature, ` +
+    'which only an operation of the same slot could produce, so no rule change, renewal or further hand-off could ever be signed again')
 }
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()

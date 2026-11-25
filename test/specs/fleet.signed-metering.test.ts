@@ -5,7 +5,7 @@ import {join} from 'node:path'
 import {ed25519} from '@noble/curves/ed25519'
 import {concatHex, hexToBytes, keccak256, toHex} from 'viem'
 import {readAccountantMetering, readMeteringIdentity, type MeteringIdentity} from '../fleet/_metering.ts'
-import {generatedMeteringSeed} from '../verify/_paid-wallet-config.ts'
+import {generatedMeteringSeed} from '../verify/_wallet-config.ts'
 import type {FleetConfig} from '../fleet/_fleet.ts'
 
 const rpc = vi.hoisted(() => ({getChainId: vi.fn(), readContract: vi.fn()}))
@@ -19,7 +19,7 @@ function fixture() {
   const file = join(directory, 'identity.json')
   writeFileSync(file, JSON.stringify(identity), {mode: 0o600})
   const cfg = {chainId: 43112, rpcUrl: 'http://127.0.0.1:1234', book: {NodeRegistry: identity.nodeRegistry},
-    raw: {KK_PREPAID_EVIDENCE_DIR: directory, KK_METERING_IDENTITY_FILE: file}} as unknown as FleetConfig
+    raw: {KK_WALLET_EVIDENCE_DIR: directory, KK_METERING_IDENTITY_FILE: file}} as unknown as FleetConfig
   rpc.getChainId.mockResolvedValue(43112); rpc.readContract.mockResolvedValue(identity.operator)
   return {cfg, file, directory}
 }

@@ -106,7 +106,7 @@ export function dpopHtu(origin: string, sessionId: string): string {
 
 /**
  * Pre-remediation proof target for an agent that supplies no session identity.
- * New paid sessions never accept this target as a fallback.
+ * A session that names its identity never accepts this target as a fallback.
  * @param origin - Original platform origin.
  */
 export function legacyDpopHtu(origin: string): string {

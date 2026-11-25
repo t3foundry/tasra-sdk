@@ -2,19 +2,18 @@
 //
 // A drawn verifier re-attests the holder's credential status for the SAME token, from its own
 // durable issuance record: a fresh `keykeeper/committee-status-attestation/v1` statement over the
-// unchanged token hash. No new token, session, payment or keeper stage exists afterwards; keepers
+// unchanged token hash. No new token, session or keeper stage exists afterwards; keepers
 // accept the refreshed attestation exactly like the original one.
 //
 //   refresh_hash = keccak256("keykeeper/committee-status-refresh/v1"
 //                            || chain_id (u64 BE) || token_hash (32)
-//                            || payment_hash (32; all-zero when unpaid)
-//                            || principal_kind (u8: 1 holder_key, 2 client_execution)
+//                            || 32 zero bytes (a retired field; kept so the encoding is unchanged)
+//                            || principal_kind (u8: 1 holder_key)
 //                            || seq (u64 BE) || issued_at (i64 BE))
 //
-// The principal is the one the verifier recorded at issuance: the creator-certified client
-// EXECUTION key of a paid grant (`client_execution`, a 0x-hex Ed25519 signature over the hash),
-// or the holder key (`holder_key`, a compact JWS `typ: keykeeper-status-refresh+jwt` with payload
-// `{"refresh":"0x<hash>"}` and the public key in the header `jwk`).
+// The principal is the one the verifier recorded at issuance: the holder key (`holder_key`, a
+// compact JWS `typ: keykeeper-status-refresh+jwt` with payload `{"refresh":"0x<hash>"}` and the
+// public key in the header `jwk`).
 //
 // ⚠ NOTHING A REFRESH RETURNS IS TRUSTED UNSIGNED. Every attestation is verified here under the
 // ORIGINAL roster key of a verifier whose signature over the ORIGINAL token verifies; anything
@@ -43,7 +42,6 @@ import {bytesToHex, hexToBytes} from '../crypto/hex.js'
 import {isStatusRefreshError, StatusRefreshError, type StatusRefreshCode, type StatusRefreshFailure} from '../errors.js'
 import {parseRetryAfter} from '../internal/retryAfter.js'
 import {b64url, type HolderKey, type Jwk, type JwsAlg} from '../oid4vp/jose.js'
-import type {ClientExecutionSigner} from './execution.js'
 import {
   assertStatusAttestationsWire,
   compoundTokenHash,
@@ -79,8 +77,8 @@ const HASH_HEX = /^0x[0-9a-fA-F]{64}$/
 const SIGNATURE_HEX = /^(?:0x)?[0-9a-fA-F]{128}$/
 
 /** Who proves the refresh: the principal the verifier recorded at issuance. */
-export type StatusRefreshPrincipal = 'holder_key' | 'client_execution'
-const PRINCIPAL_KIND: Record<StatusRefreshPrincipal, number> = {holder_key: 1, client_execution: 2}
+export type StatusRefreshPrincipal = 'holder_key'
+const PRINCIPAL_KIND: Record<StatusRefreshPrincipal, number> = {holder_key: 1}
 
 /** Inputs of {@link statusRefreshHash}: exactly the signed list, nothing else. */
 export interface StatusRefreshHashInput {
@@ -88,8 +86,6 @@ export interface StatusRefreshHashInput {
   chainId: number | bigint
   /** 32-byte canonical token hash ({@link compoundTokenHash}), unchanged by the refresh. */
   tokenHash: Uint8Array
-  /** 32-byte ORIGINAL payment hash of a paid grant; omit (all-zero) for an unpaid grant. */
-  paymentHash?: Uint8Array
   /** Principal kind. */
   principal: StatusRefreshPrincipal
   /** Strictly increasing per token per verifier; positive u64. */
@@ -122,19 +118,20 @@ function bytes32(value: Uint8Array | undefined, name: string): Uint8Array {
 
 /**
  * The 32-byte digest a refresh proof signs:
- * `keccak256(DOMAIN || chainId(u64 BE) || tokenHash || paymentHash|zero32 || principalKind(u8)
- * || seq(u64 BE) || issuedAt(i64 BE))`.
+ * `keccak256(DOMAIN || chainId(u64 BE) || tokenHash || zero32 || principalKind(u8)
+ * || seq(u64 BE) || issuedAt(i64 BE))`. The 32 zero bytes stand where a retired field was, so
+ * the digest is unchanged.
  *
- * @param input - Chain, token hash, original payment hash (paid only), principal, seq and issue time.
+ * @param input - Chain, token hash, principal, seq and issue time.
  */
 export function statusRefreshHash(input: StatusRefreshHashInput): Uint8Array {
   const kind = PRINCIPAL_KIND[input.principal]
-  if (kind === undefined) throw new Error('status refresh principal must be holder_key or client_execution')
+  if (kind === undefined) throw new Error('status refresh principal must be holder_key')
   return keccak_256(concatBytes(
     DOMAIN_BYTES,
     u64(input.chainId, 'chain_id', 0n),
     bytes32(input.tokenHash, 'token hash'),
-    input.paymentHash === undefined ? new Uint8Array(32) : bytes32(input.paymentHash, 'payment hash'),
+    new Uint8Array(32),
     Uint8Array.of(kind),
     u64(input.seq, 'seq', 1n),
     i64(input.issuedAt, 'issued_at'),
@@ -171,19 +168,12 @@ export function statusRefreshHolderSigner(holder: HolderKey): StatusRefreshHolde
 }
 
 /** The principal and signer of one refresh proof. */
-export type StatusRefreshProver =
-  | {
-    /** Principal kind: a paid grant proves with its ORIGINAL creator-certified execution key. */
-    kind: 'client_execution'
-    /** Signer over the original execution key. */
-    signer: ClientExecutionSigner
-  }
-  | {
-    /** Principal kind: the holder key recorded at issuance. */
-    kind: 'holder_key'
-    /** Signer over the holder key recorded at issuance. */
-    signer: StatusRefreshHolderSigner
-  }
+export interface StatusRefreshProver {
+  /** Principal kind: the holder key recorded at issuance. */
+  kind: 'holder_key'
+  /** Signer over the holder key recorded at issuance. */
+  signer: StatusRefreshHolderSigner
+}
 
 /** One refresh proof on the wire. */
 export interface StatusRefreshProofWire {
@@ -193,7 +183,7 @@ export interface StatusRefreshProofWire {
   seq: number
   /** Unix seconds. */
   issued_at: number
-  /** `client_execution`: `0x` + 128 hex; `holder_key`: compact JWS. */
+  /** Compact JWS signed by the holder key. */
   signature: string
 }
 
@@ -203,8 +193,6 @@ export interface CreateStatusRefreshProofOptions {
   chainId: number | bigint
   /** 32-byte canonical token hash. */
   tokenHash: Uint8Array
-  /** ORIGINAL payment hash of a paid grant (omit when unpaid). */
-  paymentHash?: Uint8Array
   /** Journaled sequence number (positive safe integer). Never reuse one. */
   seq: number
   /** Unix seconds (default now). */
@@ -214,25 +202,18 @@ export interface CreateStatusRefreshProofOptions {
 }
 
 /**
- * Sign one refresh proof. `client_execution` signs the hash with the execution key
- * (`0x`-hex Ed25519); `holder_key` signs a compact JWS (`typ: keykeeper-status-refresh+jwt`,
+ * Sign one refresh proof: the holder key signs a compact JWS (`typ: keykeeper-status-refresh+jwt`,
  * header `jwk`, payload `{"refresh":"0x<hash>"}`).
  *
- * @param opts - Chain, token hash, original payment hash, seq, issue time and prover.
+ * @param opts - Chain, token hash, seq, issue time and prover.
  */
 export async function createStatusRefreshProof(opts: CreateStatusRefreshProofOptions): Promise<StatusRefreshProofWire> {
   if (!Number.isSafeInteger(opts.seq) || opts.seq < 1) throw new Error('status refresh seq must be a positive safe integer')
   const issuedAt = opts.issuedAt ?? Math.floor(Date.now() / 1000)
   const prover = opts.prover
-  const hash = statusRefreshHash({chainId: opts.chainId, tokenHash: opts.tokenHash, paymentHash: opts.paymentHash,
+  const hash = statusRefreshHash({chainId: opts.chainId, tokenHash: opts.tokenHash,
     principal: prover.kind, seq: opts.seq, issuedAt})
-  if (prover.kind === 'client_execution') {
-    const signature = await prover.signer.sign(hash)
-    if (!(signature instanceof Uint8Array) || signature.length !== 64
-      || !ed25519.verify(signature, hash, prover.signer.publicKey, {zip215: false})) throw new Error('execution signer produced an invalid status refresh signature')
-    return {kind: 'client_execution', seq: opts.seq, issued_at: issuedAt, signature: bytesToHex(signature)}
-  }
-  if (prover.kind !== 'holder_key') throw new Error('status refresh prover must be client_execution or holder_key')
+  if (prover.kind !== 'holder_key') throw new Error('status refresh prover must be holder_key')
   const signer = prover.signer
   if ((signer.alg === 'EdDSA') !== (signer.publicJwk.kty === 'OKP') || (signer.alg !== 'EdDSA' && signer.alg !== 'ES256')) {
     throw new Error('holder signer algorithm does not match its key type')
@@ -245,10 +226,9 @@ export async function createStatusRefreshProof(opts: CreateStatusRefreshProofOpt
 }
 
 function assertProofWire(proof: StatusRefreshProofWire): StatusRefreshProofWire {
-  if (!proof || typeof proof !== 'object' || (proof.kind !== 'holder_key' && proof.kind !== 'client_execution')
+  if (!proof || typeof proof !== 'object' || proof.kind !== 'holder_key'
     || !Number.isSafeInteger(proof.seq) || proof.seq < 1 || !Number.isSafeInteger(proof.issued_at)
     || typeof proof.signature !== 'string' || !proof.signature) throw new Error('Invalid status refresh proof')
-  if (proof.kind === 'client_execution' && !/^0x[0-9a-fA-F]{128}$/.test(proof.signature)) throw new Error('Invalid client_execution refresh signature')
   return {kind: proof.kind, seq: proof.seq, issued_at: proof.issued_at, signature: proof.signature}
 }
 
@@ -358,7 +338,7 @@ export interface StatusRefreshGrant {
   set: VerifierSet
   /** The token's quorum. */
   quorum: number
-  /** Further hard caps, Unix seconds (e.g. the payment expiry). The token `exp` is always one. */
+  /** Further hard caps, Unix seconds (e.g. an application deadline). The token `exp` is always one. */
   caps?: readonly number[]
 }
 

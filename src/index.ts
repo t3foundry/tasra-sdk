@@ -82,9 +82,9 @@ export type {Faucet, FaucetGrant} from './slots/index.js'
 export {
   TasraError,
   TasraHttpError,
-  UnderfundedSlotError,
-  UnderfundedGasPayerError,
   AuthDeniedError,
+  SlotBalanceError,
+  isSlotBalanceRefusal,
   NodeUnreachableError,
   ThresholdNotMetError,
   SlotRotatedError,
@@ -96,18 +96,10 @@ export {
   isRevocationStatusPreflightRefusal,
   StatusRefreshError,
   isStatusRefreshError,
-  PaidBackoffError,
-  isPaidBackoffError,
-  PaidApprovalUnresolvedError,
-  isPaidApprovalUnresolved,
-  PaidReservationQuotaError,
-  PrepaidEscapeError,
-  PrepaidEscapeUncertainError,
-  isPrepaidEscapeError,
 } from './errors.js'
-export type {RevocationStatusPreflightCode, StatusRefreshCode, StatusRefreshFailure, PaidBackoffCode, PaidApprovalUnresolvedReason, PrepaidEscapeCode} from './errors.js'
+export type {RevocationStatusPreflightCode, StatusRefreshCode, StatusRefreshFailure} from './errors.js'
 // Bounded waits honoring Retry-After, for requests that are safe to send again.
-// Never wrap a paid flow, reservation or other write whose outcome is uncertain.
+// Never wrap a write whose outcome is uncertain.
 export {retryIdempotent, retryDelayMs, parseRetryAfter, classifyRetry, classifyRefusal, classifyRefusedWrite,
   RETRY_STATUSES, RETRY_AFTER_ONLY_STATUSES} from './retry.js'
 export type {RetryPolicy, RetryDecision} from './retry.js'

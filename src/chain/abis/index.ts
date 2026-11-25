@@ -6,7 +6,6 @@ import {serviceRegistryAbi} from './serviceRegistry.js'
 import {settlementAbi} from './settlement.js'
 import {tasraTokenAbi} from './tasraToken.js'
 import {bondingCurveAbi} from './bondingCurve.js'
-import {tasraSwapRouterAbi} from './tasraSwapRouter.js'
 import {treasuryAbi} from './treasury.js'
 import {tasraVestingVaultAbi} from './tasraVestingVault.js'
 import {thresholdRandomBeaconAbi} from './thresholdRandomBeacon.js'
@@ -20,7 +19,6 @@ import {livenessRegistryAbi} from './livenessRegistry.js'
 import {verifierSetRegistryAbi} from './verifierSetRegistry.js'
 import {accountantSetRegistryAbi} from './accountantSetRegistry.js'
 import {keeperShareRegistryAbi} from './keeperShareRegistry.js'
-import {prepaidFaultOracleAbi} from './prepaidFaultOracle.js'
 
 export {nodeRegistryAbi} from './nodeRegistry.js'
 export {keyRegistryAbi} from './keyRegistry.js'
@@ -28,7 +26,6 @@ export {serviceRegistryAbi} from './serviceRegistry.js'
 export {settlementAbi} from './settlement.js'
 export {tasraTokenAbi} from './tasraToken.js'
 export {bondingCurveAbi} from './bondingCurve.js'
-export {tasraSwapRouterAbi} from './tasraSwapRouter.js'
 export {treasuryAbi} from './treasury.js'
 export {tasraVestingVaultAbi} from './tasraVestingVault.js'
 export {thresholdRandomBeaconAbi} from './thresholdRandomBeacon.js'
@@ -42,7 +39,6 @@ export {livenessRegistryAbi} from './livenessRegistry.js'
 export {verifierSetRegistryAbi} from './verifierSetRegistry.js'
 export {accountantSetRegistryAbi} from './accountantSetRegistry.js'
 export {keeperShareRegistryAbi} from './keeperShareRegistry.js'
-export {prepaidFaultOracleAbi} from './prepaidFaultOracle.js'
 
 /** Contract name to ABI. Keys match Foundry artifact names. */
 export const CONTRACT_ABIS = {
@@ -52,7 +48,6 @@ export const CONTRACT_ABIS = {
   Settlement: settlementAbi,
   TasraToken: tasraTokenAbi,
   BondingCurve: bondingCurveAbi,
-  TasraSwapRouter: tasraSwapRouterAbi,
   Treasury: treasuryAbi,
   TasraVestingVault: tasraVestingVaultAbi,
   ThresholdRandomBeacon: thresholdRandomBeaconAbi,
@@ -66,7 +61,6 @@ export const CONTRACT_ABIS = {
   VerifierSetRegistry: verifierSetRegistryAbi,
   AccountantSetRegistry: accountantSetRegistryAbi,
   KeeperShareRegistry: keeperShareRegistryAbi,
-  PrepaidFaultOracle: prepaidFaultOracleAbi,
 } as const
 
 /** Canonical contract names supported by the bundled ABI registry. */

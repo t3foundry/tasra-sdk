@@ -26,32 +26,18 @@ export {lockKeyRotation} from './rotation-lock.js'
 export type {RotationAlreadyLocked} from './rotation-lock.js'
 // Operation approval builders (the statement each approver signs and the bundle), re-exported beside the app helpers.
 export {approveDualOperation, requireDualOperationProof} from '../committee/dual-operation.js'
-export type {DualOperationApprovalRecord, DualOperationApprover, DualOperationProof, PreparedDualOperation, DualOperationKind} from '../committee/dual-operation.js'
-export {createPaidReservationJournal, loadPaidReservationJournal} from './paid-journal.js'
-export type {PaidReservationJournal, PaidReservationSession, ApplicationReservationJournal} from './paid-journal.js'
-export {reserveApplicationPayment, reconcileApplicationPayment, reconcileApplicationReservation, selectApplicationGasPayer, ApplicationPayerRecoveryError} from './paid-reservation.js'
-export type {ApplicationReservationOptions, ApplicationReservationState, ApplicationReservationStatus, ReconcileApplicationReservationOptions,
-  SelectApplicationGasPayerOptions} from './paid-reservation.js'
-// ADR-0090 allowance lanes (PaidOperationConfig.allowances, default off).
-export {AllowanceRefusedError, AllowanceUnavailableError, AllowanceCapacityError, inspectAllowanceLanes, journaledAllowanceVoucher, allowanceLaneCount} from './paid-allowance.js'
-export type {PaidAllowanceOptions} from './paid-allowance.js'
-export {paidOperation, prepareAllowances, paidFinalSign, resumePaidFinalSign, paidSessionDecrypt, resumePaidSessionDecrypt, resumePaidOperation, reconcilePaidOperation, recoverPaidOperation, abandonPaidOperation, paidOperationPhase, listPaidOperations,
-  PaidOperationRecoveryError, PaidOperationAbandonRefusedError, NewerVerifierEpoch} from './paid-operation.js'
-export type {PaidOperation, PaidOperationConfig, PaidOperationRequest, PrepareAllowancesRequest, PreparedAllowances, PreparedAllowanceLane, PreparedAllowanceOutcome, PaidFinalSign, PaidFinalSignRequest, PaidSessionDecrypt, PaidSessionDecryptRequest, PaidOperationPhase, PaidOperationJournalPhase, PaidOperationStatus,
-  PaidOperationNextStep, ResumePaidOperationOptions, PaidOperationErrorCode, PaidOperationSummary, ListPaidOperationsOptions,
-  RecoverIbePartialsOptions, RecoveredIbePartial, RecoveredIbePartials, PaidOperationRecovery, AbandonPaidOperationOptions, AbandonedPaidOperation,
-  RefreshPaidStatusOptions, PaidStatusRefresh} from './paid-operation.js'
-export {SLOT_POLICY_DOMAIN_NAME, SLOT_POLICY_REQUEST_DOMAIN_NAME, SLOT_POLICY_MAX_LIFETIME_SECS, SLOT_POLICY_REQUEST_MAX_AGE_SECS, SlotPolicyError, PolicyOperationError,
-  slotPolicyTypedData, slotPolicyHash, verifySlotPolicyBootstrap, issueSlotPolicyBootstrap, slotPolicyRequestTypedData, createSlotPolicyRequest, verifySlotPolicyRequest} from './policy-bootstrap.js'
-export type {SlotPolicyStatement, SlotPolicyBootstrap, SlotPolicyRequest, SlotPolicyExpectation, SlotPolicyErrorCode, PolicyOperationErrorCode, IssueSlotPolicyInput} from './policy-bootstrap.js'
-export {paidPolicyOperation, readPolicyOperation} from './policy-operation.js'
-export type {PaidPolicyOperationRequest} from './policy-operation.js'
-export {drivePaidSession, waitForPaidSnapshot, PaidSessionRecoveryError} from './paid-session.js'
-export type {PaidSessionDriverOptions, PaidSessionHolder, PaidWalletPresentation, PaidSessionRequestLink, PaidOAuthContext, PaidOAuthCredential} from './paid-session.js'
+export type {DualOperationApprovalRecord, DualOperationApprover, DualOperationExpectation, DualOperationProof, PreparedDualOperation, DualOperationKind} from '../committee/dual-operation.js'
+export {SLOT_POLICY_DOMAIN_NAME, SLOT_POLICY_REQUEST_DOMAIN_NAME, SLOT_POLICY_MAX_LIFETIME_SECS, SLOT_POLICY_REQUEST_MAX_AGE_SECS, SlotPolicyError,
+  slotPolicyTypedData, slotPolicyHash, verifySlotPolicyBootstrap, requireCurrentSlotPolicy, admitSlotPolicySequence, issueSlotPolicyBootstrap,
+  slotPolicyRequestTypedData, createSlotPolicyRequest, verifySlotPolicyRequest} from './policy-bootstrap.js'
+export type {SlotPolicyStatement, SlotPolicyBootstrap, SlotPolicyRequest, SlotPolicyExpectation, SlotPolicyErrorCode, ObservedSlotPolicy, IssueSlotPolicyInput} from './policy-bootstrap.js'
 export {createMemoryStore} from './memory-store.js'
 export {createSessionKey, sessionGrantCreateFragment, acceptSessionGrant, loadGrantedSession, GrantedSession, SessionEndedError, SessionRefreshError, SESSION_REFUSAL_CODES, SESSION_RETRYABLE_CODES, SESSION_VERIFIER_BEHIND_RETRY_MS, SessionRevokeIncompleteError, SessionRevokeUnconfirmedError} from './session-grants.js'
-export {decryptInSession, SessionMessageError, MAX_MESSAGE_DEBITS} from './session-decrypt.js'
-export type {SessionMessageRequest, SessionMessageResult, SessionReopened} from './session-decrypt.js'
+export {decryptInSession, decryptBatchInSession, SessionMessageError} from './session-decrypt.js'
+export type {SessionDecryptContext, SessionMessageRequest, SessionMessageResult, SessionBatchRequest, SessionBatchResult} from './session-decrypt.js'
+// One call to open a decrypt session (one presentation), then decrypt many messages in it.
+export {openDecryptSession, SessionGrantUnavailableError} from './session-open.js'
+export type {DecryptSession, DecryptSessionConfig, OpenDecryptSessionRequest, SessionCiphertext} from './session-open.js'
 export type {SessionKeyHandle, SessionGrantParams, SessionGrantCreateFragment, SlotTrust, SessionTransport, GrantedSessionOptions} from './session-grants.js'
-export {signingIntentDigest, signingIntentCurve, requireIntentPayment, approveSigningIntent, SIGNING_INTENT_MAX_BYTES} from './signing-intents.js'
+export {signingIntentDigest, signingIntentCurve, approveSigningIntent, SIGNING_INTENT_MAX_BYTES} from './signing-intents.js'
 export type {SigningIntent, EthereumSigningIntent, TransactionSigningIntent, TypedDataSigningIntent, MessageSigningIntent, P256SigningIntent} from './signing-intents.js'

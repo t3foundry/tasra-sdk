@@ -9,12 +9,10 @@ Generated from public TypeScript exports.
 Operations you can import and call.
 
 <details>
-<summary>Browse 8 functions</summary>
+<summary>Browse 6 functions</summary>
 
 - [createNodeAgentTransport](#createnodeagenttransport)
 - [createNodeAgentWalletFetch](#createnodeagentwalletfetch)
-- [createNodeKeeperRecoveryTransport](#createnodekeeperrecoverytransport)
-- [createNodePaidAgentTransport](#createnodepaidagenttransport)
 - [createNodeRelayTransport](#createnoderelaytransport)
 - [createNodeServiceDiscoveryTransport](#createnodeservicediscoverytransport)
 - [createNodeServiceStatusTransport](#createnodeservicestatustransport)
@@ -24,27 +22,29 @@ Operations you can import and call.
 
 ### createNodeAgentTransport
 
-Session secrets use this same guarded connection and can only travel to a session GET.
+Everything a client sends to an approved verifier-agent, on one guarded connection policy:
+discovery, session creation and polling (a session secret can only travel to a session GET) and
+session-grant refresh and revoke (no bearer; the session-key signature authorizes them).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L95)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L91)
 
 Import: `import {createNodeAgentTransport} from 'tasra-sdk/chain/node'`
 
 ```ts
-declare function createNodeAgentTransport(policy?: ServiceTransportPolicy): AgentTransport;
+declare function createNodeAgentTransport(policy?: ServiceTransportPolicy): SessionAgentTransport;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` policy? ` | ` ServiceTransportPolicy ` | Explicit private-host exceptions and additional trusted certificate roots. |
 
-Returns: ` AgentTransport `.
+Returns: ` SessionAgentTransport `.
 
 ### createNodeAgentWalletFetch
 
 Wallet protocol requests restricted to the selected session and approved DID, with socket checks.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L141)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L105)
 
 Import: `import {createNodeAgentWalletFetch} from 'tasra-sdk/chain/node'`
 
@@ -59,48 +59,11 @@ declare function createNodeAgentWalletFetch(session: Pick<RegisteredAgentSession
 
 Returns: ` typeof fetch `.
 
-### createNodeKeeperRecoveryTransport
-
-Guarded completed-result reads using the same socket-bound destination and verified TLS policy.
-Only the two POST evidence/recovery paths are permitted; this transport cannot submit key work.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L131)
-
-Import: `import {createNodeKeeperRecoveryTransport} from 'tasra-sdk/chain/node'`
-
-```ts
-declare function createNodeKeeperRecoveryTransport(policy?: NodeKeeperRecoveryTransportPolicy): KeeperRecoveryTransport;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` policy? ` | ` NodeKeeperRecoveryTransportPolicy ` | Exact client-approved private hosts, additional CA roots and local development HTTP. |
-
-Returns: ` KeeperRecoveryTransport `.
-
-### createNodePaidAgentTransport
-
-Guarded paid-session creation and owner control, preserving HTTP consent/recovery statuses.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L106)
-
-Import: `import {createNodePaidAgentTransport} from 'tasra-sdk/chain/node'`
-
-```ts
-declare function createNodePaidAgentTransport(policy?: ServiceTransportPolicy): PaidAgentTransport;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` policy? ` | ` ServiceTransportPolicy ` | Client-approved private hosts and additional CA roots; TLS verification stays enabled. |
-
-Returns: ` PaidAgentTransport `.
-
 ### createNodeRelayTransport
 
 Discovery and relay traffic use the same socket-bound destination and TLS policy.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L84)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L78)
 
 Import: `import {createNodeRelayTransport} from 'tasra-sdk/chain/node'`
 
@@ -118,7 +81,7 @@ Returns: ` RelayTransport `.
 
 Create a bounded HTTPS transport that validates destinations at socket connection time.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L68)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L62)
 
 Import: `import {createNodeServiceDiscoveryTransport} from 'tasra-sdk/chain/node'`
 
@@ -136,7 +99,7 @@ Returns: ` ServiceDiscoveryTransport `.
 
 Public readiness and relay-policy observations, with the same socket/TLS policy.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L76)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L70)
 
 Import: `import {createNodeServiceStatusTransport} from 'tasra-sdk/chain/node'`
 
@@ -154,7 +117,7 @@ Returns: ` ServiceDiscoveryTransport `.
 
 Conservative globally routable destinations; special-purpose exceptions require explicit policy.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L48)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L42)
 
 Import: `import {isPublicServiceAddress} from 'tasra-sdk/chain/node'`
 
@@ -173,36 +136,17 @@ Returns: ` boolean `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 2 types</summary>
+<summary>Browse 1 types</summary>
 
-- [NodeKeeperRecoveryTransportPolicy](#nodekeeperrecoverytransportpolicy)
 - [ServiceTransportPolicy](#servicetransportpolicy)
 
 </details>
-
-### NodeKeeperRecoveryTransportPolicy
-
-Options for [createNodeKeeperRecoveryTransport](#createnodekeeperrecoverytransport).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L116)
-
-```ts
-export interface NodeKeeperRecoveryTransportPolicy extends ServiceTransportPolicy {
-    allowLocalHttp?: boolean;
-}
-```
-
-Fields:
-
-- **` allowLocalHttp `**: Local development fleet: also permit plain HTTP to loopback names, private IP literals and `allowedPrivateHosts` (and only those), resolving only to non-public addresses, with the same route checks as HTTPS. Default false: HTTPS only. The recovery reads separately permit HTTP only on the local development chain (43112) with the paid operation's `allowLocalHttp`.
-- **` allowedPrivateHosts `**: Exact, canonical hostnames/IPs only. Application configuration, never downloaded metadata.
-- **` ca `**: Additional deployment CA roots. Certificate and hostname verification remain mandatory.
 
 ### ServiceTransportPolicy
 
 Caller-approved destination and certificate policy for Node.js service transports.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L57)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/node.ts#L51)
 
 ```ts
 export interface ServiceTransportPolicy {

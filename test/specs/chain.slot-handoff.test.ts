@@ -58,7 +58,6 @@ interface ChainState {
   handoff: boolean
   /** False models a write that mines without the effect. */
   applies: boolean
-  reserved: boolean
   /** Slot key mode and anchored public key (`0x` before the key exists). */
   mode: number
   publicKey: Hex
@@ -68,7 +67,7 @@ let state: ChainState
 function freshState(): ChainState {
   return {
     exists: true, cancelled: false, creator: ME, pendingCreator: ZERO, admin: OTHER, guardian: GUARDIAN,
-    pendingAdmin: ZERO, handoff: true, applies: true, reserved: true, mode: 0, publicKey: '0x',
+    pendingAdmin: ZERO, handoff: true, applies: true, mode: 0, publicKey: '0x',
   }
 }
 
@@ -130,9 +129,6 @@ beforeEach(() => {
         return functionName === 'pendingCreator' ? state.pendingCreator : state.pendingAdmin
       case 'balanceOf':
         return 7_000n
-      case 'reservedBalanceOf':
-        if (!state.reserved) throw new ContractFunctionZeroDataError({functionName})
-        return 2_000n
       default:
         throw new Error(`Unexpected read ${functionName}`)
     }
@@ -159,12 +155,13 @@ async function refuses(run: () => Promise<unknown>, code: string): Promise<SlotH
 }
 
 describe('proposeSlotTransfer', () => {
-  it('offers the slot, names the roles that stay, and carries the prepaid credit', async () => {
+  it('offers the slot, names the roles that stay, and carries the Settlement balance of the slot', async () => {
     const r = await fixture({Settlement: SETTLEMENT}).proposeSlotTransfer(SLOT, BUYER)
     expect(sent()).toEqual([{to: REGISTRY, functionName: 'proposeCreator', args: [SLOT, BUYER]}])
     expect(r).toMatchObject({slotId: SLOT, txHash: TX, to: BUYER, ruleAdmin: OTHER, guardian: GUARDIAN, callerIsRuleAdmin: false})
-    expect(r.prepaidBalance).toBe(7_000n)
-    expect(r.reservedBalance).toBe(2_000n)
+    expect(r.settlementBalance).toBe(7_000n)
+    expect(r).not.toHaveProperty('reservedBalance')
+    expect(mocks.read.mock.calls.map(([call]) => (call as {functionName: string}).functionName)).not.toContain('reservedBalanceOf')
     expect(state.creator).toBe(ME)
   })
 
@@ -172,15 +169,8 @@ describe('proposeSlotTransfer', () => {
     state.admin = ME
     const r = await fixture().proposeSlotTransfer(SLOT, BUYER)
     expect(r.callerIsRuleAdmin).toBe(true)
-    expect(r.prepaidBalance).toBeUndefined()
+    expect(r.settlementBalance).toBeUndefined()
     expect(state.admin).toBe(ME)
-  })
-
-  it('omits the reserved credit where the Settlement has none', async () => {
-    state.reserved = false
-    const r = await fixture({Settlement: SETTLEMENT}).proposeSlotTransfer(SLOT, BUYER)
-    expect(r.prepaidBalance).toBe(7_000n)
-    expect('reservedBalance' in r).toBe(false)
   })
 
   it.each([

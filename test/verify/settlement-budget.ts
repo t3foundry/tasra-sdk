@@ -1,22 +1,28 @@
 import assert from 'node:assert/strict'
-import {RECIPIENT_FEE_TIMEOUT_MS} from './recipient-fees.ts'
 
-// The local fixture permits at most one hour of work. Accountants schedule final
-// settlement at signed payment expiry, so its observation allowance starts then.
-const MAX_REMAINING_WORK_MS = 3_600_000
-const SETTLEMENT_ALLOWANCE_MS = 600_000
-export const SETTLEMENT_STAGE_TIMEOUT_MS = MAX_REMAINING_WORK_MS + SETTLEMENT_ALLOWANCE_MS + RECIPIENT_FEE_TIMEOUT_MS + 60_000
+// Metered settlement is the accountants' own schedule: they settle what the keepers metered at
+// their settle cadence, not at an operation's expiry. The gate therefore waits a bounded,
+// explicitly configured time for the first charged settlement window of the workload.
+const DEFAULT_OBSERVATION_SECS = 900
+const MAX_OBSERVATION_SECS = 3600
+/** Process deadline of the settlement stage: the longest observation plus evidence retention. */
+export const SETTLEMENT_STAGE_TIMEOUT_MS = MAX_OBSERVATION_SECS * 1000 + 60_000
 
-/** Compute once: subsequent polls must not move the deadline. */
-export function settlementObservationBudget(expires: readonly number[], nowMs: number): number {
-  assert(Number.isSafeInteger(nowMs) && nowMs >= 0, 'Invalid observation time')
-  assert(expires.length > 0 && expires.length <= 256, 'Expected bounded original payment expiries')
-  let latestMs = nowMs
-  for (const seconds of expires) {
-    const ms = seconds * 1000
-    assert(Number.isSafeInteger(seconds) && seconds > 0 && Number.isSafeInteger(ms), 'Invalid original payment expiry')
-    assert(ms - nowMs <= MAX_REMAINING_WORK_MS, 'Original payment exceeds local fixture lifetime')
-    latestMs = Math.max(latestMs, ms)
-  }
-  return latestMs - nowMs + SETTLEMENT_ALLOWANCE_MS
+/** The observation budget in ms: `KK_VERIFY_SETTLEMENT_TIMEOUT_SECS` (60..3600), default 900. Compute once. */
+export function settlementObservationBudget(configured: string | undefined): number {
+  if (configured === undefined) return DEFAULT_OBSERVATION_SECS * 1000
+  assert(/^[1-9][0-9]{1,3}$/.test(configured), 'Settlement observation timeout must be whole seconds')
+  const seconds = Number(configured)
+  assert(seconds >= 60 && seconds <= MAX_OBSERVATION_SECS, `Settlement observation timeout must be 60..${MAX_OBSERVATION_SECS} seconds`)
+  return seconds * 1000
+}
+
+/** How many funded slots must show a charged settlement window: `KK_VERIFY_MIN_SETTLED_SLOTS` (1..256), default 1. */
+export function requiredSettledSlots(configured: string | undefined, funded: number): number {
+  assert(Number.isSafeInteger(funded) && funded > 0, 'Expected a nonempty funded workload')
+  if (configured === undefined) return 1
+  assert(/^[1-9][0-9]{0,2}$/.test(configured), 'Required settled slots must be a positive integer')
+  const required = Number(configured)
+  assert(required <= funded && required <= 256, 'More settled slots required than the workload funded')
+  return required
 }

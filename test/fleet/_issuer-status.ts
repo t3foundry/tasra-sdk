@@ -8,7 +8,7 @@ import {gzipSync} from 'node:zlib'
 import {signCompactJws, type JwsAlg} from '../../src/oid4vp/jose.ts'
 import {p256DidKeyIssuer} from '../../src/oid4vp/sd-jwt.ts'
 import type {FleetConfig} from './_fleet.ts'
-import {localPrepaidSettings} from './_prepaid-funding.ts'
+import {localFleetSettings} from './_wallet-settings.ts'
 
 interface Ledger {url: string; issuer?: string; next_index: number; members: Record<string, number>; revoked: number[]}
 const capacity = 131_072
@@ -53,9 +53,9 @@ interface Publication {
   bindIssuer: boolean
 }
 function publishStatus(cfg: FleetConfig, member: string, revoke: boolean, publication: Publication) {
-  localPrepaidSettings(cfg)
+  localFleetSettings(cfg)
   const directory = cfg.raw.KK_STATUS_LIST_DIR, rawUrl = publication.url
-  assert(directory && rawUrl, 'Local paid credentials require an explicit issuer publication directory and HTTPS status URL')
+  assert(directory && rawUrl, 'Local credentials require an explicit issuer publication directory and HTTPS status URL')
   const stat = lstatSync(directory)
   assert(stat.isDirectory() && !stat.isSymbolicLink() && stat.uid === process.getuid?.(), 'Issuer publication directory must be owned and regular')
   const url = new URL(rawUrl)

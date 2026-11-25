@@ -38,7 +38,6 @@ export const CONTRACT_CATEGORY: Record<ContractName, EventCategory> = {
   PlatformExecutor: 'governance',
   FixedTasraPriceOracle: 'tasra',
   MockEurc: 'tasra',
-  TasraSwapRouter: 'tasra',
   // Per-request verifier-committee set anchoring.
   VerifierSetRegistry: 'governance',
   // Per-(slot,epoch) keeper verifying-share root anchor - feeds
@@ -49,8 +48,6 @@ export const CONTRACT_CATEGORY: Record<ContractName, EventCategory> = {
   // governance: what it anchors is who held a settle shard at epoch E, which
   // is what the wrong-bundle witness reads before slashing a settlement.
   AccountantSetRegistry: 'settlement',
-  // Threshold-signed prepaid payout fault verdicts; each resolution slashes through NodeRegistry.
-  PrepaidFaultOracle: 'slashing',
 }
 
 // A few events live on a "node" contract but are conceptually slashing - the

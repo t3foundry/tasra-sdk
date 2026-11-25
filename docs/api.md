@@ -18,7 +18,7 @@ Install the latest SDK with `npm install @t3foundry/tasra-sdk@latest`; see
 |---|---|---|---|
 | `new TasraClient({manifest})` / `TasraClient.fromManifest(url)` | `@t3foundry/tasra-sdk/app` | Create slots, use wallets and credentials, encrypt and sign | Public deployment manifest; wallet and durable store for slot creation |
 | `createFileStore` | `@t3foundry/tasra-sdk/app/node` | Private durable state for a Node application | A private local directory |
-| `createIndexedDbStore` | `@t3foundry/tasra-sdk/app/browser` | Durable browser state with cross-tab locks, plus fetch transports for paid flows | IndexedDB and the Web Locks API |
+| `createIndexedDbStore` | `@t3foundry/tasra-sdk/app/browser` | Durable browser state with cross-tab locks, plus guarded fetch transports | IndexedDB and the Web Locks API |
 | `createTasraChainClient` | `@t3foundry/tasra-sdk/chain` | Read contracts and discover the network | RPC, chain ID, deployment addresses |
 | `createTasraWriteClient` | `@t3foundry/tasra-sdk/chain` | Create slots, fund them, change on-chain state | Deployment configuration and funded transaction signer |
 | `createCommitteeSlotClient` | `@t3foundry/tasra-sdk/chain` | Credential-gated threshold encryption/decryption and FROST signing | Chain client, slot, holder, credentials and verifier proofs |
@@ -54,8 +54,8 @@ For Ethereum signatures, see [`signEoaDigest`](signing.md), not committee FROST 
 adapters, credential helpers, slot creation and native approval helpers.
 `@t3foundry/tasra-sdk/app/node` provides `createFileStore`; keep this Node-only import out of
 browser bundles. `@t3foundry/tasra-sdk/app/browser` provides `createIndexedDbStore` and the
-fetch-based `createBrowserPaidAgentTransport`, `createBrowserKeeperRecoveryTransport`
-and `createBrowserRelayTransport`. See the [application guide](application-api.md) for the normal
+fetch-based `createBrowserAgentTransport` (verifier-agent sessions and session-grant refresh
+and revoke) and `createBrowserRelayTransport`. See the [application guide](application-api.md) for the normal
 workflow and [generated application reference](reference/app.md) for complete signatures.
 
 ## Main entry exports
@@ -326,8 +326,8 @@ It also carries the derivations `platformAudience(origin, chainId)` and
 `OAUTH_RESPONSE_PATH_PREFIX`/`_SUFFIX`), vector-pinned byte for byte
 against `keykeeper-committee`'s `oauth` module (`test/dpop.ts`). Use these helpers
 to preserve the deployment protocol's exact audience and URI binding. `legacyDpopHtu` and
-`OAUTH_RESPONSE_PATH` name the pre-remediation session-independent target; new paid sessions
-never accept it as a fallback.
+`OAUTH_RESPONSE_PATH` name the pre-remediation session-independent target; a session that names
+its identity never accepts it as a fallback.
 
 **Most consumers never need it.** Typed slots on `TasraClient` handle these
 operations. Advanced integrations can use `createCommitteeSlotClient` from

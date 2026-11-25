@@ -1,4 +1,4 @@
-// A follower of the chain head, so a paid operation reads immutable block-pinned facts instead of
+// A follower of the chain head, so an operation reads immutable block-pinned facts instead of
 // asking the RPC for `latest` and a canonicality recheck on its critical path.
 //
 // The follower keeps the last `window` headers it saw as ONE parentHash-linked chain. A header that
@@ -231,7 +231,7 @@ export function headFollowerOf(client: PublicClient): HeadFollower | undefined {
 }
 
 /**
- * Follow `client`'s chain head: paid operations on this client then read block-pinned facts from
+ * Follow `client`'s chain head: operations on this client then read block-pinned facts from
  * the followed tip and its pre-reads, falling back to RPC whenever the follower cannot vouch.
  * Replaces (and stops) a follower attached before. Returns the started follower.
  * @param client Trusted client of the deployment.

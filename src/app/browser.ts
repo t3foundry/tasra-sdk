@@ -1,9 +1,9 @@
-/** Browser durable state and paid-flow transports. Import from tasra-sdk/app/browser. */
+/** Browser durable state and guarded service transports. Import from tasra-sdk/app/browser. */
 //
-// The paid flow needs two things a page, an extension service worker or a PWA must supply:
-// state that survives a crash and is exclusive across tabs (a reservation's gas payer, a
-// session's journaled writes), and HTTP transports that never follow redirects, never send
-// cookies and bound every reply. IndexedDB with a strict-durability commit gives the first,
+// Slot creation and session grants need two things a page, an extension service worker or a PWA
+// must supply: state that survives a crash and is exclusive across tabs (a creation journal, a
+// session's reserved refresh sequence), and HTTP transports that never follow redirects, never
+// send cookies and bound every reply. IndexedDB with a strict-durability commit gives the first,
 // the Web Locks API (navigator.locks) the exclusivity, and fetch the transports.
 //
 // ⚠ A browser cannot check where a hostname resolves, so unlike the Node transports these
@@ -16,8 +16,8 @@ import {TasraError} from '../errors.js'
 import {parseRetryAfter} from '../internal/retryAfter.js'
 import {acceptsServiceResponse, serviceRequestShape, type ServiceTransportMode} from '../chain/serviceRequestPolicy.js'
 import type {ServiceDiscoveryTransport} from '../chain/serviceIdentity.js'
-import type {PaidAgentHttpResponse, PaidAgentTransport} from '../chain/paidAgentTransport.js'
-import type {KeeperRecoveryTransport} from '../chain/keeperRecovery.js'
+import type {AgentHttpResponse} from '../chain/registeredAgent.js'
+import type {SessionAgentTransport, SessionControlHttpResponse} from '../chain/sessionControlTransport.js'
 import type {RelayHttpResponse, RelayTransport} from '../chain/registeredRelay.js'
 import type {ApplicationStore} from './ready-slot.js'
 import {StoreLockedError} from './store-errors.js'
@@ -68,8 +68,8 @@ export function createIndexedDbStore(options: IndexedDbStoreOptions = {}): Appli
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) throw new TasraError('Invalid IndexedDB store name')
   const factory = options.indexedDB ?? globalThis.indexedDB
   const locks = options.locks ?? (globalThis.navigator as Navigator | undefined)?.locks
-  if (!factory) throw new TasraError('IndexedDB is unavailable; paid state needs durable browser storage')
-  if (!locks || typeof locks.request !== 'function') throw new TasraError('Web Locks are unavailable; paid state needs locks shared across tabs')
+  if (!factory) throw new TasraError('IndexedDB is unavailable; application state needs durable browser storage')
+  if (!locks || typeof locks.request !== 'function') throw new TasraError('Web Locks are unavailable; application state needs locks shared across tabs')
   let opened: Promise<IDBDatabase> | undefined
   const db = () => opened ??= new Promise<IDBDatabase>((resolve, reject) => {
     const open = factory.open(name, 1)
@@ -153,28 +153,27 @@ function privateLiteral(host: string): boolean {
   return host.startsWith('[')
 }
 
-type FetchOptions = {body?: Uint8Array; maxBytes: number; signal: AbortSignal; bearer?: string; method?: 'GET' | 'POST'; oauth?: {accessToken: string; proof: string}}
+type FetchOptions = {body?: Uint8Array; maxBytes: number; signal: AbortSignal; bearer?: string
+  /** Internal: a session-creation exchange also reads the agent's retryable 503. */
+  exchange?: boolean}
 
-function browserTransport(mode: ServiceTransportMode, options: BrowserTransportOptions, localHttp = false) {
+function browserTransport(mode: ServiceTransportMode, options: BrowserTransportOptions) {
   const doFetch = options.fetch ?? globalThis.fetch, timeout = options.timeoutMs ?? 30_000
   const privateHosts = new Set(options.allowedPrivateHosts ?? [])
   if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 120_000) throw new TasraError('Invalid browser transport timeout')
   if (typeof doFetch !== 'function') throw new TasraError('fetch is unavailable')
-  return async (url: string, request: FetchOptions): Promise<{status: number; body: Uint8Array; retryAfterMs?: number; retryAfter?: string; rateLimitAfter?: string}> => {
+  return async (url: string, request: FetchOptions): Promise<{status: number; body: Uint8Array; retryAfterMs?: number}> => {
     request.signal.throwIfAborted()
     const parsed = new URL(url)
-    // Local development HTTP: only to a loopback name or private IP literal, checked with the same
-    // route policy as its HTTPS form. Every other destination still needs HTTPS.
-    const plain = localHttp && parsed.protocol === 'http:' && privateLiteral(parsed.hostname)
-    const shape = serviceRequestShape(mode, plain ? 'https:' + url.slice('http:'.length) : url, request)
-    if (parsed.protocol !== 'https:' && !plain) throw new Error('Service destination policy requires HTTPS')
-    if (privateLiteral(parsed.hostname) && !privateHosts.has(parsed.hostname) && !plain) throw new Error('Service destination policy refuses address')
+    const shape = serviceRequestShape(mode, url, {body: request.body, maxBytes: request.maxBytes, bearer: request.bearer})
+    if (parsed.protocol !== 'https:') throw new Error('Service destination policy requires HTTPS')
+    if (privateLiteral(parsed.hostname) && !privateHosts.has(parsed.hostname)) throw new Error('Service destination policy refuses address')
     const response = await doFetch(url, {method: shape.method, headers: shape.headers, body: request.body?.slice(),
       redirect: 'error', credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer', mode: 'cors',
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(timeout)])})
     const type = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? ''
-    const noContent = mode === 'paid-agent' && response.status === 204
-    if (!acceptsServiceResponse(mode, shape, Boolean(request.body), response.status, type)) {
+    const noContent = mode === 'session-control' && response.status === 204
+    if (!acceptsServiceResponse(mode, shape, Boolean(request.body), response.status, type, request.exchange === true)) {
       await response.body?.cancel().catch(() => {})
       throw new Error(`Service HTTP status, content type or encoding refused (HTTP ${response.status}, ${type || 'no content type'})`)
     }
@@ -198,15 +197,12 @@ function browserTransport(mode: ServiceTransportMode, options: BrowserTransportO
         }
       } finally { await reader.cancel().catch(() => {}) }
     }
-    if (noContent && size !== 0) throw new Error('Unexpected paid agent response body')
+    if (noContent && size !== 0) throw new Error('Unexpected session control response body')
     const body = new Uint8Array(size)
     let offset = 0
     for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.length }
-    const retryAfter = response.headers.get('retry-after'), retryAfterMs = parseRetryAfter(retryAfter)
-    // Paid replies also carry the raw wait headers for the strict paid pacer (CORS must expose them).
-    const rateLimitAfter = mode === 'paid-agent' ? response.headers.get('x-ratelimit-after') : null
-    return {status: response.status, body, ...(retryAfterMs !== undefined ? {retryAfterMs} : {}),
-      ...(mode === 'paid-agent' && retryAfter !== null ? {retryAfter} : {}), ...(rateLimitAfter !== null ? {rateLimitAfter} : {})}
+    const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'))
+    return {status: response.status, body, ...(retryAfterMs !== undefined ? {retryAfterMs} : {})}
   }
 }
 
@@ -216,33 +212,17 @@ function discovery(options: BrowserTransportOptions): ServiceDiscoveryTransport 
 }
 
 /**
- * Browser transport for registered paid sessions: authenticated discovery plus owner-only
- * session control, with the same route, method, bearer and bound checks as the Node transport.
+ * Browser transport for an approved verifier-agent: authenticated discovery, session creation and
+ * polling (the poll secret travels only to that session's GET), and session-grant refresh and
+ * revoke, with the same route, method, bearer and bound checks as the Node transport.
  * @param options Fetch override, approved private hosts and request deadline.
  */
-export function createBrowserPaidAgentTransport(options: BrowserTransportOptions = {}): PaidAgentTransport {
-  const paid = browserTransport('paid-agent', options)
-  return {...discovery(options), paidAgentRequest: (url, opts): Promise<PaidAgentHttpResponse> => paid(url, opts)}
-}
-
-/** Options for {@link createBrowserKeeperRecoveryTransport}. */
-export interface BrowserKeeperRecoveryTransportOptions extends BrowserTransportOptions {
-  /**
-   * Local development fleet: also permit plain HTTP to loopback names and private IP literals
-   * (and only those), like the keepers of a local chain. Default false: HTTPS only. The recovery
-   * reads separately permit HTTP only on the local development chain (43112) with the paid
-   * operation's `allowLocalHttp`.
-   */
-  allowLocalHttp?: boolean
-}
-
-/**
- * Browser transport for reading a keeper's retained paid result (the two POST recovery reads only).
- * @param options Fetch override, approved private hosts, local development HTTP and request deadline.
- */
-export function createBrowserKeeperRecoveryTransport(options: BrowserKeeperRecoveryTransportOptions = {}): KeeperRecoveryTransport {
-  const recovery = browserTransport('keeper-recovery', options, options.allowLocalHttp === true)
-  return {keeperRecoveryRequest: (url, opts) => recovery(url, {...opts, method: 'POST'})}
+export function createBrowserAgentTransport(options: BrowserTransportOptions = {}): SessionAgentTransport {
+  const agent = browserTransport('agent', options), control = browserTransport('session-control', options)
+  return {...discovery(options),
+    agentRequest: async (url, opts) => (await agent(url, opts)).body,
+    agentExchange: (url, opts): Promise<AgentHttpResponse> => agent(url, {...opts, exchange: true}),
+    sessionControlRequest: (url, opts): Promise<SessionControlHttpResponse> => control(url, opts)}
 }
 
 /**

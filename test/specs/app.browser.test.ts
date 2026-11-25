@@ -4,7 +4,7 @@
 // shared by every "tab" holding the same LockManager.
 import {describe, expect, it, vi} from 'vitest'
 import {SERVICE_MANIFEST_PATH} from '../../src/chain/serviceIdentity.js'
-import {createBrowserKeeperRecoveryTransport, createBrowserPaidAgentTransport, createBrowserRelayTransport, createIndexedDbStore, StoreLockedError} from '../../src/app/browser.js'
+import {createBrowserAgentTransport, createBrowserRelayTransport, createIndexedDbStore, StoreLockedError} from '../../src/app/browser.js'
 
 function fakeIndexedDb(options: {abortCommits?: () => boolean} = {}) {
   const data = new Map<string, Map<string, unknown>>(), stores = new Set<string>()
@@ -70,17 +70,17 @@ describe('createIndexedDbStore', () => {
   it('persists plain state through strict-durability commits and returns detached copies', async () => {
     const idb = fakeIndexedDb(), store = createIndexedDbStore({indexedDB: idb.factory, locks: fakeLocks()})
     const value = {phase: 'prepared', nonce: 7n, seed: new Uint8Array([1, 2]), nested: [{a: null, b: undefined}]}
-    await store.save('paid-op-1', value)
+    await store.save('session-1', value)
     expect(idb.events).toEqual(['upgrade', 'tx:readwrite:strict', 'commit'])
     value.seed[0] = 9
-    expect(await store.load('paid-op-1')).toEqual({phase: 'prepared', nonce: 7n, seed: new Uint8Array([1, 2]), nested: [{a: null, b: undefined}]})
+    expect(await store.load('session-1')).toEqual({phase: 'prepared', nonce: 7n, seed: new Uint8Array([1, 2]), nested: [{a: null, b: undefined}]})
     expect(await store.load('missing')).toBeUndefined()
   })
 
   it('lists keys by prefix for one-time maintenance', async () => {
     const idb = fakeIndexedDb(), store = createIndexedDbStore({indexedDB: idb.factory, locks: fakeLocks()})
-    await store.save('paid-op-1', 1); await store.save('paid-op-index', 2); await store.save('prepaid-x', 3)
-    expect((await store.list!('paid-op-')).sort()).toEqual(['paid-op-1', 'paid-op-index'])
+    await store.save('session-1', 1); await store.save('session-index', 2); await store.save('slot-x', 3)
+    expect((await store.list!('session-')).sort()).toEqual(['session-1', 'session-index'])
   })
 
   it('refuses invalid keys and non-plain values before writing', async () => {
@@ -104,11 +104,11 @@ describe('createIndexedDbStore', () => {
     const order: string[] = []
     let release!: () => void
     const gate = new Promise<void>(resolve => { release = resolve })
-    const a = tabA.withLock('prepaid-payer', async () => { order.push('a'); await gate; order.push('a-end') })
+    const a = tabA.withLock('creation-lock', async () => { order.push('a'); await gate; order.push('a-end') })
     await Promise.resolve()
-    const b = tabB.withLock('prepaid-payer', async () => { order.push('b') })
+    const b = tabB.withLock('creation-lock', async () => { order.push('b') })
     const impatient = createIndexedDbStore({indexedDB: idb.factory, locks, failIfLocked: true})
-    await expect(impatient.withLock('prepaid-payer', async () => 1)).rejects.toBeInstanceOf(StoreLockedError)
+    await expect(impatient.withLock('creation-lock', async () => 1)).rejects.toBeInstanceOf(StoreLockedError)
     release(); await Promise.all([a, b])
     expect(order).toEqual(['a', 'a-end', 'b'])
     // Different databases do not share lock names.
@@ -130,66 +130,67 @@ describe('createIndexedDbStore', () => {
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value))
 const session = 'ab'.repeat(32), secret = 'cd'.repeat(32)
 describe('browser transports', () => {
-  it('sends owner session control over HTTPS without cookies or redirects and reports Retry-After', async () => {
-    const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response('{"status":"pending"}', {status: 425, headers: {'content-type': 'application/json', 'retry-after': '2'}}))
-    const transport = createBrowserPaidAgentTransport({fetch: fetch as typeof globalThis.fetch})
-    const reply = await transport.paidAgentRequest(`https://agent.example/v1/sessions/${session}`, {method: 'GET', bearer: secret, maxBytes: 1024, signal: new AbortController().signal})
-    expect(reply).toMatchObject({status: 425, retryAfterMs: 2000})
+  it('sends session control over HTTPS as a bearerless POST without cookies or redirects and reports Retry-After', async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response('{"code":"session_revoke_partial"}', {status: 503, headers: {'content-type': 'application/json', 'retry-after': '2'}}))
+    const transport = createBrowserAgentTransport({fetch: fetch as typeof globalThis.fetch})
+    const reply = await transport.sessionControlRequest('https://agent.example/v1/sessions/revoke', {body: bytes({grant: {}}), maxBytes: 1024, signal: new AbortController().signal})
+    expect(reply).toMatchObject({status: 503, retryAfterMs: 2000})
+    expect(reply).not.toHaveProperty('rateLimitAfter')
     const init = fetch.mock.calls[0]![1]
-    expect(init).toMatchObject({method: 'GET', redirect: 'error', credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer'})
-    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${secret}`)
+    expect(init).toMatchObject({method: 'POST', redirect: 'error', credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer'})
+    expect(init.headers as Record<string, string>).not.toHaveProperty('authorization')
+  })
+
+  it('creates and polls a session through the agent routes: the poll secret travels only to that session GET', async () => {
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => init.method === 'POST'
+      ? new Response('{"session_id":"x"}', {status: 201, headers: {'content-type': 'application/json'}})
+      : new Response('{"status":"pending"}', {status: 200, headers: {'content-type': 'application/json'}}))
+    const transport = createBrowserAgentTransport({fetch: fetch as typeof globalThis.fetch})
+    const signal = new AbortController().signal
+    expect(new TextDecoder().decode(await transport.agentRequest('https://agent.example/v1/sessions', {body: bytes({}), maxBytes: 1024, signal}))).toBe('{"session_id":"x"}')
+    expect(new TextDecoder().decode(await transport.agentRequest(`https://agent.example/v1/sessions/${session}`, {bearer: secret, maxBytes: 1024, signal}))).toBe('{"status":"pending"}')
+    expect((fetch.mock.calls[0]![1].headers as Record<string, string>).authorization).toBeUndefined()
+    expect((fetch.mock.calls[1]![1].headers as Record<string, string>).authorization).toBe(`Bearer ${secret}`)
+    expect(fetch.mock.calls[1]![1]).toMatchObject({method: 'GET', redirect: 'error', credentials: 'omit'})
+    // A creation exchange also reads the agent's retryable 503; the plain request refuses it.
+    const busy = createBrowserAgentTransport({fetch: (async () => new Response('{"error":"later"}', {status: 503, headers: {'content-type': 'application/json', 'retry-after': '1'}})) as typeof globalThis.fetch})
+    await expect(busy.agentExchange!('https://agent.example/v1/sessions', {body: bytes({}), maxBytes: 1024, signal})).resolves.toMatchObject({status: 503, retryAfterMs: 1000})
+    await expect(busy.agentRequest('https://agent.example/v1/sessions', {body: bytes({}), maxBytes: 1024, signal})).rejects.toThrow(/status/)
   })
 
   it('applies the shared route policy before any request', async () => {
     const fetch = vi.fn()
-    const transport = createBrowserPaidAgentTransport({fetch: fetch as typeof globalThis.fetch})
-    const signal = new AbortController().signal
-    await expect(transport.paidAgentRequest('https://agent.example/v1/sign', {method: 'POST', maxBytes: 10, signal})).rejects.toThrow(/path/)
-    await expect(transport.paidAgentRequest(`https://agent.example/v1/sessions/${session}`, {method: 'GET', maxBytes: 10, signal})).rejects.toThrow(/bearer/)
-    await expect(transport.paidAgentRequest(`http://agent.example/v1/sessions/${session}`, {method: 'GET', bearer: secret, maxBytes: 10, signal})).rejects.toThrow(/HTTPS/)
-    await expect(transport.paidAgentRequest(`https://10.0.0.5/v1/sessions/${session}`, {method: 'GET', bearer: secret, maxBytes: 10, signal})).rejects.toThrow(/refuses address/)
-    await expect(transport.paidAgentRequest(`https://localhost:8443/v1/sessions/${session}`, {method: 'GET', bearer: secret, maxBytes: 10, signal})).rejects.toThrow(/refuses address/)
+    const transport = createBrowserAgentTransport({fetch: fetch as typeof globalThis.fetch})
+    const signal = new AbortController().signal, body = bytes({})
+    await expect(transport.sessionControlRequest('https://agent.example/v1/sign', {body, maxBytes: 10, signal})).rejects.toThrow(/session control/)
+    await expect(transport.sessionControlRequest(`https://agent.example/v1/sessions/${session}/execution/${session}/reject`, {body, maxBytes: 10, signal})).rejects.toThrow(/session control/)
+    await expect(transport.agentRequest(`https://agent.example/v1/sessions/${session}`, {maxBytes: 10, signal})).rejects.toThrow(/poll secret/)
+    await expect(transport.agentRequest('https://agent.example/v1/sessions/refresh', {bearer: secret, maxBytes: 10, signal})).rejects.toThrow(/agent path/)
+    await expect(transport.sessionControlRequest('http://agent.example/v1/sessions/refresh', {body, maxBytes: 10, signal})).rejects.toThrow()
+    await expect(transport.sessionControlRequest('https://10.0.0.5/v1/sessions/refresh', {body, maxBytes: 10, signal})).rejects.toThrow(/refuses address/)
+    await expect(transport.sessionControlRequest('https://localhost:8443/v1/sessions/refresh', {body, maxBytes: 10, signal})).rejects.toThrow(/refuses address/)
     expect(fetch).not.toHaveBeenCalled()
-    const allowed = createBrowserPaidAgentTransport({fetch: (async () => new Response(null, {status: 204})) as typeof globalThis.fetch, allowedPrivateHosts: ['localhost']})
-    await expect(allowed.paidAgentRequest(`https://localhost:8443/v1/sessions/${session}/execution/${session}/reject`, {method: 'POST', bearer: secret, maxBytes: 10, signal})).resolves.toMatchObject({status: 204})
+    const allowed = createBrowserAgentTransport({fetch: (async () => new Response(null, {status: 204})) as typeof globalThis.fetch, allowedPrivateHosts: ['localhost']})
+    await expect(allowed.sessionControlRequest('https://localhost:8443/v1/sessions/revoke', {body, maxBytes: 10, signal})).resolves.toMatchObject({status: 204})
   })
 
   it('refuses unexpected media types, oversized and non-empty no-content replies', async () => {
-    const signal = new AbortController().signal, url = `https://agent.example/v1/sessions/${session}`
-    const with_ = (response: Response) => createBrowserPaidAgentTransport({fetch: (async () => response) as typeof globalThis.fetch})
-    await expect(with_(new Response('<html>', {status: 200, headers: {'content-type': 'text/html'}})).paidAgentRequest(url, {method: 'GET', bearer: secret, maxBytes: 100, signal})).rejects.toThrow(/content type/)
-    await expect(with_(new Response('x'.repeat(200), {status: 200, headers: {'content-type': 'application/json'}})).paidAgentRequest(url, {method: 'GET', bearer: secret, maxBytes: 100, signal})).rejects.toThrow(/too large/)
-    await expect(with_(new Response('{}', {status: 200, headers: {'content-type': 'application/json', 'content-length': '500'}})).paidAgentRequest(url, {method: 'GET', bearer: secret, maxBytes: 100, signal})).rejects.toThrow(/too large/)
-    await expect(with_(new Response('{}', {status: 302, headers: {'content-type': 'application/json'}})).paidAgentRequest(url, {method: 'GET', bearer: secret, maxBytes: 100, signal})).rejects.toThrow(/status/)
+    const signal = new AbortController().signal, url = 'https://agent.example/v1/sessions/refresh', body = bytes({})
+    const with_ = (response: Response) => createBrowserAgentTransport({fetch: (async () => response) as typeof globalThis.fetch})
+    await expect(with_(new Response('<html>', {status: 200, headers: {'content-type': 'text/html'}})).sessionControlRequest(url, {body, maxBytes: 100, signal})).rejects.toThrow(/content type/)
+    await expect(with_(new Response('x'.repeat(200), {status: 200, headers: {'content-type': 'application/json'}})).sessionControlRequest(url, {body, maxBytes: 100, signal})).rejects.toThrow(/too large/)
+    await expect(with_(new Response('{}', {status: 200, headers: {'content-type': 'application/json', 'content-length': '500'}})).sessionControlRequest(url, {body, maxBytes: 100, signal})).rejects.toThrow(/too large/)
+    await expect(with_(new Response('{}', {status: 302, headers: {'content-type': 'application/json'}})).sessionControlRequest(url, {body, maxBytes: 100, signal})).rejects.toThrow(/status/)
+    // A 204 that still carries bytes (a Response cannot be constructed that way; a transport could deliver one).
+    const noContentWithBody = {status: 204, headers: new Headers(), body: new Response('{}').body} as unknown as Response
+    await expect(with_(noContentWithBody).sessionControlRequest(url, {body, maxBytes: 100, signal})).rejects.toThrow(/session control response body/)
   })
 
-  it('authenticates discovery through the same transport and reads keeper results with POST only', async () => {
+  it('authenticates discovery through the same transport', async () => {
     const fetch = vi.fn(async () => new Response('{}', {status: 200, headers: {'content-type': 'application/json'}}))
-    const paid = createBrowserPaidAgentTransport({fetch: fetch as unknown as typeof globalThis.fetch})
-    expect(new TextDecoder().decode(await paid.request('https://agent.example' + SERVICE_MANIFEST_PATH, {maxBytes: 100, signal: new AbortController().signal}))).toBe('{}')
-    await expect(paid.request('https://agent.example/v1/x?redirect=1', {maxBytes: 100, signal: new AbortController().signal})).rejects.toThrow(/canonical/)
-    const recovery = createBrowserKeeperRecoveryTransport({fetch: fetch as unknown as typeof globalThis.fetch})
-    const result = await recovery.keeperRecoveryRequest('https://keeper.example/v1/prepaid/execution', {body: bytes({}), maxBytes: 100, signal: new AbortController().signal})
-    expect(result.status).toBe(200)
-    await expect(recovery.keeperRecoveryRequest('https://keeper.example/v1/sign', {body: bytes({}), maxBytes: 100, signal: new AbortController().signal})).rejects.toThrow(/path/)
-  })
-
-  it('reads local development keepers over HTTP only when allowed, and only on loopback or private hosts', async () => {
-    const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response('{}', {status: 200, headers: {'content-type': 'application/json'}}))
-    const args = () => ({body: bytes({}), maxBytes: 100, signal: new AbortController().signal})
-    const strict = createBrowserKeeperRecoveryTransport({fetch: fetch as unknown as typeof globalThis.fetch})
-    await expect(strict.keeperRecoveryRequest('http://localhost:4001/v1/prepaid/execution', args())).rejects.toThrow(/HTTPS/)
-    const local = createBrowserKeeperRecoveryTransport({fetch: fetch as unknown as typeof globalThis.fetch, allowLocalHttp: true})
-    for (const url of ['http://localhost:4001/v1/prepaid/execution', 'http://127.0.0.1:4001/v1/prepaid/execution/recover', 'http://192.168.1.9:4001/v1/prepaid/execution', 'http://[::1]:4001/v1/prepaid/execution']) {
-      expect((await local.keeperRecoveryRequest(url, args())).status).toBe(200)
-    }
-    expect(fetch.mock.calls[0]![0]).toBe('http://localhost:4001/v1/prepaid/execution')
-    expect(fetch.mock.calls[0]![1]).toMatchObject({method: 'POST', redirect: 'error', credentials: 'omit'})
-    await expect(local.keeperRecoveryRequest('http://keeper.example/v1/prepaid/execution', args())).rejects.toThrow(/HTTPS/)
-    await expect(local.keeperRecoveryRequest('http://localhost:4001/v1/sign', args())).rejects.toThrow(/path/)
-    // HTTPS to a private host still needs explicit approval.
-    await expect(local.keeperRecoveryRequest('https://localhost:4001/v1/prepaid/execution', args())).rejects.toThrow(/refuses address/)
-    expect(fetch).toHaveBeenCalledTimes(4)
+    const agent = createBrowserAgentTransport({fetch: fetch as unknown as typeof globalThis.fetch})
+    expect(new TextDecoder().decode(await agent.request('https://agent.example' + SERVICE_MANIFEST_PATH, {maxBytes: 100, signal: new AbortController().signal}))).toBe('{}')
+    await expect(agent.request('https://agent.example/v1/x?redirect=1', {maxBytes: 100, signal: new AbortController().signal})).rejects.toThrow(/canonical/)
   })
 
   it('exposes relayer busy refusals with their Retry-After', async () => {

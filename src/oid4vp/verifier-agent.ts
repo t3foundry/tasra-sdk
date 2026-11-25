@@ -2,20 +2,20 @@ import {recipientPayloadDigest,type DecryptionBindingWire} from '../crypto/recip
 import {sha256} from '@noble/hashes/sha256'
 import {evidenceBody} from '../committee/evidence.js'
 // The RELYING PARTY half against the Verifier Agent: the app that wants an authorization
-// signs the operation tuple with the slot creator's EVM key (EIP-712 `PresentationOperation`),
+// signs the operation tuple with its EVM key (EIP-712 `PresentationOperation`; the slot creator's
+// key, a creator-signed delegate's, or any other key: the slot's rule decides),
 // opens a session, hands the `openid4vp://` payload to a wallet as a QR or deep link, and later
 // collects the compound token. Nothing about the presentation ever comes back here.
 //
 // Adds EIP-712 operation signing and action-specific payload binding to the session client.
 
 import {bytesToHex, hexToBytes} from '../crypto/hex.js'
-import {paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
+import type {SessionGrantRequestWire} from '../committee/session-grant.js'
 import type {CompoundTokenWire} from '../committee/token.js'
 import type {VerifierProof} from '../committee/client.js'
 import {assertCompoundTokenWire, VerifierAgentSessionError, createOid4vpSession, waitForSession, type CreateSessionResult, type PresentationDelegation, type PresentationOperation, type WaitOpts, type SessionStatusResult} from '../verifier-agent/index.js'
 import {payloadDigestFor, requestHash, type CommitteeAction} from './binding.js'
 import {utf8} from './jose.js'
-import {sessionPaymentFields} from '../verifier-agent/payment.js'
 
 export {createOid4vpSession, pollOid4vpSession, waitForSession, payloadDigest, nextPollDelay, assertCompoundTokenWire, VerifierAgentSessionError} from '../verifier-agent/index.js'
 export type {SessionPhase, VerifierAgentSessionErrorKind, WaitOpts} from '../verifier-agent/index.js'
@@ -40,7 +40,7 @@ export const PRESENTATION_OPERATION_TYPES = {
 
 /** Anything that signs EIP-712 typed data for an address - a viem `LocalAccount` or `WalletClient`-bound account fits. */
 export interface TypedDataSigner {
-  /** EVM address of the creator or delegated signing wallet. */
+  /** EVM address of the signing wallet (creator, delegate or any requesting key). */
   address: `0x${string}`
   /** Sign the operation EIP-712 payload using the wallet's key. */
   signTypedData(args: {
@@ -133,22 +133,21 @@ export function presentationOperationTypedData(input: OperationInput): {
 
 /** Operation, signing wallet and verifier-agent endpoint for opening a presentation session. */
 export interface OpenVerifierAgentSessionOpts extends OperationInput {
-  /** Already reserved creator payment, fixed before opening the session. */
-  payment?: PaymentIntentWire
-  /** Random committed in payment.session_commitment. Required with payment. */
-  random?: string
   /** Verifier-agent HTTP base URL for the selected network. */
   verifierAgentUrl: string
-  /** The slot creator's key, or a delegate's (with `delegation`). */
+  /**
+   * The key that opens the session: the slot creator's, a delegate's (with `delegation`), or any
+   * other key (an open request: the slot's rule decides; the verifiers meter this signer's quota).
+   */
   signer: TypedDataSigner
+  /** Session mode (KEM decrypt only): also open a session grant for this fresh session key. */
+  sessionGrant?: SessionGrantRequestWire
   /** Optional creator-signed delegation authorizing the signing wallet. */
   delegation?: PresentationDelegation
 }
 
 /** Opened wallet session with its signed operation and expected request-binding hash. */
 export interface OpenedVerifierAgentSession extends CreateSessionResult {
-  /** Expected payment commitment; a result may not change or discard it. */
-  paymentHash?: string
   /** Signed operation details presented for authorization. */
   operation: PresentationOperation
   /** The binding hash the token will carry - compare with the token's `request_hash`. */
@@ -164,15 +163,13 @@ export interface OpenedVerifierAgentSession extends CreateSessionResult {
  */
 export async function openVerifierAgentSession(opts: OpenVerifierAgentSessionOpts): Promise<OpenedVerifierAgentSession> {
   const {typedData, operation, messageHex, payloadDigest} = presentationOperationTypedData(opts)
-  const payment = opts.payment && structuredClone(opts.payment), random = opts.random
   const delegation = opts.delegation && structuredClone(opts.delegation), verifierAgentUrl = opts.verifierAgentUrl
-  sessionPaymentFields({operation, operationSig: '0x', messageHex, payment, random})
-  const paymentHash = payment && paymentIntentHash(payment)
   const slot = typeof opts.slotId === 'string' ? hexToBytes(opts.slotId) : opts.slotId
   const expectedRequestHash = requestHash(opts.chainId, slot, opts.action, payloadDigest)
   const operationSig = await opts.signer.signTypedData(typedData)
-  const session = await createOid4vpSession(verifierAgentUrl, {operation, operationSig, delegation, messageHex, payment, random, decryption:opts.decryption})
-  return {...session, operation, ...(paymentHash ? {paymentHash} : {}), requestHash: expectedRequestHash, verifierAgentUrl}
+  const session = await createOid4vpSession(verifierAgentUrl, {operation, operationSig, delegation, messageHex, decryption:opts.decryption,
+    ...(opts.sessionGrant ? {sessionGrant: structuredClone(opts.sessionGrant)} : {})})
+  return {...session, operation, requestHash: expectedRequestHash, verifierAgentUrl}
 }
 
 /** Compound committee token with optional request preimage and verifier membership proofs. */
@@ -187,6 +184,11 @@ export interface VerifierAgentResult {
   token: CompoundTokenWire
   /** Operation context used to derive the request-binding hash. */
   bindingPreimage?: Record<string, unknown>
+  /**
+   * Session mode: the grant the agent returned with the token (UNVERIFIED: hand it to
+   * `acceptSessionGrant`), or the code saying why none came.
+   */
+  sessionGrant?: SessionStatusResult['sessionGrant']
   /**
    * The drawn verifiers' snapshot membership proofs the verifier-agent built at session creation -
    * hand them to every keeper call (`verifierProofs`): a keeper in snapshot-required mode
@@ -225,7 +227,7 @@ export function verifierAgentVerifierProofs(raw: unknown): VerifierProof[] | und
  * @param session - Opened session credentials and expected request-binding hash.
  * @param opts - Polling intervals, timeout, cancellation and progress callback.
  */
-export async function awaitVerifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'verifierAgentUrl' | 'sessionId' | 'pollSecret' | 'requestHash' | 'paymentHash'>, opts: {intervalMs?: number; timeoutMs?: number} & WaitOpts = {}): Promise<VerifierAgentResult> {
+export async function awaitVerifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'verifierAgentUrl' | 'sessionId' | 'pollSecret' | 'requestHash'>, opts: {intervalMs?: number; timeoutMs?: number} & WaitOpts = {}): Promise<VerifierAgentResult> {
   const {intervalMs, timeoutMs, ...wait} = opts
   const r = await waitForSession(session.verifierAgentUrl, session.sessionId, session.pollSecret, intervalMs, timeoutMs, wait)
   return verifierAgentResult(session, r)
@@ -237,7 +239,7 @@ export async function awaitVerifierAgentResult(session: Pick<OpenedVerifierAgent
  * @param session - Session identifier and expected request-binding hash.
  * @param r - Completed session status to validate and decode.
  */
-export function verifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'sessionId' | 'requestHash' | 'paymentHash'>, r: SessionStatusResult): VerifierAgentResult {
+export function verifierAgentResult(session: Pick<OpenedVerifierAgentSession, 'sessionId' | 'requestHash'>, r: SessionStatusResult): VerifierAgentResult {
   if (r.status !== 'done' || !r.compoundToken) throw new VerifierAgentSessionError('refused', session.sessionId, `presentation ${r.status}: ${r.error ?? 'no token'}`)
   const token = assertCompoundTokenWire(r.compoundToken, session.sessionId) as unknown as CompoundTokenWire
   try { evidenceBody(token, r.evidenceCt) }
@@ -246,16 +248,12 @@ export function verifierAgentResult(session: Pick<OpenedVerifierAgentSession, 's
   if (!rh || rh.replace(/^0x/, '').toLowerCase() !== bytesToHex(session.requestHash).replace(/^0x/, '').toLowerCase()) {
     throw new VerifierAgentSessionError('protocol', session.sessionId, 'the token does not bind the request this session opened')
   }
-  const actualPayment = token.payment_hash?.replace(/^0x/, '').toLowerCase()
-  const expectedPayment = session.paymentHash?.replace(/^0x/, '').toLowerCase()
-  if (actualPayment !== expectedPayment || (expectedPayment && !token.payment)) {
-    throw new VerifierAgentSessionError('protocol', session.sessionId, 'the token does not bind the payment this session opened')
-  }
   let verifierProofs: VerifierProof[] | undefined
   try {
     verifierProofs = verifierAgentVerifierProofs(r.verifierProofs)
   } catch (e) {
     throw new VerifierAgentSessionError('protocol', session.sessionId, e instanceof Error ? e.message : String(e))
   }
-  return {token, bindingPreimage: r.bindingPreimage, verifierProofs, ...(r.evidenceCt !== undefined ? {evidenceCt: r.evidenceCt} : {})}
+  return {token, bindingPreimage: r.bindingPreimage, verifierProofs, ...(r.evidenceCt !== undefined ? {evidenceCt: r.evidenceCt} : {}),
+    ...(r.sessionGrant ? {sessionGrant: r.sessionGrant} : {})}
 }

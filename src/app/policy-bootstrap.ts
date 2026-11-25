@@ -1,18 +1,17 @@
-// Customer authorization bootstrap: a holder application runs paid operations on a slot whose rule
-// salt it never holds.
+// Slot policy statements: the slot creator tells a holder application which rule the slot enforces,
+// without handing over the rule salt.
 //
 // The slot's creator (the party that holds the rule and its salt) signs a short-lived EIP-712
 // statement that binds the exact raw rule (by keccak256, the hash verifier tokens carry) to the
 // slot's on-chain salted commitment and rule version, on one chain and KeyRegistry, for one holder
 // application and a bounded set of actions. The holder receives that statement and the raw rule,
-// never the salt. Before anything is signed or spent, paidOperation checks the statement's
-// signature against the slot creator it reads on chain, and its commitment and rule version
-// against the same canonical slot read; afterwards the verifier quorum's token binds the same rule
-// hash. A monotonic per-slot sequence refuses an older statement once a newer one was accepted.
-//
-// paidPolicyOperation adds an application-chosen operation key: the operation is bound to that key
-// in the durable store before any reservation, and calling it again with the same key resumes the
-// original journal entry instead of starting a second operation.
+// never the salt. No operation needs one: any key may open a session and the slot's rule decides.
+// A holder application that wants to know the rule it is judged by (to build its presentation, or
+// to pin `SlotTrust.ruleHash` for a session grant) checks the statement's signature against the
+// slot creator it reads on chain, and its commitment and rule version against the same slot read
+// (`requireCurrentSlotPolicy`); the verifier quorum's token and grant then carry the same rule
+// hash. A monotonic per-slot sequence (`admitSlotPolicySequence`) refuses an older statement once
+// a newer one was accepted.
 
 import {concat, hashTypedData, isAddress, keccak256, recoverTypedDataAddress, toHex, type Address, type Hex, type LocalAccount, type TypedDataDefinition} from 'viem'
 import {keyRegistryAbi} from '../chain/abis/keyRegistry.js'
@@ -21,10 +20,8 @@ import {requireAddress} from '../chain/deployments.js'
 import {ruleCommitment} from '../chain/write.js'
 import {canonicalize, MAX_RULE_LEN} from '../auth/oid4vp.js'
 import type {CommitteeAction} from '../oid4vp/binding.js'
-import {presentationOperationTypedData} from '../oid4vp/verifier-agent.js'
 import {TasraError} from '../errors.js'
 import type {ApplicationStore} from './ready-slot.js'
-import {storeIdentity} from './store-commit.js'
 
 /** EIP-712 domain name of a slot policy statement (version `1`, the KeyRegistry as verifying contract). */
 export const SLOT_POLICY_DOMAIN_NAME = 'Tasra Slot Policy'
@@ -253,7 +250,7 @@ export interface SlotPolicyExpectation {
  * Check a slot policy bootstrap offline: shape and bounds, deployment, slot, holder application,
  * action scope, lifetime, that the rule is the one the statement hashes, and the creator's
  * signature. The on-chain half (current creator, commitment and rule version at one canonical
- * block) is checked by paidOperation, which needs the chain anyway. Throws {@link SlotPolicyError}.
+ * block) is {@link requireCurrentSlotPolicy}, against the caller's own slot read. Throws {@link SlotPolicyError}.
  * @param bootstrap Untrusted bootstrap as received.
  * @param expected Deployment, slot, holder application, action and signer to expect.
  * @returns The normalized bootstrap and the address that signed it.
@@ -298,14 +295,16 @@ export function requireCurrentSlotPolicy(statement: SlotPolicyStatement, signer:
 
 /** Store key of the highest accepted statement per deployment, slot and holder application. */
 function sequenceKey(s: SlotPolicyStatement): string {
-  return 'paid-policy-seq-' + keccak256(concat([toHex('tasra/slot-policy-sequence/v1'), toHex(BigInt(s.chainId), {size: 8}), s.keyRegistry, s.slot, s.audience])).slice(2)
+  return 'slot-policy-seq-' + keccak256(concat([toHex('tasra/slot-policy-sequence/v1'), toHex(BigInt(s.chainId), {size: 8}), s.keyRegistry, s.slot, s.audience])).slice(2)
 }
 interface SequenceRecord { schema: 1; sequence: number; hash: Hex }
 
 /**
  * Accept a verified statement against the holder's durable high-water mark: a lower sequence than
  * one already accepted is `replayed`, the same sequence with another statement `equivocated`.
- * Records a higher one. Needs the private store the operation journals in.
+ * Records a higher one.
+ * @param store Durable private store of the holder application.
+ * @param statement Verified statement.
  */
 export async function admitSlotPolicySequence(store: ApplicationStore, statement: SlotPolicyStatement): Promise<void> {
   const key = sequenceKey(statement), hash = slotPolicyHash(statement).toLowerCase() as Hex
@@ -423,87 +422,3 @@ export async function verifySlotPolicyRequest(request: SlotPolicyRequest,
   if (!same(signer, fields.audience)) throw new SlotPolicyError('wrong-signer', 'Policy request is not signed by its audience')
   return {...fields, slot: lower(fields.slot) as Hex, nonce: lower(fields.nonce) as Hex, signature}
 }
-
-// ---- operation binding: one application operation key, one journaled operation ----
-
-/** Stable refusal categories of {@link paidPolicyOperation}; nothing was reserved by the refused call. */
-export type PolicyOperationErrorCode =
-  /** The key is bound to a different operation. */
-  | 'key-reused'
-  /** Another call with this key is running in this process. */
-  | 'in-flight'
-  /** The original never reached its journal; pass `restartUnjournaled` to start it again once that is safe. */
-  | 'unjournaled'
-  /** The original is closed (provably unreserved or abandoned); use a new operation key. */
-  | 'closed'
-  /** A later call with this key took over before this one derived its request; this call spent nothing. */
-  | 'superseded'
-
-/** A {@link paidPolicyOperation} refused without starting a second operation. */
-export class PolicyOperationError extends TasraError {
-  /** Refusal category; never infer it from the message. */
-  readonly code: PolicyOperationErrorCode
-  /** The original operation's request ID, when one is known. */
-  readonly requestId?: Hex
-  constructor(code: PolicyOperationErrorCode, message: string, opts: {requestId?: Hex; retryable?: boolean} = {}) {
-    super(message, {retryable: opts.retryable ?? false})
-    this.code = code
-    if (opts.requestId !== undefined) this.requestId = opts.requestId
-  }
-}
-
-const OPERATION_KEY = /^[A-Za-z0-9._:-]{1,128}$/
-const MAX_ATTEMPTS = 16
-
-/** The durable binding of one application operation key. */
-export interface PolicyOperationBinding {
-  /** Record format. */
-  schema: 1
-  /** Hash of the operation the key is bound to. */
-  fingerprint: Hex
-  /** Hash of the policy statement the first call started with. */
-  policy: Hex
-  /** Incremented by every (re)start; only the current generation may record a request. */
-  generation: number
-  /** Unix seconds the key was first bound. */
-  createdAt: number
-  /** Requests derived for this key, oldest first; the last one is the operation. */
-  attempts: {generation: number; requestId: Hex; notAfter: number}[]
-}
-
-/** Store key of one operation key's binding. */
-export function policyOperationKey(statement: Pick<SlotPolicyStatement, 'chainId' | 'keyRegistry' | 'slot' | 'audience'>, operationKey: string): string {
-  if (typeof operationKey !== 'string' || !OPERATION_KEY.test(operationKey)) throw new TasraError('Operation key must be 1..128 characters of A-Z a-z 0-9 . _ : -')
-  return 'paid-policy-op-' + keccak256(concat([toHex('tasra/policy-operation/v1'), toHex(BigInt(statement.chainId), {size: 8}), statement.keyRegistry, statement.slot,
-    statement.audience, toHex(operationKey)])).slice(2)
-}
-
-/** The operation identity a key binds: deployment, slot, action, exact payload digest, holder family and session mode. */
-export function policyOperationFingerprint(input: {chainId: number; keyRegistry: Address; slot: Hex; holderKind: string; sessionGrant: boolean;
-  operation: {action: CommitteeAction; message?: Uint8Array; identity?: string; payloadDigest?: Uint8Array; decryption?: Parameters<typeof presentationOperationTypedData>[0]['decryption']}}): Hex {
-  const built = presentationOperationTypedData({...input.operation, chainId: input.chainId, keyRegistry: input.keyRegistry, slotId: input.slot, description: '', nowSecs: 0, ttlSecs: 1})
-  return keccak256(toHex(JSON.stringify({chainId: input.chainId, keyRegistry: lower(input.keyRegistry), slot: lower(input.slot), action: input.operation.action,
-    payloadDigest: toHex(built.payloadDigest), holder: input.holderKind === 'oauth' ? 'oauth' : 'wallet', sessionGrant: input.sessionGrant})))
-}
-
-/** Whether a stored value is a well-formed operation key binding. */
-export function validBinding(value: unknown): value is PolicyOperationBinding {
-  const b = value as PolicyOperationBinding
-  return !!b && b.schema === 1 && hex32(b.fingerprint) && hex32(b.policy) && uint(b.generation) && b.generation >= 1 && uint(b.createdAt) && Array.isArray(b.attempts)
-    && b.attempts.length <= MAX_ATTEMPTS && b.attempts.every(a => uint(a?.generation) && hex32(a?.requestId) && uint(a?.notAfter))
-}
-
-/** In-process calls per store identity and binding key. */
-const running = new Map<string | ApplicationStore, Set<string>>()
-
-/** Mark one binding key running in this process for the duration of `work`; refuses a second. */
-export async function exclusivelyRunning<T>(store: ApplicationStore, key: string, work: () => Promise<T>): Promise<T> {
-  const id = storeIdentity(store)
-  let keys = running.get(id)
-  if (!keys) { keys = new Set(); running.set(id, keys) }
-  if (keys.has(key)) throw new PolicyOperationError('in-flight', 'Another call with this operation key is running in this process', {retryable: true})
-  keys.add(key)
-  try { return await work() } finally { keys.delete(key); if (keys.size === 0) running.delete(id) }
-}
-
-export {MAX_ATTEMPTS as POLICY_OPERATION_MAX_ATTEMPTS, SKEW_SECS as POLICY_SKEW_SECS}

@@ -2,7 +2,6 @@ import {kemContentDigest,recipientPayloadDigest,type ClientRecipient} from '../c
 import {decryptWithCommitteePartials} from '../decryption/sealed.js'
 import {sha256} from '@noble/hashes/sha256'
 import type {RequestBindingPreimage} from './client.js'
-import type {PaymentIntentWire} from './payment.js'
 // High-level committee-authorization orchestration.
 //
 // The low-level pieces already exist: `gatherCommitteeToken` (fan out + assemble) and
@@ -37,7 +36,6 @@ import {
 import {hexToBytes, bytesToHex} from '../crypto/hex.js'
 import {createHolderProof, type HolderSigner} from '../auth/holderProof.js'
 import type {FrostSignResult} from '../signing/frost.js'
-import type {KeeperExecutionApprover} from './keeperExecution.js'
 
 /**
  * Callback that mints a separate holder proof for each verifier.
@@ -169,8 +167,6 @@ export function committeeChainReadsFromClient(readers: {
 export interface RequestCommitteeTokenOpts {
   /** Exact chain-, slot-, action- and payload-bound authorization preimage; decryption must include the recipient-bound digest. */
   binding?: RequestBindingPreimage
-  /** Original creator-signed payment intent for the already reserved operation. */
-  payment?: PaymentIntentWire
   /** Reader methods for the beacon and slot verifier policy. */
   chain: CommitteeChainReads
   /** Pin the draw to `latest - epochLag` (0 or 1). 1 = the previous epoch, always anchored: no wait for the accountants. */
@@ -327,7 +323,7 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
 
   const now = opts.nowSecs ?? Math.floor(Date.now() / 1000)
   const iat = now - 5
-  const exp = opts.payment?.expires ?? now + (opts.ttlSecs ?? 300)
+  const exp = now + (opts.ttlSecs ?? 300)
 
   // Taken from the REFERENCE reply - the one whose ruleHash built the
   // token - so the version and the hash describe one evaluation. Verifiers that
@@ -352,7 +348,6 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
     },
     authorize: {
       binding:opts.binding,
-      payment:opts.payment,
       holder: opts.holder,
       credentials: opts.credentials,
       holderProof: typeof opts.holderProof === 'string' ? opts.holderProof : '',
@@ -377,8 +372,6 @@ export async function requestCommitteeToken(opts: RequestCommitteeTokenOpts): Pr
 /** Operation-specific fields for {@link committeeSignRequest} (everything `committeeSign` needs
  *  except the token, which this resolves). */
 export interface CommitteeSignRequestOpts extends RequestCommitteeTokenOpts {
-  /** Client-owned exact-body approval capability, required when authorization carries payment. */
-  approveExecution?: KeeperExecutionApprover
   /** Keeper HTTP base URL. */
   nodeUrl: string
   /** Raw message bytes to sign. */
@@ -407,7 +400,6 @@ export async function committeeSignRequest(opts: CommitteeSignRequestOpts): Prom
     userSignature: opts.userSignature,
     targetKeykeeper: opts.targetKeykeeper,
     verifierProofs,
-    approveExecution: opts.approveExecution,
   }
   return committeeSign(signOpts)
 }
@@ -426,8 +418,6 @@ export interface CommitteeDecryptRequestOpts extends RequestCommitteeTokenOpts {
   signal?: AbortSignal
   /** Guarded keeper HTTP transport; defaults to global fetch. */
   fetchImpl?: typeof fetch
-  /** Client-owned exact-body approval capability, required when authorization carries payment. */
-  approveExecution?: KeeperExecutionApprover
   /** Keeper HTTP base URL. */
   nodeUrl?: string
   /** Ciphertext to decrypt. */
@@ -456,7 +446,7 @@ export async function committeeDecryptRequest(opts: CommitteeDecryptRequestOpts)
   const digest=recipientPayloadDigest(kemContentDigest(opts.ciphertext,opts.identity),opts.ciphertextEpoch,opts.recipient.recipient)
   if(opts.binding.action!=='decrypt'||!bytesEqual(opts.binding.payloadDigest,digest))throw new Error('Authorization preimage differs from client recipient/ciphertext')
   const {token,verifierProofs,evidenceCt}=await requestCommitteeToken(opts)
-  return decryptWithCommitteePartials({nodeUrls:opts.nodeUrls,chainId:opts.binding.chainId,committeeToken:token,recipient:opts.recipient,ciphertextEpoch:opts.ciphertextEpoch,verifyingShares:opts.verifyingShares,threshold:opts.threshold,verifierProofs,evidenceCt,approveExecution:opts.approveExecution,signal:opts.signal,fetchImpl:opts.fetchImpl,userSignature:opts.userSignature,targetKeykeeper:opts.targetKeykeeper,ciphertext:opts.ciphertext,identity:opts.identity})
+  return decryptWithCommitteePartials({nodeUrls:opts.nodeUrls,chainId:opts.binding.chainId,committeeToken:token,recipient:opts.recipient,ciphertextEpoch:opts.ciphertextEpoch,verifyingShares:opts.verifyingShares,threshold:opts.threshold,verifierProofs,evidenceCt,signal:opts.signal,fetchImpl:opts.fetchImpl,userSignature:opts.userSignature,targetKeykeeper:opts.targetKeykeeper,ciphertext:opts.ciphertext,identity:opts.identity})
 }
 
 // identity-key extraction (one-call)
@@ -476,8 +466,6 @@ export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
   signal?: AbortSignal
   /** HTTP transport override for keeper extraction requests. */
   fetchImpl?: typeof fetch
-  /** Client-owned exact-body approval capability for each paid extraction contributor. */
-  approveExecution?: KeeperExecutionApprover
   /** Base URLs of at least k keeper nodes holding the slot's BLS shards. */
   nodeUrls: string[]
   /** The IBE identity to extract for - becomes the token's `scopedIdentity`, so a quorum
@@ -551,7 +539,6 @@ async function gatherIbePartials(opts: IbeExtractRequestOpts) {
     userSignature: opts.userSignature,
     ciphertextEpoch: opts.ciphertextEpoch,
     verifierProofs,
-    approveExecution: opts.approveExecution,
     threshold: opts.threshold,
     timeoutMs: opts.timeoutMs,
     signal: opts.signal,

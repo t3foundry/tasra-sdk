@@ -1,10 +1,9 @@
 import {readFileSync} from 'node:fs'
 import {createServer, type Server} from 'node:https'
-import {createServer as createPlainServer, type Server as PlainServer} from 'node:http'
 import {lookup} from 'node:dns'
 import {rootCertificates} from 'node:tls'
 import {afterEach, describe, expect, it, vi} from 'vitest'
-import {createNodeKeeperRecoveryTransport, createNodePaidAgentTransport, createNodeServiceStatusTransport, createNodeAgentWalletFetch, createNodeAgentTransport, createNodeRelayTransport, createNodeServiceDiscoveryTransport, isPublicServiceAddress} from '../../src/chain/node.js'
+import {createNodeServiceStatusTransport, createNodeAgentWalletFetch, createNodeAgentTransport, createNodeRelayTransport, createNodeServiceDiscoveryTransport, isPublicServiceAddress} from '../../src/chain/node.js'
 import {authenticateApprovedService, encodeServiceManifest, serviceChallengeTypedData, type ServiceChallenge, type ServiceManifest} from '../../src/chain/serviceIdentity.js'
 import {createTasraChainClient} from '../../src/chain/client.js'
 import {hashServiceManifest, type ServiceApproval, type ServiceRecord} from '../../src/chain/services.js'
@@ -33,73 +32,6 @@ afterEach(async () => {
 })
 
 describe('service HTTPS destination boundary', () => {
-  it('restricts result recovery to two bounded POST reads with verified TLS and no credential headers', async () => {
-    const hits = vi.fn()
-    const endpoint = await serve((req, res) => {hits(req.url, req.method, req.headers); req.resume()
-      res.writeHead(req.url?.endsWith('/recover') ? 403 : 200, {'content-type':'application/json'}); res.end('{}')})
-    const transport = createNodeKeeperRecoveryTransport({allowedPrivateHosts:['localhost'],ca})
-    const args = {...options(), body:new TextEncoder().encode('{}')}
-    expect(await transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).toMatchObject({status:200})
-    expect(await transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution/recover',args)).toMatchObject({status:403})
-    expect(hits.mock.calls.map(([url, method])=>[url,method])).toEqual([['/v1/prepaid/execution','POST'],['/v1/prepaid/execution/recover','POST']])
-    for(const call of hits.mock.calls){expect(call[2].authorization).toBeUndefined();expect(call[2].cookie).toBeUndefined()}
-    for(const path of ['/v1/prepaid/execution/close','/v1/sign','/v1/relay/forward','/v1/prepaid/execution?redirect=1'])
-      expect(()=>transport.keeperRecoveryRequest(endpoint+path,args)).toThrow(/path/)
-    expect(()=>transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',{...args,body:new Uint8Array(65537)})).toThrow(/bounds/)
-    await expect(createNodeKeeperRecoveryTransport({ca}).keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).rejects.toThrow(/destination policy/)
-    await expect(createNodeKeeperRecoveryTransport({allowedPrivateHosts:['localhost']}).keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).rejects.toThrow()
-    expect(hits).toHaveBeenCalledTimes(2)
-  })
-  it('permits plain local-development HTTP only when enabled, only to loopback/private hosts, with the HTTPS route checks', async () => {
-    const hits = vi.fn()
-    const plain: PlainServer = createPlainServer((req, res) => {hits(req.url, req.method, req.headers); req.resume()
-      res.writeHead(200, {'content-type':'application/json'}); res.end('{"ok":true}')})
-    await new Promise<void>(resolve => plain.listen(0, '127.0.0.1', resolve))
-    try {
-      const port = (plain.address() as {port: number}).port
-      const args = {...options(), body:new TextEncoder().encode('{}')}
-      const local = createNodeKeeperRecoveryTransport({allowLocalHttp:true})
-      for (const base of [`http://127.0.0.1:${port}`, `http://localhost:${port}`]) {
-        const reply = await local.keeperRecoveryRequest(base+'/v1/prepaid/execution', args)
-        expect(reply.status).toBe(200); expect(new TextDecoder().decode(reply.body)).toBe('{"ok":true}')
-      }
-      // An approved private host name resolving to a non-public address is also permitted.
-      vi.mocked(lookup).mockImplementationOnce(((_host: string, _o: unknown, callback: (e: null, a: {address: string; family: number}[]) => void) =>
-        callback(null, [{address:'127.0.0.1', family:4}])) as unknown as typeof lookup)
-      expect(await createNodeKeeperRecoveryTransport({allowLocalHttp:true, allowedPrivateHosts:['keeper.internal']})
-        .keeperRecoveryRequest(`http://keeper.internal:${port}/v1/prepaid/execution/recover`, args)).toMatchObject({status:200})
-      expect(hits.mock.calls.map(([url, method])=>[url,method])).toEqual([['/v1/prepaid/execution','POST'],['/v1/prepaid/execution','POST'],['/v1/prepaid/execution/recover','POST']])
-      for (const call of hits.mock.calls) {expect(call[2].authorization).toBeUndefined(); expect(call[2].cookie).toBeUndefined()}
-      // Same route checks as HTTPS.
-      for (const path of ['/v1/prepaid/execution/close','/v1/sign','/v1/prepaid/execution?x=1'])
-        expect(()=>local.keeperRecoveryRequest(`http://127.0.0.1:${port}`+path,args)).toThrow(/path/)
-      // Off by default, and never to a public host name or literal.
-      expect(()=>createNodeKeeperRecoveryTransport().keeperRecoveryRequest(`http://127.0.0.1:${port}/v1/prepaid/execution`,args)).toThrow()
-      expect(()=>createNodeKeeperRecoveryTransport({allowedPrivateHosts:['127.0.0.1']}).keeperRecoveryRequest(`http://127.0.0.1:${port}/v1/prepaid/execution`,args)).toThrow()
-      expect(()=>local.keeperRecoveryRequest('http://8.8.8.8/v1/prepaid/execution',args)).toThrow(/HTTPS/)
-      expect(()=>local.keeperRecoveryRequest('http://keeper.example.com/v1/prepaid/execution',args)).toThrow(/HTTPS/)
-      expect(()=>local.keeperRecoveryRequest('http://[2606:4700::1111]/v1/prepaid/execution',args)).toThrow(/HTTPS/)
-      expect(()=>local.keeperRecoveryRequest(`ftp://127.0.0.1:${port}/v1/prepaid/execution`,args)).toThrow()
-      // An approved name whose DNS answer is public is refused for plaintext.
-      vi.mocked(lookup).mockImplementationOnce(((_host: string, _o: unknown, callback: (e: null, a: {address: string; family: number}[]) => void) =>
-        callback(null, [{address:'8.8.8.8', family:4}])) as unknown as typeof lookup)
-      await expect(createNodeKeeperRecoveryTransport({allowLocalHttp:true, allowedPrivateHosts:['keeper.internal']})
-        .keeperRecoveryRequest(`http://keeper.internal:${port}/v1/prepaid/execution`, args)).rejects.toThrow(/DNS answer/)
-      expect(hits).toHaveBeenCalledTimes(3)
-    } finally { plain.closeAllConnections(); await new Promise<void>(resolve => plain.close(() => resolve())) }
-  })
-  it('refuses redirects and oversized recovery replies without a second request', async () => {
-    const hits=vi.fn()
-    const endpoint=await serve((req,res)=>{hits(req.url);req.resume()
-      if(req.url?.endsWith('/recover'))res.writeHead(307,{location:'/v1/sign','content-type':'application/json'})
-      else res.writeHead(200,{'content-type':'application/json'})
-      res.end('{"large":"'+'x'.repeat(200)+'"}')})
-    const transport=createNodeKeeperRecoveryTransport({allowedPrivateHosts:['localhost'],ca})
-    const args={...options(),body:new TextEncoder().encode('{}')}
-    await expect(transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution/recover',args)).rejects.toThrow(/status/)
-    await expect(transport.keeperRecoveryRequest(endpoint+'/v1/prepaid/execution',args)).rejects.toThrow(/large/)
-    expect(hits).toHaveBeenCalledTimes(2)
-  })
   it('measures plaintext readiness and JSON policy only over bounded, approved TLS destinations', async () => {
     const hits = vi.fn()
     const endpoint = await serve((req, res) => {
@@ -116,7 +48,7 @@ describe('service HTTPS destination boundary', () => {
     expect(hits).toHaveBeenCalledTimes(2)
   })
 
-  it('reports status and Retry-After for relay busy refusals and paid agent waits', async () => {
+  it('reports status and Retry-After for relay busy refusals and session control refusals', async () => {
     const endpoint = await serve((req, res) => { req.resume()
       res.writeHead(422, {'content-type': 'application/json', 'retry-after': '3'})
       res.end('{"id":"","state":"rejected","reason":"relayer busy: the request journal is full; retry shortly or submit directly"}') })
@@ -126,10 +58,10 @@ describe('service HTTPS destination boundary', () => {
     expect(JSON.parse(new TextDecoder().decode(reply.body))).toMatchObject({state: 'rejected'})
     // The legacy byte interface is unchanged.
     expect(await relay.relayRequest(endpoint + '/v1/relay/forward', {...options(), maxBytes: 4096, body: new Uint8Array(3)})).toBeInstanceOf(Uint8Array)
-    const agentEndpoint = await serve((req, res) => { req.resume(); res.writeHead(425, {'content-type': 'application/json', 'retry-after': 'nonsense'}); res.end('{}') })
-    const paid = createNodePaidAgentTransport({allowedPrivateHosts: ['localhost'], ca})
-    const wait = await paid.paidAgentRequest(agentEndpoint + '/v1/sessions/' + 'a'.repeat(64), {method: 'GET', bearer: 'b'.repeat(64), maxBytes: 128, signal: new AbortController().signal})
-    expect(wait.status).toBe(425); expect(wait.retryAfterMs).toBeUndefined()
+    const agentEndpoint = await serve((req, res) => { req.resume(); res.writeHead(503, {'content-type': 'application/json', 'retry-after': 'nonsense'}); res.end('{"code":"session_revoke_partial"}') })
+    const agent = createNodeAgentTransport({allowedPrivateHosts: ['localhost'], ca})
+    const wait = await agent.sessionControlRequest(agentEndpoint + '/v1/sessions/revoke', {body: new TextEncoder().encode('{}'), maxBytes: 128, signal: new AbortController().signal})
+    expect(wait.status).toBe(503); expect(wait.retryAfterMs).toBeUndefined()
   })
 
   it.each([200, 202, 422])('bounds relay JSON separately from discovery (HTTP %s)', async status => {
@@ -354,107 +286,70 @@ describe('registered wallet HTTPS transport', () => {
 })
 
 
-describe('paid agent owner-control HTTPS transport', () => {
-  const id = 'ab'.repeat(32), proposal = 'cd'.repeat(32), owner = 'ef'.repeat(32)
-  const session = '/v1/sessions/' + id
-  it('submits OAuth artifacts only on its guarded POST with a separate owner header and preserves HTTP202', async () => {
-    const hits: Array<{authorization?: string; owner?: string; proof?: string; body: string}> = []
-    const endpoint=await serve((req,res)=>{
-      const chunks:Buffer[]=[];req.on('data',(chunk:Buffer)=>chunks.push(chunk));req.on('end',()=>{
-        hits.push({authorization:req.headers.authorization,owner:req.headers['x-poll-secret'] as string|undefined,
-          proof:req.headers.dpop as string|undefined,body:Buffer.concat(chunks).toString()})
-        res.writeHead(202,{'content-type':'application/json'});res.end('{}')
-      })
-    })
-    const t=createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']})
-    const oauth={accessToken:'original.access.token',proof:'original.dpop.proof'}
-    expect((await t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'POST',bearer:owner,oauth})).status).toBe(202)
-    expect(hits).toEqual([{authorization:'DPoP '+oauth.accessToken,owner,proof:oauth.proof,body:''}])
-    for(const path of [session,session+'/execution','/v1/request/'+id,'/v1/sessions']){
-      expect(()=>t.paidAgentRequest(endpoint+path,{...options(),method:'POST',bearer:owner,oauth})).toThrow(/OAuth/)
-    }
-    expect(()=>t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'POST',bearer:owner})).toThrow(/paid agent/)
-    expect(()=>t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'GET',bearer:owner,oauth})).toThrow(/paid agent/)
-    expect(()=>t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'POST',bearer:owner,oauth,body:new Uint8Array()})).toThrow(/paid agent/)
-    for(const artifacts of [{...oauth,accessToken:'token\r\nX-Leak: owner'},{...oauth,proof:'malformed'},
-      {...oauth,accessToken:'x'.repeat(16385)},{...oauth,proof:'x'.repeat(4097)}]){
-      expect(()=>t.paidAgentRequest(endpoint+session+'/oauth-response',{...options(),method:'POST',bearer:owner,oauth:artifacts})).toThrow(/OAuth/)
-    }
-    expect(hits).toHaveLength(1)
-  })
-  it('preserves consent and recovery statuses, sends bodyless POSTs and keeps owners off public routes', async () => {
-    const hits: Array<{path?: string; method?: string; bearer?: string; body: string}> = []
-    let createStatus = 201
-    const endpoint = await serve((req,res) => {
+describe('session control HTTPS transport (refresh and revoke)', () => {
+  const id = 'ab'.repeat(32), secret = 'ef'.repeat(32)
+  const body = new TextEncoder().encode('{"grant":{},"seq":1}')
+  it('sends refresh and revoke as POST with the exact body and no credential header, and preserves their statuses', async () => {
+    const hits: Array<{path?: string; method?: string; authorization?: string; cookie?: string; body: string}> = []
+    const endpoint = await serve((req, res) => {
       const chunks: Buffer[] = []
       req.on('data', (chunk: Buffer) => chunks.push(chunk))
       req.on('end', () => {
-        hits.push({path: req.url, method: req.method, bearer: req.headers.authorization, body: Buffer.concat(chunks).toString()})
-        if (req.url?.endsWith('/approve')) {res.writeHead(204); res.end(); return}
-        const status = req.url === '/v1/sessions' ? createStatus : req.url?.startsWith('/v1/request/') ? 425 : req.url?.endsWith('/resume') ? 503 : 200
-        res.writeHead(status, {'content-type': 'application/json'}); res.end('{}')
+        hits.push({path: req.url, method: req.method, authorization: req.headers.authorization, cookie: req.headers.cookie, body: Buffer.concat(chunks).toString()})
+        if (req.url?.endsWith('/revoke')) { res.writeHead(204); res.end(); return }
+        res.writeHead(409, {'content-type': 'application/json', 'retry-after': '2'}); res.end('{"code":"session_context_changed"}')
       })
     })
-    const transport = createNodePaidAgentTransport({ca, allowedPrivateHosts: ['localhost']})
-    const body = new TextEncoder().encode('{"client":"public consent"}')
-    for (const status of [201,200]) {
-      createStatus = status
-      expect((await transport.paidAgentRequest(endpoint+'/v1/sessions',{...options(),method:'POST',body})).status).toBe(status)
-    }
-    const request = await transport.paidAgentRequest(endpoint+'/v1/request/'+id,{...options(),method:'GET'})
-    expect(request.status).toBe(425)
-    expect(new TextDecoder().decode(request.body)).toBe('{}')
-    const approved = await transport.paidAgentRequest(endpoint+session+'/execution/'+proposal+'/approve',{...options(),method:'POST',bearer:owner,body})
-    expect(approved.status).toBe(204); expect(approved.body.length).toBe(0)
-    expect((await transport.paidAgentRequest(endpoint+session+'/presentations/'+proposal+'/resume',{...options(),method:'POST',bearer:owner})).status).toBe(503)
-    expect(hits.map(h=>h.bearer)).toEqual([undefined,undefined,undefined,'Bearer '+owner,'Bearer '+owner])
-    expect(hits.at(-1)?.method).toBe('POST'); expect(hits.at(-1)?.body).toBe('')
-    expect(hits).toHaveLength(5) // no automatic resend after an unknown delivery
+    const t = createNodeAgentTransport({ca, allowedPrivateHosts: ['localhost']})
+    const refused = await t.sessionControlRequest(endpoint + '/v1/sessions/refresh', {...options(), body})
+    expect(refused).toMatchObject({status: 409, retryAfterMs: 2000})
+    expect(JSON.parse(new TextDecoder().decode(refused.body))).toEqual({code: 'session_context_changed'})
+    const revoked = await t.sessionControlRequest(endpoint + '/v1/sessions/revoke', {...options(), body})
+    expect(revoked.status).toBe(204); expect(revoked.body.length).toBe(0)
+    expect(hits).toEqual(['/v1/sessions/refresh', '/v1/sessions/revoke'].map(path => ({path, method: 'POST', authorization: undefined, cookie: undefined, body: '{"grant":{},"seq":1}'})))
   })
-  it('refuses wrong paths, methods, bodies and owner-bearer disclosure before connecting', async () => {
+  it('refuses every other route, a bodyless request and an oversized body before connecting', async () => {
     const hits = vi.fn()
-    const endpoint = await serve((_req,res) => {hits();res.end('{}')})
-    const t = createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']})
-    const body = new TextEncoder().encode('{}')
-    for (const [path,method,secret,bytes] of [
-      [session+'/execution','GET',undefined,undefined],
-      ['/v1/sessions','POST',owner,body],
-      ['/v1/request/'+id,'GET',owner,undefined],
-      [session+'/execution','POST',owner,body],
-      [session+'/execution/'+proposal+'/approve','GET',owner,body],
-      [session+'/execution/'+proposal+'/approve','POST',owner,undefined],
-      [session+'/execution/'+proposal+'/reject','POST',owner,body],
-      [session+'/presentations/'+proposal+'/resume','GET',owner,undefined],
-      [session+'/presentations/'+proposal+'/resume','POST','wrong',undefined],
-      [session+'/execution?elsewhere=1','GET',owner,undefined],
-      [session+'/../execution','GET',owner,undefined],
-    ] as const) {
-      expect(()=>t.paidAgentRequest(endpoint+path,{...options(),method,bearer:secret,body:bytes})).toThrow(/paid agent/)
+    const endpoint = await serve((_req, res) => { hits(); res.end('{}') })
+    const t = createNodeAgentTransport({ca, allowedPrivateHosts: ['localhost']})
+    // Creation, polling and every retired owner-control or payment route are outside session control.
+    for (const path of ['/v1/sessions', '/v1/sessions/' + id, '/v1/sessions/' + id + '/execution', '/v1/sessions/' + id + '/execution/approve',
+      '/v1/sessions/' + id + '/presentations', '/v1/sessions/' + id + '/oauth-response', '/v1/request/' + id, '/v1/prepaid/execution', '/v1/sessions/refresh?x=1', '/v1/sessions/../sessions/refresh']) {
+      expect(() => t.sessionControlRequest(endpoint + path, {...options(), body})).toThrow(/session control/)
     }
+    expect(() => t.sessionControlRequest(endpoint + '/v1/sessions/refresh', {...options(), body: new Uint8Array(65_537)})).toThrow(/bounds/)
+    expect(() => t.sessionControlRequest(endpoint + '/v1/sessions/refresh', {...options(), body: undefined as unknown as Uint8Array})).toThrow()
+    // The poll secret travels only on a session GET through the agent route, never through session control.
+    expect(() => t.agentRequest(endpoint + '/v1/sessions/refresh', {...options(), bearer: secret})).toThrow(/agent path/)
     expect(hits).not.toHaveBeenCalled()
   })
-  it('applies private-address, TLS and redirect refusal to owner controls', async () => {
+  it('applies private-address, TLS and redirect refusal to session control', async () => {
     const hits = vi.fn()
-    const endpoint = await serve((req,res) => {hits(req.headers.authorization);req.resume();res.writeHead(307,{'content-type':'application/json',location:'https://other.example/secret'});res.end('{}')})
-    const opts = {...options(),method:'GET' as const,bearer:owner}
-    await expect(createNodePaidAgentTransport({ca}).paidAgentRequest(endpoint+session+'/execution',opts)).rejects.toThrow(/destination policy/)
-    await expect(createNodePaidAgentTransport({allowedPrivateHosts:['localhost']}).paidAgentRequest(endpoint+session+'/execution',opts)).rejects.toThrow()
+    const endpoint = await serve((req, res) => { hits(); req.resume(); res.writeHead(307, {'content-type': 'application/json', location: 'https://other.example/secret'}); res.end('{}') })
+    const opts = {...options(), body}
+    await expect(createNodeAgentTransport({ca}).sessionControlRequest(endpoint + '/v1/sessions/refresh', opts)).rejects.toThrow(/destination policy/)
+    await expect(createNodeAgentTransport({allowedPrivateHosts: ['localhost']}).sessionControlRequest(endpoint + '/v1/sessions/refresh', opts)).rejects.toThrow()
     expect(hits).not.toHaveBeenCalled()
-    await expect(createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']}).paidAgentRequest(endpoint+session+'/execution',opts)).rejects.toThrow(/status/)
-    expect(hits).toHaveBeenCalledExactlyOnceWith('Bearer '+owner)
+    await expect(createNodeAgentTransport({ca, allowedPrivateHosts: ['localhost']}).sessionControlRequest(endpoint + '/v1/sessions/refresh', opts)).rejects.toThrow(/status/)
+    expect(hits).toHaveBeenCalledTimes(1)
+    expect(() => createNodeAgentTransport({ca, allowedPrivateHosts: ['localhost']}).sessionControlRequest(endpoint.replace('https:', 'http:') + '/v1/sessions/refresh', opts)).toThrow()
   })
-  it('bounds chunked proposals and rejects a JSON success in place of the signed request object', async () => {
-    const endpoint = await serve((req,res) => {req.resume();res.writeHead(200,{'content-type':'application/json'});res.end('x'.repeat(129))})
-    const t = createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']})
-    await expect(t.paidAgentRequest(endpoint+session+'/execution',{...options(),method:'GET',bearer:owner})).rejects.toThrow(/too large/)
-    await expect(t.paidAgentRequest(endpoint+'/v1/request/'+id,{...options(),method:'GET'})).rejects.toThrow(/content type/)
+  it('bounds the reply and refuses a non-JSON success', async () => {
+    let mode: 'large' | 'html' = 'large'
+    const endpoint = await serve((req, res) => { req.resume()
+      if (mode === 'large') { res.writeHead(200, {'content-type': 'application/json'}); res.end('x'.repeat(129)) }
+      else { res.writeHead(200, {'content-type': 'text/html'}); res.end('<html>') } })
+    const t = createNodeAgentTransport({ca, allowedPrivateHosts: ['localhost']})
+    await expect(t.sessionControlRequest(endpoint + '/v1/sessions/refresh', {...options(), body})).rejects.toThrow(/too large/)
+    mode = 'html'
+    await expect(t.sessionControlRequest(endpoint + '/v1/sessions/refresh', {...options(), body})).rejects.toThrow(/content type/)
   })
-  it('cancels an owner control without retrying its POST', async () => {
+  it('cancels a control request without retrying its POST', async () => {
     const hits = vi.fn()
-    const endpoint = await serve(req => {hits();req.resume()})
-    const t = createNodePaidAgentTransport({ca,allowedPrivateHosts:['localhost']})
+    const endpoint = await serve(req => { hits(); req.resume() })
+    const t = createNodeAgentTransport({ca, allowedPrivateHosts: ['localhost']})
     const controller = new AbortController()
-    const pending = t.paidAgentRequest(endpoint+session+'/execution/'+proposal+'/reject',{...options(),method:'POST',bearer:owner,signal:controller.signal})
+    const pending = t.sessionControlRequest(endpoint + '/v1/sessions/revoke', {...options(), body, signal: controller.signal})
     const failed = expect(pending).rejects.toThrow()
     controller.abort(); await failed
     expect(hits.mock.calls.length).toBeLessThanOrEqual(1)

@@ -1,4 +1,4 @@
-// Block-pinned contract reads on the paid operation path, with fewer requests and the same answers.
+// Block-pinned contract reads, with fewer requests and the same answers.
 //
 // Every read here is an `eth_call` at one block HASH with `requireCanonical: true` (EIP-1898).
 // viem's own call batching cannot carry that: `call()` skips its Multicall3 scheduler whenever a
@@ -14,7 +14,7 @@
 //   item of it are read again individually, exactly as before, so a revert or RPC error surfaces
 //   with the same type and message as an unbatched read.
 // - Results of registry reads at a block the client has confirmed FINALIZED are kept in a short,
-//   bounded per-client cache. Errors, empty responses, `latest` reads, reservation reads and
+//   bounded per-client cache. Errors, empty responses, `latest` reads and
 //   freshness rechecks are never cached; only finalized-pinned registry reads come here.
 
 import {headFollowerOf} from './headFollower.js'
