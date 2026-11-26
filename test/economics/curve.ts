@@ -16,7 +16,7 @@ import {createTasraWriteClient, generateClientKey} from '../../src/chain/write.t
 import {bondingCurveAbi} from '../../src/chain/abis/bondingCurve.ts'
 import {mockEurcAbi} from '../../src/chain/abis/mockEurc.ts'
 import {createFileStore} from '../../src/app/node.ts'
-import {localPrepaidSettings} from '../fleet/_prepaid-funding.ts'
+import {localFleetSettings} from '../fleet/_wallet-settings.ts'
 import {isNotOperatorRevert} from '../fleet/_production-refusals.ts'
 
 const cfg = loadFleetConfig()
@@ -29,7 +29,7 @@ if (!(await gate(s, cfg))) {
 
 const curve = cfg.raw.BONDING_CURVE as `0x${string}`
 const eurc = cfg.raw.EURC as `0x${string}`
-const settings = localPrepaidSettings(cfg), privateKey = generateClientKey()
+const settings = localFleetSettings(cfg), privateKey = generateClientKey()
 const chain = defineChain({id: 43112, name: 'Local Avalanche', nativeCurrency: {name: 'AVAX', symbol: 'AVAX', decimals: 18},
   rpcUrls: {default: {http: [cfg.rpcUrl]}}})
 const wallet = (key: Hex) => createWalletClient({account: privateKeyToAccount(key), chain,

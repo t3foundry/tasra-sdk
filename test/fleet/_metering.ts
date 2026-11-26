@@ -6,7 +6,7 @@ import {ed25519} from '@noble/curves/ed25519'
 import {concatHex, createPublicClient, http, keccak256, toHex, type Hex} from 'viem'
 import {nodeRegistryAbi} from '../../src/chain/abis/nodeRegistry.ts'
 import type {FleetConfig} from './_fleet.ts'
-import {localPrepaidSettings} from './_prepaid-funding.ts'
+import {localFleetSettings} from './_wallet-settings.ts'
 
 export interface MeteringIdentity {chainId: number; nodeRegistry: Hex; operator: Hex; seed: Hex}
 export interface MeteringReply {total: number; by_subject: Array<{subject: string; count: number}>}
@@ -46,7 +46,7 @@ export function meteringHeaders(seed: Hex, slot: Hex, issuedAt: number): Record<
 }
 
 export async function readAccountantMetering(cfg: FleetConfig, nodeUrl: string, slot: Hex): Promise<MeteringReply> {
-  localPrepaidSettings(cfg)
+  localFleetSettings(cfg)
   const url = new URL(nodeUrl)
   assert(['http:', 'https:'].includes(url.protocol) && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
     && !url.username && !url.password && !url.search && !url.hash, 'Metering fixture requires an explicit local keeper route')

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {constants, openSync, fstatSync, readFileSync, closeSync, realpathSync} from 'node:fs'
 import {join} from 'node:path'
 
-export function fixturePaymentTtlSeconds(cfg: {chainId: number; raw: Record<string, string>}, explicit?: number): number {
+export function fixtureOperationTtlSeconds(cfg: {chainId: number; raw: Record<string, string>}, explicit?: number): number {
   const profile = cfg.raw.CERTIFY_TIMING_PROFILE ?? 'reference'
   assert(profile === 'reference' || profile === 'hourly-v1', 'Unknown certification timing profile')
   let fallback = 600
@@ -20,7 +20,7 @@ export function fixturePaymentTtlSeconds(cfg: {chainId: number; raw: Record<stri
       assert(stat.isFile() && stat.size > 0 && stat.size <= 64, 'Compressed fixture claim must be bounded')
       assert.equal(readFileSync(fd, 'utf8').trim(), instance, 'Compressed fixture checkout belongs to another instance')
     } finally { closeSync(fd) }
-    const raw = cfg.raw.KK_PREPAID_EXPIRES_IN_SECS ?? '60'
+    const raw = cfg.raw.KK_WALLET_EXPIRES_IN_SECS ?? '60'
     assert(/^[1-9][0-9]{1,2}$/.test(raw), 'Compressed fixture lifetime must be an integer')
     fallback = Number(raw)
     assert(fallback >= 60 && fallback <= 240, 'Compressed fixture lifetime must be 60..240 seconds')
@@ -28,6 +28,6 @@ export function fixturePaymentTtlSeconds(cfg: {chainId: number; raw: Record<stri
   // Explicit lifetimes belong to the original test's boundary conditions and
   // are never shortened after selection or after any request has been signed.
   const ttl = explicit ?? fallback
-  assert(Number.isSafeInteger(ttl) && ttl > 0 && ttl <= 3600, 'Original payment expiry must be bounded')
+  assert(Number.isSafeInteger(ttl) && ttl > 0 && ttl <= 3600, 'Original operation expiry must be bounded')
   return ttl
 }

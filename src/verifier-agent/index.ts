@@ -17,15 +17,16 @@ import {sha256} from '@noble/hashes/sha256'
 import {bytesToHex} from '@noble/hashes/utils'
 import {TasraError} from '../errors.js'
 import {dpopHtu, platformAudience} from '../committee/oauth.js'
-import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
-import {sessionPaymentFields} from './payment.js'
 import {assertStatusAttestationsWire} from '../committee/token.js'
-import type {SessionGrantWire} from '../committee/session-grant.js'
+import {MAX_SESSION_SLOTS, parseSessionKeyJwk, type SessionGrantRequestWire, type SessionGrantWire} from '../committee/session-grant.js'
 
-/** The operation the holder is authorizing - signed by the creator's EIP-712 key. */
 import type {DpopSigner} from '../auth/dpop.js'
 
-/** Operation details signed by a slot creator or delegate for credential authorization. */
+/**
+ * Operation details signed (EIP-712) by the key that opens the session: the slot creator, a
+ * creator-signed delegate, or any other key (an open request: the slot's rule decides, and the
+ * verifiers meter the signer's own quota).
+ */
 export interface PresentationOperation {
   /** EVM chain identifier. */
   chain_id: number
@@ -63,10 +64,12 @@ export interface PresentationDelegation {
 export interface CreateSessionParams {
   /** Public decryption binding committed by the signed operation; never include private recipient material. */
   decryption?: DecryptionBindingWire
-  /** Creator-signed intent for an already reserved TASRA payment. Requires random. */
-  payment?: PaymentIntentWire
-  /** Fixed 32-byte hex presentation random committed before reservation. */
-  random?: string
+  /**
+   * Session mode (KEM `decrypt` only): also open a refreshable session grant for this FRESH public
+   * session key (`sessionGrantCreateFragment`). The presentation nonce then binds the key's
+   * RFC 7638 thumbprint; the grant arrives on the poll (`SessionStatusResult.sessionGrant`).
+   */
+  sessionGrant?: SessionGrantRequestWire
   /** Signed operation details presented for authorization. */
   operation: PresentationOperation
   /** 0x-hex 65-byte EIP-712 signature over the operation */
@@ -87,6 +90,68 @@ export interface CreateSessionResult {
   qrPayload: string
   /** URL from which the wallet retrieves the signed request. */
   requestUri: string
+  /** Session mode: the granted (clamped) session parameters the agent answered at creation. */
+  sessionGrantParams?: SessionGrantParamsReply
+}
+
+/** The clamped session-grant parameters of a creation reply (`session_grant_params`). */
+export interface SessionGrantParamsReply {
+  /** Lowercase 0x-prefixed 32-byte id of the session the grant will name. */
+  sessionId: string
+  /** The requested slots, lowercase and ascending. */
+  slots: string[]
+  /** The lifetimes as requested, in seconds. */
+  requested: {accessTtlSecs: number; idleTimeoutSecs: number; absoluteTtlSecs: number}
+  /** The lifetimes the platform granted, each at most the request. */
+  granted: {accessTtlSecs: number; idleTimeoutSecs: number; absoluteTtlSecs: number}
+}
+
+const HEX32_LOWER = /^0x[0-9a-f]{64}$/
+const GRANT_FIELDS = ['access_ttl_secs', 'idle_timeout_secs', 'absolute_ttl_secs'] as const
+
+/**
+ * Validate a session-mode request before anything is signed or sent: KEM decrypt only, a public
+ * key, 1..16 distinct 32-byte slots naming the presentation's own slot, positive whole-second
+ * lifetimes. Returns the canonical form the create body carries (slots lowercase and ascending,
+ * the key re-encoded with exactly its RFC 7638 members), or undefined without a request.
+ * @param params - Session creation parameters.
+ */
+export function sessionGrantRequest(params: Pick<CreateSessionParams, 'operation' | 'sessionGrant'>): SessionGrantRequestWire | undefined {
+  const r = params.sessionGrant
+  if (r === undefined) return undefined
+  if (params.operation.action !== 'decrypt') throw new Error('A session grant opens only from a KEM decrypt presentation')
+  if (!r || typeof r !== 'object' || Object.keys(r).some(k => !['session_key', 'slots', ...GRANT_FIELDS].includes(k))) throw new Error('Invalid session grant request')
+  const slots = Array.isArray(r.slots) ? r.slots.map(s => typeof s === 'string' ? s.toLowerCase() : '') : []
+  if (slots.length < 1 || slots.length > MAX_SESSION_SLOTS || new Set(slots).size !== slots.length || slots.some(s => !HEX32_LOWER.test(s))
+    || !slots.includes(params.operation.slot_id.toLowerCase())) throw new Error(`A session grant names 1..${MAX_SESSION_SLOTS} distinct slots, including the presentation slot`)
+  for (const field of GRANT_FIELDS) if (!Number.isSafeInteger(r[field]) || r[field] < 1) throw new Error('Session grant lifetimes must be positive whole seconds')
+  return {session_key: parseSessionKeyJwk(r.session_key), slots: slots.sort(), access_ttl_secs: r.access_ttl_secs, idle_timeout_secs: r.idle_timeout_secs, absolute_ttl_secs: r.absolute_ttl_secs}
+}
+
+/**
+ * Check a creation reply's `session_grant_params` against the request: present exactly when a
+ * grant was requested, the requested slots and values echoed, each granted value at most the request.
+ * @param value - Untrusted `session_grant_params` reply value.
+ * @param request - The canonical request sent ({@link sessionGrantRequest}).
+ */
+export function checkSessionGrantParams(value: unknown, request: SessionGrantRequestWire | undefined): SessionGrantParamsReply | undefined {
+  if (!request) {
+    if (value != null) throw new Error('Session creation reply opened a session grant that was never requested')
+    return undefined
+  }
+  const changed = () => new Error('Session creation reply changed the requested session grant')
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw changed()
+  const g = value as Record<string, unknown>
+  if (Object.keys(g).length !== 4 || typeof g.session_id !== 'string' || !HEX32_LOWER.test(g.session_id) || !Array.isArray(g.slots)
+    || g.slots.length !== request.slots.length || g.slots.some((s, i) => s !== request.slots[i])
+    || !g.requested || typeof g.requested !== 'object' || !g.granted || typeof g.granted !== 'object') throw changed()
+  const requested = g.requested as Record<string, unknown>, granted = g.granted as Record<string, unknown>
+  for (const field of GRANT_FIELDS) {
+    const v = granted[field]
+    if (requested[field] !== request[field] || typeof v !== 'number' || !Number.isSafeInteger(v) || v < 1 || v > request[field]) throw changed()
+  }
+  const secs = (o: Record<string, unknown>) => ({accessTtlSecs: o.access_ttl_secs as number, idleTimeoutSecs: o.idle_timeout_secs as number, absoluteTtlSecs: o.absolute_ttl_secs as number})
+  return {sessionId: g.session_id, slots: [...request.slots], requested: secs(requested), granted: secs(granted)}
 }
 
 /** an `oauth` session - the client brings a DPoP-bound access token. */
@@ -101,6 +166,8 @@ export interface CreateOauthSessionResult {
   dpopHtu: string
   /** Audience the identity provider must include in the access token for this platform. */
   platformAudience: string
+  /** Session mode: the granted (clamped) session parameters the agent answered at creation. */
+  sessionGrantParams?: SessionGrantParamsReply
 }
 
 /** Displayable authorization progress. A done phase means the committee answered; it does not mean the requested signing or decryption operation executed. */
@@ -124,8 +191,10 @@ export interface SessionStatusResult {
   /** Optional failure detail reported by the verifier agent. */
   error?: string
   /**
-   * Session mode, once `done`: the grant the paid session client verified against the
-   * anchored draw (`refresh_seq` 0), or why none came with the token. Absent otherwise.
+   * Session mode, once `done`: the quorum-signed grant as the agent returned it (`refresh_seq`
+   * 0), or the agent's `session_*` code saying why none came with the token. UNVERIFIED here:
+   * hand `grant` to `acceptSessionGrant`, which checks it against the request, the session key
+   * and each slot's anchored committee before anything uses it. Absent otherwise.
    */
   sessionGrant?: {grant?: {session_grant: SessionGrantWire; refresh_seq: 0}; error?: string}
 }
@@ -186,6 +255,8 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
   // Reference-side optional fields are serialized as null for non-IBE operations. Normalize
   // absence before consumers decode the token; never replace it with a zero hash.
   for (const key of ['identity_hash', 'request_hash', 'payment_hash', 'payment', 'status_attestations', 'evidence_hash', 'evidence_key_id', 'evidence_signatures'] as const) if (t[key] === null) delete t[key]
+  // The network bills metered only: a token naming a payment is not one this SDK can have asked for.
+  if (t.payment_hash !== undefined || t.payment !== undefined) bad('carries an unexpected payment')
   for (const k of ['seed', 'slot_id', 'vp_hash', 'holder_hash', 'rule_hash'] as const) {
     if (typeof t[k] !== 'string' || !HEX32.test(t[k] as string)) bad(`${k} is not a 32-byte hex string`)
   }
@@ -196,13 +267,6 @@ export function assertCompoundTokenWire(raw: unknown, correlation: string): Reco
   if ((t.exp as number) <= (t.iat as number)) bad('exp is not after iat')
   if (t.request_hash !== undefined && (typeof t.request_hash !== 'string' || !HEX32.test(t.request_hash))) bad('request_hash is not a 32-byte hex string')
   if (t.identity_hash !== undefined && (typeof t.identity_hash !== 'string' || !HEX32.test(t.identity_hash))) bad('identity_hash is not a 32-byte hex string')
-  if (t.payment_hash !== undefined && (typeof t.payment_hash !== 'string' || !HEX32.test(t.payment_hash))) bad('payment_hash is not a 32-byte hex string')
-  if (t.payment !== undefined) {
-    try {
-      assertPaymentIntentWire(t.payment)
-      if (paymentIntentHash(t.payment).toLowerCase() !== (typeof t.payment_hash === 'string' ? t.payment_hash.toLowerCase() : undefined)) bad('payment preimage differs from payment_hash')
-    } catch { bad('invalid payment preimage or commitment') }
-  }
   if (t.binding !== undefined && !['unbound', 'holder_key', 'issuer_asserted'].includes(t.binding as string)) bad('binding is not a known strength')
   if (!Array.isArray(t.verifier_indexes) || !t.verifier_indexes.every(i => Number.isInteger(i) && (i as number) >= 0)) bad('verifier_indexes is not an index list')
   if (!Array.isArray(t.signatures) || t.signatures.length === 0) bad('signatures missing')
@@ -274,16 +338,17 @@ export async function createOid4vpSession(
   params: CreateSessionParams,
 ): Promise<CreateSessionResult> {
   const url = `${verifierAgentUrl.replace(/\/$/, '')}/v1/sessions`
+  const grantRequest = sessionGrantRequest(params)
   const resp = await fetch(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
-      ...sessionPaymentFields(params),
       operation: params.operation,
       operation_sig: params.operationSig,
       delegation: params.delegation,
       message_hex: params.messageHex,
       decryption:params.decryption,
+      ...(grantRequest ? {session_grant: grantRequest} : {}),
     }),
   })
   if (!resp.ok) {
@@ -295,11 +360,13 @@ export async function createOid4vpSession(
     if (typeof data[k] !== 'string' || !(data[k] as string)) throw new Error(`createOid4vpSession: reply lacks ${k}`)
   }
   if (!(data.qr_payload as string).startsWith('openid4vp://')) throw new Error('createOid4vpSession: qr_payload is not an openid4vp:// request')
+  const sessionGrantParams = checkSessionGrantParams(data.session_grant_params, grantRequest)
   return {
     sessionId: data.session_id as string,
     pollSecret: data.poll_secret as string,
     qrPayload: data.qr_payload as string,
     requestUri: data.request_uri as string,
+    ...(sessionGrantParams ? {sessionGrantParams} : {}),
   }
 }
 
@@ -316,16 +383,18 @@ export async function createOauthSession(
   params: CreateSessionParams,
 ): Promise<CreateOauthSessionResult> {
   const url = `${verifierAgentUrl.replace(/\/$/, '')}/v1/sessions`
+  const grantRequest = sessionGrantRequest(params)
   const resp = await fetch(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
-      ...sessionPaymentFields(params),
       operation: params.operation,
       operation_sig: params.operationSig,
       delegation: params.delegation,
       message_hex: params.messageHex,
+      ...(params.decryption ? {decryption: params.decryption} : {}),
       kind: 'oauth',
+      ...(grantRequest ? {session_grant: grantRequest} : {}),
     }),
   })
   if (!resp.ok) {
@@ -351,12 +420,14 @@ export async function createOauthSession(
       || data.platform_audience !== platformAudience(verifierAgentUrl, params.operation.chain_id)) {
     throw new Error('createOauthSession: reply changed the original session target or audience')
   }
+  const sessionGrantParams = checkSessionGrantParams(data.session_grant_params, grantRequest)
   return {
     sessionId: data.session_id as string,
     pollSecret: data.poll_secret as string,
     nonce: data.nonce as string,
     dpopHtu: data.dpop_htu,
     platformAudience: data.platform_audience,
+    ...(sessionGrantParams ? {sessionGrantParams} : {}),
   }
 }
 
@@ -554,8 +625,24 @@ export function parseVerifierAgentSessionStatus(data: Record<string, unknown>, s
     if (data.compound_token != null) evidenceCt = evidenceBody(assertCompoundTokenWire(data.compound_token, sessionId) as unknown as Parameters<typeof evidenceBody>[0], data.evidence_ct == null ? undefined : data.evidence_ct as string).evidence_ct
     else if (data.evidence_ct != null) throw new Error('ciphertext without a token')
   } catch { throw new VerifierAgentSessionError('protocol', sessionId, 'poll: invalid sealed evidence') }
+  // Session mode: only a completed session carries a grant (or the code saying why it has none).
+  let sessionGrant: SessionStatusResult['sessionGrant']
+  if (data.session_grant != null || data.refresh_seq != null || data.session_grant_error != null) {
+    if (status !== 'done') throw new VerifierAgentSessionError('protocol', sessionId, 'poll: a session grant on a session that is not done')
+    if (data.session_grant != null) {
+      if (typeof data.session_grant !== 'object' || Array.isArray(data.session_grant) || data.refresh_seq !== 0 || data.session_grant_error != null) {
+        throw new VerifierAgentSessionError('protocol', sessionId, 'poll: an opening session grant answers refresh seq 0 and no error')
+      }
+      sessionGrant = {grant: {session_grant: structuredClone(data.session_grant) as SessionGrantWire, refresh_seq: 0}}
+    } else {
+      if (data.refresh_seq != null) throw new VerifierAgentSessionError('protocol', sessionId, 'poll: a refresh seq without a session grant')
+      const code = data.session_grant_error
+      sessionGrant = {error: typeof code === 'string' && /^session_[a-z_]{1,48}$/.test(code) ? code : 'session_grant_missing'}
+    }
+  }
   return {
     ...(evidenceCt !== undefined ? {evidenceCt} : {}),
+    ...(sessionGrant ? {sessionGrant} : {}),
     status,
     phase,
     compoundToken: (data.compound_token ?? undefined) as Record<string, unknown> | undefined,

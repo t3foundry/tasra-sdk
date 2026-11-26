@@ -1,106 +1,75 @@
-// Certification-only: preserve independent accountant evidence before fleet destruction.
+// Certification-only: every metered settlement window of the workload names who was paid.
+//
+// A window is settled one of three ways, each leaving canonical evidence on chain:
+//   - a pushed bundle: `BundleSettled(slot, nonce, recipients[], amounts[])`, whose amounts are
+//     credited to the recipients in the same transaction and sum to the window's `Settled.totalPaid`;
+//   - a per-slot claim root: `BundleRootSettled(slot, nonce, root, total)`;
+//   - a consolidated batch: `ConsolidatedSettled(batchId, root, total, coveredCount)` in the same
+//     transaction as the slot's `SettlementWindow`.
+// Anything else (a window without recipient evidence, a bundle that pays more or less than the
+// slot was charged, a zero claim root) fails the gate.
 import assert from 'node:assert/strict'
-import {execFileSync} from 'node:child_process'
-import {createHash} from 'node:crypto'
-import {closeSync, fsyncSync, lstatSync, openSync, readFileSync, readdirSync, writeFileSync} from 'node:fs'
-import {dirname, join, relative} from 'node:path'
-import {createPublicClient, http, parseAbiItem} from 'viem'
-import type {PaidReservationRecord} from '../../src/chain/reservation.ts'
-import type {FleetConfig} from '../fleet/_fleet.ts'
-import {resolveFleetScope} from './_fleet-scope.ts'
+import {closeSync, fsyncSync, openSync, writeFileSync} from 'node:fs'
+import {dirname} from 'node:path'
+import type {Address, Hex} from 'viem'
 
-export const RECIPIENT_FEE_TIMEOUT_MS = 300_000
-const hex32 = /^0x[0-9a-f]{64}$/i
-const json = (value: unknown) => JSON.stringify(value, (_key, v) => typeof v === 'bigint' ? v.toString() : v, 2) + '\n'
+const json = (value: unknown) => JSON.stringify(value, (_key, v: unknown) => typeof v === 'bigint' ? v.toString() : v, 2) + '\n'
+/** Write private evidence once (never overwritten), flushed with its directory. */
 export function saveCertificationEvidence(file: string, value: unknown) {
   const fd = openSync(file, 'wx', 0o600)
   try {writeFileSync(fd, json(value)); fsyncSync(fd)} finally {closeSync(fd)}
   const parent = openSync(dirname(file), 'r'); try {fsyncSync(parent)} finally {closeSync(parent)}
 }
-const save = saveCertificationEvidence
 
-/** Successful helper exit alone is insufficient: every original batch needs retained evidence. */
-export function requireRecipientCoverage(witness: unknown, proof: unknown, records: PaidReservationRecord[]) {
-  const w = witness as {chain_id: number; slot: string; requests: Array<{id: string; settled: boolean; events: Array<{batch_id: string; transaction_hash: string}>}>}
-  const p = proof as {schema: number; chain_id: number; slot: string; verified: Array<{batch_id: string; transaction_hash: string; archive: string; fees: string}>}
-  assert.equal(w.chain_id, 43112); assert.equal(p.schema, 1); assert.equal(p.chain_id, 43112)
-  assert.equal(w.slot, records[0]!.payment.slot.toLowerCase()); assert.equal(p.slot, w.slot)
-  assert.deepEqual(w.requests.map(r => r.id.toLowerCase()).sort(), records.map(r => r.requestId.toLowerCase()).sort(), 'Recipient proof omitted or substituted an original')
-  const expected = new Map<string, string>()
-  for (const request of w.requests) {
-    assert.equal(request.settled, true); assert.equal(request.events.length, 1)
-    const event = request.events[0]!
-    assert.match(event.batch_id, hex32); assert.match(event.transaction_hash, hex32)
-    const batch = event.batch_id.toLowerCase(), tx = event.transaction_hash.toLowerCase()
-    if (expected.has(batch)) assert.equal(expected.get(batch), tx)
-    expected.set(batch, tx)
-  }
-  assert.equal(p.verified.length, expected.size, 'Every original batch needs recipient evidence')
+const ZERO32 = `0x${'00'.repeat(32)}`
+const key = (slot: Hex, nonce: bigint) => `${slot.toLowerCase()}|${nonce}`
+
+/** One settlement window of a slot, as `SettlementWindow` logged it. */
+export interface WindowEvent {slot: Hex; nonce: bigint; baseNonce: bigint; transactionHash: Hex}
+/** A pushed bundle with the amount the slot was charged for it (`Settled.totalPaid` of the same transaction). */
+export interface BundleEvent {slot: Hex; nonce: bigint; recipients: readonly Address[]; amounts: readonly bigint[]; totalPaid: bigint; transactionHash: Hex}
+/** A per-slot claim root. */
+export interface RootEvent {slot: Hex; nonce: bigint; root: Hex; total: bigint; transactionHash: Hex}
+/** A consolidated batch. */
+export interface ConsolidatedEvent {batchId: Hex; root: Hex; total: bigint; coveredCount: bigint; transactionHash: Hex}
+export interface RecipientEvidence {windows: WindowEvent[]; bundles: BundleEvent[]; roots: RootEvent[]; consolidated: ConsolidatedEvent[]}
+
+/**
+ * Every window has exactly one kind of recipient evidence, and that evidence is consistent.
+ * Returns, per window, how it was settled and (where the chain states it) what the slot was charged.
+ */
+export function requireRecipientCoverage(evidence: RecipientEvidence): Array<{slot: Hex; nonce: bigint; kind: 'bundle' | 'root' | 'consolidated'; charged?: bigint}> {
+  const {windows, bundles, roots, consolidated} = evidence
+  assert(windows.length <= 4096, 'Unbounded settlement window evidence')
   const seen = new Set<string>()
-  for (const item of p.verified) {
-    const batch = item.batch_id.toLowerCase()
-    assert(!seen.has(batch), 'Duplicate recipient proof'); seen.add(batch)
-    assert.equal(expected.get(batch), item.transaction_hash.toLowerCase(), 'Recipient proof changed the canonical transaction')
-    assert.equal(typeof item.archive, 'string'); assert.equal(typeof item.fees, 'string')
-  }
-}
-
-export async function retainRecipientFees(cfg: FleetConfig, records: PaidReservationRecord[], output: string,
-  networkRoot: string, sdkRoot: string, chainEnv: string) {
-  assert(records.length > 0 && records.length <= 256)
-  const scope = resolveFleetScope(networkRoot)
-  const settlement = cfg.book.Settlement
-  assert(settlement)
-  const client = createPublicClient({transport: http(cfg.rpcUrl, {retryCount: 0, timeout: 15_000, fetchOptions: {redirect: 'error'}})})
-  assert.equal(await client.getChainId(), 43112, 'Recipient proof refuses official networks')
-  const deadline = Date.now() + RECIPIENT_FEE_TIMEOUT_MS
-  const run = (name: string, helper: string, args: string[]) => {
-    const remaining = deadline - Date.now(); assert(remaining > 0, 'Recipient evidence deadline elapsed; retain fleet')
-    try {
-      const stdout = execFileSync(process.execPath, [join(scope.root, 'lab/e2e/checks', helper), ...args],
-        {cwd: scope.root, timeout: remaining, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe']})
-      writeFileSync(join(output, name + '.log'), stdout, {flag: 'wx', mode: 0o600})
-    } catch { throw new Error('Independent recipient fee verification failed; retain fleet and private originals') }
-  }
-  const tickets = new Map<string, string>()
-  for (const record of records) {
-    assert.match(record.requestId, hex32); assert(!tickets.has(record.requestId))
-    assert.equal(record.payment.chain_id, 43112)
-    assert.equal(record.payment.settlement.toLowerCase(), settlement.toLowerCase())
-    const file = join(output, 'ticket-' + record.requestId.slice(2) + '.private.json')
-    save(file, record); tickets.set(record.requestId, file)
-  }
-  for (const [index, slot] of [...new Set(records.map(r => r.payment.slot))].entries()) {
-    const selected = records.filter(r => r.payment.slot === slot)
-    assert(selected.length <= 64, 'Slot exceeds the bounded recipient witness')
-    const block = await client.getBlock()
-    const logs = await client.getLogs({address: settlement, event: parseAbiItem('event Funded(bytes32 indexed slotId,address indexed from,uint256 amount,uint256 newBalance)'),
-      args: {slotId: slot}, fromBlock: 0n, toBlock: block.number, strict: true})
-    assert(logs.length > 0 && logs.every(l => !l.removed), 'Original slot funding missing')
-    const funded = logs.reduce((sum, l) => sum + l.args.amount, 0n)
-    assert.equal((await client.getBlock({blockNumber: block.number})).hash, block.hash, 'Funding observation reorganized')
-    save(join(output, `funding-${index}.json`), {block: block.number, hash: block.hash, logs})
-    const witnessFile = join(output, `conservation-${index}.json`), feeDir = join(output, `recipients-${index}`)
-    run(`conservation-${index}`, 'prepaid-settlement.mjs', ['--rpc', cfg.rpcUrl, '--settlement', settlement, '--slot', slot,
-      '--funded', funded.toString(), '--from-block', '0', '--allow-full-refund',
-      ...selected.flatMap(r => ['--ticket', tickets.get(r.requestId)!]), '--out', witnessFile])
-    run(`recipients-${index}`, 'prepaid-fees-fleet.mjs', ['--rpc', cfg.rpcUrl, '--sdk', sdkRoot, '--witness', witnessFile,
-      '--configs', join(scope.root, 'lab/configs'), '--chain-env', chainEnv, '--out', feeDir])
-    const proof = JSON.parse(readFileSync(join(feeDir, 'PASS.json'), 'utf8')) as {verified: Array<{archive: string; fees: string}>}
-    requireRecipientCoverage(JSON.parse(readFileSync(witnessFile, 'utf8')), proof, selected)
-    for (const item of proof.verified) for (const file of [item.archive, item.fees]) {
-      const rel = relative(feeDir, file)
-      assert(rel && !rel.startsWith('..') && !rel.startsWith('/'), 'Recipient evidence escaped its private directory')
-      assert(lstatSync(file).isFile() && readFileSync(file).length > 0, 'Recipient evidence is absent')
+  const bundleBy = new Map<string, BundleEvent>(), rootBy = new Map<string, RootEvent>()
+  for (const b of bundles) { assert(!bundleBy.has(key(b.slot, b.nonce)), 'Duplicate bundle for one settlement window'); bundleBy.set(key(b.slot, b.nonce), b) }
+  for (const r of roots) { assert(!rootBy.has(key(r.slot, r.nonce)), 'Duplicate claim root for one settlement window'); rootBy.set(key(r.slot, r.nonce), r) }
+  const out: ReturnType<typeof requireRecipientCoverage> = []
+  for (const w of windows) {
+    const id = key(w.slot, w.nonce)
+    assert(!seen.has(id), 'Settlement window logged twice'); seen.add(id)
+    assert(w.nonce > w.baseNonce, 'Settlement window does not advance its cursor')
+    const bundle = bundleBy.get(id), root = rootBy.get(id)
+    const batch = consolidated.filter(c => c.transactionHash.toLowerCase() === w.transactionHash.toLowerCase())
+    assert.equal([bundle, root, batch.length ? batch : undefined].filter(v => v !== undefined).length, 1, 'Settlement window needs exactly one kind of recipient evidence')
+    if (bundle) {
+      assert.equal(bundle.transactionHash.toLowerCase(), w.transactionHash.toLowerCase(), 'Bundle belongs to another transaction')
+      assert(bundle.recipients.length === bundle.amounts.length && bundle.recipients.length > 0 && bundle.recipients.length <= 256, 'Malformed recipient bundle')
+      assert.equal(new Set(bundle.recipients.map(r => r.toLowerCase())).size, bundle.recipients.length, 'Recipient paid twice in one bundle')
+      assert(bundle.recipients.every(r => !/^0x0{40}$/i.test(r)) && bundle.amounts.every(a => a >= 0n), 'Invalid recipient or amount')
+      assert.equal(bundle.amounts.reduce((sum, a) => sum + a, 0n), bundle.totalPaid, 'Recipients were paid more or less than the slot was charged')
+      out.push({slot: w.slot, nonce: w.nonce, kind: 'bundle', charged: bundle.totalPaid})
+    } else if (root) {
+      assert.equal(root.transactionHash.toLowerCase(), w.transactionHash.toLowerCase(), 'Claim root belongs to another transaction')
+      assert(root.root.toLowerCase() !== ZERO32 || root.total === 0n, 'A charged window needs a claim root')
+      out.push({slot: w.slot, nonce: w.nonce, kind: 'root', charged: root.total})
+    } else {
+      assert.equal(batch.length, 1, 'One consolidated batch per transaction')
+      assert(batch[0]!.coveredCount > 0n && (batch[0]!.root.toLowerCase() !== ZERO32 || batch[0]!.total === 0n), 'A charged consolidated batch needs a claim root')
+      out.push({slot: w.slot, nonce: w.nonce, kind: 'consolidated'})
     }
   }
-  const manifest: Record<string, string> = {}
-  for (const entry of readdirSync(output, {recursive: true, withFileTypes: true})) {
-    assert(entry.isDirectory() || entry.isFile(), 'Recipient evidence cannot contain links')
-    const file = join(entry.parentPath, entry.name)
-    if (entry.isFile()) manifest[relative(output, file)] = createHash('sha256').update(readFileSync(file)).digest('hex')
-    const fd = openSync(file, 'r'); try {fsyncSync(fd)} finally {closeSync(fd)}
-  }
-  save(join(output, 'RECIPIENT-MANIFEST.json'), manifest)
-  return manifest
+  for (const id of [...bundleBy.keys(), ...rootBy.keys()]) assert(seen.has(id), 'Recipient evidence without its settlement window')
+  return out
 }

@@ -6,7 +6,6 @@ import {httpError} from '../errors.js'
 import type {EoaSignature} from '../signing/ecdsa.js'
 import type {CompoundTokenWire} from './token.js'
 import type {VerifierProof} from './client.js'
-import {withKeeperExecutionApprovals,type KeeperExecutionApprover} from './keeperExecution.js'
 import {withNetworkDeadline} from '../internal/network.js'
 import {sha256} from '@noble/hashes/sha256'
 import {requireDualOperationProof, type DualOperationKind, type DualOperationProof} from './dual-operation.js'
@@ -16,8 +15,6 @@ import {protocolHex} from './receipts.js'
 export interface CommitteeEoaSignOpts {
   /** Exact sealed presentation ciphertext returned with this authorization. */
   evidenceCt?: string
-  /** Required for a paid token: locally verify and approve the complete keeper body. */
-  approveExecution?:KeeperExecutionApprover
   /** HTTP transport override; defaults to the global fetch implementation. */
   fetchImpl?: typeof fetch
   /** Keeper HTTP base URL. */
@@ -38,10 +35,12 @@ export interface CommitteeEoaSignOpts {
   signal?: AbortSignal
   /**
    * Dual-control approvals for this exact operation (assembleDualOperation). Required by a slot
-   * under an operation dual-control policy; checked here against the token's slot, SHA-256 of the
-   * digest and the token's own payment, then carried inside the client-approved body.
+   * under an operation dual-control policy; checked here against the token's slot, the chain and
+   * SHA-256 of the digest, then carried inside the request body. Needs `chainId`.
    */
   dualControl?: DualOperationProof
+  /** Deployment chain ID; required with `dualControl` (the approval statement names its chain). */
+  chainId?: number
 }
 
 /**
@@ -53,7 +52,7 @@ export interface CommitteeEoaSignOpts {
  * @throws On malformed input/response, network failure, or keeper rejection.
  * HTTP 401/403 is an authorization denial; do not retry it as a network failure.
  * Approvals, HTTP and response decoding have one 15-second deadline. A timeout
- * requires reconciliation of the original operation, not a new paid attempt.
+ * leaves the outcome unknown: reconcile the original operation before another attempt.
  *
  * @param opts - Compound authorization, keeper endpoint and 32-byte ECDSA digest.
  */
@@ -125,11 +124,10 @@ async function requestWithinDeadline(opts: CommitteeEoaSignOpts, operation: Dual
   if (opts.userSignature && opts.userSignature.length !== 64) throw new Error('userSignature must be 64 bytes')
   const bare = (hex: string) => hex.replace(/^0x/, '')
   if (opts.dualControl) {
-    const payment = opts.committeeToken.payment
-    if (!payment) throw new Error('dual-control approvals require a paid authorization')
-    requireDualOperationProof(opts.dualControl, {operation, slot: protocolHex(opts.committeeToken.slot_id, 32, 'token slot'), payloadDigest: sha256(opts.digest), payment})
+    if (!Number.isSafeInteger(opts.chainId) || opts.chainId! <= 0) throw new Error('dual-control approvals require the deployment chainId')
+    requireDualOperationProof(opts.dualControl, {chainId: opts.chainId!, operation, slot: protocolHex(opts.committeeToken.slot_id, 32, 'token slot'), payloadDigest: sha256(opts.digest)})
   }
-  const unsignedBody = {
+  const body = {
     committee_token: opts.committeeToken,
     ...evidenceBody(opts.committeeToken, opts.evidenceCt),
     digest: bare(bytesToHex(opts.digest)),
@@ -140,13 +138,10 @@ async function requestWithinDeadline(opts: CommitteeEoaSignOpts, operation: Dual
     ...(opts.userSignature ? {user_signature:bare(bytesToHex(opts.userSignature))} : {}),
     ...(opts.dualControl ? {dual_control: structuredClone(opts.dualControl)} : {}),
   }
-  const body=await withKeeperExecutionApprovals({body:unsignedBody,kind:'committee-eoa-digest',nodeUrl:opts.nodeUrl,
-    payment:opts.committeeToken.payment,approveExecution:opts.approveExecution,signal:opts.signal})
   const url = `${opts.nodeUrl.replace(/\/$/, '')}/v1/committee/sign/eoa-digest`
   const response = await (opts.fetchImpl ?? fetch)(url, {
     method: 'POST', headers: {'Content-Type': 'application/json', ...(opts.requestId ? {'x-request-id': opts.requestId} : {})},
     body: JSON.stringify(body), signal: opts.signal,
-    ...(opts.committeeToken.payment ? {redirect:'error' as const,credentials:'omit' as const} : {}),
   })
   if (!response.ok) throw await httpError(response, url, 'committee/sign/eoa-digest')
   return await response.json() as Record<string, unknown> | null

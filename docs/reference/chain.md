@@ -9,24 +9,10 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 26 classes</summary>
+<summary>Browse 10 classes</summary>
 
 - [AgentSessionCreationUnknownError](#agentsessioncreationunknownerror)
-- [BillingModeError](#billingmodeerror)
 - [CustodyHealthError](#custodyhealtherror)
-- [DebitVoucherError](#debitvouchererror)
-- [KeeperRecoveryError](#keeperrecoveryerror)
-- [PaidAgentControlError](#paidagentcontrolerror)
-- [PaidApprovalUnresolvedError](#paidapprovalunresolvederror)
-- [PaidBackoffError](#paidbackofferror)
-- [PaidDrawMovedError](#paiddrawmovederror)
-- [PaidReservationAbortedError](#paidreservationabortederror)
-- [PaidReservationQuorumNotPreparedError](#paidreservationquorumnotpreparederror)
-- [PaidReservationQuotaError](#paidreservationquotaerror)
-- [PaidReservationStaleEpochError](#paidreservationstaleepocherror)
-- [PaidReservationUncertainError](#paidreservationuncertainerror)
-- [PrepaidEscapeError](#prepaidescapeerror)
-- [PrepaidEscapeUncertainError](#prepaidescapeuncertainerror)
 - [RelayOutcomeUnknownError](#relayoutcomeunknownerror)
 - [ReshareRosterError](#resharerostererror)
 - [RotationLockError](#rotationlockerror)
@@ -35,8 +21,6 @@ Clients, adapters and error classes.
 - [SlotHandoffError](#slothandofferror)
 - [SlotRevealNotYetError](#slotrevealnotyeterror)
 - [SlotSeedUnavailableError](#slotseedunavailableerror)
-- [UnderfundedGasPayerError](#underfundedgaspayererror)
-- [UnderfundedSlotError](#underfundedsloterror)
 
 </details>
 
@@ -44,51 +28,17 @@ Clients, adapters and error classes.
 
 Session creation may have reached the provider, so automatic retry is unsafe.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L93)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L88)
 
 Import: `import {AgentSessionCreationUnknownError} from 'tasra-sdk/chain'`
 
 ```ts
 declare class AgentSessionCreationUnknownError {
-    constructor(profile: Readonly<ApprovedAgentProfile>, paymentHash?: string, cause?: unknown);
+    constructor(profile: Readonly<ApprovedAgentProfile>, cause?: unknown);
 }
 ```
 
 - ` readonly profile: Readonly<ApprovedAgentProfile>; ` — Approved verifier-agent profile whose session creation outcome is unknown.
-
-- ` readonly paymentHash?: string; ` — Retained payment commitment; reconcile it before another paid session attempt.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### BillingModeError
-
-A paid entry point was asked to act on a slot that is not (or not knowably) prepaid.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L50)
-
-Import: `import {BillingModeError} from 'tasra-sdk/chain'`
-
-```ts
-declare class BillingModeError {
-    constructor(observation: BillingModeObservation & {
-        mode: Exclude<BillingMode, 'prepaid'>;
-    });
-}
-```
-
-- ` readonly slotId: Hex; ` — Slot the paid operation was refused for.
-
-- ` readonly mode: Exclude<BillingMode, 'prepaid'>; ` — Detected mode: `legacy` (use the unpaid flow) or `unknown` (resolve the chain read first).
-
-- ` readonly settlementVersion?: string; ` — Settlement implementation version, when read.
-
-- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
 - ` name: string; `
 
@@ -118,464 +68,6 @@ declare class CustodyHealthError {
 - ` readonly code: CustodyHealthErrorCode; ` — Refusal category; never infer it from the message.
 
 - ` readonly operator?: Address; ` — Operator whose reply was refused, when the refusal is about one keeper.
-
-- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### DebitVoucherError
-
-A voucher round ended without `k` verified partials.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L665)
-
-Import: `import {DebitVoucherError} from 'tasra-sdk/chain'`
-
-```ts
-declare class DebitVoucherError {
-    constructor(outcomes: DebitMemberOutcome[], partials: number, threshold: number | undefined);
-}
-```
-
-- ` readonly code: "debit-voucher-unavailable"; ` — Stable reason.
-
-- ` readonly outcomes: DebitMemberOutcome[]; ` — Every member's outcome.
-
-- ` readonly partials: number; ` — Partials obtained.
-
-- ` readonly threshold: number | undefined; ` — Threshold, when any member named it.
-
-- ` definite: boolean; ` — True when no member is unavailable: every member that did not sign definitely refused.
-
-- ` claimed: boolean; ` — True when any member signed this seq for this request (it is then bound to it at those members).
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### KeeperRecoveryError
-
-Safe status error without private result text; no failed read triggers paid work.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L47)
-
-Import: `import {KeeperRecoveryError} from 'tasra-sdk/chain'`
-
-```ts
-declare class KeeperRecoveryError {
-    constructor(httpStatus: number, retryAfterMs?: number);
-}
-```
-
-- ` readonly httpStatus: number; ` — Observed original keeper response status.
-
-- ` readonly retryAfterMs?: number; ` — Keeper-requested wait before reading again, in ms, when sent.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### PaidAgentControlError
-
-HTTP refusal or consent/recovery wait, with no credential-bearing response text.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L176)
-
-Import: `import {PaidAgentControlError} from 'tasra-sdk/chain'`
-
-```ts
-declare class PaidAgentControlError {
-    constructor(sessionId: string, httpStatus: number, retryAfterMs?: number);
-}
-```
-
-- ` readonly sessionId: string; ` — Original locally derived session identity.
-
-- ` readonly httpStatus: number; ` — Observed status; this never authorizes an automatic resend.
-
-- ` readonly retryAfterMs?: number; ` — Agent-requested wait in ms (`Retry-After`), when sent; a polling hint for reads and consent waits.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### PaidApprovalUnresolvedError
-
-A retained paid approval's outcome is unresolved, so the SDK will not send it (again).
-
-Code `approval_outcome_unresolved`. An approval is resent only as the byte-identical retained body
-and only under a durable, generation-bound, one-use permit that an exclusive claim consumes before
-every send. Anything else (a lost claim, a moved generation, an unknown outcome, a legacy record)
-lands here. Not retryable: reconcile the delivery by reading it, never by resending or re-signing.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L429)
-
-Import: `import {PaidApprovalUnresolvedError} from 'tasra-sdk/chain'`
-
-```ts
-declare class PaidApprovalUnresolvedError {
-    constructor(args: {
-        reason: PaidApprovalUnresolvedReason;
-        proposalId?: string;
-        generation?: number;
-        key?: string;
-        message?: string;
-        cause?: unknown;
-    });
-}
-```
-
-- ` readonly code: "approval_outcome_unresolved"; ` — Stable code.
-
-- ` readonly reason: PaidApprovalUnresolvedReason; ` — Why nothing was sent.
-
-- ` readonly proposalId?: string; ` — Agent delivery (proposal) identity, when known.
-
-- ` readonly generation?: number; ` — Send generation concerned, when known.
-
-- ` readonly key?: string; ` — Application-store journal entry of the approval, when known.
-
-- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### PaidBackoffError
-
-A paid request that the service definitely refused before acting on it (HTTP 429 or 503) could
-not be repeated inside its existing deadline. Only requests that are safe to repeat are paced: the
-paid verifier-agent reads, the byte-identical retained approval, the presentation continuation (429
-only) and the accountant reservation `prepare`. The deadline is never extended and a valid
-`Retry-After` / `x-ratelimit-after` hint is never shortened.
-
-Nothing was sent after the refusal this error reports. A retained approval keeps its durable
-permit, so a later resume may resend the identical body; never start the paid operation again.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L361)
-
-Import: `import {PaidBackoffError} from 'tasra-sdk/chain'`
-
-```ts
-declare class PaidBackoffError {
-    constructor(args: {
-        code: PaidBackoffCode;
-        route: string;
-        httpStatus?: number;
-        retryAfterMs?: number;
-        remainingMs?: number;
-        neededMs?: number;
-        attempts: number;
-    });
-}
-```
-
-- ` readonly code: PaidBackoffCode; ` — Stable reason.
-
-- ` readonly route: string; ` — Route that was refused, without identifiers (for example `GET /v1/sessions/{id}`).
-
-- ` readonly httpStatus?: number; ` — Last refusal status, when one was answered (absent for `no_time_to_send`).
-
-- ` readonly retryAfterMs?: number; ` — Server-requested wait (strict integer seconds), in ms, when it sent a valid one.
-
-- ` readonly remainingMs?: number; ` — Time left before the deadline when the decision was made, in ms.
-
-- ` readonly neededMs?: number; ` — Time one attempt needs (or wait + attempt), in ms.
-
-- ` readonly attempts: number; ` — Refusals waited out before this decision.
-
-- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### PaidDrawMovedError
-
-The pinned verifier epoch (` PaidContextOptions.verificationEpoch `) is no longer the beacon's
-latest or previous epoch. Nothing was signed or reserved: refresh the session grant (or present
-again) and discover anew.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L455)
-
-Import: `import {PaidDrawMovedError} from 'tasra-sdk/chain'`
-
-```ts
-declare class PaidDrawMovedError {
-    constructor(pinnedEpoch: bigint, beaconEpoch: bigint);
-}
-```
-
-- ` readonly code: "draw-moved"; ` — Stable reason.
-
-- ` readonly pinnedEpoch: bigint; ` — The pinned verifier epoch.
-
-- ` readonly beaconEpoch: bigint; ` — The beacon's latest epoch as read.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### PaidReservationAbortedError
-
-The caller aborted before anything was prepared or broadcast; nothing was sent or journaled. Reserving again is safe.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L132)
-
-Import: `import {PaidReservationAbortedError} from 'tasra-sdk/chain'`
-
-```ts
-declare class PaidReservationAbortedError {
-    constructor(requestId: Hex, cause: unknown);
-}
-```
-
-- ` readonly code: "aborted"; ` — Stable machine-readable reason.
-
-- ` readonly requestId: Hex; ` — Request ID that was not reserved.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### PaidReservationQuorumNotPreparedError
-
-A prepared member's `authorize` lead was refused by members that never approved the digest: no other prepared leader can gather k either.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L409)
-
-Import: `import {PaidReservationQuorumNotPreparedError} from 'tasra-sdk/chain'`
-
-```ts
-declare class PaidReservationQuorumNotPreparedError {
-    constructor();
-}
-```
-
-- ` readonly code: "quorum-not-prepared"; ` — Stable machine-readable reason.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### PaidReservationQuotaError
-
-The accountant refused a reservation `prepare` with its per-creator reservation quota (HTTP 429
-with a valid `Retry-After` / `x-ratelimit-after`), and the identical prepare could not be repeated
-inside its window (at most 150 s and half of the payment's remaining signed lifetime).
-
-Code `reservation_quota`. Nothing was prepared, signed or put on chain: no reservation transaction
-exists for this attempt. `reason` says why waiting stopped; `retryAfterMs` is the last hint.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L468)
-
-Import: `import {PaidReservationQuotaError} from 'tasra-sdk/chain'`
-
-```ts
-declare class PaidReservationQuotaError {
-    constructor(args: {
-        reason: PaidBackoffCode;
-        url: string;
-        retryAfterMs: number;
-        cause?: unknown;
-    });
-}
-```
-
-- ` readonly code: "reservation_quota"; ` — Stable code.
-
-- ` readonly reason: PaidBackoffCode; ` — Why the prepare was not repeated.
-
-- ` readonly url: string; ` — Accountant endpoint that refused.
-
-- ` readonly retryAfterMs: number; ` — The accountant's last requested wait, in ms.
-
-- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### PaidReservationStaleEpochError
-
-The accountant's unpinned `prepare` refused the intent because its signed verifier epoch is no
-longer the beacon's current or previous one at the accountant's own latest block (the reservation
-waited past an epoch tick). This client sent no transaction, but the intent is NOT dead: an
-accountant judges the epoch at a client-pinned quote block up to MAX_QUOTE_AGE (30 s) old, and
-`reservePrepaid*` is permissionless, so whoever holds the intent may still get it reserved until
-its payment expires. Keep its journal and reconcile it; never replace it with a re-signed intent
-while it can still land.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L169)
-
-Import: `import {PaidReservationStaleEpochError} from 'tasra-sdk/chain'`
-
-```ts
-declare class PaidReservationStaleEpochError {
-    constructor(verificationEpoch: number);
-}
-```
-
-- ` readonly code: "stale-verification-epoch"; ` — Stable machine-readable reason.
-
-- ` readonly verificationEpoch: number; ` — The intent's signed verifier epoch the accountant refused.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### PaidReservationUncertainError
-
-Reservation submission may have happened; inspect the saved identity before further spending.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L145)
-
-Import: `import {PaidReservationUncertainError} from 'tasra-sdk/chain'`
-
-```ts
-declare class PaidReservationUncertainError {
-    constructor(requestId: Hex, transactionHash: Hex | undefined, cause: unknown);
-}
-```
-
-- ` readonly code: "reservation-uncertain"; ` — Stable machine-readable reason.
-
-- ` readonly requestId: Hex; ` — Original request ID for readPaidOperationReceipt and durable journal lookup.
-
-- ` readonly transactionHash: Hex | undefined; ` — Transaction hash when received; absence does not establish that no transaction was sent.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### PrepaidEscapeError
-
-A prepaid timeout escape was refused before anything was sent for the refused call: by the local
-preflight (`local: true`, read at one canonical block) or by the contract's own simulation
-(`local: false`). Nothing about the refused call is journaled. In a multi-call escape, calls that
-already confirmed are in their journal (`confirmed` checkpoints) and stay final.
-
-Only `escape_not_open` is retryable: the same call succeeds once chain time reaches `opensAt`.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L510)
-
-Import: `import {PrepaidEscapeError} from 'tasra-sdk/chain'`
-
-```ts
-declare class PrepaidEscapeError {
-    constructor(args: {
-        code: PrepaidEscapeCode;
-        local: boolean;
-        requestId?: string;
-        opensAt?: Date;
-        delaySeconds?: bigint;
-        message?: string;
-        cause?: unknown;
-    });
-}
-```
-
-- ` readonly code: PrepaidEscapeCode; ` — Stable code.
-
-- ` readonly sent: false; ` — Always false: no transaction was sent for the refused call.
-
-- ` readonly local: boolean; ` — True for a local preflight refusal, false for a decoded contract revert.
-
-- ` readonly requestId?: string; ` — Request the refusal names, when it names one.
-
-- ` readonly opensAt?: Date; ` — When the named request's escape opens (`escape_not_open`).
-
-- ` readonly delaySeconds?: bigint; ` — Refused delay in seconds (`invalid_escape_delay`).
-
-- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### PrepaidEscapeUncertainError
-
-A prepaid escape transaction may have been broadcast and its outcome is not proven. Code
-`escape_uncertain`. Retain the prepared record and reconcile it by reading chain state
-(`reconcileEscape`); never send it again blindly. An escape cannot refund twice (a second one
-reverts `ReservationUnavailable`), but a blind resend still spends gas and can collide on the nonce.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L562)
-
-Import: `import {PrepaidEscapeUncertainError} from 'tasra-sdk/chain'`
-
-```ts
-declare class PrepaidEscapeUncertainError {
-    constructor(args: {
-        escapeId: string;
-        requestIds: readonly string[];
-        transactionHash?: string;
-        cause?: unknown;
-    });
-}
-```
-
-- ` readonly code: "escape_uncertain"; ` — Stable code.
-
-- ` readonly escapeId: string; ` — Local journal key of the escape call.
-
-- ` readonly requestIds: readonly string[]; ` — Requests the call named.
-
-- ` readonly transactionHash?: string; ` — Transaction hash when known; absence does not prove that nothing was sent.
 
 - ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
@@ -866,91 +358,12 @@ readonly detail: {
 
 - ` cause?: unknown; `
 
-### UnderfundedGasPayerError
-
-The transaction payer lacks native currency for the quoted reservation gas.
-Slot TASRA credit is a separate balance. Nothing was prepared or broadcast;
-this error never authorizes resubmission of an uncertain transaction.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L77)
-
-Import: `import {UnderfundedGasPayerError} from 'tasra-sdk/chain'`
-
-```ts
-declare class UnderfundedGasPayerError {
-    constructor(args: {
-        payer: string;
-        availableNativeUnits: bigint;
-        requiredNativeUnits: bigint;
-    });
-}
-```
-
-- ` readonly code: "underfunded-gas-payer"; ` — Stable code distinguishing native gas from slot TASRA credit.
-
-- ` readonly payer: string; ` — Address that would pay the reservation transaction's gas.
-
-- ` readonly availableNativeUnits: bigint; ` — Pending native balance, in the chain's smallest native unit.
-
-- ` readonly requiredNativeUnits: bigint; ` — Estimated gas multiplied by the actual transaction gas price.
-
-- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
-### UnderfundedSlotError
-
-A new payment cannot be prepared with the slot's available TASRA. Reserved
-credit belongs to earlier jobs and is not available for a new reservation.
-Top up and read fresh funding before starting another payment; this error
-never authorizes resubmission of an uncertain transaction.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L53)
-
-Import: `import {UnderfundedSlotError} from 'tasra-sdk/chain'`
-
-```ts
-declare class UnderfundedSlotError {
-    constructor(args: {
-        slotId: string;
-        availableTasraUnits?: bigint;
-        status?: 402;
-        url?: string;
-        message?: string;
-    });
-}
-```
-
-- ` readonly slotId: string; ` — Slot whose new payment was refused.
-
-- ` readonly availableTasraUnits?: bigint; ` — Unreserved TASRA base units, when observed during on-chain discovery.
-
-- ` readonly status?: 402; ` — Accountant HTTP status, absent for a local funding observation.
-
-- ` readonly url?: string; ` — Accountant endpoint, when a reservation request returned HTTP 402.
-
-- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
-
-- ` name: string; `
-
-- ` message: string; `
-
-- ` stack?: string; `
-
-- ` cause?: unknown; `
-
 ## Functions
 
 Operations you can import and call.
 
 <details>
-<summary>Browse 115 functions</summary>
+<summary>Browse 87 functions</summary>
 
 - [addressBookFromBroadcast](#addressbookfrombroadcast)
 - [addressBookFromEnv](#addressbookfromenv)
@@ -958,6 +371,7 @@ Operations you can import and call.
 - [addressBookFromObject](#addressbookfromobject)
 - [amendSlotRule](#amendslotrule)
 - [applicationServiceProfilesDocument](#applicationserviceprofilesdocument)
+- [assertAnchoredWalletRequest](#assertanchoredwalletrequest)
 - [assertEurcFaucetAllowed](#asserteurcfaucetallowed)
 - [assertExpiredSlotCommitment](#assertexpiredslotcommitment)
 - [assertRegisteredWalletRequest](#assertregisteredwalletrequest)
@@ -968,15 +382,11 @@ Operations you can import and call.
 - [awaitRegisteredVerifierAgentResult](#awaitregisteredverifieragentresult)
 - [categoryFor](#categoryfor)
 - [checkTecdsaReshareRoster](#checktecdsareshareroster)
-- [collectDebitVoucher](#collectdebitvoucher)
-- [contestPrepaidFault](#contestprepaidfault)
-- [createBillingModeDetector](#createbillingmodedetector)
 - [createCommitteeSlotClient](#createcommitteeslotclient)
 - [createHeadFollower](#createheadfollower)
-- [createKeeperExecutionApprover](#createkeeperexecutionapprover)
-- [createPrepaidEscapeClient](#createprepaidescapeclient)
 - [createRegisteredAgentClient](#createregisteredagentclient)
 - [createRegisteredRelaySubmitter](#createregisteredrelaysubmitter)
+- [createSlotDrawReader](#createslotdrawreader)
 - [createTasraChainClient](#createtasrachainclient)
 - [createTasraSlotClient](#createtasraslotclient)
 - [createTasraWriteClient](#createtasrawriteclient)
@@ -984,13 +394,9 @@ Operations you can import and call.
 - [custodyStatementIsCurrent](#custodystatementiscurrent)
 - [decodeContractLogs](#decodecontractlogs)
 - [decodeKeyRotationLockedLogs](#decodekeyrotationlockedlogs)
-- [decodePrepaidEscapeLogs](#decodeprepaidescapelogs)
-- [decodePrepaidEscapeRevert](#decodeprepaidescaperevert)
 - [decodeRotationLockRevert](#decoderotationlockrevert)
 - [deriveServiceId](#deriveserviceid)
-- [discoverPaidOperationContext](#discoverpaidoperationcontext)
 - [drawnVerifierWitnesses](#drawnverifierwitnesses)
-- [encodePrepaidFaultContest](#encodeprepaidfaultcontest)
 - [encodeServiceChallenge](#encodeservicechallenge)
 - [encodeServiceManifest](#encodeservicemanifest)
 - [eventNamesOf](#eventnamesof)
@@ -1002,60 +408,40 @@ Operations you can import and call.
 - [generateClientKey](#generateclientkey)
 - [hashServiceManifest](#hashservicemanifest)
 - [headFollowerOf](#headfollowerof)
-- [isPrepaidEscapeError](#isprepaidescapeerror)
 - [isRelayBusyReason](#isrelaybusyreason)
 - [isRotationLocked](#isrotationlocked)
 - [jsonSafe](#jsonsafe)
 - [networkNameForChain](#networknameforchain)
 - [observeNetworkManifest](#observenetworkmanifest)
 - [openRegisteredVerifierAgentSession](#openregisteredverifieragentsession)
-- [paidServerWaitMs](#paidserverwaitms)
 - [parseApplicationServiceProfiles](#parseapplicationserviceprofiles)
 - [parseCustodyStatement](#parsecustodystatement)
 - [parseNetworkManifest](#parsenetworkmanifest)
 - [parsePinnedNetworkManifest](#parsepinnednetworkmanifest)
 - [parsePrometheus](#parseprometheus)
 - [parseServiceChallenge](#parseservicechallenge)
-- [prepaidAllowanceId](#prepaidallowanceid)
-- [prepaidEscapeId](#prepaidescapeid)
-- [prepareRegisteredPaidSession](#prepareregisteredpaidsession)
 - [provisionRule](#provisionrule)
 - [provisionRuleTypedData](#provisionruletypeddata)
-- [readAccountantGroupKey](#readaccountantgroupkey)
 - [readApprovedServiceRecord](#readapprovedservicerecord)
 - [readBeaconDrawState](#readbeacondrawstate)
-- [readBillingMode](#readbillingmode)
-- [readClientExecutionPolicy](#readclientexecutionpolicy)
 - [readCurrentBeaconEpoch](#readcurrentbeaconepoch)
 - [readCustodyHealth](#readcustodyhealth)
-- [readKeeperExecutionRecoveryPolicy](#readkeeperexecutionrecoverypolicy)
-- [readPaidOperationReceipt](#readpaidoperationreceipt)
-- [readPrepaidAllowance](#readprepaidallowance)
-- [readPrepaidFaultResolution](#readprepaidfaultresolution)
-- [readPrepaidFaultStatus](#readprepaidfaultstatus)
 - [readRotationLock](#readrotationlock)
 - [readRuleAmendment](#readruleamendment)
-- [readSlotFunding](#readslotfunding)
 - [readSlotHandoff](#readslothandoff)
-- [reconcilePaidReservation](#reconcilepaidreservation)
-- [reconcilePrepaidAllowance](#reconcileprepaidallowance)
+- [readSlotSharing](#readslotsharing)
+- [readSlotVerifierDraw](#readslotverifierdraw)
 - [reconcileRelayAttempt](#reconcilerelayattempt)
-- [recoverKeeperExecution](#recoverkeeperexecution)
 - [requestSlotSeed](#requestslotseed)
 - [requireAddress](#requireaddress)
-- [requirePrepaidSlot](#requireprepaidslot)
 - [requireVaultAddress](#requirevaultaddress)
-- [reservePaidOperation](#reservepaidoperation)
-- [reservePrepaidAllowance](#reserveprepaidallowance)
 - [resolveAccountantUrls](#resolveaccountanturls)
 - [resolveNetworkProfile](#resolvenetworkprofile)
-- [resolvePaidKeeperTarget](#resolvepaidkeepertarget)
 - [resolveSlotGroupKey](#resolveslotgroupkey)
 - [resolveSlotKeeperUrls](#resolveslotkeeperurls)
 - [resolveVerifierDirectory](#resolveverifierdirectory)
 - [ruleCommitment](#rulecommitment)
 - [serviceChallengeTypedData](#servicechallengetypeddata)
-- [submitPrepaidFaultClaim](#submitprepaidfaultclaim)
 - [truncateHex](#truncatehex)
 - [unfollowHeads](#unfollowheads)
 - [validateServiceChallenge](#validateservicechallenge)
@@ -1063,7 +449,6 @@ Operations you can import and call.
 - [vaultKey](#vaultkey)
 - [verifyCustodyHealthReply](#verifycustodyhealthreply)
 - [verifyCustodyStatement](#verifycustodystatement)
-- [verifyDebitVoucher](#verifydebitvoucher)
 - [verifyRuleCommitment](#verifyrulecommitment)
 - [verifyServiceIdentity](#verifyserviceidentity)
 - [verifyServiceManifest](#verifyservicemanifest)
@@ -1095,7 +480,7 @@ Returns: ` AddressBook `.
 
 Parse supported deployment environment keys or a KEY=VALUE text blob into contract addresses. Empty values and entries that are not valid addresses are ignored. Prefer deployment addresses from a tasra-releases network manifest.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L268)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L264)
 
 Import: `import {addressBookFromEnv} from 'tasra-sdk/chain'`
 
@@ -1133,7 +518,7 @@ Returns: ` AddressBook `.
 
 Normalise an explicit object into an AddressBook (validates addresses).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L292)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L288)
 
 Import: `import {addressBookFromObject} from 'tasra-sdk/chain'`
 
@@ -1196,6 +581,39 @@ declare function applicationServiceProfilesDocument(profiles: ApplicationService
 
 Returns: ` Record<string, unknown> `.
 
+### assertAnchoredWalletRequest
+
+As [assertRegisteredWalletRequest](#assertregisteredwalletrequest), and re-anchored on the session's own verifier draw as
+the CHAIN gives it, before anything is presented or a QR is shown. Nothing the agent reports
+about its draw is taken on trust:
+- the draw (`readSlotVerifierDraw` / `createSlotDrawReader`, for the slot and the epoch the
+  session names) is the chain's: the epoch is the beacon's current or previous one, the seed is
+  `seedAt(epoch)`, the root and size are the verifier set's `snapshotAt(epoch)`, the committee
+  and quorum the slot's policy; the session's reported context must equal it field for field;
+- the committee is recomputed locally from those values and must be the one the session names,
+  with every drawn member's key proven against the anchored root (`trust.witnesses`);
+- the Request Object must verify under the authenticated key of the member drawn to sign it,
+  whatever key its DID document served;
+- the nonce is derived locally from that anchored context (and, in session mode, this client's
+  session key).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L196)
+
+Import: `import {assertAnchoredWalletRequest} from 'tasra-sdk/chain'`
+
+```ts
+declare function assertAnchoredWalletRequest(session: RegisteredVerifierAgentSession, ro: VerifiedRequestObject, status: SessionStatusResult, trust: SlotDrawTrust): void;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` session ` | ` RegisteredVerifierAgentSession ` | Authenticated session bound to the signed operation. |
+| ` ro ` | ` VerifiedRequestObject ` | Wallet request object as fetched from the session's `requestUri`. |
+| ` status ` | ` SessionStatusResult ` | Session status carrying the operation binding preimage. |
+| ` trust ` | ` SlotDrawTrust ` | The slot's draw at the session's epoch, read from the chain with authenticated members. |
+
+Returns: ` void `.
+
 ### assertEurcFaucetAllowed
 
 Recheck the actual RPC chain immediately before any faucet transaction.
@@ -1239,7 +657,7 @@ Returns: ` Promise<void> `.
 
 Bind the wallet's signed request to the operation and authenticated session before disclosure.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L122)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L121)
 
 Import: `import {assertRegisteredWalletRequest} from 'tasra-sdk/chain'`
 
@@ -1249,7 +667,7 @@ declare function assertRegisteredWalletRequest(session: RegisteredVerifierAgentS
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` session ` | ` RegisteredVerifierAgentSession ` | Authenticated session bound to the creator-authorized operation. |
+| ` session ` | ` RegisteredVerifierAgentSession ` | Authenticated session bound to the signed operation. |
 | ` ro ` | ` VerifiedRequestObject ` | Verified wallet request object whose claims will be presented. |
 | ` status ` | ` SessionStatusResult ` | Session status carrying the operation binding preimage. |
 
@@ -1340,7 +758,7 @@ Returns: ` Promise<AuthenticatedService> `.
 
 Poll the original authenticated session only; no URL reconstruction or provider failover.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L71)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L70)
 
 Import: `import {awaitRegisteredVerifierAgentResult} from 'tasra-sdk/chain'`
 
@@ -1362,7 +780,7 @@ Returns: ` Promise<VerifierAgentResult> `.
 
 Choose the event category, including event-specific overrides for a contract.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L72)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L69)
 
 Import: `import {categoryFor} from 'tasra-sdk/chain'`
 
@@ -1398,108 +816,11 @@ declare function checkTecdsaReshareRoster(input: TecdsaReshareRosterInput): Tecd
 
 Returns: ` TecdsaReshareRosterPlan `.
 
-### collectDebitVoucher
-
-Obtain one debit voucher: the same request to every accountant in parallel, each answer checked
-against the request, `k` partials of one sharing combined and the aggregate verified against
-`beacon.mpk()` at the quote block (read while the members answer).
-
-The voucher is returned as soon as `k` answers combine into an aggregate the group key verifies:
-that check alone makes the voucher valid, so the round neither waits for the remaining members
-(their requests run on in the background; the voucher reaches them by the push) nor checks each
-partial against its share first. Only when an aggregate fails are the partials checked one by
-one, which names the member whose partial does not verify and drops it from the next subsets.
-Without `k` the round waits for every member, checks every partial and throws
-[DebitVoucherError](#debitvouchererror) with each member's outcome.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L743)
-
-Import: `import {collectDebitVoucher} from 'tasra-sdk/chain'`
-
-```ts
-declare function collectDebitVoucher(client: PublicClient, deployment: PrepaidDeployment & {
-    beacon?: Address;
-}, request: DebitRequest, options: CollectDebitVoucherOptions): Promise<{
-    voucher: DebitVoucherWire;
-    partials: DebitPartialWire[];
-    outcomes: DebitMemberOutcome[];
-}>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | - Trusted RPC client (group key read). |
-| ` deployment ` | ` PrepaidDeployment & { beacon?: Address; } ` | - Approved deployment (with the approved beacon, when known). |
-| ` request ` | ` DebitRequest ` | - Payment, sequence, previous voucher, journaled quote block and the allowance cap. |
-| ` options ` | ` CollectDebitVoucherOptions ` | - Endpoints, timeout, cancellation and already-known partials. |
-
-Returns:
-
-```ts
-Promise<{
-    voucher: DebitVoucherWire;
-    partials: DebitPartialWire[];
-    outcomes: DebitMemberOutcome[];
-}>
-```
-
-Return details: The voucher, the `k` partials combined into it and the outcomes of the members that had answered.
-
-### contestPrepaidFault
-
-Relay a threshold-signed verdict to the oracle. The call is simulated first, so an oracle
-refusal (WrongEpoch, AlreadyResolved, BadSignature, ...) is named and nothing is sent; the
-transaction is then sent once and its hash returned. Reconcile an unknown outcome with
-[readPrepaidFaultResolution](#readprepaidfaultresolution); never resend blindly.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L107)
-
-Import: `import {contestPrepaidFault} from 'tasra-sdk/chain'`
-
-```ts
-declare function contestPrepaidFault(client: PublicClient, wallet: WalletClient<Transport, Chain, Account>, oracle: Address, verdict: PrepaidFaultVerdict, signature: Hex): Promise<Hex>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | Trusted RPC client. |
-| ` wallet ` | ` WalletClient<Transport, Chain, Account> ` | Account- and chain-bound sender (any account: contest is permissionless). |
-| ` oracle ` | ` Address ` | Independently approved PrepaidFaultOracle. |
-| ` verdict ` | ` PrepaidFaultVerdict ` | Threshold-signed verdict. |
-| ` signature ` | ` Hex ` | BN254 threshold signature over the verdict digest. |
-
-Returns: ` Promise<Hex> `.
-
-### createBillingModeDetector
-
-Cache billing per slot for one deployment. Prepaid is one-way for a slot (`prepaidEnabled` is
-never cleared), so it is cached until invalidated; legacy can become prepaid at a funding or
-cutover, so it expires after `legacyTtlMs`. Concurrent lookups for a slot share one read.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L172)
-
-Import: `import {createBillingModeDetector} from 'tasra-sdk/chain'`
-
-```ts
-declare function createBillingModeDetector(client: PublicClient, deployment: BillingDeployment, options?: {
-    legacyTtlMs?: number;
-    now?: () => number;
-}): BillingModeDetector;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | Trusted RPC client for the deployment. |
-| ` deployment ` | ` BillingDeployment ` | Approved chain ID and Settlement proxy. |
-| ` options? ` | ` { legacyTtlMs?: number; now?: () => number; } ` | Legacy cache lifetime in ms (default 60000, 0 disables) and a clock for tests. |
-
-Returns: ` BillingModeDetector `.
-
 ### createCommitteeSlotClient
 
 Create registry-discovered threshold signing, encryption and decryption operations. Signing and decryption require holder credentials and proofs against an anchored verifier snapshot. Encryption needs only the public group key read from the chain. The master key is not reconstructed by these threshold operations.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L149)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L146)
 
 Import: `import {createCommitteeSlotClient} from 'tasra-sdk/chain'`
 
@@ -1534,53 +855,11 @@ declare function createHeadFollower(client: PublicClient, options?: HeadFollower
 
 Returns: ` HeadFollower `.
 
-### createKeeperExecutionApprover
-
-Create a client-only keeper approver bound to one independently retained payment and operation.
-Before each signing callback, use canonical reserved TASRA, creator consent and eligible worker
-sharing read within the last 15 seconds: the parallel approvals of one operation share one such
-read, and an older one is read again. Sign the complete local request for coordinator/contributors,
-or the one IBE contributor being contacted. This helper performs no HTTP dispatch or transaction.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/keeperExecution.ts#L49)
-
-Import: `import {createKeeperExecutionApprover} from 'tasra-sdk/chain'`
-
-```ts
-declare function createKeeperExecutionApprover(options: KeeperExecutionApproverOptions): KeeperExecutionApprover;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` options ` | ` KeeperExecutionApproverOptions ` | Approved deployment, original operation and creator-certified local signer. |
-
-Returns: ` KeeperExecutionApprover `.
-
-### createPrepaidEscapeClient
-
-Bind the payer-side prepaid timeout-escape client to one approved deployment.
-Exposes no governance action: the escape delay is set only by the Settlement owner (timelock).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L610)
-
-Import: `import {createPrepaidEscapeClient} from 'tasra-sdk/chain'`
-
-```ts
-declare function createPrepaidEscapeClient(client: PublicClient, deployment: PrepaidEscapeDeployment): PrepaidEscapeClient;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | Trusted bounded public RPC client with canonical EIP-1898 reads; use retryCount: 0. |
-| ` deployment ` | ` PrepaidEscapeDeployment ` | Independently approved chain ID and Settlement proxy. |
-
-Returns: ` PrepaidEscapeClient `.
-
 ### createRegisteredAgentClient
 
 Selection authenticates public metadata first. Once POSTed, never silently switch providers.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L188)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L181)
 
 Import: `import {createRegisteredAgentClient} from 'tasra-sdk/chain'`
 
@@ -1589,7 +868,7 @@ declare function createRegisteredAgentClient(chain: TasraChainClient, config: {
     profiles: readonly ApprovedAgentProfile[];
     transport: AgentTransport;
 }): {
-    restoreUnpaidSession(input: UnpaidAgentSessionRecovery, options?: {
+    restoreSession(input: AgentSessionRecovery, options?: {
         signal?: AbortSignal;
     }): Promise<RegisteredAgentSession>;
     createSession(params: CreateSessionParams, options?: {
@@ -1608,7 +887,7 @@ Returns:
 
 ```ts
 {
-    restoreUnpaidSession(input: UnpaidAgentSessionRecovery, options?: {
+    restoreSession(input: AgentSessionRecovery, options?: {
         signal?: AbortSignal;
     }): Promise<RegisteredAgentSession>;
     createSession(params: CreateSessionParams, options?: {
@@ -1653,11 +932,33 @@ Returns:
 }
 ```
 
+### createSlotDrawReader
+
+A reader of slot draws for session grants: for `(slot, epoch)` it reads the anchored draw from
+the chain, fetches the epoch's verifier snapshot from an approved accountant, verifies every
+leaf against the anchored root and returns the drawn verifiers' keys and membership proofs.
+A verified result is kept per `(slot, epoch)` (an anchored epoch never changes); a failure is
+never kept.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionDraw.ts#L240)
+
+Import: `import {createSlotDrawReader} from 'tasra-sdk/chain'`
+
+```ts
+declare function createSlotDrawReader(config: SlotDrawReaderConfig): (slot: Hex, epoch: bigint, signal?: AbortSignal) => Promise<SlotDrawTrust>;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` config ` | ` SlotDrawReaderConfig ` | - Chain client, deployment, snapshot hosts and the default verifier policy. |
+
+Returns: ` (slot: Hex, epoch: bigint, signal?: AbortSignal) => Promise<SlotDrawTrust> `.
+
 ### createTasraChainClient
 
 Create a read-only chain client with typed contract readers and windowed event queries. Configure addresses and the chain ID from a network manifest downloaded from tasra-releases.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/client.ts#L343)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/client.ts#L350)
 
 Import: `import {createTasraChainClient} from 'tasra-sdk/chain'`
 
@@ -1697,7 +998,7 @@ Return details: Client that opens and tracks managed slot sessions.
 
 Create an account-bound client for slot lifecycle, settlement and token transactions. Use deployed addresses and the chain ID from a tasra-releases network manifest.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L649)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L647)
 
 Import: `import {createTasraWriteClient} from 'tasra-sdk/chain'`
 
@@ -1760,7 +1061,7 @@ Decode raw logs (already filtered to `address`) against `contract`'s ABI.
 Non-matching / anonymous logs are skipped. `strict:false` tolerates logs
 whose indexed topics can't be fully decoded.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L134)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L131)
 
 Import: `import {decodeContractLogs} from 'tasra-sdk/chain'`
 
@@ -1795,45 +1096,6 @@ declare function decodeKeyRotationLockedLogs(logs: readonly Log[], keyRegistry?:
 | ` keyRegistry? ` | ` Address ` | When given, logs from any other contract are skipped. |
 
 Returns: ` KeyRotationLockedEvent[] `.
-
-### decodePrepaidEscapeLogs
-
-Decode `PrepaidEscaped` and `PrepaidBatchEscaped` from logs emitted by one Settlement. Logs from
-any other address, and other events, are skipped; a removed (reorganized) log is refused.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L442)
-
-Import: `import {decodePrepaidEscapeLogs} from 'tasra-sdk/chain'`
-
-```ts
-declare function decodePrepaidEscapeLogs(logs: readonly Log[], settlement: Address): PrepaidEscapeEvents;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` logs ` | ` readonly Log[] ` | Receipt logs or a bounded `eth_getLogs` window. |
-| ` settlement ` | ` Address ` | Approved Settlement proxy. |
-
-Returns: ` PrepaidEscapeEvents `.
-
-### decodePrepaidEscapeRevert
-
-Map a Settlement escape revert anywhere in an error's cause chain to a typed
-[PrepaidEscapeError](#prepaidescapeerror) (`local: false`); `undefined` for any other failure.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L414)
-
-Import: `import {decodePrepaidEscapeRevert} from 'tasra-sdk/chain'`
-
-```ts
-declare function decodePrepaidEscapeRevert(error: unknown): PrepaidEscapeError | undefined;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` error ` | ` unknown ` | RPC or viem error from a simulation, gas estimate or relayed call. |
-
-Returns: ` PrepaidEscapeError | undefined `.
 
 ### decodeRotationLockRevert
 
@@ -1875,88 +1137,27 @@ declare function deriveServiceId(chainId: bigint, registry: Address, creator: Ad
 
 Returns: ` Hex `.
 
-### discoverPaidOperationContext
-
-Discover keeper sharing and verifier policy from one fresh canonical block before creating an intent.
-Selects the current epoch with both verifier and accountant snapshots, otherwise its immediate predecessor.
-Performs no signing, reservation, service contact or gas/TASRA mutation.
-As above, with ` PaidContextOptions.undrawnDuringAnchorGap ` possibly set: the result may be an
-[UndrawnPaidOperationContext](#undrawnpaidoperationcontext) (narrow on `undrawn` before building any payment intent).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L1112)
-
-Import: `import {discoverPaidOperationContext} from 'tasra-sdk/chain'`
-
-```ts
-declare function discoverPaidOperationContext(client: PublicClient, deployment: PaidContextDeployment, slotId: Hex, options?: PaidContextOptions & {
-    undrawnDuringAnchorGap?: false;
-}): Promise<DrawnPaidOperationContext>;
-declare function discoverPaidOperationContext(client: PublicClient, deployment: PaidContextDeployment, slotId: Hex, options?: PaidContextOptions): Promise<PaidOperationContext>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | - Trusted bounded Viem client supporting EIP-1898 canonical reads. |
-| ` deployment ` | ` PaidContextDeployment ` | - Independently approved contract and beacon addresses. |
-| ` slotId ` | ` Hex ` | - Independently selected slot to fund and operate. |
-| ` options? ` | ` PaidContextOptions & { undrawnDuringAnchorGap?: false; } ` | - Approved default verifier policy, optional coordinator and transport policy. |
-
-Returns: ` Promise<DrawnPaidOperationContext> `.
-
-Return details: A [DrawnPaidOperationContext](#drawnpaidoperationcontext), unless `undrawnDuringAnchorGap` is set: then possibly an [UndrawnPaidOperationContext](#undrawnpaidoperationcontext).
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | - Trusted bounded Viem client supporting EIP-1898 canonical reads. |
-| ` deployment ` | ` PaidContextDeployment ` | - Independently approved contract and beacon addresses. |
-| ` slotId ` | ` Hex ` | - Independently selected slot to fund and operate. |
-| ` options? ` | ` PaidContextOptions ` | - Approved default verifier policy, optional coordinator, transport policy and the anchor-gap opt-in. |
-
-Returns: ` Promise<PaidOperationContext> `.
-
 ### drawnVerifierWitnesses
 
-Verify a snapshot artifact against the original payment and return the drawn members with
+Verify a snapshot artifact against the anchored draw and return the drawn members with
 Merkle proofs. Every leaf is checked against the anchored root, operators are strictly
-ordered and keys distinct; the draw is recomputed locally from the payment's seed.
+ordered and keys distinct; the draw is recomputed locally from the anchored seed.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/verifierSnapshot.ts#L54)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/verifierSnapshot.ts#L84)
 
 Import: `import {drawnVerifierWitnesses} from 'tasra-sdk/chain'`
 
 ```ts
-declare function drawnVerifierWitnesses(value: unknown, original: OriginalVerifierPolicy, registry: Address): PaidVerifierWitness[];
+declare function drawnVerifierWitnesses(value: unknown, original: AnchoredVerifierDraw, registry: Address): VerifierWitness[];
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` value ` | ` unknown ` | Parsed artifact JSON from an approved host; untrusted. |
-| ` original ` | ` OriginalVerifierPolicy ` | The payment's anchored verifier policy. |
+| ` original ` | ` AnchoredVerifierDraw ` | The slot's anchored verifier draw. |
 | ` registry ` | ` Address ` | Independently approved VerifierSetRegistry address. |
 
-Returns: ` PaidVerifierWitness[] `.
-
-### encodePrepaidFaultContest
-
-Calldata for `PrepaidFaultOracle.contest`, after the oracle's local preconditions
-(nonzero subject, beneficiary rule, a deadline within 120 s). Chain-dependent checks
-(current epoch, settled request and batch, signature) stay with the oracle.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L77)
-
-Import: `import {encodePrepaidFaultContest} from 'tasra-sdk/chain'`
-
-```ts
-declare function encodePrepaidFaultContest(verdict: PrepaidFaultVerdict, signature: Hex, nowSecs?: bigint): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` verdict ` | ` PrepaidFaultVerdict ` | Threshold-signed verdict. |
-| ` signature ` | ` Hex ` | BN254 threshold signature over the verdict digest. |
-| ` nowSecs? ` | ` bigint ` | Current time in Unix seconds (default: now). |
-
-Returns: ` Hex `.
+Returns: ` VerifierWitness[] `.
 
 ### encodeServiceChallenge
 
@@ -1998,7 +1199,7 @@ Returns: ` Uint8Array `.
 
 The set of event names declared by a contract's ABI.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L86)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L83)
 
 Import: `import {eventNamesOf} from 'tasra-sdk/chain'`
 
@@ -2015,24 +1216,24 @@ Returns: ` string[] `.
 ### fetchDrawnVerifierWitnesses
 
 Fetch an epoch's verifier snapshot from the first approved accountant that serves a bounded,
-identity-encoded JSON body (no redirects), and return the drawn witnesses for the payment.
+identity-encoded JSON body (no redirects), and return the drawn witnesses for the draw.
 A host whose artifact does not verify is skipped; the call fails if none does.
 `waitForPublicationMs` defaults to zero. A positive value (at most 150000 ms)
 permits paced reads only while every host returns 404, using the original
 policy captured at entry. Invalid artifacts and other failures are not retried.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/verifierSnapshot.ts#L102)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/verifierSnapshot.ts#L132)
 
 Import: `import {fetchDrawnVerifierWitnesses} from 'tasra-sdk/chain'`
 
 ```ts
-declare function fetchDrawnVerifierWitnesses(hosts: readonly string[], original: OriginalVerifierPolicy, registry: Address, options?: {
+declare function fetchDrawnVerifierWitnesses(hosts: readonly string[], original: AnchoredVerifierDraw, registry: Address, options?: {
     signal?: AbortSignal;
     timeoutMs?: number;
     waitForPublicationMs?: number;
     fetch?: typeof fetch;
 }): Promise<{
-    witnesses: PaidVerifierWitness[];
+    witnesses: VerifierWitness[];
     artifact: unknown;
     host: string;
 }>;
@@ -2041,7 +1242,7 @@ declare function fetchDrawnVerifierWitnesses(hosts: readonly string[], original:
 | Parameter | Type | Description |
 |---|---|---|
 | ` hosts ` | ` readonly string[] ` | Independently approved accountant origins, in preference order. |
-| ` original ` | ` OriginalVerifierPolicy ` | The payment's anchored verifier policy. |
+| ` original ` | ` AnchoredVerifierDraw ` | The slot's anchored verifier draw. |
 | ` registry ` | ` Address ` | Independently approved VerifierSetRegistry address. |
 | ` options? ` | ` { signal?: AbortSignal; timeoutMs?: number; waitForPublicationMs?: number; fetch?: typeof fetch; } ` | Cancellation, per-host timeout (default 15000 ms), optional bounded publication wait and a fetch implementation. |
 
@@ -2049,7 +1250,7 @@ Returns:
 
 ```ts
 Promise<{
-    witnesses: PaidVerifierWitness[];
+    witnesses: VerifierWitness[];
     artifact: unknown;
     host: string;
 }>
@@ -2057,7 +1258,7 @@ Promise<{
 
 ### followHeads
 
-Follow `client`'s chain head: paid operations on this client then read block-pinned facts from
+Follow `client`'s chain head: operations on this client then read block-pinned facts from
 the followed tip and its pre-reads, falling back to RPC whenever the follower cannot vouch.
 Replaces (and stops) a follower attached before. Returns the started follower.
 
@@ -2137,7 +1338,7 @@ Returns: ` string `.
 
 Fresh 0x-prefixed 32-byte private key for a new sovereign client account.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L616)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L614)
 
 Import: `import {generateClientKey} from 'tasra-sdk/chain'`
 
@@ -2182,24 +1383,6 @@ declare function headFollowerOf(client: PublicClient): HeadFollower | undefined;
 | ` client ` | ` PublicClient ` | Client the follower was attached to. |
 
 Returns: ` HeadFollower | undefined `.
-
-### isPrepaidEscapeError
-
-True for a [PrepaidEscapeError](#prepaidescapeerror).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L552)
-
-Import: `import {isPrepaidEscapeError} from 'tasra-sdk/chain'`
-
-```ts
-declare function isPrepaidEscapeError(e: unknown): e is PrepaidEscapeError;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` e ` | ` unknown ` | - Caught value to classify. |
-
-Returns: ` e is PrepaidEscapeError `.
 
 ### isRelayBusyReason
 
@@ -2247,7 +1430,7 @@ Returns: ` Promise<boolean> `.
 Recursively convert bigints to strings so a decoded event can be JSON
 serialized / stored. Leaves everything else intact.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L170)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L167)
 
 Import: `import {jsonSafe} from 'tasra-sdk/chain'`
 
@@ -2320,7 +1503,7 @@ Promise<{
 
 Sign once, authenticate an explicitly approved provider, and retain its pinned poll closure.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L35)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L36)
 
 Import: `import {openRegisteredVerifierAgentSession} from 'tasra-sdk/chain'`
 
@@ -2330,8 +1513,7 @@ declare function openRegisteredVerifierAgentSession(client: Pick<ReturnType<type
     delegation?: PresentationDelegation;
     profileIndex?: number;
     signal?: AbortSignal;
-    payment?: PaymentIntentWire;
-    random?: string;
+    sessionGrant?: SessionGrantRequestWire;
 }): Promise<RegisteredVerifierAgentSession>;
 ```
 
@@ -2348,36 +1530,11 @@ OperationInput & {
     delegation?: PresentationDelegation;
     profileIndex?: number;
     signal?: AbortSignal;
-    payment?: PaymentIntentWire;
-    random?: string;
+    sessionGrant?: SessionGrantRequestWire;
 }
 ```
 
 Returns: ` Promise<RegisteredVerifierAgentSession> `.
-
-### paidServerWaitMs
-
-The server's requested wait from `Retry-After` and/or `x-ratelimit-after` (tower_governor), each
-parsed STRICTLY as one integer-seconds value of at most six digits. When both are valid the longer
-wins. Anything else (absent, repeated and therefore comma-joined, signed, fractional, padded, an
-HTTP-date, oversized) is ignored and the caller's own backoff applies.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/paidPacing.ts#L69)
-
-Import: `import {paidServerWaitMs} from 'tasra-sdk/chain'`
-
-```ts
-declare function paidServerWaitMs(retryAfter?: string | null, rateLimitAfter?: string | null): number | undefined;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` retryAfter? ` | ` string \| null ` | Raw `Retry-After` value, if any. |
-| ` rateLimitAfter? ` | ` string \| null ` | Raw `x-ratelimit-after` value, if any. |
-
-Returns: ` number | undefined `.
-
-Return details: The wait in ms, or undefined.
 
 ### parseApplicationServiceProfiles
 
@@ -2488,98 +1645,6 @@ declare function parseServiceChallenge(bytes: Uint8Array): ServiceChallenge;
 | ` bytes ` | ` Uint8Array ` | UTF-8 challenge JSON bytes to decode and validate. |
 
 Returns: ` ServiceChallenge `.
-
-### prepaidAllowanceId
-
-The allowance id every reader derives from a creator intent.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L244)
-
-Import: `import {prepaidAllowanceId} from 'tasra-sdk/chain'`
-
-```ts
-declare function prepaidAllowanceId(intent: Omit<PrepaidAllowanceIntentWire, 'signature'>): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` intent ` | ` Omit<PrepaidAllowanceIntentWire, 'signature'> ` | - Creator intent (signature not part of the preimage). |
-
-Returns: ` Hex `.
-
-### prepaidEscapeId
-
-Local journal key of one escape call: keccak256 of a fixed label, chain ID, Settlement, slot and
-the exact ordered request list. Not a wire or on-chain format.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L308)
-
-Import: `import {prepaidEscapeId} from 'tasra-sdk/chain'`
-
-```ts
-declare function prepaidEscapeId(deployment: PrepaidEscapeDeployment, slotId: Hex, requestIds: readonly Hex[]): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` deployment ` | ` PrepaidEscapeDeployment ` | Approved chain and Settlement. |
-| ` slotId ` | ` Hex ` | Slot identifier. |
-| ` requestIds ` | ` readonly Hex[] ` | Exact ordered requests of the call. |
-
-Returns: ` Hex `.
-
-### prepareRegisteredPaidSession
-
-Authenticate one approved provider and prepare complete client-signed initialization before HTTP.
-This function reserves nothing, sends no session POST and keeps the execution signer local.
-The caller must retain the returned object through uncertain creation/delivery outcomes.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L406)
-
-Import: `import {prepareRegisteredPaidSession} from 'tasra-sdk/chain'`
-
-```ts
-declare function prepareRegisteredPaidSession(chain: TasraChainClient, config: {
-    profile: ApprovedAgentProfile;
-    deployment: ClientExecutionDeployment;
-    transport: PaidAgentTransport;
-    members: readonly PaidVerifierWitness[];
-    ruleHash: Hex;
-    dcqlQuery: Record<string, unknown>;
-    allowMissingStatusAttestations?: boolean;
-    pacing?: PaidPacingOptions;
-}, params: PaidAgentSessionParams, consent: {
-    certificate: ExecutionCertificate;
-    signer: ClientExecutionSigner;
-    pollSecret?: string;
-    expires?: number;
-    signal?: AbortSignal;
-}): Promise<RegisteredPaidAgentSession>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` chain ` | ` TasraChainClient ` | Independently configured trusted RPC/registry client. |
-| ` config ` | See detailed type below. | Approved provider, deployment, drawn Merkle witnesses and client-verified rule/query. |
-| ` params ` | ` PaidAgentSessionParams ` | Original operation and fixed mined payment, built before contacting the agent. |
-| ` consent ` | ` { certificate: ExecutionCertificate; signer: ClientExecutionSigner; pollSecret?: string; expires?: number; signal?: AbortSignal; } ` | Creator-certified client key, optional locally retained bearer and consent deadline. |
-
-**` config ` type**
-
-```ts
-{
-    profile: ApprovedAgentProfile;
-    deployment: ClientExecutionDeployment;
-    transport: PaidAgentTransport;
-    members: readonly PaidVerifierWitness[];
-    ruleHash: Hex;
-    dcqlQuery: Record<string, unknown>;
-    allowMissingStatusAttestations?: boolean;
-    pacing?: PaidPacingOptions;
-}
-```
-
-Returns: ` Promise<RegisteredPaidAgentSession> `.
 
 ### provisionRule
 
@@ -2721,28 +1786,6 @@ Returns:
 
 Return details: Typed data ready for the creator wallet to sign.
 
-### readAccountantGroupKey
-
-`beacon.mpk()` at a canonical block, via `Settlement.beacon()` read at the same block.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L529)
-
-Import: `import {readAccountantGroupKey} from 'tasra-sdk/chain'`
-
-```ts
-declare function readAccountantGroupKey(client: PublicClient, deployment: PrepaidDeployment & {
-    beacon?: Address;
-}, blockHash: Hex): Promise<Uint8Array>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | - Trusted RPC client. |
-| ` deployment ` | ` PrepaidDeployment & { beacon?: Address; } ` | - Approved deployment (with the approved beacon, when known). |
-| ` blockHash ` | ` Hex ` | - Quote block. |
-
-Returns: ` Promise<Uint8Array> `.
-
 ### readApprovedServiceRecord
 
 Read metadata only after matching an explicit application approval. Never contacts the service.
@@ -2777,89 +1820,35 @@ Promise<{
 ### readBeaconDrawState
 
 The beacon's latest epoch and its draw epoch ([BeaconDrawState](#beacondrawstate)) at ONE fresh observed head
-(the followed tip when live, else `latest`), through the block-pinned reads discovery uses. The
-previous epoch's snapshot is read only while the latest one is not anchored. Performs no transaction.
+(the followed tip when live, else `latest`), through block-pinned reads. The previous epoch's
+snapshot is read only while the latest one is not anchored. Performs no transaction.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L739)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionDraw.ts#L117)
 
 Import: `import {readBeaconDrawState} from 'tasra-sdk/chain'`
 
 ```ts
-declare function readBeaconDrawState(client: PublicClient, deployment: PaidContextDeployment): Promise<BeaconDrawState>;
+declare function readBeaconDrawState(client: PublicClient, deployment: BeaconDeployment): Promise<BeaconDrawState>;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` client ` | ` PublicClient ` | - Trusted bounded Viem RPC client for the selected deployment. |
-| ` deployment ` | ` PaidContextDeployment ` | - Independently approved chain and contract addresses, the beacon and verifier set included. |
+| ` deployment ` | ` BeaconDeployment ` | - Independently approved chain and contract addresses, the beacon and verifier set included. |
 
 Returns: ` Promise<BeaconDrawState> `.
-
-### readBillingMode
-
-Read a slot's billing mode at one block: version "1" is legacy; version "2" or "3" (the
-same prepaid billing plus the payer timeout escape) is prepaid when
-`prepaidEnabled(slot)` or `prepaidFromGenesis()` holds (an unfunded slot on a prepaid-from-genesis
-deployment becomes prepaid at its first funding, and legacy settlement refuses it), otherwise
-legacy until cutover. Any other version, a failed read, a chain mismatch or a reorganized block
-is `unknown`. Never throws for a chain failure; throws only for invalid arguments.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L111)
-
-Import: `import {readBillingMode} from 'tasra-sdk/chain'`
-
-```ts
-declare function readBillingMode(client: PublicClient, deployment: BillingDeployment, slot: Hex): Promise<BillingModeObservation>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | Trusted RPC client for the independently selected deployment. |
-| ` deployment ` | ` BillingDeployment ` | Approved chain ID and Settlement proxy. |
-| ` slot ` | ` Hex ` | Slot whose billing is required. |
-
-Returns: ` Promise<BillingModeObservation> `.
-
-### readClientExecutionPolicy
-
-Read canonical mined credit, creator, beacon and verifier policy before approving work.
-All registry calls use the receipt's EIP-1898 block hash; no latest/number fallback.
-The paid verification epoch alone is judged at the reservation's stored quote block
-(`prepaidAssignmentBlock`, EIP-1898 `requireCanonical` plus a by-number recheck): it must be
-that block's `{epoch, epoch - 1}`. An unreadable quote block or state rejects with a retryable
-`PaidEpochError` (`paid_epoch_unavailable`), never an admission or a live-head fallback; a
-reorganised quote block or out-of-window epoch is a definite `paid_epoch_refused`.
-A target additionally proves drawn membership and current registered verifier standing.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L131)
-
-Import: `import {readClientExecutionPolicy} from 'tasra-sdk/chain'`
-
-```ts
-declare function readClientExecutionPolicy(client: PublicClient, deployment: ClientExecutionDeployment, payment: PaymentIntentWire, expected: ExpectedPaidOperation, target?: PaidVerifierWitness): Promise<ClientExecutionObservation>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | Trusted RPC client for the independently selected deployment. |
-| ` deployment ` | ` ClientExecutionDeployment ` | Approved contracts and explicit default verification policy. |
-| ` payment ` | ` PaymentIntentWire ` | Original locally retained creator intent, never copied from a proposal. |
-| ` expected ` | ` ExpectedPaidOperation ` | Application-selected slot, action and payload digest. |
-| ` target? ` | ` PaidVerifierWitness ` | Optional drawn verifier whose work is about to be approved. |
-
-Returns: ` Promise<ClientExecutionObservation> `.
 
 ### readCurrentBeaconEpoch
 
 The beacon's current epoch at a fresh observed head (the followed tip when live, else `latest`),
-through the same block-pinned read discovery uses. Performs no transaction.
+through a block-pinned read. Performs no transaction.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L712)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionDraw.ts#L89)
 
 Import: `import {readCurrentBeaconEpoch} from 'tasra-sdk/chain'`
 
 ```ts
-declare function readCurrentBeaconEpoch(client: PublicClient, deployment: PaidContextDeployment, options?: {
+declare function readCurrentBeaconEpoch(client: PublicClient, deployment: BeaconDeployment, options?: {
     fresh?: boolean;
 }): Promise<bigint>;
 ```
@@ -2867,8 +1856,8 @@ declare function readCurrentBeaconEpoch(client: PublicClient, deployment: PaidCo
 | Parameter | Type | Description |
 |---|---|---|
 | ` client ` | ` PublicClient ` | - Trusted bounded Viem RPC client for the selected deployment. |
-| ` deployment ` | ` PaidContextDeployment ` | - Independently approved chain and contract addresses, the beacon included. |
-| ` options? ` | ` { fresh?: boolean; } ` | - `fresh`: read at an RPC `latest` head of its own, never a followed tip. For a decision a tip lagging the chain would get wrong (confirming that a grant left the window: a keeper judged it at a newer head; C21, two beacon pushes in a second). |
+| ` deployment ` | ` BeaconDeployment ` | - Independently approved chain and contract addresses, the beacon included. |
+| ` options? ` | ` { fresh?: boolean; } ` | - `fresh`: read at an RPC `latest` head of its own, never a followed tip. For a decision a tip lagging the chain would get wrong (confirming that a grant left the window: a keeper judged it at a newer head). |
 
 Returns: ` Promise<bigint> `.
 
@@ -2894,143 +1883,6 @@ declare function readCustodyHealth(chain: TasraChainClient, slotId: Hex, options
 | ` options? ` | ` ReadCustodyHealthOptions ` | Expected chain, transport, cancellation and freshness policy. |
 
 Returns: ` Promise<CustodyHealthReport> `.
-
-### readKeeperExecutionRecoveryPolicy
-
-Authenticate completed keeper evidence using canonical original creator, fee and roster reads.
-Every contract call uses the report's original EIP-1898 hash with requireCanonical; missing
-history fails closed. Current expiry, ownership or payout never replaces the original state.
-This performs no transaction, keeper request or fresh work admission.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L326)
-
-Import: `import {readKeeperExecutionRecoveryPolicy} from 'tasra-sdk/chain'`
-
-```ts
-declare function readKeeperExecutionRecoveryPolicy(
-    client: PublicClient,
-    deployment: PrepaidDeployment,
-    payment: PaymentIntentWire,
-    expected: ExpectedPaidOperation,
-    target: ExecutionRecoveryTarget,
-    execution: SignedPaidExecutionReport,
-    transport?: PaidKeeperTransportOptions
-): Promise<KeeperExecutionRecoveryObservation>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | Trusted bounded RPC client for the independently approved deployment. |
-| ` deployment ` | ` PrepaidDeployment ` | Approved chain and contracts, never taken from a received report. |
-| ` payment ` | ` PaymentIntentWire ` | Original creator payment retained before the operation. |
-| ` expected ` | ` ExpectedPaidOperation ` | Independently intended slot, action and digest. |
-| ` target ` | ` ExecutionRecoveryTarget ` | Original client key and independently selected assigned keeper stage/key. |
-| ` execution ` | ` SignedPaidExecutionReport ` | Untrusted public completed evidence, authenticated against the same history. |
-| ` transport? ` | ` PaidKeeperTransportOptions ` | Explicit local HTTP allowance for the historical registered endpoint. |
-
-Returns: ` Promise<KeeperExecutionRecoveryObservation> `.
-
-### readPaidOperationReceipt
-
-Require mined backing for an independently selected operation, without spending or performing it.
-A completed reservation remains inspectable. This result never authorizes another execution;
-the keeper must independently verify the holder, current assignment and durable operation journal.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L795)
-
-Import: `import {readPaidOperationReceipt} from 'tasra-sdk/chain'`
-
-```ts
-declare function readPaidOperationReceipt(client: PublicClient, deployment: PrepaidDeployment, payment: PaymentIntentWire, expected: ExpectedPaidOperation, options?: {
-    atLeastBlock?: bigint;
-}): Promise<PaidOperationReceipt>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | - Trusted bounded Viem RPC client for the selected deployment. |
-| ` deployment ` | ` PrepaidDeployment ` | - Independently approved chain and contract addresses. |
-| ` payment ` | ` PaymentIntentWire ` | - Fixed creator-signed intent for the existing reservation. |
-| ` expected ` | ` ExpectedPaidOperation ` | - Slot, action and digest derived from the operation the application intends. |
-| ` options? ` | ` { atLeastBlock?: bigint; } ` | - `atLeastBlock`: a block the caller saw its own transaction mined in; an older followed tip is not used (it cannot show that transaction), the RPC head is read instead. |
-
-Returns: ` Promise<PaidOperationReceipt> `.
-
-### readPrepaidAllowance
-
-Read `Settlement.prepaidAllowance(id)` at a canonical block (`blockHash`), or at a fresh head.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L359)
-
-Import: `import {readPrepaidAllowance} from 'tasra-sdk/chain'`
-
-```ts
-declare function readPrepaidAllowance(client: PublicClient, deployment: PrepaidDeployment, id: Hex, blockHash?: Hex): Promise<PrepaidAllowanceState>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | - Trusted RPC client. |
-| ` deployment ` | ` PrepaidDeployment ` | - Approved deployment. |
-| ` id ` | ` Hex ` | - Allowance id. |
-| ` blockHash? ` | ` Hex ` | - Canonical block to read at; a fresh latest head (<= 30 s) when absent. |
-
-Returns: ` Promise<PrepaidAllowanceState> `.
-
-### readPrepaidFaultResolution
-
-Whether the oracle already punished this offender for this batch (one resolution per
-offender and batch, whatever the kind or evidence).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L88)
-
-Import: `import {readPrepaidFaultResolution} from 'tasra-sdk/chain'`
-
-```ts
-declare function readPrepaidFaultResolution(client: PublicClient, oracle: Address, subject: {
-    slotId: Hex;
-    batchId: Hex;
-    offender: Address;
-}): Promise<{
-    resolutionId: Hex;
-    resolved: boolean;
-}>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | Trusted RPC client. |
-| ` oracle ` | ` Address ` | Independently approved PrepaidFaultOracle. |
-| ` subject ` | ` { slotId: Hex; batchId: Hex; offender: Address; } ` | Slot, batch and offender. |
-
-Returns:
-
-```ts
-Promise<{
-    resolutionId: Hex;
-    resolved: boolean;
-}>
-```
-
-### readPrepaidFaultStatus
-
-Read an accountant fault witness's adjudication health (`GET /v1/prepaid-fault/status`).
-The body is returned as parsed JSON, bounded to 64 KiB; it is a monitoring view, not evidence.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L168)
-
-Import: `import {readPrepaidFaultStatus} from 'tasra-sdk/chain'`
-
-```ts
-declare function readPrepaidFaultStatus(base: string, options?: PrepaidFaultHttpOptions): Promise<Record<string, unknown>>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` base ` | ` string ` | Approved accountant origin. |
-| ` options? ` | ` PrepaidFaultHttpOptions ` | Fetch, cancellation, deadline and local HTTP allowance. |
-
-Returns: ` Promise<Record<string, unknown>> `.
 
 ### readRotationLock
 
@@ -3072,26 +1924,6 @@ declare function readRuleAmendment(chain: TasraChainClient, slotId: Hex): Promis
 
 Returns: ` Promise<RuleAmendmentStatus> `.
 
-### readSlotFunding
-
-Read available, reserved and total slot TASRA at one fresh canonical block. Performs no transaction.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L759)
-
-Import: `import {readSlotFunding} from 'tasra-sdk/chain'`
-
-```ts
-declare function readSlotFunding(client: PublicClient, deployment: PrepaidDeployment, slot: Hex): Promise<SlotFunding>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | - Trusted bounded Viem RPC client for the selected deployment. |
-| ` deployment ` | ` PrepaidDeployment ` | - Independently approved chain and contract addresses. |
-| ` slot ` | ` Hex ` | - Slot whose TASRA balances are required. |
-
-Returns: ` Promise<SlotFunding> `.
-
 ### readSlotHandoff
 
 Read a slot's creator, rule admin, guardian and any pending hand-off of either role.
@@ -3111,70 +1943,53 @@ declare function readSlotHandoff(chain: TasraChainClient, slotId: Hex): Promise<
 
 Returns: ` Promise<SlotHandoffStatus> `.
 
-### reconcilePaidReservation
+### readSlotSharing
 
-Verify a saved reservation transaction after restart without submitting or replacing anything.
-Expired intents remain recoverable. Missing transactions, unavailable historical state, reorgs
-and insufficient confirmations fail closed; none prove that the operation was never submitted.
-A reverted result proves only this transaction's failure, not absence of another reservation.
+Read a BLS slot's current sharing: the slot's epoch, sharing version and threshold, its assigned
+keepers with their registered identity keys, and each keeper's authenticated 144-byte public
+verifying share. This is everything a recipient-sealed decryption or a session decrypt needs
+beside its authorization. Performs no transaction; fetches no secret.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L265)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotSharing.ts#L45)
 
-Import: `import {reconcilePaidReservation} from 'tasra-sdk/chain'`
+Import: `import {readSlotSharing} from 'tasra-sdk/chain'`
 
 ```ts
-declare function reconcilePaidReservation(
-    client: PublicClient,
-    deployment: PrepaidDeployment,
-    original: PaidReservationRecord,
-    expected: ExpectedPaidOperation,
-    transactionHash: Hex,
-    confirmations?: number
-): Promise<PaidReservationResolution>;
+declare function readSlotSharing(chain: TasraChainClient, slotId: Hex, options?: SlotSharingOptions): Promise<SlotSharing>;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` client ` | ` PublicClient ` | - Trusted bounded public RPC client with canonical historical reads. |
-| ` deployment ` | ` PrepaidDeployment ` | - Independently approved original deployment. |
-| ` original ` | ` PaidReservationRecord ` | - Original durable preparation; never a newly created replacement intent. |
-| ` expected ` | ` ExpectedPaidOperation ` | - Independently selected original slot, action and payload digest. |
-| ` transactionHash ` | ` Hex ` | - Saved or independently found candidate hash; its entire identity is checked. |
-| ` confirmations? ` | ` number ` | - Required inclusion depth, 1..64 (default 1). |
+| ` chain ` | ` TasraChainClient ` | - Reader for the deployment owning the slot. |
+| ` slotId ` | ` Hex ` | - 32-byte slot ID of a BLS slot with a published key. |
+| ` options? ` | ` SlotSharingOptions ` | - Keeper route mapping, transport, local HTTP and cancellation. |
 
-Returns: ` Promise<PaidReservationResolution> `.
+Returns: ` Promise<SlotSharing> `.
 
-### reconcilePrepaidAllowance
+### readSlotVerifierDraw
 
-Whether a prepared allowance reservation is mined as signed, read at a fresh head. `reserved`
-proves it; `not-reserved` is final only once a canonical block is past the quote deadline
-(the contract refuses the signed quote from then on); otherwise `uncertain`.
+One slot's verifier draw at `epoch`, read at ONE fresh observed head: the beacon seed and the
+anchored verifier-set snapshot of that epoch, and the slot's committee policy. The epoch must be
+the beacon's latest or previous one (no keeper or verifier admits another) with its seed and
+snapshot anchored, and the registries must point at this beacon. Performs no transaction.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L504)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionDraw.ts#L152)
 
-Import: `import {reconcilePrepaidAllowance} from 'tasra-sdk/chain'`
+Import: `import {readSlotVerifierDraw} from 'tasra-sdk/chain'`
 
 ```ts
-declare function reconcilePrepaidAllowance(client: PublicClient, deployment: PrepaidDeployment, record: PrepaidAllowanceReservationRecord): Promise<{
-    state: 'reserved' | 'not-reserved' | 'uncertain';
-    allowance: PrepaidAllowanceState;
-}>;
+declare function readSlotVerifierDraw(client: PublicClient, deployment: SessionDrawDeployment, slot: Hex, epoch: bigint, options?: SlotVerifierDrawOptions): Promise<AnchoredVerifierDraw>;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` client ` | ` PublicClient ` | - Trusted RPC client. |
-| ` deployment ` | ` PrepaidDeployment ` | - Approved deployment. |
-| ` record ` | ` PrepaidAllowanceReservationRecord ` | - The durable `prepared` record. |
+| ` client ` | ` PublicClient ` | - Trusted bounded Viem RPC client for the selected deployment. |
+| ` deployment ` | ` SessionDrawDeployment ` | - Independently approved chain and contract addresses. |
+| ` slot ` | ` Hex ` | - 32-byte slot ID. |
+| ` epoch ` | ` bigint ` | - The grant's (or token's) draw epoch. |
+| ` options? ` | ` SlotVerifierDrawOptions ` | - The deployment's default verifier policy. |
 
-Returns:
-
-```ts
-Promise<{
-    state: 'reserved' | 'not-reserved' | 'uncertain';
-    allowance: PrepaidAllowanceState;
-}>
-```
+Returns: ` Promise<AnchoredVerifierDraw> `.
 
 ### reconcileRelayAttempt
 
@@ -3195,27 +2010,6 @@ declare function reconcileRelayAttempt(chain: TasraChainClient, attempt: RelayAt
 | ` timeoutMs? ` | ` number ` | Maximum reconciliation duration in milliseconds; defaults to 30000. |
 
 Returns: ` Promise<RelayReconciliation> `.
-
-### recoverKeeperExecution
-
-Read completed keeper results without resubmitting payment, key work, nonce preparation or closure.
-Authenticate the worker report and original canonical reserved history before requesting a fresh
-client signature. Then independently verify returned evidence and exact result bytes. Missing,
-failed, interrupted, orphaned or unavailable history is a refusal, never an automatic retry of work.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L100)
-
-Import: `import {recoverKeeperExecution} from 'tasra-sdk/chain'`
-
-```ts
-declare function recoverKeeperExecution(options: RecoverKeeperExecutionOptions): Promise<RecoveredKeeperExecution>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` options ` | ` RecoverKeeperExecutionOptions ` | Locally retained original intent, client signer and approved read capabilities. |
-
-Returns: ` Promise<RecoveredKeeperExecution> `.
 
 ### requestSlotSeed
 
@@ -3244,7 +2038,7 @@ Return details: A seed response, or null when no accountant returns an acceptabl
 
 Resolve a contract address, throwing a clear error if missing.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L329)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L325)
 
 Import: `import {requireAddress} from 'tasra-sdk/chain'`
 
@@ -3259,32 +2053,11 @@ declare function requireAddress(book: AddressBook, name: ContractName): Address;
 
 Returns: ` Address `.
 
-### requirePrepaidSlot
-
-One-shot guard for a paid entry point: resolve the slot's mode and throw
-[BillingModeError](#billingmodeerror) unless it is prepaid.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L212)
-
-Import: `import {requirePrepaidSlot} from 'tasra-sdk/chain'`
-
-```ts
-declare function requirePrepaidSlot(client: PublicClient, deployment: BillingDeployment, slot: Hex): Promise<BillingModeObservation>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | Trusted RPC client for the deployment. |
-| ` deployment ` | ` BillingDeployment ` | Approved chain ID and Settlement proxy. |
-| ` slot ` | ` Hex ` | Slot about to be charged. |
-
-Returns: ` Promise<BillingModeObservation> `.
-
 ### requireVaultAddress
 
 Resolve the named vesting allocation. The unqualified vault address is accepted as a fallback; callers aggregating allocations must deduplicate resolved addresses.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L309)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/deployments.ts#L305)
 
 Import: `import {requireVaultAddress} from 'tasra-sdk/chain'`
 
@@ -3300,86 +2073,6 @@ declare function requireVaultAddress(book: AddressBook, tranche: VaultTranche): 
 Returns: ` Address `.
 
 Return details: Address of the allocation vault; throws when missing.
-
-### reservePaidOperation
-
-Reserve TASRA for a fixed creator-signed operation using an accountant threshold quote.
-Does not create an intent, approve tokens, activate a slot, authorize credentials or do keeper
-work. Before broadcast, unavailable accountants can be skipped while collecting the same quote
-and quorum authorization. One broadcast attempt only; no replacement or implicit gas funding.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L632)
-
-Import: `import {reservePaidOperation} from 'tasra-sdk/chain'`
-
-```ts
-declare function reservePaidOperation(
-    client: PublicClient,
-    wallet: WalletClient<Transport, Chain, Account>,
-    deployment: PrepaidDeployment,
-    original: PaymentIntentWire,
-    expected: ExpectedPaidOperation,
-    options: ReservePaidOperationOptions
-): Promise<{
-    transactionHash: Hex;
-    receipt: PaidOperationReceipt;
-}>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | - Trusted bounded public RPC client; use retryCount: 0 for submissions. |
-| ` wallet ` | ` WalletClient<Transport, Chain, Account> ` | - Account-bound gas payer on the selected chain; no automatic wallet retries. |
-| ` deployment ` | ` PrepaidDeployment ` | - Independently approved deployment. |
-| ` original ` | ` PaymentIntentWire ` | - Creator intent from independently verified assignment/session discovery. |
-| ` expected ` | ` ExpectedPaidOperation ` | - Independently derived operation. |
-| ` options ` | ` ReservePaidOperationOptions ` | - Fee limits, accountant endpoints and mandatory durable persistence. |
-
-Returns:
-
-```ts
-Promise<{
-    transactionHash: Hex;
-    receipt: PaidOperationReceipt;
-}>
-```
-
-### reservePrepaidAllowance
-
-Reserve one allowance for a creator-signed intent: quorum quote, one bounded legacy transaction,
-the durable checkpoints, the receipt and the mined record. Never resubmits or replaces; an
-outcome unknown after `prepared` is [PaidReservationUncertainError](#paidreservationuncertainerror) (its `requestId` is the
-allowance id).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L389)
-
-Import: `import {reservePrepaidAllowance} from 'tasra-sdk/chain'`
-
-```ts
-declare function reservePrepaidAllowance(client: PublicClient, wallet: WalletClient<Transport, Chain, Account>, deployment: PrepaidDeployment, original: PrepaidAllowanceIntentWire, options: ReservePrepaidAllowanceOptions): Promise<{
-    transactionHash: Hex;
-    allowance: PrepaidAllowanceState;
-    quote: PrepaidAllowanceQuote;
-}>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | - Trusted RPC client; submission retries disabled. |
-| ` wallet ` | ` WalletClient<Transport, Chain, Account> ` | - Dedicated account-bound gas payer. |
-| ` deployment ` | ` PrepaidDeployment ` | - Approved deployment. |
-| ` original ` | ` PrepaidAllowanceIntentWire ` | - Creator-signed allowance intent. |
-| ` options ` | ` ReservePrepaidAllowanceOptions ` | - Endpoints, gas limits and mandatory durable persistence. |
-
-Returns:
-
-```ts
-Promise<{
-    transactionHash: Hex;
-    allowance: PrepaidAllowanceState;
-    quote: PrepaidAllowanceQuote;
-}>
-```
 
 ### resolveAccountantUrls
 
@@ -3421,29 +2114,6 @@ declare function resolveNetworkProfile(environment: NetworkName, options?: {
 | ` options? ` | ` { chainId?: number; rpcUrl?: string; eurcAddress?: string; } ` | Explicit chain, RPC and EURC address overrides from approved configuration. |
 
 Returns: ` ResolvedNetworkProfile `.
-
-### resolvePaidKeeperTarget
-
-Resolve only the signed coordinator after checking mined backing, creator consent and current sharing.
-Does not contact any keeper, submit a transaction, mint a credential grant or execute work.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L949)
-
-Import: `import {resolvePaidKeeperTarget} from 'tasra-sdk/chain'`
-
-```ts
-declare function resolvePaidKeeperTarget(client: PublicClient, deployment: PrepaidDeployment, payment: PaymentIntentWire, expected: ExpectedPaidOperation, transport?: PaidKeeperTransportOptions): Promise<PaidKeeperTarget>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | - Trusted bounded Viem RPC client for the selected deployment. |
-| ` deployment ` | ` PrepaidDeployment ` | - Independently approved chain and contract addresses. |
-| ` payment ` | ` PaymentIntentWire ` | - Creator-signed intent for the existing reservation. |
-| ` expected ` | ` ExpectedPaidOperation ` | - Independently derived slot, action and exact payload digest. |
-| ` transport? ` | ` PaidKeeperTransportOptions ` | - Explicit local HTTP allowance; defaults to HTTPS only. |
-
-Returns: ` Promise<PaidKeeperTarget> `.
 
 ### resolveSlotGroupKey
 
@@ -3511,7 +2181,7 @@ Return details: Verifier endpoints, public keys and snapshot indices.
 
 Compute the salted rule commitment. OID4VP queries and `kk_oauth` policy envelopes use canonical JSON; other rule formats retain their exact bytes.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L590)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L588)
 
 Import: `import {ruleCommitment} from 'tasra-sdk/chain'`
 
@@ -3590,37 +2260,6 @@ Returns:
         expiresAt: bigint;
     };
 }
-```
-
-### submitPrepaidFaultClaim
-
-Hand a proof bundle to an accountant's fault witness (`POST /v1/prepaid-fault/claim`).
-Resolves on HTTP 202 (authenticated and durably stored). Any other status throws a
-TasraHttpError with the service's `Retry-After`: 400 malformed, 403 nothing authenticated,
-413 too large are final; 408, 429 and 503 may be sent again later. Never re-sent here.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L149)
-
-Import: `import {submitPrepaidFaultClaim} from 'tasra-sdk/chain'`
-
-```ts
-declare function submitPrepaidFaultClaim(base: string, bundle: Record<string, unknown>, options?: PrepaidFaultHttpOptions): Promise<{
-    status: 202;
-}>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` base ` | ` string ` | Approved accountant origin. |
-| ` bundle ` | ` Record<string, unknown> ` | Proof bundle (`version` 1, `slot`, `batch_id`, `reconcile_block`, signed records). |
-| ` options? ` | ` PrepaidFaultHttpOptions ` | Fetch, cancellation, deadline and local HTTP allowance. |
-
-Returns:
-
-```ts
-Promise<{
-    status: 202;
-}>
 ```
 
 ### truncateHex
@@ -3761,33 +2400,11 @@ declare function verifyCustodyStatement(statement: CustodyStatement, publicKey: 
 
 Returns: ` boolean `.
 
-### verifyDebitVoucher
-
-Verify a debit voucher's shape and its threshold signature against `beacon.mpk()` at its quote block.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L570)
-
-Import: `import {verifyDebitVoucher} from 'tasra-sdk/chain'`
-
-```ts
-declare function verifyDebitVoucher(client: PublicClient, deployment: PrepaidDeployment & {
-    beacon?: Address;
-}, voucher: DebitVoucherWire): Promise<void>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` client ` | ` PublicClient ` | - Trusted RPC client. |
-| ` deployment ` | ` PrepaidDeployment & { beacon?: Address; } ` | - Approved deployment. |
-| ` voucher ` | ` DebitVoucherWire ` | - Untrusted voucher. |
-
-Returns: ` Promise<void> `.
-
 ### verifyRuleCommitment
 
 Return whether the disclosed rule and salt reproduce the on-chain commitment. Invalid inputs and mismatches return false.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L603)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L601)
 
 Import: `import {verifyRuleCommitment} from 'tasra-sdk/chain'`
 
@@ -3849,28 +2466,24 @@ Returns: ` ServiceManifest `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 181 types</summary>
+<summary>Browse 121 types</summary>
 
 - [Address](#address)
 - [AddressBook](#addressbook)
+- [AgentHttpResponse](#agenthttpresponse)
+- [AgentSessionRecovery](#agentsessionrecovery)
 - [AgentTransport](#agenttransport)
 - [AmendmentPhase](#amendmentphase)
 - [AmendSlotRuleArgs](#amendslotruleargs)
 - [AmendSlotRuleResult](#amendslotruleresult)
+- [AnchoredVerifierDraw](#anchoredverifierdraw)
 - [ApplicationServiceProfiles](#applicationserviceprofiles)
 - [ApprovedAgentProfile](#approvedagentprofile)
 - [ApprovedServiceProfile](#approvedserviceprofile)
 - [AuthenticatedService](#authenticatedservice)
+- [BeaconDeployment](#beacondeployment)
 - [BeaconDrawState](#beacondrawstate)
-- [BillingDeployment](#billingdeployment)
-- [BillingMode](#billingmode)
-- [BillingModeDetector](#billingmodedetector)
-- [BillingModeObservation](#billingmodeobservation)
 - [ChainClientConfig](#chainclientconfig)
-- [ClientApprovedPresentation](#clientapprovedpresentation)
-- [ClientExecutionDeployment](#clientexecutiondeployment)
-- [ClientExecutionObservation](#clientexecutionobservation)
-- [CollectDebitVoucherOptions](#collectdebitvoucheroptions)
 - [CommitRevealOptions](#commitrevealoptions)
 - [CommitteeDecryptOptions](#committeedecryptoptions)
 - [CommitteeSignOptions](#committeesignoptions)
@@ -3887,27 +2500,15 @@ Options, data structures and return types.
 - [CustodyHealthReport](#custodyhealthreport)
 - [CustodyReshareState](#custodyresharestate)
 - [CustodyStatement](#custodystatement)
-- [DebitMemberOutcome](#debitmemberoutcome)
-- [DebitPartialWire](#debitpartialwire)
-- [DebitRequest](#debitrequest)
 - [DecodedEvent](#decodedevent)
-- [DiscoveredPaymentFields](#discoveredpaymentfields)
-- [DrawnPaidOperationContext](#drawnpaidoperationcontext)
-- [EscapePrepaidArgs](#escapeprepaidargs)
 - [EventCategory](#eventcategory)
 - [ExpectedCustodyReply](#expectedcustodyreply)
-- [ExpectedPaidOperation](#expectedpaidoperation)
 - [FetchOpts](#fetchopts)
 - [FollowedHead](#followedhead)
 - [GetLogsWindowedOpts](#getlogswindowedopts)
 - [HeadFollower](#headfollower)
 - [HeadFollowerOptions](#headfolloweroptions)
-- [KeeperExecutionApproverOptions](#keeperexecutionapproveroptions)
-- [KeeperExecutionClientConsent](#keeperexecutionclientconsent)
-- [KeeperExecutionRecoveryObservation](#keeperexecutionrecoveryobservation)
 - [KeeperProvisionResult](#keeperprovisionresult)
-- [KeeperRecoveryHttpResponse](#keeperrecoveryhttpresponse)
-- [KeeperRecoveryTransport](#keeperrecoverytransport)
 - [KeyListReply](#keylistreply)
 - [KeyRotationLockedEvent](#keyrotationlockedevent)
 - [KeySlotSummary](#keyslotsummary)
@@ -3916,60 +2517,12 @@ Options, data structures and return types.
 - [NetworkName](#networkname)
 - [NetworkPreset](#networkpreset)
 - [NodeInfo](#nodeinfo)
-- [OriginalVerifierPolicy](#originalverifierpolicy)
-- [PaidAgentHttpResponse](#paidagenthttpresponse)
-- [PaidAgentProposal](#paidagentproposal)
-- [PaidAgentSessionParams](#paidagentsessionparams)
-- [PaidAgentTransport](#paidagenttransport)
-- [PaidApprovalBatchReply](#paidapprovalbatchreply)
-- [PaidApprovalDelivery](#paidapprovaldelivery)
-- [PaidContextDeployment](#paidcontextdeployment)
-- [PaidContextOptions](#paidcontextoptions)
-- [PaidKeeperEndpoint](#paidkeeperendpoint)
-- [PaidKeeperTarget](#paidkeepertarget)
-- [PaidKeeperTransportOptions](#paidkeepertransportoptions)
-- [PaidOperationContext](#paidoperationcontext)
-- [PaidOperationReceipt](#paidoperationreceipt)
-- [PaidPacingClock](#paidpacingclock)
-- [PaidPacingOptions](#paidpacingoptions)
-- [PaidReservationCheckpoint](#paidreservationcheckpoint)
-- [PaidReservationQuote](#paidreservationquote)
-- [PaidReservationRecord](#paidreservationrecord)
-- [PaidReservationResolution](#paidreservationresolution)
-- [PaidRetainedPresentation](#paidretainedpresentation)
-- [PaidVerifierWitness](#paidverifierwitness)
-- [PaymentDrawFieldName](#paymentdrawfieldname)
-- [PrepaidAllowanceCheckpoint](#prepaidallowancecheckpoint)
-- [PrepaidAllowanceQuote](#prepaidallowancequote)
-- [PrepaidAllowanceReservationRecord](#prepaidallowancereservationrecord)
-- [PrepaidAllowanceState](#prepaidallowancestate)
-- [PrepaidDeployment](#prepaiddeployment)
-- [PrepaidEscapeCallResult](#prepaidescapecallresult)
-- [PrepaidEscapeCheckpoint](#prepaidescapecheckpoint)
-- [PrepaidEscapeClient](#prepaidescapeclient)
-- [PrepaidEscapeCode](#prepaidescapecode)
-- [PrepaidEscapeDeployment](#prepaidescapedeployment)
-- [PrepaidEscapeEvents](#prepaidescapeevents)
-- [PrepaidEscapeObservation](#prepaidescapeobservation)
-- [PrepaidEscapeRecord](#prepaidescaperecord)
-- [PrepaidEscapeRequestState](#prepaidescaperequeststate)
-- [PrepaidEscapeResolution](#prepaidescaperesolution)
-- [PrepaidEscapeResult](#prepaidescaperesult)
-- [PrepaidEscapeStatus](#prepaidescapestatus)
-- [PrepaidFaultHttpOptions](#prepaidfaulthttpoptions)
-- [PrepaidFaultKind](#prepaidfaultkind)
-- [PrepaidFaultVerdict](#prepaidfaultverdict)
-- [PrepaidObservation](#prepaidobservation)
 - [ProposeRuleArgs](#proposeruleargs)
 - [ProposeRuleResult](#proposeruleresult)
 - [ProvisionRuleArgs](#provisionruleargs)
 - [ProvisionRuleResult](#provisionruleresult)
 - [ReadCustodyHealthOptions](#readcustodyhealthoptions)
-- [ReconcileEscapeArgs](#reconcileescapeargs)
-- [RecoveredKeeperExecution](#recoveredkeeperexecution)
-- [RecoverKeeperExecutionOptions](#recoverkeeperexecutionoptions)
 - [RegisteredAgentSession](#registeredagentsession)
-- [RegisteredPaidAgentSession](#registeredpaidagentsession)
 - [RegisteredRelayConfig](#registeredrelayconfig)
 - [RegisteredVerifierAgentSession](#registeredverifieragentsession)
 - [RelayAttempt](#relayattempt)
@@ -3982,12 +2535,9 @@ Options, data structures and return types.
 - [RelayTransport](#relaytransport)
 - [RelayVoucher](#relayvoucher)
 - [RelayVoucherIntent](#relayvoucherintent)
-- [ReservePaidOperationOptions](#reservepaidoperationoptions)
-- [ReservePrepaidAllowanceOptions](#reserveprepaidallowanceoptions)
 - [ReshareRosterErrorCode](#resharerostererrorcode)
 - [ResolvedEndpoints](#resolvedendpoints)
 - [ResolvedNetworkProfile](#resolvednetworkprofile)
-- [RetainedPaidApproval](#retainedpaidapproval)
 - [RotationLockErrorCode](#rotationlockerrorcode)
 - [RotationLockResult](#rotationlockresult)
 - [RotationLockRevert](#rotationlockrevert)
@@ -4003,11 +2553,16 @@ Options, data structures and return types.
 - [ServiceRecord](#servicerecord)
 - [ServiceStatus](#servicestatus)
 - [ServiceType](#servicetype)
+- [SessionAgentTransport](#sessionagenttransport)
+- [SessionControlHttpResponse](#sessioncontrolhttpresponse)
+- [SessionControlTransport](#sessioncontroltransport)
+- [SessionDrawDeployment](#sessiondrawdeployment)
 - [SignedHeartbeat](#signedheartbeat)
 - [SlotAuthType](#slotauthtype)
 - [SlotCommitteeDecryptOptions](#slotcommitteedecryptoptions)
 - [SlotCommitteeSignOptions](#slotcommitteesignoptions)
-- [SlotFunding](#slotfunding)
+- [SlotDrawReaderConfig](#slotdrawreaderconfig)
+- [SlotDrawTrust](#slotdrawtrust)
 - [SlotGroupKey](#slotgroupkey)
 - [SlotHandoffErrorCode](#slothandofferrorcode)
 - [SlotHandoffStatus](#slothandoffstatus)
@@ -4016,19 +2571,21 @@ Options, data structures and return types.
 - [SlotSeedAnswer](#slotseedanswer)
 - [SlotSeedFailure](#slotseedfailure)
 - [SlotSeedOptions](#slotseedoptions)
+- [SlotSharing](#slotsharing)
+- [SlotSharingOptions](#slotsharingoptions)
 - [SlotTransferProposal](#slottransferproposal)
+- [SlotVerifierDrawOptions](#slotverifierdrawoptions)
 - [TasraChainClient](#tasrachainclient)
 - [TasraSlotClient](#tasraslotclient)
 - [TasraSlotClientConfig](#tasraslotclientconfig)
 - [TasraWriteClient](#tasrawriteclient)
 - [TecdsaReshareRosterInput](#tecdsaresharerosterinput)
 - [TecdsaReshareRosterPlan](#tecdsaresharerosterplan)
-- [UndrawnPaidOperationContext](#undrawnpaidoperationcontext)
-- [UndrawnPaymentFields](#undrawnpaymentfields)
-- [UnpaidAgentSessionRecovery](#unpaidagentsessionrecovery)
 - [VaultTranche](#vaulttranche)
 - [VerifiedCustodyReport](#verifiedcustodyreport)
 - [VerifierInfo](#verifierinfo)
+- [VerifierProofWire](#verifierproofwire)
+- [VerifierWitness](#verifierwitness)
 - [WriteClientConfig](#writeclientconfig)
 - [WriteClientKeyConfig](#writeclientkeyconfig)
 - [WriteClientWalletConfig](#writeclientwalletconfig)
@@ -4057,11 +2614,66 @@ export type AddressBook = Partial<Record<ContractName, Address>> & {
 };
 ```
 
+### AgentHttpResponse
+
+A session-creation reply read with its status; the body stays bounded by the caller.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L22)
+
+```ts
+export interface AgentHttpResponse {
+    status: number;
+    body: Uint8Array;
+    retryAfterMs?: number;
+}
+```
+
+Fields:
+
+- **` status `**: HTTP status of the reply.
+- **` body `**: Bounded reply bytes.
+- **` retryAfterMs `**: Parsed Retry-After, in milliseconds, when the agent sent one.
+
+### AgentSessionRecovery
+
+Private application state for restoring the original session, never a provider approval.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L72)
+
+```ts
+export interface AgentSessionRecovery extends Pick<CreateSessionResult, 'sessionId' | 'pollSecret' | 'qrPayload' | 'requestUri'> {
+    version: 1;
+    serviceProfile: {
+        chainId: number;
+        registry: string;
+        serviceId: string;
+        serviceType: 1;
+        owner: string;
+        revision: string;
+        manifestHash: string;
+        authKey: string;
+        endpoint: string;
+        clientId: string;
+    };
+    pendingOwner: string;
+}
+```
+
+Fields:
+
+- **` version `**: Checkpoint format.
+- **` serviceProfile `**: Creation identity, compared with independent approvals and the live registry.
+- **` pendingOwner `**: Pending owner at creation; a later transfer stops recovery before bearer delivery.
+- **` sessionId `**: Opened authorization session identifier.
+- **` pollSecret `**: Bearer token for polling - treat as a secret
+- **` qrPayload `**: OpenID4VP deep link for a wallet or QR code.
+- **` requestUri `**: URL from which the wallet retrieves the signed request.
+
 ### AgentTransport
 
 Guarded HTTPS transport for service discovery and verifier-agent sessions.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L12)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L11)
 
 ```ts
 export interface AgentTransport extends ServiceDiscoveryTransport {
@@ -4143,6 +2755,38 @@ Fields:
 - **` proposeTx `**: Proposal transaction; absent when the proposal already existed (a resumed run).
 - **` activateTx `**: Activation transaction; absent when the rule was already active or another party activated it.
 
+### AnchoredVerifierDraw
+
+One slot's verifier draw at one epoch, as anchored on chain: the beacon seed and the verifier-set
+snapshot root and size of the epoch, and the slot's committee policy. Read it from the chain
+(`readSlotVerifierDraw`), never from a service.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/verifierSnapshot.ts#L17)
+
+```ts
+export interface AnchoredVerifierDraw {
+    chain_id: number;
+    slot: Hex;
+    verification_epoch: number;
+    verification_seed: Hex;
+    verification_root: Hex;
+    verification_registry_size: number;
+    verification_committee: number;
+    verification_quorum: number;
+}
+```
+
+Fields:
+
+- **` chain_id `**: Deployment chain ID.
+- **` slot `**: 32-byte slot ID.
+- **` verification_epoch `**: Beacon epoch of the draw.
+- **` verification_seed `**: `beacon.seedAt(epoch)`.
+- **` verification_root `**: Anchored verifier-set snapshot root of the epoch.
+- **` verification_registry_size `**: Anchored verifier-set size of the epoch.
+- **` verification_committee `**: The slot's verifier committee size.
+- **` verification_quorum `**: Signatures required from that committee.
+
 ### ApplicationServiceProfiles
 
 Reviewed application configuration, never a list downloaded from a service registry.
@@ -4171,7 +2815,7 @@ Fields:
 
 Both the application and committee verifiers must independently approve this verifier-agent identity.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L41)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L40)
 
 ```ts
 export interface ApprovedAgentProfile {
@@ -4229,11 +2873,31 @@ Fields:
 - **` blockNumber `**: Chain block used for the final registry record check.
 - **` expiresAt `**: Expiration of the endpoint authentication challenge in Unix seconds.
 
+### BeaconDeployment
+
+The beacon and verifier-set registry of a deployment, independently approved by the application.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionDraw.ts#L27)
+
+```ts
+export interface BeaconDeployment {
+    chainId: number;
+    beacon: Address;
+    verifierSet: Address;
+}
+```
+
+Fields:
+
+- **` chainId `**: Deployment chain ID; the RPC's chain must equal it.
+- **` beacon `**: ThresholdRandomBeacon address.
+- **` verifierSet `**: VerifierSetRegistry address.
+
 ### BeaconDrawState
 
 The beacon's latest epoch and the newest epoch a session grant can be drawn on now.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L720)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionDraw.ts#L98)
 
 ```ts
 export interface BeaconDrawState {
@@ -4246,84 +2910,6 @@ Fields:
 
 - **` latest `**: The beacon's latest epoch.
 - **` draw `**: `latest` once its verifier-set snapshot is anchored, else `latest - 1` when that one is, else absent: the epoch the verifier-agent draws a new grant (or a session continuation) on, as the agent picks it (`pick_draw_epoch`). A refresh before it moves past a grant's epoch can only re-sign the grant on its own epoch.
-
-### BillingDeployment
-
-Chain and Settlement proxy whose billing is detected; independently approved by the application.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L42)
-
-```ts
-export interface BillingDeployment {
-    chainId: number;
-    settlement: Address;
-}
-```
-
-Fields:
-
-- **` chainId `**: Expected EVM chain ID.
-- **` settlement `**: Expected Settlement proxy.
-
-### BillingMode
-
-Billing a slot uses; `unknown` means the chain could not be read consistently.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L19)
-
-```ts
-export type BillingMode = 'legacy' | 'prepaid' | 'unknown';
-```
-
-### BillingModeDetector
-
-Per-slot cached billing detection for one deployment.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L155)
-
-```ts
-export interface BillingModeDetector {
-    mode(slot: Hex): Promise<BillingModeObservation>;
-    requirePrepaid(slot: Hex): Promise<BillingModeObservation>;
-    invalidate(slot?: Hex): void;
-}
-```
-
-Fields:
-
-- **` mode `**: Current mode, from cache when fresh. `unknown` is never cached.
-- **` requirePrepaid `**: Resolve the mode and return it only when prepaid; otherwise throw [BillingModeError](#billingmodeerror).
-- **` invalidate `**: Forget one slot, or every slot, e.g. after an operator announces a Settlement upgrade.
-
-### BillingModeObservation
-
-One consistent observation of a slot's billing mode.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/billing.ts#L22)
-
-```ts
-export interface BillingModeObservation {
-    slot: Hex;
-    mode: BillingMode;
-    settlementVersion?: string;
-    prepaidEnabled?: boolean;
-    prepaidFromGenesis?: boolean;
-    blockNumber?: bigint;
-    blockHash?: Hex;
-    reason?: string;
-}
-```
-
-Fields:
-
-- **` slot `**: Slot identifier.
-- **` mode `**: Detected billing. `unknown` never authorizes either flow.
-- **` settlementVersion `**: `Settlement.version()` when read.
-- **` prepaidEnabled `**: `prepaidEnabled(slot)` when read (prepaid versions "2" and "3" only).
-- **` prepaidFromGenesis `**: `prepaidFromGenesis()` when read (prepaid versions "2" and "3" only).
-- **` blockNumber `**: Block every value was read at, when the read completed.
-- **` blockHash `**: Hash of that block, rechecked after all reads.
-- **` reason `**: Why the mode is unknown; safe for logs (no response bodies).
 
 ### ChainClientConfig
 
@@ -4348,105 +2934,8 @@ Fields:
 - **` addresses `**: Resolved deployment addresses.
 - **` chainId `**: Chain id; defaults to DEFAULT_CHAIN_ID (the RPC is never consulted).
 - **` logWindow `**: getLogs block-window size; keep <= the RPC's range cap (anvil/besu: large; public: ~2k).
-- **` multicall3 `**: Multicall3 address for batching. Omit to probe the canonical address, supply an explicit address to probe that deployment, or set false to disable batching. Unavailable batching falls back to individual reads. Block-pinned paid-operation reads batch through it only where its code matches the canonical Multicall3.
+- **` multicall3 `**: Multicall3 address for batching. Omit to probe the canonical address, supply an explicit address to probe that deployment, or set false to disable batching. Unavailable batching falls back to individual reads. Block-pinned reads batch through it only where its code matches the canonical Multicall3.
 - **` rpcBatch `**: JSON-RPC batching for small requests (calls, chain ID, blocks, code, nonces): requests issued together share one HTTP request of at most `batchSize` (default 32, at most 1000) after waiting `wait` milliseconds (default 0, at most 100). Each request keeps its own result and error. Log queries and transactions are never batched. Set false for an RPC without batches.
-
-### ClientApprovedPresentation
-
-Complete presentation explicitly accepted by the client before verifier work.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L144)
-
-```ts
-export interface ClientApprovedPresentation {
-    holder: string;
-    credentials: string[];
-    holder_proof: string | null;
-    oauth: {
-        access_token: string;
-        dpop_proof: string;
-        session_id: string;
-    } | null;
-    iat: number;
-}
-```
-
-Fields:
-
-- **` holder `**: Holder hint; the committee still authenticates it.
-- **` credentials `**: Every compact wallet credential, or an empty array for OAuth.
-- **` holder_proof `**: Original holder proof, if applicable.
-- **` oauth `**: Original OAuth artifacts, if this session uses OAuth.
-- **` iat `**: Original holder-selected integer issuance time; never change it on a retry.
-
-### ClientExecutionDeployment
-
-Approved contracts and default verifier policy for client-side execution consent.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L89)
-
-```ts
-export interface ClientExecutionDeployment extends PrepaidDeployment {
-    verifierSet: Address;
-    beacon: Address;
-    defaultVerificationPolicy?: {
-        committee: number;
-        quorum: number;
-    };
-}
-```
-
-Fields:
-
-- **` verifierSet `**: Independently approved anchored verifier registry.
-- **` beacon `**: Independently approved randomness beacon.
-- **` defaultVerificationPolicy `**: Explicit deployment default, used only when the slot's on-chain policy is zero.
-- **` chainId `**: Expected EVM chain ID.
-- **` settlement `**: Expected Settlement proxy.
-- **` keyRegistry `**: Expected KeyRegistry proxy.
-
-### ClientExecutionObservation
-
-Fresh canonical payment and verifier-policy observation before a client signature.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L111)
-
-```ts
-export interface ClientExecutionObservation extends PrepaidObservation {
-    policy: ExecutionConsentPolicy;
-}
-```
-
-Fields:
-
-- **` policy `**: Exact independently read creator, deployment, reserved cost and current time.
-- **` blockNumber `**: Canonical block number.
-- **` blockHash `**: Exact canonical block used for EIP-1898 calls.
-- **` blockTimestamp `**: Block timestamp in Unix seconds.
-
-### CollectDebitVoucherOptions
-
-Options for [collectDebitVoucher](#collectdebitvoucher).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L709)
-
-```ts
-export interface CollectDebitVoucherOptions {
-    accountantUrls: readonly string[];
-    allowLocalHttp?: boolean;
-    requestTimeoutMs?: number;
-    signal?: AbortSignal;
-    known?: readonly DebitPartialWire[];
-}
-```
-
-Fields:
-
-- **` accountantUrls `**: Approved accountant endpoints (all are asked).
-- **` allowLocalHttp `**: HTTP only on local chain 43112.
-- **` requestTimeoutMs `**: Per-member timeout, 1..60000 ms (default 15000).
-- **` signal `**: Cancellation. An abort after the round started may leave partials journaled at members.
-- **` known `**: Partials already obtained for this exact request (from an earlier attempt of the round).
 
 ### CommitRevealOptions
 
@@ -4492,7 +2981,7 @@ Fields:
 
 Decryption options for a registry-discovered committee slot.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L117)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L114)
 
 ```ts
 export type CommitteeDecryptOptions = SlotCommitteeDecryptOptions;
@@ -4501,7 +2990,6 @@ export type CommitteeDecryptOptions = SlotCommitteeDecryptOptions;
 Fields:
 
 - **` binding `**: Original authorization preimage binding the complete ciphertext, identity, recipient and epoch.
-- **` payment `**: Original creator-signed payment intent; required by paid deployments.
 - **` ciphertext `**: Group ciphertext to decrypt through committee authorization.
 - **` identity `**: Original associated data used when encrypting the group ciphertext.
 - **` decryptingSet `**: Historical coordinator selection; ignored by client-sealed delivery.
@@ -4511,17 +2999,16 @@ Fields:
 - **` targetKeykeeper `**: Pin the keeper this request targets (anti-Sybil); an on-chain assigned operator.
 - **` threshold `**: Required number of distinct authenticated and pairing-verified contributions.
 - **` recipient `**: Original client-held recipient created before requesting authorization.
-- **` requestId `**: Use the same id when producing the KEM owner signature.
 - **` signal `**: Cancel the complete fan-out, including approvals and response bodies.
 - **` verifyingShares `**: Authenticate this package against the slot's published commitment before use. Keys are keeper identifiers, values are 144-byte G2 || G1 verifying shares.
-- **` approveExecution `**: Client-owned exact-body approval capability, required for paid contributions.
 - **` fetchImpl `**: Guarded HTTP transport; defaults to global fetch.
+- **` requestId `**: Use the same id when producing the KEM owner signature.
 
 ### CommitteeSignOptions
 
 Signing options for a registry-discovered committee slot.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L113)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L110)
 
 ```ts
 export type CommitteeSignOptions = SlotCommitteeSignOptions;
@@ -4537,7 +3024,7 @@ Fields:
 
 Slot-based committee operations that discover keepers and verifiers from the chain.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L122)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L119)
 
 ```ts
 export interface CommitteeSlotClient {
@@ -4562,7 +3049,7 @@ Fields:
 
 Chain discovery and holder-proof configuration for threshold signing and identity decryption.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L38)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L37)
 
 ```ts
 export interface CommitteeSlotClientConfig {
@@ -4588,7 +3075,7 @@ Fields:
 
 Canonical contract names supported by the bundled ABI registry.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/index.ts#L73)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/index.ts#L67)
 
 ```ts
 export type ContractName = keyof typeof CONTRACT_ABIS;
@@ -4867,103 +3354,11 @@ Fields:
 - **` lastFailure `**: The keeper's last failed reshare of this slot, or `null`.
 - **` observedAt `**: Unix seconds at which the keeper made the statement.
 
-### DebitMemberOutcome
-
-How one member answered a debit round.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L636)
-
-```ts
-export type DebitMemberOutcome = {
-    url: string;
-    kind: 'partial';
-    partial: DebitPartialWire;
-} | {
-    url: string;
-    kind: 'unavailable';
-    reason: string;
-} | {
-    url: string;
-    kind: 'refused';
-    status: number;
-    reason: string;
-};
-```
-
-Fields:
-
-- **` url `**: Endpoint.
-- **` kind `**: A verified partial. Transport loss, 5xx, 408 or 429: the member may have journaled the debit. A definite refusal (another 4xx) or an invalid answer.
-
-### DebitPartialWire
-
-One member's answer to `POST /v1/prepaid/allowances/{id}/debits` (`DebitPartialResponse`).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L592)
-
-```ts
-export interface DebitPartialWire {
-    allowance_id: Hex;
-    seq: number;
-    request_id: Hex;
-    cost: string;
-    cumulative: string;
-    quote_block: Hex;
-    digest: Hex;
-    identifier: number;
-    partial: Hex;
-    verifying_share: Hex;
-    sharing: Hex;
-    threshold: number;
-    members: number;
-}
-```
-
-Fields:
-
-- **` allowance_id `**: Allowance.
-- **` seq `**: Sequence.
-- **` request_id `**: Request.
-- **` cost `**: Cost at the quote block, decimal.
-- **` cumulative `**: Total through seq, decimal.
-- **` quote_block `**: Quote block.
-- **` digest `**: Digest the partial is over.
-- **` identifier `**: Member identifier.
-- **` partial `**: 64-byte partial.
-- **` verifying_share `**: 128-byte verifying share.
-- **` sharing `**: The sharing the partial belongs to.
-- **` threshold `**: k.
-- **` members `**: n.
-
-### DebitRequest
-
-One debit request: the same body is sent to every member.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L622)
-
-```ts
-export interface DebitRequest {
-    payment: PaymentIntentWire;
-    seq: number;
-    previous?: DebitVoucherWire;
-    quoteBlock: Hex;
-    maxOpCost: bigint;
-}
-```
-
-Fields:
-
-- **` payment `**: Creator-signed allowance payment WITHOUT a voucher.
-- **` seq `**: Sequence (1 without a previous voucher).
-- **` previous `**: Quorum voucher of `seq - 1`.
-- **` quoteBlock `**: The quote block every member reads at (fixed by the caller and journaled before the round).
-- **` maxOpCost `**: The allowance's per-operation cap, from its mined record.
-
 ### DecodedEvent
 
 A normalized, storage-ready decoded log.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L93)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L90)
 
 ```ts
 export interface DecodedEvent {
@@ -4992,104 +3387,6 @@ Fields:
 - **` txHash `**: Hash of the transaction that emitted the log.
 - **` txIndex `**: Transaction position within the block, or null when unavailable.
 - **` logIndex `**: Log position within the block.
-
-### DiscoveredPaymentFields
-
-Chain-derived fields safe to copy into the creator's independently bounded payment intent.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L470)
-
-```ts
-export type DiscoveredPaymentFields = Pick<PaymentIntentWire,
-    | 'chain_id'
-    | 'settlement'
-    | 'key_registry'
-    | 'slot'
-    | 'verification_epoch'
-    | 'verification_seed'
-    | 'verification_root'
-    | 'verification_registry_size'
-    | 'verification_committee'
-    | 'verification_quorum'
-    | 'keeper_assignment'
->;
-```
-
-Fields:
-
-- **` settlement `**: Settlement proxy address.
-- **` slot `**: Slot identifier.
-- **` chain_id `**: EVM chain identifier.
-- **` key_registry `**: KeyRegistry proxy address.
-- **` verification_epoch `**: Pinned verification epoch.
-- **` verification_seed `**: Pinned beacon seed.
-- **` verification_root `**: Pinned verifier snapshot root.
-- **` verification_registry_size `**: Pinned verifier registry size.
-- **` verification_committee `**: Pinned verifier committee size.
-- **` verification_quorum `**: Pinned verifier quorum.
-- **` keeper_assignment `**: Fixed keeper sharing and execution membership.
-
-### DrawnPaidOperationContext
-
-A context on an admissible complete verifier draw: the only kind a payment intent is built from.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L503)
-
-```ts
-export interface DrawnPaidOperationContext extends PaidOperationContextBase {
-    intentFields: DiscoveredPaymentFields;
-    undrawn?: undefined;
-}
-```
-
-Fields:
-
-- **` intentFields `**: Chain and assignment fields; add the exact action/digest, cap, nonce, expiry and session commitment before signing.
-- **` undrawn `**: Never set on a drawn context.
-- **` creator `**: On-chain slot creator whose EIP-712 signature authorizes spending.
-- **` mode `**: Slot mode ordinal for selecting the operation client.
-- **` groupPublicKey `**: Published group key, independently verified again during execution.
-- **` coordinator `**: Selected eligible keeper coordinator.
-- **` contributors `**: All currently eligible assigned contributors in canonical public-key order.
-- **` available `**: Unreserved slot TASRA at this block; it is not a reservation or an operation quote.
-- **` ruleCommitment `**: The slot's salted rule commitment at this block, from the same canonical slot read.
-- **` ruleVersion `**: The slot's rule version at this block, from the same canonical slot read.
-- **` beaconEpoch `**: The beacon's latest epoch at this block (the draw is it or, while its anchors land, the one before).
-- **` blockNumber `**: Canonical block number.
-- **` blockHash `**: Exact canonical block used for EIP-1898 calls.
-- **` blockTimestamp `**: Block timestamp in Unix seconds.
-
-### EscapePrepaidArgs
-
-Arguments of ` PrepaidEscapeClient.escapePrepaid `.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L143)
-
-```ts
-export interface EscapePrepaidArgs {
-    slotId: Hex;
-    requestIds: readonly Hex[];
-    signer: WalletClient<Transport, Chain, Account>;
-    maxGas: bigint;
-    maxGasPrice: bigint;
-    persist: (checkpoint: PrepaidEscapeCheckpoint) => Promise<void>;
-    confirmations?: number;
-    receiptTimeoutMs?: number;
-    signal?: AbortSignal;
-}
-```
-
-Fields:
-
-- **` slotId `**: Slot whose reservations are escaped; the refund always returns to this slot's balance.
-- **` requestIds `**: Requests to escape (1..1024, distinct); every one must be `open`.
-- **` signer `**: Account- and chain-bound gas payer (any account: the escape is permissionless).
-- **` maxGas `**: Maximum gas units per transaction.
-- **` maxGasPrice `**: Maximum legacy gas price in wei.
-- **` persist `**: Await durable storage before resolving. `prepared` MUST atomically create a unique record keyed by `escapeId`, refuse an existing one, and survive process loss; later checkpoints update it. A failure before `prepared` completes prevents that call's broadcast.
-- **` confirmations `**: Required confirmations, 1..64 (default 1).
-- **` receiptTimeoutMs `**: Receipt wait per transaction, 1..120000 ms (default 60000).
-- **` signal `**: Cancellation: before a call's `prepared` checkpoint nothing is sent; after it, only the wait ends (uncertain).
 
 ### EventCategory
 
@@ -5126,26 +3423,6 @@ Fields:
 - **` registeredPublicKey `**: The operator's identity key as NodeRegistry holds it (32 bytes, or its hex).
 - **` nowSecs `**: Current Unix seconds; defaults to the local clock.
 - **` maxAgeSecs `**: Maximum statement age in either direction, in seconds; defaults to ` CUSTODY_STATEMENT_MAX_AGE_SECS `.
-
-### ExpectedPaidOperation
-
-Explicit expected operation, independent of the supplied payment.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L79)
-
-```ts
-export interface ExpectedPaidOperation {
-    slot: Hex;
-    action: PaymentIntentWire['action'];
-    payloadDigest: Hex;
-}
-```
-
-Fields:
-
-- **` slot `**: Intended slot identifier.
-- **` action `**: Intended final key operation.
-- **` payloadDigest `**: Independently derived exact operation payload digest.
 
 ### FetchOpts
 
@@ -5270,77 +3547,6 @@ Fields:
 - **` pollMs `**: Poll interval on HTTP transports, below `liveAfterMs` (default min(1000, liveAfterMs / 2) ms). WebSocket transports subscribe instead.
 - **` now `**: Clock in ms (tests).
 
-### KeeperExecutionApproverOptions
-
-Independent chain and local client intent used before every keeper stage signature.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/keeperExecution.ts#L16)
-
-```ts
-export interface KeeperExecutionApproverOptions extends KeeperExecutionClientConsent {
-    client: PublicClient;
-    deployment: PrepaidDeployment;
-    payment: PaymentIntentWire;
-    expected: ExpectedPaidOperation;
-    transportPolicy?: PaidKeeperTransportOptions;
-    keeperUrl?: (registeredUrl: string) => string;
-}
-```
-
-Fields:
-
-- **` client `**: Trusted bounded canonical RPC client for the approved chain.
-- **` deployment `**: Independently approved contracts and chain.
-- **` payment `**: Original creator intent retained before its reservation.
-- **` expected `**: Intended slot, paid action and exact operation digest.
-- **` transportPolicy `**: Explicit local HTTP exception; official Fuji still requires HTTPS.
-- **` keeperUrl `**: Caller-approved routing map; never populate it from a service response.
-- **` certificate `**: Original creator certificate; its payment, session and public client key stay fixed.
-- **` signer `**: Original local Ed25519 execution signer; never forward it to a service.
-
-### KeeperExecutionClientConsent
-
-Client-owned certificate and signing capability for the original paid operation.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/keeperExecution.ts#L8)
-
-```ts
-export interface KeeperExecutionClientConsent {
-    certificate: ExecutionCertificate;
-    signer: ClientExecutionSigner;
-}
-```
-
-Fields:
-
-- **` certificate `**: Original creator certificate; its payment, session and public client key stay fixed.
-- **` signer `**: Original local Ed25519 execution signer; never forward it to a service.
-
-### KeeperExecutionRecoveryObservation
-
-Original canonical keeper admission authenticated for a completed-result read.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L302)
-
-```ts
-export interface KeeperExecutionRecoveryObservation extends PrepaidObservation {
-    policy: ExecutionConsentPolicy;
-    keeper: PaidKeeperEndpoint;
-    groupPublicKey: Hex;
-    mode: number;
-}
-```
-
-Fields:
-
-- **` policy `**: Financial policy evaluated at the original accepted time, never used to admit fresh work.
-- **` keeper `**: Eligible assigned keeper and endpoint read at the original canonical block.
-- **` groupPublicKey `**: Original slot group key, for checking the recovered cryptographic result independently.
-- **` mode `**: Original slot mode.
-- **` blockNumber `**: Canonical block number.
-- **` blockHash `**: Exact canonical block used for EIP-1898 calls.
-- **` blockTimestamp `**: Block timestamp in Unix seconds.
-
 ### KeeperProvisionResult
 
 One keeper's answer. `pending` marks a rule stored against a PENDING amendment.
@@ -5370,46 +3576,6 @@ Fields:
 - **` status `**: HTTP status when a response was received.
 - **` error `**: Bounded response text or transport error for a failed delivery.
 - **` authorizedBy `**: Which authority the keeper accepted the signature as, when it says.
-
-### KeeperRecoveryHttpResponse
-
-Bounded keeper responses; no body text is included in transport errors.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L12)
-
-```ts
-export interface KeeperRecoveryHttpResponse {
-    status: number;
-    body: Uint8Array;
-    retryAfterMs?: number;
-}
-```
-
-Fields:
-
-- **` status `**: Observed status; a refusal is never permission to execute or reserve again.
-- **` body `**: Exact bounded response bytes. Completed results are private; never log them.
-- **` retryAfterMs `**: Parsed `Retry-After` in ms, when the keeper sent one.
-
-### KeeperRecoveryTransport
-
-Client-approved transport for public evidence and authenticated retained-result reads.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L22)
-
-```ts
-export interface KeeperRecoveryTransport {
-    keeperRecoveryRequest(url: string, options: {
-        body: Uint8Array;
-        maxBytes: number;
-        signal: AbortSignal;
-    }): Promise<KeeperRecoveryHttpResponse>;
-}
-```
-
-Fields:
-
-- **` keeperRecoveryRequest `**: TLS and socket destination policy, no redirects, no automatic resends, bounded cancellation.
 
 ### KeyListReply
 
@@ -5637,1120 +3803,6 @@ Fields:
 - **` admin_scope_enabled `**: Whether the keeper reports administrative scope checks as enabled.
 - **` admin_auth `**: Separate admin-key verification, or administrative routes awaiting operator configuration. Missing on older keepers.
 
-### OriginalVerifierPolicy
-
-The anchored verifier policy fields of an original payment intent.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/verifierSnapshot.ts#L15)
-
-```ts
-export type OriginalVerifierPolicy = Pick<PaymentIntentWire, 'chain_id' | 'slot' | 'verification_epoch' | 'verification_seed' | 'verification_root' | 'verification_registry_size' | 'verification_committee' | 'verification_quorum'>;
-```
-
-Fields:
-
-- **` slot `**: Slot identifier.
-- **` chain_id `**: EVM chain identifier.
-- **` verification_epoch `**: Pinned verification epoch.
-- **` verification_seed `**: Pinned beacon seed.
-- **` verification_root `**: Pinned verifier snapshot root.
-- **` verification_registry_size `**: Pinned verifier registry size.
-- **` verification_committee `**: Pinned verifier committee size.
-- **` verification_quorum `**: Pinned verifier quorum.
-
-### PaidAgentHttpResponse
-
-Bounded response from the original approved agent; non-success is never a retry instruction.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/paidAgentTransport.ts#L4)
-
-```ts
-export interface PaidAgentHttpResponse {
-    status: number;
-    body: Uint8Array;
-    retryAfterMs?: number;
-    retryAfter?: string;
-    rateLimitAfter?: string;
-}
-```
-
-Fields:
-
-- **` status `**: Observed HTTP status, including consent waits and unknown-delivery failures.
-- **` body `**: Exact bounded bytes; never log credentials or bearer-bearing creation bodies.
-- **` retryAfterMs `**: Parsed `Retry-After` in ms, when the service sent one. A wait hint, never a resend instruction.
-- **` retryAfter `**: Raw `Retry-After` header value, when sent. With ` PaidAgentHttpResponse.rateLimitAfter ` it is parsed strictly (integer seconds) to pace a definite 429/503 refusal of a repeatable request.
-- **` rateLimitAfter `**: Raw `x-ratelimit-after` header value (the agent's per-client limiter), when sent.
-
-### PaidAgentProposal
-
-Owner proposal, including its transport correlation identity.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L170)
-
-```ts
-export interface PaidAgentProposal extends ExecutionProposal {
-    id: string;
-}
-```
-
-Fields:
-
-- **` id `**: Transport identity; it never replaces the complete-body comparison.
-- **` stage `**: Requested stage; compared with the application's own selection.
-- **` operator_key `**: Requested key; compared with an independently authenticated key.
-- **` unsigned_body `**: Complete unsigned JSON body, with no execution_authorization envelope.
-- **` expires `**: Requested bounded Unix expiry.
-
-### PaidAgentSessionParams
-
-Client-built original operation and reserved intent. No provider fallback is permitted.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L100)
-
-```ts
-export interface PaidAgentSessionParams extends CreateSessionParams {
-    payment: PaymentIntentWire;
-    random: string;
-    kind?: 'wallet' | 'oauth';
-    sessionGrant?: SessionGrantRequestWire;
-}
-```
-
-Fields:
-
-- **` payment `**: Original creator-signed reserved TASRA intent.
-- **` random `**: Original presentation random committed before reservation.
-- **` kind `**: Credential adapter; omitted means wallet.
-- **` sessionGrant `**: Session mode (KEM `decrypt` only): also open a session grant for this FRESH public session key. The presentation nonce then binds the key's RFC 7638 thumbprint (`vp-session-nonce/v1`), and every nonce this session checks is that one.
-- **` decryption `**: Public decryption binding committed by the signed operation; never include private recipient material.
-- **` operation `**: Signed operation details presented for authorization.
-- **` operationSig `**: 0x-hex 65-byte EIP-712 signature over the operation
-- **` delegation `**: Optional EIP-712 delegation from the slot creator
-- **` messageHex `**: The raw payload as 0x-hex
-
-### PaidAgentTransport
-
-Transport for client-owned session initialization, consent and continuation.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/paidAgentTransport.ts#L21)
-
-```ts
-export interface PaidAgentTransport extends ServiceDiscoveryTransport {
-    paidAgentRequest(url: string, options: {
-        method: 'GET' | 'POST';
-        body?: Uint8Array;
-        bearer?: string;
-        oauth?: {
-            accessToken: string;
-            proof: string;
-        };
-        maxBytes: number;
-        signal: AbortSignal;
-    }): Promise<PaidAgentHttpResponse>;
-}
-```
-
-Fields:
-
-- **` paidAgentRequest `**: Require verified TLS, connection-time destination checks, no redirects and cancellation.
-- **` request `**: Perform a bounded request using the required destination, TLS and cancellation policy; return response bytes.
-
-### PaidApprovalBatchReply
-
-Answer to one batch of retained approvals (`POST /v1/sessions/{id}/execution/approve`):
-`busy` when the whole request was refused before processing (HTTP 429/503), otherwise the
-per-delivery HTTP status the agent decided (204 accepted; 404, 409, 410 or 422 refused).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L66)
-
-```ts
-export type PaidApprovalBatchReply = {
-    kind: 'busy';
-    httpStatus: 429 | 503;
-    hintMs?: number;
-} | {
-    kind: 'results';
-    results: ReadonlyMap<string, 204 | 404 | 409 | 410 | 422>;
-};
-```
-
-Fields:
-
-- **` kind `**: The whole batch was refused before processing. The agent decided each delivery.
-
-### PaidApprovalDelivery
-
-Outcome of one send of a retained approval. Any other answer throws [PaidAgentControlError](#paidagentcontrolerror).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L90)
-
-```ts
-export interface PaidApprovalDelivery {
-    status: 'accepted' | 'busy';
-    httpStatus?: 429 | 503;
-    hintMs?: number;
-}
-```
-
-Fields:
-
-- **` status `**: `accepted`: HTTP 204, the agent accepted the approval. `busy`: HTTP 429/503, definitely refused before processing.
-- **` httpStatus `**: Observed status of a `busy` answer.
-- **` hintMs `**: Strict server hint of a `busy` answer, in ms.
-
-### PaidContextDeployment
-
-Independently approved deployment used to discover a payment before creator signing.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L385)
-
-```ts
-export interface PaidContextDeployment extends PrepaidDeployment {
-    verifierSet: Address;
-    accountantSet: Address;
-    beacon: Address;
-}
-```
-
-Fields:
-
-- **` verifierSet `**: Expected anchored verifier-set registry.
-- **` accountantSet `**: Expected accountant snapshot registry used by reservation approval.
-- **` beacon `**: Expected threshold beacon, also checked through registry pointers.
-- **` chainId `**: Expected EVM chain ID.
-- **` settlement `**: Expected Settlement proxy.
-- **` keyRegistry `**: Expected KeyRegistry proxy.
-
-### PaidContextOptions
-
-Options for opening a paid operation context: the keeper transport, an optional requested coordinator and the bounded anchor wait.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L419)
-
-```ts
-export interface PaidContextOptions extends PaidKeeperTransportOptions {
-    coordinator?: Address;
-    anchorWait?: PaidAnchorWait;
-    defaultVerificationPolicy?: {
-        committee: number;
-        quorum: number;
-    };
-    fundedByAllowance?: boolean;
-    verificationEpoch?: bigint;
-    undrawnDuringAnchorGap?: boolean;
-}
-```
-
-Fields:
-
-- **` coordinator `**: Requested registered coordinator; otherwise a uniform draw among eligible keepers. Retain the returned context for reservation and recovery.
-- **` anchorWait `**: Bounded wait for an admissible complete epoch; see ` PaidAnchorWait `.
-- **` defaultVerificationPolicy `**: Independently approved deployed verifier defaults; required only for a zero slot override.
-- **` fundedByAllowance `**: Prepaid allowances: the operation may be funded by an already reserved allowance, so an activated slot whose whole balance is escrowed (`balanceOf` 0) is not refused here. Activation is still required; a per-operation reservation from such a slot is refused by the accountants (402).
-- **` verificationEpoch `**: Session grants: draw on THIS verifier epoch (a session grant's), never a newer one. Every message of a session pays the grant's draw (the keeper refuses any other), and a grant is admitted only while its epoch is the beacon's latest or the one before; past that a typed [PaidDrawMovedError](#paiddrawmovederror) is thrown before anything is signed (refresh the grant first).
-- **` undrawnDuringAnchorGap `**: Prepaid allowances: while a new epoch's anchors land (no admissible complete verifier draw at the observed head, see ` PaidAnchorWait `), return at once a context marked ` PaidOperationContext.undrawn ` instead of waiting. Only for a caller that will fund the operation from an EXISTING allowance, whose payment names the allowance's own draw (judged at the allowance's quote block, not at this head): its keeper sharing, creator, mode and rule commitment are read as usual. Requires `fundedByAllowance`; ignored with `verificationEpoch`.
-- **` allowLocalHttp `**: Allow an HTTP coordinator only on local chain43112. Never enables HTTP on Fuji.
-
-### PaidKeeperEndpoint
-
-Currently eligible registered keeper selected in the creator's paid assignment.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L274)
-
-```ts
-export interface PaidKeeperEndpoint {
-    operator: Address;
-    publicKey: Hex;
-    url: string;
-}
-```
-
-Fields:
-
-- **` operator `**: Registered payout/operator address.
-- **` publicKey `**: Registered Ed25519 key.
-- **` url `**: Exact registered HTTP(S) base URL, checked against the selected transport policy.
-
-### PaidKeeperTarget
-
-The single coordinator and contributor set selected by the creator's paid assignment.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L284)
-
-```ts
-export interface PaidKeeperTarget extends PaidKeeperEndpoint {
-    receipt: PaidOperationReceipt;
-    contributors: PaidKeeperEndpoint[];
-    groupPublicKey: Hex;
-    mode: number;
-}
-```
-
-Fields:
-
-- **` receipt `**: Chain-backed reservation observation; never substitutes for holder authorization.
-- **` contributors `**: Exact signed contributor set, for operations that request individual shares.
-- **` groupPublicKey `**: Published slot group key for independently checking the operation result.
-- **` mode `**: Solidity KeyRegistry mode ordinal for selecting the matching key-operation client.
-- **` operator `**: Registered payout/operator address.
-- **` publicKey `**: Registered Ed25519 key.
-- **` url `**: Exact registered HTTP(S) base URL, checked against the selected transport policy.
-
-### PaidKeeperTransportOptions
-
-Explicit transport allowance for a development chain. HTTPS is otherwise required.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L296)
-
-```ts
-export interface PaidKeeperTransportOptions {
-    allowLocalHttp?: boolean;
-}
-```
-
-Fields:
-
-- **` allowLocalHttp `**: Allow an HTTP coordinator only on local chain43112. Never enables HTTP on Fuji.
-
-### PaidOperationContext
-
-One canonical pre-signing observation; later reservation and execution must revalidate it. Narrow on `undrawn` before reading draw fields.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L524)
-
-```ts
-export type PaidOperationContext = DrawnPaidOperationContext | UndrawnPaidOperationContext;
-```
-
-Fields:
-
-- **` intentFields `**: Chain and assignment fields; add the exact action/digest, cap, nonce, expiry and session commitment before signing. Chain and keeper-sharing fields only; no verifier draw.
-- **` undrawn `**: Never set on a drawn context. Always set: this context has no verifier draw.
-- **` creator `**: On-chain slot creator whose EIP-712 signature authorizes spending.
-- **` mode `**: Slot mode ordinal for selecting the operation client.
-- **` groupPublicKey `**: Published group key, independently verified again during execution.
-- **` coordinator `**: Selected eligible keeper coordinator.
-- **` contributors `**: All currently eligible assigned contributors in canonical public-key order.
-- **` available `**: Unreserved slot TASRA at this block; it is not a reservation or an operation quote.
-- **` ruleCommitment `**: The slot's salted rule commitment at this block, from the same canonical slot read.
-- **` ruleVersion `**: The slot's rule version at this block, from the same canonical slot read.
-- **` beaconEpoch `**: The beacon's latest epoch at this block (the draw is it or, while its anchors land, the one before).
-- **` blockNumber `**: Canonical block number.
-- **` blockHash `**: Exact canonical block used for EIP-1898 calls.
-- **` blockTimestamp `**: Block timestamp in Unix seconds.
-
-### PaidOperationReceipt
-
-Chain backing for one operation; holder authorization and execution journals remain separate.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L65)
-
-```ts
-export interface PaidOperationReceipt extends PrepaidObservation {
-    requestId: Hex;
-    assignmentBlock: Hex;
-    cost: bigint;
-    settled: boolean;
-    refunded: bigint;
-}
-```
-
-Fields:
-
-- **` requestId `**: Reservation identity derived locally from the payment intent.
-- **` assignmentBlock `**: Original quoted assignment block committed by the reservation quorum.
-- **` cost `**: Original reserved TASRA base units, retained after settlement.
-- **` settled `**: Whether final settlement has completed. This is not permission to execute again.
-- **` refunded `**: TASRA base units refunded to this slot during reconciliation.
-- **` blockNumber `**: Canonical block number.
-- **` blockHash `**: Exact canonical block used for EIP-1898 calls.
-- **` blockTimestamp `**: Block timestamp in Unix seconds.
-
-### PaidPacingClock
-
-Time source for paced paid requests. `now` is wall-clock milliseconds (the same epoch as
-`Date.now()`), because deadlines derive from signed Unix-second expiries. Inject one in tests.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/paidPacing.ts#L33)
-
-```ts
-export interface PaidPacingClock {
-    now(): number;
-    sleep(ms: number, signal?: AbortSignal): Promise<void>;
-    jitter(baseMs: number): number;
-}
-```
-
-Fields:
-
-- **` now `**: Current wall-clock time in ms.
-- **` sleep `**: Resolve after `ms`; reject with the signal's reason when it aborts.
-- **` jitter `**: Extra wait added ON TOP of `baseMs` (never shortens a hint), in `0..=baseMs/4`.
-
-### PaidPacingOptions
-
-Pacing of a paid session's definite 429/503 refusals. Repeatable reads (proposals, Request
-Object, presentations, session poll, approval state) and the continuation POST (429 only) are
-repeated inside the session's signed expiry; the creation POST (429/503, the agent refuses
-both before any session exists) inside the payment's own remaining window, with the identical
-body; nothing else is.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L41)
-
-```ts
-export interface PaidPacingOptions {
-    clock?: PaidPacingClock;
-    attemptBudgetMs?: number;
-}
-```
-
-Fields:
-
-- **` clock `**: Time source; wall-clock ms. Default: the system clock.
-- **` attemptBudgetMs `**: Longest one attempt may take (provider check plus HTTP), 1000..60000 ms (default 60000). Each attempt is cut off at this bound, and a repeated attempt starts only with this much time left.
-
-### PaidReservationCheckpoint
-
-Durable write checkpoints. A timeout after preparation requires observation, never a new attempt.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L49)
-
-```ts
-export type PaidReservationCheckpoint = {
-    phase: 'prepared';
-    record: PaidReservationRecord;
-    transactionHash?: Hex;
-} | {
-    phase: 'submitted';
-    requestId: Hex;
-    transactionHash: Hex;
-} | {
-    phase: 'confirmed';
-    requestId: Hex;
-    transactionHash: Hex;
-    blockHash: Hex;
-};
-```
-
-Fields:
-
-- **` phase `**: Persisted before any transaction submission. A transaction hash was returned; mining is still unproven. The transaction and reservation were observed on the canonical chain.
-- **` transactionHash `**: Hash of the locally signed transaction, journaled BEFORE it is broadcast so a crash between broadcast and the `submitted` checkpoint still leaves the hash to reconcile. Absent for a JSON-RPC (remote) signer, whose hash is only known after submission. Returned transaction hash, retained for recovery. Verified reservation transaction hash.
-
-### PaidReservationQuote
-
-Accountant authorization for a single operation. This is not a mined reservation.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L13)
-
-```ts
-export interface PaidReservationQuote {
-    slot: Hex;
-    quote_block: Hex;
-    request_ids: Hex[];
-    costs: string[];
-    legacy_nonce: number;
-    deadline: number;
-    digest: Hex;
-    signature: Hex | null;
-    mined: false;
-}
-```
-
-Fields:
-
-- **` slot `**: Slot being funded.
-- **` quote_block `**: Canonical block fixing the original operator assignment.
-- **` request_ids `**: Locally derived operation ID; exactly one entry.
-- **` costs `**: TASRA base-unit quote; exactly one entry.
-- **` legacy_nonce `**: Reconciled legacy settlement cursor.
-- **` deadline `**: Authorization expiry in Unix seconds.
-- **` digest `**: Deployment-bound reservation digest.
-- **` signature `**: Threshold BN254 signature, absent from an unsigned preparation.
-- **` mined `**: Always false: accountant authorization does not establish mining.
-
-### PaidReservationRecord
-
-Immutable transaction identity retained before any broadcast; JSON serializable.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L35)
-
-```ts
-export interface PaidReservationRecord {
-    schema: 1;
-    requestId: Hex;
-    payment: PaymentIntentWire;
-    quote: PaidReservationQuote;
-    transaction: {
-        chainId: number;
-        from: Address;
-        to: Address;
-        data: Hex;
-        value: '0';
-        nonce: number;
-        gas: string;
-        gasPrice: string;
-    };
-}
-```
-
-Fields:
-
-- **` schema `**: Record format.
-- **` requestId `**: Locally derived key used by durable storage to refuse duplicate attempts.
-- **` payment `**: Creator's fixed intent, needed for recovery and the credential session.
-- **` quote `**: Signed accountant quote.
-- **` transaction `**: Exact bounded transaction; decimal strings preserve integer precision in storage.
-
-### PaidReservationResolution
-
-Canonical transaction outcome retained for recovery; this never authorizes another operation.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L219)
-
-```ts
-export type PaidReservationResolution = {
-    blockNumber: bigint;
-    blockHash: Hex;
-    blockTimestamp: bigint;
-    requestId: Hex;
-    transactionHash: Hex;
-    transactionBlockHash: Hex;
-    transactionBlockNumber: bigint;
-    gasUsed: bigint;
-    gasPrice: bigint;
-    gasCost: bigint;
-} & ({
-    status: 'success';
-    receipt: PaidOperationReceipt;
-} | {
-    status: 'reverted';
-});
-```
-
-Fields:
-
-- **` blockNumber `**: Fresh canonical head used to check transaction confirmation depth.
-- **` blockHash `**: Hash of that head; historical consent and reservation state carry their own block identities.
-- **` blockTimestamp `**: Timestamp of the confirmation head in Unix seconds.
-- **` requestId `**: Original locally derived reservation identity.
-- **` transactionHash `**: Hash independently located for the saved transaction, including after a hashless timeout.
-- **` transactionBlockHash `**: Canonical block containing the original transaction.
-- **` transactionBlockNumber `**: Number of the transaction's inclusion block.
-- **` gasUsed `**: Native gas units actually consumed, including by a reverted transaction.
-- **` gasPrice `**: Verified legacy gas price in native base units.
-- **` gasCost `**: Native gas used times gas price; separate from TASRA slot charges.
-- **` status `**: Successful original reservation transaction and currently observable backing. Original transaction reverted. This does not prove no other transaction reserved the intent.
-
-### PaidRetainedPresentation
-
-Retained callback is untrusted until the application accepts its complete presentation.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L158)
-
-```ts
-export interface PaidRetainedPresentation {
-    id: string;
-    presentation: ClientApprovedPresentation;
-    expires: number;
-    selected: boolean;
-}
-```
-
-Fields:
-
-- **` id `**: Locally checked callback identity; safe for correlation.
-- **` presentation `**: Complete owner-only proposal. Do not log credential contents.
-- **` expires `**: Immutable parent expiry.
-- **` selected `**: Whether this callback has already been selected.
-
-### PaidVerifierWitness
-
-An anchored drawn verifier identity, supplied with its inclusion proof.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L99)
-
-```ts
-export interface PaidVerifierWitness {
-    index: number;
-    operator: Address;
-    publicKey: Hex;
-    proof: Hex[];
-}
-```
-
-Fields:
-
-- **` index `**: Snapshot index; the SDK independently recomputes the draw.
-- **` operator `**: Registered operator account.
-- **` publicKey `**: Ed25519 key anchored at the payment's verification epoch.
-- **` proof `**: Sorted-pair Merkle inclusion path.
-
-### PaymentDrawFieldName
-
-The verifier-draw fields of [DiscoveredPaymentFields](#discoveredpaymentfields): present only on a drawn context.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L473)
-
-```ts
-export type PaymentDrawFieldName = 'verification_epoch' | 'verification_seed' | 'verification_root' | 'verification_registry_size' | 'verification_committee' | 'verification_quorum';
-```
-
-### PrepaidAllowanceCheckpoint
-
-Durable checkpoints, as for a per-operation reservation. A timeout after `prepared` needs observation, never a new attempt.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L111)
-
-```ts
-export type PrepaidAllowanceCheckpoint = {
-    phase: 'prepared';
-    record: PrepaidAllowanceReservationRecord;
-    transactionHash?: Hex;
-} | {
-    phase: 'submitted';
-    allowanceId: Hex;
-    transactionHash: Hex;
-} | {
-    phase: 'confirmed';
-    allowanceId: Hex;
-    transactionHash: Hex;
-    blockHash: Hex;
-};
-```
-
-Fields:
-
-- **` phase `**: Persisted before submission. A hash was returned; mining unproven. Mined and canonical.
-- **` transactionHash `**: Local signer's hash, journaled before broadcast. Hash.
-
-### PrepaidAllowanceQuote
-
-Accountant authorization of one allowance (`AllowanceResponse`); a signature is not a mined allowance.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L67)
-
-```ts
-export interface PrepaidAllowanceQuote {
-    slot: Hex;
-    allowance_id: Hex;
-    intent_hash: Hex;
-    quote_block: Hex;
-    legacy_nonce: number;
-    amount: string;
-    max_op_cost: string;
-    actions: number;
-    expires_at: number;
-    deadline: number;
-    digest: Hex;
-    signature: Hex | null;
-    mined: false;
-}
-```
-
-Fields:
-
-- **` slot `**: Slot.
-- **` allowance_id `**: Derived allowance id.
-- **` intent_hash `**: The creator intent's EIP-712 hash (`intentHash` argument).
-- **` quote_block `**: Quote block; also the allowance's assignment block.
-- **` legacy_nonce `**: Reconciled legacy settlement cursor.
-- **` amount `**: Escrow, decimal.
-- **` max_op_cost `**: Per-operation cap, decimal.
-- **` actions `**: Funded actions bitmap.
-- **` expires_at `**: Expiry, Unix seconds.
-- **` deadline `**: Authorization deadline, Unix seconds.
-- **` digest `**: Reserve digest.
-- **` signature `**: Threshold BN254 signature after `authorize`, null after `prepare`.
-- **` mined `**: Always false.
-
-### PrepaidAllowanceReservationRecord
-
-Immutable identity of one allowance reservation transaction, retained before broadcast.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L97)
-
-```ts
-export interface PrepaidAllowanceReservationRecord {
-    schema: 1;
-    allowanceId: Hex;
-    intent: PrepaidAllowanceIntentWire;
-    quote: PrepaidAllowanceQuote;
-    transaction: {
-        chainId: number;
-        from: Address;
-        to: Address;
-        data: Hex;
-        value: '0';
-        nonce: number;
-        gas: string;
-        gasPrice: string;
-    };
-}
-```
-
-Fields:
-
-- **` schema `**: Record format.
-- **` allowanceId `**: Derived allowance id; the durable key.
-- **` intent `**: Creator-signed intent.
-- **` quote `**: Signed accountant quote.
-- **` transaction `**: Exact bounded legacy transaction.
-
-### PrepaidAllowanceState
-
-An allowance's on-chain record (`Settlement.prepaidAllowance`) at one canonical block.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L37)
-
-```ts
-export interface PrepaidAllowanceState {
-    allowanceId: Hex;
-    slotId: Hex;
-    assignmentBlock: Hex;
-    amount: bigint;
-    spent: bigint;
-    maxOpCost: bigint;
-    expiresAt: bigint;
-    reservedAt: bigint;
-    actions: number;
-    closed: boolean;
-    blockNumber: bigint;
-    blockHash: Hex;
-    blockTimestamp: bigint;
-}
-```
-
-Fields:
-
-- **` allowanceId `**: Allowance id.
-- **` slotId `**: Slot it belongs to (zero when never reserved).
-- **` assignmentBlock `**: Immutable roster/epoch pin; zero means "not reserved".
-- **` amount `**: Escrow.
-- **` spent `**: Settled debits so far (settle path only; not the off-chain cumulative).
-- **` maxOpCost `**: Per-operation cap.
-- **` expiresAt `**: Expiry, Unix seconds.
-- **` reservedAt `**: Reservation time, Unix seconds.
-- **` actions `**: Funded actions bitmap.
-- **` closed `**: Closed or escaped.
-- **` blockNumber `**: Canonical block of the read.
-- **` blockHash `**: Its hash.
-- **` blockTimestamp `**: Its timestamp.
-
-### PrepaidDeployment
-
-Deployment independently selected by the application, not taken from a received intent.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L29)
-
-```ts
-export interface PrepaidDeployment {
-    chainId: number;
-    settlement: Address;
-    keyRegistry: Address;
-}
-```
-
-Fields:
-
-- **` chainId `**: Expected EVM chain ID.
-- **` settlement `**: Expected Settlement proxy.
-- **` keyRegistry `**: Expected KeyRegistry proxy.
-
-### PrepaidEscapeCallResult
-
-One confirmed escape transaction.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L169)
-
-```ts
-export interface PrepaidEscapeCallResult {
-    escapeId: Hex;
-    requestIds: Hex[];
-    transactionHash: Hex;
-    blockNumber: bigint;
-    blockHash: Hex;
-    refunded: bigint;
-    refunds: {
-        requestId: Hex;
-        refunded: bigint;
-    }[];
-}
-```
-
-Fields:
-
-- **` escapeId `**: Local journal key.
-- **` requestIds `**: Requests escaped by this transaction, in order.
-- **` transactionHash `**: Transaction hash.
-- **` blockNumber `**: Inclusion block number.
-- **` blockHash `**: Inclusion block hash.
-- **` refunded `**: Total TASRA base units returned to the slot (`PrepaidBatchEscaped.refunded`).
-- **` refunds `**: Per request, from `PrepaidEscaped`.
-
-### PrepaidEscapeCheckpoint
-
-Durable write checkpoints of one escape call. After `prepared`, only reading reconciles it.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L112)
-
-```ts
-export type PrepaidEscapeCheckpoint = {
-    phase: 'prepared';
-    record: PrepaidEscapeRecord;
-    transactionHash?: Hex;
-} | {
-    phase: 'submitted';
-    escapeId: Hex;
-    transactionHash: Hex;
-} | {
-    phase: 'confirmed';
-    escapeId: Hex;
-    transactionHash: Hex;
-    blockHash: Hex;
-    refunded: string;
-};
-```
-
-Fields:
-
-- **` phase `**: Persisted before any submission. Create exclusively by `record.escapeId`. A transaction hash was returned; mining is unproven. The transaction mined successfully and its events matched the call.
-- **` transactionHash `**: Hash of a locally signed transaction, journaled before broadcast; absent for a JSON-RPC signer. Returned transaction hash. Verified transaction hash.
-
-### PrepaidEscapeClient
-
-Payer-side escape client bound to one deployment.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L242)
-
-```ts
-export interface PrepaidEscapeClient {
-    escapableAt(args: {
-        slotId: Hex;
-        requestIds: readonly Hex[];
-    }): Promise<PrepaidEscapeObservation>;
-    escapePrepaid(args: EscapePrepaidArgs): Promise<PrepaidEscapeResult>;
-    reconcileEscape(args: ReconcileEscapeArgs): Promise<PrepaidEscapeResolution>;
-}
-```
-
-Fields:
-
-- **` escapableAt `**: Read each request's escape status at one fresh canonical block. Sends nothing.
-- **` escapePrepaid `**: Escape reserved requests whose timeout has opened. Refuses locally with [PrepaidEscapeError](#prepaidescapeerror) unless every request is `open`; then for each chunk of at most 64: simulate, journal `prepared`, broadcast once, journal `submitted`, wait, verify the events, journal `confirmed`. A failure after `prepared` is [PrepaidEscapeUncertainError](#prepaidescapeuncertainerror).
-- **` reconcileEscape `**: Resolve a journaled escape call by reading `prepaidEscapedAt`, `prepaidSettled`, the receipt and the payer nonce. Never sends.
-
-### PrepaidEscapeCode
-
-Stable code of a prepaid timeout-escape refusal (see [PrepaidEscapeError](#prepaidescapeerror)).
-- `escape_disabled`: the Settlement escape delay is zero (an upgraded deployment before governance
-  enabled it); contract error `EscapeDisabled()`.
-- `escape_not_open`: a request's escape opens later, at `opensAt`; contract error
-  `EscapeNotOpen(requestId, opensAt)`.
-- `reservation_unavailable`: a request was never reserved, or is already complete (reconciled,
-  settled or escaped); contract error `ReservationUnavailable(requestId)`.
-- `invalid_escape_delay`: contract error `InvalidEscapeDelay(delay)` (governance setter only).
-- `too_many_requests`: more than 64 requests in one call; contract error `TooManyCovered`.
-- `empty_request`: no request IDs; contract error `EmptyBundle()`.
-- `escape_unsupported`: the Settlement has no escape getters (a version before "3").
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/errors.ts#L499)
-
-```ts
-export type PrepaidEscapeCode = 'escape_disabled' | 'escape_not_open' | 'reservation_unavailable' | 'invalid_escape_delay' | 'too_many_requests' | 'empty_request' | 'escape_unsupported';
-```
-
-### PrepaidEscapeDeployment
-
-Chain and Settlement proxy, independently approved by the application.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L32)
-
-```ts
-export interface PrepaidEscapeDeployment {
-    chainId: number;
-    settlement: Address;
-}
-```
-
-Fields:
-
-- **` chainId `**: Expected EVM chain ID.
-- **` settlement `**: Expected Settlement proxy.
-
-### PrepaidEscapeEvents
-
-Decoded escape events from one receipt or log window.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L234)
-
-```ts
-export interface PrepaidEscapeEvents {
-    escaped: {
-        slotId: Hex;
-        requestId: Hex;
-        refunded: bigint;
-    }[];
-    batches: {
-        slotId: Hex;
-        caller: Address;
-        refunded: bigint;
-        requestCount: bigint;
-    }[];
-}
-```
-
-Fields:
-
-- **` escaped `**: `PrepaidEscaped`, one per request.
-- **` batches `**: `PrepaidBatchEscaped`, one per call.
-
-### PrepaidEscapeObservation
-
-Every requested status, read at one fresh canonical block.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L82)
-
-```ts
-export interface PrepaidEscapeObservation {
-    blockNumber: bigint;
-    blockHash: Hex;
-    blockTimestamp: bigint;
-    escapeDelaySeconds: bigint;
-    slotId: Hex;
-    requests: PrepaidEscapeRequestState[];
-}
-```
-
-Fields:
-
-- **` blockNumber `**: Canonical block number.
-- **` blockHash `**: Block hash every value was read at (EIP-1898, requireCanonical).
-- **` blockTimestamp `**: Block timestamp in Unix seconds; `open` is judged against it, like the contract.
-- **` escapeDelaySeconds `**: Governed escape delay in seconds; 0 means the escape is disabled. Read live, never snapshotted.
-- **` slotId `**: Slot identifier.
-- **` requests `**: Per request, in the caller's order.
-
-### PrepaidEscapeRecord
-
-Immutable identity of one escape transaction, retained before any broadcast; JSON serializable.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L98)
-
-```ts
-export interface PrepaidEscapeRecord {
-    schema: 1;
-    escapeId: Hex;
-    slotId: Hex;
-    requestIds: Hex[];
-    transaction: {
-        chainId: number;
-        from: Address;
-        to: Address;
-        data: Hex;
-        value: '0';
-        nonce: number;
-        gas: string;
-        gasPrice: string;
-    };
-}
-```
-
-Fields:
-
-- **` schema `**: Record format.
-- **` escapeId `**: Local journal key derived from chain, Settlement, slot and the exact ordered request list.
-- **` slotId `**: Slot identifier.
-- **` requestIds `**: Exact ordered requests of this call (at most 64).
-- **` transaction `**: Exact bounded legacy transaction; decimal strings preserve integer precision in storage.
-
-### PrepaidEscapeRequestState
-
-Escape status of one request, read at one canonical block.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L40)
-
-```ts
-export type PrepaidEscapeRequestState = {
-    requestId: Hex;
-    status: 'notReserved';
-} | {
-    requestId: Hex;
-    status: 'settled';
-    escapedAt?: Date;
-} | {
-    requestId: Hex;
-    status: 'disabled';
-} | {
-    requestId: Hex;
-    status: 'notOpen';
-    opensAt: Date;
-} | {
-    requestId: Hex;
-    status: 'open';
-    opensAt: Date;
-};
-```
-
-Fields:
-
-- **` requestId `**: Request identifier.
-- **` status `**: No reservation exists (`prepaidCost == 0`). Already complete: reconciled, paid out or escaped. Final. Reserved and open, but the deployment's escape delay is zero (not enabled). Reserved and open; the escape opens later. Escapable now (chain time at the observed block is at or past `opensAt`).
-
-### PrepaidEscapeResolution
-
-Outcome of one escape call, read without sending anything.
-- `escaped`: this transaction mined successfully at the required depth and escaped every request.
-- `completed`: every request is now complete (escaped by anyone, or reconciled), but this
-  transaction's success is not shown. Nothing is left to do for this call.
-- `reverted`: this transaction mined and reverted; it refunded nothing.
-- `not-escaped`: the payer's nonce is consumed by another or failed transaction and some request
-  is still open; this call can no longer mine. A new attempt (after a fresh preflight) is safe.
-- `uncertain`: the transaction may still mine. Do not resend; read again later.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L216)
-
-```ts
-export interface PrepaidEscapeResolution {
-    state: 'escaped' | 'completed' | 'reverted' | 'not-escaped' | 'uncertain';
-    escapeId: Hex;
-    blockNumber: bigint;
-    blockHash: Hex;
-    requests: {
-        requestId: Hex;
-        settled: boolean;
-        escapedAt?: Date;
-    }[];
-    transactionHash?: Hex;
-    refunded?: bigint;
-}
-```
-
-Fields:
-
-- **` state `**: Outcome.
-- **` escapeId `**: Local journal key.
-- **` blockNumber `**: Block every value was read at (head minus confirmations - 1).
-- **` blockHash `**: Hash of that block.
-- **` requests `**: Per request, in record order.
-- **` transactionHash `**: The checked transaction, when a hash was supplied.
-- **` refunded `**: TASRA returned by this transaction (`escaped` only).
-
-### PrepaidEscapeResult
-
-Result of a fully confirmed escape.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L187)
-
-```ts
-export interface PrepaidEscapeResult {
-    slotId: Hex;
-    refunded: bigint;
-    calls: PrepaidEscapeCallResult[];
-}
-```
-
-Fields:
-
-- **` slotId `**: Slot identifier.
-- **` refunded `**: Total TASRA base units returned to the slot balance (not withdrawn to the payer).
-- **` calls `**: One entry per transaction, in order.
-
-### PrepaidEscapeStatus
-
-One status of `PrepaidEscapeRequestState`.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L79)
-
-```ts
-export type PrepaidEscapeStatus = PrepaidEscapeRequestState['status'];
-```
-
-### PrepaidFaultHttpOptions
-
-Options for the accountant fault endpoints.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L117)
-
-```ts
-export interface PrepaidFaultHttpOptions {
-    fetch?: typeof fetch;
-    signal?: AbortSignal;
-    timeoutMs?: number;
-    allowLocalHttp?: boolean;
-}
-```
-
-Fields:
-
-- **` fetch `**: Fetch implementation (default global fetch).
-- **` signal `**: Cancellation.
-- **` timeoutMs `**: Per-request deadline in ms (default 30000).
-- **` allowLocalHttp `**: Permit plain HTTP to a loopback accountant (local development only).
-
-### PrepaidFaultKind
-
-A prepaid payout fault kind.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L18)
-
-```ts
-export type PrepaidFaultKind = (typeof PREPAID_FAULT_KINDS)[number];
-```
-
-### PrepaidFaultVerdict
-
-The verdict the accountant set threshold-signs and the oracle executes.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L21)
-
-```ts
-export interface PrepaidFaultVerdict {
-    slotId: Hex;
-    requestId: Hex;
-    batchId: Hex;
-    evidenceHash: Hex;
-    offender: Address;
-    beneficiary: Address;
-    kind: PrepaidFaultKind;
-    epoch: bigint;
-    deadline: bigint;
-}
-```
-
-Fields:
-
-- **` slotId `**: Slot of the settled request.
-- **` requestId `**: Settled prepaid request.
-- **` batchId `**: Mined batch that settled it.
-- **` evidenceHash `**: Commitment to the adjudicated evidence.
-- **` offender `**: Operator to slash.
-- **` beneficiary `**: Under-credited worker paid the bounty; zero for every other kind.
-- **` kind `**: Fault kind.
-- **` epoch `**: Beacon epoch the verdict was signed at; must be current when executed.
-- **` deadline `**: Unix deadline, at most 120 s after execution time.
-
-### PrepaidObservation
-
-Fresh canonical observation shared by every field in a funding or reservation result.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L39)
-
-```ts
-export interface PrepaidObservation {
-    blockNumber: bigint;
-    blockHash: Hex;
-    blockTimestamp: bigint;
-}
-```
-
-Fields:
-
-- **` blockNumber `**: Canonical block number.
-- **` blockHash `**: Exact canonical block used for EIP-1898 calls.
-- **` blockTimestamp `**: Block timestamp in Unix seconds.
-
 ### ProposeRuleArgs
 
 A rule amendment: the new rule (a clear rule string, or an authored Rego policy the SDK packs
@@ -6778,7 +3830,7 @@ Fields:
 
 A confirmed `proposeRuleUpdate`, decoded from its `RuleUpdateProposed` event.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L452)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L450)
 
 ```ts
 export interface ProposeRuleResult {
@@ -6891,192 +3943,32 @@ Fields:
 - **` nowSecs `**: Current Unix seconds for the freshness check; defaults to the local clock.
 - **` maxAgeSecs `**: Maximum statement age in seconds; defaults to ` CUSTODY_STATEMENT_MAX_AGE_SECS `.
 
-### ReconcileEscapeArgs
-
-Arguments of ` PrepaidEscapeClient.reconcileEscape `.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L197)
-
-```ts
-export interface ReconcileEscapeArgs {
-    record: PrepaidEscapeRecord;
-    transactionHash?: Hex;
-    confirmations?: number;
-}
-```
-
-Fields:
-
-- **` record `**: The prepared record, never a rebuilt one.
-- **` transactionHash `**: Journaled or returned hash, when one is known.
-- **` confirmations `**: Required depth for a conclusion, 1..64 (default 1).
-
-### RecoveredKeeperExecution
-
-Result disclosed only after original canonical payment and exact-byte commitment checks.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L35)
-
-```ts
-export interface RecoveredKeeperExecution {
-    observation: KeeperExecutionRecoveryObservation;
-    execution: SignedPaidExecutionReport;
-    encoding: RecoveredExecutionReply['encoding'];
-    resultJson: string;
-}
-```
-
-Fields:
-
-- **` observation `**: Original history; its accepted-time policy grants no fresh execution permission.
-- **` execution `**: Signed original completed work evidence.
-- **` encoding `**: Operation-specific retained result encoding.
-- **` resultJson `**: Exact JSON bytes as a string, authenticated before exposure; may differ from the original HTTP envelope.
-
-### RecoverKeeperExecutionOptions
-
-Immutable local recovery intent and explicitly approved network capabilities.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/keeperRecovery.ts#L58)
-
-```ts
-export interface RecoverKeeperExecutionOptions {
-    client: PublicClient;
-    deployment: PrepaidDeployment;
-    payment: PaymentIntentWire;
-    expected: ExpectedPaidOperation;
-    keeper: PaidKeeperEndpoint;
-    target: Omit<ExecutionRecoveryTarget, 'operatorKey'>;
-    signer: ClientExecutionSigner;
-    transport: KeeperRecoveryTransport;
-    transportPolicy?: PaidKeeperTransportOptions;
-    signal?: AbortSignal;
-    nonce?: Hex;
-}
-```
-
-Fields:
-
-- **` client `**: Trusted bounded EIP-1898 RPC client for the independently selected chain.
-- **` deployment `**: Approved chain and contract addresses.
-- **` payment `**: Original creator payment retained before submission.
-- **` expected `**: Independently intended slot, action and payload digest.
-- **` keeper `**: Original assigned worker endpoint retained at submission, not downloaded from its response.
-- **` target `**: Original paid stage and creator-certified client public key retained before submission.
-- **` signer `**: Original client-only execution signer; its private seed is never sent.
-- **` transport `**: Caller-approved guarded transport; Node applications can use createNodeKeeperRecoveryTransport.
-- **` transportPolicy `**: Explicit local HTTP endpoint policy; never permits HTTP on official Fuji.
-- **` signal `**: Optional cancellation. The complete read, RPC and signature flow also has a 60-second deadline.
-- **` nonce `**: Optional nonzero local correlation nonce for a deterministic authenticated read.
-
 ### RegisteredAgentSession
 
 Session pinned to its authenticated provider, with a closure for polling that provider.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L59)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L58)
 
 ```ts
 export interface RegisteredAgentSession extends Readonly<CreateSessionResult> {
-    readonly paymentHash?: string;
-    readonly payment?: PaymentIntentWire;
-    readonly random?: string;
+    readonly sessionGrantRequest?: SessionGrantRequestWire;
     readonly profile: Readonly<ApprovedAgentProfile>;
-    readonly unpaidRecovery?: UnpaidAgentSessionRecovery;
+    readonly recovery: AgentSessionRecovery;
     poll(signal?: AbortSignal): Promise<SessionStatusResult>;
 }
 ```
 
 Fields:
 
-- **` paymentHash `**: Expected paid-token commitment, fixed before the session POST.
-- **` payment `**: Defensive copy of the fixed spending intent, when this session is prepaid.
-- **` random `**: Presentation random bound by the spending intent to the approved audience.
+- **` sessionGrantRequest `**: Session mode: the canonical session-grant request this session was opened with (its key thumbprint is in the wallet nonce).
 - **` profile `**: Provider identity and endpoint pinned when the session was opened.
-- **` unpaidRecovery `**: Private JSON checkpoint for unpaid sessions. Save before wallet delivery; paid sessions use payment recovery.
+- **` recovery `**: Private JSON checkpoint of this session. Save it before wallet delivery to restore the session after a restart.
 - **` poll `**: Poll only the original endpoint/profile. A provider change requires a fresh wallet session.
 - **` sessionId `**: Opened authorization session identifier.
 - **` pollSecret `**: Bearer token for polling - treat as a secret
 - **` qrPayload `**: OpenID4VP deep link for a wallet or QR code.
 - **` requestUri `**: URL from which the wallet retrieves the signed request.
-
-### RegisteredPaidAgentSession
-
-Prepared client-owned session; creation sends once, reconciliation only reads.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L188)
-
-```ts
-export interface RegisteredPaidAgentSession {
-    readonly sessionId: string;
-    readonly profile: Readonly<ApprovedAgentProfile>;
-    readonly paymentHash: Hex;
-    readonly initialization: SessionInitialization;
-    readonly oauthContext: Readonly<{
-        nonce: string;
-        dpopHtu: string;
-        platformAudience: string;
-    }>;
-    prepareOAuthPresentation(accessToken: string, signer: DpopSigner, signal?: AbortSignal): Promise<ClientApprovedPresentation>;
-    submitOAuthPresentation(approved: ClientApprovedPresentation, signal?: AbortSignal): Promise<void>;
-    create(signal?: AbortSignal): Promise<void>;
-    reconcile(signal?: AbortSignal): Promise<SessionStatusResult>;
-    proposals(signal?: AbortSignal, options?: {
-        waitMs?: number;
-    }): Promise<PaidAgentProposal[]>;
-    readonly batchApprovals?: boolean;
-    readonly proposalWait?: boolean;
-    sendRetainedApprovals?(approvals: readonly RetainedPaidApproval[], signal?: AbortSignal): Promise<PaidApprovalBatchReply>;
-    approveRequest(proposal: PaidAgentProposal, stage: 'presentation_sign' | 'presentation_attest', member: PaidVerifierWitness, signal?: AbortSignal): Promise<void>;
-    presentations(signal?: AbortSignal): Promise<PaidRetainedPresentation[]>;
-    resumePresentation(id: string, approved: ClientApprovedPresentation, signal?: AbortSignal): Promise<void>;
-    approveCredentials(proposal: PaidAgentProposal, member: PaidVerifierWitness, approved: ClientApprovedPresentation, signal?: AbortSignal): Promise<void>;
-    rejectProposal(id: string, signal?: AbortSignal): Promise<void>;
-    requestObject(signal?: AbortSignal): Promise<{
-        request: VerifiedRequestObject;
-        requestUri: string;
-        qrPayload: string;
-    }>;
-    poll(signal?: AbortSignal, options?: {
-        wait?: boolean;
-    }): Promise<SessionStatusResult>;
-    readonly pacing?: Readonly<{
-        clock: PaidPacingClock;
-        attemptBudgetMs: number;
-    }>;
-    prepareRequestApproval?(proposal: PaidAgentProposal, stage: 'presentation_sign' | 'presentation_attest', member: PaidVerifierWitness, signal?: AbortSignal): Promise<RetainedPaidApproval>;
-    prepareCredentialApproval?(proposal: PaidAgentProposal, member: PaidVerifierWitness, approved: ClientApprovedPresentation, signal?: AbortSignal): Promise<RetainedPaidApproval>;
-    sendRetainedApproval?(approval: RetainedPaidApproval, signal?: AbortSignal): Promise<PaidApprovalDelivery>;
-    approvalState?(proposalId: string, signal?: AbortSignal): Promise<string>;
-}
-```
-
-Fields:
-
-- **` sessionId `**: Locally derived deterministic initialization identity.
-- **` profile `**: Original approved provider, immutable and independently authenticated.
-- **` paymentHash `**: Original spending commitment.
-- **` initialization `**: Public initialization proof; the execution private key remains with the caller.
-- **` oauthContext `**: Locally derived OAuth audience and nonce; available after public-context recovery.
-- **` prepareOAuthPresentation `**: Build and verify the original OAuth presentation locally. Retain it before submission.
-- **` submitOAuthPresentation `**: Submit the retained original OAuth artifacts once; HTTP202 means client consent is still needed.
-- **` create `**: Send the exact initialized creation POST once. Retain this object if its result is unknown.
-- **` reconcile `**: Recover the original public context via authenticated GET after a lost creation reply.
-- **` proposals `**: Read owner-only complete-body proposals, without approving or sending operator work. With `waitMs` and an agent advertising ` PROPOSAL_WAIT_CAPABILITY `, the agent holds the answer until one is pending (at most `waitMs`, capped at ` MAX_PROPOSAL_WAIT_MS `).
-- **` batchApprovals `**: Whether the authenticated agent's manifest advertises ` BATCH_APPROVAL_CAPABILITY `.
-- **` proposalWait `**: Whether the authenticated agent's manifest advertises ` PROPOSAL_WAIT_CAPABILITY `.
-- **` sendRetainedApprovals `**: Send several retained approvals' authorizations in ONE request (agents advertising ` BATCH_APPROVAL_CAPABILITY `); each authorization is the one its retained body carries, never re-signed. Distinct deliveries, at most 256.
-- **` approveRequest `**: Approve one JAR signer or distinct attester after canonical member/policy checks and local body reconstruction.
-- **` presentations `**: Read retained callback candidates; application acceptance must precede selection or signing.
-- **` resumePresentation `**: Select/resume the exact client-accepted callback. HTTP425 requires separate operator approvals.
-- **` approveCredentials `**: Approve one drawn verifier's complete credential body, built from the separately accepted presentation.
-- **` rejectProposal `**: Record a refusal; never reopens a dispatched operator stage.
-- **` requestObject `**: Fetch and independently verify the drawn signer's JAR and every bound session claim before exposing a QR.
-- **` poll `**: Poll the original provider and verify a completed token against the anchored draw and application's rule hash. With `wait`, ask the agent to hold the reply until the session's status or phase changes (`?wait=1`, at most 20 s); an agent without long-poll support answers at once. A session whose attempt budget is under 25 s never asks for a hold.
-- **` pacing `**: Pacing this session applies to definite 429/503 refusals (present on sessions from [prepareRegisteredPaidSession](#prepareregisteredpaidsession)).
-- **` prepareRequestApproval `**: Sign (once) the approval ` RegisteredPaidAgentSession.approveRequest ` would send, without sending it. Retain it durably before the first send.
-- **` prepareCredentialApproval `**: Sign (once) the approval ` RegisteredPaidAgentSession.approveCredentials ` would send, without sending it. Retain it durably before the first send.
-- **` sendRetainedApproval `**: Send a retained approval's exact bytes ONCE. 204 is `accepted`, 429/503 `busy` (not processed); any other status throws [PaidAgentControlError](#paidagentcontrolerror). Never re-signs; never repeats by itself: the caller decides a resend under its durable permit.
-- **` approvalState `**: Read one delivery's state (`pending`, `approved`, `dispatched`, `finished`, …); repeated on 429/503 inside the session expiry.
+- **` sessionGrantParams `**: Session mode: the granted (clamped) session parameters the agent answered at creation.
 
 ### RegisteredRelayConfig
 
@@ -7120,7 +4012,7 @@ Fields:
 
 Authenticated provider session bound to one signed operation and request hash.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L15)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredOperation.ts#L16)
 
 ```ts
 export interface RegisteredVerifierAgentSession extends RegisteredAgentSession {
@@ -7132,19 +4024,18 @@ export interface RegisteredVerifierAgentSession extends RegisteredAgentSession {
 
 Fields:
 
-- **` operation `**: Creator-signed operation associated with this session.
+- **` operation `**: Signed operation associated with this session.
 - **` requestHash `**: Defensive copy of the operation request hash.
 - **` verifierAgentUrl `**: Authenticated provider endpoint retained for this session.
-- **` paymentHash `**: Expected paid-token commitment, fixed before the session POST.
-- **` payment `**: Defensive copy of the fixed spending intent, when this session is prepaid.
-- **` random `**: Presentation random bound by the spending intent to the approved audience.
+- **` sessionGrantRequest `**: Session mode: the canonical session-grant request this session was opened with (its key thumbprint is in the wallet nonce).
 - **` profile `**: Provider identity and endpoint pinned when the session was opened.
-- **` unpaidRecovery `**: Private JSON checkpoint for unpaid sessions. Save before wallet delivery; paid sessions use payment recovery.
+- **` recovery `**: Private JSON checkpoint of this session. Save it before wallet delivery to restore the session after a restart.
 - **` poll `**: Poll only the original endpoint/profile. A provider change requires a fresh wallet session.
 - **` sessionId `**: Opened authorization session identifier.
 - **` pollSecret `**: Bearer token for polling - treat as a secret
 - **` qrPayload `**: OpenID4VP deep link for a wallet or QR code.
 - **` requestUri `**: URL from which the wallet retrieves the signed request.
+- **` sessionGrantParams `**: Session mode: the granted (clamped) session parameters the agent answered at creation.
 
 ### RelayAttempt
 
@@ -7395,79 +4286,6 @@ Fields:
 - **` message_hex `**: Original forward request's EIP-712 digest, presented as the session message.
 - **` sponsorship_slot `**: Independently approved sponsorship slot.
 
-### ReservePaidOperationOptions
-
-Explicit limits and durable storage for one direct reservation transaction.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reservation.ts#L82)
-
-```ts
-export interface ReservePaidOperationOptions {
-    accountantUrls: readonly string[];
-    allowLocalHttp?: boolean;
-    maxGas: bigint;
-    maxGasPrice: bigint;
-    requestTimeoutMs?: number;
-    receiptTimeoutMs?: number;
-    confirmations?: number;
-    signal?: AbortSignal;
-    persist: (checkpoint: PaidReservationCheckpoint) => Promise<void>;
-    clock?: PaidPacingClock;
-    quoteBlock?: {
-        blockHash: Hex;
-        blockTimestamp: bigint;
-    };
-}
-```
-
-Fields:
-
-- **` accountantUrls `**: Independently selected accountant HTTPS endpoints; responsive members must agree on one quote.
-- **` allowLocalHttp `**: Permit HTTP only on local chain43112; never on Fuji.
-- **` maxGas `**: Maximum transaction gas units.
-- **` maxGasPrice `**: Maximum native gas price in wei; separate from the payment's TASRA cap.
-- **` requestTimeoutMs `**: Per-accountant request timeout, 1..85000 ms (default 85000).
-- **` receiptTimeoutMs `**: Receipt timeout, 1..120000 ms (default 60000).
-- **` confirmations `**: Required confirmations, 1..64 (default 1).
-- **` signal `**: Optional cancellation. Before the durable `prepared` checkpoint (nothing sent) an abort refuses with [PaidReservationAbortedError](#paidreservationabortederror). From that checkpoint the one broadcast proceeds and every journal write completes; an abort then only ends the receipt wait, as [PaidReservationUncertainError](#paidreservationuncertainerror): a broadcast transaction cannot be cancelled.
-- **` persist `**: Await durable storage before resolving. The prepared checkpoint MUST atomically create a unique requestId record, refuse every existing record, and survive process loss. Retain it on every later failure. Subsequent checkpoints update that record without deleting it. A callback failure before preparation completes prevents broadcast. The SDK cannot prove an application's persistence guarantees; an in-memory callback is not safe for production.
-- **` clock `**: Time source for bounded quote collection and the reservation-quota wait (a `prepare` answered 429 with a valid `Retry-After` / `x-ratelimit-after` is repeated identically within min(150 s, half the payment's remaining lifetime)); wall-clock ms. Default: the system clock. Inject one in tests.
-- **` quoteBlock `**: The block the payment context was discovered at (`discoverPaidOperationContext`'s `blockHash`/`blockTimestamp`). The FIRST prepare names it, so every accountant judges the signed intent where it was built instead of at its own, often older, head. Older than 20 seconds (or absent), the client's own fresh `latest` block is named instead: no prepare is ever sent without a block.
-
-### ReservePrepaidAllowanceOptions
-
-Limits and mandatory durable storage for one allowance reservation.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L140)
-
-```ts
-export interface ReservePrepaidAllowanceOptions {
-    accountantUrls: readonly string[];
-    allowLocalHttp?: boolean;
-    maxGas: bigint;
-    maxGasPrice: bigint;
-    requestTimeoutMs?: number;
-    receiptTimeoutMs?: number;
-    confirmations?: number;
-    signal?: AbortSignal;
-    quoteBlock?: Hex;
-    persist: (checkpoint: PrepaidAllowanceCheckpoint) => Promise<void>;
-}
-```
-
-Fields:
-
-- **` accountantUrls `**: Independently selected accountant endpoints.
-- **` allowLocalHttp `**: HTTP only on local chain 43112.
-- **` maxGas `**: Maximum gas units.
-- **` maxGasPrice `**: Maximum legacy gas price, wei.
-- **` requestTimeoutMs `**: Per-accountant timeout, 1..85000 ms (default 85000).
-- **` receiptTimeoutMs `**: Receipt timeout, 1..120000 ms (default 60000).
-- **` confirmations `**: Confirmations, 1..64 (default 1).
-- **` signal `**: Cancellation: honoured until the `prepared` checkpoint; afterwards it only ends the receipt wait (uncertain).
-- **` quoteBlock `**: Canonical block the intent's verifier epoch was observed at. The first prepare names it (else the client's fresh latest block), so every member judges the same chain state; when every member refuses before writing there, the round is repeated once at the client's latest block. No prepare is ever sent without a block.
-- **` persist `**: Await durable storage. `prepared` must create a unique record keyed by allowance id and survive process loss.
-
 ### ReshareRosterErrorCode
 
 Stable refusal categories of the reshare roster check; branch on `code`, never on the message.
@@ -7526,26 +4344,6 @@ Fields:
 - **` nativeCurrency `**: Native gas-token name, symbol and decimal precision.
 - **` governance `**: Configured governance delay and minimum delay, both in seconds.
 - **` productionPosture `**: Deployment-policy flag carried by the profile; the SDK does not use it to establish network readiness.
-
-### RetainedPaidApproval
-
-A signed approval retained BEFORE its first send; every send uses exactly `body`.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L52)
-
-```ts
-export interface RetainedPaidApproval {
-    proposalId: string;
-    body: string;
-    expires: number;
-}
-```
-
-Fields:
-
-- **` proposalId `**: Agent delivery (proposal) identity.
-- **` body `**: Exact JSON request body `{"authorization":…}`; never re-serialized or re-signed.
-- **` expires `**: Unix seconds after which the approval may not be sent (proposal and session expiry).
 
 ### RotationLockErrorCode
 
@@ -7894,6 +4692,86 @@ Registry ordinal identifying a gas relay, verifier agent or vault service.
 export type ServiceType = (typeof SERVICE_TYPES)[keyof typeof SERVICE_TYPES];
 ```
 
+### SessionAgentTransport
+
+One guarded transport for everything a client sends to an approved verifier-agent: discovery,
+session creation and polling ([AgentTransport](#agenttransport)) and session-grant refresh and revoke
+([SessionControlTransport](#sessioncontroltransport)). `createNodeAgentTransport` and `createBrowserAgentTransport`
+return it.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionControlTransport.ts#L35)
+
+```ts
+export type SessionAgentTransport = AgentTransport & SessionControlTransport;
+```
+
+Fields:
+
+- **` agentRequest `**: Same socket/TLS policy as discovery; bearer is allowed only on a session GET.
+- **` agentExchange `**: Optional session-creation exchange that also returns a 503 with its status and Retry-After, so the agent's one retryable pre-creation refusal can be retried. Without it creation never retries.
+- **` request `**: Perform a bounded request using the required destination, TLS and cancellation policy; return response bytes.
+- **` sessionControlRequest `**: Require verified TLS, connection-time destination checks, no redirects and cancellation.
+
+### SessionControlHttpResponse
+
+Bounded response from the approved agent's session control routes; non-success is never a retry instruction.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionControlTransport.ts#L4)
+
+```ts
+export interface SessionControlHttpResponse {
+    status: number;
+    body: Uint8Array;
+    retryAfterMs?: number;
+}
+```
+
+Fields:
+
+- **` status `**: Observed HTTP status (204 for an acknowledged revoke, a typed refusal otherwise).
+- **` body `**: Exact bounded bytes.
+- **` retryAfterMs `**: Parsed `Retry-After` in ms, when the service sent one. A wait hint, never a resend instruction.
+
+### SessionControlTransport
+
+Transport for a session grant's refresh and revoke (`POST /v1/sessions/refresh|revoke`). The
+routes carry no bearer: the session-key signature in the body is their authorization.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionControlTransport.ts#L17)
+
+```ts
+export interface SessionControlTransport {
+    sessionControlRequest(url: string, options: {
+        body: Uint8Array;
+        maxBytes: number;
+        signal: AbortSignal;
+    }): Promise<SessionControlHttpResponse>;
+}
+```
+
+Fields:
+
+- **` sessionControlRequest `**: Require verified TLS, connection-time destination checks, no redirects and cancellation.
+
+### SessionDrawDeployment
+
+[BeaconDeployment](#beacondeployment) plus the KeyRegistry that holds each slot's verifier policy.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionDraw.ts#L37)
+
+```ts
+export interface SessionDrawDeployment extends BeaconDeployment {
+    keyRegistry: Address;
+}
+```
+
+Fields:
+
+- **` keyRegistry `**: KeyRegistry address.
+- **` chainId `**: Deployment chain ID; the RPC's chain must equal it.
+- **` beacon `**: ThresholdRandomBeacon address.
+- **` verifierSet `**: VerifierSetRegistry address.
+
 ### SignedHeartbeat
 
 Operator heartbeat carrying an epoch, public key and signature; reading it does not verify it.
@@ -7931,12 +4809,11 @@ export type SlotAuthType = 'unspecified' | 'oid4vp' | 'oauth' | 'governance';
 
 Everything a committee-authorized threshold decrypt needs beyond the slot id.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L81)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L80)
 
 ```ts
-export interface SlotCommitteeDecryptOptions extends Pick<SealedRequestOpts, 'recipient' | 'verifyingShares' | 'threshold' | 'approveExecution' | 'signal' | 'fetchImpl' | 'requestId'> {
+export interface SlotCommitteeDecryptOptions extends Pick<SealedRequestOpts, 'recipient' | 'verifyingShares' | 'threshold' | 'signal' | 'fetchImpl' | 'requestId'> {
     binding: RequestBindingPreimage;
-    payment?: PaymentIntentWire;
     ciphertext: Ciphertext;
     identity: Uint8Array;
     decryptingSet?: number[];
@@ -7950,7 +4827,6 @@ export interface SlotCommitteeDecryptOptions extends Pick<SealedRequestOpts, 're
 Fields:
 
 - **` binding `**: Original authorization preimage binding the complete ciphertext, identity, recipient and epoch.
-- **` payment `**: Original creator-signed payment intent; required by paid deployments.
 - **` ciphertext `**: Group ciphertext to decrypt through committee authorization.
 - **` identity `**: Original associated data used when encrypting the group ciphertext.
 - **` decryptingSet `**: Historical coordinator selection; ignored by client-sealed delivery.
@@ -7960,17 +4836,16 @@ Fields:
 - **` targetKeykeeper `**: Pin the keeper this request targets (anti-Sybil); an on-chain assigned operator.
 - **` threshold `**: Required number of distinct authenticated and pairing-verified contributions.
 - **` recipient `**: Original client-held recipient created before requesting authorization.
-- **` requestId `**: Use the same id when producing the KEM owner signature.
 - **` signal `**: Cancel the complete fan-out, including approvals and response bodies.
 - **` verifyingShares `**: Authenticate this package against the slot's published commitment before use. Keys are keeper identifiers, values are 144-byte G2 || G1 verifying shares.
-- **` approveExecution `**: Client-owned exact-body approval capability, required for paid contributions.
 - **` fetchImpl `**: Guarded HTTP transport; defaults to global fetch.
+- **` requestId `**: Use the same id when producing the KEM owner signature.
 
 ### SlotCommitteeSignOptions
 
 Per-call overrides for a committee-authorized FROST signature.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L70)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/committeeClient.ts#L69)
 
 ```ts
 export interface SlotCommitteeSignOptions {
@@ -7986,34 +4861,58 @@ Fields:
 - **` userSignature `**: Optional Ed25519 slot-owner approval signature for the signing request.
 - **` targetKeykeeper `**: Pin the keeper this request targets (anti-Sybil). Must be one of the slot's on-chain assigned operators; there is no way to point at an off-chain node.
 
-### SlotFunding
+### SlotDrawReaderConfig
 
-Slot TASRA balances at a single canonical block; this does not grant paid admission.
+Configuration of [createSlotDrawReader](#createslotdrawreader).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L49)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionDraw.ts#L212)
 
 ```ts
-export interface SlotFunding extends PrepaidObservation {
-    slot: Hex;
-    enabled: boolean;
-    available: bigint;
-    reserved: bigint;
-    total: bigint;
-    settlementVersion?: '1';
+export interface SlotDrawReaderConfig extends SlotVerifierDrawOptions {
+    client: PublicClient;
+    deployment: SessionDrawDeployment;
+    snapshotHosts: readonly string[];
+    fetch?: typeof fetch;
+    waitForPublicationMs?: number;
 }
 ```
 
 Fields:
 
-- **` slot `**: Slot identifier.
-- **` enabled `**: Whether the slot has prepaid mode enabled.
-- **` available `**: Unreserved TASRA base units.
-- **` reserved `**: TASRA base units held by unsettled reservations.
-- **` total `**: Available plus reserved TASRA base units.
-- **` settlementVersion `**: `'1'` when read from a legacy Settlement (no prepaid getters: `enabled` false, `reserved` 0). Absent on a prepaid deployment.
-- **` blockNumber `**: Canonical block number.
-- **` blockHash `**: Exact canonical block used for EIP-1898 calls.
-- **` blockTimestamp `**: Block timestamp in Unix seconds.
+- **` client `**: Trusted bounded Viem RPC client for the selected deployment.
+- **` deployment `**: Independently approved chain and contract addresses.
+- **` snapshotHosts `**: Independently approved accountant origins that serve the verifier-set snapshot artifacts (`GET /v1/verifier-set/{epoch}`), in preference order (e.g. `resolveAccountantUrls`). A host supplies only leaves: every artifact is verified against the root anchored on chain.
+- **` fetch `**: Fetch implementation for the artifact reads (default global fetch).
+- **` waitForPublicationMs `**: How long a freshly anchored epoch's artifact may take to be published, ms (default 15000, at most 150000).
+- **` defaultVerificationPolicy `**: The deployment's default verifier committee policy, used when the slot names none on chain (`verifierPolicy(slot)` = 0/0). It must be the policy the deployment's verifier-agent and keepers are configured with; without it such a slot is refused.
+
+### SlotDrawTrust
+
+What a client needs to verify a slot's grant and to send it to keepers.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionDraw.ts#L194)
+
+```ts
+export interface SlotDrawTrust {
+    draw: AnchoredVerifierDraw;
+    set: VerifierSet;
+    committee: number;
+    quorum: number;
+    seed: Uint8Array;
+    witnesses: VerifierWitness[];
+    verifierProofs: VerifierProofWire[];
+}
+```
+
+Fields:
+
+- **` draw `**: The anchored draw the material was built from.
+- **` set `**: The epoch's whole verifier set (every key authenticated against the anchored root), by snapshot index, with its size.
+- **` committee `**: The slot's committee size.
+- **` quorum `**: Signatures required.
+- **` seed `**: `beacon.seedAt(epoch)`.
+- **` witnesses `**: The drawn verifiers with their anchored membership proofs.
+- **` verifierProofs `**: The same witnesses in the keeper wire form.
 
 ### SlotGroupKey
 
@@ -8188,6 +5087,55 @@ Fields:
 - **` signal `**: Cancels the asks and the waits between rounds.
 - **` onFailure `**: Called once with every answer of the last round when no seed was obtained.
 
+### SlotSharing
+
+A BLS slot's canonical sharing and the keepers that proved their part of it.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotSharing.ts#L23)
+
+```ts
+export interface SlotSharing extends BlsSharing {
+    chainId: number;
+    epoch: number;
+    committeeVersion: number;
+    threshold: number;
+    nodeUrls: string[];
+}
+```
+
+Fields:
+
+- **` chainId `**: Chain the slot lives on, as the RPC reports it.
+- **` epoch `**: The slot's current key epoch.
+- **` committeeVersion `**: The slot's sharing version (a reshare changes it without changing the epoch).
+- **` threshold `**: Contributions needed for one operation.
+- **` nodeUrls `**: The verified keepers' endpoints, in registry order.
+- **` verifyingShares `**: Public 144-byte G2 || G1 shares indexed by distinct participant identifier.
+- **` keepers `**: Assigned endpoints whose signed reports verified for the exact sharing.
+- **` failures `**: Metadata refusals, retained without counting them toward the threshold.
+
+### SlotSharingOptions
+
+Options of [readSlotSharing](#readslotsharing).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/slotSharing.ts#L11)
+
+```ts
+export interface SlotSharingOptions {
+    keeperUrl?(registeredUrl: string): string;
+    fetchImpl?: typeof fetch;
+    allowLocalHttp?: boolean;
+    signal?: AbortSignal;
+}
+```
+
+Fields:
+
+- **` keeperUrl `**: Caller-approved routing of a registered keeper URL (e.g. local Docker hostnames to published loopback ports).
+- **` fetchImpl `**: Guarded HTTP transport for the share reports; defaults to global fetch.
+- **` allowLocalHttp `**: Allow loopback HTTP for a disposable local chain 43112 only. Default false.
+- **` signal `**: Cancel the reads.
+
 ### SlotTransferProposal
 
 Outcome of ` TasraWriteClient.proposeSlotTransfer `.
@@ -8202,8 +5150,7 @@ export interface SlotTransferProposal {
     ruleAdmin: Address | null;
     guardian: Address | null;
     callerIsRuleAdmin: boolean;
-    prepaidBalance?: bigint;
-    reservedBalance?: bigint;
+    settlementBalance?: bigint;
     relay?: RelayReceipt;
 }
 ```
@@ -8216,15 +5163,33 @@ Fields:
 - **` ruleAdmin `**: Rule admin, which does not move with the slot; `null` when the rule is immutable.
 - **` guardian `**: Guardian, which does not move with the slot.
 - **` callerIsRuleAdmin `**: True when this account is also the rule admin and so needs the second hand-off.
-- **` prepaidBalance `**: Prepaid TSRA base units the slot holds, which go with it; set when a Settlement address is configured.
-- **` reservedBalance `**: Of that, base units reserved by accepted requests, which still settle; set where the Settlement has reservations.
+- **` settlementBalance `**: TSRA base units the slot holds at the Settlement (its metered funding), which go with it; set when a Settlement address is configured.
 - **` relay `**: Relay receipt, when the offer was gas-sponsored.
+
+### SlotVerifierDrawOptions
+
+Options of [readSlotVerifierDraw](#readslotverifierdraw).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionDraw.ts#L132)
+
+```ts
+export interface SlotVerifierDrawOptions {
+    defaultVerificationPolicy?: {
+        committee: number;
+        quorum: number;
+    };
+}
+```
+
+Fields:
+
+- **` defaultVerificationPolicy `**: The deployment's default verifier committee policy, used when the slot names none on chain (`verifierPolicy(slot)` = 0/0). It must be the policy the deployment's verifier-agent and keepers are configured with; without it such a slot is refused.
 
 ### TasraChainClient
 
 A read client for a deployment: a configured viem client, log helpers and typed readers.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/client.ts#L291)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/client.ts#L298)
 
 ```ts
 export interface TasraChainClient {
@@ -8316,7 +5281,7 @@ Fields:
 
 Account-bound operations for slot creation, lifecycle management, settlement funding and token transactions.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L1587)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/write.ts#L1578)
 
 <details>
 <summary>Full declaration</summary>
@@ -8420,7 +5385,7 @@ Fields:
 - **` endorseRuleUpdate `**: Waive the remaining delay of the pending amendment, signed by the slot's guardian. Refuses `not-guardian` and `no-pending` before signing.
 - **` vetoRuleUpdate `**: Discard the pending amendment, signed by the slot's guardian. Refuses `not-guardian` and `no-pending` before signing.
 - **` activateRuleUpdate `**: Activate the pending amendment; anyone may send it. Refuses `no-pending`, `timelock` (judged on the latest block timestamp, not the local clock) and `below-threshold` before signing.
-- **` proposeSlotTransfer `**: Offer the slot to `to` as its next creator, signed by the current creator. It moves only when `to` accepts with acceptSlotTransfer; a new offer replaces an earlier one. Only the creator moves: the rule admin and the guardian stay, and the result names them. When this account is also the rule admin, hand that role over separately with proposeRuleAdminTransfer. At acceptance every delegation and unused prepaid payment intent this account signed for the slot stops working; reservations already accepted still settle. The prepaid credit goes with the slot and nothing is refunded; the result carries the balance when a Settlement address is configured. Refused before signing, as a `SlotHandoffError`: `no-slot`, `cancelled`, `unsupported` (a KeyRegistry without the hand-off), `not-creator`, `same-holder`, `already-offered`, `self-custody` (the slot's own threshold account, which could never sign a paid operation of itself again) and `contract-holder` (keepers accept creator signatures from an externally owned account only).
+- **` proposeSlotTransfer `**: Offer the slot to `to` as its next creator, signed by the current creator. It moves only when `to` accepts with acceptSlotTransfer; a new offer replaces an earlier one. Only the creator moves: the rule admin and the guardian stay, and the result names them. When this account is also the rule admin, hand that role over separately with proposeRuleAdminTransfer. At acceptance every delegation this account signed for the slot stops working. The slot's Settlement balance goes with the slot and nothing is refunded; the result carries the balance when a Settlement address is configured. Refused before signing, as a `SlotHandoffError`: `no-slot`, `cancelled`, `unsupported` (a KeyRegistry without the hand-off), `not-creator`, `same-holder`, `already-offered`, `self-custody` (the slot's own threshold account, which could never authorize an operation of itself again) and `contract-holder` (keepers accept creator signatures from an externally owned account only).
 - **` withdrawSlotTransfer `**: Withdraw the pending creator offer, signed by the creator. Refuses `not-creator` and `nothing-pending` before signing.
 - **` acceptSlotTransfer `**: Become the slot's creator, signed by the offered wallet. Refuses `nothing-pending`, `not-offered` and `self-custody` before signing. Afterwards sign fresh delegations for the apps that use the slot and update their configuration: the previous creator's delegations no longer verify.
 - **` proposeRuleAdminTransfer `**: Offer the slot's rule admin role to `to`, signed by the rule admin. It moves only when `to` accepts. It can never go to the guardian, and the guardian is not asked. Refuses `immutable`, `not-admin`, `same-holder`, `guardian` and `already-offered` before signing.
@@ -8440,7 +5405,7 @@ Fields:
 - **` vaultRelease `**: Release currently vested tokens for the named allocation.
 - **` tsraBalance `**: Read TSRA base units for the supplied account or the configured signer.
 - **` ethBalance `**: Read native-token base units for the supplied account or configured signer.
-- **` settlementBalance `**: Read the prepaid TSRA settlement balance of a slot.
+- **` settlementBalance `**: Read the TSRA balance a slot holds at the Settlement (its metered funding).
 - **` relayEnabled `**: Whether writes are submitted through a registered relay rather than directly.
 - **` lastRelay `**: Return the last verified relay receipt, if any.
 - **` pendingRelayAttempt `**: Return the signed relay attempt awaiting reconciliation, if any.
@@ -8489,93 +5454,6 @@ Fields:
 - **` staying `**: Current members that stay; these are the dealers, at least the current `k` of them.
 - **` joining `**: New members that receive a share without dealing.
 - **` leaving `**: Current members that leave the committee.
-
-### UndrawnPaidOperationContext
-
-Returned only with ` PaidContextOptions.undrawnDuringAnchorGap `: this block has no admissible
-complete verifier draw, so `intentFields` carries NO verification fields. Such a context may
-select an existing allowance (which carries its own draw); it never signs a per-operation payment
-and never reserves an allowance. Discover again (with the bounded anchor wait) for anything else.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L516)
-
-```ts
-export interface UndrawnPaidOperationContext extends PaidOperationContextBase {
-    intentFields: UndrawnPaymentFields;
-    undrawn: true;
-}
-```
-
-Fields:
-
-- **` intentFields `**: Chain and keeper-sharing fields only; no verifier draw.
-- **` undrawn `**: Always set: this context has no verifier draw.
-- **` creator `**: On-chain slot creator whose EIP-712 signature authorizes spending.
-- **` mode `**: Slot mode ordinal for selecting the operation client.
-- **` groupPublicKey `**: Published group key, independently verified again during execution.
-- **` coordinator `**: Selected eligible keeper coordinator.
-- **` contributors `**: All currently eligible assigned contributors in canonical public-key order.
-- **` available `**: Unreserved slot TASRA at this block; it is not a reservation or an operation quote.
-- **` ruleCommitment `**: The slot's salted rule commitment at this block, from the same canonical slot read.
-- **` ruleVersion `**: The slot's rule version at this block, from the same canonical slot read.
-- **` beaconEpoch `**: The beacon's latest epoch at this block (the draw is it or, while its anchors land, the one before).
-- **` blockNumber `**: Canonical block number.
-- **` blockHash `**: Exact canonical block used for EIP-1898 calls.
-- **` blockTimestamp `**: Block timestamp in Unix seconds.
-
-### UndrawnPaymentFields
-
-The chain and keeper-sharing fields of an UNDRAWN context: no verifier draw at all, so they can
-never complete a payment intent (a per-operation intent or an allowance needs the draw fields).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaid.ts#L479)
-
-```ts
-export type UndrawnPaymentFields = Omit<DiscoveredPaymentFields, PaymentDrawFieldName>;
-```
-
-Fields:
-
-- **` settlement `**: Settlement proxy address.
-- **` slot `**: Slot identifier.
-- **` chain_id `**: EVM chain identifier.
-- **` key_registry `**: KeyRegistry proxy address.
-- **` keeper_assignment `**: Fixed keeper sharing and execution membership.
-
-### UnpaidAgentSessionRecovery
-
-Private application state for restoring the original unpaid session, never a provider approval.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredAgent.ts#L77)
-
-```ts
-export interface UnpaidAgentSessionRecovery extends CreateSessionResult {
-    version: 1;
-    serviceProfile: {
-        chainId: number;
-        registry: string;
-        serviceId: string;
-        serviceType: 1;
-        owner: string;
-        revision: string;
-        manifestHash: string;
-        authKey: string;
-        endpoint: string;
-        clientId: string;
-    };
-    pendingOwner: string;
-}
-```
-
-Fields:
-
-- **` version `**: Checkpoint format.
-- **` serviceProfile `**: Creation identity, compared with independent approvals and the live registry.
-- **` pendingOwner `**: Pending owner at creation; a later transfer stops recovery before bearer delivery.
-- **` sessionId `**: Opened authorization session identifier.
-- **` pollSecret `**: Bearer token for polling - treat as a secret
-- **` qrPayload `**: OpenID4VP deep link for a wallet or QR code.
-- **` requestUri `**: URL from which the wallet retrieves the signed request.
 
 ### VaultTranche
 
@@ -8627,6 +5505,50 @@ Fields:
 - **` uptime_secs `**: Verifier process uptime in seconds.
 - **` jwt_ttl_secs `**: Reported bearer-token lifetime in seconds.
 - **` rate_limit_enabled `**: Whether the verifier reports rate limiting as enabled.
+
+### VerifierProofWire
+
+A drawn verifier's membership proof on the wire, as keepers take it (`verifier_proofs`).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/sessionDraw.ts#L182)
+
+```ts
+export interface VerifierProofWire {
+    verifier_index: number;
+    operator: string;
+    pubkey: string;
+    proof: string[];
+}
+```
+
+Fields:
+
+- **` verifier_index `**: Index in the epoch's snapshot.
+- **` operator `**: Operator address, bare hex.
+- **` pubkey `**: Ed25519 committee key, bare hex.
+- **` proof `**: Sibling hashes, bare hex.
+
+### VerifierWitness
+
+One drawn verifier with its Merkle membership proof in the epoch's anchored snapshot.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/verifierSnapshot.ts#L37)
+
+```ts
+export interface VerifierWitness {
+    index: number;
+    operator: Hex;
+    publicKey: Hex;
+    proof: Hex[];
+}
+```
+
+Fields:
+
+- **` index `**: Index in the epoch's snapshot.
+- **` operator `**: Operator address.
+- **` publicKey `**: Ed25519 committee key.
+- **` proof `**: Sibling hashes up to the anchored root.
 
 ### WriteClientConfig
 
@@ -8700,11 +5622,8 @@ Shared values and contract definitions.
 | `ACCOUNTANT_TAG` | The on-chain role tag accountant operators register under: `keccak256("accountant")`. The same tag the accountants themselves resolve their set with. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/discovery.ts#L140) |
 | `accountantSetRegistryAbi` | AccountantSetRegistry contract interface for accountant-set snapshots and membership evidence. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/accountantSetRegistry.ts#L5) |
 | `accountantSlashingAbi` | AccountantSlashing contract interface for accountant penalties and related evidence. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/accountantSlashing.ts#L5) |
-| `ALLOWANCE_MAX_LIFETIME_SECS` | `PAYMENT_INTENT_MAX_LIFETIME_SECS`: an allowance lives at most one hour. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L174) |
-| `ALLOWANCE_QUOTE_MAX_AGE_SECS` | Quote freshness the accountants enforce (`MAX_QUOTE_AGE`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/allowance.ts#L172) |
-| `BATCH_APPROVAL_CAPABILITY` | Manifest capability of an agent that accepts a batch of approvals in one request. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L83) |
 | `bondingCurveAbi` | BondingCurve contract interface for TSRA purchases, redemptions and pricing. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/bondingCurve.ts#L5) |
-| `CONTRACT_ABIS` | Contract name to ABI. Keys match Foundry artifact names. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/index.ts#L48) |
+| `CONTRACT_ABIS` | Contract name to ABI. Keys match Foundry artifact names. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/index.ts#L44) |
 | `CONTRACT_CATEGORY` | Default category per contract (the global event feed groups by this). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/events.ts#L23) |
 | `CUSTODY_HEALTH_DOMAIN` | Domain tag of [custodyStatementHash](#custodystatementhash); a changed preimage gets a new name on the network. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L30) |
 | `CUSTODY_STATEMENT_MAX_AGE_SECS` | Default maximum age of a statement, in seconds; the keepers count a peer's statement for 900 s. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/custodyHealth.ts#L33) |
@@ -8717,20 +5636,13 @@ Shared values and contract definitions.
 | `keeperShareRegistryAbi` | KeeperShareRegistry contract interface for anchored keeper verifying-share commitments. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/keeperShareRegistry.ts#L5) |
 | `keyRegistryAbi` | KeyRegistry contract interface for slot creation, key epochs and authorization policies. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/keyRegistry.ts#L5) |
 | `livenessRegistryAbi` | LivenessRegistry contract interface for registered operator liveness observations. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/livenessRegistry.ts#L5) |
-| `MAX_ESCAPE_PER_CALL` | Most requests one `escapePrepaid` transaction may name (the contract's `MAX_ESCAPE_PER_CALL`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L27) |
-| `MAX_ESCAPE_REQUESTS` | Most requests one client call accepts; they are sent as sequential transactions of at most 64. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidEscape.ts#L29) |
-| `MAX_PREPAID_FAULT_BUNDLE_BYTES` | Accountant claim intake byte limit (the witness's own bundle maximum). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L43) |
-| `MAX_PROPOSAL_WAIT_MS` | Longest proposal hold the client asks for (the agent's own cap). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L87) |
 | `MAX_RESHARE_PARTIES` | Largest committee the network deals a key to (`KeyRegistry.MAX_N`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/reshareRoster.ts#L16) |
 | `mockEurcAbi` | MockEurc contract interface for test-token balances, transfers, approvals and minting. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/mockEurc.ts#L5) |
 | `NETWORKS` | Built-in network defaults; use a tasra-releases manifest for deployed contract addresses. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/networks.ts#L39) |
 | `nodeApi` | Direct keeper HTTP reads for status, keys, public keys, heartbeats and metering. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/offchain.ts#L145) |
 | `nodeRegistryAbi` | NodeRegistry contract interface for operator registration, role tags, stake and activity. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/nodeRegistry.ts#L5) |
 | `platformExecutorAbi` | PlatformExecutor contract interface for platform-authorized contract execution. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/platformExecutor.ts#L5) |
-| `PREPAID_FAULT_KINDS` | Fault kinds in the oracle's enum order. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/prepaidFault.ts#L16) |
-| `prepaidFaultOracleAbi` | PrepaidFaultOracle contract interface for threshold-signed prepaid fault verdicts and their slashing resolutions. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/prepaidFaultOracle.ts#L5) |
 | `prevrandaoSaltBeaconAbi` | PrevrandaoSaltBeacon contract interface for chain-randomness-derived committee seeds. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/prevrandaoSaltBeacon.ts#L5) |
-| `PROPOSAL_WAIT_CAPABILITY` | Manifest capability of an agent that holds a proposal listing until one is pending (`?wait_ms=`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/registeredPaidAgent.ts#L85) |
 | `PROVISION_RULE_ACTION` | Action identifier accepted by the creator-authorized rule provisioning endpoint. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/provisionRule.ts#L36) |
 | `ROTATION_LOCK_SELECTORS` | Selectors and the event topic of the rotation-lock additions to `KeyRegistry`, each the keccak256 of the Solidity signature in its comment. A stale signature is a different selector, so a test pins each value against its signature and against the vendored ABI. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/rotationLock.ts#L29) |
 | `ROTATION_LOCK_SENTINEL` | `lastRotatedAt` value the contract writes to lock a slot: 2^64 - 1, never a real timestamp. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/rotationLock.ts#L22) |
@@ -8744,9 +5656,7 @@ Shared values and contract definitions.
 | `SERVICE_STATUSES` | Registry lifecycle ordinals for active, draining and retired services. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/services.ts#L35) |
 | `SERVICE_TYPES` | Permanent ServiceRegistry ABI ordinals. Registration grants no operator privileges. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/services.ts#L31) |
 | `serviceRegistryAbi` | ServiceRegistry contract interface for provider-owned service records and lifecycle updates. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/serviceRegistry.ts#L5) |
-| `settlementAbi` | Settlement contract interface for prepaid slot balances and operation settlement. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/settlement.ts#L6) |
-| `systemPacingClock` | Wall clock, timers and `Math.random` jitter. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/paidPacing.ts#L43) |
-| `tasraSwapRouterAbi` | TasraSwapRouter contract interface for routed token exchanges. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/tasraSwapRouter.ts#L5) |
+| `settlementAbi` | Settlement contract interface for metered slot balances and operation settlement. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/settlement.ts#L5) |
 | `tasraTokenAbi` | TasraToken contract interface for TSRA balances, transfers, approvals and supply. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/tasraToken.ts#L5) |
 | `tasraVestingVaultAbi` | TasraVestingVault contract interface for allocation vesting and token release. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/tasraVestingVault.ts#L5) |
 | `thresholdRandomBeaconAbi` | ThresholdRandomBeacon contract interface for threshold-signed randomness epochs. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/chain/abis/thresholdRandomBeacon.ts#L5) |

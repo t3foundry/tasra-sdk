@@ -59,8 +59,6 @@ restart. The approval window still expires after five minutes. If execution may 
 started but no durable result is available, `status()` returns `uncertain`, `approve()`
 sends no approval, and `wait()` raises `OperationOutcomeUnknownError` with the same request
 ID. Preserve that ID and reconcile the work evidence before deciding how to proceed.
-For paid creation, the ID is derived from the pinned final Sign reservation; see
-[paid dual-control signatures](funding.md#paid-dual-control-signatures).
 
 This is separate from two detached signatures in a document workflow. It does
 not enable multi-approver IBE extraction.
@@ -131,53 +129,65 @@ files with the application so restarts use the same deployment. The examples use
 the selected service. Fund each newly printed creator address with at least one
 native token on the selected chain before continuing.
 
-## Threshold ECDSA (and BLS) operations: approval bundles
+## Threshold ECDSA and BLS operations: approval bundles
 
-On a threshold ECDSA slot (secp256k1 or P-256) the network enforces the same on-chain policy
-through an operation-specific **bundle** carried inside the final paid keeper request, not
+On a threshold ECDSA slot (secp256k1 or P-256) and on a BLS slot the network enforces the same
+on-chain policy through an operation-specific **bundle** carried inside the keeper request, not
 through the FROST collector. Install the policy exactly as above: `setApprovalPolicy` accepts a
 ready FROST, BLS or threshold ECDSA slot. The creator wallet sends `setDualControlPolicy`; no
 slot-key signature is involved. Policies are set-once: an identical installed policy resolves
 `{phase: 'already-installed'}` without sending, and a different one is refused before sending.
 `readApprovalPolicy` reads what is installed.
 
-Approvals bind ONE final paid operation, so prepare them after its payment exists and before
-the keeper request (a statement is current for at most 300 seconds):
+Approvals bind ONE exact operation. Prepare them shortly before the keeper request: a statement
+is current for at most 300 seconds.
 
 ```ts
-import {prepareOperationApproval, approveDualOperation, assembleOperationApproval} from '@t3foundry/tasra-sdk/app'
-import {committeeSignEoaDigest} from '@t3foundry/tasra-sdk/committee'
+import {prepareOperationApproval, approveSigningIntent, assembleOperationApproval, identityApprover} from '@t3foundry/tasra-sdk/app'
 
-const op = await paidOperation(config, {slot, operation: {action: 'sign', message: digest}, rule, holder})
-const prepared = await prepareOperationApproval(tasra, {payment: op.payment})
-// Each approver checks the statement against what it expects, then signs its exact bytes.
-const alice = await approveDualOperation({prepared, payment: op.payment, expectSlot: slot,
-  expectPayloadDigest: op.payment.payload_digest, approver: identityApprover(aliceIdentity)})
-const bob = await approveDualOperation({prepared, payment: op.payment, expectSlot: slot,
-  expectPayloadDigest: op.payment.payload_digest, approver: identityApprover(bobIdentity)})
-const dualControl = await assembleOperationApproval(tasra, {prepared, approvals: [alice, bob]})
-const signature = await op.execute(o => committeeSignEoaDigest({nodeUrl: o.coordinatorUrl,
-  committeeToken: o.compound_token, evidenceCt: o.evidenceCt, verifierProofs: o.verifierProofs,
-  approveExecution: o.approveExecution, digest, dualControl}))
+const intent = {kind: 'message', message: bytes} as const
+const prepared = await prepareOperationApproval(app, {slotId, intent})
+// Each approver recomputes the digest from the intent it reviewed, then signs the statement.
+const alice = await approveSigningIntent({prepared, slotId, intent, approver: identityApprover(aliceIdentity)})
+const bob = await approveSigningIntent({prepared, slotId, intent, approver: identityApprover(bobIdentity)})
+const dualControl = await assembleOperationApproval(app, {prepared, approvals: [alice, bob]})
+const account = await app.slots.ecdsa(slotId)
+const signature = await account.signIntent(intent, {authorize, dualControl})
 ```
 
-`slots.ecdsa(slot).signDigest(digest, {payment, random, execution, authorize, dualControl})`
-takes the same bundle for a payment the application reserved itself. The statement binds the
-chain, slot, operation, key epoch, SHA-256 of the digest, the payment's request ID and payment
-hash. `assembleOperationApproval` judges the bundle against the ON-CHAIN quorum and approver set;
-missing approvals, a duplicate approver, a key outside the set, a stale statement or an approval
-of another payment are refused before anything is sent, and the keeper and every ECDSA member
-re-check all of it. Approver keys are Ed25519 only (the network has no other approver type), and
-a credential-gated policy needs each approver's own holder-bound `dual-approve` grant.
+`prepareOperationApproval(app, {slotId, ...})` names the operation by exactly one of:
+
+| Field | Use |
+|---|---|
+| `intent` | A structured signing intent (ECDSA or P-256 slot); the SDK derives the digest. |
+| `digest` | The exact 32-byte digest an ECDSA or P-256 slot will sign. |
+| `payloadDigest` | The recipient-bound digest of a KEM decryption or an IBE extraction (BLS slot); add `identity` for an extraction. |
+
+The statement binds the chain, slot, operation, key epoch, the operation's payload digest
+(SHA-256 of a signing digest) and the operation's request hash. It binds no payment: no
+operation needs one. An approver that signs a raw digest uses `approveDualOperation({prepared,
+expectSlot, expectPayloadDigest, approver})`. `assembleOperationApproval` judges the bundle
+against the ON-CHAIN quorum and approver set; missing approvals, a duplicate approver, a key
+outside the set, a stale statement or an approval of another operation are refused before
+anything is sent, and the keeper and every ECDSA member re-check all of it. Approver keys are
+Ed25519 only (the network has no other approver type), and a credential-gated policy needs each
+approver's own holder-bound `dual-approve` grant.
+
+Pass the bundle as `dualControl`:
+
+- `slots.ecdsa(slot).signDigest(digest, {authorize, dualControl})` and `signIntent(intent, ...)`;
+- `slots.p256(slot).signDigest` and `signIntent({kind: 'sha256', data}, ...)`;
+- `slots.bls(slot).decrypt(aad, ciphertext, {recipient, verifyingShares, authorize, dualControl})`,
+  `decryptForIdentity` and `extractIdentityKey`.
 
 ### Sign a structured intent
 
 Approvers should review what is signed, not a digest. `slots.ecdsa(slot).signIntent(intent,
 options)` takes a transaction (it must name its `chainId`), EIP-712 typed data (with a domain
-`chainId`) or a personal message, derives the digest itself and, with a payment, refuses unless
-the payment pays for exactly that intent. An approver calls `approveSigningIntent({prepared,
-payment, intent, approver})`: it recomputes the digest from the intent it reviewed and refuses
-before signing when the payment or the statement names anything else. Intents are at most 64 KiB.
+`chainId`) or a personal message, and derives the digest itself. An approver calls
+`approveSigningIntent({prepared, slotId, intent, approver})`: it recomputes the digest from the
+intent it reviewed and refuses before signing when the statement names anything else. Intents
+are at most 64 KiB.
 
 `slots.p256(slot)` is the same adapter for a threshold P-256 slot (not an Ethereum account):
 `signDigest`, or `signIntent({kind: 'sha256', data})` for the SHA-256 of exact bytes, each

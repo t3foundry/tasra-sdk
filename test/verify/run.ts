@@ -62,7 +62,7 @@ const npm = (script: string): StepSpec => ({name: script, cmd: 'npm', args: ['ru
 // turns any such vacuous green into a fail instead of trusting the exit code.
 const cargoTest = (pkg: string, test: string, extra: string[] = []): StepSpec => ({name: `cargo ${pkg}::${test}`, cmd: 'cargo', args: ['test', '-p', pkg, ...extra, '--test', test, '--', '--include-ignored'], cwd: networkDir, timeoutMs: 1_800_000, minPassedTests: 1})
 const scenario = (file: string): StepSpec => ({name: file, cmd: 'bash', args: [`lab/fleet/scenarios/${file}`], cwd: networkDir,
-  // Disk loss now observes both original 600s payment windows and their payouts.
+  // Disk loss recovery re-runs wallet operations on the recovered shares.
   timeoutMs: file === '08b-nuke-and-recover.sh' ? 3_600_000 : 600_000})
 
 const startedAt = new Date().toISOString()
@@ -96,7 +96,7 @@ if (DO_BRINGUP) {
   results.push(...(await bringUp()))
   const healthy = results.find(r => r.name.startsWith('stack healthy'))
   if (!healthy || healthy.status !== 'pass' || results.some(r => r.phase === 'bringup' && r.status === 'fail')) {
-    log('\n✗ stack bring-up or paid configuration failed — aborting before tests. See report.')
+    log('\n✗ stack bring-up or wallet configuration failed — aborting before tests. See report.')
     await finish(true)
   }
 }
@@ -194,10 +194,11 @@ async function fleetDependentTrack(): Promise<void> {
   // host is still churning the backlog, up to a bounded ceiling. See settleFleet.
   if (DO_PERF && DO_DESTRUCTIVE) await settleFleet()
 
-  // A served operation is not a completed billing lifecycle. Preserve the fleet
-  // if any original payment needs recovery, before slashing or deleting shares.
+  // A served operation is not a completed billing lifecycle. Require the metered
+  // settlement of the funded workload (and preserve the fleet when it is missing or
+  // inconsistent) before slashing or deleting shares.
   if (DO_BOOTSTRAP || DO_CORRECTNESS || DO_PERF) {
-    const settlement = await run('settlement', {name: 'original paid requests reconciled with zero reserved TASRA',
+    const settlement = await run('settlement', {name: 'funded slots conserved and metered work settled with recipient evidence',
       cmd: 'npx', args: ['tsx', 'test/verify/settlement.ts'], cwd: sdkRoot, env: FLEET, timeoutMs: SETTLEMENT_STAGE_TIMEOUT_MS})
     if (settlement.status !== 'pass') await finish(true)
   }
@@ -213,9 +214,9 @@ async function fleetDependentTrack(): Promise<void> {
     // test:slashing compares the EXPLORER's /slashing feed with the chain: run only with an Explorer attached.
     if (explorerMode() === 'on') await run('destructive',npm('test:slashing'))
     await run('destructive',scenario('08b-nuke-and-recover.sh'))
-    // Destructive stages can create paid work after the first barrier. Refuse
-    // final teardown/profile replacement until its original evidence is retained.
-    const settlement = await run('settlement-final', {name: 'final original paid requests and recipient evidence retained',
+    // Destructive stages can fund and operate slots after the first barrier. Refuse
+    // final teardown/profile replacement until the workload is still conserved.
+    const settlement = await run('settlement-final', {name: 'final funded slots conserved with recipient evidence retained',
       cmd: 'npx', args: ['tsx', 'test/verify/settlement.ts'], cwd: sdkRoot, env: FLEET, timeoutMs: SETTLEMENT_STAGE_TIMEOUT_MS})
     if (settlement.status !== 'pass') await finish(true)
   }

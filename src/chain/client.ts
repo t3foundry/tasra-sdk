@@ -70,7 +70,7 @@ export interface ChainClientConfig {
   /** getLogs block-window size; keep <= the RPC's range cap (anvil/besu: large; public: ~2k). */
   logWindow?: number
   /**
-   * Multicall3 address for batching. Omit to probe the canonical address, supply an explicit address to probe that deployment, or set false to disable batching. Unavailable batching falls back to individual reads. Block-pinned paid-operation reads batch through it only where its code matches the canonical Multicall3.
+   * Multicall3 address for batching. Omit to probe the canonical address, supply an explicit address to probe that deployment, or set false to disable batching. Unavailable batching falls back to individual reads. Block-pinned reads batch through it only where its code matches the canonical Multicall3.
    */
   multicall3?: Address | false
   /**
@@ -206,11 +206,18 @@ export interface KeyRegistryReaders {
 }
 
 /**
- * Typed reads of prepaid slot balances, settlement nonces and revenue allocation.
+ * Typed reads of slot balances, settlement nonces and revenue allocation.
  */
 export interface SettlementReaders {
   balanceOf(slot: `0x${string}`): Promise<ReadContractReturnType<typeof settlementAbi, 'balanceOf'>>
+  /**
+   * The slot's settled position. It is NOT an operation count: when the accountants settle from the
+   * keepers' window statements it is the end of the last settled window in unix seconds. Use
+   * {@link SettlementReaders.operationsSettled} for operations.
+   */
   lastNonce(slot: `0x${string}`): Promise<ReadContractReturnType<typeof settlementAbi, 'lastNonce'>>
+  /** Operations settled for the slot, as signed by the accountant set, counted from the Settlement upgrade that added the counter. */
+  operationsSettled(slot: `0x${string}`): Promise<ReadContractReturnType<typeof settlementAbi, 'operationsSettled'>>
   revenueSplit(): Promise<ReadContractReturnType<typeof settlementAbi, 'revenueSplit'>>
   totalHeld(): Promise<ReadContractReturnType<typeof settlementAbi, 'totalHeld'>>
 }
@@ -360,7 +367,7 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
     chain,
     transport: rpcTransport(cfg.rpcUrl, cfg.rpcBatch),
   })
-  // Block-pinned paid-path reads batch through the same Multicall3 choice, code-hash verified.
+  // Block-pinned reads batch through the same Multicall3 choice, code-hash verified.
   configurePinnedReads(client, cfg.multicall3)
   const addresses = cfg.addresses
   const defaultWindow = cfg.logWindow ?? 2000
@@ -667,6 +674,13 @@ export function createTasraChainClient(cfg: ChainClientConfig): TasraChainClient
         address: requireAddress(addresses, 'Settlement'),
         abi: settlementAbi,
         functionName: 'lastNonce',
+        args: [slot],
+      }),
+    operationsSettled: (slot: `0x${string}`) =>
+      client.readContract({
+        address: requireAddress(addresses, 'Settlement'),
+        abi: settlementAbi,
+        functionName: 'operationsSettled',
         args: [slot],
       }),
     revenueSplit: () =>

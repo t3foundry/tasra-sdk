@@ -7,7 +7,7 @@ import type {ApplicationStore} from '../../src/app/ready-slot.js'
 import {acceptSessionGrant, createSessionKey, loadGrantedSession, sessionGrantCreateFragment, SessionEndedError, SessionRevokeIncompleteError, SessionRevokeUnconfirmedError, type GrantedSessionOptions, type SessionKeyHandle, type SlotTrust} from '../../src/app/session-grants.js'
 import {BINDING_HOLDER_KEY, type VerifierSet} from '../../src/committee/token.js'
 import {acceptsServiceResponse, serviceRequestShape} from '../../src/chain/serviceRequestPolicy.js'
-import type {PaidAgentTransport} from '../../src/chain/paidAgentTransport.js'
+import type {SessionControlTransport} from '../../src/chain/sessionControlTransport.js'
 import type {ApprovedAgentProfile} from '../../src/chain/registeredAgent.js'
 import {encodeSessionGrant, sessionControlHash, sessionGrantHash, sessionGrantPayload, sessionKeyThumbprint, verifySessionSignature,
   type GrantSlot, type SessionGrantWire} from '../../src/committee/session-grant.js'
@@ -21,12 +21,12 @@ const trust = async (slot: `0x${string}`): Promise<SlotTrust> => ({set, committe
 const T0 = 1_800_000_000
 const profile: ApprovedAgentProfile = {endpoint: 'https://agent.test', clientId: 'decentralized_identifier:did:web:agent.test',
   approval: {chainId: 43112, registry: `0x${'04'.repeat(20)}`, serviceId: `0x${'05'.repeat(32)}`, serviceType: 1, owner: `0x${'06'.repeat(20)}`, revision: 1n, manifestHash: `0x${'07'.repeat(32)}`}}
-// The registered paid-agent transport, driven by a fetch stand-in, with the SHARED request/response policy applied.
-function agentVia(fetchImpl: typeof fetch): {profile: ApprovedAgentProfile; transport: PaidAgentTransport} {
-  const transport: PaidAgentTransport = {request: vi.fn(), paidAgentRequest: async (url, opts) => {
-    const shape = serviceRequestShape('paid-agent', url, {body: opts.body, maxBytes: opts.maxBytes, bearer: opts.bearer, method: opts.method})
-    const res = await fetchImpl(url, {method: shape.method, headers: shape.headers, body: opts.body && new TextDecoder().decode(opts.body)})
-    if (!acceptsServiceResponse('paid-agent', shape, Boolean(opts.body), res.status, res.headers.get('content-type')?.split(';')[0] ?? '')) throw new Error('refused by the paid agent policy')
+// The session-control transport, driven by a fetch stand-in, with the SHARED request/response policy applied.
+function agentVia(fetchImpl: typeof fetch): {profile: ApprovedAgentProfile; transport: SessionControlTransport} {
+  const transport: SessionControlTransport = {sessionControlRequest: async (url, opts) => {
+    const shape = serviceRequestShape('session-control', url, {body: opts.body, maxBytes: opts.maxBytes})
+    const res = await fetchImpl(url, {method: shape.method, headers: shape.headers, body: new TextDecoder().decode(opts.body)})
+    if (!acceptsServiceResponse('session-control', shape, true, res.status, res.headers.get('content-type')?.split(';')[0] ?? '')) throw new Error('refused by the session control policy')
     const retry = res.headers.get('retry-after')
     return {status: res.status, body: new Uint8Array(await res.arrayBuffer()), ...retry ? {retryAfterMs: Number(retry) * 1000} : {}}
   }}
@@ -163,6 +163,17 @@ describe('session grant lifecycle (ADR-0090 D7, SDK)', () => {
     mode = 'same-epoch'
     await expect(o.session.refreshForEpoch(43n)).rejects.toThrow(/stayed on epoch 42/)
     expect(o.session.current().epoch).toBe(42)
+  })
+
+  it('checks the rule hash when the application holds it, and accepts the quorum-signed one when it does not', async () => {
+    const clock = () => T0 + 1
+    // Without a rule hash (a reader that holds no rule): the grant is accepted on its signatures and draw.
+    const noRule = {...transportFor(vi.fn() as unknown as typeof fetch), trust: async (slot: `0x${string}`) => { const {ruleHash: _held, ...rest} = await trust(slot); return rest }}
+    const o = await opened({clock, extra: {transport: noRule}})
+    expect((await o.session.verifiedFor(slotA)).verifiedSigners.length).toBeGreaterThanOrEqual(2)
+    // With a rule hash that is not the grant's (the owner changed the rule, or the grant names another): refused.
+    const otherRule = {...transportFor(vi.fn() as unknown as typeof fetch), trust: async (slot: `0x${string}`) => ({...await trust(slot), ruleHash: new Uint8Array(32).fill(0x11)})}
+    await expect(opened({clock, extra: {transport: otherRule}})).rejects.toMatchObject({code: 'rule-mismatch'})
   })
 
   it('refuses a grant drawn on a seed that is not the beacon seed of its epoch (C8 review F4)', async () => {
@@ -350,17 +361,28 @@ describe('session grant chain pin and agent transport (ADR-0090 D7, review 2026-
     await expect(loadGrantedSession({store: o.store, key: o.key, transport: transportFor(fetchImpl), clock}, id)).resolves.toBeDefined()
   })
 
-  it('sends refresh and revoke through the paid agent policy: POST with a body, never a bearer', () => {
+  it('sends refresh and revoke through the session control policy: POST with a body, never a bearer, no other route', () => {
     const body = new TextEncoder().encode('{}')
     for (const path of ['/v1/sessions/refresh', '/v1/sessions/revoke']) {
-      const shape = serviceRequestShape('paid-agent', 'https://agent.test' + path, {body, maxBytes: 65_536, method: 'POST'})
+      const shape = serviceRequestShape('session-control', 'https://agent.test' + path, {body, maxBytes: 65_536})
       expect(shape.method).toBe('POST')
       expect(shape.headers).not.toHaveProperty('authorization')
-      expect(() => serviceRequestShape('paid-agent', 'https://agent.test' + path, {body, maxBytes: 65_536, method: 'POST', bearer: 'ab'.repeat(32)})).toThrow(/owner bearer/)
-      expect(() => serviceRequestShape('paid-agent', 'https://agent.test' + path, {maxBytes: 65_536, method: 'POST'})).toThrow(/owner bearer/)
-      expect(() => serviceRequestShape('paid-agent', 'https://agent.test' + path, {maxBytes: 65_536, method: 'GET'})).toThrow(/owner bearer/)
+      expect(() => serviceRequestShape('session-control', 'https://agent.test' + path, {body, maxBytes: 65_536, bearer: 'ab'.repeat(32)})).toThrow(/session control/)
+      expect(() => serviceRequestShape('session-control', 'https://agent.test' + path, {maxBytes: 65_536})).toThrow(/session control/)
+      expect(() => serviceRequestShape('session-control', 'http://agent.test' + path, {body, maxBytes: 65_536})).toThrow()
+      expect(() => serviceRequestShape('session-control', 'https://agent.test' + path, {body, maxBytes: 65_537})).toThrow(/bounds/)
     }
-    expect(() => serviceRequestShape('paid-agent', 'https://agent.test/v1/sessions/continue', {body, maxBytes: 65_536, method: 'POST'})).toThrow()
+    // Only the two control routes: not creation, polling or any retired owner route.
+    for (const path of ['/v1/sessions', '/v1/sessions/continue', '/v1/sessions/' + 'ab'.repeat(32), '/v1/sessions/' + 'ab'.repeat(32) + '/execution/approve', '/v1/prepaid/execution']) {
+      expect(() => serviceRequestShape('session-control', 'https://agent.test' + path, {body, maxBytes: 65_536})).toThrow(/session control/)
+    }
+    const shape = serviceRequestShape('session-control', 'https://agent.test/v1/sessions/refresh', {body, maxBytes: 65_536})
+    expect(acceptsServiceResponse('session-control', shape, true, 204, '')).toBe(true)
+    expect(acceptsServiceResponse('session-control', shape, true, 503, 'text/plain')).toBe(true)
+    expect(acceptsServiceResponse('session-control', shape, true, 200, 'text/html')).toBe(false)
+    expect(acceptsServiceResponse('session-control', shape, true, 302, 'application/json')).toBe(false)
+    // The retired mode names are not modes any more.
+    expect(() => serviceRequestShape('paid-agent' as 'session-control', 'https://agent.test/v1/sessions/refresh', {body, maxBytes: 65_536})).toThrow()
   })
 
   it('retries 503 session_revoke_partial with a fresh seq until the agent answers 204', async () => {

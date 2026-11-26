@@ -1,4 +1,4 @@
-// The chain ID behind a client, asked once per client instead of before every paid read.
+// The chain ID behind a client, asked once per client instead of before every read.
 //
 // An HTTP or WebSocket transport is bound to one RPC URL for the client's lifetime, and the chain
 // behind it does not change under that client, so its answer is kept with the client (a WeakMap:

@@ -56,19 +56,6 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "function",
-    "name": "aggQuorum",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "auditSlashResolved",
     "inputs": [
       {
@@ -104,35 +91,6 @@ export const accountantSlashingAbi = [
         "name": "slotId",
         "type": "bytes32",
         "internalType": "bytes32"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "batchDigest",
-    "inputs": [
-      {
-        "name": "operators",
-        "type": "address[]",
-        "internalType": "address[]"
-      },
-      {
-        "name": "epoch",
-        "type": "uint64",
-        "internalType": "uint64"
       },
       {
         "name": "deadline",
@@ -221,6 +179,40 @@ export const accountantSlashingAbi = [
         "name": "",
         "type": "uint64",
         "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "challengedBatchDigest",
+    "inputs": [
+      {
+        "name": "operators",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "deadline",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "challengesRoot",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"
@@ -332,7 +324,7 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "function",
-    "name": "contestFalseSlash",
+    "name": "contestFalseSlashChallenged",
     "inputs": [
       {
         "name": "node",
@@ -345,12 +337,22 @@ export const accountantSlashingAbi = [
         "internalType": "uint64"
       },
       {
+        "name": "challengesRoot",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "slashedOperators",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
         "name": "refund",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "attestors",
+        "name": "refuted",
         "type": "address[]",
         "internalType": "address[]"
       },
@@ -501,12 +503,12 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "function",
-    "name": "evictDownNodeBatchAgg",
+    "name": "falseSlashChallengedVerdictDigest",
     "inputs": [
       {
-        "name": "operators",
-        "type": "address[]",
-        "internalType": "address[]"
+        "name": "node",
+        "type": "address",
+        "internalType": "address"
       },
       {
         "name": "epoch",
@@ -514,28 +516,29 @@ export const accountantSlashingAbi = [
         "internalType": "uint64"
       },
       {
-        "name": "deadline",
-        "type": "uint64",
-        "internalType": "uint64"
+        "name": "challengesRoot",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
-        "name": "signers",
+        "name": "refund",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "refuted",
         "type": "address[]",
         "internalType": "address[]"
-      },
-      {
-        "name": "pubkeys",
-        "type": "bytes[]",
-        "internalType": "bytes[]"
-      },
-      {
-        "name": "sig",
-        "type": "bytes",
-        "internalType": "bytes"
       }
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -552,40 +555,6 @@ export const accountantSlashingAbi = [
         "name": "",
         "type": "bool",
         "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "falseSlashVerdictDigest",
-    "inputs": [
-      {
-        "name": "node",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "epoch",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "refund",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "attestors",
-        "type": "address[]",
-        "internalType": "address[]"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"
@@ -689,6 +658,25 @@ export const accountantSlashingAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract ILivenessRegistry"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "misIssuancePunished",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -902,7 +890,7 @@ export const accountantSlashingAbi = [
     "name": "renounceOwnership",
     "inputs": [],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -922,19 +910,6 @@ export const accountantSlashingAbi = [
         "name": "sig",
         "type": "bytes",
         "internalType": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setAggQuorum",
-    "inputs": [
-      {
-        "name": "next",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -1083,22 +1058,12 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "function",
-    "name": "slashDigest",
+    "name": "slashChallengeCommit",
     "inputs": [
       {
-        "name": "operator",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "epoch",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "internalType": "uint64"
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [
@@ -1112,35 +1077,7 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "function",
-    "name": "slashMissedHeartbeat",
-    "inputs": [
-      {
-        "name": "operator",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "epoch",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "sig",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "slashMissedHeartbeatBatch",
+    "name": "slashMissedHeartbeatBatchChallenged",
     "inputs": [
       {
         "name": "operators",
@@ -1158,42 +1095,9 @@ export const accountantSlashingAbi = [
         "internalType": "uint64"
       },
       {
-        "name": "sig",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "slashMissedHeartbeatBatchAgg",
-    "inputs": [
-      {
-        "name": "operators",
-        "type": "address[]",
-        "internalType": "address[]"
-      },
-      {
-        "name": "epoch",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "signers",
-        "type": "address[]",
-        "internalType": "address[]"
-      },
-      {
-        "name": "pubkeys",
-        "type": "bytes[]",
-        "internalType": "bytes[]"
+        "name": "challengesRoot",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "sig",
@@ -1548,25 +1452,6 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "event",
-    "name": "AggQuorumChanged",
-    "inputs": [
-      {
-        "name": "previous",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "next",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "BatchEvicted",
     "inputs": [
       {
@@ -1780,7 +1665,7 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "event",
-    "name": "FalseSlashReversed",
+    "name": "FalseSlashRefunded",
     "inputs": [
       {
         "name": "node",
@@ -1795,19 +1680,19 @@ export const accountantSlashingAbi = [
         "internalType": "uint64"
       },
       {
+        "name": "challengesRoot",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
         "name": "refund",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "attestorsSlashed",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "takenFromAttestors",
+        "name": "refuted",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -2074,6 +1959,37 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "event",
+    "name": "SlashChallengesCommitted",
+    "inputs": [
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "challengesRoot",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "commit",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "slashed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "TranscriptWithheldSlashed",
     "inputs": [
       {
@@ -2270,17 +2186,7 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "error",
-    "name": "BadAggregate",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "BadProof",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "BadPubkeyLength",
     "inputs": []
   },
   {
@@ -2311,6 +2217,28 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "error",
+    "name": "ChallengeCommitMismatch",
+    "inputs": [
+      {
+        "name": "challengesRoot",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ChallengesRootReused",
+    "inputs": [
+      {
+        "name": "challengesRoot",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CommitTooFresh",
     "inputs": []
   },
@@ -2333,11 +2261,6 @@ export const accountantSlashingAbi = [
   {
     "type": "error",
     "name": "EmptyBatch",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "EmptyKeySet",
     "inputs": []
   },
   {
@@ -2421,34 +2344,24 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "error",
-    "name": "KeyCountMismatch",
-    "inputs": [
-      {
-        "name": "signers",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "pubkeys",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "LivenessUnset",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "ModExpFailed",
     "inputs": []
   },
   {
     "type": "error",
     "name": "NoAttestors",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoChallengeCommitment",
+    "inputs": [
+      {
+        "name": "challengesRoot",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2459,6 +2372,17 @@ export const accountantSlashingAbi = [
     "type": "error",
     "name": "NotExpired",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotInBatch",
+    "inputs": [
+      {
+        "name": "node",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2537,19 +2461,8 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "error",
-    "name": "QuorumNotMet",
-    "inputs": [
-      {
-        "name": "supplied",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "required",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
+    "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
   },
   {
     "type": "error",
@@ -2580,44 +2493,6 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "error",
-    "name": "SignerKeyMismatch",
-    "inputs": [
-      {
-        "name": "signer",
-        "type": "address",
-        "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "SignerNoBlsKey",
-    "inputs": [
-      {
-        "name": "signer",
-        "type": "address",
-        "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "SignerNotEligible",
-    "inputs": [
-      {
-        "name": "signer",
-        "type": "address",
-        "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "SignersNotSorted",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "StaleEpoch",
     "inputs": [
       {
@@ -2631,6 +2506,11 @@ export const accountantSlashingAbi = [
         "internalType": "uint64"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "SubjectAlreadyPunished",
+    "inputs": []
   },
   {
     "type": "error",
@@ -2660,12 +2540,28 @@ export const accountantSlashingAbi = [
   },
   {
     "type": "error",
+    "name": "UnsortedAttestors",
+    "inputs": [
+      {
+        "name": "index",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "VerdictWindowClosed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ZeroAddress",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "ZeroQuorum",
+    "name": "ZeroChallengesRoot",
     "inputs": []
   }
 ] as const

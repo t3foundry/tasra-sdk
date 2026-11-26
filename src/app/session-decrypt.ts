@@ -1,125 +1,80 @@
-// ADR-0090 D7–D9 one message under a session grant, end to end: pay on the grant's draw, decrypt
-// through the keepers, and survive a beacon-epoch boundary.
+// ADR-0090 D7 messages under a session grant, end to end: decrypt through the keepers and survive
+// a beacon-epoch boundary. Nothing is paid: the grant and the session-key proof authorize each
+// message, and the keepers meter the work.
 //
 // Keepers admit a grant only while its epoch is the beacon's latest or previous, and the agent
 // continues a session exactly ONE epoch per refresh. So a grant must follow the beacon: the
-// session refreshes in the background as soon as a CHAIN observation (this payment's discovery,
-// the beacon poll, a fresh read a keeper refusal triggers) shows the beacon past the grant's
-// epoch; a keeper's own claim about the beacon is never taken as one. The held grant
-// stays admissible for the whole next epoch. A message that still crosses the boundary (its grant
-// two epochs behind by the time the keepers judge it) is refused by every keeper BEFORE any item
-// runs; then, and only when a fresh chain read confirms the grant really left the window, this
-// helper waits for the refreshed grant, pays the message again on its draw and sends it once more.
-//
-// What the first payment costs: its debit stays in the cumulative allowance voucher (it uses
-// allowance headroom until settled) and, unexecuted, is refunded (paid = 0, prepaidRefunded =
-// cost) when the settlement worker settles it after the payment's expiry; that close is blocked
-// while an operator named on that debit is unreachable. The residual risk is bounded: a keeper can
-// compute its partial yet answer "stale" (and later report the execution it approved), so a
-// message may pay at most TWO debits, and only when every other keeper also refused before
-// execution AND the chain independently shows the grant two epochs behind, i.e. the retry was due.
+// session refreshes in the background as soon as a CHAIN observation (the beacon poll, a fresh
+// read a keeper refusal triggers) shows the beacon past the grant's epoch; a keeper's own claim
+// about the beacon is never taken as one. The held grant stays admissible for the whole next
+// epoch. A message that still crosses the boundary (its grant two epochs behind by the time the
+// keepers judge it) is refused by every keeper BEFORE any item runs; then, and only when a fresh
+// chain read confirms the grant really left the window, this helper waits for the refreshed grant
+// and sends the message once more.
 //
 // A session that ENDS under a message (a definite refusal such as `session_context_changed`, the
 // beacon two epochs past the grant, idle/absolute expiry) is re-opened ONCE for that message when
-// the caller supplies `reopen` (a fresh presentation is the caller's: only it holds the wallet).
-// The re-open never resends a paid write. Its presentation IS a paid KEM decrypt, so it must
-// decrypt THIS message: it returns the decrypt shares it opened, and this helper verifies them
-// against this message's ciphertext and the keepers' authenticated verifying shares and combines
-// them itself (the AEAD open under this message's identity), so a plaintext of any other message
-// can never be returned for this one. The message is then served; nothing more is paid. Its
-// payment counts among the message's debits (and its ids in `requestIds`): an end before the message paid costs
-// that one debit; an end after a confirmed-stale refusal is that refusal's one retry. The bound is
-// enforced: no payment and no re-open is started once the message holds MAX_MESSAGE_DEBITS (2).
-//
-// Concurrent messages of one ended session share ONE re-open: the first calls `reopen` (serving
-// its own message), the others wait for it and continue on its new session, each paying its own
-// message there as usual; when that presentation opened no grant they re-open in turn.
+// the caller supplies `reopen` (a fresh presentation is the caller's: only it holds the wallet);
+// the message is then sent under the new session's grant. Concurrent messages of one ended
+// session share ONE re-open: the first calls `reopen`, the others wait for it and continue on its
+// new session.
 
 import type {Hex} from 'viem'
 import {TasraError} from '../errors.js'
-import {PaidDrawMovedError, readCurrentBeaconEpoch} from '../chain/prepaid.js'
-import {PaidReservationStaleEpochError} from '../chain/reservation.js'
-import type {DecryptionBindingWire} from '../crypto/recipient.js'
-import type {KeeperExecutionApprover} from '../committee/keeperExecution.js'
-import {combineDecryptShares, decodeKemU, verifyDecryptSharesBatch, type DecryptShare} from '../crypto/kem.js'
+import {MAX_BATCH_ITEMS} from '../committee/session-grant.js'
 import {decryptWithSessionGrant, type SessionDecryptItem, type SessionDecryptOptions, type SessionDecryptResult,
   type SessionVerifierProofWire} from '../decryption/session.js'
-import {NewerVerifierEpoch, paidSessionDecrypt, type PaidOperationConfig, type PaidSessionDecrypt} from './paid-operation.js'
 import {SessionEndedError, type GrantedSession} from './session-grants.js'
 
-/** One message to decrypt under a session. */
-export interface SessionMessageRequest {
-  /** Paid operation configuration (the slot creator pays each message). */
-  config: PaidOperationConfig
+/** What every message of a session shares: the session, its slot's keepers and the chain reads. */
+export interface SessionDecryptContext {
   /** The accepted session ({@link GrantedSession}); call its `start()` so it follows the beacon. */
   session: GrantedSession
   /**
-   * Open a NEW session when `session` ended before this message was served (`SessionEndedError`):
-   * ONE fresh presentation (a paid KEM decrypt in session mode) of exactly `message` (its
-   * `decryption` binding and recipient), accepted and started. Return the decrypt shares it opened
-   * and its payment's request id ({@link SessionReopened}); the message is served from them, never
-   * paid again. It may pay at most `budget.debits` (1 when the message already paid once); a
-   * reply naming more, or none, is refused. Called at most once per message, and once per ended
-   * session across concurrent messages (the others continue on its new session); without it the
-   * end is thrown.
+   * Open a NEW session when `session` ended before a message was served (`SessionEndedError`): ONE
+   * fresh presentation in session mode, accepted and started. The message is then sent under its
+   * grant. Called at most once per message, and once per ended session across concurrent messages
+   * (the others continue on its new session); without it the end is thrown.
    */
-  reopen?(ended: SessionEndedError, message: SessionMessageRequest['message'], budget: {debits: number}): Promise<SessionReopened>
+  reopen?(ended: SessionEndedError): Promise<GrantedSession>
   /** KEM slot the grant names. */
   slot: Hex
   /** The keepers and their shares: everything {@link decryptWithSessionGrant} takes but the grant, key and proofs. */
   keepers: Omit<SessionDecryptOptions, 'grant' | 'verified' | 'key' | 'slotId' | 'verifierProofs' | 'signal'>
   /** The anchored membership witnesses of the grant's draw at `epoch` (every production keeper requires them). */
   verifierProofs?(slot: Hex, epoch: bigint): Promise<SessionVerifierProofWire[] | undefined>
-  /** The ciphertext, its recipient and its binding ({@link decryptionBinding}). */
-  message: Omit<SessionDecryptItem, 'payment' | 'approveExecution' | 'recover'> & {decryption: DecryptionBindingWire}
   /**
-   * The beacon's latest epoch, read FRESH from the chain for each decision (default
-   * `readCurrentBeaconEpoch` on `config.chain.client` and `config.deployment`, at an RPC `latest`
-   * head of its own, never a followed tip that may lag the keepers' head). A keeper's refusal
-   * text never sets the session's beacon: it only triggers this read.
+   * The beacon's latest epoch, read FRESH from the chain for each decision (`readCurrentBeaconEpoch`
+   * with `{fresh: true}`: an RPC `latest` head of its own, never a followed tip that may lag the
+   * keepers' head). A keeper's refusal text never sets the session's beacon: it only triggers this
+   * read. Without it a keeper's "stale" is never confirmed, so it is thrown, not retried.
    */
   latestBeaconEpoch?(): Promise<bigint>
-  /** Payment lifetime, seconds. */
-  ttlSecs?: number
-  /** Aborts the payment and the keeper requests. */
+  /** Aborts the keeper requests. */
   signal?: AbortSignal
   /** Observers (timing, accounting); a throw from one is the caller's own. */
   hooks?: {
-    onRequestId?(requestId: Hex): void | Promise<void>
-    onPaid?(paid: PaidSessionDecrypt): void
-    onApproval?(): void
-    /**
-     * The message is paid and sent again on a refreshed grant (`reason`: `draw-moved`, `stale`,
-     * `reservation-stale` or `newer-verifier-epoch`).
-     */
-    onRetry?(reason: 'draw-moved' | 'stale' | 'reservation-stale' | 'newer-verifier-epoch'): void
+    /** The message is sent again on a refreshed grant (`reason`: `stale`). */
+    onRetry?(reason: 'stale'): void
     /** The session ended under this message and `reopen` is called (`code`: the end's). */
     onReopen?(code: string): void
   }
 }
 
-/** A re-open: its presentation decrypted the message in flight. */
-export interface SessionReopened {
-  /**
-   * The presentation's decrypt shares for THIS message (D_i = sk_i·U of `message.ciphertext`, as
-   * opened from the keepers' sealed partials, e.g. `collectSealedPartials`). Verified here against
-   * this ciphertext and `keepers.verifyingShares`, combined against this ciphertext and identity
-   * (AEAD), and zeroed after use: shares of any other message yield no plaintext.
-   */
-  shares: DecryptShare[]
-  /** The presentation's payment request ids (normally one): counted in {@link SessionMessageResult.requestIds}. */
-  requestIds: Hex[]
-  /** The new session, absent when the presentation opened no grant. */
-  session?: GrantedSession
+/** One message to decrypt under a session. */
+export interface SessionMessageRequest extends SessionDecryptContext {
+  /** The ciphertext, its identity, epoch and a fresh client recipient. */
+  message: SessionDecryptItem
 }
 
-/** A message pays at most this many debits, a re-open's presentation included. */
-export const MAX_MESSAGE_DEBITS = 2
-
-const HEX32 = /^0x[0-9a-fA-F]{64}$/
+/** Up to 64 messages of one slot, decrypted in one request per keeper. */
+export interface SessionBatchRequest extends SessionDecryptContext {
+  /** The ciphertexts, each with its own fresh client recipient. */
+  messages: SessionDecryptItem[]
+}
 
 /** The running re-open of an ended session, shared by every message that finds it ended. */
-const reopening = new WeakMap<GrantedSession, Promise<SessionReopened>>()
+const reopening = new WeakMap<GrantedSession, Promise<GrantedSession>>()
 /** An ended session's re-opened successor: later messages of the ended session continue there. */
 const successors = new WeakMap<GrantedSession, GrantedSession>()
 
@@ -127,22 +82,20 @@ const successors = new WeakMap<GrantedSession, GrantedSession>()
 export interface SessionMessageResult {
   /** The decrypted message bytes. */
   plaintext: Uint8Array
-  /**
-   * Every payment request id this message made, in order, a re-open's presentation included. At most
-   * {@link MAX_MESSAGE_DEBITS} of them are debits: an allowance debit the accountant refused before
-   * the per-operation fallback names an id too, but debits nothing, as does a reservation refused
-   * before it was sent because the verifier epoch moved on (`NewerVerifierEpoch`).
-   */
-  requestIds: Hex[]
-  /** The epoch of the grant that served it (after a presenting re-open: the new grant's, 0 without one). */
+  /** The epoch of the grant that served it. */
   grantEpoch: bigint
-  /**
-   * The session for the next messages: `request.session`, or the one `reopen` returned; absent
-   * when the re-open's presentation served the message but opened no grant (open one again).
-   */
-  session?: GrantedSession
-  /** The message was decrypted by the re-open's presentation, not under a grant. */
-  presented?: true
+  /** The session for the next messages: `request.session`, or the one `reopen` returned. */
+  session: GrantedSession
+}
+
+/** The outcome of a batch: one result per message, in order. */
+export interface SessionBatchResult {
+  /** Per message: the plaintext, or the keepers' refusal. */
+  results: SessionDecryptResult[]
+  /** The epoch of the grant that served it. */
+  grantEpoch: bigint
+  /** The session for the next messages: `request.session`, or the one `reopen` returned. */
+  session: GrantedSession
 }
 
 /** A message the keepers refused (after the one retry a stale grant earns). */
@@ -150,55 +103,24 @@ export class SessionMessageError extends TasraError {
   constructor(
     /** The keepers' refusal. */
     readonly result: Extract<SessionDecryptResult, {ok: false}>,
-    /** Every payment request id this message made, in order. */
-    readonly requestIds: Hex[],
   ) {
     super(`session item refused: ${result.error}`)
     this.name = 'SessionMessageError'
   }
   /** The first keeper code, for classification. */
   get code(): string { return this.result.codes[0] ?? 'session-item' }
+  /**
+   * True when a keeper refused the message because the slot's Settlement balance does not cover
+   * its unsettled metered work (HTTP 402): the slot's owner must fund the slot.
+   */
+  get slotBalance(): boolean { return this.result.refusals.some(r => r.status === 402) }
 }
 
-/** The epoch of a re-opened session's grant (0 when there is none, or it already ended). */
-function openedEpoch(session: GrantedSession | undefined): bigint {
-  try { return session ? BigInt(session.current().epoch) : 0n } catch { return 0n }
-}
-
-/**
- * The plaintext of THIS message from a re-open's decrypt shares: each share's verifying share is the
- * keeper's authenticated one, each share verifies against this ciphertext's U, and the first
- * `threshold` valid ones are combined against this ciphertext and identity (the AEAD open). The
- * shares are zeroed whatever the outcome.
- */
-async function combineReopened(request: SessionMessageRequest, shares: DecryptShare[]): Promise<Uint8Array> {
-  const {ciphertext, identity} = request.message, {threshold, verifyingShares} = request.keepers
+/** The chain's beacon epoch now, or undefined when the read fails or none is configured (never cached across decisions). */
+async function chainBeacon(context: SessionDecryptContext): Promise<bigint | undefined> {
+  if (!context.latestBeaconEpoch) return undefined
   try {
-    if (!Array.isArray(shares)) throw new TasraError('Session re-open answered no decrypt shares')
-    const seen = new Set<number>()
-    const candidates: DecryptShare[] = []
-    for (const share of shares) {
-      const vs = share && verifyingShares.get(share.id)
-      // One share per authenticated keeper; the supplied verifying share is never trusted.
-      if (!vs || seen.has(share.id) || !(share.decryptionShare instanceof Uint8Array)) continue
-      seen.add(share.id)
-      candidates.push({id: share.id, decryptionShare: share.decryptionShare, verifyingShare: vs})
-    }
-    const verdict = verifyDecryptSharesBatch(candidates, decodeKemU(ciphertext.u))
-    const valid = candidates.filter((_, i) => verdict[i]).slice(0, threshold)
-    if (valid.length < threshold) throw new TasraError(`Session re-open shares do not decrypt this message (${valid.length}/${threshold} valid)`)
-    const combine = request.keepers.combine ?? ((s: DecryptShare[], ct: typeof ciphertext, id: Uint8Array) => combineDecryptShares(s, ct, id, {verify: false}))
-    try { return await combine(valid, ciphertext, identity) }
-    catch (cause) { throw new TasraError('Session re-open shares do not decrypt this message (AEAD)', {cause}) }
-  } finally {
-    if (Array.isArray(shares)) for (const share of shares) if (share?.decryptionShare instanceof Uint8Array) share.decryptionShare.fill(0)
-  }
-}
-
-/** The chain's beacon epoch now, or undefined when the read fails (never cached across decisions). */
-async function chainBeacon(request: SessionMessageRequest): Promise<bigint | undefined> {
-  try {
-    const epoch = await (request.latestBeaconEpoch ? request.latestBeaconEpoch() : readCurrentBeaconEpoch(request.config.chain.client, {...request.config.deployment}, {fresh: true}))
+    const epoch = await context.latestBeaconEpoch()
     return typeof epoch === 'bigint' && epoch >= 0n ? epoch : undefined
   } catch { return undefined }
 }
@@ -222,33 +144,33 @@ async function settle(session: GrantedSession): Promise<void> {
   }
 }
 
-/**
- * Decrypt one message under a session grant: pay it on the grant's draw ({@link paidSessionDecrypt}),
- * send it to the keepers ({@link decryptWithSessionGrant}), combine. A beacon move the payment's
- * discovery observes starts the grant's background refresh. A message whose grant the beacon has
- * already left is re-paid ONCE on the refreshed grant before anything is signed
- * (`PaidDrawMovedError`), or, refused by the keepers as stale with no keeper having run it
- * (`SessionDecryptResult.stale`), re-paid and re-sent ONCE, and only when a fresh chain read
- * ({@link SessionMessageRequest.latestBeaconEpoch}) confirms it: the beacon's latest epoch is past
- * the grant's epoch + 1 (so the draw moved and no keeper may admit it). When the chain still says
- * the grant is admissible, or cannot be read, the keepers' "stale" is unconfirmed and the refusal
- * is thrown: nothing is paid again. A grant-expiry claim is never confirmed this way (the session
- * checks `exp` itself before sending). Residual bound: at most two debits per message, the first
- * refunded unexecuted at settlement unless a keeper lied about not running it (module comment).
- * Every other refusal throws {@link SessionMessageError}; a session that cannot continue throws
- * `SessionEndedError` (present again). A session that ended is re-opened through `reopen`
- * (module comment): its presentation serves this message, single-flight per ended session.
- * @param request - Message, session, slot and payment configuration.
- */
-export async function decryptInSession(request: SessionMessageRequest): Promise<SessionMessageResult> {
-  const {slot, hooks} = request
-  let session = request.session
-  const requestIds: Hex[] = []
-  let retried = false
-  /** A reservation refused before it was sent (`NewerVerifierEpoch`) was already paid again once. */
-  let epochRetried = false
-  /** Debits this message started: each payment, a stale-refused reservation (its intent may land), the re-open's presentation. */
-  let debits = 0
+/** The session a message continues on after `session` ended: a successor, a running re-open's, or a re-open of its own. */
+async function continueAfterEnd(context: SessionDecryptContext, session: GrantedSession, ended: SessionEndedError, reopened: boolean): Promise<{session: GrantedSession; opened: boolean}> {
+  // Another message already re-opened it: continue on its session.
+  const after = successors.get(session)
+  if (after) return {session: after, opened: false}
+  // Another message is re-opening it now: wait for its session (one presentation per end).
+  const running = reopening.get(session)
+  if (running) {
+    try { return {session: await running, opened: false} } catch { throw ended }
+  }
+  // At most once per message.
+  if (!context.reopen || reopened) throw ended
+  context.hooks?.onReopen?.(ended.code)
+  const flight = context.reopen(ended).then(next => {
+    if (!next || typeof next.current !== 'function') throw new TasraError('Session re-open returned no session')
+    successors.set(session, next)
+    return next
+  })
+  reopening.set(session, flight)
+  try { return {session: await flight, opened: true} } finally { if (reopening.get(session) === flight) reopening.delete(session) }
+}
+
+async function run(context: SessionDecryptContext, items: SessionDecryptItem[]): Promise<SessionBatchResult> {
+  const {slot, hooks} = context
+  if (items.length === 0 || items.length > MAX_BATCH_ITEMS) throw new TasraError(`A session request carries 1..${MAX_BATCH_ITEMS} messages`)
+  let session = context.session
+  let retried = false, reopened = false
   for (;;) {
     let grant: ReturnType<GrantedSession['current']>, verified: Awaited<ReturnType<GrantedSession['verifiedFor']>>
     try {
@@ -256,120 +178,67 @@ export async function decryptInSession(request: SessionMessageRequest): Promise<
       grant = session.current()
       verified = await session.verifiedFor(slot)
     } catch (error) {
-      // The session ended (nothing of this attempt is paid yet).
+      // The session ended (nothing of this attempt was sent).
       if (!(error instanceof SessionEndedError)) throw error
-      // Another message already re-opened it: continue on its session, paying as usual.
-      const after = successors.get(session)
-      if (after) { session = after; continue }
-      // Another message is re-opening it now: wait for its session (one presentation per end).
-      const running = reopening.get(session)
-      if (running) {
-        try { await running } catch { throw error }
-        const opened = successors.get(session)
-        if (opened) { session = opened; continue }
-        // That presentation opened no grant: this message re-opens in turn (below).
-      }
-      // At most once per message: the re-open below always serves the message (or throws).
-      if (!request.reopen || debits >= MAX_MESSAGE_DEBITS) throw error
-      hooks?.onReopen?.(error.code)
-      const ended = session, budget = MAX_MESSAGE_DEBITS - debits
-      const flight = request.reopen(error, request.message, {debits: budget}).then(next => {
-        if (next?.session) successors.set(ended, next.session)
-        return next
-      })
-      reopening.set(ended, flight)
-      let next: SessionReopened
-      try { next = await flight } finally { if (reopening.get(ended) === flight) reopening.delete(ended) }
-      const ids = next?.requestIds
-      if (!Array.isArray(ids) || ids.length < 1 || ids.length > budget || ids.some(id => typeof id !== 'string' || !HEX32.test(id))) {
-        if (Array.isArray(next?.shares)) for (const share of next.shares) share?.decryptionShare?.fill?.(0)
-        throw new TasraError(`Session re-open must name its presentation's payment (1..${budget} request ids)`)
-      }
-      requestIds.push(...ids)
-      // The opening presentation decrypted this message: served from its shares; nothing more is paid.
-      const plaintext = await combineReopened(request, next.shares)
-      return {plaintext, requestIds, grantEpoch: openedEpoch(next.session), ...next.session ? {session: next.session} : {}, presented: true}
+      const next = await continueAfterEnd(context, session, error, reopened)
+      reopened = reopened || next.opened
+      session = next.session
+      continue
     }
-    const proofs = request.verifierProofs ? await request.verifierProofs(slot, BigInt(grant.epoch)) : undefined
-    // The two-debit bound, enforced (a re-open's presentation counts).
-    if (debits >= MAX_MESSAGE_DEBITS) throw new TasraError(`Session message already started ${debits} debits; not paying again`)
-    let paid: PaidSessionDecrypt
-    try {
-      paid = await paidSessionDecrypt(request.config, {slot, decryption: request.message.decryption, grant: {epoch: grant.epoch, seed: grant.seed},
-        ...request.ttlSecs !== undefined ? {ttlSecs: request.ttlSecs} : {}, ...request.signal ? {signal: request.signal} : {},
-        onBeaconEpoch: epoch => session.observeBeacon(epoch),
-        onRequestId: async id => { requestIds.push(id); await hooks?.onRequestId?.(id) }})
-      debits++
-    } catch (error) {
-      // The grant left the window before anything was signed or paid: refresh and pay once more.
-      if (error instanceof PaidDrawMovedError && !retried) {
-        session.observeBeacon(error.beaconEpoch)
+    const proofs = context.verifierProofs ? await context.verifierProofs(slot, BigInt(grant.epoch)) : undefined
+    const results = await decryptWithSessionGrant({...context.keepers, slotId: slot, grant, verified, key: session.key,
+      ...proofs ? {verifierProofs: proofs} : {}, ...context.signal ? {signal: context.signal} : {}}, items)
+    if (results.length !== items.length) throw new TasraError('Session keepers did not answer every message')
+    const refused = results.filter((r): r is Extract<SessionDecryptResult, {ok: false}> => !r.ok)
+    if (refused.length > 0 && refused.every(r => r.stale) && !retried) {
+      // Every keeper refused the grant as no longer current before running anything. Their text
+      // (any "beacon latest N") is the keepers' claim, never fed into the session: it only
+      // triggers a fresh chain read, and the chain's epoch is what the session follows. Send again
+      // only when the chain CONFIRMS staleness; an unreadable chain confirms nothing.
+      const latest = await chainBeacon(context)
+      // The chain's epoch is a fair observation either way (a move past the grant starts its follow).
+      if (latest !== undefined) session.observeBeacon(latest)
+      if (latest !== undefined && latest > BigInt(grant.epoch) + 1n) {
         retried = true
-        hooks?.onRetry?.('draw-moved')
-        continue
+        hooks?.onRetry?.('stale')
+        // The whole request is sent again only when no message of it was served; otherwise the
+        // served ones are returned and the caller re-sends the refused ones.
+        if (refused.length === results.length) continue
       }
-      // The reservation waited for its payer until the grant's epoch was two behind the beacon and
-      // was refused BEFORE anything was sent: no reservation was prepared, persisted or broadcast,
-      // and its journal is `failed` (never resumed). It debited nothing, so it does not count as a
-      // debit; it is paid again once, on the refreshed grant (the epoch it carries is this
-      // process's own chain read, which starts the follow), and only while the message is under
-      // its debit bound. A second one is thrown.
-      if (error instanceof NewerVerifierEpoch && error.code === 'newer-verifier-epoch' && !epochRetried && debits < MAX_MESSAGE_DEBITS) {
-        session.observeBeacon(error.beaconEpoch)
-        epochRetried = true
-        hooks?.onRetry?.('newer-verifier-epoch')
-        continue
-      }
-      // The accountant refused the reservation's draw as no longer current or previous (it waited
-      // past an epoch tick; nothing was sent). That intent may still land, permissionlessly, until
-      // it expires: it stays journaled and is never re-sent. It cannot execute (keepers execute a
-      // session item only with the payment this helper sends them), so if it lands it is refunded
-      // unexecuted at settlement, like a stale-refused first debit. Pay once more only when a fresh
-      // chain read confirms the grant left the window (which also ends the session, so the retry
-      // runs on a re-opened one): the same two-debit bound.
-      const refused = error as {code?: unknown; cause?: unknown} | undefined
-      if (refused?.code === 'reservation-refused' && refused.cause instanceof PaidReservationStaleEpochError && !retried) {
-        debits++
-        const latest = await chainBeacon(request)
-        if (latest !== undefined) session.observeBeacon(latest)
-        if (latest !== undefined && latest > BigInt(grant.epoch) + 1n) {
-          retried = true
-          hooks?.onRetry?.('reservation-stale')
-          continue
-        }
-      }
-      throw error
     }
-    try {
-      hooks?.onPaid?.(paid)
-      const approveExecution: KeeperExecutionApprover = async approval => {
-        const approved = await paid.approveExecution(approval)
-        hooks?.onApproval?.()
-        return approved
-      }
-      const {decryption: _binding, ...message} = request.message
-      const [result] = await decryptWithSessionGrant({...request.keepers, slotId: slot, grant, verified, key: session.key,
-        ...proofs ? {verifierProofs: proofs} : {}, ...request.signal ? {signal: request.signal} : {}},
-      [{...message, payment: paid.payment, approveExecution}])
-      if (!result) throw new TasraError('Session keepers answered no item')
-      if (result.ok) return {plaintext: result.plaintext, requestIds, grantEpoch: BigInt(grant.epoch), session}
-      if (result.stale && !retried) {
-        // Every keeper refused the grant as no longer current before running anything. Their text
-        // (any "beacon latest N") is the keepers' claim, never fed into the session: it only
-        // triggers a fresh chain read, and the chain's epoch is what the session follows.
-        // Pay again only when the chain CONFIRMS staleness: a keeper that computed its partial and
-        // answered "stale" anyway must not earn a second debit while the grant is still admissible.
-        // An unreadable chain confirms nothing.
-        const latest = await chainBeacon(request)
-        // The chain's epoch is a fair observation either way (a move past the grant starts its follow).
-        if (latest !== undefined) session.observeBeacon(latest)
-        if (latest !== undefined && latest > BigInt(grant.epoch) + 1n) {
-          retried = true
-          hooks?.onRetry?.('stale')
-          continue
-        }
-      }
-      throw new SessionMessageError(result, requestIds)
-    } finally { paid.dispose() }
+    return {results, grantEpoch: BigInt(grant.epoch), session}
   }
+}
+
+/**
+ * Decrypt one message under a session grant: send it to the keepers
+ * ({@link decryptWithSessionGrant}) and combine the sealed partials locally. A message refused by
+ * the keepers as stale with no keeper having run it (`SessionDecryptResult.stale`) is sent again
+ * ONCE on the refreshed grant, and only when a fresh chain read
+ * ({@link SessionDecryptContext.latestBeaconEpoch}) confirms it: the beacon's latest epoch is past
+ * the grant's epoch + 1 (so the draw moved and no keeper may admit it). When the chain still says
+ * the grant is admissible, or cannot be read, the keepers' "stale" is unconfirmed and the refusal
+ * is thrown. Every other refusal throws {@link SessionMessageError}; a session that cannot
+ * continue throws `SessionEndedError` (present again), unless `reopen` opens a new one
+ * (single-flight per ended session), under which the message is then sent.
+ * @param request - Message, session, slot and keepers.
+ */
+export async function decryptInSession(request: SessionMessageRequest): Promise<SessionMessageResult> {
+  const {results, grantEpoch, session} = await run(request, [request.message])
+  const result = results[0]
+  if (!result) throw new TasraError('Session keepers answered no item')
+  if (!result.ok) throw new SessionMessageError(result)
+  return {plaintext: result.plaintext, grantEpoch, session}
+}
+
+/**
+ * Decrypt up to 64 messages of one slot under a session grant in ONE request per keeper (one
+ * session-key proof over the ordered batch). Session handling is {@link decryptInSession}'s: a
+ * batch the keepers refuse entirely as stale is sent again once when the chain confirms it, and
+ * an ended session is re-opened through `reopen`. A message's own refusal never fails the batch:
+ * each message gets its own result.
+ * @param request - Messages, session, slot and keepers.
+ */
+export function decryptBatchInSession(request: SessionBatchRequest): Promise<SessionBatchResult> {
+  return run(request, [...request.messages])
 }

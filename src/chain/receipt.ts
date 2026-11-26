@@ -1,7 +1,7 @@
-// Waiting for the receipt of ONE broadcast transaction on the paid path.
+// Waiting for the receipt of ONE broadcast transaction.
 //
 // viem's waitForTransactionReceipt watches the head on a fixed interval (1 s as configured here
-// before, 4 s by default) and then reads the transaction and its receipt: a reservation landed on a
+// before, 4 s by default) and then reads the transaction and its receipt: a transaction landed on a
 // one-second grid and cost a head read per tick plus a transaction read. This asks for the receipt
 // itself, soon after the broadcast and then less and less often (250 ms growing by half, at most
 // 1 s), so a transaction mined in a few hundred milliseconds is seen then, with fewer requests.

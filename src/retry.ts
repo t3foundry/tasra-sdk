@@ -7,8 +7,8 @@
 //
 // ⚠ It never decides that a request is safe to repeat. Callers wrap only a request that is
 // idempotent, or one whose refusal proves it was not processed (an HTTP 429 capacity refusal,
-// an identical signed relay request whose nonce the chain spends once). A paid flow, a
-// reservation or any other write with an uncertain outcome must be reconciled, never retried.
+// an identical signed relay request whose nonce the chain spends once). A write with an
+// uncertain outcome must be reconciled, never retried.
 
 import {TasraError, TasraHttpError, NodeUnreachableError} from './errors.js'
 import {parseRetryAfter} from './internal/retryAfter.js'

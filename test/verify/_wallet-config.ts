@@ -1,6 +1,6 @@
 // The local orchestrator knows the deployment source tree. Live wallet suites
 // still consume only explicit configuration and the SDK; no external CLI is
-// used for reservations, consent, credentials or key operations.
+// used for credentials or key operations.
 import assert from 'node:assert/strict'
 import {execFileSync} from 'node:child_process'
 import {createHash} from 'node:crypto'
@@ -10,8 +10,7 @@ import {createPublicClient, http, keccak256, toHex, type Hex} from 'viem'
 import {ed25519} from '@noble/curves/ed25519'
 import type {MeteringIdentity} from '../fleet/_metering.ts'
 import {nodeRegistryAbi} from '../../src/chain/abis/nodeRegistry.ts'
-import {paidWalletSettings, readPaidConfigFile} from '../fleet/_paid-wallet.ts'
-import {localPrepaidSettings} from '../fleet/_prepaid-funding.ts'
+import {localFleetSettings, readConfigFile, walletSettings} from '../fleet/_wallet-settings.ts'
 import type {FleetConfig} from '../fleet/_fleet.ts'
 import {resolveFleetScope, scopedContainer} from './_fleet-scope.ts'
 
@@ -67,12 +66,12 @@ export function ownedPublishedPort(value: unknown, root: string, project: string
   return {id: c.Id, port: Number(bindings[0]!.HostPort)}
 }
 
-export async function configurePaidWalletFleet(cfg: FleetConfig, networkRoot: string, sdkRoot: string): Promise<Record<string, string>> {
+export async function configureWalletFleet(cfg: FleetConfig, networkRoot: string, sdkRoot: string): Promise<Record<string, string>> {
   // This function only reads the already deployed fleet. It neither resets a
   // chain nor creates/stops a container or submits an on-chain transaction.
   const scope = resolveFleetScope(networkRoot)
   const outputRoot = resolve(sdkRoot, 'test/verify/out')
-  localPrepaidSettings({...cfg, raw: {...cfg.raw, KK_PREPAID_EVIDENCE_DIR: outputRoot}})
+  localFleetSettings({...cfg, raw: {...cfg.raw, KK_WALLET_EVIDENCE_DIR: outputRoot}})
   const rpc = createPublicClient({transport: http(cfg.rpcUrl, {retryCount: 0, timeout: 15_000, fetchOptions: {redirect: 'error'}})})
   assert.equal(await rpc.getChainId(), 43112, 'SDK configuration RPC must prove the local chain')
   assert(cfg.book.NodeRegistry && cfg.book.ServiceRegistry && cfg.book.KeyRegistry && cfg.book.Settlement)
@@ -108,8 +107,8 @@ export async function configurePaidWalletFleet(cfg: FleetConfig, networkRoot: st
       const internal = node.url.match(new RegExp('^http://keykeeper-' + (role === 'keykeeper' ? 'node' : role) + '-([1-9][0-9]*):' + (role === 'verifier' ? '8081' : '8080') + '/?$'))
       const bridge = node.url.match(new RegExp('^https://keykeeper-cert\\.localhost:([1-9][0-9]*)/' + (role === 'keykeeper' ? 'keeper' : role) + '-([1-9][0-9]*)/?$'))
       assert(internal || bridge, 'Local SDK configuration requires the original owned operator route')
-      // Accountant reservation calls use owned published loopback ports; the
-      // original quote is authenticated by its actual threshold signatures.
+      // Accountant snapshot-artifact reads use owned published loopback ports; every
+      // artifact is verified against the root anchored on chain.
       const mapped = inspect(role, internal?.[1] ?? bridge![2]!, node.url)
       if (role === 'accountant') {
         accountantUrls.push(mapped)
@@ -130,30 +129,27 @@ export async function configurePaidWalletFleet(cfg: FleetConfig, networkRoot: st
   }
   assert.equal((await rpc.getBlock({blockNumber})).hash, block.hash, 'Local SDK policy observation reorganized')
   mkdirSync(outputRoot, {recursive: true, mode: 0o700})
-  const directory = mkdtempSync(join(outputRoot, 'paid-wallet-original-'))
+  const directory = mkdtempSync(join(outputRoot, 'wallet-original-'))
   assert(meteringIdentity, 'Local SDK metering needs an assigned active accountant')
   const meteringFile = join(directory, 'metering-identity.private.json')
   writeFileSync(meteringFile, JSON.stringify(meteringIdentity) + '\n', {flag: 'wx', mode: 0o600})
-  const profileBytes = Buffer.from(readPaidConfigFile(cfg.raw.KK_PREPAID_AGENT_PROFILE ?? join(configs, 'services/verifier-agent/profile.json'), 65_536))
+  const profileBytes = Buffer.from(readConfigFile(cfg.raw.KK_WALLET_AGENT_PROFILE ?? join(configs, 'services/verifier-agent/profile.json'), 65_536))
   assert(profileBytes.length > 0 && profileBytes.length <= 65_536)
   const profileFile = join(directory, 'agent-profile.json'), routeFile = join(directory, 'keeper-routes.json')
   writeFileSync(profileFile, profileBytes, {flag: 'wx', mode: 0o600})
-  const routeBytes = cfg.raw.KK_PREPAID_KEEPER_ROUTE_MAP ? Buffer.from(readPaidConfigFile(cfg.raw.KK_PREPAID_KEEPER_ROUTE_MAP, 65_536)) : Buffer.from(JSON.stringify(routes))
+  const routeBytes = cfg.raw.KK_WALLET_KEEPER_ROUTE_MAP ? Buffer.from(readConfigFile(cfg.raw.KK_WALLET_KEEPER_ROUTE_MAP, 65_536)) : Buffer.from(JSON.stringify(routes))
   assert(routeBytes.length > 0 && routeBytes.length <= 65_536)
   writeFileSync(routeFile, routeBytes, {flag: 'wx', mode: 0o600})
   const env = {TASRA_NODE_URLS: nodeUrls.join(','), TASRA_VERIFIER_URLS: verifierUrls.join(','),
     KK_METERING_IDENTITY_FILE: meteringFile,
     TASRA_EXPLORER_API: `http://127.0.0.1:${8090 + scope.offset}/api`, TASRA_FAUCET: `http://127.0.0.1:${8552 + scope.offset}`,
-    KK_PREPAID_EVIDENCE_DIR: directory, KK_PREPAID_AGENT_PROFILE: profileFile, KK_PREPAID_KEEPER_ROUTE_MAP: routeFile,
-    KK_PREPAID_AGENT_PRIVATE_HOSTS: 'localhost', KK_PREPAID_ACCOUNTANT_URLS: accountantUrls.join(','),
-    KK_PREPAID_VERIFIER_COUNT: String(committee), KK_PREPAID_VERIFIER_QUORUM: String(quorum),
-    KK_PREPAID_SLOT_TASRA_UNITS: cfg.raw.KK_PREPAID_SLOT_TASRA_UNITS ?? '1000000000000000000',
-    KK_PREPAID_MAX_TASRA_UNITS: cfg.raw.KK_PREPAID_MAX_TASRA_UNITS ?? '1000000000000000',
-    KK_PREPAID_MAX_GAS: cfg.raw.KK_PREPAID_MAX_GAS ?? '2000000',
-    KK_PREPAID_MAX_FEE_PER_GAS: cfg.raw.KK_PREPAID_MAX_FEE_PER_GAS ?? '100000000000'}
-  paidWalletSettings({...cfg, raw: {...cfg.raw, ...env}})
+    KK_WALLET_EVIDENCE_DIR: directory, KK_WALLET_AGENT_PROFILE: profileFile, KK_WALLET_KEEPER_ROUTE_MAP: routeFile,
+    KK_WALLET_AGENT_PRIVATE_HOSTS: 'localhost', KK_WALLET_ACCOUNTANT_URLS: accountantUrls.join(','),
+    KK_WALLET_VERIFIER_COUNT: String(committee), KK_WALLET_VERIFIER_QUORUM: String(quorum),
+    KK_SLOT_TASRA_UNITS: cfg.raw.KK_SLOT_TASRA_UNITS ?? '1000000000000000000'}
+  walletSettings({...cfg, raw: {...cfg.raw, ...env}})
   assert(cfg.raw.KK_STATUS_LIST_DIR && cfg.raw.KK_STATUS_LIST_URL && cfg.raw.KK_WALLET_CA_FILE,
-    'SDK paid fleet must retain the approved issuer status publication and wallet CA from local TLS setup')
+    'SDK wallet fleet must retain the approved issuer status publication and wallet CA from local TLS setup')
   writeFileSync(join(directory, 'deployment-observation.json'), JSON.stringify({schema: 1, networkRoot: sourceRoot, project,
     chainId: 43112, addresses: cfg.book, blockNumber: blockNumber.toString(), blockHash: block.hash, resources,
     agentPolicySha256: createHash('sha256').update(agentText).digest('hex'), accountantPolicySha256: createHash('sha256').update(accountantText).digest('hex'),

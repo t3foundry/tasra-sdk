@@ -1,10 +1,7 @@
-import {PaidOperationRecoveryError} from '../../src/app/paid-operation.ts'
 import {VerifierAgentSessionError} from '../../src/verifier-agent/index.ts'
 
-// A transport failure or generic HTTP refusal does not prove terminal credential
-// session refusal. Admission can refuse an expired credential before verifier work.
-export function isPaidCredentialRefusal(error: unknown): boolean {
-  return error instanceof PaidOperationRecoveryError
-    && error.phase === 'session' && error.code === 'session-refused' && !error.resumable
-    && error.cause instanceof VerifierAgentSessionError && error.cause.kind === 'refused'
+// A transport failure, a timeout or a generic HTTP refusal does not prove a terminal credential
+// refusal: only the session itself ending `failed` (the verifiers or the wallet refused) does.
+export function isCredentialRefusal(error: unknown): boolean {
+  return error instanceof VerifierAgentSessionError && error.kind === 'refused' && !error.retryable
 }

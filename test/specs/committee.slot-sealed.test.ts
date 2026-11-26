@@ -11,8 +11,6 @@ import {createDecryptionRecipient, kemContentDigest, recipientPayloadDigest} fro
 import {hexToBytes, bytesToHex} from '../../src/crypto/hex.js'
 import {base64Encode} from '../../src/crypto/envelope.js'
 import {requestHash} from '../../src/oid4vp/binding.js'
-import {paymentIntentHash} from '../../src/committee/payment.js'
-import {keeperExecutionFixture} from '../support/keeperExecution.js'
 
 vi.mock('../../src/committee/index.js', async importOriginal => ({...await importOriginal<typeof import('../../src/committee/index.js')>(), requestCommitteeToken: vi.fn()}))
 vi.mock('../../src/chain/discovery.js', async importOriginal => ({...await importOriginal<typeof import('../../src/chain/discovery.js')>(), resolveSlotKeeperUrls: vi.fn(), resolveVerifierDirectory: vi.fn()}))
@@ -34,14 +32,10 @@ async function fixture() {
   const ciphertext = {u: hexToBytes(vector.kem.u), nonce: hexToBytes(vector.kem.nonce), aeadCt: hexToBytes(vector.kem.aead_ct)}
   const identity = utf8(vector.identity)
   const digest = recipientPayloadDigest(kemContentDigest(ciphertext, identity), 0, recipient.recipient)
-  const paid = await keeperExecutionFixture('decrypt', bytesToHex(digest) as `0x${string}`, {slot: slotId as `0x${string}`})
-  const f = await keeperExecutionFixture('decrypt', bytesToHex(digest) as `0x${string}`, {
-    ...paid.payment, keeper_assignment: {...paid.payment.keeper_assignment,key_epoch:0,threshold:2},
-  })
   const hash = requestHash(43112, hexToBytes(slotId), 'decrypt', digest)
   const token: CommitteeTokenResult['token'] = {slot_id: slotId, request_hash: bytesToHex(hash), token_type: 'JWT', seed: '08'.repeat(32), epoch: 7,
     vp_hash: '01'.repeat(32), holder_hash: '02'.repeat(32), rule_hash: '03'.repeat(32), binding: 'holder_key', iat: 0, exp: 9999999999,
-    verifier_indexes: [0,1], signatures: [{verifier_index:0,signature:'00'.repeat(64)},{verifier_index:1,signature:'00'.repeat(64)}], payment:f.payment,payment_hash:paymentIntentHash(f.payment)}
+    verifier_indexes: [0,1], signatures: [{verifier_index:0,signature:'00'.repeat(64)},{verifier_index:1,signature:'00'.repeat(64)}]}
   vi.mocked(requestCommitteeToken).mockResolvedValue({token, epoch:7, committee:2, quorum:2, registrySize:2,
     seed:new Uint8Array(32).fill(8), verifierProofs:[0,1].map(i=>({verifierIndex:i,operator:'0x'+'11'.repeat(20),pubkey:'0x'+'12'.repeat(32),proof:[]}))})
   vi.mocked(resolveSlotKeeperUrls).mockResolvedValue(['https://keeper0.example','https://keeper1.example'])
@@ -55,9 +49,10 @@ async function fixture() {
     const body = JSON.parse(String(init?.body)) as Record<string,unknown>
     expect(body.recipient).toEqual(recipient.recipient)
     expect(JSON.stringify(body)).not.toMatch(/private_key|recovery_seed|bls_peers|decrypting_set/)
-    const approvals = body.execution_authorizations as {stage:string}[]
-    expect(approvals).toHaveLength(1)
-    expect(approvals[0]!.stage).toBe('contributor')
+    // A keeper refuses unknown fields: nothing of the retired payment flow is sent.
+    expect(body).not.toHaveProperty('execution_authorizations')
+    expect(body).not.toHaveProperty('payment')
+    expect(body.committee_token).not.toHaveProperty('payment')
     const index = String(url).includes('keeper1') ? 1 : 0
     const share = vector.shares[index]!, vs = hexToBytes(share.verifying_share)
     const aad = new Uint8Array(32+2+8+vs.length)
@@ -70,16 +65,16 @@ async function fixture() {
   const opts: SlotCommitteeDecryptOptions = {recipient,ciphertext,identity,ciphertextEpoch:0,threshold:2,
     verifyingShares:new Map(vector.shares.map(s => [s.identifier,hexToBytes(s.verifying_share)])),
     binding:{chainId:43112,action:'decrypt',payloadDigest:digest,random:new Uint8Array(32).fill(5),clientId:'https://wallet.example'},
-    payment:f.payment,approveExecution:f.approveExecution,fetchImpl}
+    fetchImpl}
   const client = createCommitteeSlotClient({chain,holder:'did:example:holder',credentials:['vc'],holderProof:'holder-proof'})
   return {client,opts,fetchImpl,getKeySlot,getChainId,snapshotAt}
 }
 
-it('discovers assigned endpoints and opens paid sealed contributions only on the client', async () => {
+it('discovers assigned endpoints and opens sealed contributions only on the client', async () => {
   const f = await fixture()
   expect(await f.client.decrypt(slotId,f.opts)).toEqual(hexToBytes(vector.plaintext))
   expect(f.fetchImpl).toHaveBeenCalledTimes(2)
-  expect(requestCommitteeToken).toHaveBeenCalledWith(expect.objectContaining({binding:f.opts.binding,payment:f.opts.payment}))
+  expect(requestCommitteeToken).toHaveBeenCalledWith(expect.objectContaining({binding:f.opts.binding}))
 })
 
 it.each(['recipient','binding','ciphertextEpoch','verifyingShares','threshold'] as const)('refuses missing %s before authorization or chain reads', async field => {

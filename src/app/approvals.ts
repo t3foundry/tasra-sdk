@@ -4,11 +4,11 @@ import {sha256} from '@noble/hashes/sha256'
 import {encodeFunctionData, keccak256, toHex, type Hex} from 'viem'
 import {validate} from '../auth/oid4vp.js'
 import {keyRegistryAbi} from '../chain/abis/index.js'
-import {dualSignApprovalPayload, paidDualSignApprovalPayload, type DualSignApprover, type DualSignRequest} from '../committee/dual-sign.js'
+import {dualSignApprovalPayload, type DualSignApprover, type DualSignRequest} from '../committee/dual-sign.js'
 import {protocolHex} from '../committee/receipts.js'
 import {b64urlDecode} from '../oid4vp/jose.js'
 import type {TasraApplication, OperationAuthorizer} from './client.js'
-import {assertPaymentIntentWire, paymentIntentHash, type PaymentIntentWire} from '../committee/payment.js'
+import {signingIntentDigest, type SigningIntent} from './signing-intents.js'
 import type {TasraIdentity} from './identity.js'
 import type {ApplicationStore} from './ready-slot.js'
 import type {TasraWallet, WalletTransactionJournal} from './wallet.js'
@@ -151,86 +151,63 @@ export function identityApprover(identity: TasraIdentity): DualSignApprover {
  * @param options Approver identity, credential authorizer and cancellation controls.
  */
 export async function approveWithCredential(app: Pick<TasraApplication, 'deployment' | 'slots'>, request: DualSignRequest,
-  message: Uint8Array, options: {identity: TasraIdentity; authorize: OperationAuthorizer; signal?: AbortSignal; description?: string;
-    /** Separate reserved credential approval intent; never the final keeper Sign intent. */
-    payment?: PaymentIntentWire;
-    /** Fixed presentation random committed by the approval payment. */
-    random?: string}) {
+  message: Uint8Array, options: {identity: TasraIdentity; authorize: OperationAuthorizer; signal?: AbortSignal; description?: string}) {
   const {identity, authorize, signal, description} = options
-  const slotId = request.slotId as Hex, payment = request.payment
-  const canonical = payment ? paidDualSignApprovalPayload(app.deployment.chainId, slotId, message.slice(), request.requestId, payment)
-    : dualSignApprovalPayload(slotId, message.slice(), request.requestId)
+  const slotId = request.slotId as Hex
+  const canonical = dualSignApprovalPayload(slotId, message.slice(), request.requestId)
   signal?.throwIfAborted()
   const current = await request.status({signal})
   if (current.status !== 'pending') return current
-  const approvalPayment = options.payment && structuredClone(options.payment)
-  const nowSecs = Math.floor(Date.now() / 1000)
-  if (payment && (!approvalPayment || !options.random)) throw new Error('Paid credential approval needs its own reservation and presentation random')
-  if ((approvalPayment === undefined) !== (options.random === undefined)) throw new Error('Approval payment and presentation random are required together')
-  if (options.random !== undefined && !/^0x[0-9a-f]{64}$/i.test(options.random)) throw new Error('Approval presentation random must contain 32 bytes')
-  if (approvalPayment) {
-    assertPaymentIntentWire(approvalPayment)
-    if (approvalPayment.action !== 'dual-approve' || approvalPayment.chain_id !== app.deployment.chainId || approvalPayment.expires <= nowSecs ||
-      approvalPayment.key_registry.toLowerCase() !== app.deployment.addresses.KeyRegistry!.toLowerCase() ||
-      (payment && approvalPayment.settlement.toLowerCase() !== payment.settlement.toLowerCase()) ||
-      approvalPayment.slot.toLowerCase() !== slotId.toLowerCase() || !equalBytes(protocolHex(approvalPayment.payload_digest, 32, 'approval digest'), sha256(canonical))) {
-      throw new Error('Approval reservation differs from requested credential work')
-    }
-  }
   const signer = identityApprover(identity)
   signal?.throwIfAborted()
   await app.slots.frost(slotId)
   const authorization = await authorize({chainId: app.deployment.chainId, keyRegistry: app.deployment.addresses.KeyRegistry!,
-    slotId, action: 'dual-approve', payloadDigest: sha256(canonical), description: description ?? 'Approve exact document request', signal,
-    ...(approvalPayment ? {payment: structuredClone(approvalPayment), random: options.random, nowSecs, ttlSecs: approvalPayment.expires - nowSecs} : {})})
+    slotId, action: 'dual-approve', payloadDigest: sha256(canonical), description: description ?? 'Approve exact document request', signal})
   signal?.throwIfAborted()
-  if (approvalPayment) {
-    assertPaymentIntentWire(authorization.token.payment)
-    const expected = paymentIntentHash(approvalPayment)
-    if (paymentIntentHash(authorization.token.payment) !== expected ||
-      !equalBytes(protocolHex(authorization.token.payment_hash, 32, 'approval payment hash'), protocolHex(expected, 32, 'payment hash')) ||
-      !Number.isSafeInteger(authorization.token.exp) || authorization.token.exp > approvalPayment.expires) throw new Error('Credential authorization changed the reserved approval payment')
-  }
   return request.approve({signer, authorization, signal})
 }
 
 /** The operation a slot mode's approvals name: FROST signs through the keeper's collector instead. */
-function operationKind(mode: number, action: PaymentIntentWire['action']): DualOperationKind {
-  if (action === 'eoa-sign' && mode === 2) return 'secp256k1-sign'
-  if (action === 'eoa-sign' && mode === 4) return 'p256-sign'
-  if (action === 'decrypt' && mode === 1) return 'kem-decrypt'
-  if (action === 'ibe-extract' && mode === 1) return 'ibe-extract'
+function operationKind(mode: number, identity: string | undefined): DualOperationKind {
+  if (mode === 2 && identity === undefined) return 'secp256k1-sign'
+  if (mode === 4 && identity === undefined) return 'p256-sign'
+  if (mode === 1) return identity === undefined ? 'kem-decrypt' : 'ibe-extract'
   if (mode === 0) throw new TasraApplicationError('WRONG_SLOT_MODE', 'FROST signatures collect approvals through slot.approvals(), not an operation bundle')
-  throw new TasraApplicationError('WRONG_SLOT_MODE', `Slot mode ${mode} has no operation approvals for action ${action}`)
+  throw new TasraApplicationError('WRONG_SLOT_MODE', `Slot mode ${mode} has no operation approvals for this request`)
 }
 
 /**
- * Prepare the approval statement for ONE final paid operation (a threshold ECDSA `eoa-sign`, a
- * KEM decrypt or an IBE extraction), bound to its slot, payload digest, key epoch, request ID and
- * payment hash, current for at most 300 s. Reads the slot (mode, epoch, readiness) and the policy;
- * sends nothing. Hand the result to each approver (`approveDualOperation`), then assemble.
+ * Prepare the approval statement for ONE operation (a threshold ECDSA or P-256 signature, a KEM
+ * decrypt or an IBE extraction), bound to the chain, slot, payload digest, key epoch and the
+ * operation's request hash, current for at most 300 s. Reads the slot (mode, epoch, readiness) and
+ * the policy; sends nothing. Hand the result to each approver (`approveDualOperation` or
+ * `approveSigningIntent`), then assemble.
  * @param app Application client for the slot deployment.
- * @param input The final payment (as reserved; a debit voucher is allowed), IBE identity and lifetime.
+ * @param input The slot and what it will run: a signing `intent` or the 32-byte `digest` to sign
+ *   (ECDSA and P-256 slots), or the operation's `payloadDigest` (the recipient-bound digest of a
+ *   KEM decrypt or IBE extraction); the IBE identity; and the lifetime.
  */
 export async function prepareOperationApproval(app: Pick<TasraApplication, 'deployment' | 'chain' | 'slots'>,
-  input: {payment: PaymentIntentWire; identity?: string; ttlSecs?: number; nowSecs?: number}): Promise<PreparedDualOperation> {
-  const payment = structuredClone(input.payment)
-  assertPaymentIntentWire(payment)
-  if (payment.chain_id !== app.deployment.chainId || payment.key_registry.toLowerCase() !== app.deployment.addresses.KeyRegistry!.toLowerCase()) {
-    throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Payment names another chain or registry')
-  }
-  const slotId = payment.slot.toLowerCase() as Hex
+  input: {slotId: Hex; intent?: SigningIntent; digest?: Uint8Array; payloadDigest?: Uint8Array; identity?: string; ttlSecs?: number; nowSecs?: number}): Promise<PreparedDualOperation> {
+  const slotId = toHex(protocolHex(input.slotId, 32, 'slot id'))
+  if ([input.intent, input.digest, input.payloadDigest].filter(v => v !== undefined).length !== 1) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Name the operation by exactly one of intent, digest or payloadDigest')
+  const signed = input.intent !== undefined ? signingIntentDigest(input.intent) : input.digest
+  if (signed !== undefined && signed.length !== 32) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'A signing digest is exactly 32 bytes')
+  // A signature's payload digest is SHA-256 of the digest the slot signs (the keeper's own derivation).
+  const payloadDigest = signed !== undefined ? sha256(signed) : input.payloadDigest!
+  if (payloadDigest.length !== 32) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'A payload digest is exactly 32 bytes')
   const [slot, policy] = await Promise.all([policySlot(app, slotId), readApprovalPolicy(app, slotId)])
   if (policy.quorum === 0) throw new TasraApplicationError('INVALID_AUTHORIZATION', 'Slot has no native approval policy')
-  if (payment.keeper_assignment.key_epoch !== slot.epoch) throw new TasraApplicationError('SLOT_CHANGED', 'Payment names another key epoch than the slot')
-  return prepareDualOperation({payment, operation: operationKind(slot.mode, payment.action), epoch: slot.epoch,
+  const operation = operationKind(slot.mode, input.identity)
+  if ((signed !== undefined) !== (operation === 'secp256k1-sign' || operation === 'p256-sign')) throw new TasraApplicationError('WRONG_SLOT_MODE', `Slot mode ${slot.mode} does not run this operation`)
+  return prepareDualOperation({chainId: app.deployment.chainId, slot: slotId, payloadDigest, operation, epoch: slot.epoch,
     ...(input.identity !== undefined ? {identity: input.identity} : {}), ...(input.ttlSecs !== undefined ? {ttlSecs: input.ttlSecs} : {}),
     ...(input.nowSecs !== undefined ? {nowSecs: input.nowSecs} : {})})
 }
 
 /**
  * Assemble independent approvals of one prepared statement into the `dual_control` bundle, judged
- * against the slot's ON-CHAIN policy before any paid send: its quorum, and for a static policy every
+ * against the slot's ON-CHAIN policy before anything is sent: its quorum, and for a static policy every
  * approver's membership. Signatures verify strictly; duplicates and approvals of another statement
  * refuse. The keeper and every ECDSA member re-check all of it.
  * @param app Application client for the slot deployment.

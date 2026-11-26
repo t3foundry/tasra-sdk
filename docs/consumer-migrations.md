@@ -42,29 +42,16 @@ client storage; never include private recipient material in a session or journal
 
 Use `decryptWithCommitteePartials` or the migrated
 `createCommitteeSlotClient().decrypt`. The slot client requires `recipient`,
-`ciphertextEpoch`, `verifyingShares`, `threshold` and the original `binding`;
-paid work also needs the original `payment` and exact-body `approveExecution`
-capability. It discovers assigned keeper URLs and retains anchored verifier
+`ciphertextEpoch`, `verifyingShares`, `threshold` and the original `binding`.
+It discovers assigned keeper URLs and retains anchored verifier
 snapshot checks. Authenticate public BLS reports with `discoverBlsSharing` using
 independently registered operator keys and canonical epoch/version. A signed
 self-report does not commit the full polynomial on chain; retain contribution
 pairing checks and final verification against the anchored group key.
 
 Only the client opens and combines contributions. Clear sensitive partials and
-recovered keys after use. For IBE recovery, retain the original recipient,
-identity and authenticated public shares; recovery reads the original completed
-result and never starts new paid work. An older signed intent without a recipient
-binding cannot authorize a new sealed operation. Reconcile its original outcome
-under the retained authority before considering another attempt.
-
-A service forwarding a device read can use
-`operation.recover({transport, contributorKey})` to read an originally assigned
-contributor's exact retained sealed reply without the device's private opening key.
-The key must occur in both the retained contributor roster and original signed
-assignment. This option selects the contributor stage; a conflicting coordinator
-stage is refused. The same option is available on `recoverPaidOperation` handles
-after restart. Forward only sealed replies; the device must still authenticate the
-original slot, epoch and public share, open locally and verify the contribution.
+recovered keys after use. An older signed intent without a recipient
+binding cannot authorize a new sealed operation.
 
 ## Use generic rule names
 

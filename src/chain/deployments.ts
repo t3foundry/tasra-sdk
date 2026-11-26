@@ -206,8 +206,6 @@ const ENV_ALIASES: Record<string, ContractName> = {
   KEYK_TOKEN: 'TasraToken',
   TOKEN: 'TasraToken',
   BONDING_CURVE: 'BondingCurve',
-  SWAP_ROUTER: 'TasraSwapRouter',
-  TASRA_SWAP_ROUTER: 'TasraSwapRouter',
   TREASURY: 'Treasury',
   VAULT: 'TasraVestingVault',
   TASRA_VAULT: 'TasraVestingVault',
@@ -229,8 +227,6 @@ const ENV_ALIASES: Record<string, ContractName> = {
   VERIFIER_SET_REGISTRY: 'VerifierSetRegistry',
   ACCOUNTANT_SET_REGISTRY: 'AccountantSetRegistry',
   KEEPER_SHARE_REGISTRY: 'KeeperShareRegistry',
-  // Separate immutable slasher for prepaid payout faults (not an AccountantSlashing alias).
-  PREPAID_FAULT_ORACLE: 'PrepaidFaultOracle',
   PLATFORM_EXECUTOR: 'PlatformExecutor',
   PRICE_ORACLE: 'FixedTasraPriceOracle',
   EURC: 'MockEurc',

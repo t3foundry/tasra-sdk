@@ -8,8 +8,7 @@ import type {TasraApplication, OperationGrant} from '../../src/app/client.js'
 import type {TasraWallet} from '../../src/app/wallet.js'
 import type {ApplicationStore} from '../../src/app/ready-slot.js'
 import type {DualSignRequest, DualSignStatus} from '../../src/committee/dual-sign.js'
-import {dualSignApprovalPayload, paidDualSignApprovalPayload} from '../../src/committee/dual-sign.js'
-import {paymentIntentHash, prepaidRequestId, type PaymentIntentWire} from '../../src/committee/payment.js'
+import {dualSignApprovalPayload} from '../../src/committee/dual-sign.js'
 import {keyRegistryAbi} from '../../src/chain/abis/index.js'
 const slot = `0x${'11'.repeat(32)}` as const, registry = `0x${'22'.repeat(20)}` as const, zero = `0x${'00'.repeat(32)}` as const
 function setup(mode = 0) {
@@ -28,33 +27,20 @@ function setup(mode = 0) {
   return {app, wallet, store, identities, approvers, frost, readContract, transfer}
 }
 describe('application approval helpers', () => {
-  it('passes a separate fixed approval payment to the wallet and refuses a substituted result', async () => {
+  it('asks the wallet for a dual-approve grant over the canonical approval bytes, with no payment, and stops on a settled request', async () => {
     const s = setup(), message = new Uint8Array([3, 4]), identity = s.identities[0]!
-    const h = (n: number, size = 32) => ('0x' + n.toString(16).padStart(2, '0').repeat(size)) as Hex
-    const payment: PaymentIntentWire = {
-      chain_id: 43112, settlement: h(1, 20), key_registry: registry, slot, action: 'sign', payload_digest: toHex(sha256(message)),
-      session_commitment: h(5), nonce: h(6), max_cost: '100', expires: Math.floor(Date.now() / 1000) + 600,
-      verification_epoch: 7, verification_seed: h(8), verification_root: h(9), verification_registry_size: 1, verification_committee: 1, verification_quorum: 1,
-      keeper_assignment: {key_epoch: 0, committee_version: 0, threshold: 1, coordinator: Array<number>(32).fill(1), contributors: [Array<number>(32).fill(1)]}, signature: h(1, 65),
-    }
-    const requestId = prepaidRequestId(payment).slice(2), payload = paidDualSignApprovalPayload(43112, slot, message, requestId, payment)
-    const approval: PaymentIntentWire = {...payment, action: 'dual-approve', payload_digest: toHex(sha256(payload))}
+    const payload = dualSignApprovalPayload(slot, message, 'request-1')
     const approve = vi.fn(async () => ({status: 'pending' as const, have: 1, need: 2}))
     const status = vi.fn<() => Promise<DualSignStatus>>(async () => ({status: 'pending', have: 0, need: 2}))
-    const request = {requestId, slotId: slot, payment, approve, status} as unknown as DualSignRequest
-    const grant = {token: {payment: approval, payment_hash: paymentIntentHash(approval), exp: approval.expires}, verifierProofs: []} as unknown as OperationGrant
+    const request = {requestId: 'request-1', slotId: slot, approve, status} as unknown as DualSignRequest
+    const grant = {token: {exp: Math.floor(Date.now() / 1000) + 600}, verifierProofs: []} as unknown as OperationGrant
     const authorize = vi.fn(async () => grant)
-    await expect(approveWithCredential(s.app, request, message, {identity, authorize})).rejects.toThrow('own reservation')
-    await expect(approveWithCredential(s.app, request, message, {identity, authorize, payment, random: h(33)})).rejects.toThrow('reservation differs')
-    expect(authorize).not.toHaveBeenCalled()
-    await approveWithCredential(s.app, request, message, {identity, authorize, payment: approval, random: h(33)})
-    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({payment: approval, random: h(33), action: 'dual-approve', payloadDigest: sha256(payload)}))
-    const submitted = (authorize.mock.calls[0] as unknown as [{nowSecs: number; ttlSecs: number}])[0]
-    expect(submitted.nowSecs + submitted.ttlSecs).toBe(approval.expires)
-    const changed = {...approval, nonce: h(66)}
-    authorize.mockResolvedValue({...grant, token: {...grant.token, payment: changed, payment_hash: paymentIntentHash(changed)}})
-    await expect(approveWithCredential(s.app, request, message, {identity, authorize, payment: approval, random: h(33)})).rejects.toThrow('changed the reserved')
-    expect(approve).toHaveBeenCalledTimes(1)
+    await approveWithCredential(s.app, request, message, {identity, authorize})
+    const asked = (authorize.mock.calls[0] as unknown as [Record<string, unknown>])[0]
+    expect(asked).toMatchObject({chainId: 43112, keyRegistry: registry, slotId: slot, action: 'dual-approve', payloadDigest: sha256(payload)})
+    // Nothing of the retired payment flow reaches the wallet step.
+    for (const field of ['payment', 'random', 'nowSecs', 'ttlSecs']) expect(asked).not.toHaveProperty(field)
+    expect(approve).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({authorization: grant}))
     status.mockResolvedValue({status: 'uncertain'})
     authorize.mockClear()
     await expect(approveWithCredential(s.app, request, message, {identity, authorize})).resolves.toEqual({status: 'uncertain'})
@@ -134,16 +120,5 @@ describe('application approval helpers', () => {
     expect(authorize).not.toHaveBeenCalled()
     expect(approve).not.toHaveBeenCalled()
     expect(s.frost).not.toHaveBeenCalled()
-  })
-  it('an unpaid request refuses a lone approval payment or random, and a random that is not 32 bytes, before any credential work', async () => {
-    const s = setup(), message = new Uint8Array([3, 4]), identity = s.identities[0]!, authorize = vi.fn(), approve = vi.fn()
-    const status = vi.fn(async () => ({status: 'pending' as const, have: 0, need: 2}))
-    const request = {requestId: 'request-1', slotId: slot, approve, status} as unknown as DualSignRequest
-    const h = (n: number, size = 32) => ('0x' + n.toString(16).padStart(2, '0').repeat(size)) as Hex
-    const intent = {chain_id: 43112, settlement: h(1, 20), key_registry: registry, slot, action: 'dual-approve', payload_digest: h(4)} as unknown as PaymentIntentWire
-    await expect(approveWithCredential(s.app, request, message, {identity, authorize, payment: intent})).rejects.toThrow('Approval payment and presentation random are required together')
-    await expect(approveWithCredential(s.app, request, message, {identity, authorize, random: h(33)})).rejects.toThrow('Approval payment and presentation random are required together')
-    await expect(approveWithCredential(s.app, request, message, {identity, authorize, payment: intent, random: '0x1234'})).rejects.toThrow('Approval presentation random must contain 32 bytes')
-    expect(authorize).not.toHaveBeenCalled(); expect(approve).not.toHaveBeenCalled(); expect(s.frost).not.toHaveBeenCalled()
   })
 })

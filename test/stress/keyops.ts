@@ -6,7 +6,7 @@ import {randomBytes} from 'node:crypto'
 import {Suite, metric} from '../fleet/_assert.ts'
 import {gate, loadFleetConfig} from '../fleet/_fleet.ts'
 import {authorizeWallet, createWalletSlot} from '../fleet/_wallet.ts'
-import {paidWalletCoordinator, paidWalletBlsSharing} from '../fleet/_paid-wallet.ts'
+import {walletCoordinator, walletBlsSharing} from '../fleet/_wallet-settings.ts'
 import {frostVerify} from '../fleet/_crypto.ts'
 import {encryptEnvelope} from '../../src/crypto/envelope.ts'
 import {hexToBytes} from '../../src/crypto/hex.ts'
@@ -59,12 +59,11 @@ async function measure(name: string, operation: (worker: number) => Promise<void
 const frost = await createWalletSlot(cfg,'frost',k,n)
 const sign = async (worker: number) => {
   const message = randomBytes(32)
-  const coordinator = await paidWalletCoordinator(cfg,frost.slotId,worker)
+  const coordinator = await walletCoordinator(cfg,frost.slotId,worker)
   const grant = await authorizeWallet(cfg,frost.slotId,frost.creatorKey,{action:'sign',message},undefined,false,coordinator)
   const result = await committeeSign({nodeUrl:grant.coordinatorUrl,
-    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,approveExecution:grant.approveExecution,message})
+    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,targetKeykeeper:grant.coordinator,message})
   assert(frostVerify(result.signature.r,result.signature.z,hexToBytes(frost.publicKey),message))
-  grant.dispose()
 }
 await sign(0)
 s.ok('sign produces a cryptographically valid FROST signature',true)
@@ -72,25 +71,22 @@ await measure('FROST sign',()=>sign(0))
 await measure('FROST sign spread-entry',sign)
 
 const bls = await createWalletSlot(cfg,'bls',k,n)
-const sharing = await paidWalletBlsSharing(cfg, bls.slotId)
+const sharing = await walletBlsSharing(cfg, bls.slotId)
 assert(sharing.verifyingShares.size >= k)
 const decrypt = async (worker: number) => {
   const identity = new TextEncoder().encode('stress-keyops')
   const plaintext = randomBytes(32)
   const envelope = encryptEnvelope(hexToBytes(bls.slotId),hexToBytes(bls.publicKey),identity,plaintext,0n)
-  const coordinator = await paidWalletCoordinator(cfg,bls.slotId,worker)
+  const coordinator = await walletCoordinator(cfg,bls.slotId,worker)
   const recipient = await createDecryptionRecipient()
   const binding = decryptionBinding(kemContentDigest(envelope.ciphertext, identity), sharing.epoch, recipient)
   const grant = await authorizeWallet(cfg,bls.slotId,bls.creatorKey,
     {action:'decrypt',...binding},undefined,false,coordinator)
-  assert.equal(grant.payment.keeper_assignment.key_epoch, sharing.epoch)
-  assert.equal(grant.payment.keeper_assignment.committee_version, sharing.assignment.committee_version)
   const output = await decryptWithCommitteePartials({nodeUrls:sharing.nodeUrls,chainId:43112,recipient,
     verifyingShares:sharing.verifyingShares,threshold:sharing.threshold,
-    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,approveExecution:grant.approveExecution,
+    committeeToken:grant.compound_token,verifierProofs:grant.verifierProofs,evidenceCt:grant.evidenceCt,
     ciphertext:envelope.ciphertext,identity,ciphertextEpoch:sharing.epoch})
   assert.deepEqual(Buffer.from(output),plaintext)
-  grant.dispose()
 }
 await decrypt(0)
 s.ok('decrypt recovers the correct plaintext',true)

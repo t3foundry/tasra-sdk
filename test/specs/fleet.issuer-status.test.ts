@@ -12,7 +12,7 @@ import {parseSdJwt} from '../../src/oid4vp/sd-jwt.ts'
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), 'sdk-issuer-status-control-')), key = Buffer.alloc(32, 13)
   const cfg: FleetConfig = {chainId: 43112, rpcUrl: 'http://127.0.0.1:43112', book: {},
-    raw: {KK_PREPAID_EVIDENCE_DIR: directory, KK_STATUS_LIST_DIR: directory, KK_STATUS_LIST_URL: 'https://localhost:19444/status/hr/employee.jwt'},
+    raw: {KK_WALLET_EVIDENCE_DIR: directory, KK_STATUS_LIST_DIR: directory, KK_STATUS_LIST_URL: 'https://localhost:19444/status/hr/employee.jwt'},
     issuerKey: key.toString('base64url'), issuerDid: 'did:web:hr.acmecorp.example', nodeUrls: [], verifierUrls: [], explorerApi: '',
     slotId: '0x', governanceSlotId: '0x', ruleSalt: '', governanceRule: '', governanceRuleSalt: '', adminSecret: '', deployPk: '',
     deployAddr: '', faucetUrl: '', jwtSigningKey: '', jwtIss: '', jwtAud: '', adminJwtSigningKey: '', adminJwtIss: '', adminJwtAud: ''}

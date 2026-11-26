@@ -26,11 +26,10 @@ import {
   mintAdminJwt,
   provisionRule,
 } from '../fleet/_fleet.ts'
-import {assertLocalPrepaidFleet, fundFreshWalletSlot} from '../fleet/_prepaid-funding.ts'
+import {assertLocalMeteredFleet, fundWalletSlot, walletBlsSharing} from '../fleet/_wallet-settings.ts'
 import {authorizeWallet, WALLET_RULE as SLOT_DCQL_RULE} from '../fleet/_wallet.ts'
 import {createDecryptionRecipient, decryptionBinding, kemContentDigest} from '../../src/crypto/recipient.ts'
 import {decryptWithCommitteePartials} from '../../src/decryption/sealed.ts'
-import {paidWalletBlsSharing} from '../fleet/_paid-wallet.ts'
 import {createTasraWriteClient, generateClientKey} from '../../src/chain/write.ts'
 import {bondingCurveAbi} from '../../src/chain/abis/bondingCurve.ts'
 import {mockEurcAbi} from '../../src/chain/abis/mockEurc.ts'
@@ -61,7 +60,7 @@ const curve = (cfg.book.BondingCurve ?? (cfg.raw.BONDING_CURVE as Hex | undefine
 // ── 1. fresh account ──────────────────────────────────────────────────────────
 const creatorKey = generateClientKey()
 const client = createTasraWriteClient({rpcUrl: cfg.rpcUrl, addresses: cfg.book, privateKey: creatorKey, chainId: cfg.chainId})
-await assertLocalPrepaidFleet(cfg,client)
+await assertLocalMeteredFleet(cfg,client)
 s.info(`new account ${client.address}`)
 
 // ── 2. faucet (gas) ───────────────────────────────────────────────────────────
@@ -104,7 +103,7 @@ metric('slot_create_ms', createMs, 'ms', {path: createPath})
 
 // ── 5. wait for the drawn committee's auto-DKG (key ANCHORED on chain) ─────────
 // A keeper serves /v1/keys/:id/public once ITS DKG finished, before the k-th publish vote lands;
-// the paid discovery below reads KeyRegistry at a chain head, so readiness is the anchored key.
+// the operation below reads KeyRegistry at a chain head, so readiness is the anchored key.
 const tDkg = Date.now()
 let committee: string[] = []
 let mpkHex = ''
@@ -125,20 +124,20 @@ if (!mpkHex) {
   process.exit(1)
 }
 
-// ── 6. provision the clear DCQL rule (ADR-0025) + prepay the slot with TSRA ────
+// ── 6. provision the clear DCQL rule (ADR-0025) + fund the slot's metered balance with TSRA ────
 const adminJwt = mintAdminJwt(cfg)
 const prov = await provisionRule(committee, slotId, SLOT_DCQL_RULE, ruleSalt, adminJwt)
 s.ok('provisioned the rule + salt on the committee', prov.ok, prov.errors.join('; '))
 const settleBefore = await client.settlementBalance(slotId)
-await fundFreshWalletSlot(cfg,client,creatorKey,created,SLOT_DCQL_RULE,{payerKey:creatorKey})
+await fundWalletSlot(cfg,client,created,SLOT_DCQL_RULE,{payerKey:creatorKey})
 const settleAfter = await client.settlementBalance(slotId)
-s.ok('prepaid the slot on Settlement with the TSRA it bought', settleAfter - settleBefore === parseEther('1'), `${formatEther(settleBefore)} → ${formatEther(settleAfter)} TSRA`)
+s.ok('funded the slot on Settlement with the TSRA it bought', settleAfter - settleBefore === parseEther('1'), `${formatEther(settleBefore)} → ${formatEther(settleAfter)} TSRA`)
 
 // ── 7. operate via the PRODUCTION credential path (SD-JWT + holder proof) ──────────────
 const {mpkBytes, epoch} = await fetchMpk(committee[0]!, slotId)
 s.ok('fetched the anchored MPK (96-byte compressed G2)', mpkBytes.length === 96)
 
-const sharing = await paidWalletBlsSharing(cfg, slotId)
+const sharing = await walletBlsSharing(cfg, slotId)
 s.ok('authenticated the drawn BLS public sharing against registered operator identities',
   sharing.verifyingShares.size >= sharing.threshold && bytesEq(sharing.groupPublicKey, mpkBytes) && sharing.epoch === epoch)
 
@@ -148,20 +147,18 @@ const plaintext = enc.encode('onboarded, funded, and operated entirely by a fres
 const back = fromBytes(toBytes(encryptEnvelope(hexToBytes(slotId), mpkBytes, identity, plaintext, BigInt(epoch))))
 const recipient = await createDecryptionRecipient()
 const binding = decryptionBinding(kemContentDigest(back.ciphertext, back.identity), epoch, recipient)
-const grant = await authorizeWallet(cfg,slotId,creatorKey,{action:'decrypt',...binding})
-s.ok('reservation retains the authenticated key epoch and sharing version',
-  grant.payment.keeper_assignment.key_epoch === sharing.epoch && grant.payment.keeper_assignment.committee_version === sharing.assignment.committee_version)
+// A READER decrypts: the session is opened by a key unrelated to the slot's creator (any key may
+// open a session; the slot's rule decides), and it pays nothing: the owner funded the slot above.
+const grant = await authorizeWallet(cfg,slotId,generateClientKey(),{action:'decrypt',...binding})
 const out = await decryptWithCommitteePartials({
   nodeUrls: sharing.nodeUrls, chainId: 43112, recipient, verifyingShares: sharing.verifyingShares, threshold: sharing.threshold,
   committeeToken:grant.compound_token,
   verifierProofs:grant.verifierProofs,
-  approveExecution:grant.approveExecution,
   evidenceCt:grant.evidenceCt,
   ciphertext: back.ciphertext,
   identity: back.identity,
   ciphertextEpoch: epoch,
 })
-grant.dispose()
 s.ok('encrypt → client-only k-of-n decrypt round-trip on the new slot', bytesEq(out, plaintext))
 
 s.done()

@@ -93,7 +93,7 @@ s.ok('provisioned the rule + salt on the committee', prov.ok, prov.errors.join('
 const settleBefore = await client.settlementBalance(slotId)
 await client.fundSlot(slotId, parseEther('1'))
 const settleAfter = await client.settlementBalance(slotId)
-s.ok('client prepaid the slot on Settlement with its TSRA', settleAfter - settleBefore === parseEther('1'), `${settleBefore} → ${settleAfter}`)
+s.ok('client funded the slot on Settlement with its TSRA', settleAfter - settleBefore === parseEther('1'), `${settleBefore} → ${settleAfter}`)
 
 // 6. OPERATE the slot: DCQL JWT → shards → assemble MSK → encrypt/decrypt
 const jwt = (await mintEngineeringJwt(cfg)).token

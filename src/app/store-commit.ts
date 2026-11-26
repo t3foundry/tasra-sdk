@@ -1,7 +1,7 @@
 // Internal durable-commit steps of the SDK's own stores. Not part of the public ApplicationStore
 // contract: an application store without them gets the same calls as before, one save at a time.
 //
-// The paid paths journal several values per transition, and on the Node file store every durable
+// Some flows journal several values per transition, and on the Node file store every durable
 // save costs two device flushes (data barrier, directory sync) and every lock three. These steps let
 // one transition pay once:
 //

@@ -125,13 +125,11 @@ test('recipient substitution and unbound grants fail before making any keeper re
   expect(fetch).not.toHaveBeenCalled()
 })
 
-test('an impossible threshold fails before approvals or keeper requests', async () => {
+test('an impossible threshold fails before any keeper request', async () => {
   const client = await createDecryptionRecipient()
   const opts = await mockKeepers(client, 'decrypt')
   opts.nodeUrls = opts.nodeUrls.slice(0, 1)
-  opts.approveExecution = vi.fn()
   await expect(decryptWithCommitteePartials({...opts, ciphertext: ct(v.kem), identity: utf8(v.identity)})).rejects.toThrow('valid threshold')
-  expect(opts.approveExecution).not.toHaveBeenCalled()
   expect(fetch).not.toHaveBeenCalled()
 })
 

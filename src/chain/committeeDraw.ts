@@ -4,8 +4,7 @@
 // `latest` calls, a beacon push between them paired epoch N with seed N+1 - a draw no verifier
 // derives - and a failed snapshot read silently fell back to the directory size, which no
 // verifier uses either. Here the beacon epoch, its seed and its snapshot are read at ONE block
-// hash (EIP-1898, `requireCanonical`), choosing the newest epoch anchored at that block, as payment
-// discovery does. A missing anchor or a failed read is an error, never a substitute.
+// hash (EIP-1898, `requireCanonical`), choosing the newest epoch anchored at that block. A missing anchor or a failed read is an error, never a substitute.
 
 import {decodeFunctionResult, encodeFunctionData, type Address, type Hex, type PublicClient} from 'viem'
 import {thresholdRandomBeaconAbi} from './abis/thresholdRandomBeacon.js'

@@ -1,5 +1,5 @@
 // Hovi-profile credentials retain P-256 issuer and holder keys while using the
-// same issuer-owned durable revocation publication as the other paid fixtures.
+// same issuer-owned durable revocation publication as the other fixtures.
 import assert from 'node:assert/strict'
 import {holderCnf, issueSdJwtVc, p256DidKeyIssuer, randomHolderKey} from '../../src/oid4vp/index.ts'
 import type {FleetConfig} from './_fleet.ts'

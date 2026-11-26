@@ -10,50 +10,32 @@ native approval POSTs or signing requests with an uncertain outcome.
 
 # OpenID4VP wallets and the Verifier Agent
 
-## Durable unpaid relay sponsorship
+## Durable relay sponsorship sessions
 
 Use the relayer's original validated sponsorship operation, signature, delegation and
 message with `createRegisteredAgentClient(...).createSession(...)`. Persist the creation
-intent before its POST, then privately save `session.unpaidRecovery` before wallet
-delivery. On restart, `restoreUnpaidSession(checkpoint, {signal})` checks independent
+intent before its POST, then privately save `session.recovery` before wallet
+delivery. On restart, `restoreSession(checkpoint, {signal})` checks independent
 approvals and live provider identity, and polls the original session without creating
 another one or switching providers. Keep the original operation and verify its Request
 Object binding before presenting and again immediately before delivery. An uncertain
 creation without a saved checkpoint requires recovery; never automatically create another
 session. The checkpoint contains a poll secret and belongs in private durable storage.
-Paid sessions use the separate payment recovery flow below.
 
-## Mandatory prepaid deployments
+## Billing and session grants
 
-Slot credit is TASRA. AVAX pays transaction gas and does not fund a slot's work.
-Use the installed `@t3foundry/tasra-sdk/chain` declarations and the package's `docs/funding.md`
-for reservation, certificate and execution types. A reservation locks a fixed fee;
-it does not replace credential, holder, rule or keeper authorization.
+Billing is metered: the slot owner funds the slot's Settlement balance with TSRA
+(`docs/funding.md`); AVAX pays transaction gas only. A session carries no payment. Slot credit
+does not replace credential, holder, rule or keeper authorization.
 
-Use `prepareRegisteredPaidSession` with a provider approved independently through
-the ServiceRegistry, the original mined reservation, complete drawn verifier
-witnesses, the application-verified rule/query and a local execution signer certified
-by the slot creator. Retain the session, signer and owner bearer before `create()`.
-After a lost reply, read the original session using `reconcile()`; do not create a
-new session, payment or proof to resolve an unknown outcome.
-
-For wallet sessions, approve the assigned JAR signer and separate drawn attesters
-with `approveRequest()`. Display the QR only after `requestObject()` verifies the
-anchored signer and original context. Read retained `presentations()`, independently
-accept the complete presentation, then select it with `resumePresentation()` and
-approve each drawn verifier with `approveCredentials()`. Never copy an untrusted
-proposal body into local consent. HTTP425 requires separate consent; HTTP503 requires
-recovery. Neither status authorizes an automatic resend.
-
-For OAuth, use `kind: 'oauth'`, the locally derived `oauthContext` and the access
-token's bound DPoP key. Retain the result of `prepareOAuthPresentation()` before the
-single `submitOAuthPresentation()` call. HTTP202 means the callback is retained;
-continue through presentation selection and credential approvals. The client checks
-DPoP binding; committee issuer, rule and holder verification is still required.
-
-Use `poll()` to verify completed quorum signatures and the original payment, rule
-and operation. This authorization driver does not deliver keeper work or settle
-fees. Native paid-session and full platform acceptance remain separate gates.
+A KEM `decrypt` session may also open a refreshable session grant: pass
+`sessionGrant: sessionGrantCreateFragment(key, {slots}).session_grant` when opening it. The
+completed poll then carries `sessionGrant` (unverified); `acceptSessionGrant` checks it against
+the request, the session key and each slot's verifier draw read from the chain before anything
+uses it. `openDecryptSession` (`@t3foundry/tasra-sdk/app`) does all of this in one call. If
+the beacon ticks before the wallet answers, the agent returns no grant
+(`session_context_changed`); if the verifiers keep no issuance records it answers
+`session_unavailable`.
 
 The platform speaks the OpenID4VP 1.0 wallet contract (DCQL queries, SD-JWT VC
 with key binding, JARM `direct_post.jwt`, OpenID4VCI pre-authorized issuance).
@@ -213,13 +195,8 @@ wallet, or the call fails with `UNABLE_TO_VERIFY_LEAF_SIGNATURE` before it plans
 anything. A client of your own goes in `fetchImpl` (the JAR and the POST) and in
 `defaultKeyResolver({fetchImpl})` (the `did:web` document).
 
-For a paid session the `request_uri` GET can answer HTTP 503 "paid verifier exchange in
-progress" while the agent's paid exchange runs, or "capacity saturated" when the agent refused
-before sending or billing anything; `fetchRequestObject` repeats the identical GET
-(never a POST, never a second payment) for up to 120 s by default, clamping `Retry-After` to
-0.5–5 s. Pass `signal` to cancel and `inProgressRetry: {notAfterMs}` to stop at the session's
-expiry. Any other 503 — including "paid delivery outcome uncertain" — is final: reconcile, do
-not retry.
+`fetchRequestObject` sends one GET; pass `signal` to cancel it. A non-2xx answer is final for
+that session: open a new session to try again.
 
 Keep HTTPS certificate and hostname verification enabled. A private CA, when
 explicitly required by the chosen service, must be trusted by the process.

@@ -9,11 +9,10 @@ credentials. Existing `createTasra` and lower-level APIs remain available. The a
 chooses its policy, consent behavior and private storage; the SDK handles network
 operations and cryptographic checks.
 
-For a prepaid deployment, reserve the creator-signed operation with
-`reserveApplicationPayment` and retain its original session. Use one durable store and a
-dedicated gas payer across operations; recover uncertain submissions with
-`reconcileApplicationPayment` before spending again. See [slot funding](funding.md) for
-the required discovery, fee limits, journal guarantees and recovery limits.
+Every operation is metered: the slot owner funds the slot once ([slot funding](funding.md)) and
+an operation is authorized with a credential, then sent to the keepers. There is no payment
+step, and a holder application needs nothing the owner holds. To decrypt many messages under
+one presentation, open a [decrypt session](encryption.md#decrypt-many-messages-in-one-session).
 
 Install the latest SDK from npm as your application dependency. TypeScript and
 `tsx` are development tools:
@@ -275,7 +274,7 @@ requests. Invalid replies and duplicate share identifiers do not count. A stalle
 fetch, approval or response body cannot hold the fan-out past its deadline (10 seconds
 by default; pass `timeoutMs` in the identity operation options to change it).
 This deadline starts after wallet authorization. Replies are limited to 16 KiB.
-Cancelling a request does not undo paid work a keeper already started.
+Cancelling a request does not undo work a keeper already started.
 
 Use a fresh identity for every immutable document version. An extracted identity
 key is a durable capability: token expiry does not revoke it. `extractIdentity`

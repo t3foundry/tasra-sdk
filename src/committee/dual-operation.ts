@@ -1,15 +1,14 @@
 // Operation-specific dual-control approvals (keykeeper_committee::dual_operation): an offline
-// statement bound to the final paid request, independent Ed25519 approvals over its exact bytes,
-// and the assembled `dual_control` bundle the keeper's api/dual_operation.rs gate re-verifies.
-// Ported from tasra-cli `dual-operation prepare|approve|assemble` with every check kept; the final
-// payment may be either backing (a per-operation reservation or an ADR-0090 allowance voucher).
+// statement bound to the exact operation request, independent Ed25519 approvals over its exact
+// bytes, and the assembled `dual_control` bundle the keeper's api/dual_operation.rs gate
+// re-verifies. The statement binds the chain, slot, operation, key epoch, payload digest and the
+// operation's request hash (`request_id`); it binds no payment.
 import {ed25519} from '@noble/curves/ed25519'
 import {sha256} from '@noble/hashes/sha256'
 import {equalBytes} from '@noble/curves/utils.js'
 import {bytesToHex, hexToBytes} from '../crypto/hex.js'
 import {TasraError} from '../errors.js'
-import {requestHash} from '../oid4vp/binding.js'
-import {assertPaymentIntentWire, paymentIntentHash, prepaidRequestId, type PaymentIntentWire} from './payment.js'
+import {requestHash, type CommitteeAction} from '../oid4vp/binding.js'
 import type {CompoundTokenWire} from './token.js'
 import type {VerifierProof} from './client.js'
 
@@ -23,26 +22,39 @@ const MAX_PAYLOAD = 8192
 /** The operation a statement approves (Rust `Operation`, kebab-case). */
 export type DualOperationKind = 'frost-sign' | 'secp256k1-sign' | 'p256-sign' | 'kem-decrypt' | 'ibe-extract'
 const KINDS: readonly DualOperationKind[] = ['frost-sign', 'secp256k1-sign', 'p256-sign', 'kem-decrypt', 'ibe-extract']
-const ACTION: Record<DualOperationKind, PaymentIntentWire['action']> = {
-  'frost-sign': 'sign', 'secp256k1-sign': 'eoa-sign', 'p256-sign': 'eoa-sign', 'kem-decrypt': 'decrypt', 'ibe-extract': 'ibe-extract',
+/** Rust `Operation::action`: the committee action the approved operation's own request hash is made under. */
+const ACTION: Record<DualOperationKind, CommitteeAction> = {
+  'frost-sign': 'sign', 'secp256k1-sign': 'sign', 'p256-sign': 'sign', 'kem-decrypt': 'decrypt', 'ibe-extract': 'ibe-extract',
+}
+
+/**
+ * Rust `dual_operation::request_id`: lowercase hex (no prefix) of
+ * `request_hash(chain_id, slot, operation.action(), payload_digest)`, the hash the operation's own
+ * authorization is bound to. A keeper refuses a statement carrying any other value.
+ * @param chainId - Deployment chain.
+ * @param slot - 32-byte slot ID.
+ * @param operation - The approved operation.
+ * @param payloadDigest - 32-byte payload digest of the operation.
+ */
+export function dualOperationRequestId(chainId: number | bigint, slot: Uint8Array, operation: DualOperationKind, payloadDigest: Uint8Array): string {
+  if (!KINDS.includes(operation) || slot.length !== 32 || payloadDigest.length !== 32) throw new TasraError('invalid dual-operation request')
+  return bytesToHex(requestHash(chainId, slot, ACTION[operation], payloadDigest)).slice(2)
 }
 
 /** The Rust `Statement`, field for field, in its serialization order. Byte arrays are JSON number arrays. */
 export interface DualOperationStatement {
-  /** Chain the final payment names. */
+  /** Deployment chain of the operation. */
   chain_id: number
   /** 32-byte slot ID as a JSON number array. */
   slot: number[]
   /** The approved operation. */
   operation: DualOperationKind
-  /** The slot's key epoch the final payment's keeper assignment names. */
+  /** The slot's current key epoch. */
   epoch: number
   /** 32-byte payload digest of the final operation (SHA-256 of an ECDSA digest), as numbers. */
   payload_digest: number[]
-  /** The final payment's request ID, 64 lowercase hex characters. */
+  /** The operation's request hash ({@link dualOperationRequestId}), 64 lowercase hex characters. */
   request_id: string
-  /** EIP-712 hash of the final payment intent, as numbers. */
-  payment_hash: number[]
   /** Unix seconds the statement becomes current. */
   issued_at: number
   /** Unix seconds it stops being current (at most 300 s after issue). */
@@ -101,7 +113,7 @@ export interface DualOperationApprover {
   sign(payload: Uint8Array): Promise<Uint8Array>
 }
 
-const FIELDS = ['chain_id', 'slot', 'operation', 'epoch', 'payload_digest', 'request_id', 'payment_hash', 'issued_at', 'expires_at', 'identity'] as const
+const FIELDS = ['chain_id', 'slot', 'operation', 'epoch', 'payload_digest', 'request_id', 'issued_at', 'expires_at', 'identity'] as const
 const now = () => Math.floor(Date.now() / 1000)
 const u64 = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0
 const bytes32 = (v: unknown): v is number[] => Array.isArray(v) && v.length === 32 && v.every(b => Number.isInteger(b) && b >= 0 && b <= 255)
@@ -119,7 +131,7 @@ export function validateDualOperationStatement(s: unknown): asserts s is DualOpe
   if (keys.length !== FIELDS.length || FIELDS.some(k => !Object.hasOwn(s, k))) throw new TasraError('invalid dual-operation statement fields')
   const v = s as DualOperationStatement
   if (!u64(v.chain_id) || !bytes32(v.slot) || !KINDS.includes(v.operation) || !Number.isSafeInteger(v.epoch) || !bytes32(v.payload_digest)
-    || typeof v.request_id !== 'string' || !bytes32(v.payment_hash) || !u64(v.issued_at) || !u64(v.expires_at)
+    || typeof v.request_id !== 'string' || !u64(v.issued_at) || !u64(v.expires_at)
     || (v.identity !== null && typeof v.identity !== 'string')) throw new TasraError('invalid dual-operation statement types')
   if (v.epoch < 0 || !/^[0-9a-f]{64}$/.test(v.request_id) || v.expires_at <= v.issued_at || v.expires_at - v.issued_at > DUAL_OPERATION_MAX_LIFETIME_SECS) {
     throw new TasraError('invalid dual-operation request, epoch or lifetime')
@@ -169,35 +181,47 @@ export function requireCurrentDualOperation(s: DualOperationStatement, nowSecs: 
   if (nowSecs < s.issued_at || nowSecs >= s.expires_at) throw new TasraError('dual-operation approval is not current')
 }
 
-/**
- * The CLI's `check_ticket`: the statement names exactly this final payment (either backing).
- * @param s - Statement.
- * @param payment - The final paid operation's payment (a debit voucher, if any, is not hashed).
- */
-export function requireDualOperationPayment(s: DualOperationStatement, payment: PaymentIntentWire): void {
-  assertPaymentIntentWire(payment)
-  const {debit_voucher: _voucher, ...signed} = payment
-  if (s.chain_id !== payment.chain_id || !equalBytes(Uint8Array.from(s.slot), hex32(payment.slot))
-    || !equalBytes(Uint8Array.from(s.payload_digest), hex32(payment.payload_digest))
-    || s.request_id !== prepaidRequestId(signed).slice(2).toLowerCase()
-    || !equalBytes(Uint8Array.from(s.payment_hash), hex32(paymentIntentHash(signed)))) throw new TasraError('statement differs from final payment')
-  if (payment.action !== ACTION[s.operation] || s.epoch !== payment.keeper_assignment.key_epoch) throw new TasraError('wrong action or key epoch')
+/** The exact operation a statement must name. */
+export interface DualOperationExpectation {
+  /** Deployment chain. */
+  chainId: number
+  /** 32-byte slot ID. */
+  slot: Uint8Array
+  /** The approved operation. */
+  operation: DualOperationKind
+  /** 32-byte payload digest of the operation (SHA-256 of an ECDSA digest; the recipient-bound digest of a decryption). */
+  payloadDigest: Uint8Array
+  /** The slot's key epoch, when the caller has read it; checked when given. */
+  epoch?: number
 }
 
 /**
- * `dual-operation prepare`: an approval statement for the final paid operation. Sends nothing.
- * @param input - Final payment, operation, the slot's key epoch, IBE identity, lifetime (≤ 300 s, capped at the payment's expiry).
+ * The statement names exactly this operation: chain, slot, operation, payload digest, and the
+ * request hash derived from them (the keeper's own check).
+ * @param s - Statement.
+ * @param expected - The operation the caller is about to run.
  */
-export function prepareDualOperation(input: {payment: PaymentIntentWire; operation: DualOperationKind; epoch: number; identity?: string; ttlSecs?: number; nowSecs?: number}): PreparedDualOperation {
-  const {payment} = input
-  assertPaymentIntentWire(payment)
-  const {debit_voucher: _voucher, ...signed} = payment
+export function requireDualOperationRequest(s: DualOperationStatement, expected: DualOperationExpectation): void {
+  validateDualOperationStatement(s)
+  if (s.chain_id !== expected.chainId || s.operation !== expected.operation || !equalBytes(Uint8Array.from(s.slot), expected.slot)
+    || !equalBytes(Uint8Array.from(s.payload_digest), expected.payloadDigest)) throw new TasraError('dual-operation approvals name another operation, slot or digest')
+  if (s.request_id !== dualOperationRequestId(s.chain_id, Uint8Array.from(s.slot), s.operation, Uint8Array.from(s.payload_digest))) throw new TasraError('statement request id differs from its operation')
+  if (expected.epoch !== undefined && s.epoch !== expected.epoch) throw new TasraError('wrong key epoch')
+}
+
+/**
+ * `dual-operation prepare`: an approval statement for one exact operation. Sends nothing.
+ * @param input - Chain, slot, operation, its payload digest, the slot's key epoch, IBE identity and lifetime (at most 300 s).
+ */
+export function prepareDualOperation(input: {chainId: number; slot: string | Uint8Array; payloadDigest: string | Uint8Array; operation: DualOperationKind; epoch: number;
+  identity?: string; ttlSecs?: number; nowSecs?: number}): PreparedDualOperation {
+  const slot = typeof input.slot === 'string' ? hex32(input.slot) : input.slot, digest = typeof input.payloadDigest === 'string' ? hex32(input.payloadDigest) : input.payloadDigest
   const issued = input.nowSecs ?? now(), ttl = input.ttlSecs ?? DUAL_OPERATION_MAX_LIFETIME_SECS
-  if (!u64(ttl) || ttl === 0) throw new TasraError('invalid dual-operation lifetime')
-  const statement: DualOperationStatement = {chain_id: payment.chain_id, slot: [...hex32(payment.slot)], operation: input.operation, epoch: input.epoch,
-    payload_digest: [...hex32(payment.payload_digest)], request_id: prepaidRequestId(signed).slice(2).toLowerCase(),
-    payment_hash: [...hex32(paymentIntentHash(signed))], issued_at: issued, expires_at: Math.min(issued + ttl, payment.expires), identity: input.identity ?? null}
-  requireDualOperationPayment(statement, payment)
+  if (!u64(ttl) || ttl === 0 || ttl > DUAL_OPERATION_MAX_LIFETIME_SECS) throw new TasraError('invalid dual-operation lifetime')
+  const statement: DualOperationStatement = {chain_id: input.chainId, slot: [...slot], operation: input.operation, epoch: input.epoch,
+    payload_digest: [...digest], request_id: dualOperationRequestId(input.chainId, slot, input.operation, digest),
+    issued_at: issued, expires_at: issued + ttl, identity: input.identity ?? null}
+  requireDualOperationRequest(statement, {chainId: input.chainId, slot, operation: input.operation, payloadDigest: digest, epoch: input.epoch})
   const preimage = dualOperationPayload(statement)
   return {statement, message_hex: bare(preimage), payload_digest: bare(sha256(preimage)), action: 'dual-approve'}
 }
@@ -212,15 +236,16 @@ function preparedStatement(prepared: PreparedDualOperation, nowSecs?: number): D
 }
 
 /**
- * `dual-operation approve`: check the statement against the final payment and the approver's own
- * expectations, then sign its exact bytes. A credentialed approver adds its holder-bound
- * dual-approve grant, which must bind this statement.
- * @param input - Prepared statement, final payment, the expected slot and operation digest, the approver and its optional grant.
+ * `dual-operation approve`: check the statement against the approver's own expectations (the
+ * slot and operation digest it was asked to approve) and its request hash, then sign its exact
+ * bytes. A credentialed approver adds its holder-bound dual-approve grant, which must bind this
+ * statement.
+ * @param input - Prepared statement, the expected slot and operation digest, the approver and its optional grant.
  */
-export async function approveDualOperation(input: {prepared: PreparedDualOperation; payment: PaymentIntentWire; expectSlot: string; expectPayloadDigest: string;
+export async function approveDualOperation(input: {prepared: PreparedDualOperation; expectSlot: string; expectPayloadDigest: string;
   approver: DualOperationApprover; authorization?: {compound_token: CompoundTokenWire; verifier_proofs: VerifierProof[]; evidence_ct?: string}; nowSecs?: number}): Promise<DualOperationApprovalRecord> {
   const s = preparedStatement(input.prepared, input.nowSecs)
-  requireDualOperationPayment(s, input.payment)
+  if (s.request_id !== dualOperationRequestId(s.chain_id, Uint8Array.from(s.slot), s.operation, Uint8Array.from(s.payload_digest))) throw new TasraError('statement request id differs from its operation')
   if (!equalBytes(hex32(input.expectSlot), Uint8Array.from(s.slot))) throw new TasraError('unexpected slot')
   if (!equalBytes(hex32(input.expectPayloadDigest), Uint8Array.from(s.payload_digest))) throw new TasraError('unexpected operation digest')
   const payload = dualOperationPayload(s), publicKey = input.approver.publicKey.slice()
@@ -272,16 +297,12 @@ export function assembleDualOperation(input: {prepared: PreparedDualOperation; a
 
 /**
  * The client-side half of the keeper gate, before a bundle travels in an operation body: current,
- * the expected operation, and bound to this slot, payload digest and final payment.
+ * the expected operation, and bound to this chain, slot, payload digest and request hash.
  * @param proof - Assembled bundle.
- * @param expected - The operation, slot, SHA-256 of the operation's payload and the final payment.
+ * @param expected - The chain, operation, slot and payload digest (and key epoch, when known) of the operation about to run.
  */
-export function requireDualOperationProof(proof: DualOperationProof, expected: {operation: DualOperationKind; slot: Uint8Array; payloadDigest: Uint8Array; payment: PaymentIntentWire}): void {
+export function requireDualOperationProof(proof: DualOperationProof, expected: DualOperationExpectation): void {
   requireCurrentDualOperation(proof.statement)
-  const s = proof.statement
-  if (s.operation !== expected.operation || !equalBytes(Uint8Array.from(s.slot), expected.slot) || !equalBytes(Uint8Array.from(s.payload_digest), expected.payloadDigest)) {
-    throw new TasraError('dual-operation approvals name another operation, slot or digest')
-  }
-  requireDualOperationPayment(s, expected.payment)
+  requireDualOperationRequest(proof.statement, expected)
   if (!Array.isArray(proof.approvals) || proof.approvals.length === 0 || proof.approvals.length > MAX_APPROVALS) throw new TasraError('invalid dual-operation approvals')
 }

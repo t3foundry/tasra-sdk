@@ -1,8 +1,7 @@
 // Contract ABI data is refreshed from the contract build artifacts.
 // Source: contracts/out/Settlement.sol/Settlement.json (`abi` field).
-// Omitted on purpose: setPrepaidEscapeDelay (owner/timelock-only governance, not an SDK action).
 
-/** Settlement contract interface for prepaid slot balances and operation settlement. */
+/** Settlement contract interface for metered slot balances and operation settlement. */
 export const settlementAbi = [
   {
     "type": "constructor",
@@ -37,19 +36,6 @@ export const settlementAbi = [
   },
   {
     "type": "function",
-    "name": "MAX_ESCAPE_PER_CALL",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "MAX_RECIPIENTS",
     "inputs": [],
     "outputs": [
@@ -57,58 +43,6 @@ export const settlementAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "PREPAID_EMPTY_PAYOUT_ROOT",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "PREPAID_ESCAPE_DELAY_CEILING",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "PREPAID_ESCAPE_DELAY_DEFAULT",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "PREPAID_ESCAPE_DELAY_FLOOR",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
@@ -145,29 +79,6 @@ export const settlementAbi = [
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "activatePrepaid",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "legacyNonce",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "reconciliationHash",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -471,6 +382,16 @@ export const settlementAbi = [
         "internalType": "uint64[]"
       },
       {
+        "name": "coveredOperations",
+        "type": "uint64[]",
+        "internalType": "uint64[]"
+      },
+      {
+        "name": "coveredStatementRoots",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      },
+      {
         "name": "coveredTotals",
         "type": "uint256[]",
         "internalType": "uint256[]"
@@ -530,21 +451,35 @@ export const settlementAbi = [
   },
   {
     "type": "function",
-    "name": "escapePrepaid",
+    "name": "consolidatedSettledAt",
     "inputs": [
       {
-        "name": "slotId",
+        "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
-      },
-      {
-        "name": "requestIds",
-        "type": "bytes32[]",
-        "internalType": "bytes32[]"
       }
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "consolidatedSweepFloor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -567,29 +502,6 @@ export const settlementAbi = [
   {
     "type": "function",
     "name": "initialize",
-    "inputs": [
-      {
-        "name": "token_",
-        "type": "address",
-        "internalType": "contract TasraToken"
-      },
-      {
-        "name": "nodeRegistry_",
-        "type": "address",
-        "internalType": "contract NodeRegistry"
-      },
-      {
-        "name": "owner_",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "initializePrepaid",
     "inputs": [
       {
         "name": "token_",
@@ -647,7 +559,7 @@ export const settlementAbi = [
     "name": "lastNonce",
     "inputs": [
       {
-        "name": "",
+        "name": "slotId",
         "type": "bytes32",
         "internalType": "bytes32"
       }
@@ -670,6 +582,25 @@ export const settlementAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract NodeRegistry"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "operationsSettled",
+    "inputs": [
+      {
+        "name": "slotId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
@@ -702,395 +633,6 @@ export const settlementAbi = [
   },
   {
     "type": "function",
-    "name": "prepaidAssignmentBlock",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidBatch",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidCost",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidEnabled",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidEscapableAt",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "requestId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidEscapeDelay",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidEscapeSince",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidEscapedAt",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidFromGenesis",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidQuoteMinedAt",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidReconcileDigest",
-    "inputs": [
-      {
-        "name": "batch",
-        "type": "tuple",
-        "internalType": "struct Settlement.PrepaidReconciliation",
-        "components": [
-          {
-            "name": "slotId",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "requestIds",
-            "type": "bytes32[]",
-            "internalType": "bytes32[]"
-          },
-          {
-            "name": "paid",
-            "type": "uint256[]",
-            "internalType": "uint256[]"
-          },
-          {
-            "name": "batchId",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "root",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "evidenceHash",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "deadline",
-            "type": "uint64",
-            "internalType": "uint64"
-          }
-        ]
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidRefunded",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidReserveDigest",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "legacyNonce",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "assignmentBlock",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "requestIds",
-        "type": "bytes32[]",
-        "internalType": "bytes32[]"
-      },
-      {
-        "name": "costs",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidSettleDigest",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "requestIds",
-        "type": "bytes32[]",
-        "internalType": "bytes32[]"
-      },
-      {
-        "name": "batchId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "root",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidSettled",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "proxiableUUID",
     "inputs": [],
     "outputs": [
@@ -1104,245 +646,10 @@ export const settlementAbi = [
   },
   {
     "type": "function",
-    "name": "reconcilePrepaidAgg",
-    "inputs": [
-      {
-        "name": "batch",
-        "type": "tuple",
-        "internalType": "struct Settlement.PrepaidReconciliation",
-        "components": [
-          {
-            "name": "slotId",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "requestIds",
-            "type": "bytes32[]",
-            "internalType": "bytes32[]"
-          },
-          {
-            "name": "paid",
-            "type": "uint256[]",
-            "internalType": "uint256[]"
-          },
-          {
-            "name": "batchId",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "root",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "evidenceHash",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "deadline",
-            "type": "uint64",
-            "internalType": "uint64"
-          }
-        ]
-      },
-      {
-        "name": "signers",
-        "type": "address[]",
-        "internalType": "address[]"
-      },
-      {
-        "name": "pubkeys",
-        "type": "bytes[]",
-        "internalType": "bytes[]"
-      },
-      {
-        "name": "sig",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "reconcilePrepaidBls",
-    "inputs": [
-      {
-        "name": "batch",
-        "type": "tuple",
-        "internalType": "struct Settlement.PrepaidReconciliation",
-        "components": [
-          {
-            "name": "slotId",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "requestIds",
-            "type": "bytes32[]",
-            "internalType": "bytes32[]"
-          },
-          {
-            "name": "paid",
-            "type": "uint256[]",
-            "internalType": "uint256[]"
-          },
-          {
-            "name": "batchId",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "root",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "evidenceHash",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "deadline",
-            "type": "uint64",
-            "internalType": "uint64"
-          }
-        ]
-      },
-      {
-        "name": "sig",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "renounceOwnership",
     "inputs": [],
     "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "reservePrepaidAgg",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "legacyNonce",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "assignmentBlock",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "requestIds",
-        "type": "bytes32[]",
-        "internalType": "bytes32[]"
-      },
-      {
-        "name": "costs",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "signers",
-        "type": "address[]",
-        "internalType": "address[]"
-      },
-      {
-        "name": "pubkeys",
-        "type": "bytes[]",
-        "internalType": "bytes[]"
-      },
-      {
-        "name": "sig",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "reservePrepaidBls",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "legacyNonce",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "assignmentBlock",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "requestIds",
-        "type": "bytes32[]",
-        "internalType": "bytes32[]"
-      },
-      {
-        "name": "costs",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "sig",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "reservedBalanceOf",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -1462,6 +769,16 @@ export const settlementAbi = [
         "internalType": "uint64"
       },
       {
+        "name": "operations",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "statementsRoot",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
         "name": "recipients",
         "type": "address[]",
         "internalType": "address[]"
@@ -1515,6 +832,16 @@ export const settlementAbi = [
         "internalType": "uint64"
       },
       {
+        "name": "operations",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "statementsRoot",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
         "name": "recipients",
         "type": "address[]",
         "internalType": "address[]"
@@ -1556,6 +883,16 @@ export const settlementAbi = [
         "name": "nonce",
         "type": "uint64",
         "internalType": "uint64"
+      },
+      {
+        "name": "operations",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "statementsRoot",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "root",
@@ -1611,6 +948,16 @@ export const settlementAbi = [
         "internalType": "uint64[]"
       },
       {
+        "name": "coveredOperations",
+        "type": "uint64[]",
+        "internalType": "uint64[]"
+      },
+      {
+        "name": "coveredStatementRoots",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      },
+      {
         "name": "coveredTotals",
         "type": "uint256[]",
         "internalType": "uint256[]"
@@ -1649,6 +996,16 @@ export const settlementAbi = [
         "internalType": "uint64"
       },
       {
+        "name": "operations",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "statementsRoot",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
         "name": "recipients",
         "type": "address[]",
         "internalType": "address[]"
@@ -1675,92 +1032,6 @@ export const settlementAbi = [
   },
   {
     "type": "function",
-    "name": "settlePrepaidAgg",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "requestIds",
-        "type": "bytes32[]",
-        "internalType": "bytes32[]"
-      },
-      {
-        "name": "batchId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "root",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "signers",
-        "type": "address[]",
-        "internalType": "address[]"
-      },
-      {
-        "name": "pubkeys",
-        "type": "bytes[]",
-        "internalType": "bytes[]"
-      },
-      {
-        "name": "sig",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "settlePrepaidBls",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "requestIds",
-        "type": "bytes32[]",
-        "internalType": "bytes32[]"
-      },
-      {
-        "name": "batchId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "root",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "sig",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "settleRootDigest",
     "inputs": [
       {
@@ -1777,6 +1048,16 @@ export const settlementAbi = [
         "name": "nonce",
         "type": "uint64",
         "internalType": "uint64"
+      },
+      {
+        "name": "operations",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "statementsRoot",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "root",
@@ -1805,6 +1086,13 @@ export const settlementAbi = [
   },
   {
     "type": "function",
+    "name": "startConsolidatedSweepClock",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "sweepClaimPool",
     "inputs": [
       {
@@ -1816,6 +1104,24 @@ export const settlementAbi = [
         "name": "nonce",
         "type": "uint64",
         "internalType": "uint64"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "sweepConsolidatedPool",
+    "inputs": [
+      {
+        "name": "batchId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "to",
@@ -2208,6 +1514,31 @@ export const settlementAbi = [
   },
   {
     "type": "event",
+    "name": "ConsolidatedPoolSwept",
+    "inputs": [
+      {
+        "name": "batchId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "ConsolidatedSettled",
     "inputs": [
       {
@@ -2245,6 +1576,19 @@ export const settlementAbi = [
         "type": "bytes32",
         "indexed": false,
         "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ConsolidatedSweepClockStarted",
+    "inputs": [
+      {
+        "name": "startedAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
       }
     ],
     "anonymous": false
@@ -2295,6 +1639,43 @@ export const settlementAbi = [
   },
   {
     "type": "event",
+    "name": "OperationsSettled",
+    "inputs": [
+      {
+        "name": "slotId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "nonce",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "operations",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "totalOperations",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "statementsRoot",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "OwnershipTransferStarted",
     "inputs": [
       {
@@ -2327,353 +1708,6 @@ export const settlementAbi = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidAggregateAuthorized",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "digest",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "signers",
-        "type": "address[]",
-        "indexed": false,
-        "internalType": "address[]"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidBatchEscaped",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "caller",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "refunded",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "requestCount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidBatchReconciled",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "batchId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "root",
-        "type": "bytes32",
-        "indexed": false,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "evidenceHash",
-        "type": "bytes32",
-        "indexed": false,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "paid",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "refunded",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "requestCount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "indexed": false,
-        "internalType": "uint64"
-      },
-      {
-        "name": "digest",
-        "type": "bytes32",
-        "indexed": false,
-        "internalType": "bytes32"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidBatchSettled",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "batchId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "root",
-        "type": "bytes32",
-        "indexed": false,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "total",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "requestCount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "indexed": false,
-        "internalType": "uint64"
-      },
-      {
-        "name": "digest",
-        "type": "bytes32",
-        "indexed": false,
-        "internalType": "bytes32"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidCutover",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "legacyNonce",
-        "type": "uint64",
-        "indexed": false,
-        "internalType": "uint64"
-      },
-      {
-        "name": "reconciliationHash",
-        "type": "bytes32",
-        "indexed": false,
-        "internalType": "bytes32"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidEnabled",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "legacyNonce",
-        "type": "uint64",
-        "indexed": false,
-        "internalType": "uint64"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidEscapeDelayChanged",
-    "inputs": [
-      {
-        "name": "previous",
-        "type": "uint64",
-        "indexed": false,
-        "internalType": "uint64"
-      },
-      {
-        "name": "next",
-        "type": "uint64",
-        "indexed": false,
-        "internalType": "uint64"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidEscaped",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "requestId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "refunded",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidReconciled",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "requestId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "batchId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "paid",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "refunded",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidReserved",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "requestId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "cost",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "assignmentBlock",
-        "type": "bytes32",
-        "indexed": false,
-        "internalType": "bytes32"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidSettled",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "requestId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "batchId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
       }
     ],
     "anonymous": false
@@ -2882,6 +1916,17 @@ export const settlementAbi = [
   },
   {
     "type": "error",
+    "name": "BatchAgeUnknown",
+    "inputs": [
+      {
+        "name": "batchId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "BatchAlreadyClaimed",
     "inputs": [
       {
@@ -2972,27 +2017,6 @@ export const settlementAbi = [
   },
   {
     "type": "error",
-    "name": "EscapeDisabled",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "EscapeNotOpen",
-    "inputs": [
-      {
-        "name": "requestId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "opensAt",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "Expired",
     "inputs": [
       {
@@ -3040,28 +2064,12 @@ export const settlementAbi = [
   },
   {
     "type": "error",
-    "name": "InvalidEscapeDelay",
-    "inputs": [
-      {
-        "name": "delay",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "InvalidGracePeriod",
     "inputs": []
   },
   {
     "type": "error",
     "name": "InvalidInitialization",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidReconciliation",
     "inputs": []
   },
   {
@@ -3141,16 +2149,6 @@ export const settlementAbi = [
   },
   {
     "type": "error",
-    "name": "MissingAssignmentBlock",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "MissingReconciliation",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "ModExpFailed",
     "inputs": []
   },
@@ -3172,6 +2170,17 @@ export const settlementAbi = [
         "name": "nonce",
         "type": "uint64",
         "internalType": "uint64"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NothingToSweepInBatch",
+    "inputs": [
+      {
+        "name": "batchId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ]
   },
@@ -3236,28 +2245,6 @@ export const settlementAbi = [
   },
   {
     "type": "error",
-    "name": "PrepaidNotEnabled",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "PrepaidSlot",
-    "inputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "QuorumNotMet",
     "inputs": [
       {
@@ -3274,46 +2261,8 @@ export const settlementAbi = [
   },
   {
     "type": "error",
-    "name": "ReservationConflict",
-    "inputs": [
-      {
-        "name": "requestId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "ReservationOvercharge",
-    "inputs": [
-      {
-        "name": "requestId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "paid",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "reserved",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "ReservationUnavailable",
-    "inputs": [
-      {
-        "name": "requestId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ]
+    "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
   },
   {
     "type": "error",
@@ -3461,8 +2410,14 @@ export const settlementAbi = [
   },
   {
     "type": "error",
-    "name": "ZeroBatchId",
-    "inputs": []
+    "name": "ZeroOperations",
+    "inputs": [
+      {
+        "name": "slotId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
   },
   {
     "type": "error",
@@ -3471,548 +2426,7 @@ export const settlementAbi = [
   },
   {
     "type": "error",
-    "name": "ZeroRequestId",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "ZeroRoot",
     "inputs": []
-  },
-  // ADR-0090 prepaid allowances (feat/adr90-contracts artifact).
-  {
-    "type": "function",
-    "name": "closePrepaidAllowanceBls",
-    "inputs": [
-      {
-        "name": "allowanceId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "finalCumulative",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "sig",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "escapePrepaidAllowance",
-    "inputs": [
-      {
-        "name": "allowanceId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "prepaidAllowance",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "assignmentBlock",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "spent",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxOpCost",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "expiresAt",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "reservedAt",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "actions",
-        "type": "uint32",
-        "internalType": "uint32"
-      },
-      {
-        "name": "closed",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "prepaidAllowanceSettledSeq",
-    "inputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "reservePrepaidAllowanceBls",
-    "inputs": [
-      {
-        "name": "r",
-        "type": "tuple",
-        "internalType": "struct SettlementStorage.PrepaidAllowanceReservation",
-        "components": [
-          {
-            "name": "slotId",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "legacyNonce",
-            "type": "uint64",
-            "internalType": "uint64"
-          },
-          {
-            "name": "intentHash",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "amount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "maxOpCost",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "actions",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
-            "name": "expiresAt",
-            "type": "uint64",
-            "internalType": "uint64"
-          },
-          {
-            "name": "assignmentBlock",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "deadline",
-            "type": "uint64",
-            "internalType": "uint64"
-          }
-        ]
-      },
-      {
-        "name": "sig",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "settlePrepaidAllowanceBls",
-    "inputs": [
-      {
-        "name": "s",
-        "type": "tuple",
-        "internalType": "struct SettlementStorage.PrepaidAllowanceSettlement",
-        "components": [
-          {
-            "name": "allowanceId",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "requestIds",
-            "type": "bytes32[]",
-            "internalType": "bytes32[]"
-          },
-          {
-            "name": "costs",
-            "type": "uint256[]",
-            "internalType": "uint256[]"
-          },
-          {
-            "name": "paid",
-            "type": "uint256[]",
-            "internalType": "uint256[]"
-          },
-          {
-            "name": "batchId",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "root",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "evidenceHash",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "deadline",
-            "type": "uint64",
-            "internalType": "uint64"
-          }
-        ]
-      },
-      {
-        "name": "sig",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "event",
-    "name": "PrepaidAllowanceClosed",
-    "inputs": [
-      {
-        "name": "allowanceId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "finalCumulative",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "refunded",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidAllowanceEscaped",
-    "inputs": [
-      {
-        "name": "allowanceId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "caller",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "refunded",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidAllowanceReserved",
-    "inputs": [
-      {
-        "name": "allowanceId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "intentHash",
-        "type": "bytes32",
-        "indexed": false,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxOpCost",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "actions",
-        "type": "uint32",
-        "indexed": false,
-        "internalType": "uint32"
-      },
-      {
-        "name": "expiresAt",
-        "type": "uint64",
-        "indexed": false,
-        "internalType": "uint64"
-      },
-      {
-        "name": "assignmentBlock",
-        "type": "bytes32",
-        "indexed": false,
-        "internalType": "bytes32"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PrepaidAllowanceSettled",
-    "inputs": [
-      {
-        "name": "allowanceId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "slotId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "batchId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "requestIds",
-        "type": "bytes32[]",
-        "indexed": false,
-        "internalType": "bytes32[]"
-      },
-      {
-        "name": "root",
-        "type": "bytes32",
-        "indexed": false,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "evidenceHash",
-        "type": "bytes32",
-        "indexed": false,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "paid",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "refunded",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "spent",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "deadline",
-        "type": "uint64",
-        "indexed": false,
-        "internalType": "uint64"
-      },
-      {
-        "name": "digest",
-        "type": "bytes32",
-        "indexed": false,
-        "internalType": "bytes32"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "error",
-    "name": "AllowanceConflict",
-    "inputs": [
-      {
-        "name": "allowanceId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "AllowanceCumulativeMismatch",
-    "inputs": [
-      {
-        "name": "allowanceId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "finalCumulative",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "spent",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "AllowanceOpCostExceeded",
-    "inputs": [
-      {
-        "name": "requestId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "cost",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxOpCost",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "AllowanceOverspent",
-    "inputs": [
-      {
-        "name": "allowanceId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "spent",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "AllowanceUnavailable",
-    "inputs": [
-      {
-        "name": "allowanceId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "InvalidAllowance",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidAllowanceExpiry",
-    "inputs": [
-      {
-        "name": "expiresAt",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ]
   }
 ] as const

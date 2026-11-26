@@ -1,7 +1,7 @@
 // Readiness of a freshly created slot = its group key ANCHORED ON CHAIN, not a keeper's answer.
 //
 // A keeper serves `GET /v1/keys/:id/public` as soon as ITS DKG finished, which is before the
-// k-th publish vote (or the attested submit) lands in a block. Every paid operation decides at a
+// k-th publish vote (or the attested submit) lands in a block. Every operation decides at a
 // chain head, where `KeyRegistry.getKeySlot(slot).publicKey` is still empty until then, and is
 // refused "paid slot is inactive or has no published key". 2026-11-12 cert run 13 (`test:prod`,
 // "e2e: BLS client-only threshold decrypt"): the fixture saw the keeper key at 00:46:13.1, the
@@ -56,7 +56,7 @@ export interface CommitteeKeySources {
   committee: () => Promise<string[]>
   /** The group key `keeper` serves for the slot, or undefined while it has none. */
   keeperKey: (keeper: string) => Promise<string | undefined>
-  /** `KeyRegistry.getKeySlot` at the chain head the paid operations will read. */
+  /** `KeyRegistry.getKeySlot` at the chain head the operations will read. */
   readSlot: () => Promise<AnchoredSlotView>
 }
 
@@ -64,7 +64,7 @@ export interface CommitteeKeySources {
  * Wait (bounded) for a fresh BLS slot's committee to serve its 96-byte group key AND for the chain to have
  * anchored that same key. Returns the committee and the key (lowercase hex, no `0x`). 2026-11-12
  * cert run 17 (`verify/bootstrap.ts`): the loop returned on a keeper's key, the slot was funded,
- * and the paid discovery read the chain at 10:07:05 while the publishing block landed 10:07:08.
+ * and the operation's discovery read the chain at 10:07:05 while the publishing block landed 10:07:08.
  */
 export async function waitForCommitteeKey(sources: CommitteeKeySources, wait: AnchoredKeyWait): Promise<{committee: string[]; publicKey: string}> {
   const now = wait.now ?? Date.now, sleep = wait.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)))

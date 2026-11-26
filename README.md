@@ -141,9 +141,8 @@ The package has [not had an independent cryptographic audit](SECURITY.md#cryptog
 When an authorization includes sealed presentation evidence, retain its `evidenceCt`
 alongside the token and verifier proofs. Low-level sign, decrypt, IBE, ECDSA and
 credentialed dual-approval calls accept this same `evidenceCt`; they check its
-ciphertext hash before requesting execution approval or submitting a keeper body.
-Application authorizers must return it in `OperationGrant`. Paid operations retain
-it in their original journal and expose `PaidOperation.evidenceCt` for keeper calls.
+ciphertext hash before submitting a keeper body.
+Application authorizers must return it in `OperationGrant`.
 
 `requestCommitteeToken` and the one-call committee helpers retain and forward this
 field automatically. Direct `gatherCommitteeToken` callers must provide `onEvidence`

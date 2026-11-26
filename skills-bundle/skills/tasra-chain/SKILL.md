@@ -68,37 +68,23 @@ for these integrations. The SDK retains advanced writers, governance and meterin
 APIs; choose them by capability, not a fixed number of clients. `chainId` must be
 explicit for the chosen deployment, and slot IDs are 32-byte hex strings.
 
-For prepaid reservations, use `reserveApplicationPayment` from `@t3foundry/tasra-sdk/app` with
-the original creator intent/session, explicit gas limits and one durable private store
-shared by every caller of a dedicated gas payer. It serializes nonce selection across
-slots/deployments on the same chain. An uncertain preparation holds that payer until
-`reconcileApplicationPayment` verifies its original mined transaction; never remove a
-journal or clear a claim based on age. It does not coordinate external wallet transactions
-or submit cancellations. See `docs/funding.md` for the complete recovery contract.
+Billing is metered. The slot owner deposits TSRA with `writer.fundSlot(slotId, amount)` and reads
+`writer.settlementBalance(slotId)`; keepers serve authorized operations and the accountants settle
+recorded usage later. There is no payment, reservation or execution-consent step in the SDK, and a
+holder application needs nothing the owner holds. See `docs/funding.md`.
 
-Completed keeper result recovery uses `recoverKeeperExecution` with the original
-payment, independently retained assigned worker and creator-certified local execution
-signer. It reads canonical original creator, TASRA backing and eligible roster before
-requesting a fresh client read signature, then verifies the worker evidence and exact
-result commitment. Missing history, failed or interrupted work is refused. Never turn
-a recovery refusal into another key operation or a replacement payment. The Node
-`createNodeKeeperRecoveryTransport` permits only the two evidence/recovery POST paths
-with verified TLS and socket destination checks; private results must not be logged.
-Verify recovered cryptographic results against the original group key before use.
+For many KEM decryptions under one presentation use `openDecryptSession` from
+`@t3foundry/tasra-sdk/app` (`docs/encryption.md`). Its chain reads are exported from
+`@t3foundry/tasra-sdk/chain`: `readSlotSharing` (a BLS slot's keepers and authenticated verifying
+shares from the slot ID), `createSlotDrawReader` / `readSlotVerifierDraw` (a slot's verifier draw
+as anchored on chain, with membership proofs from an accountant's snapshot artifact) and
+`readCurrentBeaconEpoch` / `readBeaconDrawState`. `createNodeAgentTransport` (`/chain/node`)
+carries verifier-agent sessions and the session grant's refresh and revoke.
 
-Paid application key operations require `execution: {certificate, signer}` from the
-original creator-certified client, alongside the already reserved `payment` and fixed
-presentation `random`. For direct keeper clients, construct `approveExecution` with
-`createKeeperExecutionApprover` using independently selected contracts, expected payload
-digest and original local signer. It rechecks canonical backing and current eligible
-sharing before signing the complete body for assigned stages. Never forward the
-execution seed to an agent or keeper, and never copy the expected digest from a proposal.
-
-Paid dual-control uses `frostSlot.approvals({quorum, credentialGated, payment, execution})` to
-pin the final Sign reservation and its assigned keeper. Each credential approval
-needs a separate `dual-approve` payment and fixed presentation random; it binds the
-paid approval bytes, including the final Sign commitment. Resume uncertain requests
-using the original reservation ID and payment; do not mint replacement payments on timeout.
+Native approvals on FROST use `frostSlot.approvals({quorum, credentialGated})`. ECDSA, P-256 and
+BLS operations carry an approval bundle (`prepareOperationApproval`, `approveDualOperation` or
+`approveSigningIntent`, `assembleOperationApproval`) as `dualControl`; the statement binds the
+chain, slot, operation, key epoch, payload digest and request hash. See `docs/native-approvals.md`.
 
 The SDK includes its wallet/chain runtime dependencies. Add `viem` directly only
 when your application intentionally imports its advanced APIs. Only `/chain/node` imports Node TLS helpers;

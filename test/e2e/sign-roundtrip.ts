@@ -61,9 +61,8 @@ s.ok('provisioned the rule + salt on the committee', prov.ok, prov.errors.join('
 const messageHex = randomBytes(32).toString('hex')
 const grant = await authorizeWallet(cfg,slotId,creatorKey,{action:'sign',message:Buffer.from(messageHex,'hex')})
 const signed = await committeeSign({nodeUrl:grant.coordinatorUrl, committeeToken:grant.compound_token,
-  verifierProofs:grant.verifierProofs, evidenceCt:grant.evidenceCt, approveExecution:grant.approveExecution, message:Buffer.from(messageHex,'hex')})
-grant.dispose()
-s.ok('/v1/sign returned a paid result', true)
+  verifierProofs:grant.verifierProofs, evidenceCt:grant.evidenceCt, message:Buffer.from(messageHex,'hex')})
+s.ok('/v1/sign returned a result', true)
 const sig = {signature_r:Buffer.from(signed.signature.r).toString('hex'), signature_z:Buffer.from(signed.signature.z).toString('hex'),
   group_public_key:Buffer.from(signed.groupPublicKey).toString('hex'), epoch:signed.epoch}
 s.ok('sign reply carries r + z', !!sig.signature_r && !!sig.signature_z)

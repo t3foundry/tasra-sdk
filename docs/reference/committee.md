@@ -27,7 +27,7 @@ Distinct from a generic HTTP error because the committee flow polls several
 verifiers and tolerates individual refusals as long as a quorum co-signs - see
 ` ThresholdNotMetError ` for the failure that means the quorum was missed.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L78)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L77)
 
 Import: `import {CommitteeAuthorizeError} from 'tasra-sdk/committee'`
 
@@ -62,7 +62,7 @@ declare class CommitteeAuthorizeError {
 
 A signing request may have been accepted despite a transport or response failure. Reconcile before resubmitting.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L17)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L15)
 
 Import: `import {OperationOutcomeUnknownError} from 'tasra-sdk/committee'`
 
@@ -117,21 +117,12 @@ declare class SessionGrantError {
 Operations you can import and call.
 
 <details>
-<summary>Browse 126 functions</summary>
+<summary>Browse 91 functions</summary>
 
 - [acceptStatusRefreshRelay](#acceptstatusrefreshrelay)
-- [allowanceActionBits](#allowanceactionbits)
-- [allowanceCloseDigest](#allowanceclosedigest)
-- [allowanceFunds](#allowancefunds)
-- [allowanceId](#allowanceid)
-- [allowanceReserveDigest](#allowancereservedigest)
-- [allowanceSettleDigest](#allowancesettledigest)
 - [approveDualOperation](#approvedualoperation)
-- [approveExecutionRequest](#approveexecutionrequest)
 - [assembleCompoundToken](#assemblecompoundtoken)
 - [assembleDualOperation](#assembledualoperation)
-- [assertDebitVoucherWire](#assertdebitvoucherwire)
-- [assertPaymentIntentWire](#assertpaymentintentwire)
 - [assertStatusAttestationsWire](#assertstatusattestationswire)
 - [auditOperationId](#auditoperationid)
 - [buildVerifierProofs](#buildverifierproofs)
@@ -152,12 +143,7 @@ Operations you can import and call.
 - [compoundTokenHash](#compoundtokenhash)
 - [createDecryptionRecipient](#createdecryptionrecipient)
 - [createDualSignClient](#createdualsignclient)
-- [createExecutionCertificate](#createexecutioncertificate)
-- [createExecutionRecoveryAuthorization](#createexecutionrecoveryauthorization)
-- [createLocalExecutionSigner](#createlocalexecutionsigner)
 - [createStatusRefreshProof](#createstatusrefreshproof)
-- [debitVoucherDigest](#debitvoucherdigest)
-- [debitVoucherWireDigest](#debitvoucherwiredigest)
 - [decodeCompoundToken](#decodecompoundtoken)
 - [decodeOperationReceipt](#decodeoperationreceipt)
 - [decodeSessionGrant](#decodesessiongrant)
@@ -168,42 +154,26 @@ Operations you can import and call.
 - [dpopHtu](#dpophtu)
 - [dualOperationFromPayload](#dualoperationfrompayload)
 - [dualOperationPayload](#dualoperationpayload)
+- [dualOperationRequestId](#dualoperationrequestid)
 - [dualSignApprovalPayload](#dualsignapprovalpayload)
 - [encodeSessionGrant](#encodesessiongrant)
 - [encodeSessionProof](#encodesessionproof)
 - [evidenceBindingMessage](#evidencebindingmessage)
-- [executionApprovalTypedData](#executionapprovaltypeddata)
-- [executionBodyHash](#executionbodyhash)
-- [executionCertificateTypedData](#executioncertificatetypeddata)
-- [executionConsentBinding](#executionconsentbinding)
-- [executionInitializationTypedData](#executioninitializationtypeddata)
-- [executionRecoverySigningHash](#executionrecoverysigninghash)
 - [extractIdentityStrict](#extractidentitystrict)
 - [gatherCommitteeToken](#gathercommitteetoken)
 - [holderProofPerVerifier](#holderproofperverifier)
 - [ibeDecryptRequest](#ibedecryptrequest)
 - [ibeExtractRequest](#ibeextractrequest)
-- [initializeExecutionSession](#initializeexecutionsession)
 - [isValidSessionId](#isvalidsessionid)
-- [keeperAssignmentCommitment](#keeperassignmentcommitment)
 - [kemContentDigest](#kemcontentdigest)
 - [legacyDpopHtu](#legacydpophtu)
 - [merkleProof](#merkleproof)
 - [merkleRoot](#merkleroot)
 - [normalizeOrigin](#normalizeorigin)
 - [opAttestationHash](#opattestationhash)
-- [paidDualSignApprovalPayload](#paiddualsignapprovalpayload)
-- [paidExecutionReportSigningHash](#paidexecutionreportsigninghash)
-- [paidExecutionRequest](#paidexecutionrequest)
 - [parseSessionKeyJwk](#parsesessionkeyjwk)
 - [parseStatusRefreshReply](#parsestatusrefreshreply)
-- [paymentIntentHash](#paymentintenthash)
-- [paymentIntentTypedData](#paymentintenttypeddata)
-- [paymentSessionCommitment](#paymentsessioncommitment)
 - [platformAudience](#platformaudience)
-- [prepaidAllowanceIntentHash](#prepaidallowanceintenthash)
-- [prepaidAllowanceIntentTypedData](#prepaidallowanceintenttypeddata)
-- [prepaidRequestId](#prepaidrequestid)
 - [prepareDualOperation](#preparedualoperation)
 - [recipientPayloadDigest](#recipientpayloaddigest)
 - [refreshStatusDirect](#refreshstatusdirect)
@@ -211,8 +181,8 @@ Operations you can import and call.
 - [requestCommitteeToken](#requestcommitteetoken)
 - [requestIbeExtractionPartials](#requestibeextractionpartials)
 - [requireCurrentDualOperation](#requirecurrentdualoperation)
-- [requireDualOperationPayment](#requiredualoperationpayment)
 - [requireDualOperationProof](#requiredualoperationproof)
+- [requireDualOperationRequest](#requiredualoperationrequest)
 - [requireStatusAttestations](#requirestatusattestations)
 - [selectVerifierCommittee](#selectverifiercommittee)
 - [sessionBatchProofHash](#sessionbatchproofhash)
@@ -233,14 +203,9 @@ Operations you can import and call.
 - [verifierLeaf](#verifierleaf)
 - [verifyCompoundToken](#verifycompoundtoken)
 - [verifyEvidenceBinding](#verifyevidencebinding)
-- [verifyExecutionAuthorization](#verifyexecutionauthorization)
-- [verifyExecutionConsent](#verifyexecutionconsent)
 - [verifyMerkleProof](#verifymerkleproof)
 - [verifyOperationReceipt](#verifyoperationreceipt)
-- [verifyPaidExecutionEvidence](#verifypaidexecutionevidence)
-- [verifyRecoveredExecutionResult](#verifyrecoveredexecutionresult)
 - [verifySessionGrant](#verifysessiongrant)
-- [verifySessionInitialization](#verifysessioninitialization)
 - [verifySessionSignature](#verifysessionsignature)
 - [verifyStatusAttestation](#verifystatusattestation)
 - [verifyStatusAttestations](#verifystatusattestations)
@@ -255,7 +220,7 @@ be exactly `{token_hash, status_attestations}`; each attestation is re-verified 
 original roster (the agent is not trusted). A non-200 answer becomes a typed
 ` StatusRefreshError `, with the relay's per-index `reasons` when it sent them.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L655)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L635)
 
 Import: `import {acceptStatusRefreshRelay} from 'tasra-sdk/committee'`
 
@@ -270,141 +235,20 @@ declare function acceptStatusRefreshRelay(grant: StatusRefreshGrant, response: S
 
 Returns: ` StatusRefreshResult `.
 
-### allowanceActionBits
-
-The actions bitmap of an allowance (bit `i` = `PrepaidAction` ordinal `i`).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L274)
-
-Import: `import {allowanceActionBits} from 'tasra-sdk/committee'`
-
-```ts
-declare function allowanceActionBits(actions: readonly AllowanceAction[]): number;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` actions ` | ` readonly AllowanceAction[] ` | - Paid actions the allowance funds; at least one. |
-
-Returns: ` number `.
-
-### allowanceCloseDigest
-
-The close digest (`keykeeper/prepaid-allowance-close/v1`).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L508)
-
-Import: `import {allowanceCloseDigest} from 'tasra-sdk/committee'`
-
-```ts
-declare function allowanceCloseDigest(settlement: Hex, chainId: number, allowance: Hex, finalCumulative: bigint, deadline: bigint): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` settlement ` | ` Hex ` | - Settlement proxy. |
-| ` chainId ` | ` number ` | - EVM chain. |
-| ` allowance ` | ` Hex ` | - Allowance. |
-| ` finalCumulative ` | ` bigint ` | - Every debit the quorum issued. |
-| ` deadline ` | ` bigint ` | - Deadline. |
-
-Returns: ` Hex `.
-
-### allowanceFunds
-
-Whether an allowance's actions bitmap funds `action`.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L287)
-
-Import: `import {allowanceFunds} from 'tasra-sdk/committee'`
-
-```ts
-declare function allowanceFunds(actions: number, action: AllowanceAction): boolean;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` actions ` | ` number ` | - Allowance bitmap. |
-| ` action ` | ` AllowanceAction ` | - Paid action of one operation. |
-
-Returns: ` boolean `.
-
-### allowanceId
-
-`keccak256(abi.encode(ID_DOMAIN, chainid, settlement, slotId, intentHash))`: the id every reader
-derives from the creator's intent (chain id BEFORE the Settlement here, after it elsewhere).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L384)
-
-Import: `import {allowanceId} from 'tasra-sdk/committee'`
-
-```ts
-declare function allowanceId(chainId: number, settlement: Hex, slot: Hex, intentHash: Hex): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` chainId ` | ` number ` | - EVM chain. |
-| ` settlement ` | ` Hex ` | - Settlement proxy. |
-| ` slot ` | ` Hex ` | - Slot. |
-| ` intentHash ` | ` Hex ` | - [prepaidAllowanceIntentHash](#prepaidallowanceintenthash) of the creator intent. |
-
-Returns: ` Hex `.
-
-### allowanceReserveDigest
-
-The reserve digest (`keykeeper/prepaid-allowance-reserve/v1`).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L417)
-
-Import: `import {allowanceReserveDigest} from 'tasra-sdk/committee'`
-
-```ts
-declare function allowanceReserveDigest(settlement: Hex, chainId: number, a: AllowanceReserveArgs): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` settlement ` | ` Hex ` | - Settlement proxy. |
-| ` chainId ` | ` number ` | - EVM chain. |
-| ` a ` | ` AllowanceReserveArgs ` | - Reservation arguments. |
-
-Returns: ` Hex `.
-
-### allowanceSettleDigest
-
-The allowance-settle digest (`keykeeper/prepaid-allowance-settle/v1`).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L492)
-
-Import: `import {allowanceSettleDigest} from 'tasra-sdk/committee'`
-
-```ts
-declare function allowanceSettleDigest(settlement: Hex, chainId: number, s: AllowanceSettleArgs): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` settlement ` | ` Hex ` | - Settlement proxy. |
-| ` chainId ` | ` number ` | - EVM chain. |
-| ` s ` | ` AllowanceSettleArgs ` | - Settlement arguments. |
-
-Returns: ` Hex `.
-
 ### approveDualOperation
 
-`dual-operation approve`: check the statement against the final payment and the approver's own
-expectations, then sign its exact bytes. A credentialed approver adds its holder-bound
-dual-approve grant, which must bind this statement.
+`dual-operation approve`: check the statement against the approver's own expectations (the
+slot and operation digest it was asked to approve) and its request hash, then sign its exact
+bytes. A credentialed approver adds its holder-bound dual-approve grant, which must bind this
+statement.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L220)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L245)
 
 Import: `import {approveDualOperation} from 'tasra-sdk/committee'`
 
 ```ts
 declare function approveDualOperation(input: {
     prepared: PreparedDualOperation;
-    payment: PaymentIntentWire;
     expectSlot: string;
     expectPayloadDigest: string;
     approver: DualOperationApprover;
@@ -419,14 +263,13 @@ declare function approveDualOperation(input: {
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` input ` | See detailed type below. | - Prepared statement, final payment, the expected slot and operation digest, the approver and its optional grant. |
+| ` input ` | See detailed type below. | - Prepared statement, the expected slot and operation digest, the approver and its optional grant. |
 
 **` input ` type**
 
 ```ts
 {
     prepared: PreparedDualOperation;
-    payment: PaymentIntentWire;
     expectSlot: string;
     expectPayloadDigest: string;
     approver: DualOperationApprover;
@@ -441,51 +284,11 @@ declare function approveDualOperation(input: {
 
 Returns: ` Promise<DualOperationApprovalRecord> `.
 
-### approveExecutionRequest
-
-Approve a complete proposal ONLY after comparing it with a separately client-built body.
-Applications must construct expected.body from their own intent and validated presentation,
-never echo an agent's proposal into that field. This helper performs no automatic HTTP dispatch.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L418)
-
-Import: `import {approveExecutionRequest} from 'tasra-sdk/committee'`
-
-```ts
-declare function approveExecutionRequest(options: {
-    payment: PaymentIntentWire;
-    certificate: ExecutionCertificate;
-    signer: ClientExecutionSigner;
-    policy: ExecutionConsentPolicy;
-    expected: ExpectedExecution;
-    proposal: ExecutionProposal;
-}): Promise<ExecutionAuthorization>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` options ` | See detailed type below. | Original consent, certified local signer, independent expected body and untrusted proposal. |
-
-**` options ` type**
-
-```ts
-{
-    payment: PaymentIntentWire;
-    certificate: ExecutionCertificate;
-    signer: ClientExecutionSigner;
-    policy: ExecutionConsentPolicy;
-    expected: ExpectedExecution;
-    proposal: ExecutionProposal;
-}
-```
-
-Returns: ` Promise<ExecutionAuthorization> `.
-
 ### assembleCompoundToken
 
 Encode a token payload and verifier signatures into the keeper JSON wire format. This does not verify signatures.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L582)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L575)
 
 Import: `import {assembleCompoundToken} from 'tasra-sdk/committee'`
 
@@ -508,7 +311,7 @@ bundle. Every approval names exactly that statement and verifies strictly over i
 approver keys are distinct and at least `quorum` of them are present (the keeper re-checks them
 against the on-chain policy).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L250)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L275)
 
 Import: `import {assembleDualOperation} from 'tasra-sdk/committee'`
 
@@ -527,43 +330,6 @@ declare function assembleDualOperation(input: {
 
 Returns: ` DualOperationProof `.
 
-### assertDebitVoucherWire
-
-Validate a debit voucher's shape (not its signature). Mirrors the readers' constructor: nonzero
-ids, cost and quote block, `cumulative >= cost`, a 64-byte non-infinity signature encoding.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L228)
-
-Import: `import {assertDebitVoucherWire} from 'tasra-sdk/committee'`
-
-```ts
-declare function assertDebitVoucherWire(value: unknown): asserts value is DebitVoucherWire;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` value ` | ` unknown ` | - Untrusted voucher. |
-
-Returns: ` asserts value is DebitVoucherWire `.
-
-### assertPaymentIntentWire
-
-Validate the wire representation and its signed commitment, without chain access.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L249)
-
-Import: `import {assertPaymentIntentWire} from 'tasra-sdk/committee'`
-
-```ts
-declare function assertPaymentIntentWire(value: unknown): asserts value is PaymentIntentWire;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` value ` | ` unknown ` | - Untrusted payment object; signature encoding is checked, not signer recovery. |
-
-Returns: ` asserts value is PaymentIntentWire `.
-
 ### assertStatusAttestationsWire
 
 Strictly validate an untrusted `status_attestations` value: an array of at most
@@ -571,7 +337,7 @@ Strictly validate an untrusted `status_attestations` value: an array of at most
 `{verifier_index: u32, status_until: safe integer, signature: "0x" + 128 hex}` and distinct
 indexes. Returns a fresh copy (the value a keeper receives unchanged).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L876)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L865)
 
 Import: `import {assertStatusAttestationsWire} from 'tasra-sdk/committee'`
 
@@ -614,7 +380,7 @@ directory. Returns `undefined` (never a wrong proof) when the directory is incom
 missing, or the reconstructed root disagrees with the anchored `snapshotRoot` - so a mismatch
 degrades to the keeper's configured-set path rather than shipping a proof the keeper rejects.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L235)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L231)
 
 Import: `import {buildVerifierProofs} from 'tasra-sdk/committee'`
 
@@ -678,7 +444,7 @@ Returns: ` void `.
 Classify a non-200 refresh answer by its HTTP status and the stable code in its body. A code
 that does not belong to the status is ignored; an unclassified answer is `status_refresh_http`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L347)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L327)
 
 Import: `import {classifyStatusRefreshResponse} from 'tasra-sdk/committee'`
 
@@ -700,7 +466,7 @@ operation on `slotId` under the compound token whose canonical hash is `tokenHas
 `keccak256(DOMAIN || slotId || tokenHash)`. Byte-identical to the reference `client_binding_hash`, so
 the keeper (hot path) and accountant (audit) verify the client signature over the same bytes.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L238)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L227)
 
 Import: `import {clientBindingHash} from 'tasra-sdk/committee'`
 
@@ -721,7 +487,7 @@ Collect the first threshold of distinct, locally opened and verified contributio
 The whole fan-out is bounded to 15 seconds. Outstanding reads are cancelled at quorum;
 invalid, duplicate and late contributions are cleared. The caller owns returned values.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L74)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L77)
 
 Import: `import {collectSealedPartials} from 'tasra-sdk/committee'`
 
@@ -743,7 +509,7 @@ Returns: ` Promise<SealedPartial[]> `.
 Ask one verifier to authorize the request. Throws CommitteeAuthorizeError
  (with `.status`) on a non-2xx - notably 403 when this verifier wasn't drawn.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L245)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L224)
 
 Import: `import {committeeAuthorize} from 'tasra-sdk/committee'`
 
@@ -762,7 +528,7 @@ Returns: ` Promise<CommitteeAuthorizeReply> `.
 
 Adapt the SDK chain client's `readers` into [CommitteeChainReads](#committeechainreads).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L142)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L140)
 
 Import: `import {committeeChainReadsFromClient} from 'tasra-sdk/committee'`
 
@@ -818,7 +584,7 @@ Decrypt via committee authorization. The slot id is taken from the token.
 Approvals, HTTP and response decoding share a 15-second deadline. A timeout
 does not prove that the keeper performed no work and never triggers a retry.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L613)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L580)
 
 Import: `import {committeeDecrypt} from 'tasra-sdk/committee'`
 
@@ -836,7 +602,7 @@ Returns: ` Promise<Uint8Array> `.
 
 One-call committee-authorized threshold decrypt.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L454)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L444)
 
 Import: `import {committeeDecryptRequest} from 'tasra-sdk/committee'`
 
@@ -854,9 +620,9 @@ Returns: ` Promise<Uint8Array> `.
 
 Sign via committee authorization. The slot id is taken from the token.
 Approvals, HTTP and response decoding share a 15-second deadline. A timeout
-is an uncertain outcome; reconcile the original paid operation before resubmitting.
+is an uncertain outcome; reconcile the original operation before resubmitting.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L526)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L498)
 
 Import: `import {committeeSign} from 'tasra-sdk/committee'`
 
@@ -877,7 +643,7 @@ Open the verifier-agent session with action `sign` and message equal to `digest`
 The keeper checks the token's request binding against SHA-256(digest), then
 threshold-signs the original digest. This never falls back to JWT authorization.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L60)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L59)
 
 Import: `import {committeeSignEoaDigest} from 'tasra-sdk/committee'`
 
@@ -896,7 +662,7 @@ Return details: Ethereum signature components and the secp256k1 group public key
 Throws: On malformed input/response, network failure, or keeper rejection.
 HTTP 401/403 is an authorization denial; do not retry it as a network failure.
 Approvals, HTTP and response decoding have one 15-second deadline. A timeout
-requires reconciliation of the original operation, not a new paid attempt.
+leaves the outcome unknown: reconcile the original operation before another attempt.
 
 ### committeeSignP256Digest
 
@@ -905,7 +671,7 @@ and authorization as [committeeSignEoaDigest](#committeesigneoadigest). The repl
 carry the expected group key and verify as a P-256 signature over the digest (no prehash);
 anything else is refused.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L89)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L88)
 
 Import: `import {committeeSignP256Digest} from 'tasra-sdk/committee'`
 
@@ -927,7 +693,7 @@ Throws: On malformed input/response, a signature that does not verify, network f
 
 One-call committee-authorized threshold sign: resolve token (+proofs) then POST to the keeper.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L399)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L392)
 
 Import: `import {committeeSignRequest} from 'tasra-sdk/committee'`
 
@@ -945,7 +711,7 @@ Returns: ` Promise<FrostSignResult> `.
 
 Canonical, domain-separated, length-prefixed byte encoding hashed for signing.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L165)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L159)
 
 Import: `import {compoundTokenCanonicalBytes} from 'tasra-sdk/committee'`
 
@@ -963,7 +729,7 @@ Returns: ` Uint8Array `.
 
 `keccak256` of the canonical bytes - the value each quorum verifier signs.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L202)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L191)
 
 Import: `import {compoundTokenHash} from 'tasra-sdk/committee'`
 
@@ -1002,7 +768,7 @@ Native multi-approver FROST lifecycle. Never falls back to a JWT route or create
 a new request after an ambiguous POST. All approval and result checks use the
 original expected message, slot, public key and quorum, not server-selected values.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L160)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L127)
 
 Import: `import {createDualSignClient} from 'tasra-sdk/committee'`
 
@@ -1010,11 +776,8 @@ Import: `import {createDualSignClient} from 'tasra-sdk/committee'`
 declare function createDualSignClient(input: DualSignConfig): {
     create(message: Uint8Array, options?: {
         signal?: AbortSignal;
-        payment?: PaymentIntentWire;
     }): Promise<DualSignRequest>;
-    resume(requestId: string, expectedMessage: Uint8Array, options?: {
-        payment?: PaymentIntentWire;
-    }): DualSignRequest;
+    resume(requestId: string, expectedMessage: Uint8Array): DualSignRequest;
 };
 ```
 
@@ -1028,107 +791,17 @@ Returns:
 {
     create(message: Uint8Array, options?: {
         signal?: AbortSignal;
-        payment?: PaymentIntentWire;
     }): Promise<DualSignRequest>;
-    resume(requestId: string, expectedMessage: Uint8Array, options?: {
-        payment?: PaymentIntentWire;
-    }): DualSignRequest;
+    resume(requestId: string, expectedMessage: Uint8Array): DualSignRequest;
 }
 ```
-
-### createExecutionCertificate
-
-Sign and verify a creator certificate without handing a private execution key to the agent.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L332)
-
-Import: `import {createExecutionCertificate} from 'tasra-sdk/committee'`
-
-```ts
-declare function createExecutionCertificate(options: {
-    payment: PaymentIntentWire;
-    policy: ExecutionConsentPolicy;
-    publicKey: Uint8Array;
-    expires: number;
-    creator: ExecutionCreatorSigner;
-}): Promise<ExecutionCertificate>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` options ` | ` { payment: PaymentIntentWire; policy: ExecutionConsentPolicy; publicKey: Uint8Array; expires: number; creator: ExecutionCreatorSigner; } ` | Independent consent policy, original payment, public execution key and creator wallet. |
-
-Returns: ` Promise<ExecutionCertificate> `.
-
-### createExecutionRecoveryAuthorization
-
-Ask the original local client for a fresh read signature only after verifying work and financial evidence.
-Applications must supply independently authenticated canonical history, not a server-provided policy.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/recovery.ts#L212)
-
-Import: `import {createExecutionRecoveryAuthorization} from 'tasra-sdk/committee'`
-
-```ts
-declare function createExecutionRecoveryAuthorization(options: {
-    payment: PaymentIntentWire;
-    policy: ExecutionConsentPolicy;
-    target: ExecutionRecoveryTarget;
-    execution: SignedPaidExecutionReport;
-    signer: ClientExecutionSigner;
-    nowSecs: number;
-    nonce?: Hex;
-}): Promise<ExecutionRecoveryAuthorization>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` options ` | See detailed type below. | Retained payment, independently selected worker/client, historical policy and fresh clock. |
-
-**` options ` type**
-
-```ts
-{
-    payment: PaymentIntentWire;
-    policy: ExecutionConsentPolicy;
-    target: ExecutionRecoveryTarget;
-    execution: SignedPaidExecutionReport;
-    signer: ClientExecutionSigner;
-    nowSecs: number;
-    nonce?: Hex;
-}
-```
-
-Returns: ` Promise<ExecutionRecoveryAuthorization> `.
-
-### createLocalExecutionSigner
-
-Create a disposable client-only Ed25519 execution signer. The seed is copied or generated
-with Web Crypto, retained only locally and erased by dispose; caller copies remain its responsibility.
-The copy never shares memory with the caller's bytes (a Node `Buffer` or any view of a larger
-buffer included), so the caller may wipe its seed at once and dispose never touches it.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L512)
-
-Import: `import {createLocalExecutionSigner} from 'tasra-sdk/committee'`
-
-```ts
-declare function createLocalExecutionSigner(seed?: Uint8Array): LocalExecutionSigner;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` seed? ` | ` Uint8Array ` | Optional local 32-byte seed, for private persistence or deterministic tests. |
-
-Returns: ` LocalExecutionSigner `.
 
 ### createStatusRefreshProof
 
-Sign one refresh proof. `client_execution` signs the hash with the execution key
-(`0x`-hex Ed25519); `holder_key` signs a compact JWS (`typ: keykeeper-status-refresh+jwt`,
+Sign one refresh proof: the holder key signs a compact JWS (`typ: keykeeper-status-refresh+jwt`,
 header `jwk`, payload `{"refresh":"0x<hash>"}`).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L223)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L210)
 
 Import: `import {createStatusRefreshProof} from 'tasra-sdk/committee'`
 
@@ -1138,55 +811,15 @@ declare function createStatusRefreshProof(opts: CreateStatusRefreshProofOptions)
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` opts ` | ` CreateStatusRefreshProofOptions ` | - Chain, token hash, original payment hash, seq, issue time and prover. |
+| ` opts ` | ` CreateStatusRefreshProofOptions ` | - Chain, token hash, seq, issue time and prover. |
 
 Returns: ` Promise<StatusRefreshProofWire> `.
-
-### debitVoucherDigest
-
-The debit-voucher digest (`keykeeper/prepaid-debit/v1`) the accountant threshold key signs.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L447)
-
-Import: `import {debitVoucherDigest} from 'tasra-sdk/committee'`
-
-```ts
-declare function debitVoucherDigest(settlement: Hex, chainId: number, v: DebitVoucherFields): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` settlement ` | ` Hex ` | - Settlement proxy. |
-| ` chainId ` | ` number ` | - EVM chain. |
-| ` v ` | ` DebitVoucherFields ` | - Voucher fields. |
-
-Returns: ` Hex `.
-
-### debitVoucherWireDigest
-
-[debitVoucherDigest](#debitvoucherdigest) of a wire voucher.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L460)
-
-Import: `import {debitVoucherWireDigest} from 'tasra-sdk/committee'`
-
-```ts
-declare function debitVoucherWireDigest(settlement: Hex, chainId: number, v: DebitVoucherWire): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` settlement ` | ` Hex ` | - Settlement proxy. |
-| ` chainId ` | ` number ` | - EVM chain. |
-| ` v ` | ` DebitVoucherWire ` | - Shape-checked voucher. |
-
-Returns: ` Hex `.
 
 ### decodeCompoundToken
 
 Decode a wire compound token into the byte-level payload + signatures for verification.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L617)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L608)
 
 Import: `import {decodeCompoundToken} from 'tasra-sdk/committee'`
 
@@ -1313,7 +946,7 @@ Returns:
 Collect and combine recipient-sealed KEM contributions locally, then clear all partials.
 Servers receive only the authorized public recipient and never the recovered plaintext.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L166)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L169)
 
 Import: `import {decryptWithCommitteePartials} from 'tasra-sdk/committee'`
 
@@ -1335,7 +968,7 @@ Returns: ` Promise<Uint8Array> `.
 Authenticate each keeper's public BLS share using the existing operator share-report signature.
 A report authenticates that operator's claim; it is not a chain commitment to a full polynomial.
 Callers must retain pairing checks and final verification against the anchored group key.
-No secret share is fetched and no payment or decryption work is started.
+No secret share is fetched and no decryption work is started.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/blsSharing.ts#L70)
 
@@ -1385,7 +1018,7 @@ Returns: ` string `.
 
 `Statement::from_payload`: parse signed bytes and refuse any non-canonical encoding.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L151)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L163)
 
 Import: `import {dualOperationFromPayload} from 'tasra-sdk/committee'`
 
@@ -1403,7 +1036,7 @@ Returns: ` DualOperationStatement `.
 
 `Statement::payload`: the domain followed by serde_json's compact serialization in field order.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L138)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L150)
 
 Import: `import {dualOperationPayload} from 'tasra-sdk/committee'`
 
@@ -1417,11 +1050,34 @@ declare function dualOperationPayload(s: DualOperationStatement): Uint8Array;
 
 Returns: ` Uint8Array `.
 
+### dualOperationRequestId
+
+Rust `dual_operation::request_id`: lowercase hex (no prefix) of
+`request_hash(chain_id, slot, operation.action(), payload_digest)`, the hash the operation's own
+authorization is bound to. A keeper refuses a statement carrying any other value.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L39)
+
+Import: `import {dualOperationRequestId} from 'tasra-sdk/committee'`
+
+```ts
+declare function dualOperationRequestId(chainId: number | bigint, slot: Uint8Array, operation: DualOperationKind, payloadDigest: Uint8Array): string;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` chainId ` | ` number \| bigint ` | - Deployment chain. |
+| ` slot ` | ` Uint8Array ` | - 32-byte slot ID. |
+| ` operation ` | ` DualOperationKind ` | - The approved operation. |
+| ` payloadDigest ` | ` Uint8Array ` | - 32-byte payload digest of the operation. |
+
+Returns: ` string `.
+
 ### dualSignApprovalPayload
 
 Exact existing Rust canonical_dual_sig_payload, including little-endian lengths.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L38)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L36)
 
 Import: `import {dualSignApprovalPayload} from 'tasra-sdk/committee'`
 
@@ -1484,7 +1140,7 @@ verifier signs beside its token signature. Byte-identical to the Rust
 `keykeeper_committee::evidence_binding_message`. The SDK's own sealed-evidence path
 (`./evidence.ts`) signs and verifies over this same function.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L499)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L492)
 
 Import: `import {evidenceBindingMessage} from 'tasra-sdk/committee'`
 
@@ -1499,558 +1155,6 @@ declare function evidenceBindingMessage(tokenHash: Uint8Array, evidenceHash: Uin
 | ` evidenceKeyId ` | ` Uint8Array ` | - 32-byte keccak256 of the accountant evidence key it is sealed to. |
 
 Returns: ` Uint8Array `.
-
-### executionApprovalTypedData
-
-Reconstruct the complete stage typed data; callers never sign an agent's opaque hash.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L239)
-
-Import: `import {executionApprovalTypedData} from 'tasra-sdk/committee'`
-
-```ts
-declare function executionApprovalTypedData(payment: PaymentIntentWire, approval: Omit<ExecutionAuthorization, 'signature'>): {
-    domain: {
-        name: string;
-        version: string;
-        chainId: number;
-        verifyingContract: `0x${string}`;
-    };
-    primaryType: "ClientStageApproval";
-    types: {
-        readonly ClientStageApproval: readonly [
-            {
-                readonly name: "chainId";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "settlement";
-                readonly type: "address";
-            },
-            {
-                readonly name: "keyRegistry";
-                readonly type: "address";
-            },
-            {
-                readonly name: "slotId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "paymentHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "requestId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "sessionCommitment";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "certificateHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "stage";
-                readonly type: "uint8";
-            },
-            {
-                readonly name: "operatorKey";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "action";
-                readonly type: "uint8";
-            },
-            {
-                readonly name: "payloadDigest";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "bodyHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "expires";
-                readonly type: "uint64";
-            }
-        ];
-    };
-    message: {
-        certificateHash: `0x${string}`;
-        stage: number;
-        operatorKey: `0x${string}`;
-        action: 0 | 2 | 1 | 6 | 3;
-        payloadDigest: `0x${string}`;
-        bodyHash: `0x${string}`;
-        expires: bigint;
-        chainId: bigint;
-        settlement: `0x${string}`;
-        keyRegistry: `0x${string}`;
-        slotId: `0x${string}`;
-        paymentHash: `0x${string}`;
-        requestId: `0x${string}`;
-        sessionCommitment: `0x${string}`;
-    };
-};
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` payment ` | ` PaymentIntentWire ` | Original independently retained payment. |
-| ` approval ` | ` Omit<ExecutionAuthorization, 'signature'> ` | Stage, target and locally recomputed body commitment. |
-
-Returns:
-
-```ts
-{
-    domain: {
-        name: string;
-        version: string;
-        chainId: number;
-        verifyingContract: `0x${string}`;
-    };
-    primaryType: "ClientStageApproval";
-    types: {
-        readonly ClientStageApproval: readonly [
-            {
-                readonly name: "chainId";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "settlement";
-                readonly type: "address";
-            },
-            {
-                readonly name: "keyRegistry";
-                readonly type: "address";
-            },
-            {
-                readonly name: "slotId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "paymentHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "requestId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "sessionCommitment";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "certificateHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "stage";
-                readonly type: "uint8";
-            },
-            {
-                readonly name: "operatorKey";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "action";
-                readonly type: "uint8";
-            },
-            {
-                readonly name: "payloadDigest";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "bodyHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "expires";
-                readonly type: "uint64";
-            }
-        ];
-    };
-    message: {
-        certificateHash: `0x${string}`;
-        stage: number;
-        operatorKey: `0x${string}`;
-        action: 0 | 2 | 1 | 6 | 3;
-        payloadDigest: `0x${string}`;
-        bodyHash: `0x${string}`;
-        expires: bigint;
-        chainId: bigint;
-        settlement: `0x${string}`;
-        keyRegistry: `0x${string}`;
-        slotId: `0x${string}`;
-        paymentHash: `0x${string}`;
-        requestId: `0x${string}`;
-        sessionCommitment: `0x${string}`;
-    };
-}
-```
-
-### executionBodyHash
-
-Hash the complete unsigned body with the existing RFC8785 encoder and Rust bounds.
-Explicit null and absent fields remain distinct; no operation field is dropped.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L296)
-
-Import: `import {executionBodyHash} from 'tasra-sdk/committee'`
-
-```ts
-declare function executionBodyHash(body: Record<string, unknown>): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` body ` | ` Record<string, unknown> ` | Complete unsigned JSON object, excluding only its approval envelope. |
-
-Returns: ` Hex `.
-
-### executionCertificateTypedData
-
-Reconstruct the creator certificate typed data from the original payment.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L218)
-
-Import: `import {executionCertificateTypedData} from 'tasra-sdk/committee'`
-
-```ts
-declare function executionCertificateTypedData(payment: PaymentIntentWire, certificate: Pick<ExecutionCertificate, 'execution_key' | 'expires'>): {
-    domain: {
-        name: string;
-        version: string;
-        chainId: number;
-        verifyingContract: `0x${string}`;
-    };
-    primaryType: "ClientExecutionCertificate";
-    types: {
-        readonly ClientExecutionCertificate: readonly [
-            {
-                readonly name: "chainId";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "settlement";
-                readonly type: "address";
-            },
-            {
-                readonly name: "keyRegistry";
-                readonly type: "address";
-            },
-            {
-                readonly name: "slotId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "paymentHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "requestId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "sessionCommitment";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "executionKey";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "expires";
-                readonly type: "uint64";
-            }
-        ];
-    };
-    message: {
-        executionKey: `0x${string}`;
-        expires: bigint;
-        chainId: bigint;
-        settlement: `0x${string}`;
-        keyRegistry: `0x${string}`;
-        slotId: `0x${string}`;
-        paymentHash: `0x${string}`;
-        requestId: `0x${string}`;
-        sessionCommitment: `0x${string}`;
-    };
-};
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` payment ` | ` PaymentIntentWire ` | Locally retained payment; signing this data does not reserve or spend funds. |
-| ` certificate ` | ` Pick<ExecutionCertificate, 'execution_key' \| 'expires'> ` | Public execution key and expiry to certify. |
-
-Returns:
-
-```ts
-{
-    domain: {
-        name: string;
-        version: string;
-        chainId: number;
-        verifyingContract: `0x${string}`;
-    };
-    primaryType: "ClientExecutionCertificate";
-    types: {
-        readonly ClientExecutionCertificate: readonly [
-            {
-                readonly name: "chainId";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "settlement";
-                readonly type: "address";
-            },
-            {
-                readonly name: "keyRegistry";
-                readonly type: "address";
-            },
-            {
-                readonly name: "slotId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "paymentHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "requestId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "sessionCommitment";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "executionKey";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "expires";
-                readonly type: "uint64";
-            }
-        ];
-    };
-    message: {
-        executionKey: `0x${string}`;
-        expires: bigint;
-        chainId: bigint;
-        settlement: `0x${string}`;
-        keyRegistry: `0x${string}`;
-        slotId: `0x${string}`;
-        paymentHash: `0x${string}`;
-        requestId: `0x${string}`;
-        sessionCommitment: `0x${string}`;
-    };
-}
-```
-
-### executionConsentBinding
-
-Reconstruct the durable binding shared with the worker and accountant journals.
-This is a commitment helper, not permission to execute or evidence of correct computation.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L370)
-
-Import: `import {executionConsentBinding} from 'tasra-sdk/committee'`
-
-```ts
-declare function executionConsentBinding(payment: PaymentIntentWire, consent: ExecutionConsent, reservationBlock: Hex): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` payment ` | ` PaymentIntentWire ` | Original locally retained payment. |
-| ` consent ` | ` ExecutionConsent ` | Public original consent; never includes the private request preimage. |
-| ` reservationBlock ` | ` Hex ` | Canonical block hash at the worker's original admission. |
-
-Returns: ` Hex `.
-
-### executionInitializationTypedData
-
-Reconstruct session initialization typed data from the original payment and client-built commitments.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L445)
-
-Import: `import {executionInitializationTypedData} from 'tasra-sdk/committee'`
-
-```ts
-declare function executionInitializationTypedData(payment: PaymentIntentWire, initialization: Omit<SessionInitialization, 'signature'>): {
-    domain: {
-        name: string;
-        version: string;
-        chainId: number;
-        verifyingContract: `0x${string}`;
-    };
-    primaryType: "ClientSessionInitialization";
-    types: {
-        readonly ClientSessionInitialization: readonly [
-            {
-                readonly name: "chainId";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "settlement";
-                readonly type: "address";
-            },
-            {
-                readonly name: "keyRegistry";
-                readonly type: "address";
-            },
-            {
-                readonly name: "slotId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "paymentHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "requestId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "sessionCommitment";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "certificateHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "profileHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "bodyHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "expires";
-                readonly type: "uint64";
-            }
-        ];
-    };
-    message: {
-        certificateHash: `0x${string}`;
-        profileHash: `0x${string}`;
-        bodyHash: `0x${string}`;
-        expires: bigint;
-        chainId: bigint;
-        settlement: `0x${string}`;
-        keyRegistry: `0x${string}`;
-        slotId: `0x${string}`;
-        paymentHash: `0x${string}`;
-        requestId: `0x${string}`;
-        sessionCommitment: `0x${string}`;
-    };
-};
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` payment ` | ` PaymentIntentWire ` | Original locally retained creator payment. |
-| ` initialization ` | ` Omit<SessionInitialization, 'signature'> ` | Certificate, approved profile hash, complete create-body hash and expiry. |
-
-Returns:
-
-```ts
-{
-    domain: {
-        name: string;
-        version: string;
-        chainId: number;
-        verifyingContract: `0x${string}`;
-    };
-    primaryType: "ClientSessionInitialization";
-    types: {
-        readonly ClientSessionInitialization: readonly [
-            {
-                readonly name: "chainId";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "settlement";
-                readonly type: "address";
-            },
-            {
-                readonly name: "keyRegistry";
-                readonly type: "address";
-            },
-            {
-                readonly name: "slotId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "paymentHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "requestId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "sessionCommitment";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "certificateHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "profileHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "bodyHash";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "expires";
-                readonly type: "uint64";
-            }
-        ];
-    };
-    message: {
-        certificateHash: `0x${string}`;
-        profileHash: `0x${string}`;
-        bodyHash: `0x${string}`;
-        expires: bigint;
-        chainId: bigint;
-        settlement: `0x${string}`;
-        keyRegistry: `0x${string}`;
-        slotId: `0x${string}`;
-        paymentHash: `0x${string}`;
-        requestId: `0x${string}`;
-        sessionCommitment: `0x${string}`;
-    };
-}
-```
-
-### executionRecoverySigningHash
-
-Reconstruct the domain-separated fresh read hash. It cannot authorize another paid operation.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/recovery.ts#L199)
-
-Import: `import {executionRecoverySigningHash} from 'tasra-sdk/committee'`
-
-```ts
-declare function executionRecoverySigningHash(payment: PaymentIntentWire, authorization: Omit<ExecutionRecoveryAuthorization, 'signature'>): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` payment ` | ` PaymentIntentWire ` | Original payment, including its signed assignment and complete request identity. |
-| ` authorization ` | ` Omit<ExecutionRecoveryAuthorization, 'signature'> ` | Exact stage, worker, original binding, clock and client nonce. |
-
-Returns: ` Hex `.
 
 ### extractIdentityStrict
 
@@ -2080,7 +1184,7 @@ until quorum, and assemble the compound token. Verifies that our locally
 recomputed canonical token hash equals the hash the verifiers signed (a built-in
 encoding cross-check). Returns the wire token to POST to the keeper.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L366)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L342)
 
 Import: `import {gatherCommitteeToken} from 'tasra-sdk/committee'`
 
@@ -2101,7 +1205,7 @@ with the holder key over the same credentials + slot, hand it back for that veri
 Pass the result as `holderProof` to [requestCommitteeToken](#requestcommitteetoken) (or the one-call
 helpers built on it).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L60)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L58)
 
 Import: `import {holderProofPerVerifier} from 'tasra-sdk/committee'`
 
@@ -2127,7 +1231,7 @@ Returns: ` HolderProofPerVerifier `.
 One-call identity-scoped decrypt (the read path): token to extraction fan-out
 to verify each partial to combine to decrypt. The intermediate `sk_ID` never surfaces.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L521)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L509)
 
 Import: `import {ibeDecryptRequest} from 'tasra-sdk/committee'`
 
@@ -2153,7 +1257,7 @@ compressed G1).
 ciphertext to this identity. Prefer [ibeDecryptRequest](#ibedecryptrequest), which combines,
 decrypts and drops it. Zeroize the returned bytes when done.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L503)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L491)
 
 Import: `import {ibeExtractRequest} from 'tasra-sdk/committee'`
 
@@ -2166,47 +1270,6 @@ declare function ibeExtractRequest(opts: IbeExtractRequestOpts): Promise<Uint8Ar
 | ` opts ` | ` IbeExtractRequestOpts ` | - Authorization context, keeper endpoints and requested identity. |
 
 Returns: ` Promise<Uint8Array> `.
-
-### initializeExecutionSession
-
-Authorize one client-built creation body, including a locally generated owner bearer.
-Retain the body, proof and signer privately until expiry: retrying the identical POST uses
-the hash of these typed data as its session ID and cannot replace the original ECDH key.
-This function neither reserves funds nor starts or pays an operator.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L489)
-
-Import: `import {initializeExecutionSession} from 'tasra-sdk/committee'`
-
-```ts
-declare function initializeExecutionSession(options: {
-    payment: PaymentIntentWire;
-    certificate: ExecutionCertificate;
-    signer: ClientExecutionSigner;
-    policy: ExecutionConsentPolicy;
-    expected: ExpectedInitialization;
-    expires: number;
-}): Promise<SessionInitialization>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` options ` | See detailed type below. | Original payment, certified client signer and independently approved create intent. |
-
-**` options ` type**
-
-```ts
-{
-    payment: PaymentIntentWire;
-    certificate: ExecutionCertificate;
-    signer: ClientExecutionSigner;
-    policy: ExecutionConsentPolicy;
-    expected: ExpectedInitialization;
-    expires: number;
-}
-```
-
-Returns: ` Promise<SessionInitialization> `.
 
 ### isValidSessionId
 
@@ -2226,24 +1289,6 @@ declare function isValidSessionId(sessionId: string): boolean;
 | ` sessionId ` | ` string ` | - Session id returned by the verifier agent when the session was opened. |
 
 Returns: ` boolean `.
-
-### keeperAssignmentCommitment
-
-Hash a validated assignment using the platform's fixed-width canonical encoding.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L113)
-
-Import: `import {keeperAssignmentCommitment} from 'tasra-sdk/committee'`
-
-```ts
-declare function keeperAssignmentCommitment(a: PaidKeeperAssignment): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` a ` | ` PaidKeeperAssignment ` | - Fixed sharing and registered keeper keys from independent discovery. |
-
-Returns: ` Hex `.
 
 ### kemContentDigest
 
@@ -2267,7 +1312,7 @@ Returns: ` Uint8Array `.
 ### legacyDpopHtu
 
 Pre-remediation proof target for an agent that supplies no session identity.
-New paid sessions never accept this target as a fallback.
+A session that names its identity never accepts this target as a fallback.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L112)
 
@@ -2288,7 +1333,7 @@ Returns: ` string `.
 The inclusion proof (sibling hashes, leaf to root) for `index` in `leaves`. `null` if `index`
 is out of range. Mirrors the reference `merkle_proof`; pairs with [`verifyMerkleProof`].
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L304)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L293)
 
 Import: `import {merkleProof} from 'tasra-sdk/committee'`
 
@@ -2309,7 +1354,7 @@ Build the Merkle root over `leaves` (sorted-pair; an odd node is promoted unchan
 next level). `null` for an empty set. Byte-identical to the reference `merkle_root`, so a root
 built here matches the on-chain `VerifierSetRegistry`/`Settlement` anchored root.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L290)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L279)
 
 Import: `import {merkleRoot} from 'tasra-sdk/committee'`
 
@@ -2350,7 +1395,7 @@ Returns: ` string `.
 
 The hash a keeper signs to attest it served `opId` on `slotId` under the token `tokenHash`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L216)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L205)
 
 Import: `import {opAttestationHash} from 'tasra-sdk/committee'`
 
@@ -2366,66 +1411,6 @@ declare function opAttestationHash(chainId: number | bigint, opId: Uint8Array, s
 | ` tokenHash ` | ` Uint8Array ` | - 32-byte compound token hash. |
 
 Returns: ` Uint8Array `.
-
-### paidDualSignApprovalPayload
-
-Paid approval bytes, binding the final keeper reservation independently of each
-credential approval's payment. Matches Rust canonical_paid_dual_sig_payload.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L57)
-
-Import: `import {paidDualSignApprovalPayload} from 'tasra-sdk/committee'`
-
-```ts
-declare function paidDualSignApprovalPayload(chainId: number, slotId: string, message: Uint8Array, requestId: string, payment: PaymentIntentWire): Uint8Array;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` chainId ` | ` number ` | - Expected deployment chain. |
-| ` slotId ` | ` string ` | - Expected slot identifier. |
-| ` message ` | ` Uint8Array ` | - Exact message to sign. |
-| ` requestId ` | ` string ` | - Native dual-sign request identifier. |
-| ` payment ` | ` PaymentIntentWire ` | - Final keeper Sign intent, already reserved independently. |
-
-Returns: ` Uint8Array `.
-
-### paidExecutionReportSigningHash
-
-Reconstruct the Rust worker signing hash for a completed result. This does not verify its signer.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/recovery.ts#L162)
-
-Import: `import {paidExecutionReportSigningHash} from 'tasra-sdk/committee'`
-
-```ts
-declare function paidExecutionReportSigningHash(payment: PaymentIntentWire, report: CompletedPaidExecutionReport): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` payment ` | ` PaymentIntentWire ` | Original retained creator payment, used to recompute the complete request identity. |
-| ` report ` | ` CompletedPaidExecutionReport ` | Untrusted completed report with strict wire shape. |
-
-Returns: ` Hex `.
-
-### paidExecutionRequest
-
-Build a public evidence query identity from the locally retained payment, never a server proposal.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/recovery.ts#L148)
-
-Import: `import {paidExecutionRequest} from 'tasra-sdk/committee'`
-
-```ts
-declare function paidExecutionRequest(payment: PaymentIntentWire): PaidExecutionRequest;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` payment ` | ` PaymentIntentWire ` | Original creator-signed payment. This does not disclose private operation inputs. |
-
-Returns: ` PaidExecutionRequest `.
 
 ### parseSessionKeyJwk
 
@@ -2451,7 +1436,7 @@ Strictly validate an untrusted verifier refresh reply. Throws ` StatusRefreshErr
 (`status_refresh_invalid_response`). Validates the SHAPE only; the signature is checked against
 the original roster by the refresh functions.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L295)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L275)
 
 Import: `import {parseStatusRefreshReply} from 'tasra-sdk/committee'`
 
@@ -2464,64 +1449,6 @@ declare function parseStatusRefreshReply(raw: unknown): StatusRefreshReplyWire;
 | ` raw ` | ` unknown ` | - Parsed JSON reply. |
 
 Returns: ` StatusRefreshReplyWire `.
-
-### paymentIntentHash
-
-Hash the creator intent. A matching hash is not proof of a mined reservation or a valid creator signature.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L204)
-
-Import: `import {paymentIntentHash} from 'tasra-sdk/committee'`
-
-```ts
-declare function paymentIntentHash(p: Omit<PaymentIntentWire, 'signature'>): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` p ` | ` Omit<PaymentIntentWire, 'signature'> ` | - Creator payment intent; a signature is not part of the EIP-712 preimage. |
-
-Returns: ` Hex `.
-
-### paymentIntentTypedData
-
-Build creator EIP-712 data. Validate chain backing, price, expiry and creator independently before spending.
-A payment naming an `allowance_id` (a prepaid allowance) is the distinct `SlotAllowancePaymentIntent`; the
-`debit_voucher` is never part of the signed data.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L189)
-
-Import: `import {paymentIntentTypedData} from 'tasra-sdk/committee'`
-
-```ts
-declare function paymentIntentTypedData(p: Omit<PaymentIntentWire, 'signature'>): TypedDataDefinition;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` p ` | ` Omit<PaymentIntentWire, 'signature'> ` | - Creator payment intent before attaching its signature. |
-
-Returns: ` TypedDataDefinition `.
-
-### paymentSessionCommitment
-
-Commit a fixed presentation random and audience before reserving a payment.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L520)
-
-Import: `import {paymentSessionCommitment} from 'tasra-sdk/committee'`
-
-```ts
-declare function paymentSessionCommitment(random: Hex, clientId: string, operationExp: number): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` random ` | ` Hex ` | - Fixed 32-byte cryptographic presentation random. |
-| ` clientId ` | ` string ` | - Verifier-agent audience used for the presentation. |
-| ` operationExp ` | ` number ` | - Original signed operation expiry in Unix seconds. |
-
-Returns: ` Hex `.
 
 ### platformAudience
 
@@ -2546,245 +1473,19 @@ declare function platformAudience(origin: string, chainId: number | bigint): str
 
 Returns: ` string `.
 
-### prepaidAllowanceIntentHash
-
-The allowance intent's EIP-712 signing hash: the `intentHash` argument of `reservePrepaidAllowanceBls`.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L362)
-
-Import: `import {prepaidAllowanceIntentHash} from 'tasra-sdk/committee'`
-
-```ts
-declare function prepaidAllowanceIntentHash(p: Omit<PrepaidAllowanceIntentWire, 'signature'>): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` p ` | ` Omit<PrepaidAllowanceIntentWire, 'signature'> ` | - Allowance intent; the signature is not part of the preimage. |
-
-Returns: ` Hex `.
-
-### prepaidAllowanceIntentTypedData
-
-Build the creator EIP-712 data of an allowance intent (the payment domain: chain + Settlement).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L333)
-
-Import: `import {prepaidAllowanceIntentTypedData} from 'tasra-sdk/committee'`
-
-```ts
-declare function prepaidAllowanceIntentTypedData(p: Omit<PrepaidAllowanceIntentWire, 'signature'>): {
-    domain: {
-        chainId: number;
-        verifyingContract: `0x${string}`;
-        name: "Keykeeper Assigned Slot Payment";
-        version: "1";
-    };
-    primaryType: "SlotPrepaidAllowanceIntent";
-    types: {
-        readonly SlotPrepaidAllowanceIntent: readonly [
-            {
-                readonly name: "keyRegistry";
-                readonly type: "address";
-            },
-            {
-                readonly name: "slotId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "intentNonce";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "amount";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "maxOpCost";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "actions";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "expiresAt";
-                readonly type: "uint64";
-            },
-            {
-                readonly name: "verificationEpoch";
-                readonly type: "uint64";
-            },
-            {
-                readonly name: "verificationSeed";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "verificationRoot";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "verificationRegistrySize";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "verificationCommittee";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "verificationQuorum";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "keeperAssignment";
-                readonly type: "bytes32";
-            }
-        ];
-    };
-    message: {
-        keyRegistry: `0x${string}`;
-        slotId: `0x${string}`;
-        intentNonce: `0x${string}`;
-        amount: bigint;
-        maxOpCost: bigint;
-        actions: number;
-        expiresAt: bigint;
-        verificationEpoch: bigint;
-        verificationSeed: `0x${string}`;
-        verificationRoot: `0x${string}`;
-        verificationRegistrySize: number;
-        verificationCommittee: number;
-        verificationQuorum: number;
-        keeperAssignment: `0x${string}`;
-    };
-};
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` p ` | ` Omit<PrepaidAllowanceIntentWire, 'signature'> ` | - Allowance intent before attaching its signature. |
-
-Returns:
-
-```ts
-{
-    domain: {
-        chainId: number;
-        verifyingContract: `0x${string}`;
-        name: "Keykeeper Assigned Slot Payment";
-        version: "1";
-    };
-    primaryType: "SlotPrepaidAllowanceIntent";
-    types: {
-        readonly SlotPrepaidAllowanceIntent: readonly [
-            {
-                readonly name: "keyRegistry";
-                readonly type: "address";
-            },
-            {
-                readonly name: "slotId";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "intentNonce";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "amount";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "maxOpCost";
-                readonly type: "uint256";
-            },
-            {
-                readonly name: "actions";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "expiresAt";
-                readonly type: "uint64";
-            },
-            {
-                readonly name: "verificationEpoch";
-                readonly type: "uint64";
-            },
-            {
-                readonly name: "verificationSeed";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "verificationRoot";
-                readonly type: "bytes32";
-            },
-            {
-                readonly name: "verificationRegistrySize";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "verificationCommittee";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "verificationQuorum";
-                readonly type: "uint32";
-            },
-            {
-                readonly name: "keeperAssignment";
-                readonly type: "bytes32";
-            }
-        ];
-    };
-    message: {
-        keyRegistry: `0x${string}`;
-        slotId: `0x${string}`;
-        intentNonce: `0x${string}`;
-        amount: bigint;
-        maxOpCost: bigint;
-        actions: number;
-        expiresAt: bigint;
-        verificationEpoch: bigint;
-        verificationSeed: `0x${string}`;
-        verificationRoot: `0x${string}`;
-        verificationRegistrySize: number;
-        verificationCommittee: number;
-        verificationQuorum: number;
-        keeperAssignment: `0x${string}`;
-    };
-}
-```
-
-### prepaidRequestId
-
-Derive the Settlement reservation identity for this exact payment and operation. Unchanged by
-Prepaid allowances: an allowance-backed payment's own signing hash is the authorization commitment, so
-the ID binds the allowance too.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L214)
-
-Import: `import {prepaidRequestId} from 'tasra-sdk/committee'`
-
-```ts
-declare function prepaidRequestId(p: Omit<PaymentIntentWire, 'signature'>): Hex;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` p ` | ` Omit<PaymentIntentWire, 'signature'> ` | - Fixed creator intent; neither hashing nor an ID proves a mined reservation. |
-
-Returns: ` Hex `.
-
 ### prepareDualOperation
 
-`dual-operation prepare`: an approval statement for the final paid operation. Sends nothing.
+`dual-operation prepare`: an approval statement for one exact operation. Sends nothing.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L191)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L216)
 
 Import: `import {prepareDualOperation} from 'tasra-sdk/committee'`
 
 ```ts
 declare function prepareDualOperation(input: {
-    payment: PaymentIntentWire;
+    chainId: number;
+    slot: string | Uint8Array;
+    payloadDigest: string | Uint8Array;
     operation: DualOperationKind;
     epoch: number;
     identity?: string;
@@ -2795,7 +1496,22 @@ declare function prepareDualOperation(input: {
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` input ` | ` { payment: PaymentIntentWire; operation: DualOperationKind; epoch: number; identity?: string; ttlSecs?: number; nowSecs?: number; } ` | - Final payment, operation, the slot's key epoch, IBE identity, lifetime (≤ 300 s, capped at the payment's expiry). |
+| ` input ` | See detailed type below. | - Chain, slot, operation, its payload digest, the slot's key epoch, IBE identity and lifetime (at most 300 s). |
+
+**` input ` type**
+
+```ts
+{
+    chainId: number;
+    slot: string | Uint8Array;
+    payloadDigest: string | Uint8Array;
+    operation: DualOperationKind;
+    epoch: number;
+    identity?: string;
+    ttlSecs?: number;
+    nowSecs?: number;
+}
+```
 
 Returns: ` PreparedDualOperation `.
 
@@ -2825,7 +1541,7 @@ Refresh a grant's status directly at its original signers' verifiers
 (`POST /v1/committee/status-refresh`), verify every reply under the original roster, and merge.
 Sends the one proof once per original signer; never retries.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L605)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L585)
 
 Import: `import {refreshStatusDirect} from 'tasra-sdk/committee'`
 
@@ -2848,7 +1564,7 @@ Throws: StatusRefreshError when fewer than a quorum of fresh, valid, capped atte
 Refresh a grant's status through the verifier-agent relay. The agent fans the proof out to the
 original signers; its answer is re-verified here exactly as in [refreshStatusDirect](#refreshstatusdirect).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L717)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L697)
 
 Import: `import {refreshStatusViaAgent} from 'tasra-sdk/committee'`
 
@@ -2868,7 +1584,7 @@ Throws: StatusRefreshError on a typed refusal, an unsigned or forged reply, or n
 
 Read the verifier committee draw, request authorization and assemble the quorum token with available membership proofs.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L290)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L286)
 
 Import: `import {requestCommitteeToken} from 'tasra-sdk/committee'`
 
@@ -2889,7 +1605,7 @@ down are skipped; throws - naming every node and its reason - only when NONE ser
 The caller combines with `ibeCombineDecrypt`/`ibeCombineExtract`, which pairing-verify
 each partial (identifiable abort names the node via the identifier).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L770)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L737)
 
 Import: `import {requestIbeExtractionPartials} from 'tasra-sdk/committee'`
 
@@ -2907,7 +1623,7 @@ Returns: ` Promise<IbeExtractionPartial[]> `.
 
 `Statement::require_current`: valid and `issued_at <= now < expires_at`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L167)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L179)
 
 Import: `import {requireCurrentDualOperation} from 'tasra-sdk/committee'`
 
@@ -2922,47 +1638,43 @@ declare function requireCurrentDualOperation(s: DualOperationStatement, nowSecs?
 
 Returns: ` void `.
 
-### requireDualOperationPayment
-
-The CLI's `check_ticket`: the statement names exactly this final payment (either backing).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L177)
-
-Import: `import {requireDualOperationPayment} from 'tasra-sdk/committee'`
-
-```ts
-declare function requireDualOperationPayment(s: DualOperationStatement, payment: PaymentIntentWire): void;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` s ` | ` DualOperationStatement ` | - Statement. |
-| ` payment ` | ` PaymentIntentWire ` | - The final paid operation's payment (a debit voucher, if any, is not hashed). |
-
-Returns: ` void `.
-
 ### requireDualOperationProof
 
 The client-side half of the keeper gate, before a bundle travels in an operation body: current,
-the expected operation, and bound to this slot, payload digest and final payment.
+the expected operation, and bound to this chain, slot, payload digest and request hash.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L279)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L304)
 
 Import: `import {requireDualOperationProof} from 'tasra-sdk/committee'`
 
 ```ts
-declare function requireDualOperationProof(proof: DualOperationProof, expected: {
-    operation: DualOperationKind;
-    slot: Uint8Array;
-    payloadDigest: Uint8Array;
-    payment: PaymentIntentWire;
-}): void;
+declare function requireDualOperationProof(proof: DualOperationProof, expected: DualOperationExpectation): void;
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | ` proof ` | ` DualOperationProof ` | - Assembled bundle. |
-| ` expected ` | ` { operation: DualOperationKind; slot: Uint8Array; payloadDigest: Uint8Array; payment: PaymentIntentWire; } ` | - The operation, slot, SHA-256 of the operation's payload and the final payment. |
+| ` expected ` | ` DualOperationExpectation ` | - The chain, operation, slot and payload digest (and key epoch, when known) of the operation about to run. |
+
+Returns: ` void `.
+
+### requireDualOperationRequest
+
+The statement names exactly this operation: chain, slot, operation, payload digest, and the
+request hash derived from them (the keeper's own check).
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L204)
+
+Import: `import {requireDualOperationRequest} from 'tasra-sdk/committee'`
+
+```ts
+declare function requireDualOperationRequest(s: DualOperationStatement, expected: DualOperationExpectation): void;
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| ` s ` | ` DualOperationStatement ` | - Statement. |
+| ` expected ` | ` DualOperationExpectation ` | - The operation the caller is about to run. |
 
 Returns: ` void `.
 
@@ -2973,7 +1685,7 @@ a missing list throws `revocation_status_missing` (unless `allowMissing`), fewer
 fresh counted attestations `revocation_status_stale`, a malformed or forged list
 `revocation_status_invalid` - each a ` RevocationStatusPreflightError `.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L854)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L843)
 
 Import: `import {requireStatusAttestations} from 'tasra-sdk/committee'`
 
@@ -2994,7 +1706,7 @@ request: `index = keccak256(SELECT_DOMAIN || slotId || epoch(u64 BE) || seed || 
 skipping a repeat and incrementing `iter`. Identical, identically-ordered to what the
 verifier selects and the keeper reconstructs.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L96)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L94)
 
 Import: `import {selectVerifierCommittee} from 'tasra-sdk/committee'`
 
@@ -3156,7 +1868,7 @@ The registry indexes whose Ed25519 signature over the token's own canonical hash
 `set` (strict), distinct and drawn. Mirrors the reference `signers_that_verify`: no rule, draw,
 lifetime or quorum check - only "which signatures are real", for counting status attestations.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L811)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L800)
 
 Import: `import {signersThatVerify} from 'tasra-sdk/committee'`
 
@@ -3179,7 +1891,7 @@ The 32-byte digest a drawn verifier signs to attest credential-status freshness 
 `keccak256(DOMAIN || tokenHash || verifierIndex(u32 BE) || statusUntil(i64 BE))`.
 Byte-identical to the reference `status_attestation_hash`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L734)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L723)
 
 Import: `import {statusAttestationHash} from 'tasra-sdk/committee'`
 
@@ -3198,10 +1910,11 @@ Returns: ` Uint8Array `.
 ### statusRefreshHash
 
 The 32-byte digest a refresh proof signs:
-`keccak256(DOMAIN || chainId(u64 BE) || tokenHash || paymentHash|zero32 || principalKind(u8)
-|| seq(u64 BE) || issuedAt(i64 BE))`.
+`keccak256(DOMAIN || chainId(u64 BE) || tokenHash || zero32 || principalKind(u8)
+|| seq(u64 BE) || issuedAt(i64 BE))`. The 32 zero bytes stand where a retired field was, so
+the digest is unchanged.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L130)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L127)
 
 Import: `import {statusRefreshHash} from 'tasra-sdk/committee'`
 
@@ -3211,7 +1924,7 @@ declare function statusRefreshHash(input: StatusRefreshHashInput): Uint8Array;
 
 | Parameter | Type | Description |
 |---|---|---|
-| ` input ` | ` StatusRefreshHashInput ` | - Chain, token hash, original payment hash (paid only), principal, seq and issue time. |
+| ` input ` | ` StatusRefreshHashInput ` | - Chain, token hash, principal, seq and issue time. |
 
 Returns: ` Uint8Array `.
 
@@ -3220,7 +1933,7 @@ Returns: ` Uint8Array `.
 A [StatusRefreshHolderSigner](#statusrefreshholdersigner-1) over a local holder key (P-256 signs ES256, Ed25519 signs EdDSA).
 The returned signer keeps a reference to `holder.privateKey`; the caller owns its lifetime.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L164)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L161)
 
 Import: `import {statusRefreshHolderSigner} from 'tasra-sdk/committee'`
 
@@ -3238,7 +1951,7 @@ Returns: ` StatusRefreshHolderSigner `.
 
 The relay request body `{proof}` (for a caller-owned transport).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L741)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L721)
 
 Import: `import {statusRefreshRelayBody} from 'tasra-sdk/committee'`
 
@@ -3256,7 +1969,7 @@ Returns: ` Uint8Array `.
 
 The exact verifier request body `{chain_id, token_hash, proof}` (≤ 4096 bytes).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L268)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L248)
 
 Import: `import {statusRefreshRequestBody} from 'tasra-sdk/committee'`
 
@@ -3294,7 +2007,7 @@ Returns: ` string `.
 
 `Statement::validate` plus the strict shape serde enforces (`deny_unknown_fields`, exact types).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L116)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L128)
 
 Import: `import {validateDualOperationStatement} from 'tasra-sdk/committee'`
 
@@ -3312,7 +2025,7 @@ Returns: ` asserts s is DualOperationStatement `.
 
 `keccak256(DOMAIN || index(u32 BE) || operator(20) || keccak256(pubkey))` - matches the on-chain leaf.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L251)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L240)
 
 Import: `import {verifierLeaf} from 'tasra-sdk/committee'`
 
@@ -3332,7 +2045,7 @@ Returns: ` Uint8Array `.
 
 Verify rule binding, committee selection, token lifetime, Ed25519 signatures and quorum against the supplied verifier set.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L391)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L389)
 
 Import: `import {verifyCompoundToken} from 'tasra-sdk/committee'`
 
@@ -3357,7 +2070,7 @@ verifier in `set` and verify (strict, non-ZIP-215) over [evidenceBindingMessage]
 distinct signers are counted once and must satisfy `quorum` of the drawn committee.
 Throws on any failure; returns the verified indexes.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L534)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L527)
 
 Import: `import {verifyEvidenceBinding} from 'tasra-sdk/committee'`
 
@@ -3371,81 +2084,11 @@ declare function verifyEvidenceBinding(opts: VerifyEvidenceBindingOptions): numb
 
 Returns: ` number[] `.
 
-### verifyExecutionAuthorization
-
-Verify creator consent, stage/operator/body binding and the strict local client signature.
-The caller must independently authenticate the operator assignment and fresh payment backing.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L349)
-
-Import: `import {verifyExecutionAuthorization} from 'tasra-sdk/committee'`
-
-```ts
-declare function verifyExecutionAuthorization(options: {
-    payment: PaymentIntentWire;
-    policy: ExecutionConsentPolicy;
-    expected: ExpectedExecution;
-    authorization: ExecutionAuthorization;
-}): Promise<void>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` options ` | ` { payment: PaymentIntentWire; policy: ExecutionConsentPolicy; expected: ExpectedExecution; authorization: ExecutionAuthorization; } ` | Original payment, independently selected policy/target and untrusted proof. |
-
-Returns: ` Promise<void> `.
-
-### verifyExecutionConsent
-
-Verify public financial consent at its original admission time. The caller must first
-authenticate the historical creator, reserved cost, canonical block and operator assignment.
-Work admission must continue to use verifyExecutionAuthorization with the complete body.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L395)
-
-Import: `import {verifyExecutionConsent} from 'tasra-sdk/committee'`
-
-```ts
-declare function verifyExecutionConsent(options: {
-    payment: PaymentIntentWire;
-    policy: ExecutionConsentPolicy;
-    consent: ExecutionConsent;
-    expected: {
-        stage: ExecutionStage;
-        operatorKey: Hex;
-        reservationBlock: Hex;
-        executionBinding: Hex;
-    };
-}): Promise<void>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` options ` | See detailed type below. | Independently established history and worker binding, plus untrusted consent. |
-
-**` options ` type**
-
-```ts
-{
-    payment: PaymentIntentWire;
-    policy: ExecutionConsentPolicy;
-    consent: ExecutionConsent;
-    expected: {
-        stage: ExecutionStage;
-        operatorKey: Hex;
-        reservationBlock: Hex;
-        executionBinding: Hex;
-    };
-}
-```
-
-Returns: ` Promise<void> `.
-
 ### verifyMerkleProof
 
 Verify a sorted-pair keccak Merkle inclusion proof (leaf to root).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L266)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L255)
 
 Import: `import {verifyMerkleProof} from 'tasra-sdk/committee'`
 
@@ -3481,68 +2124,6 @@ declare function verifyOperationReceipt(receipt: OperationReceipt | undefined, e
 
 Returns: ` boolean `.
 
-### verifyPaidExecutionEvidence
-
-Authenticate public recovery evidence against independently established historical financial policy.
-The policy time must equal the original accepted time, not the current recovery clock.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/recovery.ts#L177)
-
-Import: `import {verifyPaidExecutionEvidence} from 'tasra-sdk/committee'`
-
-```ts
-declare function verifyPaidExecutionEvidence(options: {
-    payment: PaymentIntentWire;
-    policy: ExecutionConsentPolicy;
-    target: ExecutionRecoveryTarget;
-    execution: SignedPaidExecutionReport;
-}): Promise<void>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` options ` | ` { payment: PaymentIntentWire; policy: ExecutionConsentPolicy; target: ExecutionRecoveryTarget; execution: SignedPaidExecutionReport; } ` | Retained payment/client identity, historical creator and fee, expected worker and untrusted evidence. |
-
-Returns: ` Promise<void> `.
-
-### verifyRecoveredExecutionResult
-
-Verify the returned worker evidence and exact result bytes against the previously authenticated report.
-Returns the retained JSON string only after its commitment matches; callers decode the operation's
-internal result format themselves. It may differ from the original HTTP envelope and audit metadata.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/recovery.ts#L269)
-
-Import: `import {verifyRecoveredExecutionResult} from 'tasra-sdk/committee'`
-
-```ts
-declare function verifyRecoveredExecutionResult(options: {
-    payment: PaymentIntentWire;
-    policy: ExecutionConsentPolicy;
-    target: ExecutionRecoveryTarget;
-    expectedExecution: SignedPaidExecutionReport;
-    reply: RecoveredExecutionReply;
-}): Promise<string>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` options ` | See detailed type below. | Original identity and history, authenticated expected report, and untrusted response. |
-
-**` options ` type**
-
-```ts
-{
-    payment: PaymentIntentWire;
-    policy: ExecutionConsentPolicy;
-    target: ExecutionRecoveryTarget;
-    expectedExecution: SignedPaidExecutionReport;
-    reply: RecoveredExecutionReply;
-}
-```
-
-Returns: ` Promise<string> `.
-
 ### verifySessionGrant
 
 Verify a grant for serving one slot, with the reference steps in their order: the slot is
@@ -3565,29 +2146,6 @@ declare function verifySessionGrant(o: VerifySessionGrantOptions): VerifiedSessi
 | ` o ` | ` VerifySessionGrantOptions ` | - Grant, verifier set, slot policy and time. |
 
 Returns: ` VerifiedSessionGrant `.
-
-### verifySessionInitialization
-
-Verify fresh client consent before creating or retrying a registered agent session.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L468)
-
-Import: `import {verifySessionInitialization} from 'tasra-sdk/committee'`
-
-```ts
-declare function verifySessionInitialization(options: {
-    payment: PaymentIntentWire;
-    policy: ExecutionConsentPolicy;
-    expected: ExpectedInitialization;
-    initialization: SessionInitialization;
-}): Promise<void>;
-```
-
-| Parameter | Type | Description |
-|---|---|---|
-| ` options ` | ` { payment: PaymentIntentWire; policy: ExecutionConsentPolicy; expected: ExpectedInitialization; initialization: SessionInitialization; } ` | Independently selected profile/body/policy, original payment and untrusted proof. |
-
-Returns: ` Promise<void> `.
 
 ### verifySessionSignature
 
@@ -3615,7 +2173,7 @@ Returns: ` boolean `.
 Verify ONE attestation's Ed25519 signature under the verifier's committee key over `tokenHash`
 (no freshness, no quorum) - what a relay checks before forwarding it.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L748)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L737)
 
 Import: `import {verifyStatusAttestation} from 'tasra-sdk/committee'`
 
@@ -3640,7 +2198,7 @@ deadline (the quorum-th largest attested `status_until`). Throws on a duplicate 
 oversize list, a bad signature from a counted verifier, or fewer than `quorum` attestations
 fresh at `now` (`now <= status_until + STATUS_SKEW_SECS`; the token leeway is NOT applied).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L782)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L771)
 
 Import: `import {verifyStatusAttestations} from 'tasra-sdk/committee'`
 
@@ -3661,7 +2219,7 @@ result: the verifier, answering for this token, said its status statement does n
 (revoked, past a cap, the principal does not verify, its context moved, it cannot read status,
 or the proof replays). Transport, unknown or malformed outcomes withdraw nothing.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L393)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L373)
 
 Import: `import {withdrawsOriginal} from 'tasra-sdk/committee'`
 
@@ -3680,15 +2238,11 @@ Returns: ` boolean `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 113 types</summary>
+<summary>Browse 84 types</summary>
 
-- [AllowanceAction](#allowanceaction)
-- [AllowanceReserveArgs](#allowancereserveargs)
-- [AllowanceSettleArgs](#allowancesettleargs)
 - [BlsSharing](#blssharing)
 - [BlsSharingKeeper](#blssharingkeeper)
 - [BlsSharingOptions](#blssharingoptions)
-- [ClientExecutionSigner](#clientexecutionsigner)
 - [ClientRecipient](#clientrecipient)
 - [CommitteeAuthorizeBody](#committeeauthorizebody)
 - [CommitteeAuthorizeReply](#committeeauthorizereply)
@@ -3704,16 +2258,14 @@ Options, data structures and return types.
 - [CommitteeSignRequestOpts](#committeesignrequestopts)
 - [CommitteeTokenResult](#committeetokenresult)
 - [CommitteeVerifier](#committeeverifier)
-- [CompletedPaidExecutionReport](#completedpaidexecutionreport)
 - [CompoundTokenPayload](#compoundtokenpayload)
 - [CompoundTokenWire](#compoundtokenwire)
 - [CreateStatusRefreshProofOptions](#createstatusrefreshproofoptions)
-- [DebitVoucherFields](#debitvoucherfields)
-- [DebitVoucherWire](#debitvoucherwire)
 - [DecryptionBindingWire](#decryptionbindingwire)
 - [DualOperationApproval](#dualoperationapproval)
 - [DualOperationApprovalRecord](#dualoperationapprovalrecord)
 - [DualOperationApprover](#dualoperationapprover)
+- [DualOperationExpectation](#dualoperationexpectation)
 - [DualOperationKind](#dualoperationkind)
 - [DualOperationProof](#dualoperationproof)
 - [DualOperationStatement](#dualoperationstatement)
@@ -3722,17 +2274,6 @@ Options, data structures and return types.
 - [DualSignRequest](#dualsignrequest)
 - [DualSignStatus](#dualsignstatus)
 - [EvidenceBindingWire](#evidencebindingwire)
-- [ExecutionAuthorization](#executionauthorization)
-- [ExecutionCertificate](#executioncertificate)
-- [ExecutionConsent](#executionconsent)
-- [ExecutionConsentPolicy](#executionconsentpolicy)
-- [ExecutionCreatorSigner](#executioncreatorsigner)
-- [ExecutionProposal](#executionproposal)
-- [ExecutionRecoveryAuthorization](#executionrecoveryauthorization)
-- [ExecutionRecoveryTarget](#executionrecoverytarget)
-- [ExecutionStage](#executionstage)
-- [ExpectedExecution](#expectedexecution)
-- [ExpectedInitialization](#expectedinitialization)
 - [ExtractionEvidence](#extractionevidence)
 - [ExtractionKeeper](#extractionkeeper)
 - [GatherCommitteeTokenOpts](#gathercommitteetokenopts)
@@ -3743,21 +2284,11 @@ Options, data structures and return types.
 - [IbeExtractionPartial](#ibeextractionpartial)
 - [IbeExtractOpts](#ibeextractopts)
 - [IbeExtractRequestOpts](#ibeextractrequestopts)
-- [KeeperExecutionApprovalRequest](#keeperexecutionapprovalrequest)
-- [KeeperExecutionApprovals](#keeperexecutionapprovals)
-- [KeeperExecutionApprover](#keeperexecutionapprover)
-- [KeeperExecutionKind](#keeperexecutionkind)
-- [LocalExecutionSigner](#localexecutionsigner)
 - [OperationReceipt](#operationreceipt)
 - [P256DigestSignature](#p256digestsignature)
-- [PaidExecutionRequest](#paidexecutionrequest-1)
-- [PaidKeeperAssignment](#paidkeeperassignment)
-- [PaymentIntentWire](#paymentintentwire)
-- [PrepaidAllowanceIntentWire](#prepaidallowanceintentwire)
 - [PreparedDualOperation](#prepareddualoperation)
 - [ReceiptExpectation](#receiptexpectation)
 - [RecipientWire](#recipientwire)
-- [RecoveredExecutionReply](#recoveredexecutionreply)
 - [RefreshStatusDirectOptions](#refreshstatusdirectoptions)
 - [RefreshStatusViaAgentOptions](#refreshstatusviaagentoptions)
 - [RequestCommitteeTokenOpts](#requestcommitteetokenopts)
@@ -3768,10 +2299,8 @@ Options, data structures and return types.
 - [SessionGrant](#sessiongrant)
 - [SessionGrantPayload](#sessiongrantpayload-1)
 - [SessionGrantWire](#sessiongrantwire)
-- [SessionInitialization](#sessioninitialization)
 - [SessionKeyJwk](#sessionkeyjwk)
 - [SessionProofWire](#sessionproofwire)
-- [SignedPaidExecutionReport](#signedpaidexecutionreport)
 - [StatusAttestation](#statusattestation)
 - [StatusAttestationWire](#statusattestationwire)
 - [StatusFreshness](#statusfreshness)
@@ -3797,78 +2326,6 @@ Options, data structures and return types.
 - [VerifyStatusAttestationsOptions](#verifystatusattestationsoptions)
 
 </details>
-
-### AllowanceAction
-
-The paid actions an allowance can fund, as `PrepaidAction` bit ordinals.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L266)
-
-```ts
-export type AllowanceAction = keyof typeof ACTIONS;
-```
-
-### AllowanceReserveArgs
-
-The arguments of `reservePrepaidAllowanceBls` the accountant quorum signs.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L390)
-
-```ts
-export interface AllowanceReserveArgs {
-    slot: Hex;
-    legacyNonce: bigint;
-    allowanceId: Hex;
-    amount: bigint;
-    maxOpCost: bigint;
-    actions: number;
-    expiresAt: bigint;
-    assignmentBlock: Hex;
-    deadline: bigint;
-}
-```
-
-Fields:
-
-- **` slot `**: Slot.
-- **` legacyNonce `**: Reconciled legacy settlement cursor.
-- **` allowanceId `**: Derived allowance id.
-- **` amount `**: Escrow.
-- **` maxOpCost `**: Per-operation cap.
-- **` actions `**: Funded actions bitmap.
-- **` expiresAt `**: Expiry, Unix seconds.
-- **` assignmentBlock `**: Quote block, immutable as the allowance's assignment block.
-- **` deadline `**: Authorization deadline, Unix seconds.
-
-### AllowanceSettleArgs
-
-The arguments of `settlePrepaidAllowanceBls` the quorum signs (accountant settle path; for conformance).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L467)
-
-```ts
-export interface AllowanceSettleArgs {
-    allowanceId: Hex;
-    requestIds: readonly Hex[];
-    costs: readonly bigint[];
-    paid: readonly bigint[];
-    batchId: Hex;
-    root: Hex;
-    evidenceHash: Hex;
-    deadline: bigint;
-}
-```
-
-Fields:
-
-- **` allowanceId `**: Allowance.
-- **` requestIds `**: Settled request IDs.
-- **` costs `**: Their costs.
-- **` paid `**: Paid out of each cost.
-- **` batchId `**: Claim batch.
-- **` root `**: Payout root.
-- **` evidenceHash `**: Evidence hash.
-- **` deadline `**: Deadline.
 
 ### BlsSharing
 
@@ -3939,31 +2396,13 @@ Fields:
 
 - **` chainId `**: Deployment chain ID.
 - **` slotId `**: Original 32-byte slot identifier.
-- **` epoch `**: Key epoch read independently from the canonical slot or reserved payment.
+- **` epoch `**: Key epoch read independently from the canonical slot.
 - **` committeeVersion `**: Sharing version read independently; reshares can change it without changing the epoch.
 - **` threshold `**: Required number of distinct assigned operators.
 - **` keepers `**: Assigned operators with registry-authenticated identity keys.
 - **` fetchImpl `**: Optional guarded transport, also used by applications with mapped keeper routes.
 - **` allowLocalHttp `**: Allow loopback HTTP for disposable local chain43112 only. Default false.
 - **` signal `**: Cancel all pending metadata reads. The complete discovery is bounded to 15 seconds.
-
-### ClientExecutionSigner
-
-Local Ed25519 signing capability; implementations must keep their key on the client.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L123)
-
-```ts
-export interface ClientExecutionSigner {
-    publicKey: Uint8Array;
-    sign(message: Uint8Array): Promise<Uint8Array>;
-}
-```
-
-Fields:
-
-- **` publicKey `**: Public key used by the creator certificate.
-- **` sign `**: Sign the SDK-reconstructed structured hash; never a hash supplied by an agent.
 
 ### ClientRecipient
 
@@ -3987,11 +2426,10 @@ Fields:
 
 Credential presentation and request context sent to one verifier for committee authorization.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L89)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L88)
 
 ```ts
 export interface CommitteeAuthorizeBody {
-    payment?: PaymentIntentWire;
     holder: string;
     credentials: string[];
     holderProof: string;
@@ -4010,7 +2448,6 @@ export interface CommitteeAuthorizeBody {
 
 Fields:
 
-- **` payment `**: Creator intent for the already mined reservation.
 - **` holder `**: Holder DID (the credentials' subject).
 - **` credentials `**: Compact-JWS verifiable credentials.
 - **` holderProof `**: F1/F4: holder proof-of-possession. Build via `createHolderProof` (bind it to `slotId`). Empty string means omitted from the wire, which only a verifier with `require_holder_binding = false` accepts.
@@ -4029,7 +2466,7 @@ Fields:
 
 Verifier signature, token hashes and committee metadata for an authorization request.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L146)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L143)
 
 ```ts
 export interface CommitteeAuthorizeReply {
@@ -4049,7 +2486,6 @@ export interface CommitteeAuthorizeReply {
     committeeIndexes: number[];
     ruleVersion?: number;
     requestHash?: Uint8Array;
-    paymentHash?: Uint8Array;
     binding: number;
     statusAttestation?: {
         statusUntil: number;
@@ -4071,7 +2507,6 @@ Fields:
 - **` committeeIndexes `**: The full ordered committee draw, so the caller knows whom else to ask.
 - **` ruleVersion `**: The slot's `ruleVersion` this authorization was evaluated against.  Diagnostic, not a gate. The keeper binds `ruleHash` to its own rule hash, so a token minted under a superseded policy is refused there whatever this says. Its value is that it explains the refusal: without it, a token minted moments before an amendment activates is rejected with nothing to distinguish it from a genuinely unauthorized request. `undefined` from a verifier that predates rule versioning.
 - **` requestHash `**: present when the request carried a binding preimage; inside the signed bytes.
-- **` paymentHash `**: Payment commitment attested by this verifier.
 - **` binding `**: binding strength byte (`bindingFromWire`); `0x00` when the verifier declared none.
 - **` statusAttestation `**: This verifier's revocation-status freshness attestation (`status_until` + `status_signature` on the wire), when it sent one. Not authenticated here: [gatherCommitteeToken](#gathercommitteetoken) verifies it under the verifier's committee key before relaying it.
 
@@ -4080,7 +2515,7 @@ Fields:
 The chain reads the committee flow needs. Adapt from the SDK chain client with
 [committeeChainReadsFromClient](#committeechainreadsfromclient), or supply raw viem reads.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L103)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L101)
 
 ```ts
 export interface CommitteeChainReads {
@@ -4112,12 +2547,11 @@ Fields:
 
 Committee-authorized group decryption request and optional verifier membership proofs.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L575)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L544)
 
 ```ts
 export interface CommitteeDecryptOpts {
     evidenceCt?: string;
-    approveExecution?: KeeperExecutionApprover;
     signal?: AbortSignal;
     fetchImpl?: typeof fetch;
     nodeUrl: string;
@@ -4136,7 +2570,6 @@ export interface CommitteeDecryptOpts {
 Fields:
 
 - **` evidenceCt `**: Exact sealed presentation ciphertext returned with this authorization.
-- **` approveExecution `**: Required for a paid token: client-only exact-body stage approval capability.
 - **` signal `**: Caller cancellation for canonical approval and keeper work.
 - **` fetchImpl `**: Caller-approved HTTP implementation.
 - **` nodeUrl `**: Keeper HTTP base URL.
@@ -4154,7 +2587,7 @@ Fields:
 
 Operation-specific fields for [committeeDecryptRequest](#committeedecryptrequest).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L416)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L408)
 
 ```ts
 export interface CommitteeDecryptRequestOpts extends RequestCommitteeTokenOpts {
@@ -4164,7 +2597,6 @@ export interface CommitteeDecryptRequestOpts extends RequestCommitteeTokenOpts {
     threshold?: number;
     signal?: AbortSignal;
     fetchImpl?: typeof fetch;
-    approveExecution?: KeeperExecutionApprover;
     nodeUrl?: string;
     ciphertext: CommitteeDecryptOpts['ciphertext'];
     identity: Uint8Array;
@@ -4184,7 +2616,6 @@ Fields:
 - **` threshold `**: Required distinct verified contribution count, matching the canonical sharing.
 - **` signal `**: Cancel authorization and contribution collection.
 - **` fetchImpl `**: Guarded keeper HTTP transport; defaults to global fetch.
-- **` approveExecution `**: Client-owned exact-body approval capability, required when authorization carries payment.
 - **` nodeUrl `**: Keeper HTTP base URL.
 - **` ciphertext `**: Ciphertext to decrypt.
 - **` identity `**: Original encryption associated data.
@@ -4194,7 +2625,6 @@ Fields:
 - **` ciphertextEpoch `**: Expected key epoch of the ciphertext; used to detect rotation.
 - **` targetKeykeeper `**: Optional 20-byte operator address to pin the intended keeper.
 - **` binding `**: Exact chain-, slot-, action- and payload-bound authorization preimage; decryption must include the recipient-bound digest.
-- **` payment `**: Original creator-signed payment intent for the already reserved operation.
 - **` chain `**: Reader methods for the beacon and slot verifier policy.
 - **` epochLag `**: Pin the draw to `latest - epochLag` (0 or 1). 1 = the previous epoch, always anchored: no wait for the accountants.
 - **` verifiers `**: The active verifier set (index to URL; add operator+pubkey to enable trustless proofs). Asking the whole set is fine - non-drawn verifiers reply 403 and are skipped.
@@ -4212,7 +2642,7 @@ Fields:
 
 A committee draw read at one block: the epoch, its seed and its anchored verifier snapshot.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L124)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L122)
 
 ```ts
 export interface CommitteeDraw {
@@ -4236,12 +2666,11 @@ Fields:
 
 Compound authorization, keeper endpoint and digest for threshold ECDSA signing.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L16)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L15)
 
 ```ts
 export interface CommitteeEoaSignOpts {
     evidenceCt?: string;
-    approveExecution?: KeeperExecutionApprover;
     fetchImpl?: typeof fetch;
     nodeUrl: string;
     committeeToken: CompoundTokenWire;
@@ -4252,13 +2681,13 @@ export interface CommitteeEoaSignOpts {
     targetKeykeeper?: string;
     signal?: AbortSignal;
     dualControl?: DualOperationProof;
+    chainId?: number;
 }
 ```
 
 Fields:
 
 - **` evidenceCt `**: Exact sealed presentation ciphertext returned with this authorization.
-- **` approveExecution `**: Required for a paid token: locally verify and approve the complete keeper body.
 - **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
 - **` nodeUrl `**: Keeper HTTP base URL.
 - **` committeeToken `**: Authorization from awaitVerifierAgentResult; its slot selects the signing key.
@@ -4268,13 +2697,14 @@ Fields:
 - **` userSignature `**: Required only by slots configured with an additional owner-signature gate.
 - **` targetKeykeeper `**: Optional 20-byte operator address to pin the intended keeper.
 - **` signal `**: Optional signal that cancels the request.
-- **` dualControl `**: Dual-control approvals for this exact operation (assembleDualOperation). Required by a slot under an operation dual-control policy; checked here against the token's slot, SHA-256 of the digest and the token's own payment, then carried inside the client-approved body.
+- **` dualControl `**: Dual-control approvals for this exact operation (assembleDualOperation). Required by a slot under an operation dual-control policy; checked here against the token's slot, the chain and SHA-256 of the digest, then carried inside the request body. Needs `chainId`.
+- **` chainId `**: Deployment chain ID; required with `dualControl` (the approval statement names its chain).
 
 ### CommitteeP256SignOpts
 
 [committeeSignEoaDigest](#committeesigneoadigest) options plus the slot key the signature must verify under.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L75)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L74)
 
 ```ts
 export interface CommitteeP256SignOpts extends CommitteeEoaSignOpts {
@@ -4286,7 +2716,6 @@ Fields:
 
 - **` groupPublicKey `**: The slot's anchored P-256 group public key (33-byte compressed or 65-byte uncompressed SEC1).
 - **` evidenceCt `**: Exact sealed presentation ciphertext returned with this authorization.
-- **` approveExecution `**: Required for a paid token: locally verify and approve the complete keeper body.
 - **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
 - **` nodeUrl `**: Keeper HTTP base URL.
 - **` committeeToken `**: Authorization from awaitVerifierAgentResult; its slot selects the signing key.
@@ -4296,13 +2725,14 @@ Fields:
 - **` userSignature `**: Required only by slots configured with an additional owner-signature gate.
 - **` targetKeykeeper `**: Optional 20-byte operator address to pin the intended keeper.
 - **` signal `**: Optional signal that cancels the request.
-- **` dualControl `**: Dual-control approvals for this exact operation (assembleDualOperation). Required by a slot under an operation dual-control policy; checked here against the token's slot, SHA-256 of the digest and the token's own payment, then carried inside the client-approved body.
+- **` dualControl `**: Dual-control approvals for this exact operation (assembleDualOperation). Required by a slot under an operation dual-control policy; checked here against the token's slot, the chain and SHA-256 of the digest, then carried inside the request body. Needs `chainId`.
+- **` chainId `**: Deployment chain ID; required with `dualControl` (the approval statement names its chain).
 
 ### CommitteeSignature
 
 One verifier's signature within a compound token.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L321)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L310)
 
 ```ts
 export interface CommitteeSignature {
@@ -4320,7 +2750,7 @@ Fields:
 
 One verifier's signature on the wire (hex).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L433)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L430)
 
 ```ts
 export interface CommitteeSignatureWire {
@@ -4338,12 +2768,11 @@ Fields:
 
 Committee-authorized FROST signing request and optional verifier membership proofs.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L494)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L468)
 
 ```ts
 export interface CommitteeSignOpts {
     evidenceCt?: string;
-    approveExecution?: KeeperExecutionApprover;
     signal?: AbortSignal;
     fetchImpl?: typeof fetch;
     nodeUrl: string;
@@ -4359,7 +2788,6 @@ export interface CommitteeSignOpts {
 Fields:
 
 - **` evidenceCt `**: Exact sealed presentation ciphertext returned with this authorization.
-- **` approveExecution `**: Required for a paid token: client-only exact-body stage approval capability.
 - **` signal `**: Optional signal that cancels the request.
 - **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
 - **` nodeUrl `**: Keeper HTTP base URL.
@@ -4375,11 +2803,10 @@ Fields:
 Operation-specific fields for [committeeSignRequest](#committeesignrequest) (everything `committeeSign` needs
 except the token, which this resolves).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L379)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L374)
 
 ```ts
 export interface CommitteeSignRequestOpts extends RequestCommitteeTokenOpts {
-    approveExecution?: KeeperExecutionApprover;
     nodeUrl: string;
     message: Uint8Array;
     signingSet?: number[];
@@ -4390,14 +2817,12 @@ export interface CommitteeSignRequestOpts extends RequestCommitteeTokenOpts {
 
 Fields:
 
-- **` approveExecution `**: Client-owned exact-body approval capability, required when authorization carries payment.
 - **` nodeUrl `**: Keeper HTTP base URL.
 - **` message `**: Raw message bytes to sign.
 - **` signingSet `**: Optional threshold participant identifiers for the signing ceremony.
 - **` userSignature `**: Optional Ed25519 owner signature over the canonical operation request.
 - **` targetKeykeeper `**: The keeper this request targets (anti-Sybil). Defaults to letting the node accept it.
 - **` binding `**: Exact chain-, slot-, action- and payload-bound authorization preimage; decryption must include the recipient-bound digest.
-- **` payment `**: Original creator-signed payment intent for the already reserved operation.
 - **` chain `**: Reader methods for the beacon and slot verifier policy.
 - **` epochLag `**: Pin the draw to `latest - epochLag` (0 or 1). 1 = the previous epoch, always anchored: no wait for the accountants.
 - **` verifiers `**: The active verifier set (index to URL; add operator+pubkey to enable trustless proofs). Asking the whole set is fine - non-drawn verifiers reply 403 and are skipped.
@@ -4415,7 +2840,7 @@ Fields:
 
 Assembled compound token, committee draw and optional proofs and client signature.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L202)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L198)
 
 ```ts
 export interface CommitteeTokenResult {
@@ -4448,7 +2873,7 @@ Fields:
 One member of the active verifier set. `operator`+`pubkey` are needed only to build the
 trustless snapshot proofs; `index`+`url` alone suffice for the keeper's configured-set path.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L90)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L88)
 
 ```ts
 export interface CommitteeVerifier {
@@ -4466,43 +2891,11 @@ Fields:
 - **` operator `**: 20-byte operator address (hex).
 - **` pubkey `**: 32-byte ed25519 signing pubkey (hex).
 
-### CompletedPaidExecutionReport
-
-Completed durable work report. Recovery deliberately refuses non-success outcomes.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/recovery.ts#L32)
-
-```ts
-export interface CompletedPaidExecutionReport {
-    request: PaidExecutionRequest;
-    operator_key: number[];
-    stage: ExecutionStage;
-    binding: number[];
-    reservation_block: number[];
-    cost: number[];
-    outcome: {
-        succeeded: {
-            result_commitment: number[];
-        };
-    };
-}
-```
-
-Fields:
-
-- **` request `**: Exact original reserved request.
-- **` operator_key `**: Worker identity, matched to independently authenticated assignment.
-- **` stage `**: Original paid stage.
-- **` binding `**: Original client consent, input and backing binding.
-- **` reservation_block `**: Original canonical admission block, not the latest block.
-- **` cost `**: Original reserved fee, unsigned big-endian TASRA base units.
-- **` outcome `**: Successful result commitment; absence or failure never triggers another execution.
-
 ### CompoundTokenPayload
 
 The data the quorum verifiers sign over. All byte fields are 32 bytes unless noted.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L123)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L121)
 
 ```ts
 export interface CompoundTokenPayload {
@@ -4515,8 +2908,6 @@ export interface CompoundTokenPayload {
     ruleHash: Uint8Array;
     identityHash?: Uint8Array;
     requestHash?: Uint8Array;
-    paymentHash?: Uint8Array;
-    payment?: PaymentIntentWire;
     binding?: number;
     verifierIndexes: number[];
     iat: number | bigint;
@@ -4535,8 +2926,6 @@ Fields:
 - **` ruleHash `**: Keccak-256 hash of the raw rule bytes, without salt. This differs from the salted on-chain ruleCommitment.
 - **` identityHash `**: Keccak-256 hash of the authorized IBE identity. Present only for identity-scoped operations and included in the signed encoding; identity-blind endpoints reject scoped tokens.
 - **` requestHash `**: Keccak-256 operation-binding hash. Required when keepers enforce request binding; absent only on authorization paths that do not derive it.
-- **` paymentHash `**: Creator payment intent hash; uses a distinct signing domain when present.
-- **` payment `**: Optional transport preimage. Must match paymentHash; chain backing is checked separately.
 - **` binding `**: How the holder's key possession was proved. `0x00` = Unbound (no proof), `0x01` = HolderKey (KB-JWT nonce verified), `0x02` = IssuerAsserted (reserved). Always present in the canonical bytes; defaults to `0x00` when omitted.
 - **` verifierIndexes `**: Indices of the selected verifier committee.
 - **` iat `**: Issue time in Unix seconds.
@@ -4546,7 +2935,7 @@ Fields:
 
 The compound token JSON a client submits with `/v1/committee/{sign,decrypt}`.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L441)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L438)
 
 ```ts
 export interface CompoundTokenWire extends EvidenceBindingWire {
@@ -4559,8 +2948,6 @@ export interface CompoundTokenWire extends EvidenceBindingWire {
     rule_hash: string;
     identity_hash?: string;
     request_hash?: string;
-    payment_hash?: string;
-    payment?: PaymentIntentWire;
     binding?: string;
     verifier_indexes: number[];
     iat: number;
@@ -4581,8 +2968,6 @@ Fields:
 - **` rule_hash `**: `keccak256` of the RAW rule (UNSALTED) - the counterpart of `DualControlPolicy.ruleHash`, never the salted `KeySlot.ruleCommitment`.
 - **` identity_hash `**: `0x..` identity binding - present iff the token is identity-scoped.
 - **` request_hash `**: `0x..` request binding hash - present when minted via the verifier-agent flow.
-- **` payment_hash `**: Creator payment-intent hash, attested by the verifier quorum.
-- **` payment `**: Creator-signed intent carried to keepers for independent reservation checks.
 - **` binding `**: `"unbound"` | `"holder_key"` | `"issuer_asserted"`.
 - **` verifier_indexes `**: Indices of the selected verifier committee.
 - **` iat `**: Issue time in Unix seconds.
@@ -4597,13 +2982,12 @@ Fields:
 
 Inputs of [createStatusRefreshProof](#createstatusrefreshproof).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L201)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L191)
 
 ```ts
 export interface CreateStatusRefreshProofOptions {
     chainId: number | bigint;
     tokenHash: Uint8Array;
-    paymentHash?: Uint8Array;
     seq: number;
     issuedAt?: number;
     prover: StatusRefreshProver;
@@ -4614,64 +2998,9 @@ Fields:
 
 - **` chainId `**: Chain ID.
 - **` tokenHash `**: 32-byte canonical token hash.
-- **` paymentHash `**: ORIGINAL payment hash of a paid grant (omit when unpaid).
 - **` seq `**: Journaled sequence number (positive safe integer). Never reuse one.
 - **` issuedAt `**: Unix seconds (default now).
 - **` prover `**: Principal and signer.
-
-### DebitVoucherFields
-
-The fields a debit voucher's threshold signature covers.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L426)
-
-```ts
-export interface DebitVoucherFields {
-    allowanceId: Hex;
-    seq: bigint;
-    requestId: Hex;
-    cost: bigint;
-    cumulative: bigint;
-    quoteBlock: Hex;
-}
-```
-
-Fields:
-
-- **` allowanceId `**: Allowance.
-- **` seq `**: Per-allowance sequence.
-- **` requestId `**: Operation's request ID.
-- **` cost `**: Cost at the quote block.
-- **` cumulative `**: Total debited through `seq`.
-- **` quoteBlock `**: Quote block hash.
-
-### DebitVoucherWire
-
-Accountant-quorum debit of one operation against an allowance (threshold BN254 over [debitVoucherDigest](#debitvoucherdigest)).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L71)
-
-```ts
-export interface DebitVoucherWire {
-    allowance_id: Hex;
-    seq: number;
-    request_id: Hex;
-    cost: string;
-    cumulative: string;
-    quote_block: Hex;
-    signature: Hex;
-}
-```
-
-Fields:
-
-- **` allowance_id `**: Allowance the operation is debited from.
-- **` seq `**: Per-allowance sequence number, from 1.
-- **` request_id `**: The operation's [prepaidRequestId](#prepaidrequestid).
-- **` cost `**: TASRA base units fixed at the quote block, decimal.
-- **` cumulative `**: Total debited through `seq`, decimal; never above the allowance amount.
-- **` quote_block `**: Canonical block the cost was quoted at; the group key is read there.
-- **` signature `**: 64-byte BN254 G1 aggregate (x || y).
 
 ### DecryptionBindingWire
 
@@ -4697,7 +3026,7 @@ Fields:
 
 One approver's signature over the statement (Rust `Approval`).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L55)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L67)
 
 ```ts
 export interface DualOperationApproval {
@@ -4726,7 +3055,7 @@ Fields:
 
 One approval with the statement it signs, as an approver hands it back.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L89)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L101)
 
 ```ts
 export interface DualOperationApprovalRecord {
@@ -4744,7 +3073,7 @@ Fields:
 
 An Ed25519 approver: its public key and a callback that signs the exact supplied bytes.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L97)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L109)
 
 ```ts
 export interface DualOperationApprover {
@@ -4758,11 +3087,35 @@ Fields:
 - **` publicKey `**: 32-byte Ed25519 public key.
 - **` sign `**: Sign the exact supplied bytes; the SDK verifies the result.
 
+### DualOperationExpectation
+
+The exact operation a statement must name.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L185)
+
+```ts
+export interface DualOperationExpectation {
+    chainId: number;
+    slot: Uint8Array;
+    operation: DualOperationKind;
+    payloadDigest: Uint8Array;
+    epoch?: number;
+}
+```
+
+Fields:
+
+- **` chainId `**: Deployment chain.
+- **` slot `**: 32-byte slot ID.
+- **` operation `**: The approved operation.
+- **` payloadDigest `**: 32-byte payload digest of the operation (SHA-256 of an ECDSA digest; the recipient-bound digest of a decryption).
+- **` epoch `**: The slot's key epoch, when the caller has read it; checked when given.
+
 ### DualOperationKind
 
 The operation a statement approves (Rust `Operation`, kebab-case).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L24)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L23)
 
 ```ts
 export type DualOperationKind = 'frost-sign' | 'secp256k1-sign' | 'p256-sign' | 'kem-decrypt' | 'ibe-extract';
@@ -4772,7 +3125,7 @@ export type DualOperationKind = 'frost-sign' | 'secp256k1-sign' | 'p256-sign' | 
 
 The `dual_control` field of an operation request (Rust `Proof`).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L69)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L81)
 
 ```ts
 export interface DualOperationProof {
@@ -4790,7 +3143,7 @@ Fields:
 
 The Rust `Statement`, field for field, in its serialization order. Byte arrays are JSON number arrays.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L31)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L45)
 
 ```ts
 export interface DualOperationStatement {
@@ -4800,7 +3153,6 @@ export interface DualOperationStatement {
     epoch: number;
     payload_digest: number[];
     request_id: string;
-    payment_hash: number[];
     issued_at: number;
     expires_at: number;
     identity: string | null;
@@ -4809,13 +3161,12 @@ export interface DualOperationStatement {
 
 Fields:
 
-- **` chain_id `**: Chain the final payment names.
+- **` chain_id `**: Deployment chain of the operation.
 - **` slot `**: 32-byte slot ID as a JSON number array.
 - **` operation `**: The approved operation.
-- **` epoch `**: The slot's key epoch the final payment's keeper assignment names.
+- **` epoch `**: The slot's current key epoch.
 - **` payload_digest `**: 32-byte payload digest of the final operation (SHA-256 of an ECDSA digest), as numbers.
-- **` request_id `**: The final payment's request ID, 64 lowercase hex characters.
-- **` payment_hash `**: EIP-712 hash of the final payment intent, as numbers.
+- **` request_id `**: The operation's request hash ([dualOperationRequestId](#dualoperationrequestid)), 64 lowercase hex characters.
 - **` issued_at `**: Unix seconds the statement becomes current.
 - **` expires_at `**: Unix seconds it stops being current (at most 300 s after issue).
 - **` identity `**: IBE approvals cover a reusable identity capability, not a single ciphertext; null otherwise.
@@ -4824,7 +3175,7 @@ Fields:
 
 Ed25519 approver public key and callback that signs canonical approval bytes.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L123)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L92)
 
 ```ts
 export interface DualSignApprover {
@@ -4842,12 +3193,10 @@ Fields:
 
 Trusted slot key, keeper endpoint and approver policy for a native signing request.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L74)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L47)
 
 ```ts
 export interface DualSignConfig {
-    approveExecution?: KeeperExecutionApprover;
-    payment?: PaymentIntentWire;
     chainId: number;
     nodeUrl: string;
     slotId: string;
@@ -4861,8 +3210,6 @@ export interface DualSignConfig {
 
 Fields:
 
-- **` approveExecution `**: Required for paid creation: original client's complete final-work approvals.
-- **` payment `**: Optional pinned final Sign payment for this coordinator; per-call replacements are refused.
 - **` chainId `**: EVM chain identifier.
 - **` nodeUrl `**: Keeper HTTP base URL.
 - **` slotId `**: 32-byte slot identifier.
@@ -4876,11 +3223,10 @@ Fields:
 
 Handle for checking, approving and waiting for one native multi-approver signing request.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L131)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L100)
 
 ```ts
 export interface DualSignRequest {
-    readonly payment?: PaymentIntentWire;
     readonly requestId: string;
     readonly slotId: string;
     readonly nodeUrl: string;
@@ -4907,7 +3253,6 @@ export interface DualSignRequest {
 
 Fields:
 
-- **` payment `**: Final keeper Sign intent; each access returns a copy. Credential approvals pay separately.
 - **` requestId `**: Request identifier used to correlate or resume the operation.
 - **` slotId `**: 32-byte slot identifier.
 - **` nodeUrl `**: Keeper HTTP base URL.
@@ -4919,7 +3264,7 @@ Fields:
 
 Native signing request progress, verified completed signature or terminal failure.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L98)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-sign.ts#L67)
 
 ```ts
 export type DualSignStatus = {
@@ -4962,234 +3307,6 @@ Fields:
 - **` evidence_hash `**: Keccak-256 of the encoded ciphertext bytes.
 - **` evidence_key_id `**: Certified accountant evidence-key identifier.
 - **` evidence_signatures `**: Verifier signatures binding the token, ciphertext hash and evidence key.
-
-### ExecutionAuthorization
-
-Client signature authorizing one exact body, stage and assigned operator.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L35)
-
-```ts
-export interface ExecutionAuthorization {
-    certificate: ExecutionCertificate;
-    stage: ExecutionStage;
-    operator_key: Hex;
-    body_hash: Hex;
-    expires: number;
-    signature: Hex;
-}
-```
-
-Fields:
-
-- **` certificate `**: Creator-certified public execution key and bounded consent.
-- **` stage `**: Paid stage being authorized.
-- **` operator_key `**: Independently authenticated operator's Ed25519 public key.
-- **` body_hash `**: Locally recomputed complete unsigned body hash.
-- **` expires `**: Unix expiry no later than the certificate.
-- **` signature `**: Client Ed25519 signature over the structured stage approval hash.
-
-### ExecutionCertificate
-
-Creator certificate for one payment and a client-owned Ed25519 public key.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L25)
-
-```ts
-export interface ExecutionCertificate {
-    execution_key: Hex;
-    expires: number;
-    creator_signature: Hex;
-}
-```
-
-Fields:
-
-- **` execution_key `**: Public key; never deliver its private seed to the verifier agent.
-- **` expires `**: Unix expiry no later than the original creator payment.
-- **` creator_signature `**: Creator EIP-712 signature over the certificate.
-
-### ExecutionConsent
-
-Public proof of the original client-approved work, without its private request body.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L51)
-
-```ts
-export interface ExecutionConsent {
-    authorization: ExecutionAuthorization;
-    inputs_commitment: number[];
-    verified_at: number;
-}
-```
-
-Fields:
-
-- **` authorization `**: Creator certificate and original client signature for this stage.
-- **` inputs_commitment `**: Worker commitment to its exact accepted inputs; this is not a computation proof.
-- **` verified_at `**: Original admission time, checked against canonical historical backing by the reader.
-
-### ExecutionConsentPolicy
-
-Independently selected deployment, creator and exact reserved payment.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L83)
-
-```ts
-export interface ExecutionConsentPolicy {
-    chainId: number;
-    settlement: Address;
-    keyRegistry: Address;
-    creator: Address;
-    paymentHash: Hex;
-    cost: bigint;
-    nowSecs: number;
-}
-```
-
-Fields:
-
-- **` chainId `**: Approved chain ID.
-- **` settlement `**: Approved Settlement proxy.
-- **` keyRegistry `**: Approved KeyRegistry proxy.
-- **` creator `**: Creator read independently from the intended slot.
-- **` paymentHash `**: Exact locally retained payment commitment, never copied from a proposal.
-- **` cost `**: Nonzero fee from the canonical quote or mined reservation, in TASRA base units.
-- **` nowSecs `**: Fresh clock supplied at the approval boundary; no stale policy cache.
-
-### ExecutionCreatorSigner
-
-Creator wallet capable of signing the separate execution certificate.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L227)
-
-```ts
-export interface ExecutionCreatorSigner {
-    address: Address;
-    signTypedData(args: ReturnType<typeof executionCertificateTypedData>): Promise<Hex>;
-}
-```
-
-Fields:
-
-- **` address `**: Must equal the independently read slot creator. Delegation is not spending authority.
-- **` signTypedData `**: Sign the SDK-reconstructed creator certificate typed data.
-
-### ExecutionProposal
-
-Untrusted agent proposal. An opaque body hash is deliberately not accepted.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L111)
-
-```ts
-export interface ExecutionProposal {
-    stage: ExecutionStage;
-    operator_key: Hex;
-    unsigned_body: Record<string, unknown>;
-    expires: number;
-}
-```
-
-Fields:
-
-- **` stage `**: Requested stage; compared with the application's own selection.
-- **` operator_key `**: Requested key; compared with an independently authenticated key.
-- **` unsigned_body `**: Complete unsigned JSON body, with no execution_authorization envelope.
-- **` expires `**: Requested bounded Unix expiry.
-
-### ExecutionRecoveryAuthorization
-
-Fresh client authorization to read one exact retained result; grants no work or fee authority.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/recovery.ts#L60)
-
-```ts
-export interface ExecutionRecoveryAuthorization {
-    stage: ExecutionStage;
-    operator_key: Hex;
-    execution_binding: Hex;
-    issued_at: number;
-    nonce: Hex;
-    signature: Hex;
-}
-```
-
-Fields:
-
-- **` stage `**: Independently selected stage.
-- **` operator_key `**: Independently authenticated serving worker.
-- **` execution_binding `**: Exact original execution binding from authenticated evidence.
-- **` issued_at `**: Fresh client clock, within the service's 60-second read window and two-second future skew.
-- **` nonce `**: Nonzero client-generated read correlation nonce; repeated reads remain permitted.
-- **` signature `**: Original creator-certified client's fresh Ed25519 signature.
-
-### ExecutionRecoveryTarget
-
-Independently selected worker and original client key; never copied from a received report.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/recovery.ts#L76)
-
-```ts
-export interface ExecutionRecoveryTarget {
-    stage: ExecutionStage;
-    operatorKey: Hex;
-    executionKey: Hex;
-}
-```
-
-Fields:
-
-- **` stage `**: Stage whose completed result the application intends to read.
-- **` operatorKey `**: Key authenticated from the signed keeper assignment and canonical historical roster.
-- **` executionKey `**: Public key retained from the client's original creator certificate.
-
-### ExecutionStage
-
-Stable stage names and ordinals from the shared execution report protocol.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L21)
-
-```ts
-export type ExecutionStage = 'coordinator' | 'contributor' | 'presentation_sign' | 'presentation_attest' | 'credential';
-```
-
-### ExpectedExecution
-
-Client-built complete unsigned body and independently selected destination.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L101)
-
-```ts
-export interface ExpectedExecution {
-    stage: ExecutionStage;
-    operatorKey: Hex;
-    body: Record<string, unknown>;
-}
-```
-
-Fields:
-
-- **` stage `**: Stage the application intends to authorize.
-- **` operatorKey `**: Key from authenticated slot assignment or verifier snapshot/draw.
-- **` body `**: Complete body reconstructed by the application, including optional field shape.
-
-### ExpectedInitialization
-
-Independent client intent for a registered agent session.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L75)
-
-```ts
-export interface ExpectedInitialization {
-    serviceProfile: Record<string, unknown>;
-    body: Record<string, unknown>;
-}
-```
-
-Fields:
-
-- **` serviceProfile `**: Previously authenticated and approved agent profile; never copied from its response.
-- **` body `**: Client-built complete create body, excluding execution_initialization.
 
 ### ExtractionEvidence
 
@@ -5243,7 +3360,7 @@ Fields:
 
 Verifier requests and quorum configuration for assembling a compound token.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L340)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L316)
 
 ```ts
 export interface GatherCommitteeTokenOpts {
@@ -5335,7 +3452,7 @@ verifier's store, consumed atomically, so the first verifier to answer spends it
 rest refuse (401) under `require_holder_binding`. Pass a function instead of a string and
 the gather asks each candidate verifier for its own nonce.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L50)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L48)
 
 ```ts
 export type HolderProofPerVerifier = (verifier: CommitteeVerifier) => Promise<string> | string;
@@ -5345,7 +3462,7 @@ export type HolderProofPerVerifier = (verifier: CommitteeVerifier) => Promise<st
 
 One node's extraction partial, decoded from the wire.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L621)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L588)
 
 ```ts
 export interface IbeExtractionPartial {
@@ -5373,7 +3490,7 @@ Fields:
 
 Committee authorization and keeper endpoints for extracting shares of one IBE identity key.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L639)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L606)
 
 ```ts
 export interface IbeExtractOpts {
@@ -5383,12 +3500,12 @@ export interface IbeExtractOpts {
     evidenceCt?: string;
     threshold?: number;
     timeoutMs?: number;
-    approveExecution?: KeeperExecutionApprover;
     signal?: AbortSignal;
     fetchImpl?: typeof fetch;
     nodeUrls: string[];
     committeeToken: CompoundTokenWire;
     identity: string;
+    dualControl?: DualOperationProof;
     userSignature?: Uint8Array;
     ciphertextEpoch?: number;
     verifierProofs?: VerifierProof[];
@@ -5403,12 +3520,12 @@ Fields:
 - **` evidenceCt `**: Exact sealed presentation ciphertext returned with this authorization.
 - **` threshold `**: Stop after this many distinct, pairing-verified shares. Without this option, collect every successful reply. The low-level check uses returned verifying shares; use extractIdentityStrict for independently pinned keeper provenance.
 - **` timeoutMs `**: Deadline for the complete fan-out, including approvals and response bodies. Default 10000 ms. Cancellation cannot undo work a keeper already started.
-- **` approveExecution `**: Required for paid extraction: approve only the exact targeted assigned contributor.
 - **` signal `**: Optional signal that cancels the request.
 - **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
 - **` nodeUrls `**: Base URLs of at least k keeper nodes holding the slot's BLS shards.
 - **` committeeToken `**: MUST be identity-scoped: the keeper enforces `identity_hash == keccak256(identity)`.
 - **` identity `**: The requested IBE identity, in the clear (the node computes Q_ID from it).
+- **` dualControl `**: Native approvals for this exact extraction (`assembleDualOperation`), required by a slot with an approval policy. Carried in every keeper request body unchanged; each keeper re-verifies it.
 - **` userSignature `**: Owner signature over `keccak256("keykeeper:ibe-extract:v1" || identity)` when the slot has a registered `user_pubkey`.
 - **` ciphertextEpoch `**: Expected key epoch of the ciphertext; used to detect rotation.
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
@@ -5417,7 +3534,7 @@ Fields:
 
 Operation-specific fields for [ibeDecryptRequest](#ibedecryptrequest) / [ibeExtractRequest](#ibeextractrequest).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L465)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L455)
 
 ```ts
 export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
@@ -5427,7 +3544,6 @@ export interface IbeExtractRequestOpts extends RequestCommitteeTokenOpts {
     timeoutMs?: number;
     signal?: AbortSignal;
     fetchImpl?: typeof fetch;
-    approveExecution?: KeeperExecutionApprover;
     nodeUrls: string[];
     identity: string;
     userSignature?: Uint8Array;
@@ -5443,13 +3559,11 @@ Fields:
 - **` timeoutMs `**: Keeper extraction deadline in milliseconds; default 10000.
 - **` signal `**: Cancel the extraction fan-out. Does not undo already started keeper work.
 - **` fetchImpl `**: HTTP transport override for keeper extraction requests.
-- **` approveExecution `**: Client-owned exact-body approval capability for each paid extraction contributor.
 - **` nodeUrls `**: Base URLs of at least k keeper nodes holding the slot's BLS shards.
 - **` identity `**: The IBE identity to extract for - becomes the token's `scopedIdentity`, so a quorum attests exactly this identity and the keepers enforce the hash binding.
 - **` userSignature `**: Owner signature over the identity-bound extract marker, when the slot has one.
 - **` ciphertextEpoch `**: Expected key epoch of the ciphertext; used to detect rotation.
 - **` binding `**: Exact chain-, slot-, action- and payload-bound authorization preimage; decryption must include the recipient-bound digest.
-- **` payment `**: Original creator-signed payment intent for the already reserved operation.
 - **` chain `**: Reader methods for the beacon and slot verifier policy.
 - **` epochLag `**: Pin the draw to `latest - epochLag` (0 or 1). 1 = the previous epoch, always anchored: no wait for the accountants.
 - **` verifiers `**: The active verifier set (index to URL; add operator+pubkey to enable trustless proofs). Asking the whole set is fine - non-drawn verifiers reply 403 and are skipped.
@@ -5462,86 +3576,6 @@ Fields:
 - **` ttlSecs `**: Token TTL in seconds - default 300.
 - **` nowSecs `**: Override "now" (unix seconds), mainly for tests.
 - **` scopedIdentity `**: Identity string for an IBE-scoped operation. Verifiers bind its hash into the token and evaluate the credential scope. Omit for group signing and group decryption; ciphertext associated data is a separate field.
-
-### KeeperExecutionApprovalRequest
-
-Complete locally constructed request presented to the client's approval capability.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/keeperExecution.ts#L14)
-
-```ts
-export interface KeeperExecutionApprovalRequest {
-    kind: KeeperExecutionKind;
-    nodeUrl: string;
-    payment: PaymentIntentWire;
-    body: Record<string, unknown>;
-    signal?: AbortSignal;
-}
-```
-
-Fields:
-
-- **` kind `**: Exact route semantics, independent of the returned proof.
-- **` nodeUrl `**: Original registered or explicitly application-mapped keeper endpoint.
-- **` payment `**: Original payment preimage carried by this request.
-- **` body `**: Complete client-built JSON object, excluding only execution_authorizations.
-- **` signal `**: Caller cancellation; the approver must check it before invoking its signer.
-
-### KeeperExecutionApprovals
-
-Independently read creator/fee policy and client signatures for the exact request.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/keeperExecution.ts#L28)
-
-```ts
-export interface KeeperExecutionApprovals {
-    policy: ExecutionConsentPolicy;
-    authorizations: ExecutionAuthorization[];
-}
-```
-
-Fields:
-
-- **` policy `**: Fresh independently authenticated original payment, creator and reserved fee.
-- **` authorizations `**: Coordinator plus signed contributors, or only the targeted IBE contributor.
-
-### KeeperExecutionApprover
-
-Local client approval capability; never give this callback to an agent or keeper.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/keeperExecution.ts#L36)
-
-```ts
-export type KeeperExecutionApprover = (request: KeeperExecutionApprovalRequest) => Promise<KeeperExecutionApprovals>;
-```
-
-### KeeperExecutionKind
-
-Exact public route semantics used to reconstruct client-approved keeper inputs.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/keeperExecution.ts#L11)
-
-```ts
-export type KeeperExecutionKind = 'committee-sign' | 'committee-eoa-digest' | 'committee-decrypt' | 'sealed-decrypt' | 'ibe-extract' | 'dual-sign' | 'session-decrypt';
-```
-
-### LocalExecutionSigner
-
-Disposable local signer whose private seed never leaves its closure.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L131)
-
-```ts
-export interface LocalExecutionSigner extends ClientExecutionSigner {
-    dispose(): void;
-}
-```
-
-Fields:
-
-- **` dispose `**: Erase the retained private seed and permanently disable further signatures.
-- **` publicKey `**: Public key used by the creator certificate.
-- **` sign `**: Sign the SDK-reconstructed structured hash; never a hash supplied by an agent.
 
 ### OperationReceipt
 
@@ -5567,7 +3601,7 @@ Fields:
 
 Threshold P-256 digest signature (a `tecdsa-p256` slot, mode 4).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L65)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/ecdsa.ts#L64)
 
 ```ts
 export interface P256DigestSignature {
@@ -5583,163 +3617,11 @@ Fields:
 - **` r `**: 32-byte big-endian r.
 - **` s `**: 32-byte big-endian s.
 
-### PaidExecutionRequest
-
-Exact request identity in the keeper's public evidence; wire bytes are unsigned arrays.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/recovery.ts#L16)
-
-```ts
-export interface PaidExecutionRequest {
-    chain_id: number;
-    settlement: number[];
-    slot: number[];
-    action: number;
-    payload_digest: number[];
-    authorization_commitment: number[];
-}
-```
-
-Fields:
-
-- **` chain_id `**: Original deployment chain ID.
-- **` settlement `**: Settlement address left-padded to 32 bytes.
-- **` slot `**: Original slot.
-- **` action `**: Stable paid action ordinal, not an arbitrary enum supplied by a server.
-- **` payload_digest `**: Original operation payload commitment.
-- **` authorization_commitment `**: Locally retained creator payment hash.
-
-### PaidKeeperAssignment
-
-Immutable execution assignment from independently verified slot discovery.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L8)
-
-```ts
-export interface PaidKeeperAssignment {
-    key_epoch: number;
-    committee_version: number;
-    threshold: number;
-    coordinator: number[];
-    contributors: number[][];
-}
-```
-
-Fields:
-
-- **` key_epoch `**: Sharing epoch.
-- **` committee_version `**: Slot committee version.
-- **` threshold `**: Required contributor count.
-- **` coordinator `**: Registered Ed25519 coordinator key, serialized as 32 bytes.
-- **` contributors `**: Strictly sorted distinct registered Ed25519 keys, including the coordinator.
-
-### PaymentIntentWire
-
-Creator spending authorization; it neither reserves funds nor authorizes key access.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L22)
-
-```ts
-export interface PaymentIntentWire {
-    chain_id: number;
-    settlement: Hex;
-    key_registry: Hex;
-    slot: Hex;
-    action: 'sign' | 'decrypt' | 'eoa-sign' | 'ibe-extract' | 'dual-approve';
-    payload_digest: Hex;
-    session_commitment: Hex;
-    nonce: Hex;
-    max_cost: string;
-    expires: number;
-    verification_epoch: number;
-    verification_seed: Hex;
-    verification_root: Hex;
-    verification_registry_size: number;
-    verification_committee: number;
-    verification_quorum: number;
-    keeper_assignment: PaidKeeperAssignment;
-    signature: Hex;
-    allowance_id?: Hex;
-    debit_voucher?: DebitVoucherWire;
-}
-```
-
-Fields:
-
-- **` chain_id `**: EVM chain identifier.
-- **` settlement `**: Settlement proxy address.
-- **` key_registry `**: KeyRegistry proxy address.
-- **` slot `**: Slot identifier.
-- **` action `**: Billable operation; a dual approval is separate from the final keeper signature.
-- **` payload_digest `**: Digest of the exact operation payload.
-- **` session_commitment `**: Commitment to the presentation random, audience and operation expiry.
-- **` nonce `**: Unique creator payment nonce.
-- **` max_cost `**: Maximum TASRA base units, as a decimal string to avoid precision loss.
-- **` expires `**: Payment expiry in Unix seconds.
-- **` verification_epoch `**: Pinned verification epoch.
-- **` verification_seed `**: Pinned beacon seed.
-- **` verification_root `**: Pinned verifier snapshot root.
-- **` verification_registry_size `**: Pinned verifier registry size.
-- **` verification_committee `**: Pinned verifier committee size.
-- **` verification_quorum `**: Pinned verifier quorum.
-- **` keeper_assignment `**: Fixed keeper sharing and execution membership.
-- **` signature `**: Creator's 65-byte EIP-712 signature.
-- **` allowance_id `**: Prepaid allowances: the allowance this operation is debited from. When present the creator signature is over `SlotAllowancePaymentIntent` (these fields plus `allowanceId`), never over `SlotAssignedPaymentIntent`, so neither signature can stand in for the other. Absent on a per-operation (reservation-backed) payment, whose JSON is then unchanged.
-- **` debit_voucher `**: Prepaid allowances: the accountant-quorum debit voucher for this operation; not part of the signed intent.
-
-### PrepaidAllowanceIntentWire
-
-Creator authorization to lock `amount` of a slot's balance as an allowance (`SlotPrepaidAllowanceIntent`).
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L292)
-
-```ts
-export interface PrepaidAllowanceIntentWire {
-    chain_id: number;
-    settlement: Hex;
-    key_registry: Hex;
-    slot: Hex;
-    intent_nonce: Hex;
-    amount: string;
-    max_op_cost: string;
-    actions: number;
-    expires_at: number;
-    verification_epoch: number;
-    verification_seed: Hex;
-    verification_root: Hex;
-    verification_registry_size: number;
-    verification_committee: number;
-    verification_quorum: number;
-    keeper_assignment: PaidKeeperAssignment;
-    signature: Hex;
-}
-```
-
-Fields:
-
-- **` chain_id `**: EVM chain identifier.
-- **` settlement `**: Settlement proxy address.
-- **` key_registry `**: KeyRegistry proxy address.
-- **` slot `**: Slot identifier.
-- **` intent_nonce `**: Unique nonzero creator nonce.
-- **` amount `**: Escrow, TASRA base units, decimal.
-- **` max_op_cost `**: Per-operation cap, TASRA base units, decimal; at most `amount`.
-- **` actions `**: Funded actions bitmap ([allowanceActionBits](#allowanceactionbits)).
-- **` expires_at `**: Expiry, Unix seconds; at most one hour ahead.
-- **` verification_epoch `**: Pinned verification epoch.
-- **` verification_seed `**: Pinned beacon seed.
-- **` verification_root `**: Pinned verifier snapshot root.
-- **` verification_registry_size `**: Pinned verifier registry size.
-- **` verification_committee `**: Pinned verifier committee size.
-- **` verification_quorum `**: Pinned verifier quorum.
-- **` keeper_assignment `**: Fixed keeper sharing and execution membership.
-- **` signature `**: Creator's 65-byte EIP-712 signature.
-
 ### PreparedDualOperation
 
 A prepared statement and its exact signed bytes.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L77)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L89)
 
 ```ts
 export interface PreparedDualOperation {
@@ -5783,7 +3665,7 @@ Fields:
 
 ### RecipientWire
 
-Public recipient metadata bound before holder and client execution authorization.
+Public recipient metadata bound before holder authorization.
 
 [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/crypto/recipient.ts#L16)
 
@@ -5799,31 +3681,11 @@ Fields:
 - **` suite `**: Exact supported RFC 9180 suite name.
 - **` public_key `**: Hex-encoded 32-byte X25519 public key; never a private key or recovery seed.
 
-### RecoveredExecutionReply
-
-Keeper recovery response containing exact committed JSON bytes as a string.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/recovery.ts#L86)
-
-```ts
-export interface RecoveredExecutionReply {
-    execution: SignedPaidExecutionReport;
-    encoding: 'json' | 'ibe-extract';
-    result_json: string;
-}
-```
-
-Fields:
-
-- **` execution `**: Signed evidence for these exact bytes and their original paid admission.
-- **` encoding `**: Explicit commitment scheme; matched to the independently retained action.
-- **` result_json `**: Exact retained JSON; parsing or reserializing before hashing changes its commitment.
-
 ### RefreshStatusDirectOptions
 
 Options of [refreshStatusDirect](#refreshstatusdirect).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L579)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L559)
 
 ```ts
 export interface RefreshStatusDirectOptions extends StatusRefreshGrant {
@@ -5852,13 +3714,13 @@ Fields:
 - **` token `**: The grant as journaled (its signatures and every hashed field are never changed).
 - **` set `**: Keys of the token epoch's anchored roster: the keys the token signatures verified under.
 - **` quorum `**: The token's quorum.
-- **` caps `**: Further hard caps, Unix seconds (e.g. the payment expiry). The token `exp` is always one.
+- **` caps `**: Further hard caps, Unix seconds (e.g. an application deadline). The token `exp` is always one.
 
 ### RefreshStatusViaAgentOptions
 
 Options of [refreshStatusViaAgent](#refreshstatusviaagent).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L691)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L671)
 
 ```ts
 export interface RefreshStatusViaAgentOptions extends StatusRefreshGrant {
@@ -5886,18 +3748,17 @@ Fields:
 - **` token `**: The grant as journaled (its signatures and every hashed field are never changed).
 - **` set `**: Keys of the token epoch's anchored roster: the keys the token signatures verified under.
 - **` quorum `**: The token's quorum.
-- **` caps `**: Further hard caps, Unix seconds (e.g. the payment expiry). The token `exp` is always one.
+- **` caps `**: Further hard caps, Unix seconds (e.g. an application deadline). The token `exp` is always one.
 
 ### RequestCommitteeTokenOpts
 
 Chain reads, verifier directory, credential presentation and optional request-signing context.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L169)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/request.ts#L167)
 
 ```ts
 export interface RequestCommitteeTokenOpts {
     binding?: RequestBindingPreimage;
-    payment?: PaymentIntentWire;
     chain: CommitteeChainReads;
     epochLag?: number;
     verifiers: CommitteeVerifier[];
@@ -5916,7 +3777,6 @@ export interface RequestCommitteeTokenOpts {
 Fields:
 
 - **` binding `**: Exact chain-, slot-, action- and payload-bound authorization preimage; decryption must include the recipient-bound digest.
-- **` payment `**: Original creator-signed payment intent for the already reserved operation.
 - **` chain `**: Reader methods for the beacon and slot verifier policy.
 - **` epochLag `**: Pin the draw to `latest - epochLag` (0 or 1). 1 = the previous epoch, always anchored: no wait for the accountants.
 - **` verifiers `**: The active verifier set (index to URL; add operator+pubkey to enable trustless proofs). Asking the whole set is fine - non-drawn verifiers reply 403 and are skipped.
@@ -5934,7 +3794,7 @@ Fields:
 
 Inputs of [requireStatusAttestations](#requirestatusattestations).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L822)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L811)
 
 ```ts
 export interface RequireStatusAttestationsOptions extends Omit<VerifyStatusAttestationsOptions, 'attestations'> {
@@ -5957,7 +3817,7 @@ Fields:
 
 Locally opened and verified contribution. Clear its value after combining or discarding it.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L51)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L54)
 
 ```ts
 export interface SealedPartial {
@@ -5987,7 +3847,6 @@ Recipient-bound authorization and independently authenticated keeper quorum for 
 
 ```ts
 export interface SealedRequestOpts {
-    approveExecution?: KeeperExecutionApprover;
     signal?: AbortSignal;
     fetchImpl?: typeof fetch;
     nodeUrls: string[];
@@ -5998,6 +3857,7 @@ export interface SealedRequestOpts {
     verifyingShares: ReadonlyMap<number, Uint8Array>;
     threshold: number;
     verifierProofs?: VerifierProof[];
+    dualControl?: DualOperationProof;
     targetKeykeeper?: string;
     userSignature?: Uint8Array;
     evidenceCt?: string;
@@ -6007,7 +3867,6 @@ export interface SealedRequestOpts {
 
 Fields:
 
-- **` approveExecution `**: Client-owned exact-body approval capability, required for paid contributions.
 - **` signal `**: Cancel the complete fan-out, including approvals and response bodies.
 - **` fetchImpl `**: Guarded HTTP transport; defaults to global fetch.
 - **` nodeUrls `**: Distinct keeper endpoints resolved from the assigned operator roster.
@@ -6018,6 +3877,7 @@ Fields:
 - **` verifyingShares `**: Authenticate this package against the slot's published commitment before use. Keys are keeper identifiers, values are 144-byte G2 || G1 verifying shares.
 - **` threshold `**: Required number of distinct authenticated and pairing-verified contributions.
 - **` verifierProofs `**: Registry membership proofs for the token's anchored verifier snapshot.
+- **` dualControl `**: Native approvals for this exact operation (`assembleDualOperation`), required by a slot with an approval policy. Carried in every keeper request body unchanged; each keeper re-verifies it.
 - **` targetKeykeeper `**: Optional assigned operator address pinned by the operation policy.
 - **` userSignature `**: Slot-owner signature over the canonical KEM request when required by slot policy.
 - **` evidenceCt `**: Original sealed credential evidence associated with the compound token.
@@ -6144,30 +4004,6 @@ Fields:
 - **` absolute_exp `**: ` SessionGrantPayload.absoluteExp `.
 - **` signatures `**: Verifier quorum signatures over the grant hash.
 
-### SessionInitialization
-
-Client authorization to create a session; this is not a paid operator stage.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L61)
-
-```ts
-export interface SessionInitialization {
-    certificate: ExecutionCertificate;
-    profile_hash: Hex;
-    body_hash: Hex;
-    expires: number;
-    signature: Hex;
-}
-```
-
-Fields:
-
-- **` certificate `**: Public execution key certified by the slot creator.
-- **` profile_hash `**: Hash of the independently approved registered agent profile.
-- **` body_hash `**: Hash of the complete unsigned create body, including the client owner bearer.
-- **` expires `**: Unix expiry bounded by the certificate.
-- **` signature `**: Client Ed25519 signature in a separate initialization domain.
-
 ### SessionKeyJwk
 
 A public session key JWK (RFC 7517) with exactly the RFC 7638 required members.
@@ -6213,31 +4049,11 @@ Fields:
 - **` jti `**: One-time proof identifier (16..64 URL-safe characters).
 - **` signature `**: 0x-prefixed 64-byte session-key signature (Ed25519, or P-256 `r ‖ s`).
 
-### SignedPaidExecutionReport
-
-Untrusted public evidence from a keeper; authenticated before a recovery request is signed.
-
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/recovery.ts#L50)
-
-```ts
-export interface SignedPaidExecutionReport {
-    report: CompletedPaidExecutionReport;
-    signature: Hex;
-    consent: ExecutionConsent;
-}
-```
-
-Fields:
-
-- **` report `**: Completed report; not a work permit or a computation proof.
-- **` signature `**: Registered worker's Ed25519 signature over the report signing hash.
-- **` consent `**: Original client approval retained alongside the durable paid start.
-
 ### StatusAttestation
 
 One decoded status-freshness attestation.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L689)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L678)
 
 ```ts
 export interface StatusAttestation {
@@ -6257,7 +4073,7 @@ Fields:
 
 One status attestation on the wire - exactly these three keys.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L699)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L688)
 
 ```ts
 export interface StatusAttestationWire {
@@ -6277,7 +4093,7 @@ Fields:
 
 Accepted preflight outcome.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L834)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L823)
 
 ```ts
 export type StatusFreshness = {
@@ -6296,7 +4112,7 @@ Fields:
 
 The grant a refresh re-attests and the ORIGINAL trust it was verified under.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L354)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L334)
 
 ```ts
 export interface StatusRefreshGrant {
@@ -6312,19 +4128,18 @@ Fields:
 - **` token `**: The grant as journaled (its signatures and every hashed field are never changed).
 - **` set `**: Keys of the token epoch's anchored roster: the keys the token signatures verified under.
 - **` quorum `**: The token's quorum.
-- **` caps `**: Further hard caps, Unix seconds (e.g. the payment expiry). The token `exp` is always one.
+- **` caps `**: Further hard caps, Unix seconds (e.g. an application deadline). The token `exp` is always one.
 
 ### StatusRefreshHashInput
 
 Inputs of [statusRefreshHash](#statusrefreshhash): exactly the signed list, nothing else.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L86)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L84)
 
 ```ts
 export interface StatusRefreshHashInput {
     chainId: number | bigint;
     tokenHash: Uint8Array;
-    paymentHash?: Uint8Array;
     principal: StatusRefreshPrincipal;
     seq: number | bigint;
     issuedAt: number;
@@ -6335,7 +4150,6 @@ Fields:
 
 - **` chainId `**: Chain ID (u64).
 - **` tokenHash `**: 32-byte canonical token hash ([compoundTokenHash](#compoundtokenhash)), unchanged by the refresh.
-- **` paymentHash `**: 32-byte ORIGINAL payment hash of a paid grant; omit (all-zero) for an unpaid grant.
 - **` principal `**: Principal kind.
 - **` seq `**: Strictly increasing per token per verifier; positive u64.
 - **` issuedAt `**: Unix seconds (i64); a verifier accepts it within 30 s of its clock.
@@ -6344,7 +4158,7 @@ Fields:
 
 Holder-key signer for a `holder_key` refresh proof. The key must be the one recorded at issuance.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L145)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L142)
 
 ```ts
 export interface StatusRefreshHolderSigner {
@@ -6364,7 +4178,7 @@ Fields:
 
 A bounded HTTP answer.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L508)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L488)
 
 ```ts
 export interface StatusRefreshHttpResponse {
@@ -6384,17 +4198,17 @@ Fields:
 
 Who proves the refresh: the principal the verifier recorded at issuance.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L82)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L80)
 
 ```ts
-export type StatusRefreshPrincipal = 'holder_key' | 'client_execution';
+export type StatusRefreshPrincipal = 'holder_key';
 ```
 
 ### StatusRefreshProofWire
 
 One refresh proof on the wire.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L189)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L179)
 
 ```ts
 export interface StatusRefreshProofWire {
@@ -6410,34 +4224,31 @@ Fields:
 - **` kind `**: Principal kind.
 - **` seq `**: Positive integer, strictly increasing per token per verifier.
 - **` issued_at `**: Unix seconds.
-- **` signature `**: `client_execution`: `0x` + 128 hex; `holder_key`: compact JWS.
+- **` signature `**: Compact JWS signed by the holder key.
 
 ### StatusRefreshProver
 
 The principal and signer of one refresh proof.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L174)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L171)
 
 ```ts
-export type StatusRefreshProver = {
-    kind: 'client_execution';
-    signer: ClientExecutionSigner;
-} | {
+export interface StatusRefreshProver {
     kind: 'holder_key';
     signer: StatusRefreshHolderSigner;
-};
+}
 ```
 
 Fields:
 
-- **` kind `**: Principal kind: a paid grant proves with its ORIGINAL creator-certified execution key. Principal kind: the holder key recorded at issuance.
-- **` signer `**: Signer over the original execution key. Signer over the holder key recorded at issuance.
+- **` kind `**: Principal kind: the holder key recorded at issuance.
+- **` signer `**: Signer over the holder key recorded at issuance.
 
 ### StatusRefreshReplyWire
 
 One verifier's refresh reply - exactly these four keys.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L274)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L254)
 
 ```ts
 export interface StatusRefreshReplyWire {
@@ -6459,7 +4270,7 @@ Fields:
 
 A successful refresh.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L366)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L346)
 
 ```ts
 export interface StatusRefreshResult {
@@ -6516,9 +4327,9 @@ Fields:
 - **` verifyingShares `**: Independently authenticated 144-byte G2 || G1 public shares; reply-supplied keys alone are insufficient.
 - **` evidenceCt `**: Exact sealed presentation ciphertext returned with this authorization.
 - **` timeoutMs `**: Deadline for the complete fan-out, including approvals and response bodies. Default 10000 ms. Cancellation cannot undo work a keeper already started.
-- **` approveExecution `**: Required for paid extraction: approve only the exact targeted assigned contributor.
 - **` fetchImpl `**: HTTP transport override; defaults to the global fetch implementation.
 - **` committeeToken `**: MUST be identity-scoped: the keeper enforces `identity_hash == keccak256(identity)`.
+- **` dualControl `**: Native approvals for this exact extraction (`assembleDualOperation`), required by a slot with an approval policy. Carried in every keeper request body unchanged; each keeper re-verifies it.
 - **` userSignature `**: Owner signature over `keccak256("keykeeper:ibe-extract:v1" || identity)` when the slot has a registered `user_pubkey`.
 - **` verifierProofs `**: Verifier membership proofs for the selected snapshot.
 
@@ -6548,7 +4359,7 @@ Fields:
 
 Compound authorization token category, used in the signed canonical encoding.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L30)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L28)
 
 ```ts
 export type TokenType = 'JWT' | 'refresh';
@@ -6590,11 +4401,10 @@ Fields:
 
 What a valid compound token attests.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L337)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L326)
 
 ```ts
 export interface VerifiedToken {
-    paymentHash?: Uint8Array;
     slotId: Uint8Array;
     vpHash: Uint8Array;
     holderHash: Uint8Array;
@@ -6607,7 +4417,6 @@ export interface VerifiedToken {
 
 Fields:
 
-- **` paymentHash `**: Creator payment commitment authenticated by the verifier quorum, when present.
 - **` slotId `**: 32-byte slot identifier.
 - **` vpHash `**: Hash of the credential presentation bound into the token.
 - **` holderHash `**: The holder a quorum attested - the value a distinctness rule keys on.
@@ -6620,7 +4429,7 @@ Fields:
 
 Trustless verifier-set inclusion proof, passed to the keeper.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L47)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/client.ts#L46)
 
 ```ts
 export interface VerifierProof {
@@ -6642,7 +4451,7 @@ Fields:
 
 The active verifier set: registry size + index to Ed25519 public key (32 bytes).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L329)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L318)
 
 ```ts
 export interface VerifierSet {
@@ -6660,7 +4469,7 @@ Fields:
 
 Compound token, trusted verifier set, expected rule binding and freshness constraints.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L367)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L354)
 
 ```ts
 export interface VerifyCompoundTokenOptions {
@@ -6671,7 +4480,7 @@ export interface VerifyCompoundTokenOptions {
     committee: number;
     quorum: number;
     now: number;
-    leeway: number;
+    leeway?: number;
     slotRuleHash: Uint8Array;
 }
 ```
@@ -6683,14 +4492,14 @@ Fields:
 - **` committee `**: Committee size - how many verifiers the on-chain draw selects.
 - **` quorum `**: Minimum co-signatures required *from the drawn committee*.
 - **` now `**: Current time, UNIX **seconds**.
-- **` leeway `**: Clock-skew tolerance, **seconds**, applied to both `iat` and `exp`.
+- **` leeway `**: Clock-skew tolerance, **seconds**, applied to both `iat` and `exp`. Defaults to ` TOKEN_CLOCK_SKEW_SECS `, the value keepers and accountants use; a different value judges a token differently from the network.
 - **` slotRuleHash `**: Expected Keccak-256 hash of the raw rule bytes, without salt. Do not supply the on-chain salted ruleCommitment.
 
 ### VerifyEvidenceBindingOptions
 
 Inputs to [verifyEvidenceBinding](#verifyevidencebinding).
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L507)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L500)
 
 ```ts
 export interface VerifyEvidenceBindingOptions {
@@ -6748,7 +4557,7 @@ Fields:
 
 Inputs of [verifyStatusAttestations](#verifystatusattestations), as a keeper checks them.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L759)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L748)
 
 ```ts
 export interface VerifyStatusAttestationsOptions {
@@ -6776,44 +4585,39 @@ Shared values and contract definitions.
 
 | Export | Description | Definition |
 |---|---|---|
-| `ALLOWANCE_ACTIONS` | `ALLOWANCE_ACTIONS`: sign, decrypt, eoa-sign, ibe-extract and dual-approve. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L268) |
 | `DEFAULT_ACCESS_TTL_SECS` | Default `exp - iat` when the SDK requests none. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L39) |
-| `DEFAULT_STATUS_WINDOW_SECS` | Default attested window (`[committee] status_window_secs`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L673) |
-| `DUAL_OPERATION_DOMAIN` | `DOMAIN`: the statement's signed preimage is this prefix followed by its canonical JSON. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L17) |
-| `DUAL_OPERATION_MAX_LIFETIME_SECS` | `MAX_LIFETIME`: an approval statement is current for at most 300 seconds. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L19) |
-| `EXECUTION_APPROVAL_DOMAIN` | Client stage approvals bind complete request bodies and assigned operator keys. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L14) |
-| `EXECUTION_CERTIFICATE_DOMAIN` | Separate creator-consent domain; original payment commitments remain unchanged. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L12) |
-| `EXECUTION_INITIALIZATION_DOMAIN` | Client consent to one exact session and independently approved registered agent. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L16) |
+| `DEFAULT_STATUS_WINDOW_SECS` | Default attested window (`[committee] status_window_secs`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L662) |
+| `DUAL_OPERATION_DOMAIN` | `DOMAIN`: the statement's signed preimage is this prefix followed by its canonical JSON. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L16) |
+| `DUAL_OPERATION_MAX_LIFETIME_SECS` | `MAX_LIFETIME`: an approval statement is current for at most 300 seconds. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/dual-operation.ts#L18) |
 | `MAX_ABSOLUTE_TTL_SECS` | Longest a session may live from its opening presentation (12 h). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L43) |
 | `MAX_ACCESS_TTL_SECS` | Longest `exp - iat`: the status attestation's longest window (the grant's `exp` is its status deadline). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L37) |
 | `MAX_BATCH_ITEMS` | Most items one batch proof may cover. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L35) |
-| `MAX_EXECUTION_BODY_BYTES` | Maximum complete unsigned request size shared with the Rust verifier. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/execution.ts#L18) |
 | `MAX_IDLE_TIMEOUT_SECS` | Longest idle period between two refreshes (30 min). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L41) |
 | `MAX_JTI_LEN` | Longest accepted proof `jti`, in characters. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L49) |
 | `MAX_SESSION_ID_LEN` | The longest session id an `htu` may carry — mirrors `MAX_SESSION_ID_LEN`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L27) |
 | `MAX_SESSION_SLOTS` | Most slots one grant may name. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L33) |
-| `MAX_STATUS_ATTESTATIONS` | Most attestations one token may carry (mirrors the keeper cap). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L675) |
-| `MAX_STATUS_REFRESH_BODY_BYTES` | Largest request body a verifier accepts, in bytes. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L68) |
-| `MAX_STATUS_WINDOW_SECS` | Longest usable window a verifier may attest (`55 - 10`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L671) |
+| `MAX_STATUS_ATTESTATIONS` | Most attestations one token may carry (mirrors the keeper cap). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L664) |
+| `MAX_STATUS_REFRESH_BODY_BYTES` | Largest request body a verifier accepts, in bytes. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L66) |
+| `MAX_STATUS_WINDOW_SECS` | Longest usable window a verifier may attest (`55 - 10`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L660) |
 | `MIN_JTI_LEN` | Bounds of a proof's `jti` (URL-safe characters only). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L47) |
 | `OAUTH_RESPONSE_PATH` | Legacy session-independent response path. New sessions use dpopHtu(origin, sessionId). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L19) |
 | `OAUTH_RESPONSE_PATH_PREFIX` | The OAuth response route is `{PREFIX}{sessionId}{SUFFIX}` under the agent origin. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L22) |
 | `OAUTH_RESPONSE_PATH_SUFFIX` | The trailing segment of the OAuth response route. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/oauth.ts#L24) |
-| `PREPAID_ALLOWANCE_DOMAINS` | Domain strings of the prepaid-allowance encodings. A change is a NEW name, never a digit. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/payment.ts#L368) |
-| `REVOCATION_BOUND_SECS` | Decided revocation bound: no keeper accepts a grant later than `R + 60 s`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L665) |
+| `REVOCATION_BOUND_SECS` | Decided revocation bound: no keeper accepts a grant later than `R + 60 s`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L654) |
 | `SESSION_BATCH_PROOF_DOMAIN` | Domain of a batch session-key proof; a one-item batch proof never verifies as a single proof. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L26) |
 | `SESSION_GRANT_DOMAIN` | Domain of the quorum-signed grant bytes. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L22) |
 | `SESSION_PROOF_DOMAIN` | Domain of a single-operation session-key proof. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L24) |
 | `SESSION_PROOF_FRESHNESS_SECS` | `\|proof.iat - now\|` a keeper accepts. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L45) |
 | `SESSION_REFRESH_DOMAIN` | Domain of a refresh request signed by the session key (plan: phase 1's own domain). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L28) |
 | `SESSION_REVOKE_DOMAIN` | Domain of a revoke request signed by the session key. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/session-grant.ts#L30) |
-| `STATUS_ATTESTATION_DOMAIN` | Domain separator of the status-freshness statement (new name, `/v1`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L663) |
-| `STATUS_CACHE_BOUND_SECS` | The verifier's attestation cache bound: `REVOCATION_BOUND_SECS - STATUS_SKEW_SECS`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L669) |
-| `STATUS_INVALID_CODE` | Stable client preflight code: attestations are present but malformed, duplicated, over the cap or carry a bad signature from a counted verifier (a keeper refuses these without a stable code). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L684) |
-| `STATUS_MISSING_CODE` | Stable keeper refusal code: the keeper requires attestations and the grant carries none. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L679) |
-| `STATUS_REFRESH_DOMAIN` | Domain separator of the status-refresh proof (new name, `/v1`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L62) |
-| `STATUS_REFRESH_FRESHNESS_SECS` | A verifier accepts `\|issued_at - now\| <= 30 s`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L70) |
-| `STATUS_REFRESH_JWT_TYP` | JOSE `typ` of a `holder_key` refresh proof. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L64) |
-| `STATUS_REFRESH_PATH` | Verifier route (direct mode). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L66) |
-| `STATUS_SKEW_SECS` | The only skew a keeper allows past `status_until` (reserved inside the 60 s bound). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L667) |
-| `STATUS_STALE_CODE` | Stable keeper refusal code: attestations present but fewer than a quorum valid and fresh. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L677) |
+| `STATUS_ATTESTATION_DOMAIN` | Domain separator of the status-freshness statement (new name, `/v1`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L652) |
+| `STATUS_CACHE_BOUND_SECS` | The verifier's attestation cache bound: `REVOCATION_BOUND_SECS - STATUS_SKEW_SECS`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L658) |
+| `STATUS_INVALID_CODE` | Stable client preflight code: attestations are present but malformed, duplicated, over the cap or carry a bad signature from a counted verifier (a keeper refuses these without a stable code). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L673) |
+| `STATUS_MISSING_CODE` | Stable keeper refusal code: the keeper requires attestations and the grant carries none. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L668) |
+| `STATUS_REFRESH_DOMAIN` | Domain separator of the status-refresh proof (new name, `/v1`). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L60) |
+| `STATUS_REFRESH_FRESHNESS_SECS` | A verifier accepts `\|issued_at - now\| <= 30 s`. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L68) |
+| `STATUS_REFRESH_JWT_TYP` | JOSE `typ` of a `holder_key` refresh proof. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L62) |
+| `STATUS_REFRESH_PATH` | Verifier route (direct mode). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/status-refresh.ts#L64) |
+| `STATUS_SKEW_SECS` | The only skew a keeper allows past `status_until` (reserved inside the 60 s bound). | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L656) |
+| `STATUS_STALE_CODE` | Stable keeper refusal code: attestations present but fewer than a quorum valid and fresh. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L666) |
+| `TOKEN_CLOCK_SKEW_SECS` | Protocol clock-skew tolerance for committee tokens, seconds: a keeper admits a token up to this long past `exp` (and before `iat`), and an accountant auditing the keeper judges it the same way. Mirrors `keykeeper_committee::TOKEN_CLOCK_SKEW_SECS`; both sides must use the same value. | [Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/committee/token.ts#L380) |

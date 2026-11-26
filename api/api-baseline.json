@@ -1,12 +1,162 @@
 {
   "schemaVersion": 1,
-  "declarationsHash": "80b2ebacacaa73c5ee606fb505f3e168941c81edec221575c0a3526dd08c2a82",
+  "declarationsHash": "b8b575cb34564833a172b4b4f43eb772e9c7896b99cc702fb5369316424016f2",
   "exports": [
+    {
+      "id": "@t3foundry/tasra-sdk/app/browser#ApplicationStore",
+      "kind": "type",
+      "source": "src/app/ready-slot.ts",
+      "shape": "ce1a7778def663a35bee88e627e7d87ba8e5769c21d8c5c3e9afae898f57a792"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app/browser#BrowserTransportOptions",
+      "kind": "type",
+      "source": "src/app/browser.ts",
+      "shape": "d5e0e62b237486f23b169f5ecf6bf9418ae7db6d3298f6a90a32a25c995ee9d9"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app/browser#createBrowserAgentTransport",
+      "kind": "value",
+      "source": "src/app/browser.ts",
+      "shape": "631602086e1698235f30098a6744485ad0e60d671bd498b6c7923537f4d4828f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app/browser#createBrowserRelayTransport",
+      "kind": "value",
+      "source": "src/app/browser.ts",
+      "shape": "304f732e5e5d6ea995cd0bda09539e692845ca52e6b2400ea8fde753cb63b9a6"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app/browser#createIndexedDbStore",
+      "kind": "value",
+      "source": "src/app/browser.ts",
+      "shape": "9cbe55803fee726ef40253a024b7d8e693011787da2ac4d13cf7a32d02afe64d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app/browser#IndexedDbStoreOptions",
+      "kind": "type",
+      "source": "src/app/browser.ts",
+      "shape": "db903f4e972c4988dcdbd4695f93e570c6cc689389c11857e94988ba4d2512cc"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app/browser#StoreLockedError",
+      "kind": "value",
+      "source": "src/app/store-errors.ts",
+      "shape": "801205f5b67e128138751624c2fb184deecc470dd45bd420bea6945cabad5fd3"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app/node#ApplicationStore",
+      "kind": "type",
+      "source": "src/app/node.ts",
+      "shape": "ce1a7778def663a35bee88e627e7d87ba8e5769c21d8c5c3e9afae898f57a792"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app/node#createFileStore",
+      "kind": "value",
+      "source": "src/app/node.ts",
+      "shape": "86908be624d45f98bb23bd341cefbe17799f8665a5e59d4006cd3ddecea1d878"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app/node#FileStoreOptions",
+      "kind": "type",
+      "source": "src/app/node.ts",
+      "shape": "d624af949989f4159c47620eda1ec51f2e74863f0197289ae9e62c14dc1bc71e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app/node#fileStoreSyncCounters",
+      "kind": "value",
+      "source": "src/app/node.ts",
+      "shape": "e4be3837939a74e74c5b868c8a985abe511692623eb71f991ddebd3fb8a07abb"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app/node#StoreLockedError",
+      "kind": "value",
+      "source": "src/app/store-errors.ts",
+      "shape": "801205f5b67e128138751624c2fb184deecc470dd45bd420bea6945cabad5fd3"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#acceptSessionGrant",
+      "kind": "value",
+      "source": "src/app/session-grants.ts",
+      "shape": "6aa22b245bfc9873bc07704557fa3d44f49c979426e979ab8eb65d2bc2f52c01"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#admitSlotPolicySequence",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "7da06d7a690de172d378356e38009e5fffb983875e9b470d8dada59b4a48fcff"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#ApplicationDeployment",
+      "kind": "type",
+      "source": "src/app/manifest.ts",
+      "shape": "7099df46fcca9b6eba0b0337cc3c8e6e106ef77a1424589fe154b138b5b93cc1"
+    },
     {
       "id": "@t3foundry/tasra-sdk/app#ApplicationErrorCode",
       "kind": "type",
       "source": "src/app/client.ts",
       "shape": "865755c5234618f0e5bacde2e8e9b6dfae0419ecec77e381cdc5fcbdd77cf13b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#ApplicationManifest",
+      "kind": "type",
+      "source": "src/app/manifest.ts",
+      "shape": "994f62cb592857d091774a7abf9126c60d381d763e2e64f1f8a9a27b8eefd76b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#ApplicationSlotRecoveryCode",
+      "kind": "type",
+      "source": "src/app/ready-slot.ts",
+      "shape": "21dbc353bbb29a8fef54ed4f502f392c313df6bbf168a08dca4b66261e56b27c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#ApplicationSlotRecoveryError",
+      "kind": "value",
+      "source": "src/app/ready-slot.ts",
+      "shape": "86a9f4ebf7518aaa0afd064217c933180c9b6f148759a3a6b54e153e51c52b3c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#ApplicationStore",
+      "kind": "type",
+      "source": "src/app/ready-slot.ts",
+      "shape": "ce1a7778def663a35bee88e627e7d87ba8e5769c21d8c5c3e9afae898f57a792"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#ApprovalPolicy",
+      "kind": "type",
+      "source": "src/app/approvals.ts",
+      "shape": "4a9b3f5047600ee84a7b4089e6c0cf753e1b4335dc15a6b076d7a4a0ae381afe"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#ApprovalPolicyAlreadyInstalled",
+      "kind": "type",
+      "source": "src/app/approvals.ts",
+      "shape": "fcb2413eec4a09a9cdf0ab04cbc4c85904c1a69efa9ee3f379e1aae3c20cd980"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#approveDualOperation",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "b601c6f755b1ae931b8040ed9780b6fb4f847ab30d772d5d438b1b6ad3707de8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#approveSigningIntent",
+      "kind": "value",
+      "source": "src/app/signing-intents.ts",
+      "shape": "02eee87e92f7fec6cfdf68d5c933449c726ec98a2d8ca046e59f657deddd7065"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#approveWithCredential",
+      "kind": "value",
+      "source": "src/app/approvals.ts",
+      "shape": "aac2e5bf084ca9adfa0ef7ea3bc260c99648d6706c9930069b9f46ea7facf424"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#assembleOperationApproval",
+      "kind": "value",
+      "source": "src/app/approvals.ts",
+      "shape": "14e6182731af44685524c176e881c3c7e4822c37898a298584004988e225283c"
     },
     {
       "id": "@t3foundry/tasra-sdk/app#AuthorizationRequest",
@@ -24,7 +174,49 @@
       "id": "@t3foundry/tasra-sdk/app#BlsSlot",
       "kind": "type",
       "source": "src/app/client.ts",
-      "shape": "d16746fe3e6be61404a98bd2c44e0a13d539efc37d65dd42450de940293226dd"
+      "shape": "9ee96801c073660d365be760af07a15135eb28832278dbe7898d637a33b71c9f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#connectWallet",
+      "kind": "value",
+      "source": "src/app/wallet.ts",
+      "shape": "451c822e3364a7742dd864d84a9e024e16eeb0faf17c1a4667346472f07a330e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#createApplicationSlot",
+      "kind": "value",
+      "source": "src/app/ready-slot.ts",
+      "shape": "992eded9f926bdd782e7eaae4e4ba459df761ef6a087156ebed876674d77f166"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#CreateApplicationSlot",
+      "kind": "type",
+      "source": "src/app/ready-slot.ts",
+      "shape": "3dc11cca816916cd2d88b97853d6fca530cf587984060cbe46961eb96c51f7f7"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#CreateApplicationSlotOptions",
+      "kind": "type",
+      "source": "src/app/ready-slot.ts",
+      "shape": "c27994d4bfc36899670e98b5b8260007ba4f2d321d53c3d8539decadda5bbcb9"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#createIdentity",
+      "kind": "value",
+      "source": "src/app/identity.ts",
+      "shape": "d456a1626713a9755c2834c450317242b889903774c25e61887201798cc9b9f8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#createLocalWallet",
+      "kind": "value",
+      "source": "src/app/wallet.ts",
+      "shape": "9e4c682b643cd8f1bdfa43061a8fe77780ff08d233aca67820a6183879373bfb"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#createMemoryStore",
+      "kind": "value",
+      "source": "src/app/memory-store.ts",
+      "shape": "ae048ccbd2964736e7512ac7332431c1a35ac72aa8aab6b3384e3084cfb2f148"
     },
     {
       "id": "@t3foundry/tasra-sdk/app#createPreparedSlot",
@@ -33,10 +225,34 @@
       "shape": "8d5c0cf552d9a786208843d564aaaefa142537e7d4b567e01a5a7ffe71b341fc"
     },
     {
+      "id": "@t3foundry/tasra-sdk/app#createSessionKey",
+      "kind": "value",
+      "source": "src/app/session-grants.ts",
+      "shape": "b4af9bd0f59817ba51fee451966ee449fd161cb112160f1225826a0b4461b192"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#CreateSlotOptions",
+      "kind": "type",
+      "source": "src/app/tasra-client.ts",
+      "shape": "cc118b81b57db0d9e4d7be3d3f5e4c1ed15a57656a7b59013f46e68afba7c7cc"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#createSlotPolicyRequest",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "c5f5b660b8e25372f9c84be5ea99137936eeb61970c00fd5d8f1921dfc1f6267"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#createSlotWallet",
+      "kind": "value",
+      "source": "src/app/wallet.ts",
+      "shape": "08209f336d8765b20481d48343244da6511761644291427096f07bcfe80178af"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/app#createTasra",
       "kind": "value",
       "source": "src/app/client.ts",
-      "shape": "14c68ef1346ecc5135a80bde8441787231c9b35a9ffca34127cbf8075e14b7ea"
+      "shape": "5dacb86052c8af4e7da58f7dcfa3501ec4c791489df5a6a01491c5d114cc130e"
     },
     {
       "id": "@t3foundry/tasra-sdk/app#CreationReconciliationRequiredError",
@@ -45,22 +261,214 @@
       "shape": "a2022d7ab60966a7de8214b7acd0d0d34f70e43b5ef5b2a304aea69864f6bd5d"
     },
     {
+      "id": "@t3foundry/tasra-sdk/app#credentialAuthorization",
+      "kind": "value",
+      "source": "src/app/identity.ts",
+      "shape": "7ce306141eccec0eef42f11cb0ee8d00a10854c41a59d99b25325b8a86f55bdd"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#CredentialAuthorizationOptions",
+      "kind": "type",
+      "source": "src/app/identity.ts",
+      "shape": "c40c5c73c75e8af07638c7187ff97ef08e7fdc5e8a1b17e32f76585953b1728e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#credentialPolicy",
+      "kind": "value",
+      "source": "src/app/identity.ts",
+      "shape": "5ad9770455d93a906cb2a9571cd488aa12e480f4f8202fe5cbf519e2a27f778a"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#CredentialPolicyOptions",
+      "kind": "type",
+      "source": "src/app/identity.ts",
+      "shape": "be483893abe481d9a8b3fa18e6bc717efe4fd7f3527f77a6518c554102e41a9b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#decryptBatchInSession",
+      "kind": "value",
+      "source": "src/app/session-decrypt.ts",
+      "shape": "5c0dd164c1bd1171bc964bf362e74afb2f4318aecd68f4ccceb6ab52057c6c9c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#decryptInSession",
+      "kind": "value",
+      "source": "src/app/session-decrypt.ts",
+      "shape": "103b6844e51d8bfb64b6dd7845843ac9da69dcd915c1542ffb1b669cea14fa74"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#DecryptSession",
+      "kind": "type",
+      "source": "src/app/session-open.ts",
+      "shape": "8d61c0449f69c3e45ed272648a626ca917a0e989a1d995b88ce272222891e68c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#DecryptSessionConfig",
+      "kind": "type",
+      "source": "src/app/session-open.ts",
+      "shape": "575461ad11428cdce51c08b79b6a4af37b99f6a5d42bf55a3d73198f0ee8b577"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/app#defineDeployment",
       "kind": "value",
       "source": "src/app/deployment.ts",
       "shape": "2a2810cb9ce5ed404e90efb69b72e182365ea761b63cd7d087d84ded0fe36c28"
     },
     {
+      "id": "@t3foundry/tasra-sdk/app#DualOperationApprovalRecord",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "2590f8e63e0032db3f6c394572862a99fafbc65bc2ec4d781be5a812d21de0d7"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#DualOperationApprover",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "52519e65348bbf98cc37d9473269d77ceede3b1f888569715946eb5917fdc466"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#DualOperationExpectation",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "d2dbe4518115aabdf053398219135a06b039e9ccea68f5d8601ce113ba11bdb9"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#DualOperationKind",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "d1ad7a9511060cd28541783164bfcab4c8d36c79aea85f2e0940e03b692dcae6"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#DualOperationProof",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "ab1190a35eadd282c3d92fe4da1fed14153635ed6638a210d5a47bf982dd5d4e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#EcdsaSignOptions",
+      "kind": "type",
+      "source": "src/app/client.ts",
+      "shape": "946cad956e5624cda5b881593af8801e87abbc1227115acf7a7da08acbc79e9b"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/app#EcdsaSlot",
       "kind": "type",
       "source": "src/app/client.ts",
-      "shape": "9c6d0d49267f0c2f7f946d511f0b1acabcb6efc03395d34f2653db121b8d274e"
+      "shape": "caa4ecbf49961a6671ed4d143ce02cdfdd9e3e21f6eb8b1818fd6bf1b7ad0aec"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#EthereumSigningIntent",
+      "kind": "type",
+      "source": "src/app/signing-intents.ts",
+      "shape": "b8c6e1ab26e47bc4989eef986f8e56e98eeb57ae8f30625b2518cf35a0cb621b"
     },
     {
       "id": "@t3foundry/tasra-sdk/app#FrostSlot",
       "kind": "type",
       "source": "src/app/client.ts",
-      "shape": "aac117d8dad1268581ce5c8456a6408eed2240beeb6773f4f9daa8b35d365956"
+      "shape": "e0184b164d460f9f495abe739bd148fd8a720d6a8e7f02e3aceb2c2cdf19e865"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#GrantedSession",
+      "kind": "value",
+      "source": "src/app/session-grants.ts",
+      "shape": "fbab7a8c36ec7536f2583d7ef2547015e1188638822d649ee750d82efabb328b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#GrantedSessionOptions",
+      "kind": "type",
+      "source": "src/app/session-grants.ts",
+      "shape": "a36e821948f8e1fc6f54448fcdbb639a1e013e290adf8d5e82a94c7190700c86"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#identityApprover",
+      "kind": "value",
+      "source": "src/app/approvals.ts",
+      "shape": "d42717502364c7893bfed5d3a8b5211b0d4ff01b027544c99e0afe1d04b82f3f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#IdentityExtractionOptions",
+      "kind": "type",
+      "source": "src/app/client.ts",
+      "shape": "1523e7fb51955b3787e5320f33d593511992006bf7cc7b68aa3b2459b7b1fff2"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#InstalledApprovalPolicy",
+      "kind": "type",
+      "source": "src/app/approvals.ts",
+      "shape": "359b8929151f6bbf6df105ac13f5e2543e571935366f76afa8c4d3cce1f58fd1"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#issueCredential",
+      "kind": "value",
+      "source": "src/app/identity.ts",
+      "shape": "9c7d3223f59e3b2268b5fa33d8b611142c78ceb97c0d7c40bb1f4b32fccea061"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#IssueCredentialOptions",
+      "kind": "type",
+      "source": "src/app/identity.ts",
+      "shape": "0bf9eb2222c51ea14b858abb0966527395866bf6f61f9dffe0bb80f8b710ac56"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#issueSlotPolicyBootstrap",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "368c88e98b897e27dfe669d21e357e5f36934ffa7c9bb35fc5ca7f5f98dca29b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#IssueSlotPolicyInput",
+      "kind": "type",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "f719f31b75e2efe2843731052dc38cd59320dc07e2cd046bd59e43d98f36b28b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#loadApplicationManifest",
+      "kind": "value",
+      "source": "src/app/manifest.ts",
+      "shape": "033d7a244b56b85616437c267d16cfcb78f5a38460af49cfdceb87d57c2e8b0c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#LoadApplicationManifestOptions",
+      "kind": "type",
+      "source": "src/app/manifest.ts",
+      "shape": "d3e44ab3e2466cbb1b56cdf798ecba91ae3c2d9553025be4d141ac71edcfcce6"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#loadGrantedSession",
+      "kind": "value",
+      "source": "src/app/session-grants.ts",
+      "shape": "5aa6a39d1ef6ae6499f0c4ba041b48048fac5480a998e2becb42b01e1327ee5b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#lockKeyRotation",
+      "kind": "value",
+      "source": "src/app/rotation-lock.ts",
+      "shape": "45a7dafee04eab7a53ff71efb4d9850be947b0d83ccf829574fec84a67b7f769"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#MessageSigningIntent",
+      "kind": "type",
+      "source": "src/app/signing-intents.ts",
+      "shape": "c0a37953f0a1b5bf479e33cdd2279e488046ec6e4ba330613e012128955b5093"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#ObservedSlotPolicy",
+      "kind": "type",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "cd043b0fa50bfe6c5e7902e83a4d7e48bd654bace19c74725f4f1776c7b09c9b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#openDecryptSession",
+      "kind": "value",
+      "source": "src/app/session-open.ts",
+      "shape": "a8a6038eb5660bd1a07ad5373ad3ba873c36351731ee43a52b296a8f67ebc885"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#OpenDecryptSessionRequest",
+      "kind": "type",
+      "source": "src/app/session-open.ts",
+      "shape": "c476fcad1897e765522673571d1baecbb277c2eac946b33be1735f354116f4a6"
     },
     {
       "id": "@t3foundry/tasra-sdk/app#OperationAuthorizer",
@@ -75,16 +483,274 @@
       "shape": "8af1e63144ed8e709e82fb63b3e3681dcee7b3d78aca3ace41cefbf9f9be30a2"
     },
     {
+      "id": "@t3foundry/tasra-sdk/app#P256SigningIntent",
+      "kind": "type",
+      "source": "src/app/signing-intents.ts",
+      "shape": "96872dfb8ce8b10a41e86b9497cc13e6da2c2094b4e88b8055eade7b918eccb0"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#P256Slot",
+      "kind": "type",
+      "source": "src/app/client.ts",
+      "shape": "4affaffe203abcb5a54c1394c08aa09cec73842879cfa211f1336ab2f6185687"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#PreparedDualOperation",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "a99c2ad7a5712529288cde14eccfcec2b00a3081d20f384015ae3c948cb340ca"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#prepareOperationApproval",
+      "kind": "value",
+      "source": "src/app/approvals.ts",
+      "shape": "0a6aa2215e0a7f01373100db8a50b0432806bd21b8d43371224257c01c1a4d3d"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/app#prepareSlot",
       "kind": "value",
       "source": "src/app/creation.ts",
       "shape": "51f1d2f0aaf6f5ce1ea63941ee5f6891187c992441148b546ca2e8aee11f6d8c"
     },
     {
+      "id": "@t3foundry/tasra-sdk/app#presentCredentials",
+      "kind": "value",
+      "source": "src/app/identity.ts",
+      "shape": "a59ce2ae0344f2f40ea505c88e08ef2e988c95939c6e3192c0ce9a3cda93f28d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#PresentCredentialsOptions",
+      "kind": "type",
+      "source": "src/app/identity.ts",
+      "shape": "287bb4791253051f0adb5d2681eb86ad279c78d419cad481b82ecf487dc51e2f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#readApprovalPolicy",
+      "kind": "value",
+      "source": "src/app/approvals.ts",
+      "shape": "a7c30c24b607e195d37a94237112a070648a189698400fcad4a305238dbd133e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#ReadySlotJournal",
+      "kind": "type",
+      "source": "src/app/ready-slot.ts",
+      "shape": "a23798fc24cbc4b381c1d565c3c8e46fba170042a7cfacafc95c4aa6beaff241"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/app#registeredWalletAuthorization",
       "kind": "value",
       "source": "src/app/authorization.ts",
-      "shape": "e548cb113a5e69631db0aaec5b1f5aad519b2ecd617625456f260e0e44b3edc3"
+      "shape": "54de5831f6c26ef211de3adcb22b5082ed2a1eb78d72d9eaf69e0a3c2b59a1c9"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#requireCurrentSlotPolicy",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "6fcc6a9485e0b609931d4cae127050b4922bfc5338982c24d1155b721453f55c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#requireDualOperationProof",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "c9ce334e9ef11381ecda91a6f0655a07f744919e64ac2d6966ba096b6c1e09d2"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#resolveApplicationManifest",
+      "kind": "value",
+      "source": "src/app/manifest.ts",
+      "shape": "0bd72319b0b2e180402801171eea07f1d2f17b535e85168326275f8c47e99048"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#ResolveApplicationManifestOptions",
+      "kind": "type",
+      "source": "src/app/manifest.ts",
+      "shape": "972067e9bb108545f074bc5706ae28dfab4601de2698c5a07e57c1fa11194a76"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#ResolvedApplicationManifest",
+      "kind": "type",
+      "source": "src/app/manifest.ts",
+      "shape": "6caba02df1541bdd3efc08f853319ce7966950e39c4fa45eeb0c53f4cdd9239b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#RotationAlreadyLocked",
+      "kind": "type",
+      "source": "src/app/rotation-lock.ts",
+      "shape": "e7a427f37ee49a8cb15614a69e05c464a8177ad77321b790ae952b1605766d83"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SESSION_REFUSAL_CODES",
+      "kind": "value",
+      "source": "src/app/session-grants.ts",
+      "shape": "1225f8c14434583b37a91043231eaf9af868815620b59b655b43aad1663b90df"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SESSION_RETRYABLE_CODES",
+      "kind": "value",
+      "source": "src/app/session-grants.ts",
+      "shape": "1225f8c14434583b37a91043231eaf9af868815620b59b655b43aad1663b90df"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SESSION_VERIFIER_BEHIND_RETRY_MS",
+      "kind": "value",
+      "source": "src/app/session-grants.ts",
+      "shape": "81a83544cf93c245178cbc1620030f1123f435af867c79d87135983c52ab39d9"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionBatchRequest",
+      "kind": "type",
+      "source": "src/app/session-decrypt.ts",
+      "shape": "e517275057bd4bd5493e7454969d77c08106e782767ac109bebb2ad80184bb71"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionBatchResult",
+      "kind": "type",
+      "source": "src/app/session-decrypt.ts",
+      "shape": "9f8b421dda70c434f41c03c036e91eaf819aa01a466129b42f485c701c57300a"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionCiphertext",
+      "kind": "type",
+      "source": "src/app/session-open.ts",
+      "shape": "80dbb1a3c15af8290220cbbba121030bfb1ee108434cea238634e4973c088309"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionDecryptContext",
+      "kind": "type",
+      "source": "src/app/session-decrypt.ts",
+      "shape": "b0957f1349e7d3c4fa1bbfd9093d857d24741bc22218aa3cbb93fbb36688b128"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionEndedError",
+      "kind": "value",
+      "source": "src/app/session-grants.ts",
+      "shape": "818a761c113f81ced28dc84858d3fa934b6e79b3bbfc112ee78ab822a54646c0"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#sessionGrantCreateFragment",
+      "kind": "value",
+      "source": "src/app/session-grants.ts",
+      "shape": "33796897e51cb286386f2d1701bc61b523cdd02a0b33b51695b34921b7df827a"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionGrantCreateFragment",
+      "kind": "type",
+      "source": "src/app/session-grants.ts",
+      "shape": "a800bc9bb336f4b74a51f72558cfb1d47f940dc2b6a684d6fa33228bf7921094"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionGrantParams",
+      "kind": "type",
+      "source": "src/app/session-grants.ts",
+      "shape": "bde7d350957cdfb9e8223e3110b0fbb3d244cff4592991309c32e83831183791"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionGrantUnavailableError",
+      "kind": "value",
+      "source": "src/app/session-open.ts",
+      "shape": "b362667441d763e12990aa1398c15f20b237b6e96f53e98e902c794b6e68b565"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionKeyHandle",
+      "kind": "type",
+      "source": "src/app/session-grants.ts",
+      "shape": "70eb17c6f816d7176e623128300164037a6dbf527a117c95ff5b8b3eb1e3a775"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionMessageError",
+      "kind": "value",
+      "source": "src/app/session-decrypt.ts",
+      "shape": "7fee12d2fca89351f02461257c95d76e4944f9b8065139f828e1805493e65936"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionMessageRequest",
+      "kind": "type",
+      "source": "src/app/session-decrypt.ts",
+      "shape": "616a4275a24b4e7ca0d93dce11d39bc67991418c98649f5f9ad94271d930e03c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionMessageResult",
+      "kind": "type",
+      "source": "src/app/session-decrypt.ts",
+      "shape": "7563cabec0d13849184667cc0ab5908576e32e34ca56240563d9611e3064bc9f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionRefreshError",
+      "kind": "value",
+      "source": "src/app/session-grants.ts",
+      "shape": "061a3e5f84caa1ada8cfaa36b50245f538e6a557b46246b7e4a1bd296289a031"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionRevokeIncompleteError",
+      "kind": "value",
+      "source": "src/app/session-grants.ts",
+      "shape": "9b6c81fa7202ecc4eb20ece098e92918bc82d41b6800032111dc5593d597005e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionRevokeUnconfirmedError",
+      "kind": "value",
+      "source": "src/app/session-grants.ts",
+      "shape": "98861870445a624fce8b64c9068ad628e570f934b824b45d5eea14a314be41b5"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SessionTransport",
+      "kind": "type",
+      "source": "src/app/session-grants.ts",
+      "shape": "ff2370659db18e0ba37cf40bcb8eea4b00b6ab70a62c0b4612c8f294519e2a2f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#setApprovalPolicy",
+      "kind": "value",
+      "source": "src/app/approvals.ts",
+      "shape": "418695080ff48d995304866b2e64d1da208b49ef46e654397f787be10d0a72ac"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SIGNING_INTENT_MAX_BYTES",
+      "kind": "value",
+      "source": "src/app/signing-intents.ts",
+      "shape": "0f255ec16482c343fd099ba9668863778be40dc166a6856b1d470e0bc97cc6fd"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SigningIntent",
+      "kind": "type",
+      "source": "src/app/signing-intents.ts",
+      "shape": "fdfccd7081f4d2f4359e912a8880d8d7931de9e1ed37da89bf75d79cfd29cabb"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#signingIntentCurve",
+      "kind": "value",
+      "source": "src/app/signing-intents.ts",
+      "shape": "5b62c9c2846d049f55697427d349736652878486ecae291b59a378ff4e3533c8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#signingIntentDigest",
+      "kind": "value",
+      "source": "src/app/signing-intents.ts",
+      "shape": "fc31725f9bdf9f84c730f90d98d8ec2bc7c7647b923431fac8dc0adb19d2a844"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SLOT_POLICY_DOMAIN_NAME",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "897be5341efe041ab80591b9b6d46517801c26bbc8175922b6bec340f8faccd1"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SLOT_POLICY_MAX_LIFETIME_SECS",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "b045dd9c18caa8be1e17a4b902152cc1fd292b242b7b9dd74ba8c40896239424"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SLOT_POLICY_REQUEST_DOMAIN_NAME",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "0ea279fe7eb0262273cdc4b39cbf9a3312ff82e615b65c3cf22d982399ebd7b7"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SLOT_POLICY_REQUEST_MAX_AGE_SECS",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "2abaca4911e68fa9bfbf3482ee797fd5b9045b841fdff7253557c5fe15de6477"
     },
     {
       "id": "@t3foundry/tasra-sdk/app#SlotCreationJournal",
@@ -93,16 +759,82 @@
       "shape": "4666a0e928cbb04252e1f0844bebfe152b0e4710b15f2eec87aff51c55eae6c5"
     },
     {
+      "id": "@t3foundry/tasra-sdk/app#SlotCreationProgress",
+      "kind": "type",
+      "source": "src/app/ready-slot.ts",
+      "shape": "03e79e064e07792c81afead5e6faa300bd4d30ae6523f21adf9c95e737811f9b"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/app#SlotMetadata",
       "kind": "type",
       "source": "src/app/client.ts",
       "shape": "078558c741012e367ab1649b88c4652e0c6164488137f457b5ee535dbf3ba8f0"
     },
     {
+      "id": "@t3foundry/tasra-sdk/app#SlotPolicyBootstrap",
+      "kind": "type",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "ef148f8883e29550826c8f562459f2adc038522d4318b33b983cac4b161ef59f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SlotPolicyError",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "fb290f59a581652ab87c9bd02905463eb35cdac8841cf6ffd64ec4ed39182eb8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SlotPolicyErrorCode",
+      "kind": "type",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "d91e87cdee09a5e3ef495ac5da150071c0a92a1770f03789a2135c00cb917fa0"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SlotPolicyExpectation",
+      "kind": "type",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "8fbe76bad5a433da92d3044ed5e756bb3f5b167ee11d34f4850711a1a83914c5"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#slotPolicyHash",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "8de4b3a8549292acb4283b3054f6a936379eeb450922410efb2740e81cf7ae94"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SlotPolicyRequest",
+      "kind": "type",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "4f0ef088cd97c87f9e87735c2033913398cc52782c8990522cc11e729b3eaa76"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#slotPolicyRequestTypedData",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "5d36595a0f4de0b6a0b5a2075b0860d1b2aaa0af4c74675ba06f833c9dcbc94b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SlotPolicyStatement",
+      "kind": "type",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "7182e71fba901a15a1800768e79692af84591c5a4b9a24d8c6d63891072c170a"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#slotPolicyTypedData",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "38e167ee1eea356564ab9999683b299d28d4143a51acfc8b096fbda188e49630"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#SlotTrust",
+      "kind": "type",
+      "source": "src/app/session-grants.ts",
+      "shape": "301b9b3c193cae90e9caa13a67276a33e91e10b4a3f7a8f9fc844cb1b1eac2f4"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/app#TasraApplication",
       "kind": "type",
       "source": "src/app/client.ts",
-      "shape": "980dd8650283af8168d0816d97e771904d5e21a5cddba1eb27b733788a306ad2"
+      "shape": "c152e5645896b22291e005bd0dbdcfdffa218225f5a8baade07c5b95d9f469f5"
     },
     {
       "id": "@t3foundry/tasra-sdk/app#TasraApplicationConfig",
@@ -117,10 +849,34 @@
       "shape": "fe1bdf421bdccd0a8b9ae6b7dfbe1842205649d8d57e957c1d2e12834ad46fb4"
     },
     {
+      "id": "@t3foundry/tasra-sdk/app#TasraClient",
+      "kind": "value",
+      "source": "src/app/tasra-client.ts",
+      "shape": "0067c8d77cd74824e1b2232e00a4e5e12270a6e02e39deb5ef53e0d962cc5c0a"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#TasraClientOptions",
+      "kind": "type",
+      "source": "src/app/tasra-client.ts",
+      "shape": "7bd2082ddc1241c56b2b1f1996695bfcec48318de5a8636c42e43b94f1b097ce"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/app#TasraDeployment",
       "kind": "type",
       "source": "src/app/deployment.ts",
       "shape": "c02b5615a8fca880c56786183422d3d09335ea39365d970a92c79f9b8c39ba80"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#TasraIdentity",
+      "kind": "type",
+      "source": "src/app/identity.ts",
+      "shape": "19d8b84f0b131584e456904f302a211d074778440093251c3632a805a73f3bc6"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#TasraWallet",
+      "kind": "type",
+      "source": "src/app/wallet.ts",
+      "shape": "79a5ff47f97abda90ffddee003b59e8734467421d9a9defee6203652867b8878"
     },
     {
       "id": "@t3foundry/tasra-sdk/app#toViemAccount",
@@ -129,10 +885,58 @@
       "shape": "588e8fcefdc503188527ffec85a175581a64e3ff663ce67e105f90433ff16380"
     },
     {
+      "id": "@t3foundry/tasra-sdk/app#TransactionSigningIntent",
+      "kind": "type",
+      "source": "src/app/signing-intents.ts",
+      "shape": "80396e282e3af52cbb1a03315ff323209e4a4a2eae1681ead82686f743e4b6e6"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#TypedDataSigningIntent",
+      "kind": "type",
+      "source": "src/app/signing-intents.ts",
+      "shape": "d4074c856372005a0dbedf9ed43c24f772d1384b4a139ba4596f1d15d25bee5f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#verifyCredential",
+      "kind": "value",
+      "source": "src/app/identity.ts",
+      "shape": "4b2b88adc04f7db58d7a57c9fe87790fb3f581efb83d3845114763192180a413"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#VerifyCredentialOptions",
+      "kind": "type",
+      "source": "src/app/identity.ts",
+      "shape": "5ffbdaf5e2021adb7f332148a51368e13579b8af914c8150dea283bc05d39165"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#verifySlotPolicyBootstrap",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "768204805658fb42f9be645d0638a8b2d2f5a147847866d6026824ae41fb0075"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#verifySlotPolicyRequest",
+      "kind": "value",
+      "source": "src/app/policy-bootstrap.ts",
+      "shape": "2b917c1bf82b210a12b63cac8075da9729ce2d56d306b0eaf23e3c384df9b1f9"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#WalletTransactionInput",
+      "kind": "type",
+      "source": "src/app/wallet.ts",
+      "shape": "d1b64085492c09b046d80cc808c6f7c32094b3bccea8ef949dad523fee5d4435"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/app#WalletTransactionJournal",
+      "kind": "type",
+      "source": "src/app/wallet.ts",
+      "shape": "488adccc5dfe89b1b6ee34f867d478fb0ec4d7e704f86a476d3fff87d5e9a135"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain/node#createNodeAgentTransport",
       "kind": "value",
       "source": "src/chain/node.ts",
-      "shape": "65c25e541ea3d0456f9af9bae2e0701e6612bf77bf16a31d695efb292a274860"
+      "shape": "3736146658c56992d751a3ec7da3207b9afdf3c06ce941680688a47a2485620e"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain/node#createNodeAgentWalletFetch",
@@ -225,16 +1029,58 @@
       "shape": "78480b1fba152b0aa9d9c518a88d9f4ef7f7e0ee902e45b1889b1d2cf44ea4aa"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#AgentHttpResponse",
+      "kind": "type",
+      "source": "src/chain/registeredAgent.ts",
+      "shape": "8f08c5200681117b74bec8ce3ae70863f3eb1b966d1591490f541e15efc04dbb"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#AgentSessionCreationUnknownError",
       "kind": "value",
       "source": "src/chain/registeredAgent.ts",
       "shape": "817762ea93eaad363af27ac8fb2849e437934ab3c7382361c306368403b82d66"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#AgentSessionRecovery",
+      "kind": "type",
+      "source": "src/chain/registeredAgent.ts",
+      "shape": "220a9fadbe6dec920058bd7a33ad3de1b2585381f8da0ffb109abe120858bd0b"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#AgentTransport",
       "kind": "type",
       "source": "src/chain/registeredAgent.ts",
       "shape": "4a8e5ceb232accd866965d5f3809e4c754aa2a1d470f1d01e6ba433601e43228"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#AmendmentPhase",
+      "kind": "type",
+      "source": "src/chain/ruleAmendment.ts",
+      "shape": "a0579148ed8f09eb7e7e750a25046d0b2c1159fc9ddeede2507d008d5f8f3969"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#amendSlotRule",
+      "kind": "value",
+      "source": "src/chain/ruleAmendment.ts",
+      "shape": "e6496dc63c3f6066dd61c4e46308721a781ffd3597aa4c8ce132f53b1a34c074"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#AmendSlotRuleArgs",
+      "kind": "type",
+      "source": "src/chain/ruleAmendment.ts",
+      "shape": "b04453684dedcddf2ba9291b8ea408b47aad0ce95d7eeaa18f077860668ff58c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#AmendSlotRuleResult",
+      "kind": "type",
+      "source": "src/chain/ruleAmendment.ts",
+      "shape": "603185374d7a9d3266072149bc73c3c69e62371f1c1d2a4f60bb81799f8714f1"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#AnchoredVerifierDraw",
+      "kind": "type",
+      "source": "src/chain/verifierSnapshot.ts",
+      "shape": "ccafdc5942170cdb7c61b244f230953eb8975b8025b5a4018d308f1f00e19cbf"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#ApplicationServiceProfiles",
@@ -261,6 +1107,12 @@
       "shape": "bc9b80317a786cfe2668a166954a100c6c9a23bb439941d772ad90c1f4c13fb2"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#assertAnchoredWalletRequest",
+      "kind": "value",
+      "source": "src/chain/registeredOperation.ts",
+      "shape": "b99ae95eaba66ff9e0752a95c39f9a1c75a442c1dafb478ff605f2a935ab39bf"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#assertEurcFaucetAllowed",
       "kind": "value",
       "source": "src/chain/networks.ts",
@@ -277,6 +1129,24 @@
       "kind": "value",
       "source": "src/chain/registeredOperation.ts",
       "shape": "9d45add353cbe2e833b97aa148fe8e258e8061f1724c5c1998c7e902d9fa9821"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#assertRelayVoucher",
+      "kind": "value",
+      "source": "src/chain/relayVoucher.ts",
+      "shape": "66def89bb59ffe069b2253895647dea7bdab56bcdf4b1461b9882f7e4181e5a6"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#assertRelayVoucherIntent",
+      "kind": "value",
+      "source": "src/chain/relayVoucher.ts",
+      "shape": "2c7fb407b47525befa14463d9e1fd85bcce880464339d086b86b91a1df9fd77d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#assessCustodyHealth",
+      "kind": "value",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "e2091eec4b04ac6f6df74fb0d451234c1d1288a6a9ee032be23a7720e95b7622"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#authenticateApprovedService",
@@ -297,6 +1167,18 @@
       "shape": "d707eb8a566813a30e9cebe4384a4d7c1403e83c470cf79d8712bfb6d259686a"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#BeaconDeployment",
+      "kind": "type",
+      "source": "src/chain/sessionDraw.ts",
+      "shape": "8f9d7fe6fb7730855d2a6aef857d7733fac89a0d9d820c438a7b8b84889ee6c1"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#BeaconDrawState",
+      "kind": "type",
+      "source": "src/chain/sessionDraw.ts",
+      "shape": "bb65f1bd815bb2749cb4108622543e2399ecc509ac5e044bcb6997dea88a2b49"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#bondingCurveAbi",
       "kind": "value",
       "source": "src/chain/abis/bondingCurve.ts",
@@ -313,6 +1195,12 @@
       "kind": "type",
       "source": "src/chain/client.ts",
       "shape": "f3e366c45cd1ed3a90be6afab11b4167c2b61c93eec98ccdc847a7180226e745"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#checkTecdsaReshareRoster",
+      "kind": "value",
+      "source": "src/chain/reshareRoster.ts",
+      "shape": "1771aec449b4f0836b0259ee61484b2090479e1b604d20076668e804ea8a750f"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#CommitRevealOptions",
@@ -348,19 +1236,19 @@
       "id": "@t3foundry/tasra-sdk/chain#CONTRACT_ABIS",
       "kind": "value",
       "source": "src/chain/abis/index.ts",
-      "shape": "1761186778e929cdc67cf34630cdef4e53ca5e851be86d786579fe7462136a82"
+      "shape": "6cff8c235b5dcef2cc41a128c32ffbc6b972378a63c48e6a4d71a663ecddd407"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#CONTRACT_CATEGORY",
       "kind": "value",
       "source": "src/chain/events.ts",
-      "shape": "faf5d2fc32027db35e6cb086d3487169a7b3bc206795bb52cd8cb29efed8167b"
+      "shape": "ea007e12ed4b06dba8be630c6643fec54ddde1685c647ed2a400c831f16440a4"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#ContractName",
       "kind": "type",
       "source": "src/chain/abis/index.ts",
-      "shape": "116bf5632e47b90c647c19e466b87e0c06d8702a9b164b06da4eb5992e61311a"
+      "shape": "51d56aa6edea30809439bed833de76ac572e0405530c54df6054f07d9439caa6"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#ContractObservation",
@@ -381,10 +1269,16 @@
       "shape": "73acfcbbd47ba340763e94f69f769fcf7ceb2507b992be4df96552407fd97b29"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#createHeadFollower",
+      "kind": "value",
+      "source": "src/chain/headFollower.ts",
+      "shape": "91c8a4e885aa94389d3bb334ce8facad18ade645213fdd18293423f6aa94d662"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#createRegisteredAgentClient",
       "kind": "value",
       "source": "src/chain/registeredAgent.ts",
-      "shape": "86a05bfc0b36fc7d791599d350e5a798a556aea6366317d089df91100b77e016"
+      "shape": "ee035a804b1f8b1756692c783118654a2d1c6d9fd4e2976065ecf60632c5dea5"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#createRegisteredRelaySubmitter",
@@ -397,6 +1291,18 @@
       "kind": "type",
       "source": "src/chain/write.ts",
       "shape": "1645f878548b50c27eea95c120eadeac1ac06514e6a59217bdc569ecfc469509"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#createSlotDrawReader",
+      "kind": "value",
+      "source": "src/chain/sessionDraw.ts",
+      "shape": "d8e5217e1411e70fc843cdfae312492f73182efc1b936c2a7ebcba27d94dedbe"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#CreateSlotFromPolicyArgs",
+      "kind": "type",
+      "source": "src/chain/write.ts",
+      "shape": "2c2a3cdef24a5d037df34a7747aec6cc709bd5969068716ed4fb16d17c5efb31"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#createTasraChainClient",
@@ -417,6 +1323,72 @@
       "shape": "c1fdc54f6397efa5bed72ed189f36edfc8f9c63e3a6525584453ec506417c161"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#CUSTODY_HEALTH_DOMAIN",
+      "kind": "value",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "45f8763bcd943c27f7eada789462f81da1c65ea18f7aed73a3c46dbb6c6914e6"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#CUSTODY_STATEMENT_MAX_AGE_SECS",
+      "kind": "value",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "bdc5d8a48c23897906b09a9a3680bd2e9c8b3121edbda36f949800f0959c8d55"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#CustodyFailure",
+      "kind": "type",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "799ae7f71ccef2a4b89f75dc2569a4f3977818627500cc72b2114a4f8db11a5d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#CustodyHealthError",
+      "kind": "value",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "20d536bf5fe1b6664ae3e9a02d8223a433507cc65d4bc2477d5c81efb6e7f3e7"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#CustodyHealthErrorCode",
+      "kind": "type",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "7375e3dacd24f488585a790ea1d0b45cfafd3b991601d830b2405e6afc846cbb"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#CustodyHealthLevel",
+      "kind": "type",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "c24248b0e4a1c4907f6da8c7a7fd5f274fe6987c57201c5830b9364f97e1df68"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#CustodyHealthReport",
+      "kind": "type",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "6508cb99b58a59438a0c0dff95aca7fdf2eb2b8f5460c64374e04d5655b96d92"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#CustodyReshareState",
+      "kind": "type",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "23ca74cc0762ffb9262de6f741aeac6ade1e6878bc76f203491a0d6d8c30a692"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#CustodyStatement",
+      "kind": "type",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "ea3c9536c887d3def8d32e678b5a0d0d4e61203cc9c83c43751a8d3457e3fd59"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#custodyStatementHash",
+      "kind": "value",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "439da8431d1474e3fe41ce434f921198a777424fda8e30c1131619329d68281d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#custodyStatementIsCurrent",
+      "kind": "value",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "7153d9c9ca7a3968e43003486f5f61051b59effd57862fe533eb59a34fc72ae7"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#decodeContractLogs",
       "kind": "value",
       "source": "src/chain/events.ts",
@@ -429,16 +1401,46 @@
       "shape": "59c077cbece7e97bc19d59e11c2cbc5cc06755b89a7f5c908364d38644a14dc4"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#decodeKeyRotationLockedLogs",
+      "kind": "value",
+      "source": "src/chain/rotationLock.ts",
+      "shape": "0ef8b6a6123b01d07b460b35d4b1dba6038a6c6f061bfdb8d321551c2a4d26d9"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#decodeRotationLockRevert",
+      "kind": "value",
+      "source": "src/chain/rotationLock.ts",
+      "shape": "924179d219543f5a62723823035bf9c6a4131b5976f30ada51655018f8aef773"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#DEFAULT_CHAIN_ID",
       "kind": "value",
       "source": "src/chain/deployments.ts",
       "shape": "5db1fee4b5703808c48078a76768b155b421b210c0761cd6a5d223f4d99f1eaa"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#DEFAULT_SLOT_SEED_HEDGE_MS",
+      "kind": "value",
+      "source": "src/chain/slotSeed.ts",
+      "shape": "64d095f2fecfdeb907dae5403b10966c4ae755b7598aa078cb932e345bd0b5d0"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#DEFAULT_SLOT_SEED_RETRY_MS",
+      "kind": "value",
+      "source": "src/chain/slotSeed.ts",
+      "shape": "ac911e4a8f2b48c071ce0fbb434c039c48e60e8d96dff768f69daa740af0c3bb"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#deriveServiceId",
       "kind": "value",
       "source": "src/chain/services.ts",
       "shape": "ad8dee29cd54dced8ec89c2aa16cfe1f82e559108f9f3107b7b3752f875278f5"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#drawnVerifierWitnesses",
+      "kind": "value",
+      "source": "src/chain/verifierSnapshot.ts",
+      "shape": "cf447a47f6f5febb195c2780daa62c99889f3395535a4675e03b017b30022de7"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#encodeServiceChallenge",
@@ -471,6 +1473,18 @@
       "shape": "9524cf298d7656b70941061cae222cea53e4bac360459dc3e284f76f31e54ff4"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#ExpectedCustodyReply",
+      "kind": "type",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "4bc2c58b1a07494e53ada0555513ef52f7605df0e1966430600370bfd9c86311"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#fetchDrawnVerifierWitnesses",
+      "kind": "value",
+      "source": "src/chain/verifierSnapshot.ts",
+      "shape": "3e75dfcf86e501c80689df109e6f504c71fa5113d14890494e71dd4cc455a240"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#FetchOpts",
       "kind": "type",
       "source": "src/chain/offchain.ts",
@@ -481,6 +1495,18 @@
       "kind": "value",
       "source": "src/chain/abis/fixedTasraPriceOracle.ts",
       "shape": "ceafa3c1339743cae474f3b23aafc7986233509eccf2aa2ba96e20a888046017"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#FollowedHead",
+      "kind": "type",
+      "source": "src/chain/headFollower.ts",
+      "shape": "83720b292b730d975795a130b53696c849504a932c96f82f593bf5410576975e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#followHeads",
+      "kind": "value",
+      "source": "src/chain/headFollower.ts",
+      "shape": "91c8a4e885aa94389d3bb334ce8facad18ade645213fdd18293423f6aa94d662"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#formatBps",
@@ -519,10 +1545,40 @@
       "shape": "70aee726f5038636a0c96d3a12bbc05c143e36750b2983038ecdf3b4bdde87a9"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#HeadFollower",
+      "kind": "type",
+      "source": "src/chain/headFollower.ts",
+      "shape": "0cf063da31cc3b5379537656ea80895f0ba9bb5a219a94a8d0268e13b43e0c02"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#headFollowerOf",
+      "kind": "value",
+      "source": "src/chain/headFollower.ts",
+      "shape": "d2d3e320704ce3c0159fce1b46c59ad2acc9d8bc258b46acbbd49e86d0117565"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#HeadFollowerOptions",
+      "kind": "type",
+      "source": "src/chain/headFollower.ts",
+      "shape": "e1cf0e263f9348fa921acc65b7922b09163c618b07e58594254d1a55ae98b343"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#IMPLEMENTATION_SLOT",
       "kind": "value",
       "source": "src/chain/manifest.ts",
       "shape": "6933241d365dbb1da9067868a695de214eea6268a732b339fb0134f34d1da96c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#isRelayBusyReason",
+      "kind": "value",
+      "source": "src/chain/registeredRelay.ts",
+      "shape": "13285ddcb7c023f7252f9d2dce5110dcad48b4ceb1cd5485233a4211c0ba40b4"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#isRotationLocked",
+      "kind": "value",
+      "source": "src/chain/rotationLock.ts",
+      "shape": "bbac38e7b708a806dc3a2a32bc7e617de0b91aa207445193f2a9c8b4891cb917"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#jsonSafe",
@@ -552,7 +1608,13 @@
       "id": "@t3foundry/tasra-sdk/chain#keyRegistryAbi",
       "kind": "value",
       "source": "src/chain/abis/keyRegistry.ts",
-      "shape": "7a38efa39aee441b350e6f760e664be2bc66fea7a2f068c24f3370fac5e3af5f"
+      "shape": "8b9bcee6533330540f0bbe07c7e1a5e56de278bdb28b97c4640f96914bacf152"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#KeyRotationLockedEvent",
+      "kind": "type",
+      "source": "src/chain/rotationLock.ts",
+      "shape": "8e5882cb306eab8d2b397cb35d1dcc984789a2d62547505079095a31ad486db2"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#KeySlotSummary",
@@ -565,6 +1627,12 @@
       "kind": "value",
       "source": "src/chain/abis/livenessRegistry.ts",
       "shape": "4159458e2996ebaddeb39a3f0791c10146a9f50b397bc59327ba5911c467bd3f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#MAX_RESHARE_PARTIES",
+      "kind": "value",
+      "source": "src/chain/reshareRoster.ts",
+      "shape": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#MeteringReply",
@@ -636,13 +1704,19 @@
       "id": "@t3foundry/tasra-sdk/chain#openRegisteredVerifierAgentSession",
       "kind": "value",
       "source": "src/chain/registeredOperation.ts",
-      "shape": "11717401d18ae95f917446f8b1455a8669790adcf57a2fa59071b03c22f4bacd"
+      "shape": "6415c74434589f16b9d1bba34b0b7e79cbac24ed9a20185d134c15efcb4864bc"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#parseApplicationServiceProfiles",
       "kind": "value",
       "source": "src/chain/serviceProfiles.ts",
       "shape": "6cf8ef1daf61c14398016870ae3228ce73f93d6bd5ca9f4015c23f660ae84460"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#parseCustodyStatement",
+      "kind": "value",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "b2f47a6674ccddff1bc079c9a600d06c464747d58ac20666af60edb419834d9c"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#parseNetworkManifest",
@@ -681,6 +1755,18 @@
       "shape": "9ab557db30d176aa47fff8e010ffdb555c2dea46a9fa8a1612c04986ca608711"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#ProposeRuleArgs",
+      "kind": "type",
+      "source": "src/chain/write.ts",
+      "shape": "6edc2cd6c14d19ce9198c72e7e01cb2fc3a8aee1f54669d50e1ceef0ac5024c6"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#ProposeRuleResult",
+      "kind": "type",
+      "source": "src/chain/write.ts",
+      "shape": "a34af5eb3fd20dfc5177576f0e00c73b24b572bc2640d633019a4a526989b802"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#PROVISION_RULE_ACTION",
       "kind": "value",
       "source": "src/chain/provisionRule.ts",
@@ -715,6 +1801,60 @@
       "kind": "value",
       "source": "src/chain/services.ts",
       "shape": "79bd048f40f5c85ad4d33f8fe0f3a4e5f8f4b018352f345f06dd4fe117fc6a7b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#readBeaconDrawState",
+      "kind": "value",
+      "source": "src/chain/sessionDraw.ts",
+      "shape": "c41a8f3a48673c9aac69fa0d0489317b6bcfe5ae87b8f773b5e0171527b79eed"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#readCurrentBeaconEpoch",
+      "kind": "value",
+      "source": "src/chain/sessionDraw.ts",
+      "shape": "df7d16a8069ffe0dd56cfa91e9339ad8a9ebac250a07c42289c458f65b95b891"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#readCustodyHealth",
+      "kind": "value",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "8ae704b1afaa9ec6df05f69fc56ab63d33122e87d1894e250da3fddf8ce5fb11"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#ReadCustodyHealthOptions",
+      "kind": "type",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "78a803398e4f60f895796ff8847df1cbae6e5684b5a4579e4986a83af946ea4f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#readRotationLock",
+      "kind": "value",
+      "source": "src/chain/rotationLock.ts",
+      "shape": "600566c86e9dc9f95c29f7de569f0ad0ccb9e6fcbe658dcebda925fca24c3c39"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#readRuleAmendment",
+      "kind": "value",
+      "source": "src/chain/ruleAmendment.ts",
+      "shape": "bde65b4b09512cadef2a0acc08b1362b08c657f24527c28f9841956185991781"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#readSlotHandoff",
+      "kind": "value",
+      "source": "src/chain/slotHandoff.ts",
+      "shape": "fc0b2784e6a1bc129d5b098d4ec5a3f134246d846071e69f6689321572709e8f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#readSlotSharing",
+      "kind": "value",
+      "source": "src/chain/slotSharing.ts",
+      "shape": "d35cbcb1a924d0f868a6483da7b35fca6ee6fc096c0949334929fd4c962f05fb"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#readSlotVerifierDraw",
+      "kind": "value",
+      "source": "src/chain/sessionDraw.ts",
+      "shape": "2bf3d511ec004cc06f7580c19852cedf050f91d07737e12c855de645a951180a"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#reconcileRelayAttempt",
@@ -753,6 +1893,12 @@
       "shape": "51baffb0cff46c03aee105a85f9e3444daafaf7b3e4086283608c7aafcee5912"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#RelayHttpResponse",
+      "kind": "type",
+      "source": "src/chain/registeredRelay.ts",
+      "shape": "5b085f36ad2d85f6a4e90e56f0bbbba5a0a85b1c0c11616feee517bed5aa22a2"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#RelayIntent",
       "kind": "type",
       "source": "src/chain/registeredRelay.ts",
@@ -777,10 +1923,28 @@
       "shape": "7c1082a7ac6af1f9b7ff9dd0fcd2fd1ac52de2e2096640a1b9c2da94bf5d8c18"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#RelaySponsorshipConfig",
+      "kind": "type",
+      "source": "src/chain/relayVoucher.ts",
+      "shape": "bc65a16bb4ecd1f740e7f1d1a0d2915208500e12426e622a93af342d07d1e73e"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#RelayTransport",
       "kind": "type",
       "source": "src/chain/registeredRelay.ts",
       "shape": "d7d649c488f9cbf9e9cd88e522d5d258084134c15d95e2195efdeedbadce1b7f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#RelayVoucher",
+      "kind": "type",
+      "source": "src/chain/relayVoucher.ts",
+      "shape": "320829240abc1c9829d5d3d890b798c946615a8bbfab39288ee157041af8ed0c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#RelayVoucherIntent",
+      "kind": "type",
+      "source": "src/chain/relayVoucher.ts",
+      "shape": "2c12ba668499992b1a26071aa5b47a813e8888bd83cac551f6c5dc5f9bf8edac"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#requestSlotSeed",
@@ -799,6 +1963,18 @@
       "kind": "value",
       "source": "src/chain/deployments.ts",
       "shape": "23cfc416fd8bd80ac0bab23411fb8e5502a12a7274eba2180b5ea6c5bb14ca10"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#ReshareRosterError",
+      "kind": "value",
+      "source": "src/chain/reshareRoster.ts",
+      "shape": "4a624addef2cb0a3e0d135f5010ac62802912d238da87ea129db06d3f2f5377b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#ReshareRosterErrorCode",
+      "kind": "type",
+      "source": "src/chain/reshareRoster.ts",
+      "shape": "bb2f49c674a999561e7ba3bbaeb60326002f1d1c7e5126046818bbad66ef5b33"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#resolveAccountantUrls",
@@ -843,10 +2019,82 @@
       "shape": "9dea2085d6e7d23b4d11cb70eaca42b0ea4b6e650ef5290a2c330b07cf1f9cd5"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#ROTATION_LOCK_SELECTORS",
+      "kind": "value",
+      "source": "src/chain/rotationLock.ts",
+      "shape": "09f50d444731d88eff56d01a6cd6a0600fbad714c2115a996f7a2435134eb302"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#ROTATION_LOCK_SENTINEL",
+      "kind": "value",
+      "source": "src/chain/rotationLock.ts",
+      "shape": "75d012fe28656e0a51e783b2a42c2b30b807009894b8a0cc0ea5e54f928d93a2"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#RotationLockError",
+      "kind": "value",
+      "source": "src/chain/rotationLock.ts",
+      "shape": "96997b2b708d6ef18c3f49d4ffba697919545dee49fa0226d01b96ed02d7924e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#RotationLockErrorCode",
+      "kind": "type",
+      "source": "src/chain/rotationLock.ts",
+      "shape": "150922a6104fb135238c37c2e420cf2b9c58f58379573d3c719851129a31f9b8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#RotationLockResult",
+      "kind": "type",
+      "source": "src/chain/write.ts",
+      "shape": "db3da8de80c42036f9f99f271791d0825e9a62d6bbc01d2ac8e1f2058a1b4164"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#RotationLockRevert",
+      "kind": "type",
+      "source": "src/chain/rotationLock.ts",
+      "shape": "5747845dee4889502de082ec01993ef0fd6e6f77b553ff03a33ad65d5f3db2c2"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#RotationLockStatus",
+      "kind": "type",
+      "source": "src/chain/rotationLock.ts",
+      "shape": "64669b0a484af817a18edf1434839291773a15bb8a80f0adf52be01b73f0f659"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#RpcBatchOptions",
+      "kind": "type",
+      "source": "src/chain/client.ts",
+      "shape": "1b7c915fa4c4be2631ff5d45dd0e1c8c44d706a9847fe3193273c08beadc53f1"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#RuleAmendmentError",
+      "kind": "value",
+      "source": "src/chain/ruleAmendmentCore.ts",
+      "shape": "c9a977b9e3de18e41e5b880109df7cc84552eaafac4cbf5c0448fe1680afdda5"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#RuleAmendmentErrorCode",
+      "kind": "type",
+      "source": "src/chain/ruleAmendmentCore.ts",
+      "shape": "94d9e20e142ea9942e295055281d572d5e9b0c789748d7ab383f3a433a0447e3"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#RuleAmendmentStatus",
+      "kind": "type",
+      "source": "src/chain/ruleAmendment.ts",
+      "shape": "13834d039cbc3781576fd12f43c106ab1bb6c67873a9beb1dfed13a0bed17167"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#ruleCommitment",
       "kind": "value",
       "source": "src/chain/write.ts",
-      "shape": "6d1ca55cbb30e8488734ada20b71837d2f487a1b5ee282ee11cbcabb719fbe4d"
+      "shape": "63ba01ceff39feddb67e5e9c50b070e8cb7f8c4580e91b4c2b835dde951ea100"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#RuleInput",
+      "kind": "type",
+      "source": "src/chain/ruleInput.ts",
+      "shape": "03cf8d1f1bb061d1524291ed06a2525869df4395a6bd484945693ada72f194ef"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#SERVICE_CHALLENGE_LIFETIME_SECONDS",
@@ -957,10 +2205,34 @@
       "shape": "7c9dfbf76e971645a7db9bf297f4220fa92a65eaed402ec987b6d01b0c357a7a"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#SessionAgentTransport",
+      "kind": "type",
+      "source": "src/chain/sessionControlTransport.ts",
+      "shape": "04ba6c8c51dc9d45552aea068d35e9728b730745120aff6dad2448a773cbc9fa"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#SessionControlHttpResponse",
+      "kind": "type",
+      "source": "src/chain/sessionControlTransport.ts",
+      "shape": "abbfd81693c23483ba7be86730f37cb7cbd55be4c4cd258a93ea3ee07cdbe5ea"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#SessionControlTransport",
+      "kind": "type",
+      "source": "src/chain/sessionControlTransport.ts",
+      "shape": "aebbab7f836e82ee46a6787c2fbc2675cf74e3ffa6f4c92df31b6fee5be31153"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#SessionDrawDeployment",
+      "kind": "type",
+      "source": "src/chain/sessionDraw.ts",
+      "shape": "4a4d82d3de77836b47191b059d9bb5ade56eeb0111846f1f560042422f34d75b"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#settlementAbi",
       "kind": "value",
       "source": "src/chain/abis/settlement.ts",
-      "shape": "3e22fbbd54f44e05ccaf7af9532659bc88977fdc30029ab323151ec15dd78a35"
+      "shape": "f89dd8df72c6427d7b4b28e23163faf961efa0ac8b4a798fbf4205fa7acccb7b"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#SignedHeartbeat",
@@ -993,10 +2265,40 @@
       "shape": "b587192c78a428badd0b35ab37d80fceee3754a61edfe267710cd4d991e779af"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#SlotDrawReaderConfig",
+      "kind": "type",
+      "source": "src/chain/sessionDraw.ts",
+      "shape": "1a5a41667307ddef37337ec2cb88fc441779c9bde899b877c90c6cdaead8f784"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#SlotDrawTrust",
+      "kind": "type",
+      "source": "src/chain/sessionDraw.ts",
+      "shape": "7adda255151edee94922c773b35c0b91dd62ec7196ac019a7acaff2ab79852a4"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#SlotGroupKey",
       "kind": "type",
       "source": "src/chain/discovery.ts",
       "shape": "2885d179f39c9a76f176c399dfe42e291fec6050f3b5bc7f66b09dded78190a0"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#SlotHandoffError",
+      "kind": "value",
+      "source": "src/chain/slotHandoff.ts",
+      "shape": "d4b2829c4199bcb7ac0d32dc7c32a7515a85e2a80210b4a8c6f7b40ed12c4ff3"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#SlotHandoffErrorCode",
+      "kind": "type",
+      "source": "src/chain/slotHandoff.ts",
+      "shape": "612e8614bef104dfdcdb993a3adf1a4bfdabdd65437038783b34de4c1390e093"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#SlotHandoffStatus",
+      "kind": "type",
+      "source": "src/chain/slotHandoff.ts",
+      "shape": "bef298b6463963a0e60d6e309f99d1ce8376c618f7f86a400093e209dc412a61"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#SlotMode",
@@ -1005,16 +2307,64 @@
       "shape": "239beb081100707cdbf65c96cd18e2e660d85a13aa5131aab632de29af91f388"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#SlotRevealNotYetError",
+      "kind": "value",
+      "source": "src/chain/commitmentRecovery.ts",
+      "shape": "bc6367932436d7de7022c18204d2c25ac35b9001ec950e0f3aa71230cc68387f"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#SlotSeed",
       "kind": "type",
       "source": "src/chain/slotSeed.ts",
       "shape": "2d43d1d5845f2c264055e841a0493306127c7ab99c44849c4a9987da8f6fd66a"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#SlotSeedAnswer",
+      "kind": "type",
+      "source": "src/chain/slotSeed.ts",
+      "shape": "52128c4b37f0a5ddd6bf5615a18326c11343ac2a182b1a96fc6e11c7bf2a92fc"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#SlotSeedFailure",
+      "kind": "type",
+      "source": "src/chain/slotSeed.ts",
+      "shape": "2150e68c48f4b7aa06f9e60ab87fbcd21734bdcc080d3b2cfeb28b5aa50d9173"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#SlotSeedOptions",
       "kind": "type",
       "source": "src/chain/slotSeed.ts",
       "shape": "3ff068c7384472ad156adeb3baf14f7d1744a049f5c7e036ca5597cbc7b32b08"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#SlotSeedUnavailableError",
+      "kind": "value",
+      "source": "src/chain/commitmentRecovery.ts",
+      "shape": "eb4df899b8d05982136eda79d293a64718cdaf2d03ccabd2a45c532b71c72e33"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#SlotSharing",
+      "kind": "type",
+      "source": "src/chain/slotSharing.ts",
+      "shape": "fe30474f424c69743af157707e1a16934c7caee8c3348e72f57f2553fcf97670"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#SlotSharingOptions",
+      "kind": "type",
+      "source": "src/chain/slotSharing.ts",
+      "shape": "c30e6ac848900559b2c78080ee545d88130a412bea4abb44ea1b565ae6067c12"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#SlotTransferProposal",
+      "kind": "type",
+      "source": "src/chain/write.ts",
+      "shape": "b280b34da0d97766b66184ccb8ac91840e32f01e869743cd2602f6bfc7a22842"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#SlotVerifierDrawOptions",
+      "kind": "type",
+      "source": "src/chain/sessionDraw.ts",
+      "shape": "4719abbc9c028f691789e096d326bc41bb431d708621a5906753ef0ba78710c5"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#TasraChainClient",
@@ -1035,12 +2385,6 @@
       "shape": "0cb8b7c71219b21fd5d591ce63cc0c17045ca2353adc07648b74947fea84e8aa"
     },
     {
-      "id": "@t3foundry/tasra-sdk/chain#tasraSwapRouterAbi",
-      "kind": "value",
-      "source": "src/chain/abis/tasraSwapRouter.ts",
-      "shape": "bfb8a8e0214b09cd177d40c254b071cd85ec40c70d729644322137f2668514ef"
-    },
-    {
       "id": "@t3foundry/tasra-sdk/chain#tasraTokenAbi",
       "kind": "value",
       "source": "src/chain/abis/tasraToken.ts",
@@ -1059,6 +2403,18 @@
       "shape": "236536cfe2f1d4b2d2d404f4fb9d0eef405daabaf6b12742e3b8c93abdfae93b"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#TecdsaReshareRosterInput",
+      "kind": "type",
+      "source": "src/chain/reshareRoster.ts",
+      "shape": "d1e03cacc1a0a806f550fae6edbea27583c5ed96fd9aec014f415ba5069b7a5b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#TecdsaReshareRosterPlan",
+      "kind": "type",
+      "source": "src/chain/reshareRoster.ts",
+      "shape": "1cef810d4d246a0b8daf6deebd516bf51fe705c65ddb259712fbe9d255c7c43d"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#thresholdRandomBeaconAbi",
       "kind": "value",
       "source": "src/chain/abis/thresholdRandomBeacon.ts",
@@ -1075,6 +2431,12 @@
       "kind": "value",
       "source": "src/chain/format.ts",
       "shape": "d78d41cd5aafa7f238d358f29aafa91fc4e36bfc2b2648f179f31ae188695b05"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#unfollowHeads",
+      "kind": "value",
+      "source": "src/chain/headFollower.ts",
+      "shape": "a75e8b1fbc9731951c3efc1583713edbea3ae09d1de89d75f619b35ebf047a24"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#validateServiceChallenge",
@@ -1107,6 +2469,12 @@
       "shape": "f50bb277f4fb4e3bd0c324924c8c1ff54733a6514b5662170bc3567db5d3ac9f"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#VerifiedCustodyReport",
+      "kind": "type",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "1d4bb0d2953eef14d48affc164d9f38845de7d4867e817af8660915bdfa7684f"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#VERIFIER_TAG",
       "kind": "value",
       "source": "src/chain/discovery.ts",
@@ -1125,16 +2493,40 @@
       "shape": "88c90b8f7a2bd1f03869cf41e0c42966e567deb0ce9e48d5fc356eecdb4c8777"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#VerifierProofWire",
+      "kind": "type",
+      "source": "src/chain/sessionDraw.ts",
+      "shape": "78a56f0b1dedd4659d88f6fc944c1165d5418187459954cc5c996278b8cc90fb"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#verifierSetRegistryAbi",
       "kind": "value",
       "source": "src/chain/abis/verifierSetRegistry.ts",
       "shape": "7a212d4531ee9eca53fc7cfd2f8c8319ef3e88185d5dd3c41a1cc6482c270e86"
     },
     {
+      "id": "@t3foundry/tasra-sdk/chain#VerifierWitness",
+      "kind": "type",
+      "source": "src/chain/verifierSnapshot.ts",
+      "shape": "2531c3bb4870012b50ad122e1f40cc9451010aaa0836f44effd4b58caf9fe7ca"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#verifyCustodyHealthReply",
+      "kind": "value",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "d057f7aaa95eecb90980ef6de220146848d067b5cb1356cb07b13295ee2292af"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/chain#verifyCustodyStatement",
+      "kind": "value",
+      "source": "src/chain/custodyHealth.ts",
+      "shape": "6d50ccb2682649a851b6014581452b73cac99dfbd7bcc76eae826240b397501c"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/chain#verifyRuleCommitment",
       "kind": "value",
       "source": "src/chain/write.ts",
-      "shape": "cdd21af5fe1b23d545311aaa337c33827b9a0014df81720e69dfc6f75ddf1b7e"
+      "shape": "0e3df8d08af01d66dcd32a22959589ff8039b4f7d8bfefc22adec3fd96e801e3"
     },
     {
       "id": "@t3foundry/tasra-sdk/chain#verifyServiceIdentity",
@@ -1167,10 +2559,34 @@
       "shape": "30df87475062a9c81126a9a93a06046b6805d2243776ff2a4172e7e65bac9c7a"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#acceptStatusRefreshRelay",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "aa5293179c8a4db06172f2158837ef7526b5917ab0aa2e2972fb6f8170e542db"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#approveDualOperation",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "b601c6f755b1ae931b8040ed9780b6fb4f847ab30d772d5d438b1b6ad3707de8"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#assembleCompoundToken",
       "kind": "value",
       "source": "src/committee/token.ts",
-      "shape": "1a299292b13b1469062a8498d2247fea3579a6467d0d352db655fe9668282989"
+      "shape": "f303e2f67ae3af902865224fda0bd51314f5ef5343acd7ecbd9f14992187f4fa"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#assembleDualOperation",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "53efd2cf9a33ed804cd2e08cfade649122009c803b4f8821e8bc412362c46622"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#assertStatusAttestationsWire",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "f7b7a2589d3362b1fbeed1d26a936a71c79051a244882d02ea9393a5f9d22709"
     },
     {
       "id": "@t3foundry/tasra-sdk/committee#auditOperationId",
@@ -1179,10 +2595,46 @@
       "shape": "97ca178ee5a853cd9dea9fdf5798419f814f2ea4e0b3aef3f8119a03b5f2f660"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#BlsSharing",
+      "kind": "type",
+      "source": "src/committee/blsSharing.ts",
+      "shape": "e88474d69003a31274606b01b7fa99f3c0742eaf15ad9bbd6f29a36414db049f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#BlsSharingKeeper",
+      "kind": "type",
+      "source": "src/committee/blsSharing.ts",
+      "shape": "a53b97a52c997c01a78890b58bea71263efa3b0656421dd951456e79367a0923"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#BlsSharingOptions",
+      "kind": "type",
+      "source": "src/committee/blsSharing.ts",
+      "shape": "dd9b92c729cf74eaa9a5f0eaf66043dd7af08dac9d4c583a39545f9dc90d547b"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#buildVerifierProofs",
       "kind": "value",
       "source": "src/committee/request.ts",
       "shape": "83de3c1ffd0f598b1685529b1add77a4eb55da9951645ee8e34fa7817919b3a6"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#checkJti",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "baf5f9ae0c101b347af5fb8510d577e5fec6e5fbc8cc38d44a7bb9019129e6b3"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#checkProofWindow",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "8c2786238271c98778bf3d793ec2afc62dbe9805b909519b6022b136ed5ef2eb"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#classifyStatusRefreshResponse",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "9da8ac177bf08396ea35d3221804fc36e11c92d08875451f3b45d9bd28cafb39"
     },
     {
       "id": "@t3foundry/tasra-sdk/committee#clientBindingHash",
@@ -1191,10 +2643,16 @@
       "shape": "4f5d30ba3deec54b27e3683392ce57bc837b49822298f623918f3987dd303cee"
     },
     {
-      "id": "@t3foundry/tasra-sdk/committee#ClientSigner",
+      "id": "@t3foundry/tasra-sdk/committee#ClientRecipient",
       "kind": "type",
-      "source": "src/committee/request.ts",
-      "shape": "2fcb914d2502282836ec45580d4f63bd15c98bb64d5bb223c554374baa082f2c"
+      "source": "src/crypto/recipient.ts",
+      "shape": "cba08be2d382062ed612b0bbace730669eefc19f7af437e892ac463cea279e49"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#collectSealedPartials",
+      "kind": "value",
+      "source": "src/decryption/sealed.ts",
+      "shape": "b4536ddd6f6b3ccd0744354a9609a6d981f98b4a3057532c361cbe5a21df1bb2"
     },
     {
       "id": "@t3foundry/tasra-sdk/committee#committeeAuthorize",
@@ -1257,10 +2715,22 @@
       "shape": "489e9f0e77293547472b313ab3a065a6ade06ad2fd8cfbc9deb32c7b0094058c"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#CommitteeDraw",
+      "kind": "type",
+      "source": "src/committee/request.ts",
+      "shape": "6e2d137d12f931527f31ef8444c53b1502d4806936730962385093010a148afa"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#CommitteeEoaSignOpts",
       "kind": "type",
       "source": "src/committee/ecdsa.ts",
       "shape": "e6b25b9fc5fe315754747f36567360d4e9caef39b8e2cfe9de4afaa0393affad"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#CommitteeP256SignOpts",
+      "kind": "type",
+      "source": "src/committee/ecdsa.ts",
+      "shape": "fe31d13abe994a5ca63bde1eb438faf3816f9f5c4898a1b7bfe64f6be63f3858"
     },
     {
       "id": "@t3foundry/tasra-sdk/committee#committeeSign",
@@ -1291,6 +2761,12 @@
       "kind": "type",
       "source": "src/committee/client.ts",
       "shape": "52091dcc99f52abe4da9da3926611dd5e23ad972f779f9ccdf63cb908a8cf5d8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#committeeSignP256Digest",
+      "kind": "value",
+      "source": "src/committee/ecdsa.ts",
+      "shape": "540bdb25373608d17c5ec905d28417e37a35e386ef0e1edc8c14de16ab0d522e"
     },
     {
       "id": "@t3foundry/tasra-sdk/committee#committeeSignRequest",
@@ -1341,16 +2817,34 @@
       "shape": "3268932073a1f0bd4f0532247319afd12acd60a6ffc7d9cfd693f48851d96c18"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#createDecryptionRecipient",
+      "kind": "value",
+      "source": "src/crypto/recipient.ts",
+      "shape": "b9e89ff4fb45b7d315b6559cbab61ed707452234e54cea289c6b043556675870"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#createDualSignClient",
       "kind": "value",
       "source": "src/committee/dual-sign.ts",
       "shape": "22814620214705d2ea6459f962181fc91af4f1b173963c41e001ae6ea3f1ac9d"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#createStatusRefreshProof",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "6b6c4da3f6bd271a5fc00b3276d5c693d86731970102792e011c291da55546cb"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#CreateStatusRefreshProofOptions",
+      "kind": "type",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "5b714a6959dbb8aa083bb9579279bd939f8e637e79a3674f01f0a0871d9af8c3"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#decodeCompoundToken",
       "kind": "value",
       "source": "src/committee/token.ts",
-      "shape": "761020ed6d24883989979fb546b3366e0566ac707f136e9b66fba65f01f657a6"
+      "shape": "6b5b24764fef2cb4645ada0782ab3456200a25a60d9b44a7e49f9e5dcfe768f4"
     },
     {
       "id": "@t3foundry/tasra-sdk/committee#decodeOperationReceipt",
@@ -1359,16 +2853,130 @@
       "shape": "441a135f354a33e298b8d0aefbbc9e2146a6a4368c516d887e9bde1334266055"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#decodeSessionGrant",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "84a1f13a71c41c47b17e8c25ac118899958cc4a4e90284370e7b6af4e5452c8e"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#decryptIdentityStrict",
       "kind": "value",
       "source": "src/committee/extraction.ts",
       "shape": "2aa83a944f8e328424a348d7c37a543fcebd0e4b2731fc3613ae9d25bc20360e"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#decryptionBinding",
+      "kind": "value",
+      "source": "src/crypto/recipient.ts",
+      "shape": "70b3ed1c335a5bac7011c2eb6e7e2cb2846fc1ebf7bf6bd2c579833db0e147d3"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#DecryptionBindingWire",
+      "kind": "type",
+      "source": "src/crypto/recipient.ts",
+      "shape": "3f4c3db771f1871aaa2c082bb3a080321444fbd200ed7df93cbd586a34b767ca"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#decryptWithCommitteePartials",
+      "kind": "value",
+      "source": "src/decryption/sealed.ts",
+      "shape": "daf957dc28302cafb1212096a85ed76ea095eed48c90ff0ca16185fa9fcf0ea8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#DEFAULT_ACCESS_TTL_SECS",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "624b60c58c9d8bfb6ff1886c2fd605d2adeb6ea4da576068201b6c6958ce93f4"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#DEFAULT_STATUS_WINDOW_SECS",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "624b60c58c9d8bfb6ff1886c2fd605d2adeb6ea4da576068201b6c6958ce93f4"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#discoverBlsSharing",
+      "kind": "value",
+      "source": "src/committee/blsSharing.ts",
+      "shape": "c60d97db54c92f50225674cbe9a7bbb3a52ba2dd4ab2f29426323df9b240be17"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#dpopHtu",
       "kind": "value",
       "source": "src/committee/oauth.ts",
-      "shape": "b71550db17ac53d92f86b524b07eceab6fd81acd0375801cca656d72e870efe8"
+      "shape": "14f8980af2ceb0020b8b4065a5d537ef8486bf3cc6bcb0e5b0a95e0c52c935e0"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#DUAL_OPERATION_DOMAIN",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "d47fad887fb4c137b83ad896c076ea4a21b91f64c78afe998c4e47f6911c65d9"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#DUAL_OPERATION_MAX_LIFETIME_SECS",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "983bd614bb5afece5ab3b6023f71147cd7b6bc2314f9d27af7422541c6558389"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#DualOperationApproval",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "881752a7a2b847ebf956a3a88c57b0defa72dee9a161f1df39ed8e08c9ce2728"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#DualOperationApprovalRecord",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "2590f8e63e0032db3f6c394572862a99fafbc65bc2ec4d781be5a812d21de0d7"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#DualOperationApprover",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "52519e65348bbf98cc37d9473269d77ceede3b1f888569715946eb5917fdc466"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#DualOperationExpectation",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "d2dbe4518115aabdf053398219135a06b039e9ccea68f5d8601ce113ba11bdb9"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#dualOperationFromPayload",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "cacebdc83bf4e7228c95bd205b7a1275d3f23770b4ab7ce13d09c46ada6f8310"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#DualOperationKind",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "d1ad7a9511060cd28541783164bfcab4c8d36c79aea85f2e0940e03b692dcae6"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#dualOperationPayload",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "83001a8cd9655e5a46069c148ca5297586bae047046cb4b2307b52d9acfb7197"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#DualOperationProof",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "ab1190a35eadd282c3d92fe4da1fed14153635ed6638a210d5a47bf982dd5d4e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#dualOperationRequestId",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "9d150b32d783909f4e61befe0c0fdf2b65851bba7ab3432f97a252b629b728ce"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#DualOperationStatement",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "7fd340a1f82a60bc79a2e122f9f6ea0b1bd4be85bd91569b8be2dd6778dd5929"
     },
     {
       "id": "@t3foundry/tasra-sdk/committee#dualSignApprovalPayload",
@@ -1401,10 +3009,28 @@
       "shape": "52fa2d1e79fbc21ebfecb83602af2cd0dc75dfe7cab39a1515521adfd2308032"
     },
     {
-      "id": "@t3foundry/tasra-sdk/committee#ed25519ClientSigner",
+      "id": "@t3foundry/tasra-sdk/committee#encodeSessionGrant",
       "kind": "value",
-      "source": "src/committee/request.ts",
-      "shape": "50646080b5ae93582f56bf54e440c07c37d160b8e61acaac70b1c16b8d462c3a"
+      "source": "src/committee/session-grant.ts",
+      "shape": "e8cc3341cff084aee6a04dcbe5dddf7c075583d0e5852277e3bfeff659de4eeb"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#encodeSessionProof",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "219f3371b34af904a062455a8934b44cccf872d0b2c788450cf360b04c141b46"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#evidenceBindingMessage",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "c1697e0598b279d26f3e43a740463b633b306cacf1588ec3f2f14767d16c8174"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#EvidenceBindingWire",
+      "kind": "type",
+      "source": "src/committee/evidence.ts",
+      "shape": "b1bf21a0ff1ffbd27c8ebf1e446fab5cba12c76c4cc37f5aa32eed7e37c31352"
     },
     {
       "id": "@t3foundry/tasra-sdk/committee#extractIdentityStrict",
@@ -1435,6 +3061,24 @@
       "kind": "type",
       "source": "src/committee/client.ts",
       "shape": "b174366711c5dbc913b8115e01a78cf9cafb7e231c1378be120b5d6829b10f4f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#GrantSignatureWire",
+      "kind": "type",
+      "source": "src/committee/session-grant.ts",
+      "shape": "0330d3d3ac28fb10a0d3212ca2da8aa2b44dc89795f5eeb1a577ecc46d7d9308"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#GrantSlot",
+      "kind": "type",
+      "source": "src/committee/session-grant.ts",
+      "shape": "7dcb8fb40c7c40adb79de2d42d835ad8d364a2a0714701e067957e96e5ae452d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#GrantSlotWire",
+      "kind": "type",
+      "source": "src/committee/session-grant.ts",
+      "shape": "9c9d578ce061a42fa96ab8b22eda61190517451f8b7219a0d6cb72c4ef9d9132"
     },
     {
       "id": "@t3foundry/tasra-sdk/committee#holderProofPerVerifier",
@@ -1479,6 +3123,84 @@
       "shape": "fad64a5607b44b2380cc79901a7898b6b0aa659f01da2fad2085b2dca0a0f6fc"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#isValidSessionId",
+      "kind": "value",
+      "source": "src/committee/oauth.ts",
+      "shape": "d03a47416819358ea3b8684dc13e0ce75a4563348e8d62afa5cb0ade089d547f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#kemContentDigest",
+      "kind": "value",
+      "source": "src/crypto/recipient.ts",
+      "shape": "5563aa5becda79cf3ce4c270bc5dea84bf6d43a5693b965021496928f82feb8e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#legacyDpopHtu",
+      "kind": "value",
+      "source": "src/committee/oauth.ts",
+      "shape": "b71550db17ac53d92f86b524b07eceab6fd81acd0375801cca656d72e870efe8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#MAX_ABSOLUTE_TTL_SECS",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "12886f9d00055adf24c40579e22d31b2b45f2023f892954ffd5567beb60825f8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#MAX_ACCESS_TTL_SECS",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "811786ad1ae74adfdd20dd0372abaaebc6246e343aebd01da0bfc4c02bf0106c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#MAX_BATCH_ITEMS",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "a68b412c4282555f15546cf6e1fc42893b7e07f271557ceb021821098dd66c1b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#MAX_IDLE_TIMEOUT_SECS",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "12886f9d00055adf24c40579e22d31b2b45f2023f892954ffd5567beb60825f8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#MAX_JTI_LEN",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "a68b412c4282555f15546cf6e1fc42893b7e07f271557ceb021821098dd66c1b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#MAX_SESSION_ID_LEN",
+      "kind": "value",
+      "source": "src/committee/oauth.ts",
+      "shape": "2747b7c718564ba5f066f0523b03e17f6a496b06851333d2d59ab6d863225848"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#MAX_SESSION_SLOTS",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "b17ef6d19c7a5b1ee83b907c595526dcb1eb06db8227d650d5dda0a9f4ce8cd9"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#MAX_STATUS_ATTESTATIONS",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "a68b412c4282555f15546cf6e1fc42893b7e07f271557ceb021821098dd66c1b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#MAX_STATUS_REFRESH_BODY_BYTES",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "8b926d75599a618e21f1341318e66517be26e18cc7496783d2b59758c1333be8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#MAX_STATUS_WINDOW_SECS",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "811786ad1ae74adfdd20dd0372abaaebc6246e343aebd01da0bfc4c02bf0106c"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#merkleProof",
       "kind": "value",
       "source": "src/committee/token.ts",
@@ -1491,6 +3213,12 @@
       "shape": "411c9b8627251b230b5eabed44156c75f80ccc2f20283673882f59c5128f72c9"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#MIN_JTI_LEN",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "b17ef6d19c7a5b1ee83b907c595526dcb1eb06db8227d650d5dda0a9f4ce8cd9"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#normalizeOrigin",
       "kind": "value",
       "source": "src/committee/oauth.ts",
@@ -1501,6 +3229,18 @@
       "kind": "value",
       "source": "src/committee/oauth.ts",
       "shape": "cb98182e8afb9727850d1e4943f6d06693a90a3eadfe47d526ecc4e00260b41f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#OAUTH_RESPONSE_PATH_PREFIX",
+      "kind": "value",
+      "source": "src/committee/oauth.ts",
+      "shape": "4107bedfd33c19858ffb724be4254ef80e1d8b5f20887cb60a28e9c7708b054a"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#OAUTH_RESPONSE_PATH_SUFFIX",
+      "kind": "value",
+      "source": "src/committee/oauth.ts",
+      "shape": "c58ecfb0b4d7ddee335fdf6c033c4afaf75395187f15f604a8ac28759e15e285"
     },
     {
       "id": "@t3foundry/tasra-sdk/committee#opAttestationHash",
@@ -1521,16 +3261,82 @@
       "shape": "d6720007114a90e28973d6564c3b23a60c7872167cac7851561420451d363b23"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#P256DigestSignature",
+      "kind": "type",
+      "source": "src/committee/ecdsa.ts",
+      "shape": "c6a53b421cfe64b27bc9afcf37c721ea1f9fdb0ebaa5cd865d45c5c1560156a4"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#parseSessionKeyJwk",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "b28999d3ffd6dcab052096d0cfd04fba94f431e470a857b0cd80fee55e7702cb"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#parseStatusRefreshReply",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "4ef98ad5d26a8d83c038347e98b6d5a6f41e8de9ae950dc91d2e900830a59556"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#platformAudience",
       "kind": "value",
       "source": "src/committee/oauth.ts",
       "shape": "8275817f5047eadbefc6292160db9f7c438bf5620ac8370f0987ca2bfe2cc031"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#PreparedDualOperation",
+      "kind": "type",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "a99c2ad7a5712529288cde14eccfcec2b00a3081d20f384015ae3c948cb340ca"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#prepareDualOperation",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "dfdfd7eab790e50a9aa44ecfb0ff829884cc9c4388d2bc6b57e3a8352671a61f"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#ReceiptExpectation",
       "kind": "type",
       "source": "src/committee/receipts.ts",
       "shape": "f387352c81aa192df32c2938873c5cfaf340369c232b6a6cbdbcf3759f64d7c1"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#recipientPayloadDigest",
+      "kind": "value",
+      "source": "src/crypto/recipient.ts",
+      "shape": "8e8fea36598ec7de881042b993b92683931145d8e4651e1c93bb49cc9b8dd78e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#RecipientWire",
+      "kind": "type",
+      "source": "src/crypto/recipient.ts",
+      "shape": "525ea75282458f81ed084b81f85aa2fa9a2636ebe91c517066780dced25fa517"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#refreshStatusDirect",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "0f490761a8a40d059a12c358bee7df2850d2f5d04c5ab179903772684042d344"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#RefreshStatusDirectOptions",
+      "kind": "type",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "9d8028ad1c7c63a98719ebef3cdc14b1304f8e659500f53acf8cb8deaa438e63"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#refreshStatusViaAgent",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "78934c162458b1c63cfb2c0daad5d0960a5d6be06be0613f7234abcd923db923"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#RefreshStatusViaAgentOptions",
+      "kind": "type",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "fdfe3b0808a650ff193fdde58f9c11cfbee241219ecb58ccbe847207766b91df"
     },
     {
       "id": "@t3foundry/tasra-sdk/committee#requestCommitteeToken",
@@ -1551,10 +3357,346 @@
       "shape": "a93892024591b3edec0e66a23f96d2382f7d3b6d4076af82cf084c1214a99152"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#requireCurrentDualOperation",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "4b79e0d41d7fbdad5aead4a920c5e6c3be8526aa88fc848cd025506d06527484"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#requireDualOperationProof",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "c9ce334e9ef11381ecda91a6f0655a07f744919e64ac2d6966ba096b6c1e09d2"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#requireDualOperationRequest",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "4ac5f45f7f09dec42f08474579663e18f33ced87f9dbb43004d7b5611fcb74c9"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#requireStatusAttestations",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "1917f9d508cd27e1d481f9ae32fc8eb252e2884c77b3a35d34f989deffbd2c3d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#RequireStatusAttestationsOptions",
+      "kind": "type",
+      "source": "src/committee/token.ts",
+      "shape": "b0a304803fb0789222dd4888689d0685744c5a671632551b9d4b42850ff4bf9a"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#REVOCATION_BOUND_SECS",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "39fa9ec190eee7b6f4dff1100d6343e10918d044c75eac8f9e9a2596173f80c9"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SealedPartial",
+      "kind": "type",
+      "source": "src/decryption/sealed.ts",
+      "shape": "d39d416b21787d80ff97de214fa7b15003b4211f14abe41a6e2bbe320a6b863c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SealedRequestOpts",
+      "kind": "type",
+      "source": "src/decryption/sealed.ts",
+      "shape": "850a1a11ceac235f0ea8bac9e2ab55eab935851807ae8152389aa794fbb90c29"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SealedShareWire",
+      "kind": "type",
+      "source": "src/crypto/recipient.ts",
+      "shape": "d11e2b37745464eb8166781b24f6934ad48b57cbef8ce6808e070b276d151a70"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#selectVerifierCommittee",
       "kind": "value",
       "source": "src/committee/token.ts",
       "shape": "9ecb1eb579b45c16c12f2922a312c5ef33def62d8c32cf530e6d9ca10b92d963"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SESSION_BATCH_PROOF_DOMAIN",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "9007d6772f10ae0f45002229bf7f8bd5b221e1082183f09371ad9b7723cbfc2e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SESSION_GRANT_DOMAIN",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "333cc60f1952b87279ffc09f0b2338820e305799c417a126bdbf71acce105092"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SESSION_PROOF_DOMAIN",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "2d78d1a4bbe4802932bf7428704debc68c400526d05a81516871f67581f9f4ab"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SESSION_PROOF_FRESHNESS_SECS",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "624b60c58c9d8bfb6ff1886c2fd605d2adeb6ea4da576068201b6c6958ce93f4"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SESSION_REFRESH_DOMAIN",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "c989942ed02d6adc2791537c340657e6b7c45e3d382f1567f06ae3a276729a68"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SESSION_REVOKE_DOMAIN",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "e408decd4ac19d3556434315342841903e7ae8a689a23a23649eda65c1e0271f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#sessionBatchProofHash",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "8d67f105e3b61620619595c84f253cdff4146900c5e84cdbfbb182e09bfaa85a"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#sessionControlHash",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "caa1e6ae513117f6477b430398c52d7cf7613e70610232e5163e2926b14bfde7"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SessionGrant",
+      "kind": "type",
+      "source": "src/committee/session-grant.ts",
+      "shape": "91c4bceb8032e2ae008d625b5548b51b288fdf2d388a09a212a04e74d17d23c7"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#sessionGrantCanonicalBytes",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "e0be15089c4044e31403de9b75d1e8a918ba46e7e5cc60837219c29a7c78400b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SessionGrantError",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "02cf34e2a8c7576da1e77d90550589f1dbd65fcfc75727b0fee13f0560017163"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#sessionGrantHash",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "e0be15089c4044e31403de9b75d1e8a918ba46e7e5cc60837219c29a7c78400b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#sessionGrantPayload",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "21691702e9f429467795865f48a5d4a5788fc52a1fc96a321e911be9282d3296"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SessionGrantPayload",
+      "kind": "type",
+      "source": "src/committee/session-grant.ts",
+      "shape": "2c41edce81f98e21b74c630e70d0d547c7473bffebd75eb2280d66242d6ec95e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SessionGrantWire",
+      "kind": "type",
+      "source": "src/committee/session-grant.ts",
+      "shape": "462daf20c4a819f42d478008ccbb0fd5fb68e4be55aa14446c4587570b57b55d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SessionKeyJwk",
+      "kind": "type",
+      "source": "src/committee/session-grant.ts",
+      "shape": "9c9cc376361cffd2751f48e529c5fb2ceb8a5042030240d5bd02fd0f124866bd"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#sessionKeyThumbprint",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "1d1e179b1bda979c76a883e6a5a3ee3cd2d412cb6a99b4f41e76c72aad3b6d9c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#sessionProofHash",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "d5f69737a917d22197a659acd1c6ab11d4d5450d25f87ea051ba107f783b3ac4"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#SessionProofWire",
+      "kind": "type",
+      "source": "src/committee/session-grant.ts",
+      "shape": "5eeda80e3df6e5d79dd75266d2787e659d075744870dd4422bbc6c9303e33e47"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#signersThatVerify",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "a8d9b55fd1d1bd7e26db8a780463a2befd73cad4d0b4373c206c9a3d2ea9f44a"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#STATUS_ATTESTATION_DOMAIN",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "8232a71826b88cbdc70c6a70cc2a4d4cc3ee6aafb7fc73b4ac612609d9a373ce"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#STATUS_CACHE_BOUND_SECS",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "12886f9d00055adf24c40579e22d31b2b45f2023f892954ffd5567beb60825f8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#STATUS_INVALID_CODE",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "745b5795ecf1a07c6953b9774208f632bd24bf7b46983a8e36eb2c5093ffea4a"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#STATUS_MISSING_CODE",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "456e894f167479ecf2e84e969b86401cc5025c52a6e21fbedaddda952cedd099"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#STATUS_REFRESH_DOMAIN",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "a1e6c7f3a69ea886915ef77ef35531a37966fb24ecbef178d5911561144846ef"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#STATUS_REFRESH_FRESHNESS_SECS",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "624b60c58c9d8bfb6ff1886c2fd605d2adeb6ea4da576068201b6c6958ce93f4"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#STATUS_REFRESH_JWT_TYP",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "c30f579538f95e58b3709d7f9d9273b5cf115d5a459afbc82bb9e5a8d0f85e8d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#STATUS_REFRESH_PATH",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "82ab7a3f14dac796f8b39e020fb0e67601c9e3360e57cd98bc7f74f8e5c741ea"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#STATUS_SKEW_SECS",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#STATUS_STALE_CODE",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "5413afed5bbdebe1d84ee761b3f57932e0c6c6bd6574cd168e410fbca7a15e2a"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#StatusAttestation",
+      "kind": "type",
+      "source": "src/committee/token.ts",
+      "shape": "6a6a7263809eb4309a230dec640c6bb2e76d7b913f37bb559605f4667c206d9d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#statusAttestationHash",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "8552f1fe7f962182eddd6aee7a266e0ea68e86ebebaec18ade24c56be29f01f1"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#StatusAttestationWire",
+      "kind": "type",
+      "source": "src/committee/token.ts",
+      "shape": "d931a921a94cb5211522b208d432f176e770f3203b376a785b569d8983b6b44d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#StatusFreshness",
+      "kind": "type",
+      "source": "src/committee/token.ts",
+      "shape": "3fc115d64c088bdd3637e6db942cd41c12165fee6ba029cd40274707343343a7"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#StatusRefreshGrant",
+      "kind": "type",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "72b585388fbb7e8c48ed52e8102e81c3ce38d462adf472c8dad37d5d7e06c0af"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#statusRefreshHash",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "c13e689de018c5e085b71252ad554cec573bb52a4aec51050441d48263879e55"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#StatusRefreshHashInput",
+      "kind": "type",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "6d0ca68aa4574e3665e863bd9ee1e3c8e7c874795dc01ec3baa6a37b8e8b642f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#statusRefreshHolderSigner",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "7ed4834fc17a1423582c1c87da0902758c620e3a7e29e1d48e36fea7afbbf0b6"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#StatusRefreshHolderSigner",
+      "kind": "type",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "c4f0f127653511a0af5a65cfe54af6b920040a8862bfc1b7af568a79a9cb2316"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#StatusRefreshHttpResponse",
+      "kind": "type",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "0a94fb2dd4d698e10095c1d452cfdfe7c5fc559e3a23549d9bde3e101f6834c3"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#StatusRefreshPrincipal",
+      "kind": "type",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "c4a2679569c2fc32b6d6c8ab89c039092cd471e44b347612f36e77b05682d525"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#StatusRefreshProofWire",
+      "kind": "type",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "dd2fc9cd5305e50a619841b996cce1cdd02f62c8573a7cf500288cd27e84ebbc"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#StatusRefreshProver",
+      "kind": "type",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "f492a5d43cafc4c05e54057ef0c76b817d2547dda8ebbc08369df0232f574eb1"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#statusRefreshRelayBody",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "8c82343773d5ca1489906818bd516cccc19dd3ebeec7ba2bd000b0b44497f495"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#StatusRefreshReplyWire",
+      "kind": "type",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "c1eb979a1ecd74204aa10451dcf0dbaccae88cdbc73c726b6678bd2d139fc7d5"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#statusRefreshRequestBody",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "4dbb1ed54d7030ea355ca90d4e5b10bd4b41a52f53285dcb24b4d26ba51126a6"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#StatusRefreshResult",
+      "kind": "type",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "3ae621bab84428b34def50a005680961f480469949c690675feaae543c62bc16"
     },
     {
       "id": "@t3foundry/tasra-sdk/committee#StrictExtractionOptions",
@@ -1569,10 +3711,28 @@
       "shape": "551131852c582c496ee3c42d44b6b902a9856fcc066a15368dcde641bdd78a96"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#toBase64Url",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "8617da4f08047b6dc768e33e6d96be575d418d3b4184ecd4c70ecc37df5ece01"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#TokenType",
       "kind": "type",
       "source": "src/committee/token.ts",
       "shape": "ed3a1df73488cfb15ea1f2e21dbd0484d3fb065d201a67e484a11b5ae3728f18"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#validateDualOperationStatement",
+      "kind": "value",
+      "source": "src/committee/dual-operation.ts",
+      "shape": "a318c28e8154093004ecb011a8e507129c1c9344717fcef51eb4e45300be1fb7"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#VerifiedSessionGrant",
+      "kind": "type",
+      "source": "src/committee/session-grant.ts",
+      "shape": "db2713f5482ff38340333b2c838c4b9380a9f79b897b2025b72870be31845d28"
     },
     {
       "id": "@t3foundry/tasra-sdk/committee#VerifiedToken",
@@ -1611,6 +3771,18 @@
       "shape": "19b2599a8f63ac3f84df44aa124c5c0e338fc4deeef00e5a7b5e7a0113f07c1e"
     },
     {
+      "id": "@t3foundry/tasra-sdk/committee#verifyEvidenceBinding",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "36cc0c1cd9eef71e29cee4257fc61fe363fb0cfe0ae4aed7e704b885a62da06d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#VerifyEvidenceBindingOptions",
+      "kind": "type",
+      "source": "src/committee/token.ts",
+      "shape": "9face8803412dc3c96fc40592884d7fee244f9e2154f8d80b632610c30c5e35a"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/committee#verifyMerkleProof",
       "kind": "value",
       "source": "src/committee/token.ts",
@@ -1621,6 +3793,48 @@
       "kind": "value",
       "source": "src/committee/receipts.ts",
       "shape": "9509d4c8ae48b8ee4650bedec28c210aef990aaf65198ea7972b6ab196163d5c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#verifySessionGrant",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "babc4d9bb205986d882e823d950a2e02180806d775010b88e92dcd756195c10b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#VerifySessionGrantOptions",
+      "kind": "type",
+      "source": "src/committee/session-grant.ts",
+      "shape": "ec50ae844ad14a0173182b1336a1ed02f562eeddb414ec8b7e3c25f3122c0146"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#verifySessionSignature",
+      "kind": "value",
+      "source": "src/committee/session-grant.ts",
+      "shape": "0d3b6dc6b750029d656e66dc4ebfc3209306a50ea57e7d5e3f78b17680bb4006"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#verifyStatusAttestation",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "e8ad68df05bfd4bdac5677c3f5ea21c18d749db570d3a93b0f6d91c1387671e6"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#verifyStatusAttestations",
+      "kind": "value",
+      "source": "src/committee/token.ts",
+      "shape": "a36237931db4e0f8c858795a41c50f1d8144d3f4c5337386a059da4f84d23a81"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#VerifyStatusAttestationsOptions",
+      "kind": "type",
+      "source": "src/committee/token.ts",
+      "shape": "8882516d37f7b4d825e1d67f41db4d015bde026abdefdcd2fb4b633c416ea60a"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/committee#withdrawsOriginal",
+      "kind": "value",
+      "source": "src/committee/status-refresh.ts",
+      "shape": "5a08640dab4e66c5e0bda513a855b84b796e109dd2d798ac13a34a07fd080f9b"
     },
     {
       "id": "@t3foundry/tasra-sdk/oid4vp#assertCompoundTokenWire",
@@ -1782,7 +3996,7 @@
       "id": "@t3foundry/tasra-sdk/oid4vp#didJwkIssuer",
       "kind": "value",
       "source": "src/oid4vp/sd-jwt.ts",
-      "shape": "69e5c516c2f840f5198d0d10d50a42cbc03fcb0346997d5916af68758711bf6d"
+      "shape": "54379074b458e871579b41965bf685641d3608ecf1efff767effbba1dec1aed1"
     },
     {
       "id": "@t3foundry/tasra-sdk/oid4vp#didWebUrl",
@@ -1836,7 +4050,13 @@
       "id": "@t3foundry/tasra-sdk/oid4vp#fetchRequestObject",
       "kind": "value",
       "source": "src/oid4vp/request-object.ts",
-      "shape": "5e7d846e5026bbaec8df3767f3e5e6e27e12fb9c5187a14af89e94bdc4fbb721"
+      "shape": "35d56b5988e7ebb6a6ca7e570b866a73293498b4bc9913443ba24e7035fa7cab"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/oid4vp#FetchRequestObjectOpts",
+      "kind": "type",
+      "source": "src/oid4vp/request-object.ts",
+      "shape": "703cb184d46c06c8d310c1e12fdd29a7f4c9a4dd1399d2c1d761e0d40e892cb3"
     },
     {
       "id": "@t3foundry/tasra-sdk/oid4vp#fromUtf8",
@@ -2046,7 +4266,7 @@
       "id": "@t3foundry/tasra-sdk/oid4vp#pollOid4vpSession",
       "kind": "value",
       "source": "src/verifier-agent/index.ts",
-      "shape": "be0c827f188aa9ce91483189e6a7449254540e307648d6bdbb6037a40b37e6ff"
+      "shape": "fd09ff14af8a95251e433a0503fa1ce4ee018a6d2ab19376baff14529dda7a3d"
     },
     {
       "id": "@t3foundry/tasra-sdk/oid4vp#PRE_AUTHORIZED_GRANT",
@@ -2178,7 +4398,7 @@
       "id": "@t3foundry/tasra-sdk/oid4vp#requestHash",
       "kind": "value",
       "source": "src/oid4vp/binding.ts",
-      "shape": "a9bb81d9087c6a410d9124e04d6d5890855b68e05cb1e99237c8d09fdc7f755d"
+      "shape": "07f73931425f9667ea906b7204ee95e52131937710f35c00aad0df37a3e47188"
     },
     {
       "id": "@t3foundry/tasra-sdk/oid4vp#RequestObjectClaims",
@@ -2343,6 +4563,24 @@
       "shape": "0c36e944c8cdeaeb307eb13c1c5d99a89322e50be6a23fab0df964573bed33d5"
     },
     {
+      "id": "@t3foundry/tasra-sdk/oid4vp#VP_SESSION_NONCE_DOMAIN",
+      "kind": "value",
+      "source": "src/oid4vp/binding.ts",
+      "shape": "a86ce230fbfe924b8c38a550256150b270ec29d6861b010f23ffed74d75b776f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/oid4vp#vpNonceBound",
+      "kind": "value",
+      "source": "src/oid4vp/binding.ts",
+      "shape": "b6f78eb1553e69bf0cff6eb7081245b6ad0eebd3f1f4d68ab294e4332cafbf2b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/oid4vp#vpSessionNonce",
+      "kind": "value",
+      "source": "src/oid4vp/binding.ts",
+      "shape": "2d01cf3da0cef8564c530a49f939fdd81916a110b76fac0c19276de905a0fc24"
+    },
+    {
       "id": "@t3foundry/tasra-sdk/oid4vp#waitForSession",
       "kind": "value",
       "source": "src/verifier-agent/index.ts",
@@ -2359,6 +4597,12 @@
       "kind": "value",
       "source": "src/verifier-agent/index.ts",
       "shape": "2d6a8dbca65fa7d5334daf9885a4262be7310b67fe0f5471420f31733fd1aa95"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/verifier-agent#checkSessionGrantParams",
+      "kind": "value",
+      "source": "src/verifier-agent/index.ts",
+      "shape": "3f84ab6d9576217d991570400479486faf716464700d6fa7900c057c66c90021"
     },
     {
       "id": "@t3foundry/tasra-sdk/verifier-agent#createOauthSession",
@@ -2412,7 +4656,13 @@
       "id": "@t3foundry/tasra-sdk/verifier-agent#pollOid4vpSession",
       "kind": "value",
       "source": "src/verifier-agent/index.ts",
-      "shape": "be0c827f188aa9ce91483189e6a7449254540e307648d6bdbb6037a40b37e6ff"
+      "shape": "fd09ff14af8a95251e433a0503fa1ce4ee018a6d2ab19376baff14529dda7a3d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/verifier-agent#PollSessionOpts",
+      "kind": "type",
+      "source": "src/verifier-agent/index.ts",
+      "shape": "5929d5c64dac8799b210158936b223c5265588b1d1aa3f55e8ffb3c2906826ed"
     },
     {
       "id": "@t3foundry/tasra-sdk/verifier-agent#PresentationDelegation",
@@ -2425,6 +4675,18 @@
       "kind": "type",
       "source": "src/verifier-agent/index.ts",
       "shape": "76668aed1053857f9ac9be576ba468648a5a278ec28e0bf35fe5508926984f60"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/verifier-agent#SessionGrantParamsReply",
+      "kind": "type",
+      "source": "src/verifier-agent/index.ts",
+      "shape": "451da465fde8f41c470fe4a3b70702ede48f28535005985bc54e560aebd69119"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk/verifier-agent#sessionGrantRequest",
+      "kind": "value",
+      "source": "src/verifier-agent/index.ts",
+      "shape": "058d925ce438d28b3f83589ac62b7142f10b9d59b0a3007a75f4694bb50cba6a"
     },
     {
       "id": "@t3foundry/tasra-sdk/verifier-agent#SessionPhase",
@@ -2547,6 +4809,36 @@
       "shape": "257f4497369d23418f69ae1cbbf19dd2b5874a71098427225e9373ab0d3d79c9"
     },
     {
+      "id": "@t3foundry/tasra-sdk#classifyRefusal",
+      "kind": "value",
+      "source": "src/retry.ts",
+      "shape": "b179406b0a2140a141767c034b4c0348945303cdd41de9bbc8f7ebcb3723aab7"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#classifyRefusedWrite",
+      "kind": "value",
+      "source": "src/retry.ts",
+      "shape": "b179406b0a2140a141767c034b4c0348945303cdd41de9bbc8f7ebcb3723aab7"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#classifyRetry",
+      "kind": "value",
+      "source": "src/retry.ts",
+      "shape": "b179406b0a2140a141767c034b4c0348945303cdd41de9bbc8f7ebcb3723aab7"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#ClientRecipient",
+      "kind": "type",
+      "source": "src/crypto/recipient.ts",
+      "shape": "cba08be2d382062ed612b0bbace730669eefc19f7af437e892ac463cea279e49"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#collectSealedPartials",
+      "kind": "value",
+      "source": "src/decryption/sealed.ts",
+      "shape": "b4536ddd6f6b3ccd0744354a9609a6d981f98b4a3057532c361cbe5a21df1bb2"
+    },
+    {
       "id": "@t3foundry/tasra-sdk#combineDecryptShares",
       "kind": "value",
       "source": "src/crypto/kem.ts",
@@ -2557,6 +4849,12 @@
       "kind": "value",
       "source": "src/committee/client.ts",
       "shape": "4dd495d77ce74e820f7864361c32e220adbe899e11d5be4d6aa5de2c608d85e2"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#createDecryptionRecipient",
+      "kind": "value",
+      "source": "src/crypto/recipient.ts",
+      "shape": "b9e89ff4fb45b7d315b6559cbab61ed707452234e54cea289c6b043556675870"
     },
     {
       "id": "@t3foundry/tasra-sdk#createDpopKey",
@@ -2592,7 +4890,7 @@
       "id": "@t3foundry/tasra-sdk#createRenewal",
       "kind": "value",
       "source": "src/auth/verifier.ts",
-      "shape": "d10260928b5fe1aace0c0b2b04c7a559440ed08a26d8d6b740baf12d61d37102"
+      "shape": "39062cd78c401a945ab9fbb6dd06a97038ab6e533bff898105d42b522c1d6af8"
     },
     {
       "id": "@t3foundry/tasra-sdk#CreateSessionParams",
@@ -2691,10 +4989,28 @@
       "shape": "fa0047efc3334374804b3f8211da2de7d6276d85c40fa7b64c2e24d2f61d340b"
     },
     {
+      "id": "@t3foundry/tasra-sdk#decryptionBinding",
+      "kind": "value",
+      "source": "src/crypto/recipient.ts",
+      "shape": "70b3ed1c335a5bac7011c2eb6e7e2cb2846fc1ebf7bf6bd2c579833db0e147d3"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#DecryptionBindingWire",
+      "kind": "type",
+      "source": "src/crypto/recipient.ts",
+      "shape": "3f4c3db771f1871aaa2c082bb3a080321444fbd200ed7df93cbd586a34b767ca"
+    },
+    {
       "id": "@t3foundry/tasra-sdk#DecryptShare",
       "kind": "type",
       "source": "src/crypto/kem.ts",
       "shape": "cb042ebf6b10d6b238d1bf051f84ada66c630611b864cc7ee973efcc078e94a2"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#decryptWithCommitteePartials",
+      "kind": "value",
+      "source": "src/decryption/sealed.ts",
+      "shape": "daf957dc28302cafb1212096a85ed76ea095eed48c90ff0ca16185fa9fcf0ea8"
     },
     {
       "id": "@t3foundry/tasra-sdk#decryptWithMasterKey",
@@ -2707,6 +5023,12 @@
       "kind": "value",
       "source": "src/decryption/client.ts",
       "shape": "238cd09605c14d3a015448a8ae18a5110fa8d1cb5062472489c1678d41e3ca74"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#DEFAULT_REGO_ENTRYPOINT",
+      "kind": "value",
+      "source": "src/auth/rego.ts",
+      "shape": "13ae76b89e08313c9d6193211b04b50594582d1d6e55d1ae46e91e7827effe48"
     },
     {
       "id": "@t3foundry/tasra-sdk#DpopKey",
@@ -2733,6 +5055,24 @@
       "shape": "32dea151dfd8adaeeb1261a1dde44ca629fb084f16784098d9d4df6c30b13a1c"
     },
     {
+      "id": "@t3foundry/tasra-sdk#EnvelopeGateReport",
+      "kind": "type",
+      "source": "src/auth/rego.ts",
+      "shape": "0a35cb644e82dceaf77ff2597f0fb50e35edad11254ad20ba64e51ee9b31d0a2"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#EnvelopeLint",
+      "kind": "type",
+      "source": "src/auth/rego.ts",
+      "shape": "273b5235bc99d26eeea09573cf66432322a4099bedb22f0b70e61ce87db703f0"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#EnvelopeVerdict",
+      "kind": "type",
+      "source": "src/auth/rego.ts",
+      "shape": "b020d2a350b873113d9c301b44253523adbfbcb6764b05accb4c25809ba924f5"
+    },
+    {
       "id": "@t3foundry/tasra-sdk#EoaSignature",
       "kind": "type",
       "source": "src/signing/ecdsa.ts",
@@ -2755,6 +5095,12 @@
       "kind": "value",
       "source": "src/auth/oid4vp.ts",
       "shape": "f7203f1ceef30d86cfe57b7568b8a4508817f501fac157bec61ededb6f9ecaa0"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#evaluateEnvelope",
+      "kind": "value",
+      "source": "src/auth/rego.ts",
+      "shape": "8ffda1926ab5d570be10f23cd6a4b3e3ef3549ffbb83ceebe44279843ba3c181"
     },
     {
       "id": "@t3foundry/tasra-sdk#evaluateIdentityScoped",
@@ -2784,7 +5130,7 @@
       "id": "@t3foundry/tasra-sdk#fetchHolderNonce",
       "kind": "value",
       "source": "src/auth/holderProof.ts",
-      "shape": "3074b5ad6b9e856c161f5e90883ece1e56c865944e027943fd12cc6a9ad00c4e"
+      "shape": "6ee84fe62f2f03bfc40aeee8d52210ff6ec4ad370ed1fc58d89310d1bddb97f6"
     },
     {
       "id": "@t3foundry/tasra-sdk#fetchMpk",
@@ -3027,6 +5373,12 @@
       "shape": "4bde705dfc8fcc4c3e68184dc5345233717e71938010a6ae675332f275722e5d"
     },
     {
+      "id": "@t3foundry/tasra-sdk#isOauthEnvelope",
+      "kind": "value",
+      "source": "src/auth/rego.ts",
+      "shape": "b773c96c21d0596c22aebdc15887ad61a637ed48170b6c29d054f8f2528fb3ad"
+    },
+    {
       "id": "@t3foundry/tasra-sdk#isOid4vpRule",
       "kind": "value",
       "source": "src/auth/oid4vp.ts",
@@ -3037,6 +5389,30 @@
       "kind": "value",
       "source": "src/errors.ts",
       "shape": "a257c18f6ce2d64cf52070006db5e2136f06f625e283dd907b08241555b0258c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#isRevocationStatusPreflightRefusal",
+      "kind": "value",
+      "source": "src/errors.ts",
+      "shape": "15ab5d21729a075bb89bd54418f7356be033e5871a53ea4a79f5c2ccaf6c4918"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#isRevocationStatusRefusal",
+      "kind": "value",
+      "source": "src/errors.ts",
+      "shape": "8d9291e85382cb5421efe43d1a311cef96892f89827adaa67bc2ea381bcf08a8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#isSlotBalanceRefusal",
+      "kind": "value",
+      "source": "src/errors.ts",
+      "shape": "89aa544f90a3a40603ec29667d69f9e6d10b972071ea45e3fbc786befeb67578"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#isStatusRefreshError",
+      "kind": "value",
+      "source": "src/errors.ts",
+      "shape": "96989cb9902bf06afb9c70e9ab8e463e220fac36fc87c214fde895950b63c66e"
     },
     {
       "id": "@t3foundry/tasra-sdk#issueAdminCredential",
@@ -3081,6 +5457,30 @@
       "shape": "f0e844127bbb56ef436981befb3af2db6a7027756dfb04c6763506565a946143"
     },
     {
+      "id": "@t3foundry/tasra-sdk#kemContentDigest",
+      "kind": "value",
+      "source": "src/crypto/recipient.ts",
+      "shape": "5563aa5becda79cf3ce4c270bc5dea84bf6d43a5693b965021496928f82feb8e"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#lintEnvelope",
+      "kind": "value",
+      "source": "src/auth/rego.ts",
+      "shape": "c010fd41ace895725f1643d4ce84b644f307a92f8d49da0927bf36f97d2c585a"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#loadRego",
+      "kind": "value",
+      "source": "src/auth/rego.ts",
+      "shape": "889f3f4ee0f9b1f1b9b9d81d0226a9722aeef19e6184be2e83f283e9911b1d09"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#LoadRegoOptions",
+      "kind": "type",
+      "source": "src/auth/rego.ts",
+      "shape": "d398b50120e62bcc33fdd4e0729003b034715a4ef5d7016455df4dfd0d734acc"
+    },
+    {
       "id": "@t3foundry/tasra-sdk#MAX_IDENTITY_LEN",
       "kind": "value",
       "source": "src/auth/identityScope.ts",
@@ -3099,10 +5499,52 @@
       "shape": "4ba6887df77fe48b300db2d1da06c7089c3c3d70cf114a2b8171a2cbbab8db2a"
     },
     {
+      "id": "@t3foundry/tasra-sdk#OAUTH_ENVELOPE_KEY",
+      "kind": "value",
+      "source": "src/auth/rego.ts",
+      "shape": "209d64272e307d6922baa09f4b8606f12989b5ecdb996c2dfb10718d1efa5419"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#OauthPolicyInput",
+      "kind": "type",
+      "source": "src/auth/rego.ts",
+      "shape": "1ce0dca540078ffacc884792034a946e1730d72fa8d02e3eeb7c8e13dcaac6ec"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#OauthPresentation",
+      "kind": "type",
+      "source": "src/auth/rego.ts",
+      "shape": "df601025900c509e93f241932702ebd2afba635cb2c6879c0cfb799c4669bd8b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#OauthTokens",
+      "kind": "type",
+      "source": "src/auth/rego.ts",
+      "shape": "43c1c690ed49d2715845d2ac79a8bf0f40acda5f0ec9c357dfd9762af2db8bab"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#OauthTokenSpec",
+      "kind": "type",
+      "source": "src/auth/rego.ts",
+      "shape": "7234e05387aaaa72246a9b07d34cc476b03805a1113df49aeb7582b063f65f34"
+    },
+    {
       "id": "@t3foundry/tasra-sdk#OpenSessionOpts",
       "kind": "type",
       "source": "src/client/client.ts",
       "shape": "427478032414526caa9afd838d493fb576cdeef566b40b281a936de77b53a6a2"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#packEnvelope",
+      "kind": "value",
+      "source": "src/auth/rego.ts",
+      "shape": "29dcd3a939b4f947472bb4d457115c7563e10987b201648a26c18efa4620eb73"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#parseRetryAfter",
+      "kind": "value",
+      "source": "src/internal/retryAfter.ts",
+      "shape": "4c31e9143645365cb01019c74d8ad3060501223bc81ef62e5367f217761c5c86"
     },
     {
       "id": "@t3foundry/tasra-sdk#parseTasraPost",
@@ -3120,7 +5562,13 @@
       "id": "@t3foundry/tasra-sdk#pollOid4vpSession",
       "kind": "value",
       "source": "src/verifier-agent/index.ts",
-      "shape": "be0c827f188aa9ce91483189e6a7449254540e307648d6bdbb6037a40b37e6ff"
+      "shape": "fd09ff14af8a95251e433a0503fa1ce4ee018a6d2ab19376baff14529dda7a3d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#PollSessionOpts",
+      "kind": "type",
+      "source": "src/verifier-agent/index.ts",
+      "shape": "5929d5c64dac8799b210158936b223c5265588b1d1aa3f55e8ffb3c2906826ed"
     },
     {
       "id": "@t3foundry/tasra-sdk#PresentationDelegation",
@@ -3135,10 +5583,28 @@
       "shape": "76668aed1053857f9ac9be576ba468648a5a278ec28e0bf35fe5508926984f60"
     },
     {
+      "id": "@t3foundry/tasra-sdk#RECIPIENT_SUITE",
+      "kind": "value",
+      "source": "src/crypto/recipient.ts",
+      "shape": "9c4f8dbbd8d91f5eda7f4fed8616bbc4d1411435fe4b2028c74411578eddeb9b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#recipientPayloadDigest",
+      "kind": "value",
+      "source": "src/crypto/recipient.ts",
+      "shape": "8e8fea36598ec7de881042b993b92683931145d8e4651e1c93bb49cc9b8dd78e"
+    },
+    {
       "id": "@t3foundry/tasra-sdk#RecipientStore",
       "kind": "value",
       "source": "src/recipient/store.ts",
       "shape": "1a910cfcc5743f19fd0ee4a6a44931903f8b8dee8c3d4cc52a39a322283c65b8"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#RecipientWire",
+      "kind": "type",
+      "source": "src/crypto/recipient.ts",
+      "shape": "525ea75282458f81ed084b81f85aa2fa9a2636ebe91c517066780dced25fa517"
     },
     {
       "id": "@t3foundry/tasra-sdk#redeemCredential",
@@ -3159,6 +5625,30 @@
       "shape": "04bb8c6b70e87b3d255739113f3b00ad6645de73dc6e311174e0adaa6efb8b79"
     },
     {
+      "id": "@t3foundry/tasra-sdk#REGO_POLICY_REFUSED",
+      "kind": "value",
+      "source": "src/auth/rego.ts",
+      "shape": "3791b84b56699a30d0003afcb1765fe83fdf26d1c2881cefc7fb49c1e1df9970"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#REGO_WASM_SHA256",
+      "kind": "value",
+      "source": "src/auth/rego.ts",
+      "shape": "7bdf6b43aab76a4f71252b9b3894435b9ac70909afa7f69192e129f4c432a962"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#RegoEngine",
+      "kind": "type",
+      "source": "src/auth/rego.ts",
+      "shape": "ebafb71e8e03caf8867247df8c8ac107ce5fa7683293b3caf59151ca59d37195"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#RegoEnvelopeError",
+      "kind": "value",
+      "source": "src/auth/rego.ts",
+      "shape": "c51587552be57c42db64bc1c12a4c58e2c72efdeea931d265d64ba9f5cbc943b"
+    },
+    {
       "id": "@t3foundry/tasra-sdk#RenewalGrant",
       "kind": "type",
       "source": "src/auth/verifier.ts",
@@ -3169,6 +5659,60 @@
       "kind": "value",
       "source": "src/committee/client.ts",
       "shape": "a93892024591b3edec0e66a23f96d2382f7d3b6d4076af82cf084c1214a99152"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#RETRY_AFTER_ONLY_STATUSES",
+      "kind": "value",
+      "source": "src/retry.ts",
+      "shape": "98686dfad96e7f12672a58e3aa76d45c228d4268363dfee03288957644e34f58"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#RETRY_STATUSES",
+      "kind": "value",
+      "source": "src/retry.ts",
+      "shape": "98686dfad96e7f12672a58e3aa76d45c228d4268363dfee03288957644e34f58"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#RetryDecision",
+      "kind": "type",
+      "source": "src/retry.ts",
+      "shape": "1e42e16e96a6462d33a48692ec84fe6b82861ed4e1ae1d479044e55a357e4ae7"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#retryDelayMs",
+      "kind": "value",
+      "source": "src/retry.ts",
+      "shape": "22dff6010a2abe245b8f4ba185971a18ec90c148676599a1b79f788b9195b6ce"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#retryIdempotent",
+      "kind": "value",
+      "source": "src/retry.ts",
+      "shape": "38d2b32df9e88e4503f7d2502c34d936ea59e5f7ae9bf026836c7b497bc265fc"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#RetryPolicy",
+      "kind": "type",
+      "source": "src/retry.ts",
+      "shape": "ac055c03ad34f99a518282b55249c89377a762ad9d79de7ef60c84982a472998"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#RevocationStatusError",
+      "kind": "value",
+      "source": "src/errors.ts",
+      "shape": "4c804613ec3a70b307b9032f7e032eabd845ecf28924b5f32fd0b093e18d5e9d"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#RevocationStatusPreflightCode",
+      "kind": "type",
+      "source": "src/errors.ts",
+      "shape": "0eae41589457d1f0979d5a582d2029130cb2021e3a632c6b66baba9e1a7eb70c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#RevocationStatusPreflightError",
+      "kind": "value",
+      "source": "src/errors.ts",
+      "shape": "0e99dfbb205c313e22c45c8bee3e187d134cf5972bec2f2ff608ba6cc777784e"
     },
     {
       "id": "@t3foundry/tasra-sdk#revokeRenewal",
@@ -3199,6 +5743,24 @@
       "kind": "type",
       "source": "src/crypto/ibe-blob.ts",
       "shape": "bed2f4573fe462a38846db78012825bae03ba72ef559bd70e5ad3cf019c2a583"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#SealedPartial",
+      "kind": "type",
+      "source": "src/decryption/sealed.ts",
+      "shape": "d39d416b21787d80ff97de214fa7b15003b4211f14abe41a6e2bbe320a6b863c"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#SealedRequestOpts",
+      "kind": "type",
+      "source": "src/decryption/sealed.ts",
+      "shape": "850a1a11ceac235f0ea8bac9e2ab55eab935851807ae8152389aa794fbb90c29"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#SealedShareWire",
+      "kind": "type",
+      "source": "src/crypto/recipient.ts",
+      "shape": "d11e2b37745464eb8166781b24f6934ad48b57cbef8ce6808e070b276d151a70"
     },
     {
       "id": "@t3foundry/tasra-sdk#selectDcql",
@@ -3273,10 +5835,34 @@
       "shape": "1a8b17369c96de1e02ff12b082e0655c5800f0f72fe79277a5a21e6e63be53f6"
     },
     {
+      "id": "@t3foundry/tasra-sdk#SlotBalanceError",
+      "kind": "value",
+      "source": "src/errors.ts",
+      "shape": "b5d8f2e8e1837ece8ce78c13f8973f853cb26fb05ad718348e9c9801bd2be3d6"
+    },
+    {
       "id": "@t3foundry/tasra-sdk#SlotRotatedError",
       "kind": "value",
       "source": "src/errors.ts",
       "shape": "ed6a226184d01396105abf2b76bf0ed97ee24bb5303ac969338b3bcfc2d24c83"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#StatusRefreshCode",
+      "kind": "type",
+      "source": "src/errors.ts",
+      "shape": "755d3d59bb893fe38874188fbbc3db6340c491ed909e002e01599ce8ff89d693"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#StatusRefreshError",
+      "kind": "value",
+      "source": "src/errors.ts",
+      "shape": "867fe0abc712fd39038af64d4374158c9f0d01cd51935e893aa45f8f5d308b2b"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#StatusRefreshFailure",
+      "kind": "type",
+      "source": "src/errors.ts",
+      "shape": "b8ca4aa294a52ee88b23a26790eddcbe6dbe37616ca467074485ead3c67e1741"
     },
     {
       "id": "@t3foundry/tasra-sdk#submitOauthResponse",
@@ -3319,6 +5905,18 @@
       "kind": "value",
       "source": "src/crypto/envelope.ts",
       "shape": "96fdf1b2459c6aa52142879ccb172c2daa1244a8ffc9bd3dacf7563e8cf93074"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#UnpackedEnvelope",
+      "kind": "type",
+      "source": "src/auth/rego.ts",
+      "shape": "ee250443ed5524999f898ddd7d1b85c767ed6225ce8b6acc60d8b6f7adb1483f"
+    },
+    {
+      "id": "@t3foundry/tasra-sdk#unpackEnvelope",
+      "kind": "value",
+      "source": "src/auth/rego.ts",
+      "shape": "97de27a8d1afda1a90280634a66d8e8e62d8162f39d75fb3d418d20409364242"
     },
     {
       "id": "@t3foundry/tasra-sdk#userSignaturePayload",
@@ -3366,7 +5964,7 @@
       "id": "@t3foundry/tasra-sdk#verifyPresentation",
       "kind": "value",
       "source": "src/auth/verifier.ts",
-      "shape": "f46cc17172f0385e6d01a15f1c30aa8ebc61be7d4291888f81bfc5e062405427"
+      "shape": "579ff3c9c3c9173f2c2b92d5d426ca8cdd55e9b65dbdc02e20ea3f52b9985b06"
     },
     {
       "id": "@t3foundry/tasra-sdk#verifyVpJwt",

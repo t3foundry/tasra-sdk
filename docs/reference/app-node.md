@@ -104,8 +104,8 @@ Fields:
 - **` load `**: Load a saved value, or return undefined when the key does not exist.
 - **` save `**: Atomically persist private state before resolving.
 - **` withLock `**: Exclusively serialize work for the key across all participating processes or tabs.
-- **` list `**: Optional: keys starting with `prefix`, in any order. Used only for one-time maintenance such as backfilling the paid operation index; stores without it still work everywhere else.
-- **` claim `**: Optional: atomically and durably create the record `key` only if it does not exist, across all participating processes or tabs. Resolves true for exactly one caller, false when the key already exists. Paid approvals use it as a one-use, generation-bound send claim; without it a retained approval is sent once and never resent.
+- **` list `**: Optional: keys starting with `prefix`, in any order, for an application's own maintenance of its records. The SDK's flows never need it.
+- **` claim `**: Optional: atomically and durably create the record `key` only if it does not exist, across all participating processes or tabs. Resolves true for exactly one caller, false when the key already exists. For an application's own one-use claims (e.g. "this record is sent once"); the SDK's flows never need it.
 
 ### FileStoreOptions
 

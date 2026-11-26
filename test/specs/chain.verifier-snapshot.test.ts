@@ -2,13 +2,13 @@ import {describe, expect, it, vi} from 'vitest'
 import {ed25519} from '@noble/curves/ed25519'
 import {hexToBytes, toHex, type Address, type Hex} from 'viem'
 import {merkleRoot, verifierLeaf} from '../../src/committee/token.js'
-import {fetchDrawnVerifierWitnesses, type OriginalVerifierPolicy} from '../../src/chain/verifierSnapshot.js'
+import {fetchDrawnVerifierWitnesses, type AnchoredVerifierDraw} from '../../src/chain/verifierSnapshot.js'
 
 const hash = (byte: number, length = 32) => `0x${byte.toString(16).padStart(2, '0').repeat(length)}` as Hex
 function fixture() {
   const entries = [1, 2, 3].map((n, index) => ({index, operator: hash(n, 20), pubkey: toHex(ed25519.getPublicKey(new Uint8Array(32).fill(n)))}))
   const root = toHex(merkleRoot(entries.map(m => verifierLeaf(m.index, hexToBytes(m.operator), hexToBytes(m.pubkey))))!)
-  const payment: OriginalVerifierPolicy = {chain_id: 43112, slot: hash(4), verification_epoch: 7, verification_seed: hash(5),
+  const payment: AnchoredVerifierDraw = {chain_id: 43112, slot: hash(4), verification_epoch: 7, verification_seed: hash(5),
     verification_root: root, verification_registry_size: 3, verification_committee: 2, verification_quorum: 2}
   const registry = hash(6, 20) as Address
   return {payment, registry, artifact: {version: 1, chain_id: 43112, registry, epoch: 7, root, size: 3, block_number: 15, block_hash: hash(15), entries}}

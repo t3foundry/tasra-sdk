@@ -2,13 +2,12 @@
 import {didWebUrl} from '../oid4vp/did-web.js'
 import type {RegisteredAgentSession} from './registeredAgent.js'
 import type {AgentHttpResponse, AgentTransport} from './registeredAgent.js'
-import type {PaidAgentHttpResponse, PaidAgentTransport} from './paidAgentTransport.js'
-import type {KeeperRecoveryHttpResponse, KeeperRecoveryTransport} from './keeperRecovery.js'
+import type {SessionAgentTransport, SessionControlHttpResponse} from './sessionControlTransport.js'
 import type {RelayHttpResponse, RelayTransport} from './registeredRelay.js'
 import {parseRetryAfter} from '../internal/retryAfter.js'
 import {lookup} from 'node:dns'
 import {request} from 'node:https'
-import {request as plainRequest, type IncomingMessage} from 'node:http'
+import type {IncomingMessage} from 'node:http'
 import {createSecureContext, rootCertificates, type SecureContext} from 'node:tls'
 import {BoundedCache} from '../internal/bounded.js'
 import {BlockList, isIP, type LookupFunction} from 'node:net'
@@ -34,11 +33,6 @@ function trustContext(ca: string | Buffer | (string | Buffer)[]): SecureContext 
   const extra = Array.isArray(ca) ? ca : [ca]
   const key = JSON.stringify(extra.map(c => typeof c === 'string' ? ['s', c] : ['b', c.toString('base64')]))
   return secureContexts.getOrCompute(key, () => createSecureContext({ca: [...rootCertificates, ...extra]}))
-}
-
-/** A loopback name or a non-public IP literal (plain local-development HTTP only). */
-function localName(host: string): boolean {
-  return host === 'localhost' || host.endsWith('.localhost') || (isIP(host) !== 0 && !isPublicServiceAddress(host))
 }
 
 /**
@@ -89,48 +83,18 @@ export function createNodeRelayTransport(policy: ServiceTransportPolicy = {}): R
 }
 
 /**
- * Session secrets use this same guarded connection and can only travel to a session GET.
+ * Everything a client sends to an approved verifier-agent, on one guarded connection policy:
+ * discovery, session creation and polling (a session secret can only travel to a session GET) and
+ * session-grant refresh and revoke (no bearer; the session-key signature authorizes them).
  * @param policy Explicit private-host exceptions and additional trusted certificate roots.
  */
-export function createNodeAgentTransport(policy: ServiceTransportPolicy = {}): AgentTransport {
+export function createNodeAgentTransport(policy: ServiceTransportPolicy = {}): SessionAgentTransport {
   const discovery = guardedTransport(policy, 'discovery')
   const agent = guardedTransport(policy, 'agent')
+  const control = guardedTransport(policy, 'session-control')
   return {...discovery, agentRequest: agent.request,
-    agentExchange: (url, options) => agent.request(url, {...options, full: true}) as unknown as Promise<AgentHttpResponse>}
-}
-
-/**
- * Guarded paid-session creation and owner control, preserving HTTP consent/recovery statuses.
- * @param policy Client-approved private hosts and additional CA roots; TLS verification stays enabled.
- */
-export function createNodePaidAgentTransport(policy: ServiceTransportPolicy = {}): PaidAgentTransport {
-  const discovery = guardedTransport(policy, 'discovery')
-  const paid = guardedTransport(policy, 'paid-agent')
-  return {...discovery, paidAgentRequest: (url, options) => {
-    if (options.body && options.body.length > 2 * 1024 * 1024) throw new Error('Invalid service HTTP bounds')
-    return paid.request(url, {...options, body: options.body?.slice()})
-  }}
-}
-
-/** Options for {@link createNodeKeeperRecoveryTransport}. */
-export interface NodeKeeperRecoveryTransportPolicy extends ServiceTransportPolicy {
-  /**
-   * Local development fleet: also permit plain HTTP to loopback names, private IP literals and
-   * `allowedPrivateHosts` (and only those), resolving only to non-public addresses, with the same
-   * route checks as HTTPS. Default false: HTTPS only. The recovery reads separately permit HTTP
-   * only on the local development chain (43112) with the paid operation's `allowLocalHttp`.
-   */
-  allowLocalHttp?: boolean
-}
-
-/**
- * Guarded completed-result reads using the same socket-bound destination and verified TLS policy.
- * Only the two POST evidence/recovery paths are permitted; this transport cannot submit key work.
- * @param policy Exact client-approved private hosts, additional CA roots and local development HTTP.
- */
-export function createNodeKeeperRecoveryTransport(policy: NodeKeeperRecoveryTransportPolicy = {}): KeeperRecoveryTransport {
-  const recovery = guardedTransport(policy, 'keeper-recovery', policy.allowLocalHttp === true)
-  return {keeperRecoveryRequest: (url, options) => recovery.request(url, {...options, method: 'POST', body: options.body.slice()})}
+    agentExchange: (url, options) => agent.request(url, {...options, full: true}) as unknown as Promise<AgentHttpResponse>,
+    sessionControlRequest: (url, options) => control.request(url, {...options, body: options.body.slice()})}
 }
 
 /**
@@ -156,32 +120,27 @@ export function createNodeAgentWalletFetch(session: Pick<RegisteredAgentSession,
   }
 }
 
-type TransportOptions = {body?: Uint8Array; maxBytes: number; signal: AbortSignal; bearer?: string; method?: 'GET' | 'POST'; oauth?: {accessToken: string; proof: string}
-  /** Internal: return status and Retry-After with the bytes (relay busy handling). */
+type TransportOptions = {body?: Uint8Array; maxBytes: number; signal: AbortSignal; bearer?: string
+  /** Internal: return status and Retry-After with the bytes (relay busy handling, agent creation). */
   full?: boolean}
-function guardedTransport(policy: ServiceTransportPolicy, mode: 'paid-agent' | 'wallet'): {request(url: string, options: TransportOptions): Promise<PaidAgentHttpResponse>}
-function guardedTransport(policy: ServiceTransportPolicy, mode: 'keeper-recovery', localHttp: boolean): {request(url: string, options: TransportOptions): Promise<KeeperRecoveryHttpResponse>}
+function guardedTransport(policy: ServiceTransportPolicy, mode: 'session-control' | 'wallet'): {request(url: string, options: TransportOptions): Promise<SessionControlHttpResponse>}
 function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'relay' | 'agent' | 'status'): {request(url: string, options: TransportOptions): Promise<Uint8Array>}
-function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'relay' | 'agent' | 'wallet' | 'status' | 'paid-agent' | 'keeper-recovery', localHttp = false) {
+function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'relay' | 'agent' | 'wallet' | 'status' | 'session-control') {
   const relay = mode === 'relay', agent = mode === 'agent', wallet = mode === 'wallet'
-  const paid = mode === 'paid-agent'
-  const recovery = mode === 'keeper-recovery'
+  const control = mode === 'session-control'
 
   const allowed = new Set(policy.allowedPrivateHosts ?? [])
   // Snapshot mutable caller configuration before the first asynchronous request.
   const ca = Array.isArray(policy.ca) ? policy.ca.map(c => typeof c === 'string' ? c : Buffer.from(c))
     : typeof policy.ca === 'string' || policy.ca === undefined ? policy.ca : Buffer.from(policy.ca)
   return {
-    request(url: string, {body, maxBytes, signal, bearer, method, oauth, full}: TransportOptions) {
+    request(url: string, {body, maxBytes, signal, bearer, full}: TransportOptions) {
       signal.throwIfAborted()
       const parsed = new URL(url)
       const host = parsed.hostname.replace(/^\[|\]$/g, '')
-      // Local development HTTP: only to a loopback name, a private IP literal or an approved private
-      // host, checked with the same route policy as its HTTPS form; every answer must be non-public.
-      const plain = localHttp && parsed.protocol === 'http:' && (localName(host) || allowed.has(host))
-      const shape = serviceRequestShape(mode, plain ? 'https:' + url.slice('http:'.length) : url, {body, maxBytes, bearer, method, oauth})
-      if (parsed.protocol !== 'https:' && !plain) throw new Error('Service destination policy requires HTTPS')
-      const permits = (address: string) => plain ? !isPublicServiceAddress(address) : allowed.has(host) || isPublicServiceAddress(address)
+      const shape = serviceRequestShape(mode, url, {body, maxBytes, bearer})
+      if (parsed.protocol !== 'https:') throw new Error('Service destination policy requires HTTPS')
+      const permits = (address: string) => allowed.has(host) || isPublicServiceAddress(address)
       if (isIP(host) && !permits(host)) throw new Error('Service destination policy refuses address')
       const checkedLookup: LookupFunction = (hostname, options, callback) => {
         lookup(hostname, {all: true, verbatim: true}, (error, addresses) => {
@@ -194,17 +153,17 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
           else callback(null, addresses[0]!.address, addresses[0]!.family)
         })
       }
-      return new Promise<Uint8Array | PaidAgentHttpResponse>((resolve, reject) => {
+      return new Promise<Uint8Array | SessionControlHttpResponse>((resolve, reject) => {
         const common = {method: shape.method, agent: false as const, lookup: checkedLookup, signal, maxHeaderSize: 8_192,
           headers: {...shape.headers, 'accept-encoding': 'identity', ...(body ? {'content-length': body.length} : {})}}
         // Inside the executor: a malformed CA still rejects this request, as when tls.connect parsed it.
-        const trust = plain || ca === undefined ? undefined : trustContext(ca)
-        const req = plain ? plainRequest(parsed, common, res => respond(res)) : request(parsed, {...common,
+        const trust = ca === undefined ? undefined : trustContext(ca)
+        const req = request(parsed, {...common,
           ...(trust === undefined ? {} : {secureContext: trust}), rejectUnauthorized: true,
         }, res => respond(res))
         function respond(res: IncomingMessage) {
           const fail = (error: Error) => { reject(error); req.destroy(error) }
-          const noContent = paid && res.statusCode === 204
+          const noContent = control && res.statusCode === 204
           const receivedType = res.headers['content-type']?.split(';')[0]?.trim().toLowerCase() ?? ''
           if (!acceptsServiceResponse(mode, shape, Boolean(body), res.statusCode ?? 0, receivedType, agent && Boolean(full)) || res.headers['content-encoding'] && res.headers['content-encoding'] !== 'identity') {
             // The status and type name the refusal without any body bytes (certification run 39).
@@ -223,19 +182,14 @@ function guardedTransport(policy: ServiceTransportPolicy, mode: 'discovery' | 'r
           })
           res.on('error', reject)
           res.on('end', () => {
-            if (noContent && size !== 0) {fail(new Error('Unexpected paid agent response body')); return}
+            if (noContent && size !== 0) {fail(new Error('Unexpected session control response body')); return}
             const bytes = Buffer.concat(chunks,size)
             const header = res.headers['retry-after'], retryAfterMs = parseRetryAfter(Array.isArray(header) ? undefined : header)
-            // Paid replies also carry the raw wait headers, parsed strictly by the paid pacer. A
-            // repeated non-standard header arrives comma-joined (or as an array) and is ignored there.
-            const governor = res.headers['x-ratelimit-after']
-            const raw = paid ? {...(typeof header === 'string' ? {retryAfter: header} : {}),
-              ...(governor !== undefined ? {rateLimitAfter: Array.isArray(governor) ? governor.join(', ') : governor} : {})} : {}
-            resolve(paid || recovery || wallet || ((relay || agent) && full) ? {status: res.statusCode!, body: bytes, ...(retryAfterMs !== undefined ? {retryAfterMs} : {}), ...raw} : bytes)
+            resolve(control || wallet || ((relay || agent) && full) ? {status: res.statusCode!, body: bytes, ...(retryAfterMs !== undefined ? {retryAfterMs} : {})} : bytes)
           })
         }
         // Absolute request deadline also bounds DNS/TLS and slow trickle responses.
-        const timer = setTimeout(() => req.destroy(new Error('Service HTTP timed out')), paid || recovery || agent || wallet ? 30_000 : 5_000)
+        const timer = setTimeout(() => req.destroy(new Error('Service HTTP timed out')), control || agent || wallet ? 30_000 : 5_000)
         req.on('close', () => clearTimeout(timer))
         req.on('error', reject)
         req.end(body)

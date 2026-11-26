@@ -383,7 +383,7 @@ export async function mintSignedEngineeringJwt(
 
 type LocalJwtOptions = {sub?: string; scope?: string | string[]; ttlSecs?: number; signingKey?: string; iss?: string; aud?: string}
 
-/** Mint a test read/audit JWT. Key operations require their original paid grant. */
+/** Mint a test read/audit JWT. Key operations require a wallet grant. */
 export function mintLocalJwt(cfg: FleetConfig, opts: LocalJwtOptions = {}): string {
   return mintTestJwt(cfg, opts, false)
 }

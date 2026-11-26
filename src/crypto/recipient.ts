@@ -12,7 +12,7 @@ import {requestHash, type CommitteeAction} from '../oid4vp/binding.js'
 export const RECIPIENT_SUITE = 'hpke-x25519-sha256-chacha20poly1305'
 const utf8 = (s: string) => new TextEncoder().encode(s)
 const suite = new CipherSuite({kem: new DhkemX25519HkdfSha256(), kdf: new HkdfSha256(), aead: new Chacha20Poly1305()})
-/** Public recipient metadata bound before holder and client execution authorization. */
+/** Public recipient metadata bound before holder authorization. */
 export interface RecipientWire {
   /** Exact supported RFC 9180 suite name. */
   suite: string
