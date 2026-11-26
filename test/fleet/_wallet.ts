@@ -8,6 +8,7 @@ import {createTasraWriteClient, generateClientKey} from '../../src/chain/write.t
 import {createRegisteredAgentClient} from '../../src/chain/registeredAgent.ts'
 import {assertRegisteredWalletRequest, awaitRegisteredVerifierAgentResult, openRegisteredVerifierAgentSession, type RegisteredVerifierAgentSession} from '../../src/chain/registeredOperation.ts'
 import {createNodeAgentTransport, createNodeAgentWalletFetch} from '../../src/chain/node.ts'
+import {VerifierAgentSessionError} from '../../src/verifier-agent/index.ts'
 import {
   buildResponse, defaultKeyResolver, ed25519HolderKey, fetchRequestObject, issueSdJwtVc, parseSdJwt, planPresentation,
   sdJwtCredentialView, submitResponse, type HolderKey, type OperationInput, type VerifiedRequestObject,
@@ -15,7 +16,7 @@ import {
 import {discoverCommittee, mintAdminJwt, provisionRule, type FleetConfig} from './_fleet.ts'
 import {assertLocalMeteredFleet, fundWalletSlot, localFleetSettings, walletKeepers, walletSettings} from './_wallet-settings.ts'
 import {fixtureOperationTtlSeconds} from './_certification-timing.ts'
-import {waitForSlotKeyOnChain} from './_anchored-key.ts'
+import {waitForCommitteeShares, waitForSlotKeyOnChain} from './_anchored-key.ts'
 import {issuerStatus} from './_issuer-status.ts'
 
 export const WALLET_RULE = JSON.stringify({credentials:[{claims:[{path:['iss'],values:['did:web:hr.acmecorp.example']},{path:['dept'],values:['Engineering']}],format:'dc+sd-jwt',id:'employee',meta:{vct_values:['EmployeeOf']}}]})
@@ -83,7 +84,18 @@ export async function authorizeWallet(cfg: FleetConfig, slot: Hex, signerKey: He
   // other creation failure is final and surfaces here.
   const session = await openRegisteredVerifierAgentSession(client, {...input, ttlSecs, chainId: 43112, keyRegistry: cfg.book.KeyRegistry,
     slotId: slot, description: 'Local test operation', signer, signal})
-  await presentWallet(cfg, session, wallet, {forcePresentation, observeRequest, signal})
+  try {
+    await presentWallet(cfg, session, wallet, {forcePresentation, observeRequest, signal})
+  } catch (error) {
+    // The agent judges what it can before any verifier work (an expired credential) in the
+    // direct_post reply itself - a 4xx the wallet transport refuses to read - and ends the session
+    // `failed`. That session's own outcome is the verdict; a refusal that left it pending (a
+    // malformed or undecryptable response) keeps the submit error.
+    const outcome = await awaitRegisteredVerifierAgentResult(session, {intervalMs: 500, timeoutMs: 10_000, signal})
+      .then(() => undefined, (failure: unknown) => failure)
+    if (outcome instanceof VerifierAgentSessionError && outcome.kind === 'refused') throw outcome
+    throw error
+  }
   const result = await awaitRegisteredVerifierAgentResult(session, {intervalMs: 1000, timeoutMs: 120_000, signal})
   assert.equal(result.token.binding, 'holder_key')
   assert(result.verifierProofs?.length, 'Authorization did not include verifier membership proofs')
@@ -116,6 +128,9 @@ export async function createWalletSlot(cfg: FleetConfig, mode: 'frost'|'bls' = '
       if (pub.group_public_key) {
         // A keeper answers once ITS DKG finished; operations need the key anchored on chain.
         await waitForSlotKeyOnChain(writer.pub, cfg.book.KeyRegistry!, slotId, pub.group_public_key, deadline)
+        // Anchored = enough members finished; every member may coordinate, so each must hold its share.
+        const route = mode === 'bls' ? 'bls-share-report' : 'share-report'
+        await waitForCommitteeShares(async keeper => (await fetch(`${keeper}/v1/keys/${slotId}/${route}`)).status, committee, {deadlineMs: deadline})
         const provisioned = await provisionRule(committee,slotId,rule,ruleSalt,mintAdminJwt(cfg))
         assert(provisioned.ok,provisioned.errors.join('; '))
         return {slotId,ruleSalt,committee,publicKey:pub.group_public_key,creatorKey,writer}

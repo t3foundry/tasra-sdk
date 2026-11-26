@@ -81,3 +81,29 @@ export async function waitForCommitteeKey(sources: CommitteeKeySources, wait: An
     await sleep(pollMs)
   }
 }
+
+/**
+ * Wait (bounded) until EVERY committee member reports its OWN share of the slot: its
+ * `share-report` (FROST) or `bls-share-report` (BLS) answers 200. An anchored key proves only that
+ * enough members finished: the publish vote lands while a slower member (2026-11-26 candidate
+ * 45809626054: the clustered keeper, busy with other ceremonies) is still storing its package,
+ * and an operation sent to it answers 404 "this node holds no FROST key share". Any member may be
+ * an operation's coordinator, so all of them must hold a share. A 404 or 503 is "not yet"; any
+ * other status, or a deadline with one still missing, refuses.
+ */
+export async function waitForCommitteeShares(report: (keeper: string) => Promise<number>, committee: readonly string[], wait: AnchoredKeyWait): Promise<void> {
+  const now = wait.now ?? Date.now, sleep = wait.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)))
+  const pollMs = wait.pollMs ?? 500
+  if (committee.length === 0) throw new Error('no committee to wait for')
+  const pending = new Set(committee)
+  for (;;) {
+    for (const keeper of [...pending]) {
+      const status = await report(keeper)
+      if (status === 200) pending.delete(keeper)
+      else if (status !== 404 && status !== 503) throw new Error(`share report of ${keeper} answered HTTP ${status}`)
+    }
+    if (pending.size === 0) return
+    if (now() + pollMs > wait.deadlineMs) throw new Error(`no share reported before the deadline by ${[...pending].join(', ')}`)
+    await sleep(pollMs)
+  }
+}

@@ -3,7 +3,7 @@ import type {Hex} from 'viem'
 import {readdirSync, readFileSync} from 'node:fs'
 import {join} from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {waitForAnchoredKey, waitForCommitteeKey, type AnchoredSlotView} from '../fleet/_anchored-key.ts'
+import {waitForAnchoredKey, waitForCommitteeKey, waitForCommitteeShares, type AnchoredSlotView} from '../fleet/_anchored-key.ts'
 
 const KEY = 'ab'.repeat(96)
 
@@ -99,4 +99,29 @@ it('no fleet script operates a slot on a keeper-served key alone', () => {
   }
   expect(scanned).toBeGreaterThan(0)
   expect(offenders).toEqual([])
+})
+
+// 2026-11-26 candidate 45809626054 (Hovi-profile wallet row): the key was anchored by two members
+// while the clustered keeper was still storing its package; the sign it was asked to coordinate
+// answered 404 "this node holds no FROST key share".
+it('waits until every committee member reports its own share', async () => {
+  let clock = 0
+  const asked: string[] = []
+  const ready: Record<string, number> = {a: 1, b: 1, c: 4}
+  const reads: Record<string, number> = {a: 0, b: 0, c: 0}
+  const report = async (keeper: string) => { asked.push(keeper); reads[keeper]!++; return reads[keeper]! >= ready[keeper]! ? 200 : 404 }
+  await waitForCommitteeShares(report, ['a', 'b', 'c'], {deadlineMs: 10_000, pollMs: 500, now: () => clock, sleep: async ms => { clock += ms }})
+  expect(reads).toEqual({a: 1, b: 1, c: 4})
+  expect(asked.filter(k => k !== 'c')).toEqual(['a', 'b'])
+})
+
+it('treats 503 as not yet, refuses another status and a deadline with a member missing', async () => {
+  let clock = 0
+  const wait = (deadlineMs: number) => ({deadlineMs, pollMs: 500, now: () => clock, sleep: async (ms: number) => { clock += ms }})
+  let busy = 0
+  await expect(waitForCommitteeShares(async () => (busy++ < 2 ? 503 : 200), ['a'], wait(10_000))).resolves.toBeUndefined()
+  await expect(waitForCommitteeShares(async () => 500, ['a'], wait(10_000))).rejects.toThrow('answered HTTP 500')
+  clock = 0
+  await expect(waitForCommitteeShares(async k => (k === 'b' ? 404 : 200), ['a', 'b'], wait(1_200))).rejects.toThrow('by b')
+  await expect(waitForCommitteeShares(async () => 200, [], wait(1_000))).rejects.toThrow('no committee')
 })
