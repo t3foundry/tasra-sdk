@@ -59,9 +59,10 @@ export async function assertLocalMeteredFleet(cfg: LocalFleet, writer: TasraWrit
   assert(cfg.book.Settlement && cfg.book.TasraToken && cfg.book.KeyRegistry, 'Wallet fleet needs Settlement, TASRA and KeyRegistry')
   const token = await writer.pub.readContract({address: cfg.book.Settlement, abi: settlementViews, functionName: 'token'})
   assert.equal(token.toLowerCase(), cfg.book.TasraToken.toLowerCase(), 'Settlement must hold the configured TASRA token')
-  // Settlement version 6 is the metered-only contract; an older one still carries prepaid state.
-  assert.equal(await writer.pub.readContract({address: cfg.book.Settlement, abi: settlementViews, functionName: 'version'}), '6',
-    'Fresh fleet acceptance requires the metered-only Settlement (version 6)')
+  // Settlement version 7 is the metered-only contract that signs each settle's operation count and
+  // statements root; 6 settles without them and anything older still carries prepaid state.
+  assert.equal(await writer.pub.readContract({address: cfg.book.Settlement, abi: settlementViews, functionName: 'version'}), '7',
+    'Fresh fleet acceptance requires the metered-only Settlement with signed operations (version 7)')
   return settings
 }
 

@@ -38,7 +38,7 @@ suite/report helpers, `_crypto.ts` and `_wallet.ts` the shared credential machin
 ### Fresh metered certification slots
 
 The network bills metered only. The wallet slot fixture requires a loopback RPC actually
-answering chain **43112** and the metered-only Settlement (`version()` = "6"). Configure
+answering chain **43112** and the metered-only Settlement (`version()` = "7"). Configure
 `KK_WALLET_EVIDENCE_DIR` as a private directory owned by the current user. The fixture
 journals each slot's deposit (`funding-43112-<slot>`) before approving or depositing
 TASRA. An existing or uncertain funding record refuses a second attempt and must be inspected.
