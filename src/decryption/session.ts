@@ -138,6 +138,15 @@ export function isStaleSessionRefusal(r: Pick<SessionItemRefusal, 'status' | 'co
 const PRE_EXECUTION = new Set([400, 401, 402, 403, 404, 410, 413, 429])
 
 /**
+ * Whether a keeper answers `status` only before an operation runs (a 409 or a 5xx leaves that
+ * open). Shared with the one-shot sealed fan-out, which tells staleness by the same rule.
+ * @param status - The keeper's HTTP status.
+ */
+export function isPreExecutionStatus(status: number): boolean {
+  return PRE_EXECUTION.has(status)
+}
+
+/**
  * Whether a keeper refused an item because the slot's Settlement balance does not cover its
  * unsettled metered work (HTTP 402). Nothing ran; the slot's owner funds the slot.
  * @param r - One keeper refusal.

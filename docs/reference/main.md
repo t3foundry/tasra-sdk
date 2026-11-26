@@ -9,7 +9,7 @@ Generated from public TypeScript exports.
 Clients, adapters and error classes.
 
 <details>
-<summary>Browse 15 classes</summary>
+<summary>Browse 16 classes</summary>
 
 - [RecipientStore](#recipientstore)
 - [AuthDeniedError](#authdeniederror)
@@ -21,6 +21,7 @@ Clients, adapters and error classes.
 - [RevocationStatusPreflightError](#revocationstatuspreflighterror)
 - [SlotBalanceError](#slotbalanceerror)
 - [SlotRotatedError](#slotrotatederror)
+- [StaleGrantError](#stalegranterror)
 - [StatusRefreshError](#statusrefresherror)
 - [TasraError](#tasraerror)
 - [TasraHttpError](#tasrahttperror)
@@ -393,6 +394,42 @@ declare class SlotRotatedError {
 - ` readonly expected: number; ` — The epoch the caller's key/envelope belongs to.
 
 - ` readonly actual: number; ` — The slot's current on-chain/served epoch.
+
+- ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
+
+- ` name: string; `
+
+- ` message: string; `
+
+- ` stack?: string; `
+
+- ` cause?: unknown; `
+
+### StaleGrantError
+
+Every keeper refused the one-shot grant as no longer current (its epoch left the beacon's
+window) and NONE ran the operation: every keeper answered with a refusal that precedes
+execution, at least one of them stale. The grant cannot be renewed by the SDK (a new grant
+is a new wallet presentation): the caller confirms the staleness itself (a keeper's word is
+not proof - read the beacon) and asks for a fresh grant, once. Retryable on a new grant only.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L194)
+
+Import: `import {StaleGrantError} from '@t3foundry/tasra-sdk'`
+
+```ts
+declare class StaleGrantError {
+    constructor(args: {
+        message: string;
+        grantEpoch: number;
+        refusals: readonly SealedRefusal[];
+    });
+}
+```
+
+- ` readonly grantEpoch: number; ` — The beacon epoch the refused grant was drawn on.
+
+- ` readonly refusals: readonly SealedRefusal[]; ` — Every keeper's refusal, in answer order.
 
 - ` readonly retryable: boolean; ` — `false` when retrying the identical request cannot succeed.
 
@@ -955,7 +992,7 @@ Collect the first threshold of distinct, locally opened and verified contributio
 The whole fan-out is bounded to 15 seconds. Outstanding reads are cancelled at quorum;
 invalid, duplicate and late contributions are cleared. The caller owns returned values.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L77)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L78)
 
 Import: `import {collectSealedPartials} from '@t3foundry/tasra-sdk'`
 
@@ -1248,7 +1285,7 @@ Returns:
 Collect and combine recipient-sealed KEM contributions locally, then clear all partials.
 Servers receive only the authorized public recipient and never the recovered plaintext.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L169)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L231)
 
 Import: `import {decryptWithCommitteePartials} from '@t3foundry/tasra-sdk'`
 
@@ -3010,7 +3047,7 @@ Returns: ` Promise<SessionStatusResult> `.
 Options, data structures and return types.
 
 <details>
-<summary>Browse 80 types</summary>
+<summary>Browse 81 types</summary>
 
 - [BlsPeer](#blspeer)
 - [BuildHolderProofOpts](#buildholderproofopts)
@@ -3076,6 +3113,7 @@ Options, data structures and return types.
 - [ScopeNamespace](#scopenamespace)
 - [SealedBlob](#sealedblob)
 - [SealedPartial](#sealedpartial)
+- [SealedRefusal](#sealedrefusal)
 - [SealedRequestOpts](#sealedrequestopts)
 - [SealedShareWire](#sealedsharewire)
 - [Session](#session)
@@ -4499,7 +4537,7 @@ Fields:
 
 Locally opened and verified contribution. Clear its value after combining or discarding it.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L54)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L55)
 
 ```ts
 export interface SealedPartial {
@@ -4521,11 +4559,33 @@ Fields:
 - **` epoch `**: Authorized canonical key epoch.
 - **` nodeUrl `**: Endpoint from which this verified contribution was received.
 
+### SealedRefusal
+
+One keeper's HTTP refusal of a sealed request: its status, stable code and message.
+
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L176)
+
+```ts
+export interface SealedRefusal {
+    nodeUrl: string;
+    status: number;
+    code: string;
+    message?: string;
+}
+```
+
+Fields:
+
+- **` nodeUrl `**: The refusing keeper's request URL.
+- **` status `**: The keeper's HTTP status.
+- **` code `**: The keeper's stable code, or `status N` from a keeper without one.
+- **` message `**: The keeper's public-safe reason, truncated.
+
 ### SealedRequestOpts
 
 Recipient-bound authorization and independently authenticated keeper quorum for local decryption.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L17)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L18)
 
 ```ts
 export interface SealedRequestOpts {

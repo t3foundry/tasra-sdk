@@ -5,7 +5,7 @@ import {DhkemX25519HkdfSha256} from '@hpke/dhkem-x25519'
 import {Chacha20Poly1305} from '@hpke/chacha20poly1305'
 import {sha256} from '@noble/hashes/sha256'
 import {createDecryptionRecipient, kemContentDigest, recipientPayloadDigest, type RecipientWire, type ClientRecipient} from '../../src/crypto/recipient.js'
-import {collectSealedPartials, decryptWithCommitteePartials, type SealedRequestOpts} from '../../src/decryption/sealed.js'
+import {collectSealedPartials, decryptWithCommitteePartials, StaleGrantError, type SealedRequestOpts} from '../../src/decryption/sealed.js'
 import {requestHash} from '../../src/oid4vp/binding.js'
 import {hexToBytes, bytesToHex} from '../../src/crypto/hex.js'
 import {base64Decode, base64Encode} from '../../src/crypto/envelope.js'
@@ -113,6 +113,44 @@ test.each(['epoch', 'slot', 'duplicate', 'verifying', 'unsealed', 'tamper'] as c
     if (kind === 'tamper') (r.sealed_share as {ciphertext: string}).ciphertext = base64Encode(new Uint8Array(112))
   })
   await expect(decryptWithCommitteePartials({...opts, ciphertext: ct(v.kem), identity: utf8(v.identity)})).rejects.toThrow('threshold not met')
+})
+
+// Cert run 45809626054 (gap:bls-decrypt): every keeper refused a grant drawn on latest-1 once the
+// beacon moved twice, and the client saw only "threshold not met" - indistinguishable from a rule
+// refusal, so nothing could refresh the grant. The one-shot path now tells staleness by the
+// session path's rule: every keeper answered before running, at least one names a stale grant.
+const staleBody = (epoch: number, latest: number) => JSON.stringify({error: `committee token epoch ${epoch} is not current (beacon latest ${latest}); a stale epoch would let the committee draw be ground over known past seeds`})
+async function refusingKeepers(answer: (index: number) => {status: number; body: string; delayMs?: number}): Promise<SealedRequestOpts> {
+  const client = await createDecryptionRecipient()
+  const opts = await mockKeepers(client, 'decrypt')
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const a = answer(url.includes('keeper-1') ? 0 : 1)
+    if (a.delayMs) await new Promise(r => setTimeout(r, a.delayMs))
+    return new Response(a.body, {status: a.status})
+  }))
+  return opts
+}
+
+test('a grant every keeper refused as stale before running is a StaleGrantError naming its epoch', async () => {
+  // keeper-2 answers last: the first stale refusal must not end the fan-out before it.
+  const opts = await refusingKeepers(i => ({status: 403, body: staleBody(7, 9), delayMs: i === 1 ? 30 : 0}))
+  const error = await decryptWithCommitteePartials({...opts, ciphertext: ct(v.kem), identity: utf8(v.identity)}).catch(e => e)
+  expect(error).toBeInstanceOf(StaleGrantError)
+  expect(error.message).toContain('sealed partial threshold not met (0/2)')
+  expect(error.grantEpoch).toBe(7)
+  expect(error.retryable).toBe(true)
+  expect(error.refusals.map((r: {status: number; code: string}) => [r.status, r.code])).toEqual([[403, 'status 403'], [403, 'status 403']])
+})
+
+test.each([
+  ['a keeper that may have run (5xx)', (i: number) => i === 0 ? {status: 403, body: staleBody(7, 9)} : {status: 502, body: 'upstream'}],
+  ['a grant only one epoch behind (the keeper lags)', () => ({status: 403, body: staleBody(8, 9)})],
+  ['a rule refusal', () => ({status: 403, body: JSON.stringify({error: 'no verified credential grants scope covering the requested identity'})})],
+])('%s is not a stale grant', async (_name, answer) => {
+  const opts = await refusingKeepers(answer)
+  const error = await decryptWithCommitteePartials({...opts, ciphertext: ct(v.kem), identity: utf8(v.identity)}).catch(e => e)
+  expect(error).not.toBeInstanceOf(StaleGrantError)
+  expect(String(error)).toContain('threshold not met')
 })
 
 test('recipient substitution and unbound grants fail before making any keeper request', async () => {

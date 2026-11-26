@@ -487,7 +487,7 @@ Collect the first threshold of distinct, locally opened and verified contributio
 The whole fan-out is bounded to 15 seconds. Outstanding reads are cancelled at quorum;
 invalid, duplicate and late contributions are cleared. The caller owns returned values.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L77)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L78)
 
 Import: `import {collectSealedPartials} from 'tasra-sdk/committee'`
 
@@ -946,7 +946,7 @@ Returns:
 Collect and combine recipient-sealed KEM contributions locally, then clear all partials.
 Servers receive only the authorized public recipient and never the recovered plaintext.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L169)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L231)
 
 Import: `import {decryptWithCommitteePartials} from 'tasra-sdk/committee'`
 
@@ -3817,7 +3817,7 @@ Fields:
 
 Locally opened and verified contribution. Clear its value after combining or discarding it.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L54)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L55)
 
 ```ts
 export interface SealedPartial {
@@ -3843,7 +3843,7 @@ Fields:
 
 Recipient-bound authorization and independently authenticated keeper quorum for local decryption.
 
-[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L17)
+[Source](https://github.com/t3foundry/tasra-sdk/blob/develop/src/decryption/sealed.ts#L18)
 
 ```ts
 export interface SealedRequestOpts {

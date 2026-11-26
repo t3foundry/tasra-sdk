@@ -10,7 +10,8 @@ import {ibeIdentityPoint, ibeVerifyShareAt} from '../crypto/ibe.js'
 import {checkedDecryptionRequestHash, kemContentDigest, recipientPayloadDigest, type ClientRecipient, type SealedShareWire} from '../crypto/recipient.js'
 import type {CompoundTokenWire} from '../committee/token.js'
 import type {VerifierProof} from '../committee/client.js'
-import {httpError} from '../errors.js'
+import {httpError, TasraError, TasraHttpError} from '../errors.js'
+import {isPreExecutionStatus, isStaleSessionRefusal} from './session.js'
 import type {DualOperationProof} from '../committee/dual-operation.js'
 
 /** Recipient-bound authorization and independently authenticated keeper quorum for local decryption. */
@@ -125,6 +126,7 @@ async function collectWithinDeadline(opts: SealedRequestOpts, action: 'decrypt' 
   })
   const valid = new Map<number, SealedPartial>()
   const errors: string[] = []
+  const refusals: Array<SealedRefusal | undefined> = []
   // Return at the first threshold of verified, distinct replies. A slow or
   // malicious keeper must not delay a successful operation. Wipe late arrivals.
   return new Promise<SealedPartial[]>((resolve, reject) => {
@@ -139,11 +141,18 @@ async function collectWithinDeadline(opts: SealedRequestOpts, action: 'decrypt' 
         controller.abort()
         resolve([...valid.values()])
       } else if (remaining + valid.size < opts.threshold) {
+        // While every refusal so far is a pre-execution stale-grant refusal, hear the rest:
+        // staleness is told only when NO keeper ran (the session path's rule), and those
+        // keepers answer it at once, before any work.
+        if (remaining > 0 && valid.size === 0 && refusals.every(r => r !== undefined && isStaleSessionRefusal(r))) return
         done = true
         opts.signal?.removeEventListener('abort',cancelled)
         controller.abort()
         for (const p of valid.values()) p.value.fill(0)
-        reject(new Error(`sealed partial threshold not met (${valid.size}/${opts.threshold}): ${errors.join('; ')}`))
+        const message = `sealed partial threshold not met (${valid.size}/${opts.threshold}): ${errors.join('; ')}`
+        reject(staleUnrun(valid.size, refusals, opts.nodeUrls.length)
+          ? new StaleGrantError({message, grantEpoch: Number(opts.committeeToken.epoch), refusals: refusals as SealedRefusal[]})
+          : new Error(message))
       }
     }
     if(opts.signal?.aborted)cancelled()
@@ -157,9 +166,62 @@ async function collectWithinDeadline(opts: SealedRequestOpts, action: 'decrypt' 
       remaining--
       if (done) return
       errors.push(String(error))
+      refusals.push(sealedRefusal(error))
       finish()
     })
   })
+}
+
+/** One keeper's HTTP refusal of a sealed request: its status, stable code and message. */
+export interface SealedRefusal {
+  /** The refusing keeper's request URL. */
+  nodeUrl: string
+  /** The keeper's HTTP status. */
+  status: number
+  /** The keeper's stable code, or `status N` from a keeper without one. */
+  code: string
+  /** The keeper's public-safe reason, truncated. */
+  message?: string
+}
+
+/**
+ * Every keeper refused the one-shot grant as no longer current (its epoch left the beacon's
+ * window) and NONE ran the operation: every keeper answered with a refusal that precedes
+ * execution, at least one of them stale. The grant cannot be renewed by the SDK (a new grant
+ * is a new wallet presentation): the caller confirms the staleness itself (a keeper's word is
+ * not proof - read the beacon) and asks for a fresh grant, once. Retryable on a new grant only.
+ */
+export class StaleGrantError extends TasraError {
+  /** The beacon epoch the refused grant was drawn on. */
+  readonly grantEpoch: number
+  /** Every keeper's refusal, in answer order. */
+  readonly refusals: readonly SealedRefusal[]
+
+  constructor(args: {message: string; grantEpoch: number; refusals: readonly SealedRefusal[]}) {
+    super(args.message, {retryable: true})
+    this.grantEpoch = args.grantEpoch
+    this.refusals = args.refusals
+  }
+}
+
+/** A keeper's HTTP refusal as a {@link SealedRefusal}; `undefined` for anything else (a
+ * transport failure, a bad reply), which leaves "did it run?" open. */
+function sealedRefusal(error: unknown): SealedRefusal | undefined {
+  if (!(error instanceof TasraHttpError)) return undefined
+  let parsed: {error?: unknown; code?: unknown} = {}
+  try {parsed = JSON.parse(error.body) as typeof parsed} catch {/* a body that is not JSON keeps its text */}
+  const message = typeof parsed.error === 'string' ? parsed.error : error.body || undefined
+  return {nodeUrl: error.url, status: error.status,
+    code: typeof parsed.code === 'string' ? parsed.code : `status ${error.status}`, ...(message ? {message} : {})}
+}
+
+/** Whether the one-shot fan-out is stale and ran nowhere: every keeper answered with a
+ * pre-execution HTTP refusal, none contributed, and at least one names a grant behind the
+ * beacon's window (or past its `exp`). */
+function staleUnrun(contributed: number, refusals: ReadonlyArray<SealedRefusal | undefined>, keepers: number): boolean {
+  return contributed === 0 && refusals.length === keepers
+    && refusals.every(r => r !== undefined && isPreExecutionStatus(r.status))
+    && refusals.some(r => r !== undefined && isStaleSessionRefusal(r))
 }
 
 /** Collect and combine recipient-sealed KEM contributions locally, then clear all partials.

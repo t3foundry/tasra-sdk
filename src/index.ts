@@ -288,5 +288,5 @@ export type {GroupEnvelope} from './crypto/index.js'
 
 export {createDecryptionRecipient, decryptionBinding, kemContentDigest, recipientPayloadDigest, RECIPIENT_SUITE} from './crypto/recipient.js'
 export type {ClientRecipient, RecipientWire, DecryptionBindingWire, SealedShareWire} from './crypto/recipient.js'
-export {collectSealedPartials, decryptWithCommitteePartials} from './decryption/sealed.js'
-export type {SealedRequestOpts, SealedPartial} from './decryption/sealed.js'
+export {collectSealedPartials, decryptWithCommitteePartials, StaleGrantError} from './decryption/sealed.js'
+export type {SealedRequestOpts, SealedPartial, SealedRefusal} from './decryption/sealed.js'

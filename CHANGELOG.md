@@ -166,6 +166,13 @@ lists what changed after 0.4.0; the withdrawn entry below is kept as history.
 
 ### Added
 
+- `StaleGrantError` (with `grantEpoch` and each keeper's `SealedRefusal`): `collectSealedPartials`
+  and `decryptWithCommitteePartials` reject with it, instead of a plain "threshold not met", when
+  every keeper refused the one-shot grant as no longer current (its committee epoch left the
+  beacon's window) before running anything: the same rule the session path uses. The grant
+  cannot be renewed by the SDK; confirm the beacon has moved and ask for a new grant, once. The
+  fan-out waits for the remaining keepers only while every refusal so far is that one.
+
 - `/committee`: `TOKEN_CLOCK_SKEW_SECS` (60), the protocol clock-skew tolerance for committee tokens that keepers and accountants share; `verifyCompoundToken`'s `leeway` now defaults to it.
 
 - `/chain`: `settlement.operationsSettled(slot)`, the operations settled for a slot as signed by the
